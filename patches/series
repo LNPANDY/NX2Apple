@@ -43,3 +43,6 @@
 0043-nvn-post-wait-for-an-unclaimed-ring-slot-and-siz.patch
 0044-host-haptics-drive-joycon-l-and-joycon-r-on-sepa.patch
 0045-nvn-inherit-aliased-virtual-pool-flags-and-bound.patch
+0046-add-the-opengl-es-entry-points-sdl-2-s-gles2-ren.patch
+0047-take-a-statically-linked-nro-payload-s-api-names.patch
+0048-xuan-yuan-sword-mists-beyond-the-mountains.patch
