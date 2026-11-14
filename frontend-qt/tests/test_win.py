@@ -6725,6 +6725,99 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
             self.assertFalse(stale_empty.exists())
             self.assertTrue((stale_active / 'payload.json').is_file())
 
+    def test_ipc_work_dir_avoids_mkdtemp_owner_rights_and_grants_caller_dacl(self) -> None:
+        import base64
+        import re
+        d = self.defender
+        with tempfile.TemporaryDirectory() as td:
+            fake_tools = Path(td) / 'NS Port Builder' / 'tools'
+            fake_tools.mkdir(parents=True)
+            seen_dirs: list[Path] = []
+
+            def fake_runner(cmd, **_kw):
+                outer_b64 = cmd[cmd.index('-EncodedCommand') + 1]
+                outer_ps = base64.b64decode(outer_b64).decode('utf-16-le')
+                m_ps1 = re.search(r"'-File',\s*'([^']+(?:''[^']+)*\.ps1)'", outer_ps)
+                ps1_path = Path(m_ps1.group(1).replace("''", "'"))
+                seen_dirs.append(ps1_path.parent)
+                inner_ps = ps1_path.read_text(encoding='utf-8-sig')
+                self.assertIn('GetAccessControl($payloadPath)', inner_ps)
+                self.assertIn('SetAccessControl($tmpPath, $dacl)', inner_ps)
+                self.assertIn('AccessControlSections]::Access', inner_ps)
+                m_path = re.search(r"\$payloadPath = '([^']+(?:''[^']+)*)'", inner_ps)
+                payload = json.loads(Path(m_path.group(1).replace("''", "'")).read_text(encoding='utf-8'))
+                Path(payload['result_path']).write_text(
+                    json.dumps({'ok': True, 'error': '', 'error_code': ''}),
+                    encoding='utf-8',
+                )
+                return subprocess.CompletedProcess(cmd, 0, b'', b'')
+
+            with mock.patch.object(tc, 'tools_dir', return_value=fake_tools), \
+                 mock.patch('nspb_qt.win.defender.tempfile.mkdtemp', side_effect=AssertionError('must not call mkdtemp')):
+                folders, procs = d.collect_exclusions(games_folder=r'D:\Games')
+                res = d.apply_exclusions(folders, procs, runner=fake_runner)
+
+            self.assertTrue(res.ok, res.error)
+            self.assertEqual(len(seen_dirs), 1)
+            self.assertTrue(seen_dirs[0].name.startswith('defender-'))
+            self.assertFalse(seen_dirs[0].exists())
+
+    def test_result_json_transient_permission_error_retries_and_surfaces_unrecoverable_error(self) -> None:
+        import base64
+        import re
+        d = self.defender
+        with tempfile.TemporaryDirectory() as td:
+            fake_tools = Path(td) / 'NS Port Builder' / 'tools'
+            fake_tools.mkdir(parents=True)
+            real_read_text = Path.read_text
+
+            def runner_ok(cmd, **_kw):
+                outer_b64 = cmd[cmd.index('-EncodedCommand') + 1]
+                outer_ps = base64.b64decode(outer_b64).decode('utf-16-le')
+                m_ps1 = re.search(r"'-File',\s*'([^']+(?:''[^']+)*\.ps1)'", outer_ps)
+                inner_ps = real_read_text(Path(m_ps1.group(1).replace("''", "'")), encoding='utf-8-sig')
+                m_path = re.search(r"\$payloadPath = '([^']+(?:''[^']+)*)'", inner_ps)
+                payload = json.loads(real_read_text(Path(m_path.group(1).replace("''", "'")), encoding='utf-8'))
+                Path(payload['result_path']).write_text(
+                    json.dumps({'ok': True, 'error': '', 'error_code': ''}),
+                    encoding='utf-8',
+                )
+                return subprocess.CompletedProcess(cmd, 0, b'', b'')
+
+            # Scenario A: two transient sharing-violation failures on result.json, third attempt succeeds
+            transient_reads = {'n': 0}
+
+            def flaky_read_text(path_self, *args, **kwargs):
+                if path_self.name == 'result.json' and transient_reads['n'] < 2:
+                    transient_reads['n'] += 1
+                    raise PermissionError(32, 'WinError 32: file in use by AV scan')
+                return real_read_text(path_self, *args, **kwargs)
+
+            with mock.patch.object(tc, 'tools_dir', return_value=fake_tools), \
+                 mock.patch.object(Path, 'read_text', autospec=True, side_effect=flaky_read_text), \
+                 mock.patch('nspb_qt.win.defender.time.sleep'):
+                folders, procs = d.collect_exclusions(games_folder=r'D:\Games')
+                res_a = d.apply_exclusions(folders, procs, runner=runner_ok)
+
+            self.assertTrue(res_a.ok, res_a.error)
+            self.assertEqual(transient_reads['n'], 2)
+
+            # Scenario B: persistent ACL denial with exit code 0 must report real read error, never 'exit code 0'
+            def denied_read_text(path_self, *args, **kwargs):
+                if path_self.name == 'result.json':
+                    raise PermissionError(5, 'WinError 5: Access is denied')
+                return real_read_text(path_self, *args, **kwargs)
+
+            with mock.patch.object(tc, 'tools_dir', return_value=fake_tools), \
+                 mock.patch.object(Path, 'read_text', autospec=True, side_effect=denied_read_text), \
+                 mock.patch('nspb_qt.win.defender.time.sleep'):
+                res_b = d.apply_exclusions(folders, procs, runner=runner_ok)
+
+            self.assertFalse(res_b.ok)
+            self.assertIn('failed to read result.json', res_b.error)
+            self.assertIn('PermissionError', res_b.error)
+            self.assertNotEqual(res_b.error.strip(), 'exit code 0')
+
     def test_model_defender_generation_guard_and_all_seven_languages(self) -> None:
         import ast
         from nspb_qt.i18n import Lang

@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -633,6 +634,21 @@ def _build_inner_ps_preamble(payload_json_path: str) -> str:
         "    $tmpPath = \"$targetPath.tmp-$PID\"\n"
         "    $enc = New-Object System.Text.UTF8Encoding($false)\n"
         "    [System.IO.File]::WriteAllText($tmpPath, $json, $enc)\n"
+        "    try {\n"
+        "        if (Test-Path -LiteralPath $payloadPath) {\n"
+        "            $ownerSid = [System.IO.File]::GetAccessControl($payloadPath).GetOwner([System.Security.Principal.SecurityIdentifier])\n"
+        "            if ($null -ne $ownerSid) {\n"
+        "                $dacl = [System.IO.File]::GetAccessControl($tmpPath, [System.Security.AccessControl.AccessControlSections]::Access)\n"
+        "                $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(\n"
+        "                    $ownerSid,\n"
+        "                    [System.Security.AccessControl.FileSystemRights]::FullControl,\n"
+        "                    [System.Security.AccessControl.AccessControlType]::Allow\n"
+        "                )\n"
+        "                $dacl.AddAccessRule($rule)\n"
+        "                [System.IO.File]::SetAccessControl($tmpPath, $dacl)\n"
+        "            }\n"
+        "        }\n"
+        "    } catch {}\n"
         "    Move-Item -LiteralPath $tmpPath -Destination $targetPath -Force\n"
         "}\n"
         "function Get-DefenderFailureCode([string]$msg) {\n"
@@ -899,12 +915,12 @@ def _wait_for_elevated_result(
             return True
 
         if inner_pid is None and started_file.is_file():
-            try:
-                st_obj = json.loads(started_file.read_text(encoding='utf-8-sig'))
-                if isinstance(st_obj, dict) and st_obj.get('pid'):
+            st_obj, _ = _read_json_with_retry(started_file, attempts=2, delay_sec=0.02)
+            if isinstance(st_obj, dict) and st_obj.get('pid'):
+                try:
                     inner_pid = int(st_obj['pid'])
-            except (OSError, ValueError, TypeError):
-                pass
+                except (ValueError, TypeError):
+                    pass
 
         now = time.monotonic()
         if initial_done_fn():
@@ -1068,6 +1084,48 @@ def _retry_remove(remove_fn, path_obj: Path, attempts: int = 5, delay_sec: float
                 time.sleep(delay_sec)
 
 
+def _create_ipc_dir_under(parent: Path, prefix: str) -> str:
+    """Create a unique subdirectory via `os.mkdir` so Windows inherits the caller's parent DACL."""
+    parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(16):
+        cand = parent / f'{prefix}{uuid.uuid4().hex[:12]}'
+        try:
+            os.mkdir(cand)
+            return str(cand)
+        except FileExistsError:
+            continue
+    raise OSError(f'failed to create unique directory under {parent}')
+
+
+def _create_ipc_work_dir(base_dir: Path) -> str:
+    """Create the Defender elevation IPC directory without `tempfile.mkdtemp`'s 0o700 OWNER RIGHTS ACL."""
+    try:
+        return _create_ipc_dir_under(base_dir, 'defender-')
+    except OSError:
+        return _create_ipc_dir_under(Path(tempfile.gettempdir()), 'nspb-defender-')
+
+
+def _read_json_with_retry(
+    path_obj: Path,
+    *,
+    attempts: int = 8,
+    delay_sec: float = 0.05,
+) -> tuple[dict | None, str]:
+    """Read and decode a JSON dict with short retries for Move-Item / AV filter handle transient locks."""
+    last_err = ''
+    for i in range(max(1, attempts)):
+        try:
+            data = json.loads(path_obj.read_text(encoding='utf-8-sig'))
+            if isinstance(data, dict):
+                return data, ''
+            last_err = f'TypeError: expected JSON object, got {type(data).__name__}'
+        except (OSError, ValueError) as e:
+            last_err = f'{type(e).__name__}: {e}'
+        if i + 1 < attempts:
+            time.sleep(delay_sec)
+    return None, last_err
+
+
 def _cleanup_work_dir(work_td: str, *known_files: Path) -> None:
     work_path = Path(work_td)
     for f in known_files:
@@ -1079,9 +1137,10 @@ def _cleanup_work_dir(work_td: str, *known_files: Path) -> None:
     except OSError:
         pass
     _retry_remove(os.rmdir, work_path)
-    if work_path.name.startswith('defender-'):
+    if work_path.name.startswith(('defender-', 'nspb-defender-')):
+        prefix = 'defender-' if work_path.name.startswith('defender-') else 'nspb-defender-'
         try:
-            for stale in work_path.parent.glob('defender-*'):
+            for stale in work_path.parent.glob(f'{prefix}*'):
                 if stale != work_path and stale.is_dir():
                     try:
                         os.rmdir(stale)
@@ -1099,11 +1158,7 @@ def _run_elevated_payload(
     runner=subprocess.run,
 ) -> DefenderResult:
     base_dir = app_data_root()
-    try:
-        base_dir.mkdir(parents=True, exist_ok=True)
-        work_td = tempfile.mkdtemp(prefix='defender-', dir=str(base_dir))
-    except OSError:
-        work_td = tempfile.mkdtemp(prefix='nspb-defender-')
+    work_td = _create_ipc_work_dir(base_dir)
 
     payload_file = Path(work_td) / 'payload.json'
     script_file = Path(work_td) / 'elevate.ps1'
@@ -1169,10 +1224,8 @@ def _run_elevated_payload(
             )
 
         if result_file.is_file():
-            try:
-                res_obj = json.loads(result_file.read_text(encoding='utf-8-sig'))
-            except (OSError, ValueError):
-                res_obj = {}
+            res_obj_opt, read_err = _read_json_with_retry(result_file)
+            res_obj = res_obj_opt if isinstance(res_obj_opt, dict) else {}
             rem_paths = _string_list_field(res_obj, 'remaining_paths')
             rem_procs = _string_list_field(res_obj, 'remaining_processes')
             error_code = str(res_obj.get('error_code') or '').strip() if isinstance(res_obj, dict) else ''
@@ -1185,13 +1238,14 @@ def _run_elevated_payload(
                     remaining_processes=rem_procs,
                 )
             err_msg = str(res_obj.get('error') or '').strip() if isinstance(res_obj, dict) else ''
+            read_fail_note = f'failed to read result.json ({read_err})' if read_err else ''
             return DefenderResult(
                 ok=False,
                 added_paths=clean_paths,
                 added_processes=clean_procs,
                 remaining_paths=rem_paths,
                 remaining_processes=rem_procs,
-                error=err_msg or clean_stderr or f'exit code {returncode}',
+                error=err_msg or clean_stderr or read_fail_note or f'exit code {returncode}',
                 error_code=error_code,
             )
 
