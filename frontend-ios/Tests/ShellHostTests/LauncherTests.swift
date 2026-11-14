@@ -77,12 +77,12 @@ func sampleGame() throws -> LaunchableGame {
         let enPath = try #require(HostStrings.bundle.path(forResource: "en", ofType: "lproj"))
         HostStrings.captureBundle = Bundle(path: zhPath)
         defer { HostStrings.captureBundle = nil }
-        #expect(hostText("Shell") == "NX2Apple")
+        #expect(hostText("NX2Apple") == "NX2Apple")
         #expect(localizeEngineLaunchError("This game was updated while the app was open. Close and reopen the app to load the new build.")
             == "应用打开期间此游戏已更新。请关闭并重新打开应用以加载新版本。")
         #expect(localizeEngineLaunchError("A game is already running.") == "已有游戏正在运行。")
         #expect(localizeEngineLaunchError("The game's start arguments are incomplete.") == "游戏的启动参数不完整。")
         HostStrings.captureBundle = Bundle(path: enPath)
-        #expect(hostText("Shell") == "Shell")
+        #expect(hostText("NX2Apple") == "NX2Apple")
     }
 }

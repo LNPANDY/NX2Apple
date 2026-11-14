@@ -45,7 +45,7 @@ public struct ShellHostView: View {
                 .presentationBackground(ShellPalette.background)
             }
             .sheet(item: $model.log) { LogView(log: $0) }
-            .alert(Text(verbatim: hostText("Shell")), isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
+            .alert(Text(verbatim: hostText("NX2Apple")), isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
                 Button(hostText("OK")) { model.notice = nil }
             } message: { Text(model.notice ?? "") }
             .onAppear { model.startControllers() }
