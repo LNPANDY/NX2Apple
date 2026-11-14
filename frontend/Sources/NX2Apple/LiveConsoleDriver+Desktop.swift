@@ -7,8 +7,7 @@ import NXModel
 /// there and back: a game's mods (GameLibrary.setMod), its cheats (CheatFiles), its options back to the defaults (SavedChoices and
 /// the library), the General page's switches (the defaults Settings binds with @AppStorage), the app's update (AppUpdateStore, which
 /// waits while the desktop builds) and the way to the desktop with a game selected. The desktop's build shows in the top bar's
-/// activity chip (bindActivity). Nothing here builds or picks a
-/// folder: those stay on the desktop.
+/// activity chip (bindActivity). Choosing files and folders stays on the desktop.
 extension LiveConsoleDriver {
     // MARK: Wiring
 

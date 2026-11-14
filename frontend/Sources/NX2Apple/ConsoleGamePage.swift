@@ -27,11 +27,11 @@ import NXLauncher
     static func firstTarget(_ game: ConsoleGame?, paused: Bool) -> String { "console.gamePage.primary" }
 
     /// Where the focus goes when a tab opens: its first row.
-    static func tabTarget(_ tab: ConsoleGameTab, game: ConsoleGame) -> String {
+    static func tabTarget(_ tab: ConsoleGameTab, game: ConsoleGame, building: Bool = false) -> String {
         switch tab {
         case .overview: return "console.gamePage.primary"
         case .saves: return "console.gamePage.cloudSaves"
-        case .build: return "console.gamePage.desktop"
+        case .build: return game.status != .needsBuild ? "console.gamePage.desktop" : (building ? "console.gamePage.queue" : "console.gamePage.build")
         case .cheats: return game.cheats.map { $0.note == nil || !$0.items.isEmpty } == true ? "console.cheats.master" : "console.gamePage.close"
         }
     }
@@ -66,7 +66,7 @@ import NXLauncher
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LauncherPalette.background)
-        .onChange(of: state.gameTab) { tab in pad.focused = Self.tabTarget(tab, game: game) }
+        .onChange(of: state.gameTab) { tab in pad.focused = Self.tabTarget(tab, game: game, building: state.builds.running) }
     }
 
     /// What the buttons do on this page: X plays (resumes a paused game), Y opens the options, − the quick menu, B goes back.
@@ -160,7 +160,10 @@ import NXLauncher
         } else {
             Text(t(game.status.explanationKey ?? "console.ready")).font(.manrope(compact ? 17 : 21)).foregroundStyle(LauncherPalette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
-            ConsolePrimaryButton(label: t("console.openOnDesktop"), id: "console.gamePage.primary", scope: scope) { driver.openOnDesktop(game.id) }
+            ConsolePrimaryButton(label: t(game.status == .needsBuild ? (state.builds.running ? "queue.add" : "console.build") : "console.openOnDesktop"), id: "console.gamePage.primary", scope: scope) {
+                if game.status == .needsBuild { driver.buildGame(game.id, queueOnly: state.builds.running) }
+                else { driver.openOnDesktop(game.id) }
+            }
                 .frame(maxWidth: 360)
         }
     }
@@ -209,6 +212,14 @@ import NXLauncher
             if game.olderTools {
                 Text(t("library.olderToolsHelp")).font(.manrope(compact ? 14 : 16)).foregroundStyle(LauncherPalette.building)
                     .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 4)
+            }
+            // A game that is not built builds from here (#1111): now when nothing builds, after the running build otherwise
+            if game.status == .needsBuild && !state.builds.running {
+                ConsoleMenuRow(id: "console.gamePage.build", scope: scope, symbol: "hammer", title: t("console.build"),
+                               note: t("console.gamePage.buildNote"), compact: compact) { driver.buildGame(game.id, queueOnly: false) }
+            } else if game.status == .needsBuild {
+                ConsoleMenuRow(id: "console.gamePage.queue", scope: scope, symbol: "text.badge.plus", title: t("queue.add"),
+                               note: t("console.gamePage.queueNote"), compact: compact) { driver.buildGame(game.id, queueOnly: true) }
             }
             ConsoleMenuRow(id: "console.gamePage.desktop", scope: scope, symbol: "macwindow", title: t("console.openOnDesktop"),
                            note: t("console.gamePage.desktopNote"), compact: compact) { driver.openOnDesktop(game.id) }
