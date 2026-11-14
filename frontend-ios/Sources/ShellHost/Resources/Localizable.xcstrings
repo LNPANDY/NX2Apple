@@ -3521,6 +3521,70 @@
         }
       }
     },
+    "Shader files (msl) for this game are incomplete or still transferring. Wait for transfer to complete or send the game data again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Shader-Dateien (msl) für dieses Spiel sind unvollständig oder werden noch übertragen. Warte, bis die Übertragung abgeschlossen ist, oder sende die Spieldaten erneut aus NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader files (msl) for this game are incomplete or still transferring. Wait for transfer to complete or send the game data again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los archivos de shaders (msl) de este juego están incompletos o aún se están transfiriendo. Espera a que termine la transferencia o vuelve a enviar los datos del juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers de shaders (msl) de ce jeu sont incomplets ou en cours de transfert. Attendez la fin du transfert ou renvoyez les données du jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I file shader (msl) per questo gioco sono incompleti o ancora in fase di trasferimento. Attendi il completamento del trasferimento o invia di nuovo i dati di gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのシェーダーファイル（msl）が不完全であるか、転送中です。転送が完了するのを待つか、NX2Apple からゲームデータをもう一度送信してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임의 셰이더 파일(msl)이 불완전하거나 아직 전송 중입니다. 전송이 완료될 때까지 기다리거나 NX2Apple에서 게임 데이터를 다시 보내세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os arquivos de shaders (msl) deste jogo estão incompletos ou ainda estão sendo transferidos. Aguarde a transferência terminar ou envie os dados do jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaderfilerna (msl) för det här spelet är ofullständiga eller överförs fortfarande. Vänta tills överföringen är klar eller skicka speldatan igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该游戏的着色器文件（msl）不完整或仍在传输。请等待传输完成，或从 NX2Apple 重新发送游戏数据。"
+          }
+        }
+      }
+    },
     "Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple.": {
       "localizations": {
         "de": {
@@ -3581,6 +3645,134 @@
           "stringUnit": {
             "state": "translated",
             "value": "该游戏的数据文件夹中缺少着色器文件（msl）。请从 NX2Apple 重新发送或复制游戏数据。"
+          }
+        }
+      }
+    },
+    "Shader files in this game data (%@) do not match this app's version (%@). Send or copy updated game data from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Shader-Dateien in diesen Spieldaten (%@) passen nicht zur Version dieser App (%@). Sende oder kopiere aktualisierte Spieldaten aus NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader files in this game data (%@) do not match this app's version (%@). Send or copy updated game data from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los archivos de shaders de estos datos del juego (%@) no coinciden con la versión de esta app (%@). Envía o copia datos del juego actualizados desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers de shaders de ces données de jeu (%@) ne correspondent pas à la version de cette app (%@). Envoyez ou recopiez des données de jeu mises à jour depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I file shader in questi dati di gioco (%@) non corrispondono alla versione di questa app (%@). Invia o copia dati di gioco aggiornati da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームデータのシェーダーファイル（%@）は、このアプリのバージョン（%@）と一致しません。NX2Apple から更新されたゲームデータを送信またはコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임 데이터의 셰이더 파일(%@)이 이 앱 버전(%@)과 일치하지 않습니다. NX2Apple에서 업데이트된 게임 데이터를 보내거나 복사하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os arquivos de shaders nestes dados do jogo (%@) não correspondem à versão deste app (%@). Envie ou copie dados do jogo atualizados pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaderfilerna i den här speldatan (%@) matchar inte appens version (%@). Skicka eller kopiera uppdaterad speldata från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏数据中的着色器文件（%@）与本 App 的版本（%@）不匹配。请从 NX2Apple 发送或复制更新后的游戏数据。"
+          }
+        }
+      }
+    },
+    "Shader files in this game data do not match this app's version. Send or copy updated game data from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Shader-Dateien in diesen Spieldaten passen nicht zur Version dieser App. Sende oder kopiere aktualisierte Spieldaten aus NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader files in this game data do not match this app's version. Send or copy updated game data from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los archivos de shaders de estos datos del juego no coinciden con la versión de esta app. Envía o copia datos del juego actualizados desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers de shaders de ces données de jeu ne correspondent pas à la version de cette app. Envoyez ou recopiez des données de jeu mises à jour depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I file shader in questi dati di gioco non corrispondono alla versione di questa app. Invia o copia dati di gioco aggiornati da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームデータのシェーダーファイルは、このアプリのバージョンと一致しません。NX2Apple から更新されたゲームデータを送信またはコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임 데이터의 셰이더 파일이 이 앱 버전과 일치하지 않습니다. NX2Apple에서 업데이트된 게임 데이터를 보내거나 복사하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os arquivos de shaders nestes dados do jogo não correspondem à versão deste app. Envie ou copie dados do jogo atualizados pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaderfilerna i den här speldatan matchar inte appens version. Skicka eller kopiera uppdaterad speldata från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏数据中的着色器文件与本 App 的版本不匹配。请从 NX2Apple 发送或复制更新后的游戏数据。"
           }
         }
       }

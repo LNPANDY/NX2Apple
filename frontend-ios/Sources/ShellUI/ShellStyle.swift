@@ -419,6 +419,7 @@ extension GameState {
     var artworkWarning: String? {
         switch self {
         case .needsGameData: ShellStrings.text("Missing Data")
+        case .needsDataUpdate: ShellStrings.text("Update Data")
         case .joiningGameData: ShellStrings.text("Joining Data")
         case .needsAppUpdate: ShellStrings.text("Update Required")
         case .broken: ShellStrings.text("Fix Game Files")
@@ -432,6 +433,7 @@ extension GameState {
         switch self {
         case .playable: ShellStrings.text("Ready to play")
         case .needsGameData: ShellStrings.text("Needs game data")
+        case .needsDataUpdate(let stale): stale ? ShellStrings.text("Data update needed") : ShellStrings.text("Needs updated data")
         case .joiningGameData(let percent, _, _): ShellStrings.text("Joining game data (\(Self.percentText(percent)))")
         case .needsAppUpdate: ShellStrings.text("App update needed")
         case .broken(let reason, _, _): reason.isEmpty ? ShellStrings.text("Unavailable") : reason
@@ -441,12 +443,12 @@ extension GameState {
         switch self {
         case .playable: ShellPalette.ready
         case .joiningGameData: ShellPalette.cream
-        case .needsGameData, .needsAppUpdate, .broken: ShellPalette.attention
+        case .needsGameData, .needsDataUpdate, .needsAppUpdate, .broken: ShellPalette.attention
         }
     }
     var explanation: String {
         switch self {
-        case .playable: ""
+        case .playable, .needsDataUpdate: ""
         case .needsGameData: ""
         case .joiningGameData(_, let doneSize, let totalSize):
             ShellStrings.text("Joining split data files on this device (\(doneSize) of \(totalSize)). Play unlocks automatically when finished.")
@@ -458,6 +460,7 @@ extension GameState {
         switch self {
         case .playable: ShellStrings.text("Play")
         case .needsGameData: ShellStrings.text("Choose game data…")
+        case .needsDataUpdate: ShellStrings.text("Update game data…")
         case .joiningGameData(let percent, _, _): ShellStrings.text("Joining game data (\(Self.percentText(percent)))")
         case .needsAppUpdate: ShellStrings.text("How to update")
         case .broken: ShellStrings.text("How to fix")
@@ -467,6 +470,7 @@ extension GameState {
         switch self {
         case .playable: "play.fill"
         case .needsGameData: "folder"
+        case .needsDataUpdate: "arrow.triangle.2.circlepath"
         case .joiningGameData: "arrow.triangle.merge"
         case .needsAppUpdate: "arrow.up.circle"
         case .broken: "wrench.and.screwdriver"
@@ -571,6 +575,7 @@ extension GameState {
         switch self {
         case .playable: ShellStrings.text("Play")
         case .needsGameData: ShellStrings.text("Choose")
+        case .needsDataUpdate: ShellStrings.text("Update")
         case .joiningGameData: ShellStrings.text("Joining Data")
         case .needsAppUpdate: ShellStrings.text("How to update")
         case .broken: ShellStrings.text("How to fix")

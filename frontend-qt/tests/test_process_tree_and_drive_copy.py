@@ -463,7 +463,7 @@ class HeadlessCiModelAndOnboardingRegressionTests(unittest.TestCase):
         tid = '0100000000010000'
         arch = self.root / 'games' / tid
         (arch / 'aoc').mkdir(parents=True)
-        romfs_payload = b'DMROMFS1' + (b'B' * (3 * 1024 * 1024 - 8))  # 3 MiB
+        romfs_payload = b'DMROMFS1' + (b'B' * (5 * 1024 * 1024 - 8))  # 5 MiB (> 4 MiB chunk_size)
         (arch / 'romfs.img').write_bytes(romfs_payload)
         (arch / 'romfs.img.part').write_bytes(b'STALE_SOURCE_PART_MUST_BE_IGNORED')
         (arch / 'aoc' / 'dlc.nca').write_bytes(b'DLC_CONTENT')
@@ -509,9 +509,9 @@ class HeadlessCiModelAndOnboardingRegressionTests(unittest.TestCase):
         self.assertTrue(progress_events)
         self.assertEqual(progress_events[-1][0], progress_events[-1][1])
         self.assertEqual(finish_events[-1][:2], (True, False))
-        self.assertEqual((drive_ok / tid / 'romfs.img').read_bytes(), romfs_payload)
-        self.assertEqual((drive_ok / tid / 'aoc' / 'dlc.nca').read_bytes(), b'DLC_CONTENT')
-        self.assertFalse((drive_ok / tid / 'romfs.img.part').exists())
+        self.assertEqual((drive_ok / 'Super Mario Odyssey' / 'Super Mario Odyssey.img').read_bytes(), romfs_payload)
+        self.assertEqual((drive_ok / 'Super Mario Odyssey' / 'aoc' / 'dlc.nca').read_bytes(), b'DLC_CONTENT')
+        self.assertFalse((drive_ok / 'Super Mario Odyssey' / 'Super Mario Odyssey.img.part').exists())
 
         # 2. Mid-copy cancellation deletes `.part` and prunes newly created empty folder
         drive_cancel = self.root / 'drive_cancel'
@@ -542,7 +542,7 @@ class HeadlessCiModelAndOnboardingRegressionTests(unittest.TestCase):
 
         def slow_open(file, mode='r', *args, **kwargs):
             fh = real_open(file, mode, *args, **kwargs)
-            if 'rb' in mode and str(file).endswith('romfs.img'):
+            if 'rb' in mode and str(file).endswith('.img'):
                 return SlowReader(fh)
             return fh
 
@@ -553,7 +553,7 @@ class HeadlessCiModelAndOnboardingRegressionTests(unittest.TestCase):
             while not chunk_seen.is_set() and time.monotonic() - t_wait < 3.0:
                 self._pump()
                 time.sleep(0.01)
-            self.assertTrue((drive_cancel / tid / 'romfs.img.part').exists())
+            self.assertTrue((drive_cancel / 'Super Mario Odyssey' / 'Super Mario Odyssey.img.part').exists())
             m.cancel_drive_copy()
             self.assertTrue(m.drive_copy_cancelling)
             allow_next.set()
@@ -565,14 +565,14 @@ class HeadlessCiModelAndOnboardingRegressionTests(unittest.TestCase):
             self._pump()
 
         self.assertEqual(finish_events[-1][:2], (False, True))
-        self.assertFalse((drive_cancel / tid / 'romfs.img').exists())
+        self.assertFalse((drive_cancel / 'Super Mario Odyssey' / 'Super Mario Odyssey.img').exists())
         self.assertEqual(list(drive_cancel.rglob('*.part')), [])
-        self.assertFalse((drive_cancel / tid).exists())
+        self.assertFalse((drive_cancel / 'Super Mario Odyssey').exists())
 
         # 3. Mid-copy ENOSPC error deletes `.part` and keeps previous valid destination file intact
         drive_err = self.root / 'drive_err'
-        (drive_err / tid).mkdir(parents=True)
-        prev_romfs = drive_err / tid / 'romfs.img'
+        (drive_err / 'Super Mario Odyssey').mkdir(parents=True)
+        prev_romfs = drive_err / 'Super Mario Odyssey' / 'Super Mario Odyssey.img'
         prev_romfs.write_bytes(b'OLD_INTACT_ROMFS')
 
         class EnospcWriter:
@@ -586,6 +586,9 @@ class HeadlessCiModelAndOnboardingRegressionTests(unittest.TestCase):
                     raise OSError(errno.ENOSPC, 'No space left on external drive')
                 return self._raw.write(b)
 
+            def fileno(self):
+                return self._raw.fileno()
+
             def flush(self):
                 return self._raw.flush()
 
@@ -598,7 +601,7 @@ class HeadlessCiModelAndOnboardingRegressionTests(unittest.TestCase):
 
         def failing_open(file, mode='r', *args, **kwargs):
             fh = real_open(file, mode, *args, **kwargs)
-            if 'wb' in mode and str(file).endswith('romfs.img.part'):
+            if 'wb' in mode and str(file).endswith('.img.part'):
                 return EnospcWriter(fh)
             return fh
 
@@ -947,7 +950,7 @@ if HAS_QT:
 
             def slow_open(file, mode='r', *args, **kwargs):
                 fh = real_open(file, mode, *args, **kwargs)
-                if 'rb' in mode and str(file).endswith('romfs.img'):
+                if 'rb' in mode and str(file).endswith('.img'):
                     return SlowReader(fh)
                 return fh
 
@@ -963,7 +966,7 @@ if HAS_QT:
                 self.assertEqual(w.drive_copy_btn.objectName(), 'danger')
                 self.assertEqual(w.drive_copy_btn.text(), m.t('transfer.cancel'))
                 self.assertFalse(w.drive_choose_btn.isEnabled())
-                self.assertTrue((drive_cancel / tid1 / 'romfs.img.part').exists())
+                self.assertTrue((drive_cancel / 'Super Mario Odyssey' / 'Super Mario Odyssey.img.part').exists())
 
                 w.drive_copy_btn.click()
                 allow_continue.set()
@@ -975,7 +978,7 @@ if HAS_QT:
                 self.app.processEvents()
 
             self.assertFalse(m.drive_copying)
-            self.assertFalse((drive_cancel / tid1 / 'romfs.img').exists())
+            self.assertFalse((drive_cancel / 'Super Mario Odyssey' / 'Super Mario Odyssey.img').exists())
             self.assertEqual(list(drive_cancel.rglob('*.part')), [])
             self.assertEqual(w.step3_sub.text(), m.t('msg.stopped'))
 
@@ -1008,7 +1011,7 @@ if HAS_QT:
             m.archive_path = str(arch1)
             m.base_path = str(self.root / f'Super Mario Odyssey [{tid1}].nsp')
             w._refresh_install_card()
-            self.assertIn(str(drive_switch / tid1), w.step3_sub.text())
+            self.assertIn(str(drive_switch / 'Super Mario Odyssey'), w.step3_sub.text())
 
         def test_real_onboarding_dialog_step2_displays_all_seven_windows_dependencies(self) -> None:
             """Verify real PySide6 `OnboardingDialog` Step 2 renders all 7 Windows dependencies."""

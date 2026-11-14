@@ -35,6 +35,9 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     /// False for a game the library has just added: LaunchSetting personal defaults (#680) are written once, before its first start.
     /// A library written before the defaults existed decodes true, so no existing choice is touched.
     var defaultsApplied = false
+    var hasShellFramework = false
+    var installedViaShellReceipt = false
+    var shellIPAExists = false
 
     /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
     private var playableMacBundle: MacGameBundle? {
@@ -54,19 +57,6 @@ struct LibraryGame: Codable, Identifiable, Equatable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// Signed and installed on a paired device (installedDevice is its UDID): Play starts it there.
-    var onDevice: Bool { !installedDevice.isEmpty && FileManager.default.fileExists(atPath: iosAppPath + "/Info.plist") }
-
-    /// An iPhone or iPad game runs only the cheats that write data. Code writes are refused there (iOS does not allow changing
-    /// the game's code), so the Cheats sheet says so for a game that has an iOS build. The switches stay usable: the same game may have a Mac build.
-    var cheatsNeedIOSNote: Bool { hasIOSBuild || onDevice }
-    var hasIOSBuild: Bool { hasIPA || hasIOSApp }
-    var hasIPA: Bool { !ipaPath.isEmpty && FileManager.default.fileExists(atPath: ipaPath) }
-    var hasIOSApp: Bool { !iosAppPath.isEmpty && FileManager.default.fileExists(atPath: iosAppPath + "/Info.plist") }
-    /// An iPhone build made before the shared app: a single IPA, or an app of its own. It stays in the library and Build makes
-    /// the game again for the shared app, which then replaces it.
-    var isOlderIOSBuild: Bool { hasIOSBuild && !(hasIOSApp && ShellInstall.paths(ofApp: iosAppPath) != nil) }
-
     /// What the hero's primary button does: play the Mac app, open the installed iPhone app, else build (an IPA alone is not a reason to show anything else).
     enum Primary: Equatable { case play, openOnDevice, build }
     var primary: Primary { isReady ? .play : (onDevice ? .openOnDevice : .build) }
@@ -74,7 +64,7 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     /// What "Reveal in Finder" shows: the Mac app if it exists, else the IPA, else the iOS app; nil when none does (the item is hidden).
     var revealTarget: String? {
         if isReady { return appPath }
-        if hasIPA { return ipaPath }
+        if hasIPA && !ipaPath.isEmpty { return ipaPath }
         if hasIOSApp { return iosAppPath }
         return nil
     }
@@ -105,6 +95,9 @@ extension LibraryGame {
         customName = try c.decodeIfPresent(String.self, forKey: .customName) ?? ""
         lastPlayed = try c.decodeIfPresent(Date.self, forKey: .lastPlayed)
         defaultsApplied = try c.decodeIfPresent(Bool.self, forKey: .defaultsApplied) ?? true
+        hasShellFramework = try c.decodeIfPresent(Bool.self, forKey: .hasShellFramework) ?? false
+        installedViaShellReceipt = try c.decodeIfPresent(Bool.self, forKey: .installedViaShellReceipt) ?? false
+        shellIPAExists = try c.decodeIfPresent(Bool.self, forKey: .shellIPAExists) ?? false
     }
 }
 
@@ -137,7 +130,7 @@ extension LibraryGame {
 final class GameLibrary: ObservableObject {
     /// The key of `LibraryGame.inputs` that holds a game folder (a Switch 2 game's base/, updates/, dlc/), read again on Build.
     static let folderInput = "folder"
-    @Published private(set) var games: [LibraryGame] = []
+    @Published var games: [LibraryGame] = []
     @Published var selectedID: UUID?
     @Published var error: String?
     /// The folders games are looked for in, in the order the player added them (LibraryRoots). The first wins when two hold a game.
@@ -200,7 +193,11 @@ final class GameLibrary: ObservableObject {
             let game = games[index]
             if gone(game.appPath) { games[index].appPath = ""; changed = true }
             if gone(game.ipaPath) { games[index].ipaPath = ""; changed = true }
-            if gone(game.iosAppPath, plist: true) { games[index].iosAppPath = ""; games[index].installedDevice = ""; changed = true }
+            if gone(game.iosAppPath, plist: true) {
+                games[index].iosAppPath = ""
+                if !games[index].installedViaShellReceipt { games[index].installedDevice = "" }
+                changed = true
+            }
         }
         if changed { save() }
     }
@@ -571,56 +568,6 @@ final class GameLibrary: ObservableObject {
             applyMacGameModeOption(enabled: true, for: game.id, appPath: path)
         }
         selectedID = game.id
-    }
-
-    func recordCompletedIOS(archive: String, app: String, device: String = "", commit: String = "", for id: UUID) {
-        guard var game = games.first(where: { $0.id == id }),
-              FileManager.default.fileExists(atPath: app + "/Info.plist") else { return }
-        // The shared app replaces an older build's single IPA: the file stays on disk, the library stops listing it
-        game.ipaPath = ""
-        if !archive.isEmpty { game.archivePath = archive }
-        game.iosAppPath = app
-        game.installedDevice = device
-        game.toolsCommit = commit
-        upsert(game)
-        recordSharedAppInstalled(app: app, device: device)
-    }
-
-    /// Every game in the shared app's shell.json is inside `app` on `device` once the shared app is signed and installed there.
-    func recordSharedAppInstalled(app: String, device: String) {
-        guard !device.isEmpty,
-              FileManager.default.fileExists(atPath: app + "/Info.plist"),
-              let shell = ShellInstall.paths(ofApp: app) else { return }
-        applySharedAppInstalled(titles: ShellLibrary.recordInstalled(root: shell.root), app: app, device: device)
-    }
-
-    private func applySharedAppInstalled(titles: Set<String>, app: String, device: String) {
-        guard !device.isEmpty, !titles.isEmpty else { return }
-        var changed = false
-        for i in games.indices where titles.contains(games[i].titleID.uppercased()) {
-            if games[i].iosAppPath != app || games[i].installedDevice != device || !games[i].ipaPath.isEmpty {
-                games[i].ipaPath = ""
-                games[i].iosAppPath = app
-                games[i].installedDevice = device
-                changed = true
-            }
-        }
-        if changed { save() }
-    }
-
-    /// Restores the shared app's games from the last successful install receipt when `DmShell.app` is signed on disk
-    /// (`embedded.mobileprovision` is present) and at least one receipt member still has recorded shared-app install provenance.
-    func syncSharedApp(root: String) {
-        let app = ShellInstall.appPath(root: root)
-        guard FileManager.default.fileExists(atPath: app + "/" + AppSignature.profileName) else { return }
-        let receipt = ShellLibrary.installedReceipt(root: root)
-        guard !receipt.isEmpty,
-              let device = games.first(where: {
-                  receipt.contains($0.titleID.uppercased())
-                      && !$0.installedDevice.isEmpty
-                      && ShellInstall.paths(ofApp: $0.iosAppPath) != nil
-              })?.installedDevice else { return }
-        applySharedAppInstalled(titles: receipt, app: app, device: device)
     }
 
     /// Only a choice that differs from the game's default is kept, so a setting left at its default follows a later build's.

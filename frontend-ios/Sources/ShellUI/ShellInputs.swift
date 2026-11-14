@@ -5,6 +5,7 @@ import CoreGraphics
 public enum GameState: Equatable, Sendable {
     case playable
     case needsGameData
+    case needsDataUpdate(staleChain: Bool = false)
     /// Background `.nxpart` split-file assembly in `Documents/games/<titleID>/` with percentage and formatted byte counts.
     case joiningGameData(percent: Int, doneSize: String, totalSize: String)
     case needsAppUpdate

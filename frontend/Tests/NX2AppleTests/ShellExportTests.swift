@@ -886,17 +886,23 @@ import NXModel
         model.exportedIPAPath = path("export/NX2Apple.ipa")
         let folder = path("drive")
         try fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let driveReady = expectation(description: "drive checked")
+        let driveToken = model.$drive.dropFirst().compactMap { $0 }.prefix(1).sink { _ in
+            driveReady.fulfill()
+        }
         model.chooseFolder = { folder }
         model.chooseDriveFolder()
+        wait(for: [driveReady], timeout: 10)
+        driveToken.cancel()
         XCTAssertEqual(stores.deviceStore.driveFolder, folder)
         XCTAssertEqual(model.drive?.needed, 14)
         XCTAssertNil(model.drive?.problem)
         XCTAssertTrue(model.canCopyToDrive)
         let copied = expectation(description: "Copied")
-        let token = model.$send.sink { if case .copied = $0 { copied.fulfill() } }
+        let token = model.$send.filter { if case .copied = $0 { return true }; return false }.prefix(1).sink { _ in copied.fulfill() }
         model.copyToDrive()
         wait(for: [copied], timeout: 30)
-        withExtendedLifetime(token) {}
+        token.cancel()
         XCTAssertEqual(try String(contentsOfFile: folder + "/" + titleID + "/romfs.img"), "0123456789")
         XCTAssertFalse(model.running)
         // a FAT32 drive keeps the button inert
@@ -998,8 +1004,8 @@ import NXModel
         XCTAssertNotEqual(model.doneNote, model.t("shell.needsDevice"))
         XCTAssertEqual(model.doneNote, String(format: model.t("shell.exportDone"), model.exportedIPAPath))
         XCTAssertFalse(calls.contains { $0.hasPrefix("devicectl") })
-        XCTAssertTrue(fm.fileExists(atPath: model.archivePath + "/romfs.img"), "the game data is packed beside the IPA, not in it")
-        XCTAssertFalse(try entries(ofZip: model.exportedIPAPath).contains { $0.hasSuffix("romfs.img") })
+        XCTAssertTrue(fm.fileExists(atPath: model.archivePath + "/Test.img"), "the game data is packed beside the IPA, not in it")
+        XCTAssertFalse(try entries(ofZip: model.exportedIPAPath).contains { $0.hasSuffix("Test.img") || $0.hasSuffix("romfs.img") })
     }
 
     /// One game's own IPA (#540): the script runs without `--shell-framework`, packs the game data into the IPA it names, and the
@@ -1182,7 +1188,7 @@ import NXModel
         XCTAssertTrue(afterStaging.subtracting(beforeStaging).isEmpty, "temporary IPA staging directory must be removed on failure")
     }
 
-    func testOversizedMslShadersAreExternalizedWithoutPollutingArchiveAndMergedOnTransfer() throws {
+    func testStrippedFrameworkPackExportAndNamedDriveCopySkipExternalMsl() throws {
         let f = try makeFixture()
         let app = URL(fileURLWithPath: ShellInstall.exportAppPath(root: f.root))
         let fwName = "DmGame\(titleID).framework"
@@ -1190,55 +1196,49 @@ import NXModel
         try write(app.appendingPathComponent("DmShell").path, "shell-bin")
         try write(app.appendingPathComponent("Info.plist").path, "<plist/>")
         try write(appFw.appendingPathComponent("DmGame\(titleID)").path, "game-bin")
-        try write(appFw.appendingPathComponent("game.manifest.json").path, #"{"loader":"FH"}"#)
-        let shaderBlob = Data(repeating: 0x5A, count: 256)
-        try fm.createDirectory(at: appFw.appendingPathComponent("msl/b-chain"), withIntermediateDirectories: true)
-        try shaderBlob.write(to: appFw.appendingPathComponent("msl/b-chain/shaders.img"))
+        try write(appFw.appendingPathComponent("game.manifest.json").path, #"{"loader":"FH","name":"Big Shader Game"}"#)
+        try fm.createDirectory(at: appFw, withIntermediateDirectories: true)
 
         let mirrorFw = URL(fileURLWithPath: ShellInstall.mirroredFramework(root: f.root, titleID: titleID))
         try fm.createDirectory(at: mirrorFw.appendingPathComponent("msl/b-chain"), withIntermediateDirectories: true)
-        try shaderBlob.write(to: mirrorFw.appendingPathComponent("msl/b-chain/shaders.img"))
+        try Data(repeating: 0x5A, count: 64).write(to: mirrorFw.appendingPathComponent("msl/b-chain/shaders.img"))
 
         let library = ShellLibrary(games: [.init(titleID: titleID, name: "Big Shader Game", framework: mirrorFw.path)])
-        let outcome = installer(f).packExport(app: app, library: library, externalMSLThreshold: 64)
+        let outcome = installer(f).packExport(app: app, library: library)
         XCTAssertTrue(outcome.ok, outcome.message)
 
         let zipEntries = try entries(ofZip: outcome.ipaPath)
         XCTAssertFalse(zipEntries.contains { $0.contains("\(fwName)/msl/") }, zipEntries.joined(separator: "\n"))
-        XCTAssertTrue(zipEntries.contains("Payload/DmShell.app/Frameworks/\(fwName)/external-msl.json"), zipEntries.joined(separator: "\n"))
-        XCTAssertEqual(ShellExport.externalizedTitles(root: f.root), [titleID])
-        // Mirrored framework keeps its shaders intact in place.
-        XCTAssertEqual(try Data(contentsOf: mirrorFw.appendingPathComponent("msl/b-chain/shaders.img")), shaderBlob)
+        XCTAssertFalse(zipEntries.contains { $0.hasSuffix("external-msl.json") }, zipEntries.joined(separator: "\n"))
 
-        // Archive folder stays completely free of msl/, while transferSources merges msl/ only when requested.
-        let archive = path("games/\(titleID)")
-        try write(archive + "/romfs.img", "ROMFS")
-        let exportTransfer = ShellInstall.transferSources(archive: archive, shellRoot: f.root, titleID: titleID, includeExternalMSL: true)
-        XCTAssertEqual(exportTransfer.sizes["msl/b-chain/shaders.img"], Int64(shaderBlob.count))
-        XCTAssertEqual(exportTransfer.origins["msl/b-chain/shaders.img"], mirrorFw.appendingPathComponent("msl/b-chain/shaders.img").path)
-        XCTAssertFalse(fm.fileExists(atPath: archive + "/msl"))
+        // Archive and DriveCopy omit msl/ merge and store under the sanitized game folder/image name.
+        let archive = path("games/Big Shader Game")
+        try write(archive + "/Big Shader Game.img", "ROMFS")
+        let transfer = ShellInstall.transferSources(archive: archive, shellRoot: f.root, titleID: titleID)
+        XCTAssertEqual(transfer.sizes["Big Shader Game.img"], 5)
+        XCTAssertNil(transfer.sizes["msl/b-chain/shaders.img"])
 
-        let directInstallTransfer = ShellInstall.transferSources(archive: archive, shellRoot: f.root, titleID: titleID, includeExternalMSL: false)
-        XCTAssertNil(directInstallTransfer.sizes["msl/b-chain/shaders.img"])
-
-        let usbDest = path("usb/\(titleID)")
-        try DriveCopy.copy(archive: archive, files: exportTransfer.sizes, origins: exportTransfer.origins, to: usbDest, progress: { _, _ in })
-        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: usbDest + "/msl/b-chain/shaders.img")), shaderBlob)
-        XCTAssertEqual(try String(contentsOfFile: usbDest + "/romfs.img", encoding: .utf8), "ROMFS")
+        let driveRoot = path("usb")
+        let usbDest = DriveCopy.destination(folder: driveRoot, name: "Big Shader Game", titleID: titleID)
+        XCTAssertEqual(usbDest, driveRoot + "/Big Shader Game")
+        let driveTransfer = DriveCopy.transferFiles(archive: archive, name: "Big Shader Game", titleID: titleID, destination: usbDest)
+        try DriveCopy.copy(archive: archive, files: driveTransfer.sizes, origins: driveTransfer.origins,
+                           to: usbDest, name: "Big Shader Game", titleID: titleID, progress: { _, _ in })
+        XCTAssertEqual(try String(contentsOfFile: usbDest + "/Big Shader Game.img", encoding: .utf8), "ROMFS")
+        XCTAssertFalse(fm.fileExists(atPath: usbDest + "/msl"))
     }
 
     @MainActor func testSelectGamesBatchSendAndBatchDriveCopy() throws {
         let idA = "0100000000010000", idB = "0100000000020000"
-        let archA = path("archA/\(idA)"), archB = path("archB/\(idB)")
-        try write(archA + "/romfs.img", "GAME-A")
-        try write(archB + "/romfs.img", "GAME-B-DATA")
+        let archA = path("archA/Alpha"), archB = path("archB/Beta")
+        try write(archA + "/Alpha.img", "GAME-A")
+        try write(archB + "/Beta.img", "GAME-B-DATA")
 
         let shellRoot = path("shell-batch")
         testDefaults.set(shellRoot, forKey: "shellRoot")
         let mirrorA = URL(fileURLWithPath: ShellInstall.mirroredFramework(root: shellRoot, titleID: idA))
         try fm.createDirectory(at: mirrorA.appendingPathComponent("msl/b-1"), withIntermediateDirectories: true)
         try Data("EXT-SHADER".utf8).write(to: mirrorA.appendingPathComponent("msl/b-1/s.img"))
-        ShellExport.saveExternalizedTitles([idA], root: shellRoot)
 
         let stores = LauncherStores(defaults: testDefaults)
         let model = stores.build
@@ -1264,8 +1264,8 @@ import NXModel
         model.sendSelectedGameData(titleIDs: [idB])
         XCTAssertEqual(mockTransfers.entries.map(\.titleID), [idB])
 
-        // Batch drive copy copies both A (including externalized msl/) and B sequentially.
-        XCTAssertEqual(model.transferSourceBytes(TransferSource(titleID: idA, name: "Alpha", archive: archA)), 16)
+        // Batch drive copy copies both A (using trailer-based archive image only, no msl/) and B sequentially.
+        XCTAssertEqual(model.transferSourceBytes(TransferSource(titleID: idA, name: "Alpha", archive: archA)), 6)
         model.copySelectedToDrive(titleIDs: [idA, idB])
         let copiedDone = expectation(description: "batch drive copy finished")
         var cancellable: AnyCancellable?
@@ -1274,8 +1274,8 @@ import NXModel
         }
         wait(for: [copiedDone], timeout: 10)
         _ = cancellable
-        XCTAssertEqual(try String(contentsOfFile: driveRoot + "/\(idA)/romfs.img", encoding: .utf8), "GAME-A")
-        XCTAssertEqual(try String(contentsOfFile: driveRoot + "/\(idA)/msl/b-1/s.img", encoding: .utf8), "EXT-SHADER")
-        XCTAssertEqual(try String(contentsOfFile: driveRoot + "/\(idB)/romfs.img", encoding: .utf8), "GAME-B-DATA")
+        XCTAssertEqual(try String(contentsOfFile: driveRoot + "/Alpha/Alpha.img", encoding: .utf8), "GAME-A")
+        XCTAssertFalse(fm.fileExists(atPath: driveRoot + "/Alpha/msl"))
+        XCTAssertEqual(try String(contentsOfFile: driveRoot + "/Beta/Beta.img", encoding: .utf8), "GAME-B-DATA")
     }
 }

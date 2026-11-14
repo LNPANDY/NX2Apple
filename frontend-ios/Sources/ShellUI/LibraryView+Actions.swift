@@ -58,7 +58,7 @@ extension LibraryView {
         let targetActions = settingsOpen ? menuActions : actions
         switch detail.game.state {
         case .playable: targetActions.onPlay(detail.id)
-        case .needsGameData: targetActions.onPickGameData(detail.id)
+        case .needsGameData, .needsDataUpdate: targetActions.onPickGameData(detail.id)
         case .joiningGameData: break
         case .needsAppUpdate: targetActions.onAppUpdate()
         case .broken: targetActions.onShowLog(detail.id)

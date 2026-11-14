@@ -153,7 +153,7 @@ import XCTest
         _ = try write("extract/v65536/ExeFS/main", in: work)
         _ = try write("aoc/0.img", in: work, "dlc0")
         _ = try write("aoc.key", in: work, "key")
-        _ = try write("shell-framework/DmGame\(id).framework/game.manifest.json", in: work, "{}")
+        _ = try write("shell-framework/DmGame\(id).framework/game.manifest.json", in: work, "{\"name\":\"Hades\"}")
 
         var archiveDest = ""
         let doneExp = expectation(description: "packArchive")
@@ -163,9 +163,9 @@ import XCTest
         }
         wait(for: [doneExp], timeout: 5)
 
-        XCTAssertEqual(archiveDest, temporary.appendingPathComponent("out/games/\(id)").path)
-        XCTAssertEqual(try String(contentsOfFile: archiveDest + "/romfs.img", encoding: .utf8), "merged-image")
-        XCTAssertEqual(try String(contentsOfFile: archiveDest + "/romfs.img.id", encoding: .utf8), "{\"title\":\"\(id.lowercased())\"}\n")
+        XCTAssertEqual(archiveDest, temporary.appendingPathComponent("out/games/Hades").path)
+        XCTAssertEqual(try String(contentsOfFile: archiveDest + "/Hades.img", encoding: .utf8), "merged-image")
+        XCTAssertEqual(try String(contentsOfFile: archiveDest + "/Hades.img.id", encoding: .utf8), "{\"title\":\"\(id.lowercased())\"}\n")
         XCTAssertEqual(try String(contentsOfFile: archiveDest + "/aoc/0.img", encoding: .utf8), "dlc0")
         XCTAssertFalse(fm.fileExists(atPath: work.appendingPathComponent("extract/v65536/RomFS.img").path))
         XCTAssertFalse(fm.fileExists(atPath: work.appendingPathComponent("extract/v0/RomFS.img").path))

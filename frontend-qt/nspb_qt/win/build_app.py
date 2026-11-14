@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import hashlib
+import json
 import os
 import plistlib
 import re
@@ -698,6 +699,128 @@ def shader_lib_real_path(repo: Path, lib: Path) -> Path:
     return img if img.is_file() and not (lib / 'inputs.tsv').is_file() else lib
 
 
+def _stage_link_or_copy_file(src: Path, dst: Path) -> None:
+    if dst.is_symlink() or dst.exists():
+        dst.unlink(missing_ok=True)
+    try:
+        os.symlink(src.resolve(), dst)
+    except OSError:
+        pbc.link_or_copy_file(src, dst)
+
+
+def record_msl_cache(
+    *,
+    repo: Path,
+    framework_only: Path,
+    game: str,
+    gfx: str,
+    msldir: str,
+    msl_ios: Path,
+    lib_src: Path,
+    chain_ver: str,
+    programs_tsv: str = '',
+) -> Path:
+    """Write `<framework_only>/.msl-cache/<GAME>.json` atomically, matching `build_ipa.sh`."""
+    if not lib_src.exists():
+        die(f'no iOS shader libraries at {msl_ios / msldir}')
+
+    cache_dir = Path(framework_only) / '.msl-cache'
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    chain = msldir if gfx == 'nvn' else ''
+
+    prog_lines: list[list[str]] = []
+    if programs_tsv:
+        tsv_path = Path(programs_tsv)
+        if not tsv_path.is_file():
+            die(f'no PROGRAMS_TSV {tsv_path}')
+        for raw_ln in tsv_path.read_text(encoding='utf-8', errors='replace').splitlines():
+            stripped = raw_ln.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            prog_lines.append(raw_ln.split('\t'))
+
+    stage_dir = cache_dir / f'{game}_multi'
+    if prog_lines:
+        multi_program = True
+        shutil.rmtree(stage_dir, ignore_errors=True)
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        programs: list[dict[str, object]] = []
+        for cols in prog_lines:
+            if len(cols) < 5:
+                die(f'malformed row in {programs_tsv}: {cols!r}')
+            pn = cols[0].strip()
+            if not re.fullmatch(r'\d+', pn):
+                die(f'invalid program index in {programs_tsv}: {pn!r}')
+            p_game = cols[1].strip()
+            p_msl_root = Path(cols[4].strip())
+            p_gfx = (cols[5].strip() if len(cols) > 5 and cols[5].strip() else gfx) or 'nvn'
+            if p_gfx == 'vulkan':
+                p_msldir = 'vk'
+            elif p_gfx == 'gl':
+                p_msldir = 'gl'
+            else:
+                p_msldir = f'b-{chain_ver}'
+            p_chain = p_msldir if p_gfx == 'nvn' else ''
+            p_lib = shader_lib_real_path(repo, p_msl_root / p_msldir)
+            if not p_lib.exists():
+                die(f'no iOS shader libraries at {p_msl_root / p_msldir}')
+            p_dir = stage_dir / f'p{pn}'
+            p_dir.mkdir(parents=True, exist_ok=True)
+            if p_lib.is_file():
+                _stage_link_or_copy_file(p_lib, p_dir / p_lib.name)
+            elif p_lib.is_dir():
+                sub_dir = p_dir / p_msldir
+                sub_dir.mkdir(parents=True, exist_ok=True)
+                for item in sorted(p_lib.iterdir(), key=lambda x: x.name):
+                    if item.is_dir():
+                        pbc.link_or_copy_tree(item, sub_dir / item.name)
+                    else:
+                        _stage_link_or_copy_file(item, sub_dir / item.name)
+            programs.append({
+                'program': int(pn),
+                'title_id': p_game,
+                'gfx_api': p_gfx,
+                'chain': p_chain,
+                'msl_root': str(p_msl_root),
+                'lib_path': str(p_lib),
+            })
+        recorded_lib_path = str(stage_dir)
+    else:
+        multi_program = False
+        shutil.rmtree(stage_dir, ignore_errors=True)
+        programs = []
+        recorded_lib_path = str(lib_src)
+
+    meta = {
+        'schema': 1,
+        'title_id': game,
+        'gfx_api': gfx,
+        'chain': chain,
+        'multi_program': multi_program,
+        'msl_root': str(msl_ios),
+        'lib_path': recorded_lib_path,
+        'programs': programs,
+    }
+    payload = json.dumps(meta, indent=2) + '\n'
+
+    def _write_atomic(dst_json: Path) -> None:
+        tmp_fd, tmp_file = tempfile.mkstemp(prefix=f'{dst_json.name}.tmp.', dir=str(cache_dir))
+        try:
+            with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+                f.write(payload)
+            os.replace(tmp_file, dst_json)
+        except BaseException:
+            Path(tmp_file).unlink(missing_ok=True)
+            raise
+
+    target_json = cache_dir / f'{game}.json'
+    _write_atomic(target_json)
+    upper_json = cache_dir / f'{game.upper()}.json'
+    if game != game.upper() and re.fullmatch(r'[0-9A-Fa-f]{16}', game) and not upper_json.exists():
+        _write_atomic(upper_json)
+    return target_json
+
+
 def build_pso_archive(repo: Path, w: Path, game: str, gd: Path, gp, gfx: str,
                       msl_ios: Path, v: str, env) -> Path | None:
     """Run `dm/gfx/tools/pso_offline.py` when the game profile or `DM_PSO_GPUS` requests an archive."""
@@ -1090,7 +1213,7 @@ def main(argv: list[str] | None = None) -> int:
         out_fw = Path(framework_only) / f'{fw_name}.framework'
         out_fw.mkdir(parents=True, exist_ok=True)
         for child in list(out_fw.iterdir()):
-            if child.name in ('msl', 'pso', 'icon.png') or child.name.startswith('banner.'):
+            if child.name in ('pso', 'icon.png') or child.name.startswith('banner.'):
                 continue
             if child.is_dir():
                 shutil.rmtree(child, ignore_errors=True)
@@ -1138,28 +1261,19 @@ def main(argv: list[str] | None = None) -> int:
                                                deployment=deployment),
                           f, fmt=plistlib.FMT_BINARY)
 
+        shutil.rmtree(out_fw / 'msl', ignore_errors=True)
         lib_src = shader_lib_real_path(repo, msl_ios / msldir)
-        msl_dst = out_fw / 'msl'
-        msl_dst.mkdir(parents=True, exist_ok=True)
-        if lib_src.is_file():
-            shutil.rmtree(msl_dst / msldir, ignore_errors=True)
-            target_img = msl_dst / f'{msldir}.img'
-            if not (target_img.is_file()
-                    and target_img.stat().st_size == lib_src.stat().st_size
-                    and abs(target_img.stat().st_mtime - lib_src.stat().st_mtime) < 1):
-                pbc.link_or_copy_file(lib_src, target_img)
-            keep_name = f'{msldir}.img'
-        else:
-            (msl_dst / f'{msldir}.img').unlink(missing_ok=True)
-            target_dir = msl_dst / msldir
-            pbc.link_or_copy_tree(lib_src, target_dir)
-            keep_name = msldir
-        for old in list(msl_dst.iterdir()):
-            if old.name != keep_name:
-                if old.is_dir():
-                    shutil.rmtree(old, ignore_errors=True)
-                else:
-                    old.unlink(missing_ok=True)
+        record_msl_cache(
+            repo=repo,
+            framework_only=Path(framework_only),
+            game=game,
+            gfx=env.get('FW_GFXAPI') or gfx,
+            msldir=msldir,
+            msl_ios=msl_ios,
+            lib_src=lib_src,
+            chain_ver=v,
+            programs_tsv=env.get('PROGRAMS_TSV') or '',
+        )
 
         if pso and pso.is_dir():
             pbc.link_or_copy_tree(pso, out_fw / 'pso')

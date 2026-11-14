@@ -79,15 +79,38 @@ enum BuildFolder {
     }
 
     /// What this sheet never removes, wherever it lies: the finished Mac app, the IPA, the app installed on a device (its
-    /// build is in xcode-derived-data), the game data archive (games/<title ID>/ with romfs.img), and the NSPs and keys.
+    /// build is in xcode-derived-data), the game data archive (`games/<FolderName>/` and legacy `games/<title ID>/` with their
+    /// primary `.img`), and the NSPs and keys.
     nonisolated static func protectedPaths(for game: LibraryGame) -> [String] {
         let out = game.outputDirectory.isEmpty
             ? game.inputs["base", default: []].first.map { ($0 as NSString).deletingLastPathComponent } ?? "" : game.outputDirectory
         var paths = [game.appPath, game.ipaPath, game.iosAppPath, game.archivePath]
-        if !game.archivePath.isEmpty { paths.append(game.archivePath + "/romfs.img") }
-        if !out.isEmpty { paths.append(out + "/games/" + game.titleID) }
+        if !game.archivePath.isEmpty, let img = RomFSArchive.primaryImagePath(in: game.archivePath) {
+            paths.append(img)
+        }
+        if !out.isEmpty {
+            let gamesRoot = out + "/games"
+            let legacyDir = gamesRoot + "/" + game.titleID
+            let folderName = RomFSArchive.archiveDirectoryName(gameName: game.name, titleID: game.titleID, gamesRoot: gamesRoot)
+            let namedDir = gamesRoot + "/" + folderName
+            for dir in [legacyDir, namedDir] + RomFSArchive.archiveDirectories(forTitleID: game.titleID, gamesRoot: gamesRoot) {
+                paths.append(dir)
+                if let img = RomFSArchive.primaryImagePath(in: dir) {
+                    paths.append(img)
+                }
+            }
+            if game.fallbackName != game.name {
+                let fallbackFolder = RomFSArchive.archiveDirectoryName(gameName: game.fallbackName, titleID: game.titleID, gamesRoot: gamesRoot)
+                let fallbackDir = gamesRoot + "/" + fallbackFolder
+                paths.append(fallbackDir)
+                if let img = RomFSArchive.primaryImagePath(in: fallbackDir) {
+                    paths.append(img)
+                }
+            }
+        }
         paths += game.inputs.values.flatMap { $0 }
-        return paths.filter { !$0.isEmpty }.map(resolved)
+        var seen = Set<String>()
+        return paths.filter { !$0.isEmpty }.map(resolved).filter { seen.insert($0).inserted }
     }
 
     nonisolated static func resolved(_ path: String) -> String {

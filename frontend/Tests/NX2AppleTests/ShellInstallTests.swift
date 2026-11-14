@@ -1662,4 +1662,24 @@ import NXModel
         let builds = try String(contentsOfFile: state + "/calls.txt", encoding: .utf8).split(separator: "\n").filter { $0.hasPrefix("xcodebuild") }
         XCTAssertEqual(builds.count, 1, "must not retry under org.nxnative.shell.<team> when 9120 is reached: \(builds)")
     }
+
+    func testNamedArchiveImageInstallsToCanonicalDeviceRomfsImgOverwritingLegacyCopy() throws {
+        let f = try fixtureWithRomFSTool()
+        var i = installer(f)
+        i.decideCopy = { _ in .copy }
+        XCTAssertTrue(install(i, f).ok)
+
+        let deviceGameDir = container + "/org.nxnative.shell/Documents/games/\(titleID)"
+        try write(deviceGameDir + "/romfs.img", "legacy-romfs-copy")
+
+        let namedArchive = path("out/games/Hades")
+        try write(namedArchive + "/Hades.img", "fresh-hades-payload")
+        try write(namedArchive + "/aoc/dlc1.img", "dlc-payload")
+
+        let outcome = i.installData(titleID: titleID, archive: namedArchive)
+        XCTAssertTrue(outcome.ok, outcome.message)
+        XCTAssertEqual(try String(contentsOfFile: deviceGameDir + "/romfs.img", encoding: .utf8), "fresh-hades-payload")
+        XCTAssertEqual(try String(contentsOfFile: deviceGameDir + "/aoc/dlc1.img", encoding: .utf8), "dlc-payload")
+        XCTAssertFalse(fm.fileExists(atPath: deviceGameDir + "/Hades.img"))
+    }
 }

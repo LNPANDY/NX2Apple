@@ -35,7 +35,8 @@ package struct ShellLibrary: Codable, Equatable {
     }
 
     package static func stateFile(root: String) -> String { root + "/shell.json" }
-    private static func receiptFile(root: String) -> String { ShellInstall.derivedData(root: root) + "/.installed-games.json" }
+    private static func receiptFile(root: String) -> String { root + "/.installed-games.json" }
+    private static func legacyReceiptFile(root: String) -> String { ShellInstall.derivedData(root: root) + "/.installed-games.json" }
 
     /// The file's library, or a fresh one when there is none (or it cannot be read: the next save writes a valid one).
     package static func load(root: String) -> ShellLibrary {
@@ -52,9 +53,8 @@ package struct ShellLibrary: Codable, Equatable {
     }
 
     /// Records that the current `shell.json` game set has been installed onto a device, returning those uppercased title IDs.
-    /// Stored under `derived-data/.installed-games.json` (outside `DmShell.app` so code-signature resources stay untouched, and
-    /// separate from `shell.json` so a subsequent build that adds a game to `shell.json` before failing device install does not
-    /// overwrite the last successful install receipt).
+    /// Stored under `<shell root>/.installed-games.json` (outside `DmShell.app` and `derived-data` so code-signature resources stay
+    /// untouched, and cleaning derived data preserves install provenance without mutating `shell.json` on a failed device install).
     @discardableResult
     package static func recordInstalled(root: String) -> Set<String> {
         let titles = load(root: root).games.map { $0.titleID.uppercased() }
@@ -68,9 +68,10 @@ package struct ShellLibrary: Codable, Equatable {
     /// The uppercased title IDs from the last successful device install that are still present in `shell.json`.
     package static func installedReceipt(root: String) -> Set<String> {
         let current = Set(load(root: root).games.map { $0.titleID.uppercased() })
-        guard !current.isEmpty,
-              let data = FileManager.default.contents(atPath: receiptFile(root: root)),
-              let installed = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        guard !current.isEmpty else { return [] }
+        let fm = FileManager.default
+        let data = fm.contents(atPath: receiptFile(root: root)) ?? fm.contents(atPath: legacyReceiptFile(root: root))
+        guard let data, let installed = try? JSONDecoder().decode([String].self, from: data) else { return [] }
         return Set(installed.map { $0.uppercased() }).intersection(current)
     }
 

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Reclaims intermediate build files once a build, archive step or shell export has finished writing its final output.
@@ -7,8 +8,9 @@ package enum PostBuildCleanup {
         case reused
     }
 
-    /// Moves `source` (`extract/v<N>/RomFS.img`) to `destination` (`games/<id>/romfs.img`), falling back to a staged copy across volumes
-    /// before removing the source image so a game never keeps two multi-gigabyte copies on disk.
+    /// Moves `source` (`extract/v<N>/RomFS.img`) to `destination` (`games/<FolderName>/<GameName>.img`), falling back to a staged copy
+    /// across volumes or when `source` shares hard links (`st_nlink > 1`) so mutating the archive image's shader trailer never corrupts
+    /// another retained copy (such as a `.app` bundle's `romfs.img` linked via `--romfs-from`).
     package nonisolated static func placeImage(from source: String, to destination: String) throws -> ImagePlacement {
         let fm = FileManager.default
         if let src = try? fm.attributesOfItem(atPath: source),
@@ -18,19 +20,26 @@ package enum PostBuildCleanup {
            abs(srcDate.timeIntervalSince(dstDate)) < 1 {
             RomFSArchive.copyImageIdentity(of: source, to: destination)
             removeExtractedImageArtifacts(at: source, fm: fm)
+            try breakHardLinksIfNeeded(at: destination, fm: fm)
+            removeObsoleteSiblingRomFSImage(beside: destination, fm: fm)
             return .reused
         }
 
         let parent = (destination as NSString).deletingLastPathComponent
+        let destName = (destination as NSString).lastPathComponent
         try fm.createDirectory(atPath: parent, withIntermediateDirectories: true)
-        let partial = parent + "/.romfs.img.partial-" + UUID().uuidString
+        let partial = parent + "/." + destName + ".partial-" + UUID().uuidString
         defer { try? fm.removeItem(atPath: partial) }
 
-        do {
-            try fm.moveItem(atPath: source, toPath: partial)
-        } catch {
-            try? fm.removeItem(atPath: partial)
+        if hardLinkCount(source) > 1 {
             try fm.copyItem(atPath: source, toPath: partial)
+        } else {
+            do {
+                try fm.moveItem(atPath: source, toPath: partial)
+            } catch {
+                try? fm.removeItem(atPath: partial)
+                try fm.copyItem(atPath: source, toPath: partial)
+            }
         }
 
         if fm.fileExists(atPath: destination) {
@@ -38,9 +47,47 @@ package enum PostBuildCleanup {
         } else {
             try fm.moveItem(atPath: partial, toPath: destination)
         }
+        try breakHardLinksIfNeeded(at: destination, fm: fm)
         RomFSArchive.copyImageIdentity(of: source, to: destination)
         removeExtractedImageArtifacts(at: source, fm: fm)
+        removeObsoleteSiblingRomFSImage(beside: destination, fm: fm)
         return .moved
+    }
+
+    /// Replaces `path` with an independent copy/clone when `st_nlink > 1` so in-place trailer writes cannot mutate shared hard links.
+    package nonisolated static func breakHardLinksIfNeeded(at path: String, fm: FileManager = .default) throws {
+        guard hardLinkCount(path) > 1 else { return }
+        let mtime = (try? fm.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        let parent = (path as NSString).deletingLastPathComponent
+        let name = (path as NSString).lastPathComponent
+        let unlinked = parent + "/." + name + ".unlink-" + UUID().uuidString
+        defer { try? fm.removeItem(atPath: unlinked) }
+        try fm.copyItem(atPath: path, toPath: unlinked)
+        _ = try fm.replaceItemAt(URL(fileURLWithPath: path), withItemAt: URL(fileURLWithPath: unlinked))
+        if let mtime {
+            try? fm.setAttributes([.modificationDate: mtime], ofItemAtPath: path)
+        }
+    }
+
+    private nonisolated static func hardLinkCount(_ path: String) -> Int {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return 1 }
+        return Int(st.st_nlink)
+    }
+
+    private nonisolated static func removeObsoleteSiblingRomFSImage(beside destination: String, fm: FileManager) {
+        let destName = (destination as NSString).lastPathComponent
+        guard destName.caseInsensitiveCompare("romfs.img") != .orderedSame else { return }
+        let parent = (destination as NSString).deletingLastPathComponent
+        let destCanonical = URL(fileURLWithPath: destination).standardizedFileURL.path
+        let destIDCanonical = URL(fileURLWithPath: destination + ".id").standardizedFileURL.path
+        for sibling in ["romfs.img", "romfs.img.id"] {
+            let candidate = parent + "/" + sibling
+            let canonical = URL(fileURLWithPath: candidate).standardizedFileURL.path
+            if canonical != destCanonical && canonical != destIDCanonical {
+                try? fm.removeItem(atPath: candidate)
+            }
+        }
     }
 
     /// Moves `<work>/aoc` into `<dest>/aoc` atomically, falling back to a staged copy across volumes and removing `<work>/aoc` afterwards.

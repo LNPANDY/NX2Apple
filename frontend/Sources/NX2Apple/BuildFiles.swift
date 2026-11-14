@@ -140,13 +140,33 @@ enum BuildFiles {
         }
         return candidateBuildDirs.map { item in
             let parent = (item.resolved as NSString).deletingLastPathComponent
-            let protected = [
-                parent + "/games/" + item.titleID,
-                parent + "/games/" + item.titleID + "/romfs.img",
+            let gamesRoot = parent + "/games"
+            let found = metadataName(forBuildFolder: item.resolved, titleID: item.titleID, engineRoot: engineRoot)
+            var rawProtected = [
+                gamesRoot + "/" + item.titleID,
                 parent + "/" + item.titleID + ".app",
-            ].map(BuildFolder.resolved)
+            ]
+            if let legacyImg = RomFSArchive.primaryImagePath(in: gamesRoot + "/" + item.titleID) {
+                rawProtected.append(legacyImg)
+            }
+            if let found {
+                let folderName = RomFSArchive.archiveDirectoryName(gameName: found, titleID: item.titleID, gamesRoot: gamesRoot)
+                let namedDir = gamesRoot + "/" + folderName
+                rawProtected.append(namedDir)
+                if let img = RomFSArchive.primaryImagePath(in: namedDir) {
+                    rawProtected.append(img)
+                }
+            }
+            for matchedDir in RomFSArchive.archiveDirectories(forTitleID: item.titleID, gamesRoot: gamesRoot) {
+                rawProtected.append(matchedDir)
+                if let img = RomFSArchive.primaryImagePath(in: matchedDir) {
+                    rawProtected.append(img)
+                }
+            }
+            var seenProtected = Set<String>()
+            let protected = rawProtected.map(BuildFolder.resolved).filter { seenProtected.insert($0).inserted }
             let displayName: String
-            if let found = metadataName(forBuildFolder: item.resolved, titleID: item.titleID, engineRoot: engineRoot) {
+            if let found {
                 if let t {
                     let fmt = t("orphanBuild.named")
                     displayName = fmt == "orphanBuild.named" ? "\(found) (\(item.titleID))" : String(format: fmt, found, item.titleID)
