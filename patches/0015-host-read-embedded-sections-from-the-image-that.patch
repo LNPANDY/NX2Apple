@@ -22,7 +22,7 @@ Issue: LNPANDY/NX2Apple#451
  create mode 100644 dm/host/host_image.h
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index f13ae534..dec11fb8 100644
+index 10b5730..31f6970 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
 @@ -23,8 +23,7 @@
@@ -35,7 +35,7 @@ index f13ae534..dec11fb8 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -2093,7 +2092,7 @@ static void frame_end(void) {
+@@ -2161,7 +2160,7 @@ static void frame_end(void) {
  // eglGetProcAddress: GL names from the same table as direct imports; anything else is null (the game's loader asks for every GL name it knows)
  static void *gl_lookup(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
@@ -45,10 +45,10 @@ index f13ae534..dec11fb8 100644
      return NULL;
  }
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 02921b41..e1df2e2c 100644
+index 285a18c..16763f4 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
-@@ -38,8 +38,7 @@
+@@ -39,8 +39,7 @@
  #include <mach/thread_policy.h>
  #include <assert.h>
  #include <stdatomic.h>
@@ -58,7 +58,7 @@ index 02921b41..e1df2e2c 100644
  
  // ---------- Slot table, thunks, unimplemented stubs ----------
  typedef struct { _Atomic uint64_t cnt; void *fn; } nvn_slot_t;
-@@ -95,7 +94,7 @@ static void nvn_init_slots(void) {
+@@ -96,7 +95,7 @@ static void nvn_init_slots(void) {
      static int done; if (done) return; done = 1;
      g_log = getenv("DM_NVN_LOG") != NULL;
      unsigned long sz;
@@ -68,11 +68,11 @@ index 02921b41..e1df2e2c 100644
      for (unsigned i = 0; i < NVN_NFUNC; i++) nvn_slot[i].fn = (void *)nvn_unimpl_entry;
      for (unsigned k = 0; k < nim; k++) {
 diff --git a/dm/gfx/tests/t_gl_imports.m b/dm/gfx/tests/t_gl_imports.m
-index 47ae385b..7105b64d 100644
+index 09e5c63..ef78c7a 100644
 --- a/dm/gfx/tests/t_gl_imports.m
 +++ b/dm/gfx/tests/t_gl_imports.m
-@@ -134,7 +134,7 @@ int main(int argc, char **argv) {
-     delprog(pr4); delete(vs4); delete(fs4); assert(geterr() == GL_NO_ERROR);
+@@ -297,7 +297,7 @@ int main(int argc, char **argv) {
+     test_uniform_buffer();
  
      unsigned long sz;
 -    const hle_ent *sec = (const hle_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swhle", &sz);
@@ -81,7 +81,7 @@ index 47ae385b..7105b64d 100644
      for (unsigned long i = 0; i < sz / sizeof *sec; i++)
          if (!strncmp(sec[i].name, "gl", 2)) {
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index e8a0955c..193b6a1d 100644
+index d6e7c4b..d0110e8 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
 @@ -21,8 +21,7 @@
@@ -94,7 +94,7 @@ index e8a0955c..193b6a1d 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -1755,7 +1754,7 @@ static void frame_end(void) {
+@@ -1765,7 +1764,7 @@ static void frame_end(void) {
  static void *vk_lookup(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
      if (!name || strncmp(name, "vk", 2)) return NULL;
@@ -104,7 +104,7 @@ index e8a0955c..193b6a1d 100644
      for (int pass = 0; pass < 2 && !fn; pass++) {
          size_t len = pass ? n - 3 : n;
 diff --git a/dm/host/hle.c b/dm/host/hle.c
-index 8096e689..621a7d4e 100644
+index 8096e68..621a7d4 100644
 --- a/dm/host/hle.c
 +++ b/dm/host/hle.c
 @@ -1,7 +1,6 @@
@@ -126,7 +126,7 @@ index 8096e689..621a7d4e 100644
          unsigned cap = 16; while (cap < n * 2) cap <<= 1;
          g_hle_idx = calloc(cap, sizeof *g_hle_idx); g_hle_mask = cap - 1;
 diff --git a/dm/host/hle_jit.c b/dm/host/hle_jit.c
-index fc63cee0..d1ba7a0f 100644
+index fcfb4b2..9643caa 100644
 --- a/dm/host/hle_jit.c
 +++ b/dm/host/hle_jit.c
 @@ -146,15 +146,14 @@ static const jit_req *jit_find(const char *key) { for (int i = 0; i < g_nreq; i+
@@ -149,7 +149,7 @@ index fc63cee0..d1ba7a0f 100644
      if (vm_remap(mach_task_self(), &a, g_img_size, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE, mach_task_self(), (vm_address_t)sec, FALSE, &cur, &max, VM_INHERIT_NONE) != KERN_SUCCESS || a != (vm_address_t)at || !(cur & VM_PROT_EXECUTE))
 diff --git a/dm/host/host_image.h b/dm/host/host_image.h
 new file mode 100644
-index 00000000..9dde8501
+index 0000000..9dde850
 --- /dev/null
 +++ b/dm/host/host_image.h
 @@ -0,0 +1,8 @@
@@ -162,7 +162,7 @@ index 00000000..9dde8501
 +extern const struct mach_header_64 __dso_handle;
 +#define DM_HOST_IMAGE (&__dso_handle)
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 0c2a3cba..2269b3b3 100644
+index 0c2a3cb..2269b3b 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -8,9 +8,8 @@

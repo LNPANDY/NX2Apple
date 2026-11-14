@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple
  2 files changed, 125 insertions(+), 25 deletions(-)
 
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index e86c3e930..1e6cac2be 100644
+index e86c3e9..1e6cac2 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -7,8 +7,8 @@ Four parts, each on synthetic inputs, no game files or Xcode:
@@ -111,10 +111,10 @@ index e86c3e930..1e6cac2be 100644
  
  if __name__ == '__main__':
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 4378bddc9..01d25d3a8 100755
+index 970f063..9e7bfda 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -278,8 +278,9 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -280,8 +280,9 @@ if [ "$PREPARE_XCODE" = YES ]; then
  fi
  
  # DM_FRAMEWORK_ONLY: the framework target alone, unsigned (build_shell.sh's project embeds it and Xcode signs it with the shell), then the
@@ -126,7 +126,7 @@ index 4378bddc9..01d25d3a8 100755
  if [ -n "$FRAMEWORK_ONLY" ]; then
    t "xcodebuild (Release, unsigned, the game framework $FW_NAME with its own host)"
    mkdir -p "$O" "$FRAMEWORK_ONLY" || die "mkdir $FRAMEWORK_ONLY"
-@@ -293,17 +294,87 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
+@@ -295,17 +296,87 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
    OUTFW=$FRAMEWORK_ONLY/$FW_NAME.framework; mkdir -p "$OUTFW"
    t "copying resources into $FW_NAME.framework"
    rsync -a --delete --exclude /msl --exclude /pso --exclude /icon.png -- "$BUILT/" "$OUTFW/" || die "copy the framework to $OUTFW"

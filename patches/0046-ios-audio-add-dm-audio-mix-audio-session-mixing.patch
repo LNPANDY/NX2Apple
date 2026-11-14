@@ -8,7 +8,6 @@ Keep AVAudioSessionCategoryPlayback ignoring the silent switch unchanged and pas
 Upstream-Status: pending
 Reason: Let iOS players mix game audio with other apps using AVAudioSessionCategoryOptionMixWithOthers while keeping playback active on silent
 Issue: LNPANDY/NX2Apple#1269
-
 ---
  dm/games/settings.tsv                      |   1 +
  dm/ios/Sources/audio_session_policy.h      |  41 ++++++++
@@ -24,7 +23,7 @@ Issue: LNPANDY/NX2Apple#1269
  create mode 100644 dm/ios/tests/test_audio_session_policy.py
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 89c69f17e..1b139d4ce 100644
+index 89c69f1..1b139d4 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -25,6 +25,7 @@ DM_LANG	choice	languages	build:DM_LANG	languages>1	Game	Game language		level=bas
@@ -37,7 +36,7 @@ index 89c69f17e..1b139d4ce 100644
  DM_TOUCH_STICK	choice	corner=Corner,higher=Higher,inward=Inward	corner	platform:ios	Controls	Left stick	Where the left stick of the on-screen controls sits.
 diff --git a/dm/ios/Sources/audio_session_policy.h b/dm/ios/Sources/audio_session_policy.h
 new file mode 100644
-index 000000000..90bbb287c
+index 0000000..90bbb28
 --- /dev/null
 +++ b/dm/ios/Sources/audio_session_policy.h
 @@ -0,0 +1,41 @@
@@ -83,7 +82,7 @@ index 000000000..90bbb287c
 +#endif
 +#endif
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index b504c96c5..5ba4484d4 100644
+index b504c96..5ba4484 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -19,6 +19,7 @@
@@ -140,7 +139,7 @@ index b504c96c5..5ba4484d4 100644
  
  // Real audio output is suspended (the silent sink paces the game) while the app is in the background or another audio session has interrupted ours (Siri, an alarm, a call).
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 87b3b1041..643c8b50a 100644
+index 87b3b10..643c8b5 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 @@ -107,6 +107,8 @@ void dm_haptics_apple_init(void) {}
@@ -153,7 +152,7 @@ index 87b3b1041..643c8b50a 100644
  const struct dm_profile *dm_profile(void) {
      static const struct dm_profile profile = {.name = "DuoHarness", .pad_layout = DM_GAME_PAD_LAYOUT};
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index 7570ca076..0c965c746 100644
+index 7570ca0..0c965c7 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 @@ -1,4 +1,5 @@
@@ -230,7 +229,7 @@ index 7570ca076..0c965c746 100644
      [root.view layoutIfNeeded];
 diff --git a/dm/ios/tests/test_audio_session_policy.py b/dm/ios/tests/test_audio_session_policy.py
 new file mode 100644
-index 000000000..270855c9a
+index 0000000..270855c
 --- /dev/null
 +++ b/dm/ios/tests/test_audio_session_policy.py
 @@ -0,0 +1,108 @@
@@ -343,7 +342,7 @@ index 000000000..270855c9a
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index c796c51b4..03d7a4bdf 100644
+index c796c51..03d7a4b 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -108,7 +108,11 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -360,7 +359,7 @@ index c796c51b4..03d7a4bdf 100644
          self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2'})   # the Mac window's Display mode (front_mac.m reads 1 or 0); Switch 2 controllers (pad_switch2_apple.m, wired on the Mac only)
          s = mac['DM_FULLSCREEN']
 diff --git a/dm/tools/tests/test_player_env.py b/dm/tools/tests/test_player_env.py
-index a62565e42..f0b35cac8 100644
+index a62565e..f0b35ca 100644
 --- a/dm/tools/tests/test_player_env.py
 +++ b/dm/tools/tests/test_player_env.py
 @@ -15,7 +15,7 @@ int main(void) {
@@ -373,7 +372,7 @@ index a62565e42..f0b35cac8 100644
     "DM_TOUCH_HAPTICS","DM_RUMBLE","DM_SAVE","DM_ROMFS","DM_NVN_ENC_THREAD"};
   for(unsigned i=0;i<sizeof drop/sizeof *drop;i++)assert(dm_player_diagnostic_key(drop[i]));
 diff --git a/docs/settings.md b/docs/settings.md
-index 051bd255f..5af76cf9a 100644
+index 051bd25..5af76cf 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -3,7 +3,7 @@

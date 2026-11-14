@@ -21,7 +21,7 @@ Issue: LNPANDY/NX2Apple#1120
  10 files changed, 504 insertions(+), 38 deletions(-)
 
 diff --git a/dm/host/controllers_mac.h b/dm/host/controllers_mac.h
-index bd852c4e..991a4222 100644
+index bd852c4..991a422 100644
 --- a/dm/host/controllers_mac.h
 +++ b/dm/host/controllers_mac.h
 @@ -14,6 +14,8 @@ void front_controllers_window(int active);
@@ -34,7 +34,7 @@ index bd852c4e..991a4222 100644
  
  // Called on the main thread when mapped input reaches the game.
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
-index 773d3481..c19a57f4 100644
+index 773d348..c19a57f 100644
 --- a/dm/host/controllers_mac.m
 +++ b/dm/host/controllers_mac.m
 @@ -16,6 +16,7 @@
@@ -68,7 +68,7 @@ index 773d3481..c19a57f4 100644
      int was_focused=g_focus, listening=controller_listening();
      g_focus=listening && !g_quit_prompt && !g_applet;
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 42eac55f..d658a690 100644
+index 42eac55..d658a69 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1,7 +1,7 @@
@@ -371,7 +371,7 @@ index 42eac55f..d658a690 100644
          [nc addObserverForName:NSWindowDidDeminiaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; dm_gfx_suspend(0); dm_audio_suspend(0); dm_focus_set(2); }];
          display_awake(win.isKeyWindow);   // the window may have become key (makeKeyAndOrderFront above) before these observers were installed
 diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
-index ddab1156..8acb4a5b 100644
+index ddab115..8acb4a5 100644
 --- a/dm/host/home_quit.h
 +++ b/dm/host/home_quit.h
 @@ -7,6 +7,11 @@
@@ -519,7 +519,7 @@ index ddab1156..8acb4a5b 100644
      const char *s = text;
      for (int k = 0; s && k < i; k++) { s = strchr(s, '\n'); if (s) s++; }
 diff --git a/dm/host/home_quit_mac.h b/dm/host/home_quit_mac.h
-index ffc3ab57..be839493 100644
+index ffc3ab5..be83949 100644
 --- a/dm/host/home_quit_mac.h
 +++ b/dm/host/home_quit_mac.h
 @@ -97,6 +97,53 @@ static NSView *hq_prompt_view(NSRect bounds, NSString *title, NSString *note, NS
@@ -577,7 +577,7 @@ index ffc3ab57..be839493 100644
  static NSView *hq_hold_view(NSRect bounds, NSString *label, CAShapeLayer **ring_out) {
      CGFloat k = hq_scale(bounds.size), d = 26 * k, line = 3.5 * k;
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index 42c55c10..a2f565be 100644
+index 42c55c1..a2f565b 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
 @@ -835,6 +835,15 @@ static void test_home_quit_routing(void) {
@@ -597,7 +597,7 @@ index 42c55c10..a2f565be 100644
      hidpad_removed(NULL,kIOReturnSuccess,NULL,hid); hid_fixture_finish();
      puts("Home quit: adapter ownership, physical labels, prompt/settle gating and focus recovery: OK");
 diff --git a/dm/host/tests/t_home_quit.c b/dm/host/tests/t_home_quit.c
-index ff11b7d9..94ef558d 100644
+index ff11b7d..94ef558 100644
 --- a/dm/host/tests/t_home_quit.c
 +++ b/dm/host/tests/t_home_quit.c
 @@ -1,5 +1,6 @@
@@ -732,7 +732,7 @@ index ff11b7d9..94ef558d 100644
      CHECK(!strcmp(small, "Abc"), "a long line is cut to the buffer");
  
 diff --git a/dm/host/tests/t_home_quit_mac.m b/dm/host/tests/t_home_quit_mac.m
-index 0b716c4e..0aa2164d 100644
+index 0b716c4..0aa2164 100644
 --- a/dm/host/tests/t_home_quit_mac.m
 +++ b/dm/host/tests/t_home_quit_mac.m
 @@ -1,5 +1,6 @@
@@ -798,7 +798,7 @@ index 0b716c4e..0aa2164d 100644
      }
      printf("t_home_quit_mac: %d checks, %d failed\n", checks, fails);
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 794f85e6..f649fb2e 100644
+index b799479..2d7655d 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -56,7 +56,9 @@ A built app carries the settings its game supports, as the iPhone app's settings
@@ -813,10 +813,10 @@ index 794f85e6..f649fb2e 100644
  Settings a player chose in a front end and wants kept, also for a start from Finder or the Dock, go in the app's saved choices ([Saved choices](#saved-choices)), not in its environment.
  
 diff --git a/docs/playing.md b/docs/playing.md
-index 54af057d..cda416b3 100644
+index 99998d4..8d7ea0f 100644
 --- a/docs/playing.md
 +++ b/docs/playing.md
-@@ -48,7 +48,7 @@ Two identical controllers that Apple's controller support lists as one, such as
+@@ -57,7 +57,7 @@ Two identical controllers that Apple's controller support lists as one, such as
  
  With [Press a button to join](settings.md#press-a-button-to-join) on in the settings (`DM_PAD_PRESS_TO_JOIN=1` in `env.txt`), on the Mac and on iOS, a controller becomes a player only when one of its buttons is pressed, as the lowest player free: the players choose their order and how many play, over Bluetooth or USB, identical pads included, and a controller connected while the game runs joins at its first press. The log says `press a button to play`, then `a button pressed: player N`. The press that joins also reaches the game. When a game asks for more players than it sees, a prompt over the game says how many are wanted and joined and waits for the others: a controller that presses a button (or connects, with the setting off) joins, A finishes once enough are in, and B or Escape closes it, as on a Switch.
  

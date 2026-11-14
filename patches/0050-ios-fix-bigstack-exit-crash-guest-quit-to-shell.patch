@@ -30,7 +30,7 @@ Issue: LNPANDY/NX2Apple (v1.5.0 local)
  17 files changed, 435 insertions(+), 30 deletions(-)
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index d85e3451..d1d1960a 100644
+index 18bb491..b1767b4 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
 @@ -222,7 +222,12 @@ static void dev_init_once(void) {
@@ -47,7 +47,7 @@ index d85e3451..d1d1960a 100644
  
  // ---------- Command buffers ----------
  // Transient memory (converted indices, staging for blits, large uniform blocks): bump allocation in 4 MB shared buffers, each reused once the command buffer that last used it completed
-@@ -1384,7 +1389,15 @@ static void cap_set(GLenum cap, int on) {
+@@ -1428,7 +1433,15 @@ static void cap_set(GLenum cap, int on) {
      }
      if (!timeout_ns) return GL_TIMEOUT_EXPIRED;
      uint64_t ms = timeout_ns / 1000000;
@@ -64,7 +64,7 @@ index d85e3451..d1d1960a 100644
  }
  GL(glGenVertexArrays, void, GLsizei n, GLuint *out) { for (GLsizei i = 0; i < n; i++) out[i] = name_new((void ***)&g_vaos, &g_nvaos, &g_capvaos, sizeof(vao_t)); }
  GL(glDeleteVertexArrays, void, GLsizei n, const GLuint *v) { for (GLsizei i = 0; i < n; i++) if (v[i] && v[i] < g_nvaos && g_vaos[v[i]]) { free(g_vaos[v[i]]); g_vaos[v[i]] = NULL; if (S.vao == v[i]) S.vao = 0; } }
-@@ -2059,37 +2072,47 @@ static void frame_end(void) {
+@@ -2127,37 +2140,47 @@ static void frame_end(void) {
      return (EGLSurface)(uintptr_t)3;
  }
  EGL(eglDestroySurface, EGLBoolean, EGLDisplay d, EGLSurface s) { (void)d; (void)s; return EGL_TRUE; }
@@ -125,7 +125,7 @@ index d85e3451..d1d1960a 100644
      frame_end();
      return EGL_TRUE;
  }
-@@ -2181,11 +2204,18 @@ void dm_gl_teardown(void) { @autoreleasepool {
+@@ -2249,11 +2272,18 @@ void dm_gl_teardown(void) { @autoreleasepool {
      g_nclr_cache = 0;
  
      for (int i = 0; i < NWIN; i++) { g_win.col[i] = nil; g_win.serial[i] = g_win.ticket[i] = 0; }
@@ -146,7 +146,7 @@ index d85e3451..d1d1960a 100644
      g_samp0 = nil;
      g_tex0 = nil; g_cube0 = nil; g_tex3d0 = nil; g_arr0 = nil;
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index e15607f2..036f3b3f 100644
+index e15607f..036f3b3 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -229,5 +229,10 @@ void dm_gfx_shot_at(long k, const char *path);
@@ -162,7 +162,7 @@ index e15607f2..036f3b3f 100644
 +int  dm_teardown_is_guest_thread(void);
 +void dm_teardown_park_self(void);
 diff --git a/dm/host/hle_audio.c b/dm/host/hle_audio.c
-index a4c301c8..e527cbb2 100644
+index cc6df79..6e02d42 100644
 --- a/dm/host/hle_audio.c
 +++ b/dm/host/hle_audio.c
 @@ -43,6 +43,7 @@ typedef struct {
@@ -183,7 +183,7 @@ index a4c301c8..e527cbb2 100644
      int slot = -1; for (int i = 0; i < AOMAX; i++) if (!g_aos[i]) { slot = i; break; }
 @@ -502,9 +504,12 @@ static void au_stop_at(void *g, void *lr) {   // lr NULL: the stop inside Close,
  }
- HLE_FORCE_BIG("_ZN2nn5audio12StopAudioOutEPNS0_8AudioOutE", "stop playback", void, h_au_Stop, void *g) { au_stop_at(g, dm_bigstack_caller(__builtin_return_address(0))); }
+ HLE_FORCE("_ZN2nn5audio12StopAudioOutEPNS0_8AudioOutE", "stop playback", void, h_au_Stop, void *g) { au_stop_at(g, dm_bigstack_caller(__builtin_return_address(0))); }
  static void au_close(void *g, void *lr) {
 -    au_note(ao(g), "Close", lr);
 +    aout *a = objmap_get(g);
@@ -216,7 +216,7 @@ index a4c301c8..e527cbb2 100644
          dispatch_semaphore_signal(a->notify_sem);
          pthread_join(a->notify_th, NULL);
 diff --git a/dm/host/hle_audren.c b/dm/host/hle_audren.c
-index e5d06cbf..6cad0d93 100644
+index 314cc70..27fb483 100644
 --- a/dm/host/hle_audren.c
 +++ b/dm/host/hle_audren.c
 @@ -27,6 +27,7 @@ void dm_pcmout_start(void *k);
@@ -327,10 +327,10 @@ index e5d06cbf..6cad0d93 100644
              free(owned);
              free(g_ar[i].render_tt);
 diff --git a/dm/host/hle_bigstack.c b/dm/host/hle_bigstack.c
-index 37bf094e..0e47f319 100644
+index 0aaaf01..7c7ec77 100644
 --- a/dm/host/hle_bigstack.c
 +++ b/dm/host/hle_bigstack.c
-@@ -23,7 +23,57 @@ int dm_guest_as_contains(uintptr_t a);   // hle_svc.c
+@@ -24,7 +24,57 @@ int dm_guest_as_contains(uintptr_t a);   // hle_svc.c
  #define BS_GUARD 16384u
  static pthread_key_t g_bs_key __attribute__((section("__DATA,__dm_keep")));
  static pthread_once_t g_bs_once __attribute__((section("__DATA,__dm_keep"))) = PTHREAD_ONCE_INIT;
@@ -390,7 +390,7 @@ index 37bf094e..0e47f319 100644
  
  // sp inside the guest address block -> the top of this thread's host stack (16-byte aligned); otherwise 0 (no switch)
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index 0655d1c4..8ea74515 100644
+index 0655d1c..8ea7451 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
 @@ -5,9 +5,38 @@
@@ -460,10 +460,10 @@ index 0655d1c4..8ea74515 100644
      dm_switch2_teardown();
      dm_audren_teardown_post();
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index 5346111b..ca2e0b9b 100644
+index 46ecb0b..f3d8fce 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
-@@ -874,12 +874,22 @@ static void *regions_thread(void *arg) {
+@@ -879,12 +879,22 @@ static void *regions_thread(void *arg) {
  }
  
  int svc_thread(int num, uint64_t *regs);   // hle_thread.c: thread and synchronization kind
@@ -499,7 +499,7 @@ index 5346111b..ca2e0b9b 100644
      }
      case 0x1E: guest_clock_read_wait(); regs[0] = 0; regs[1] = guest_ticks(); return 0;   // GetSystemTick
 diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
-index 207fa0ce..5366d2c1 100644
+index bb66ccb..04074a8 100644
 --- a/dm/host/hle_thread.c
 +++ b/dm/host/hle_thread.c
 @@ -268,6 +268,16 @@ void dm_teardown_check_current_thread(void) {
@@ -520,7 +520,7 @@ index 207fa0ce..5366d2c1 100644
      thr_t *b = NULL;
      for (thr_t *t = g_wait; t; t = t->next) {
 diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
-index 8acb4a5b..d807b94f 100644
+index 8acb4a5..d807b94 100644
 --- a/dm/host/home_quit.h
 +++ b/dm/host/home_quit.h
 @@ -147,6 +147,11 @@ static inline void hq_text_line(const char *text, int i, const char *def, char *
@@ -536,7 +536,7 @@ index 8acb4a5b..d807b94f 100644
  // "system" (the system keeps Home whatever the app asks), "app" (the app decides), "off" (the system does nothing with Home in apps),
  // "unavailable" (could not be read)
 diff --git a/dm/host/tests/t_audio_spsc.c b/dm/host/tests/t_audio_spsc.c
-index 197b724c..310b02dc 100644
+index 197b724..310b02d 100644
 --- a/dm/host/tests/t_audio_spsc.c
 +++ b/dm/host/tests/t_audio_spsc.c
 @@ -117,8 +117,51 @@ static int stop_pending(void) {
@@ -592,7 +592,7 @@ index 197b724c..310b02dc 100644
      test_ctx t = {0};
      t.bufs = calloc(NBUF, sizeof *t.bufs); t.data = calloc(NBUF, sizeof *t.data); t.sizes = calloc(NBUF, sizeof *t.sizes); t.scratch = malloc(512);
 diff --git a/dm/host/tests/t_audren_layout.c b/dm/host/tests/t_audren_layout.c
-index a291697c..d145486e 100644
+index a291697..d145486 100644
 --- a/dm/host/tests/t_audren_layout.c
 +++ b/dm/host/tests/t_audren_layout.c
 @@ -37,6 +37,7 @@ int dm_pcmout_append(void *k, void *b) {
@@ -604,7 +604,7 @@ index a291697c..d145486e 100644
  uint32_t hle_dup_readable_handle(uint32_t h) { return h; }
  
 diff --git a/dm/host/tests/t_audren_work.c b/dm/host/tests/t_audren_work.c
-index 59858c17..82c67429 100644
+index 59858c1..82c6742 100644
 --- a/dm/host/tests/t_audren_work.c
 +++ b/dm/host/tests/t_audren_work.c
 @@ -101,6 +101,7 @@ void dm_pcmout_start(void *k) { (void)k; }
@@ -616,32 +616,32 @@ index 59858c17..82c67429 100644
      if (ev == notify_event) { assert(ac == 0); notify_binds++; return; }
      assert(ev == sdk_event && ac == 1 && event_destroys == 2 * event_binds + 1);   // after the open destroys the SDK's local event (each earlier Close destroyed one more)
 diff --git a/dm/host/tests/t_bigstack.c b/dm/host/tests/t_bigstack.c
-index cb0017c5..d4b43d3a 100644
+index cc6afc3..b06c734 100644
 --- a/dm/host/tests/t_bigstack.c
 +++ b/dm/host/tests/t_bigstack.c
 @@ -1,6 +1,7 @@
- // Big-stack entry (hle_bigstack.c, hle.h HLE_FORCE_BIG): a take-over called on a small guest stack runs on the thread's host stack with its register arguments intact, and dm_bigstack_caller
+ // Big-stack entry (hle_bigstack.c, hle.h HLE_FORCE): a take-over called on a small guest stack runs on the thread's host stack with its register and stack arguments intact, and dm_bigstack_caller
  // gives back the game's call site both after a switch and straight through off the guest block (the audio Start / Stop / Close log it, PR #721)
  #include "../hle.h"
 +#include <pthread.h>
  #include <stdio.h>
  #include <string.h>
  #include <sys/mman.h>
-@@ -27,6 +28,13 @@ HLE_FORCE("_ZN4test4logsEm", "unit test", uint64_t, logs, uint64_t a) {
-     return a + 1;
- }
+@@ -43,6 +44,13 @@ __asm__(".text\n.p2align 2\n.globl _call_args\n_call_args:\n"
+         "    blr x16\n"
+         "    mov sp, x29\n    ldp x29, x30, [sp], #16\n    ret\n");
  
-+HLE_FORCE_BIG("_ZN4test10exit_on_bsEm", "unit test", uint64_t, exit_on_bs, uint64_t unused) {
++HLE_FORCE("_ZN4test10exit_on_bsEm", "unit test", uint64_t, exit_on_bs, uint64_t unused) {
 +    (void)unused;
 +    // Call pthread_exit while executing directly inside the thread's bigstack.
 +    pthread_exit((void *)(uintptr_t)99);
 +    return 0;
 +}
 +
- // call_on(a, b, d, top, fn): calls fn(a, b, d) with sp = top (0: on this stack); _call_on_site is the return address the call leaves, the "game's call site"
+ // call_on(a, b, d, top, fn): calls fn(a, b, d) with sp = top (0: on this stack) and x17 left as garbage; _call_on_site is the return address the call leaves, the "game's call site"
  uint64_t call_on(uint64_t a, uint64_t b, double d, uintptr_t top, const void *fn);
  extern const char call_on_site[];
-@@ -37,6 +45,18 @@ __asm__(".text\n.p2align 2\n.globl _call_on\n_call_on:\n"
+@@ -54,6 +62,18 @@ __asm__(".text\n.p2align 2\n.globl _call_on\n_call_on:\n"
          ".globl _call_on_site\n_call_on_site:\n"
          "    mov sp, x29\n    ldp x29, x30, [sp], #16\n    ret\n");
  
@@ -660,7 +660,7 @@ index cb0017c5..d4b43d3a 100644
  static int checks, fails;
  #define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s\n", msg); } } while (0)
  
-@@ -74,6 +94,15 @@ int main(void) {
+@@ -96,6 +116,15 @@ int main(void) {
      CHECK(g_fp && dm_guest_as_contains(g_fp), "the logging take-over itself ran on the guest stack");
      CHECK(!strcmp(got, "[dm] big-stack test line 41 from a guest stack 2.50\n"), "the log line written from 1 KB of guest stack");
  
@@ -677,7 +677,7 @@ index cb0017c5..d4b43d3a 100644
      return fails != 0;
  }
 diff --git a/dm/host/tests/t_home_quit.c b/dm/host/tests/t_home_quit.c
-index 94ef558d..19a387f4 100644
+index 94ef558..19a387f 100644
 --- a/dm/host/tests/t_home_quit.c
 +++ b/dm/host/tests/t_home_quit.c
 @@ -191,6 +191,15 @@ int main(void) {
@@ -697,7 +697,7 @@ index 94ef558d..19a387f4 100644
      return fails != 0;
  }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 508eef08..9db80b15 100644
+index 508eef0..9db80b1 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -180,6 +180,8 @@ @implementation DmGamepad {
@@ -880,10 +880,10 @@ index 508eef08..9db80b15 100644
          [self wakeMenu];
      }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index b504c96c..06b2f534 100644
+index 5ba4484..e2901fa 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -573,6 +573,7 @@ static void save_sync_background(void) {
+@@ -584,6 +584,7 @@ static void save_sync_background(void) {
  }
  
  static _Atomic int g_quitting;
@@ -891,7 +891,7 @@ index b504c96c..06b2f534 100644
  void front_ios_focus_event(int ev) {
      if (!g_layer || atomic_load(&g_quitting)) return;
      switch (ev) {
-@@ -589,7 +590,7 @@ void front_ios_focus_event(int ev) {
+@@ -600,7 +601,7 @@ void front_ios_focus_event(int ev) {
  
  // ---- Quit to the launcher (LNPANDY/NX2Apple#421) ----
  // Two ways open the quit prompt (quit_prompt.h) over the game: Quit at the end of the in-game menu (the gear at the top centre, GameMenu.swift, which stays while
@@ -900,7 +900,7 @@ index b504c96c..06b2f534 100644
  // while it is held). A tap on Quit or A quits, a tap on Cancel or outside the card, B or a new press of Home closes it. While it is open the game is told it lost
  // the focus, as the Switch's HOME menu does, and gets no touch or controller input.
  // Quitting ends the process: one game runs per process (dm_profile() and the host's early loading run once, the shell's ShellMain.m), so the engine cannot hand
-@@ -644,7 +645,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
+@@ -655,7 +656,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
      *home = *a = *b = 0;
      for (GCController *c in GCController.controllers) {
          GCExtendedGamepad *g = c.extendedGamepad; if (!g) continue;
@@ -909,7 +909,7 @@ index b504c96c..06b2f534 100644
          *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed;
      }
  }
-@@ -710,9 +711,22 @@ static void front_ios_teardown(void) {
+@@ -721,9 +722,22 @@ static void front_ios_teardown(void) {
          g_root = nil;
      }
      g_layer = nil;
@@ -933,7 +933,7 @@ index b504c96c..06b2f534 100644
      if (atomic_exchange(&g_quitting, 1)) return;
      dm_shell_return_fn shell_return = (dm_shell_return_fn)dlsym(RTLD_DEFAULT, "dm_shell_return_to_library");
 diff --git a/dm/ios/framework/ShellGlue.m b/dm/ios/framework/ShellGlue.m
-index e1c50745..37c7befa 100644
+index e1c5074..37c7bef 100644
 --- a/dm/ios/framework/ShellGlue.m
 +++ b/dm/ios/framework/ShellGlue.m
 @@ -57,8 +57,12 @@ void dm_glue_focus_event(int ev) {

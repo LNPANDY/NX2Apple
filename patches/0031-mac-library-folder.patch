@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple#123
  2 files changed, 171 insertions(+)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index 08879b16..2a4b138a 100644
+index bf1e442..726a63f 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -23,7 +23,9 @@
@@ -177,10 +177,10 @@ index 08879b16..2a4b138a 100644
      for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
      for (const char **key=(const char *[]){"DM_KEYMAP","DM_PAD_MAP",NULL}; *key; key++) if(getenv(*key)) add_key(&g_launch_keys,*key);
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index daeac184..232dd546 100644
+index 5f2f003..cbd8810 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
-@@ -745,6 +745,50 @@ int main(void) { @autoreleasepool {
+@@ -752,6 +752,50 @@ int main(void) { @autoreleasepool {
          self.assertIn('standin host output', (logs / f'{TID}.prev.log').read_text())
          self.assertEqual(self.host_run()['DM_LANG'], 'fr')   # Info.plist DMLanguage
  

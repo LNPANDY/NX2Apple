@@ -22,7 +22,7 @@ Issue: LNPANDY/NX2Apple#347
  create mode 100644 dm/ios/tests/test_pad_geometry.py
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 92f5e6ad..d36c4ce9 100644
+index 92f5e6a..d36c4ce 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -8,9 +8,12 @@
@@ -376,7 +376,7 @@ index 92f5e6ad..d36c4ce9 100644
  - (void)refresh {   // pressed state → fill, sticks → knob position
      uint64_t all = _faceBits | _dpadBits | _btnBits;
 diff --git a/dm/ios/Sources/DmLayout.h b/dm/ios/Sources/DmLayout.h
-index bb3631f7..bfc19b76 100644
+index bb3631f..bfc19b7 100644
 --- a/dm/ios/Sources/DmLayout.h
 +++ b/dm/ios/Sources/DmLayout.h
 @@ -5,7 +5,11 @@
@@ -412,7 +412,7 @@ index bb3631f7..bfc19b76 100644
  // area above the controls, where cropping a small picture would cost more than the bars.
 diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
 new file mode 100644
-index 00000000..d2efd777
+index 0000000..d2efd77
 --- /dev/null
 +++ b/dm/ios/Sources/DmPadGeometry.h
 @@ -0,0 +1,457 @@
@@ -874,7 +874,7 @@ index 00000000..d2efd777
 +
 +NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 66ce5c4e..1b5c586d 100644
+index 66ce5c4..1b5c586 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -214,6 +214,11 @@ - (void)viewDidLayoutSubviews {
@@ -891,7 +891,7 @@ index 66ce5c4e..1b5c586d 100644
      if (![line isEqualToString:self.layoutLog]) { self.layoutLog = line; LOG("front end: layout %s", line.UTF8String); }
 diff --git a/dm/ios/tests/pad_geometry/UIKit/UIKit.h b/dm/ios/tests/pad_geometry/UIKit/UIKit.h
 new file mode 100644
-index 00000000..6643574f
+index 0000000..6643574
 --- /dev/null
 +++ b/dm/ios/tests/pad_geometry/UIKit/UIKit.h
 @@ -0,0 +1,11 @@
@@ -908,7 +908,7 @@ index 00000000..6643574f
 +@class UIView;
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 new file mode 100644
-index 00000000..b78567b7
+index 0000000..b78567b
 --- /dev/null
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 @@ -0,0 +1,362 @@
@@ -1276,7 +1276,7 @@ index 00000000..b78567b7
 +}
 diff --git a/dm/ios/tests/test_pad_geometry.py b/dm/ios/tests/test_pad_geometry.py
 new file mode 100644
-index 00000000..44d03443
+index 0000000..44d0344
 --- /dev/null
 +++ b/dm/ios/tests/test_pad_geometry.py
 @@ -0,0 +1,37 @@

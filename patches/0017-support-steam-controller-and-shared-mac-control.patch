@@ -61,7 +61,7 @@ Issue: seedds/nxnative#221
  create mode 100644 docs/mac-controllers.md
 
 diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index e1f917f7..f143e8e4 100644
+index 1482b0a..adb0424 100644
 --- a/dm/games/0100F2C0115B6000/README.md
 +++ b/dm/games/0100F2C0115B6000/README.md
 @@ -66,6 +66,8 @@ Game-specific findings. The general host changes they led to are listed under [F
@@ -85,7 +85,7 @@ index e1f917f7..f143e8e4 100644
  
  - **Resolved in the host (#342): recurring startup crash during archive compaction**, with a workaround for Metal's serializer defect: [Pipeline archive compaction crashes in Metal's serializer](../../../docs/reference/shaders.md#a-compaction-flush-that-crashes-then-crashes-every-start). Confirmed with local manifest replays; no new gameplay or iOS validation.
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index 09591801..b1ef48b1 100644
+index 0959180..b1ef48b 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
 @@ -22,7 +22,7 @@ include ../mac/min_os.mk
@@ -108,7 +108,7 @@ index 09591801..b1ef48b1 100644
  	rm -rf gen dmhost dmhost_* *.dSYM
 diff --git a/dm/host/controllers_mac.h b/dm/host/controllers_mac.h
 new file mode 100644
-index 00000000..bd852c4e
+index 0000000..bd852c4
 --- /dev/null
 +++ b/dm/host/controllers_mac.h
 @@ -0,0 +1,27 @@
@@ -141,7 +141,7 @@ index 00000000..bd852c4e
 +int front_cp_poll(void);
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
 new file mode 100644
-index 00000000..773d3481
+index 0000000..773d348
 --- /dev/null
 +++ b/dm/host/controllers_mac.m
 @@ -0,0 +1,1210 @@
@@ -1356,7 +1356,7 @@ index 00000000..773d3481
 +        [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) { front_controllers_focus([n.name isEqual:NSApplicationDidBecomeActiveNotification]); }];
 +}
 diff --git a/dm/host/dm_input.h b/dm/host/dm_input.h
-index ab2c8074..3f7cef8f 100644
+index ab2c807..3f7cef8 100644
 --- a/dm/host/dm_input.h
 +++ b/dm/host/dm_input.h
 @@ -21,7 +21,7 @@ uint64_t dm_input_samples(void);   // Cumulative number of times the game has sa
@@ -1380,7 +1380,7 @@ index ab2c8074..3f7cef8f 100644
  // Optional diagnostic DM_HID_RECEIPT_LOG=<writable JSONL path>: received samples of real GetNpadState returns.
  // Fields read_start_ns/time_ns use the same host now_ns(); the front-end publish window must use the same helper, and a read interval that spans a publish must not be force-matched.
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 5ac5c2e8..052f230e 100644
+index 5ac5c2e..052f230 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -7,7 +7,7 @@
@@ -2135,7 +2135,7 @@ index 5ac5c2e8..052f230e 100644
      if (!r) return 0;
      (void)max_chars;                              // Truncation is done uniformly in hle_swkbd.c in UTF-16 units
 diff --git a/dm/host/haptics_apple.h b/dm/host/haptics_apple.h
-index 6c54cdc0..b41a2bb6 100644
+index 6c54cdc..b41a2bb 100644
 --- a/dm/host/haptics_apple.h
 +++ b/dm/host/haptics_apple.h
 @@ -8,4 +8,14 @@ void dm_haptics_apple_controller(int player, GCController *controller);
@@ -2154,7 +2154,7 @@ index 6c54cdc0..b41a2bb6 100644
 +// Mac game-window/modal gate, independent of application activation.
 +void dm_haptics_apple_focus(int active);
 diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
-index 6a02108d..dbf82d05 100644
+index 6a02108..dbf82d0 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
 @@ -40,6 +40,9 @@ - (void)stop;
@@ -2270,7 +2270,7 @@ index 6a02108d..dbf82d05 100644
      if (queue) suspend(DM_HAPTICS_INACTIVE, YES);
  }
 diff --git a/dm/host/hle_haptics.h b/dm/host/hle_haptics.h
-index d808df0d..3fb623bf 100644
+index d808df0..3fb623b 100644
 --- a/dm/host/hle_haptics.h
 +++ b/dm/host/hle_haptics.h
 @@ -6,7 +6,7 @@ typedef struct { float amplitude_low, frequency_low, amplitude_high, frequency_h
@@ -2283,7 +2283,7 @@ index d808df0d..3fb623bf 100644
  // The sink copies/enqueues each snapshot in order; called under the state lock, it must not reenter.
  // No hardware calls on the sending thread. A changed epoch invalidates all older queued snapshots.
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 0af72b12..8ff86dd5 100644
+index 2f89b40..bbf2c47 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -3,7 +3,7 @@
@@ -2295,7 +2295,7 @@ index 0af72b12..8ff86dd5 100644
  // Vibration follows the player assignments through hle_haptics.c. Mouse and keyboard: not connected; the controller applet reports the connected players with player 1 selected, and leaves out those past the game's maximum.
  #include "hle.h"
  #include "hle_haptics.h"
-@@ -43,27 +43,29 @@ static _Atomic int64_t g_sampling = 1 << 16;   // starts high so the history ent
+@@ -44,27 +44,29 @@ static _Atomic int64_t g_sampling = 1 << 16;   // starts high so the history ent
  static uint64_t pack(int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
      return (uint64_t)(uint16_t)lx | (uint64_t)(uint16_t)ly << 16 | (uint64_t)(uint16_t)rx << 32 | (uint64_t)(uint16_t)ry << 48;
  }
@@ -2336,7 +2336,7 @@ index 0af72b12..8ff86dd5 100644
  }
  static int32_t pick(int32_t a, int32_t b);
  static int32_t ax(uint64_t v, int i);
-@@ -80,7 +82,7 @@ void dm_input_peek(uint64_t *buttons, int32_t axes[4]) {
+@@ -81,7 +83,7 @@ void dm_input_peek(uint64_t *buttons, int32_t axes[4]) {
  void dm_pad_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) { dm_pad_set_player(0, buttons, lx, ly, rx, ry); }
  static void script_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
      uint64_t old = atomic_exchange(&g_sc_btn, buttons); atomic_fetch_or(&g_sc_latch, buttons & ~old); atomic_fetch_or(&g_peek_latch, buttons & ~old); atomic_store(&g_sc_axes, pack(lx, ly, rx, ry));
@@ -2345,8 +2345,8 @@ index 0af72b12..8ff86dd5 100644
  }
  uint64_t dm_input_samples(void) { return (uint64_t)atomic_load(&g_sampling); }
  // DM_KEYS scripted input (for tests): "seconds:key[+key][~hold seconds][*count/interval seconds],...", e.g. "8:A,12:A,15:Down~0.5,16:A+B,40:A*80/2" (A every 2 s from 40 s on, 80 times). Key names A B X Y LS RS L R ZL ZR (plus the sticks LLeft LUp LRight LDown and RLeft RUp RRight RDown) Plus Minus Left Up Right Down, left stick LLeft LUp LRight LDown,
-@@ -439,7 +441,10 @@ void dm_pad_players(uint32_t mask) {
-     mask = (mask | 1u) & ((1u << DM_PLAYERS) - 1);
+@@ -455,7 +457,10 @@ void dm_pad_players(uint32_t mask) {
+     mask = (mask | 1u | atomic_load(&g_script_players)) & ((1u << DM_PLAYERS) - 1);
      uint32_t old = atomic_exchange(&g_players, mask);
      atomic_fetch_and(&g_benched, mask);   // a controller that went away is no longer left out: the next one on its slot is a player until the applet says otherwise
 -    for (int p = 1; p < DM_PLAYERS; p++) if ((old ^ mask) >> p & 1 && !(mask >> p & 1)) dm_pad_set_player(p, 0, 0, 0, 0, 0);   // a controller that went away leaves nothing pressed
@@ -2357,7 +2357,7 @@ index 0af72b12..8ff86dd5 100644
      styles_sync();
      note_merged();
  }
-@@ -773,7 +778,6 @@ _Static_assert(sizeof(SixAxisState) == 0x60, "SixAxisState");
+@@ -789,7 +794,6 @@ _Static_assert(sizeof(SixAxisState) == 0x60, "SixAxisState");
  enum { SIX_PERIOD_NS = 5000000 };
  #define SHAKE_G 3.0
  #define SHAKE_REV 1.5
@@ -2365,7 +2365,7 @@ index 0af72b12..8ff86dd5 100644
  // Live motion (dm_motion_set: a controller's gyro and accelerometer, front_mac.m / DmGamepad.m through motion_apple.h; dm_motion_set_switch: the iPhone's own, already in the
  // Switch frame, DmGamepad.m): while a player's samples keep arriving (within
  // MOTION_STALE_NS on the host clock) their six-axis sensor reports them (motion_fusion.h) instead of lying flat; a shake (DM_BTN_SHAKE) still adds its side-to-side acceleration.
-@@ -794,6 +798,7 @@ typedef struct { pthread_mutex_t mu; motion_state st; uint64_t last_ns, received
+@@ -810,6 +814,7 @@ typedef struct { pthread_mutex_t mu; motion_state st; uint64_t last_ns, received
  static live_motion g_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}};
  static live_motion g_hid_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}};
  static live_motion g_joy_motion[DM_PLAYERS][2] = {[0 ... DM_PLAYERS - 1] = {[0 ... 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}}};   // each Joy-Con's own sensor (dm_motion_set_joy)
@@ -2373,7 +2373,7 @@ index 0af72b12..8ff86dd5 100644
  static live_motion g_phone_motion = {.mu = PTHREAD_MUTEX_INITIALIZER};
  static pthread_once_t g_motion_once = PTHREAD_ONCE_INIT;
  static motion_map g_motion_map; static float g_motion_gain = 0.5f; static int g_motion_off, g_motion_log, g_phone_mode;
-@@ -875,7 +880,44 @@ void dm_motion_clear(int p) {
+@@ -891,7 +896,44 @@ void dm_motion_clear(int p) {
  }
  void dm_motion_clear_hid(int p) {
      if (p < 0 || p >= DM_PLAYERS) return;
@@ -2419,7 +2419,7 @@ index 0af72b12..8ff86dd5 100644
  }
  static uint64_t motion_copy(live_motion *m, motion_state *out) {   // a source's timestamp while it is fresh (0 when not), and a copy of its state when out is given
      uint64_t t;
-@@ -885,24 +927,28 @@ static uint64_t motion_copy(live_motion *m, motion_state *out) {   // a source's
+@@ -901,24 +943,28 @@ static uint64_t motion_copy(live_motion *m, motion_state *out) {   // a source's
      pthread_mutex_unlock(&m->mu);
      return t;
  }
@@ -2453,7 +2453,7 @@ index 0af72b12..8ff86dd5 100644
  // One Joy-Con's sensor: its own stream while fresh; NULL (the host's flat sensor) once it has reported its own motion and is still attached but its stream went quiet (a
  // Joy-Con 2 skipping reports, for any length of time), as the pad's merged stream holds the controller in another frame (a sideways Joy-Con's, a quarter turn away); else
  // the pad's merged one (a controller that reports no per-Joy-Con motion, or a Joy-Con not attached)
-@@ -911,11 +957,11 @@ static int joy_own(int p, int side) {   // 1: its own stream is fresh, 0: it wen
+@@ -927,11 +973,11 @@ static int joy_own(int p, int side) {   // 1: its own stream is fresh, 0: it wen
      if (motion_copy(&g_joy_motion[p][side], NULL)) return 1;
      return atomic_load(&g_joy_reported[p]) >> side & atomic_load(&g_joy_sides[p]) >> side & 1 ? 0 : -1;
  }
@@ -2468,7 +2468,7 @@ index 0af72b12..8ff86dd5 100644
  }
  // A stream's history from guest time `from` on, copied under its lock while the stream is still fresh (the input thread holds that lock only to add a sample): the newest samples
  // back to the first at or before `from` (one before the window, for interpolating its start), oldest first, their times turned into guest ns with the guest clock's lag now;
-@@ -1010,21 +1056,27 @@ static uint64_t answer_delay(tick_hwm *w, uint32_t h, uint64_t target, uint64_t
+@@ -1026,21 +1072,27 @@ static uint64_t answer_delay(tick_hwm *w, uint32_t h, uint64_t target, uint64_t
      atomic_store(&w->delay[at], d); atomic_store(&w->delay_at[at], now ? now : 1);
      return d;
  }
@@ -2501,7 +2501,7 @@ index 0af72b12..8ff86dd5 100644
          s->acc[0] = (float)(SHAKE_G * sin(ph));
          s->gyro[2] = (float)(SHAKE_REV * sin(ph));
          yaw = SHAKE_REV / (2 * M_PI * SHAKE_HZ) * (1 - cos(ph)); s->angle[2] = (float)yaw;
-@@ -1032,19 +1084,10 @@ static void six_sample(SixAxisState *s, int64_t samp, int shakes) {
+@@ -1048,19 +1100,10 @@ static void six_sample(SixAxisState *s, int64_t samp, int shakes) {
      float c = (float)cos(2 * M_PI * yaw), sn = (float)sin(2 * M_PI * yaw);
      s->dir[0] = c; s->dir[1] = sn; s->dir[3] = -sn; s->dir[4] = c; s->dir[8] = 1;
  }
@@ -2522,7 +2522,7 @@ index 0af72b12..8ff86dd5 100644
      return (int)(idx - SIX_IDX_FULLKEY);   // FullKey .. JoyRight are style bits 0 .. 4
  }
  static int six_connected(uint32_t h) { int b = six_style_bit(h); return b >= 0 && (style_of(h >> 8 & 0xff) >> b & 1); }
-@@ -1060,7 +1103,7 @@ static uint32_t six_style_index(uint32_t style) {
+@@ -1076,7 +1119,7 @@ static uint32_t six_style_index(uint32_t style) {
  }
  // The motion behind a handle: a Joy-Con npad's own Joy-Con, else its player's controller. Fills src with that stream's history (live_ring_copy) and returns its count: 0 when no
  // live stream is fresh (the sensor lies flat). Also whether it shakes
@@ -2531,7 +2531,7 @@ index 0af72b12..8ff86dd5 100644
  static pthread_once_t g_imu_once; static void imu_env_read(void);   // DM_IMU_DELAY and the rest (below, at the IMU state)
  // The stream behind a handle (NULL: the host's flat sensor). A Joy-Con npad reads its own Joy-Con, a real L + R pair the game takes as a pair (KIND_DUAL) each handle its own
  // half. A whole controller reads its player's merged stream, except Joy-Cons the game is shown as a pair (pad_style: a game such as Nintendo Switch Sports Resort supports JoyDual
-@@ -1069,12 +1112,12 @@ static pthread_once_t g_imu_once; static void imu_env_read(void);   // DM_IMU_DE
+@@ -1085,12 +1128,12 @@ static pthread_once_t g_imu_once; static void imu_env_read(void);   // DM_IMU_DE
  // handle its own half. A single Joy-Con from the start: both handles read it, not one of them a flat sensor, as Switch Sports Resort read device 0 (the left half's) 50 times as
  // often as device 1 with a right Joy-Con alone, so a flat device 0 would leave its racket still. A pair that lost a half: the missing half's handle lies flat, as its sensor is
  // gone, rather than taking the other half's stream mid-game (a jump to another controller's frame)
@@ -2547,7 +2547,7 @@ index 0af72b12..8ff86dd5 100644
          for (int q = 0; q < DM_PLAYERS; q++) if (src >> q & 1 && joy_active(q)) {
              uint32_t sides = atomic_load(&g_joy_sides[q]); int side = sides == 3 ? dev : sides == 2;
              if (sides != 3 && side != dev && atomic_load(&g_joy_paired[q])) return NULL;
-@@ -1083,16 +1126,18 @@ static live_motion *six_stream(uint32_t h, npad_ref ref, int pl) {
+@@ -1099,16 +1142,18 @@ static live_motion *six_stream(uint32_t h, npad_ref ref, int pl) {
              if (!own) return NULL;   // it went quiet: flat, not the merged stream's frame
          }
      }
@@ -2570,7 +2570,7 @@ index 0af72b12..8ff86dd5 100644
      if (!m) return 0;
      pthread_once(&g_imu_once, imu_env_read);
      uint64_t lag; live_ring_copy(m, from > LIVE_DELAY_MAX_NS ? from - LIVE_DELAY_MAX_NS : 0, src->r, &src->n, &lag);
-@@ -1110,25 +1155,27 @@ static unsigned six_source(uint32_t h, uint64_t from, live_hist *src, int *shake
+@@ -1126,25 +1171,27 @@ static unsigned six_source(uint32_t h, uint64_t from, live_hist *src, int *shake
  static int six_offset_known(uint32_t h) {
      npad_ref ref = npad_resolve(h >> 8 & 0xff);
      int pl = ref.kind >= KIND_DUAL ? ref.pad : player_of(h >> 8 & 0xff);
@@ -2604,7 +2604,7 @@ index 0af72b12..8ff86dd5 100644
          // Super Mario Party (main+0x57a72c, main+0x57ce38) discards any Joy-Con SixAxisSensorState whose
          // acceleration has an exact 0.0f component (fcmp s0/s1/s2, #0.0; b.eq) and falls back to (0, 0, 0).
          if (split) {
-@@ -1137,6 +1184,24 @@ static int six_states(SixAxisState *out, int n, uint32_t h) {
+@@ -1153,6 +1200,24 @@ static int six_states(SixAxisState *out, int n, uint32_t h) {
      }
      return n;
  }
@@ -2629,7 +2629,7 @@ index 0af72b12..8ff86dd5 100644
  // A style set of several styles (FullKey | JoyDual, as a game that takes either passes) gets the style the npad's controller is shown in, when it is one of them (else the first, as
  // the SDK's utility); two handles when the set holds a style made of two Joy-Cons (handheld, dual), as the host always answered; none for a set with no style that has a sensor
  HLE_FORCE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", "six-axis sensor handles: two for handheld / dual Joy-Cons, one otherwise",
-@@ -1695,14 +1760,7 @@ HLE_FORCE("_ZN2nn3hid16GetGestureStatesEPNS0_12GestureStateEi", "gesture states,
+@@ -1728,14 +1793,7 @@ HLE_FORCE("_ZN2nn3hid16GetGestureStatesEPNS0_12GestureStateEi", "gesture states,
  // Six-axis details: the current state, at rest unless shaking, fusion off
  HLE_FORCE("_ZN2nn3hid17StopSixAxisSensorERKNS0_19SixAxisSensorHandleE", "six-axis sensor; always sampling on the host", void, h_hid_SixStop, const uint32_t *h) { (void)h; }
  HLE_FORCE("_ZN2nn3hid21GetSixAxisSensorStateEPNS0_18SixAxisSensorStateERKNS0_19SixAxisSensorHandleE", "six-axis sensor current state", void, h_hid_SixState, SixAxisState *s, const uint32_t *h) { six_states(s, 1, *h); }
@@ -2646,7 +2646,7 @@ index 0af72b12..8ff86dd5 100644
  HLE_FORCE("_ZN2nn3hid28InitializeSevenSixAxisSensorEPvm", "console six-axis sensor initialization; not provided by the host", Result, h_hid_SevenInit, void *buf, size_t n) { (void)buf; (void)n; return RES_OK; }
  HLE_FORCE("_ZN2nn3hid26FinalizeSevenSixAxisSensorEv", "console six-axis sensor", Result, h_hid_SevenFini, void) { return RES_OK; }
 diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
-index 64b6b9de..ddab1156 100644
+index 64b6b9d..ddab115 100644
 --- a/dm/host/home_quit.h
 +++ b/dm/host/home_quit.h
 @@ -1,9 +1,9 @@
@@ -2662,7 +2662,7 @@ index 64b6b9de..ddab1156 100644
  // Games app or the player's chosen app), the game window loses the focus and whatever was shown closes (hq_cancel). DM_HOME_QUIT=0 turns it off. A front end passes the
  // texts in the player's language as DM_HOME_QUIT_TEXT (hq_text_line, docs/frontends.md), English otherwise.
 diff --git a/dm/host/input_map.h b/dm/host/input_map.h
-index 56fa4993..64419adc 100644
+index 56fa499..64419ad 100644
 --- a/dm/host/input_map.h
 +++ b/dm/host/input_map.h
 @@ -1,10 +1,11 @@
@@ -2745,7 +2745,7 @@ index 56fa4993..64419adc 100644
      uint64_t out = btn & ~0xffffull;
 diff --git a/dm/host/input_preferences_mac.h b/dm/host/input_preferences_mac.h
 new file mode 100644
-index 00000000..b3a2deef
+index 0000000..b3a2dee
 --- /dev/null
 +++ b/dm/host/input_preferences_mac.h
 @@ -0,0 +1,47 @@
@@ -2797,7 +2797,7 @@ index 00000000..b3a2deef
 +    return value;
 +}
 diff --git a/dm/host/pad_hid_mac.h b/dm/host/pad_hid_mac.h
-index 3df247c5..81911379 100644
+index 3df247c..8191137 100644
 --- a/dm/host/pad_hid_mac.h
 +++ b/dm/host/pad_hid_mac.h
 @@ -1,6 +1,6 @@
@@ -3027,7 +3027,7 @@ index 3df247c5..81911379 100644
          IOHIDManagerUnscheduleFromRunLoop(g_hidpad_manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
 diff --git a/dm/host/pad_map.h b/dm/host/pad_map.h
 new file mode 100644
-index 00000000..2f482e5c
+index 0000000..2f482e5
 --- /dev/null
 +++ b/dm/host/pad_map.h
 @@ -0,0 +1,17 @@
@@ -3050,7 +3050,7 @@ index 00000000..2f482e5c
 +}
 diff --git a/dm/host/pad_motion.h b/dm/host/pad_motion.h
 new file mode 100644
-index 00000000..27b19e26
+index 0000000..27b19e2
 --- /dev/null
 +++ b/dm/host/pad_motion.h
 @@ -0,0 +1,36 @@
@@ -3092,7 +3092,7 @@ index 00000000..27b19e26
 +}
 diff --git a/dm/host/steam_input.h b/dm/host/steam_input.h
 new file mode 100644
-index 00000000..a2525732
+index 0000000..a252573
 --- /dev/null
 +++ b/dm/host/steam_input.h
 @@ -0,0 +1,97 @@
@@ -3194,10 +3194,10 @@ index 00000000..a2525732
 +    memset(out, 0, 64); out[0] = 1; out[1] = 0x87; out[2] = 3; out[3] = 48; out[4] = enabled ? 0x18 : 0;
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index c70ac5e9..91e95c7e 100644
+index 40bc208..d4d7c4c 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -80,6 +80,9 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
+@@ -82,6 +82,9 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
  	TMPDIR="$(abspath $(B))" $(B)/t_cheats $(QUIET)
  	$(B)/t_nro
  	$(B)/t_symbols
@@ -3207,7 +3207,7 @@ index c70ac5e9..91e95c7e 100644
  run: $(B)/t_nro
  run: $(B)/t_sync_wait
  $(B)/t_sync_wait: t_sync_wait.c t_condvar_stub.c ../hle_thread.c ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
-@@ -425,3 +428,11 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
+@@ -438,3 +441,11 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
  .PHONY: profile-runtime
  profile-runtime: $(B)/t_profile_runtime
  	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
@@ -3221,7 +3221,7 @@ index c70ac5e9..91e95c7e 100644
 +	$(CLANG) $(GINC) -O1 -fobjc-arc -Wall -Werror -Wno-unused-function -o $@ t_controllers_mac.m -framework Cocoa -framework GameController -framework IOKit
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
 new file mode 100644
-index 00000000..42c55c10
+index 0000000..42c55c1
 --- /dev/null
 +++ b/dm/host/tests/t_controllers_mac.m
 @@ -0,0 +1,1123 @@
@@ -4349,7 +4349,7 @@ index 00000000..42c55c10
 +    }
 +}
 diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
-index 490e2439..2243e380 100644
+index 490e243..2243e38 100644
 --- a/dm/host/tests/t_haptics_apple.m
 +++ b/dm/host/tests/t_haptics_apple.m
 @@ -100,7 +100,7 @@ @interface TestEngine : NSObject
@@ -4431,7 +4431,7 @@ index 490e2439..2243e380 100644
      assert(ds4_crc((const uint8_t *)"123456789", 9) == 0xCBF43926u);   // the report's CRC32 (IEEE, reflected)
      dm_haptics_apple_shutdown();
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 03f36e3d..07ef03c9 100644
+index 7f9817c..4bb7d0e 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
 @@ -31,6 +31,8 @@ uint64_t guest_ns(void) { return guest_now; }
@@ -4487,7 +4487,7 @@ index 03f36e3d..07ef03c9 100644
  
      uint32_t h; uint32_t id = 0;
      CHECK(h_hid_SixHandles(&h, 1, &id, STYLE_FULLKEY) == 1, "one six-axis handle for player 1");
-@@ -742,7 +745,7 @@ static void *imu_reader(void *arg) {   // reads the newest 16 at a fixed guest t
+@@ -752,7 +755,7 @@ static void *imu_reader(void *arg) {   // reads the newest 16 at a fixed guest t
  static void t_npad_imu_samples(void) {
      g_mode = 1; dm_pad_players(1); g_phone_mode = 0;
      setenv("DM_IMU_NOISE", "0", 1); unsetenv("DM_IMU_ACC_SIGN"); unsetenv("DM_IMU_GYRO_SIGN"); imu_env_read();   // exact values and the host's own signs here; t_imu_noise checks the noise
@@ -4496,7 +4496,7 @@ index 03f36e3d..07ef03c9 100644
      uint32_t h = 0x20003;   // the SDK's own handle (utility::GetSixAxisSensorHandle, sdk+0x6d8490): full key (style index 3) on No1, the whole controller (device 2)
      imu_handle = h;
      TestImuSample s[40], t[40]; memset(s, 0xAB, sizeof s);
-@@ -861,7 +864,7 @@ static void t_imu_sdk_handles(void) {
+@@ -871,7 +874,7 @@ static void t_imu_sdk_handles(void) {
  // with the intended spread, uncorrelated from one tick to the next; DM_IMU_NOISE=0 leaves it out
  static void t_imu_noise(void) {
      g_mode = 1; dm_pad_players(1); g_phone_mode = 0;
@@ -4505,7 +4505,7 @@ index 03f36e3d..07ef03c9 100644
      unsetenv("DM_IMU_NOISE"); imu_env_read();
      uint32_t h[2] = {0x20003, 0x10003};   // the SDK's handles of player 1's full-key controller, two device indexes
      uint8_t ring[64]; h_hid_ImuEnable(ring, sizeof ring);
-@@ -1573,6 +1576,170 @@ static void t_unsupported_style(void) {
+@@ -1583,6 +1586,170 @@ static void t_unsupported_style(void) {
      CHECK(h_hid_GetStyle(&(uint32_t){0}) == STYLE_FULLKEY, "JoyLeft | JoyRight only: no style with a whole controller's buttons supported, full-key as before");
      h_hid_SetStyles(0xffffffffu); pthread_mutex_lock(&g_style_lock); g_style_ev[0] = NULL; pthread_mutex_unlock(&g_style_lock);
  }
@@ -4676,7 +4676,7 @@ index 03f36e3d..07ef03c9 100644
  
  int main(void) {
      CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");
-@@ -1585,6 +1752,7 @@ int main(void) {
+@@ -1595,6 +1762,7 @@ int main(void) {
      t_slots();
      t_npads();
      t_script();
@@ -4684,7 +4684,7 @@ index 03f36e3d..07ef03c9 100644
      t_vibration();
      t_opmode();
      t_joycons();
-@@ -1611,6 +1779,70 @@ int main(void) {
+@@ -1621,6 +1789,70 @@ int main(void) {
      t_pair_half_pause();
      t_six_ic_info();
      t_touch_sampling();
@@ -4755,7 +4755,7 @@ index 03f36e3d..07ef03c9 100644
      t_rec();
      {   // Nmouse with no device (SDK 21's forms): the pointer range is kept, the merged handle 0 takes settings, the standard mouse and the handle queries report nothing
          int w = 0, h = 0; uint64_t std = 7; uint32_t npad = 9;
-@@ -1636,6 +1868,7 @@ int main(void) {
+@@ -1646,6 +1878,7 @@ int main(void) {
          CHECK(pad_slot_take_lowest(&f, &o[DM_PLAYERS], "pad") == -1, "press: none left when every player is held");
          CHECK(pad_slot_take_lowest(&f, NULL, "pad") == -1, "press: no owner, no slot");
      }
@@ -4764,7 +4764,7 @@ index 03f36e3d..07ef03c9 100644
      return fails != 0;
  }
 diff --git a/dm/host/tests/t_input_map.c b/dm/host/tests/t_input_map.c
-index 96736ad6..8ea0ab70 100644
+index 96736ad..8ea0ab7 100644
 --- a/dm/host/tests/t_input_map.c
 +++ b/dm/host/tests/t_input_map.c
 @@ -28,6 +28,29 @@ int main(void) {
@@ -4817,7 +4817,7 @@ index 96736ad6..8ea0ab70 100644
      return fails != 0;
  }
 diff --git a/dm/host/tests/t_pad_hid_mac.m b/dm/host/tests/t_pad_hid_mac.m
-index 80b58e6a..07b47682 100644
+index 80b58e6..07b4768 100644
 --- a/dm/host/tests/t_pad_hid_mac.m
 +++ b/dm/host/tests/t_pad_hid_mac.m
 @@ -42,6 +42,8 @@ static void test_report_cb(IOHIDDeviceRef device, uint8_t *buffer, CFIndex len,
@@ -4847,7 +4847,7 @@ index 80b58e6a..07b47682 100644
  static void hidpad_read(hid_pad *d) { (void)d; }
 diff --git a/dm/host/tests/t_pad_map.c b/dm/host/tests/t_pad_map.c
 new file mode 100644
-index 00000000..6035d6ed
+index 0000000..6035d6e
 --- /dev/null
 +++ b/dm/host/tests/t_pad_map.c
 @@ -0,0 +1,104 @@
@@ -4957,7 +4957,7 @@ index 00000000..6035d6ed
 +}
 diff --git a/dm/host/tests/t_pad_motion.c b/dm/host/tests/t_pad_motion.c
 new file mode 100644
-index 00000000..f785cf02
+index 0000000..f785cf0
 --- /dev/null
 +++ b/dm/host/tests/t_pad_motion.c
 @@ -0,0 +1,19 @@
@@ -4981,7 +4981,7 @@ index 00000000..f785cf02
 +    puts("motion timestamp wrap, units, orientation and stale-gap handling: OK");
 +}
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index 57d3953b..b03a258d 100644
+index 1596b2d..2575a8f 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -6,6 +6,8 @@
@@ -5056,9 +5056,9 @@ index 57d3953b..b03a258d 100644
 +    saved_choices(shown == 1);   // the window applied its settings; the controls are not among them
      cloud_saves_folder();
      setenv("DM_ROOT", sup, 0); setenv("DM_ROMFS", romfs, 0); setenv("DM_TEMP", temp, 0);
-     snprintf(p, sizeof p, "%s/msl", res); setenv("DM_MSL_DIR", p, 0);
+     snprintf(p, sizeof p, "%s/Library/Application Support/nxnative/system", home); setenv("DM_SYSTEM_DIR", p, 0);   // the player's own console files, for every game
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index df7843d4..37049e75 100755
+index 9a0dd61..26288a6 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -131,7 +131,7 @@ def info_plist(a, minos, icon):
@@ -5080,7 +5080,7 @@ index df7843d4..37049e75 100755
                    'trees': [(p, inventory(Path(p))) for p in (a.romfs, a.aoc, a.html, *(str(x[1]) for x in programs), *(str(x[3]) for x in programs)) if p and Path(p).exists()],
                    'tools': [[str(c), c.stat().st_mode, c.stat().st_size, c.stat().st_mtime_ns, c.stat().st_ctime_ns, run([c, '--version']).strip()] for c in (clang, swiftc)] + [
 diff --git a/dm/tools/impact_map.tsv b/dm/tools/impact_map.tsv
-index 3018bd40..82dcffed 100644
+index c128bf3..41dfa02 100644
 --- a/dm/tools/impact_map.tsv
 +++ b/dm/tools/impact_map.tsv
 @@ -150,6 +150,15 @@ dm/host/motion_pro_mac.h	hle:*SixAxisSensor*	Mac Pro Controller raw motion trans
@@ -5098,9 +5098,9 @@ index 3018bd40..82dcffed 100644
 +dm/host/hle_haptics.h	hle:*Vibration*	the shared rumble interface
  dm/host/front.h	present:*	the front end
  dm/ios/*	*:*	the iOS app
- dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/Transforms/GeometryToCompute.cs	shader:stage:gs	geometry compute input and output lowering
+ dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/ResourceReservations.cs	shader:stage:gs	geometry compute varying slots
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index f805fcec..2ccb8077 100644
+index b576728..d46b7ff 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -120,7 +120,7 @@ class PackReuse(unittest.TestCase):
@@ -5134,7 +5134,7 @@ index f805fcec..2ccb8077 100644
                   'host/save_sync.c', 'host/save_sync.h']   # the cloud-save code the launcher links (its send after the host exits)
          names += ['profile/' + n for n in pack_app.TABLES]
          for name in names:
-@@ -508,6 +516,7 @@ class App(unittest.TestCase):
+@@ -515,6 +523,7 @@ class App(unittest.TestCase):
          self.assertEqual((p['CFBundleExecutable'], p['CFBundleName'], p['CFBundleIdentifier'], p['CFBundleShortVersionString']), ('nxnative', 'Game: Test', 'org.nxnative.01008cf01baac000', '1.0.1'))
          self.assertEqual((p['DMTitleID'], p['DMLanguage'], p['DMRomfsMarker'], p['CFBundleIconFile']), (TID, 'fr', 'region_common/audio/edward.bfsar', 'AppIcon'))
          self.assertIs(p['LSSupportsGameMode'], False)   # macOS's Game Mode holds the GPU at its lowest clock (frame-rate.md)
@@ -5142,7 +5142,7 @@ index f805fcec..2ccb8077 100644
          self.assertEqual(p['DMSettings'], [])   # launcher.json's settings, as the saved choices they accept: none here
          self.assertRegex(p['DMCommit'], r'^[0-9a-f]{12}(\+dirty)?$')   # the packing checkout (scripts/bug_report.py, the host's start line)
          self.assertEqual(p['DMChain'], '0123456789ab')   # the chain of the libraries packed (msl/b-<chain>)
-@@ -581,6 +590,104 @@ class App(unittest.TestCase):
+@@ -588,6 +597,104 @@ class App(unittest.TestCase):
              subprocess.run(['defaults', 'delete', domain], capture_output=True)
              Path(os.path.expanduser(f'~/Library/Preferences/{domain}.plist')).unlink(missing_ok=True)
  
@@ -5248,12 +5248,12 @@ index f805fcec..2ccb8077 100644
          for target in (self.app, self.app / 'Contents/MacOS/dmhost'):
              subprocess.run(['codesign', '--verify', '--strict', target], check=True, capture_output=True)
 diff --git a/docs/development.md b/docs/development.md
-index 94d0930f..dce4bc70 100644
+index f10fd9e..e882247 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -614,6 +614,10 @@ Why the host is a child process: macOS privacy checks (TCC) cover files on remov
  
- Signing: `pack_app.py` signs the inner host first, then the bundle (`codesign --force --sign <identity>`). It signs ad-hoc by default; `--mac-sign "<identity>"` (`MAC_SIGN` in Spyder) names a Developer ID or another identity. It never uses the hardened runtime: `--options runtime` refuses the executable memory the host maps for the game's code. Notarization needs the hardened runtime, so the app is not notarized. Gatekeeper blocks it on a Mac it was downloaded to until it is allowed in System Settings › Privacy & Security. `dm/tools/tests/test_nsp_mac_app.py` tests the packer and the launcher with a stand-in host, without game files.
+ Signing: `pack_app.py` signs the inner host first, then the bundle (`codesign --force --sign <identity>`). It signs ad-hoc by default; `--mac-sign "<identity>"` (`MAC_SIGN` in Spyder) names a Developer ID or another identity. It never uses the hardened runtime: `--options runtime` refuses the executable memory the host maps for the game's code. Notarization needs the hardened runtime, so the app is not notarized. Gatekeeper blocks it on a Mac it was downloaded to until it is allowed in System Settings › Privacy & Security. The first launch of a large app can take minutes, and later launches start at once: Persona 5 Royal's 34 GB app on an external volume sat about four minutes in `_dyld_start`, at tens of KB of memory, before the game started (macOS presumably checking the new bundle; not traced further). `dm/tools/tests/test_nsp_mac_app.py` tests the packer and the launcher with a stand-in host, without game files.
  
 +For the Steam Controller's direct HID input, see [Input Monitoring and rebuilt apps](mac-controllers.md#input-monitoring-and-rebuilt-apps), including renewing permission after an ad-hoc rebuild.
 +
@@ -5263,7 +5263,7 @@ index 94d0930f..dce4bc70 100644
  
  With an Apple developer account, Xcode can sign and install the app itself:
 diff --git a/docs/frontends.md b/docs/frontends.md
-index ec740639..91f2b595 100644
+index d97efbd..cf58514 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -68,6 +68,7 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID
@@ -5314,7 +5314,7 @@ index ec740639..91f2b595 100644
  The folder a Mac app's save is synced through ([Cloud saves](settings.md#cloud-saves)) is not a row of the settings list, since a folder is none of its kinds. It has a key of its own in the same store: `cloudSaves.folder`, a string with the folder's absolute path (`defaults write org.nxnative.<title ID> cloudSaves.folder "$HOME/Library/Mobile Documents/com~apple~CloudDocs/My Saves"`). Remove the key, or write an empty string, to turn cloud saves off. The app's settings window shows and changes the same key, so the player sees the folder a front end chose.
 diff --git a/docs/mac-controllers.md b/docs/mac-controllers.md
 new file mode 100644
-index 00000000..e633df5a
+index 0000000..e633df5
 --- /dev/null
 +++ b/docs/mac-controllers.md
 @@ -0,0 +1,253 @@
@@ -5572,10 +5572,10 @@ index 00000000..e633df5a
 +first. For repeated development builds, the packer's existing `--mac-sign`
 +option can use a stable signing identity, see [Mac app signing](development.md#a-mac-app).
 diff --git a/docs/reference/services.md b/docs/reference/services.md
-index 58c08990..a0c2deb2 100644
+index 665a743..32d05f7 100644
 --- a/docs/reference/services.md
 +++ b/docs/reference/services.md
-@@ -341,6 +341,27 @@ Most service calls can be found before they crash, before the first boot or the
+@@ -386,6 +386,27 @@ Most service calls can be found before they crash, before the first boot or the
  - **Fix:** look up the player once and derive the style from that same result before constructing the player mask.
  - **Found on:** clang static analysis ([issue #424](https://github.com/seedds/nxnative/issues/424)); no gameplay failure reported.
  
@@ -5603,7 +5603,7 @@ index 58c08990..a0c2deb2 100644
  ### History reads fill every requested entry
  
  - **Symptom:** buttons and menus work, the sticks do nothing in play (Super Mario Odyssey: its first hint, "Look Around", waited forever); an `nn::diag` abort with Result 0x2aca in the first frames of `nnMain` (Hollow Knight: Silksong, Unity 6000.0.50f1: `bt: sdk+0x514580 main+0x1296c64 …`).
-@@ -367,7 +388,7 @@ Most service calls can be found before they crash, before the first boot or the
+@@ -412,7 +433,7 @@ Most service calls can be found before they crash, before the first boot or the
  
  - **Symptom:** motion moves never happen; shaking does nothing (Super Mario Odyssey: cap throws by shaking).
  - **Cause:** the host handed out six-axis handles but reported no sensor.
@@ -5612,7 +5612,7 @@ index 58c08990..a0c2deb2 100644
  - **Found on:** [Super Mario Odyssey](../../dm/games/0100000000010000/README.md): it reads all 16 history entries per sensor and ignores the count, like its npad history ([History reads fill every requested entry](#history-reads-fill-every-requested-entry)).
  - **Note:** find a game's swing detector by probing the accelerometer value it reads (`DM_PROBE=main:626248@x8+10` in Odyssey 1.4.1).
  
-@@ -461,6 +482,19 @@ Most service calls can be found before they crash, before the first boot or the
+@@ -506,6 +527,19 @@ Most service calls can be found before they crash, before the first boot or the
  - **Cause:** `IOHIDManager` hands a device over once per matching dictionary it meets, each time as a new `IOHIDDeviceRef` for the same I/O Registry entry. The Pro Controller meets both the GamePad usage dictionary and its own vendor / product one (added so identical pads are counted), and `hidpad_found` knew devices by reference only, so one pad counted as two pads of its model against GameController's one controller ([Identical controllers that GameController lists as one](#identical-controllers-that-gamecontroller-lists-as-one)).
  - **Fix:** `pad_hid_mac.h` knows a device by its registry entry ID (`hidpad_entry`): a second reference to a known entry is ignored in every list.
  - **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md), one Pro Controller over Bluetooth on the Mac: no music in Kokiri Forest gameplay or its cutscenes, back once the pad was read once.
