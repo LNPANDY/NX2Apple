@@ -105,6 +105,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var dataStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var cloudStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var artwork: [URL: Artwork] = [:]
+    @ObservationIgnored private var resolvedProfiles: [String: LauncherProfile] = [:]
     /// The shell-level settings every game falls back to (game > shell > built-in).
     @ObservationIgnored public let shellSettings: ShellSettingsStore
     @ObservationIgnored private let shellData: BookmarkStore
@@ -334,6 +335,7 @@ public struct ShellHostConfig: Sendable {
 
     private func reload(afterClaim: Bool) {
         forgetCheckedRomfsImages()
+        resolvedProfiles.removeAll()
         if let hotRoot = config.hotFrameworksRoot {
             GameCatalogue.promoteStagedFrameworks(in: hotRoot, gameDataRoot: config.appDataRoot)
         }
@@ -383,6 +385,34 @@ public struct ShellHostConfig: Sendable {
     private func refresh(_ id: String) {
         guard let e = entries.firstIndex(where: { $0.id == id }), let d = details.firstIndex(where: { $0.id == id }) else { return }
         details[d] = detail(for: entries[e])
+    }
+
+    private func settingsSnapshot(for id: String, profile: LauncherProfile) -> (sections: [SettingSection], hasModifiedSettings: Bool) {
+        let store = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults)
+        let fromShell = Set(profile.settings.filter(store.isFromShell).map(\.env))
+        let pad = GamePadMapStore(defaults: config.defaults(id))
+        let sections = SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell)
+        // A profile-provided DM_PAD_MAP row owns the mapping, so do not offer conflicting shell overrides.
+        let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section()]
+        return (sections + padSections, store.hasModifiedSettings || !pad.entries.isEmpty)
+    }
+
+    /// Updates only settings rows and the modified flag in place so tapping a control never re-runs disk or bookmark I/O.
+    private func refreshSettings(_ id: String, profile: LauncherProfile) {
+        guard let d = details.firstIndex(where: { $0.id == id }) else {
+            refresh(id)
+            return
+        }
+        let snapshot = settingsSnapshot(for: id, profile: profile)
+        details[d].sections = snapshot.sections
+        details[d].hasModifiedSettings = snapshot.hasModifiedSettings
+    }
+
+    private func cachedOrResolvedProfile(for id: String) -> LauncherProfile? {
+        if let cached = resolvedProfiles[id] { return cached }
+        guard let entry = entry(id), let resolved = profile(for: entry) else { return nil }
+        resolvedProfiles[id] = resolved
+        return resolved
     }
 
     private func entry(_ id: String) -> CatalogueEntry? { entries.first { $0.id == id } }
@@ -530,9 +560,10 @@ public struct ShellHostConfig: Sendable {
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
                             isSwitch2: entry.manifest?.console == "switch2")
         guard let profile = profile(for: entry, data: data) else {
+            resolvedProfiles.removeValue(forKey: entry.id)
             return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false, readiness: readiness))
         }
-        let store = GameSettingsStore(profile: profile, defaults: config.defaults(entry.id), shell: shellSettings.gameDefaults)
+        resolvedProfiles[entry.id] = profile
         var cloud: String?
         var cloudNote = ""
         var cloudFromShell = false
@@ -548,15 +579,11 @@ public struct ShellHostConfig: Sendable {
         }
         var shellFolder = false
         if case .url = shellCloud.resolve() { shellFolder = true }
-        let fromShell = Set(profile.settings.filter(store.isFromShell).map(\.env))
-        let pad = GamePadMapStore(defaults: config.defaults(entry.id))
-        let sections = SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell)
-        // A profile-provided DM_PAD_MAP row owns the mapping, so do not offer conflicting shell overrides.
-        let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section()]
+        let snapshot = settingsSnapshot(for: entry.id, profile: profile)
         return GameDetail(
-            game: tile, sections: sections + padSections,
+            game: tile, sections: snapshot.sections,
             dataSource: dataSource(data), dataNote: dataNote(for: entry.id, data: data, found: data.found, readiness: readiness),
-            cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings || !pad.entries.isEmpty,
+            cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: snapshot.hasModifiedSettings,
             dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
             cloudCanUseShell: shellFolder && !cloudFromShell,
             latestSaveBackup: latestBackup)
@@ -662,20 +689,20 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func change(_ id: String, setting: String, value: String) {
-        guard let entry = entry(id), let profile = profile(for: entry) else { return }
+        guard let profile = cachedOrResolvedProfile(for: id) else { return }
         if setting.hasPrefix("pad.") {
             GamePadMapStore(defaults: config.defaults(id)).change(setting, value: value)
         } else {
             GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).set(setting, to: value)
         }
-        refresh(id)
+        refreshSettings(id, profile: profile)
     }
 
     public func resetDefaults(_ id: String) {
-        guard let entry = entry(id), let profile = profile(for: entry) else { return }
+        guard let profile = cachedOrResolvedProfile(for: id) else { return }
         GameSettingsStore(profile: profile, defaults: config.defaults(id)).reset()
         GamePadMapStore(defaults: config.defaults(id)).reset()
-        refresh(id)
+        refreshSettings(id, profile: profile)
     }
 
     /// The folder the player picked, nil on a cancel. A picker that could not be shown says so in the notice (#1049).
@@ -816,6 +843,7 @@ public struct ShellHostConfig: Sendable {
         pickGeneration[id] = (pickGeneration[id] ?? 0) &+ 1
         pickedDataNotes.removeValue(forKey: id)
         latestBackups.removeValue(forKey: id)
+        resolvedProfiles.removeValue(forKey: id)
         if pendingCloudLaunch?.game.titleID == id {
             cancelCloudConflict()
         }
