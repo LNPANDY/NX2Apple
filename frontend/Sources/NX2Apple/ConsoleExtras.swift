@@ -38,6 +38,8 @@ enum ConsolePref: String, CaseIterable {
     case promptOnController
     /// ReturnAfterPlay.defaultsKey: the launcher comes back to the front when a game quits.
     case returnAfterPlay
+    /// NoticeSounds.defaultsKey: short sounds for build and controller notices (#1109).
+    case noticeSounds
     /// LibraryFilter "built": only the games with a build, on the desktop and here.
     case onlyBuilt
     var titleKey: String { "console.pref." + rawValue }
@@ -45,7 +47,7 @@ enum ConsolePref: String, CaseIterable {
     /// The switches of each page, in their order.
     static let onLibrary: [ConsolePref] = [.onlyBuilt]
     static let onControllers: [ConsolePref] = [.startInConsole, .promptOnController]
-    static let onSettings: [ConsolePref] = [.returnAfterPlay]
+    static let onSettings: [ConsolePref] = [.returnAfterPlay, .noticeSounds]
 }
 
 /// Where the app's own update stands (AppUpdateStore), as the General page's row says it and what A does there.
@@ -73,5 +75,5 @@ struct ConsolePrefs: Equatable {
     /// What the update store says now (downloading, ready, why an install failed), shown under the version.
     var updateStatus = ""
     subscript(_ pref: ConsolePref) -> Bool { values[pref] ?? Self.defaults[pref] ?? false }
-    static let defaults: [ConsolePref: Bool] = [.startInConsole: false, .promptOnController: true, .returnAfterPlay: true, .onlyBuilt: false]
+    static let defaults: [ConsolePref: Bool] = [.startInConsole: false, .promptOnController: true, .returnAfterPlay: true, .noticeSounds: true, .onlyBuilt: false]
 }

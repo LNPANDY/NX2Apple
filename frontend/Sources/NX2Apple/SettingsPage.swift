@@ -30,6 +30,7 @@ struct SettingsPage: View {
     @AppStorage(ConsolePrompt.defaultsKey) private var consolePromptOn = true   // ConsoleCoordinator.swift
     @AppStorage(ConsolePrompt.startKey) private var startInConsole = false   // ConsoleCoordinator.swift (#336)
     @AppStorage(BuildNotice.defaultsKey) private var notifyBuilds = true   // BuildNotifications.swift
+    @AppStorage(NoticeSounds.defaultsKey) private var noticeSounds = true
     @AppStorage(ReturnAfterPlay.defaultsKey) private var returnAfterPlay = true   // ReturnAfterPlay.swift
     @AppStorage(MacPreflight.defaultsKey) private var preflightAfterBuild = true   // MacPreflight.swift (#1005)
     @State private var pendingScrollID: String?
@@ -68,7 +69,7 @@ struct SettingsPage: View {
     }
 
     private func appCard(_ part: AppCard.Part) -> AppCard {
-        AppCard(updates: updates, buildRunning: build.running, notify: $notifyBuilds, notifyAvailable: BuildNotice.hasBundleID,
+        AppCard(updates: updates, buildRunning: build.running, notify: $notifyBuilds, notifyAvailable: BuildNotice.hasBundleID, noticeSounds: $noticeSounds,
                 returnAfterPlay: $returnAfterPlay, preflightAfterBuild: $preflightAfterBuild, onRunSetup: onRunSetup, uninstallPlan: uninstallPlan, part: part)
     }
 

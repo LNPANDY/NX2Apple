@@ -25,6 +25,7 @@ enum ReturnAfterPlay {
 @MainActor final class GameReturnWatcher {
     static let shared = GameReturnWatcher()
     private var started: [Int32: () -> Void] = [:]
+    var isGameRunning: Bool { !started.isEmpty }
     private var observer: NSObjectProtocol?
     private let observesSystem: Bool
 
