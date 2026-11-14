@@ -4,6 +4,7 @@
 pre-push runs the checks that match what the push changes. Each is the command CI or AGENTS.md ("Checks") names, run from the
 repository root. A push that touches only docs runs none, and a push that deletes a ref is skipped.
 pre-commit runs only the patch queue check, and only when patches/ or .upstream-ref is staged. It takes seconds.
+That check reads the working tree, so both hooks stop when patches/ or .upstream-ref there is not what is being committed or pushed.
 Install the hooks with `git config core.hooksPath .githooks`: tools/engine.py does it for you.
 """
 import os
@@ -17,6 +18,7 @@ import patches as P
 
 ROOT = Path(__file__).resolve().parent.parent
 ZERO = '0' * 40
+QUEUE_PATHS = ('patches', '.upstream-ref')
 SYNC = 'python3 tools/engine.py -q sync'   # these tests read engine/ (AGENTS.md, "Checks"); a no-op when it is current
 
 Check = namedtuple('Check', 'name prefixes command cwd sync')
@@ -67,18 +69,43 @@ def pushed_paths(lines):
     return paths
 
 
+def unchecked(rev=None):
+    """The patch queue files in the working tree that differ from `rev` (None: from the index), untracked ones included.
+    `tools/engine.py check` reads the working tree, so with any of these it would pass for something that is not being committed."""
+    env = os.environ.copy() if rev is None else None   # keeps GIT_INDEX_FILE, the index of this commit
+    changed = git('diff', '--name-only', *([rev] if rev else []), '--', *QUEUE_PATHS, env=env) or ''
+    new = git('ls-files', '--others', '--exclude-standard', '--', *QUEUE_PATHS, env=env) or ''
+    return sorted(set(changed.splitlines()) | set(new.splitlines()))
+
+
+def refuse_unchecked(hook, files, what):
+    stop = 'push' if hook == 'pre-push' else 'commit'
+    print(f'{hook}: the patch queue check reads the working tree, and these files are not what is being {what}: ' + ', '.join(files) +
+          f'\n{hook}: stage or commit them, or restore them, then {stop} again.', file=sys.stderr)
+    return 1
+
+
 def pre_push(lines):
     if any(len(f) == 4 and f[2] == 'refs/heads/main' for f in map(str.split, lines)):
         print('pre-push: pushing to main is not allowed. Open a pull request.', file=sys.stderr)
         return 1
     paths = pushed_paths(lines)
     if paths is None: print('pre-push: no base to compare with (is origin/main fetched?), so every check runs')
-    return run('pre-push', CHECKS if paths is None else checks_for(paths))
+    todo = CHECKS if paths is None else checks_for(paths)
+    if CHECKS[0] in todo:
+        for local in {f[1] for f in map(str.split, lines) if len(f) == 4 and f[1] != ZERO}:
+            files = unchecked(local)
+            if files: return refuse_unchecked('pre-push', files, 'pushed')
+    return run('pre-push', todo)
 
 
 def pre_commit():
     staged = (git('diff', '--cached', '--name-only', env=os.environ.copy()) or '').splitlines()   # keeps GIT_INDEX_FILE, the index of this commit
-    return run('pre-commit', [c for c in checks_for(staged) if c is CHECKS[0]])
+    todo = [c for c in checks_for(staged) if c is CHECKS[0]]
+    if todo:
+        files = unchecked()
+        if files: return refuse_unchecked('pre-commit', files, 'committed')
+    return run('pre-commit', todo)
 
 
 def run(hook, todo):
