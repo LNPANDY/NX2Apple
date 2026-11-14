@@ -75,6 +75,7 @@ import NXCore
             }
             entries.append(entry)
         }
+        if running == nil && busy() && !paused && !awaitingResume && hasWaiting { active = true }
         persist()
         if active { processNext() }
     }

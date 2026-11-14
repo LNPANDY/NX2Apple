@@ -12,6 +12,7 @@ struct LauncherView: View {
     @ObservedObject private var updates: AppUpdateStore   // the app's self-update: the update icon, the sheet, the uninstall dialog
     @ObservedObject private var repo: RepoStore   // the repository: the activity line, and the checks that follow a change of it
     @ObservedObject private var engine: EngineSyncStore   // the engine: the sync banner, and the checks that follow a sync
+    @ObservedObject var queue: BuildQueueStore
     @StateObject var library: GameLibrary
     @State var page: LauncherPage = .library
     @State var settingsCategory: SettingsCategory = .general   // the part of Settings shown
@@ -100,6 +101,7 @@ struct LauncherView: View {
         _m = StateObject(wrappedValue: stores.build); _loc = ObservedObject(wrappedValue: stores.localizer)
         _updates = ObservedObject(wrappedValue: stores.appUpdates); _devices = ObservedObject(wrappedValue: stores.deviceStore)
         _repo = ObservedObject(wrappedValue: stores.repo); _engine = ObservedObject(wrappedValue: stores.engineSync)
+        _queue = ObservedObject(wrappedValue: stores.queue)
         let library = library ?? GameLibrary()
         _library = StateObject(wrappedValue: library)
         _recorder = StateObject(wrappedValue: recorder ?? BuildRecorder(stores: stores, library: library, activeBuildID: activeBuildID))

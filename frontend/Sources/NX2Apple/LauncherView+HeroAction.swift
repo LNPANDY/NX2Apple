@@ -16,16 +16,17 @@ extension LauncherView {
 
     @ViewBuilder func heroPrimary(_ game: LibraryGame, compact: Bool) -> some View {
         let macStarting = isLaunchingMacGame(game)
+        let queued = queue.queued.contains { $0.titleID == game.titleID }
         let title = macStarting ? loc.t("library.launching")
             : (game.primary == .play ? loc.t("library.play")
                 : (game.primary == .openOnDevice ? String(format: loc.t("dev.open"), devices.deviceName(game.installedDevice))
-                    : loc.t("library.setUpBuild")))
+                    : loc.t(queued ? "library.queued" : (m.running ? "library.addToBuildQueue" : "library.setUpBuild"))))
         let symbol = game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill")
         let button = Button { primaryAction(game) } label: {
             LauncherHeroActionLabel(title: title, symbol: symbol, loading: macStarting)
         }
         .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil && !launching)
-        .disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
+        .disabled(launching || (!game.isReady && (queued || (m.running && activeBuildID == game.id))) || artworkEditor != nil)
         .keyboardShortcut(.return, modifiers: [])
         .padTarget("hero.play", scope: "main", radius: 30) { if !launching { primaryAction(game) } }
         if let version = game.playVersion ?? game.unbuiltVersion {
@@ -89,6 +90,12 @@ extension LauncherView {
             return
         }
         guard game.isReady else {
+            guard !queue.queued.contains(where: { $0.titleID == game.titleID }) else { return }
+            if m.running {
+                guard activeBuildID != game.id else { return }
+                enqueueBuilds([game])
+                return
+            }
             configureBuild(game)
             return
         }
