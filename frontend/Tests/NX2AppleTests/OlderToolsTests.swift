@@ -217,4 +217,139 @@ final class OlderToolsTests: IsolatedDefaultsTestCase {
         library.recordCompletedIOS(archive: "", app: app.path, for: id)   // a build from a checkout without git: nothing to compare
         XCTAssertEqual(GameLibrary(file: file).games.first?.toolsCommit, "")
     }
+
+    func testPureIOSFrameworkWithOlderShaderChainAndEmptyCommitIsMarkedAndAssessed() throws {
+        let fm = FileManager.default
+        let engine = temporary.appendingPathComponent("ios-release-engine")
+        let chainHeader = engine.appendingPathComponent("dm/gfx/nvn/dmsh_chain.h")
+        let marker = engine.appendingPathComponent(EngineLayout.marker)
+        for file in [chainHeader, marker] {
+            try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
+        try Data().write(to: marker)
+        try "#define DMSH_CHAIN \"\(currentChain)\"\n".write(to: chainHeader, atomically: true, encoding: .utf8)
+
+        let shellRoot = temporary.appendingPathComponent("shell-root")
+        func writeMirroredFramework(tid: String, chain: String, gfxAPI: String, includeBinary: Bool = true) throws {
+            let fw = URL(fileURLWithPath: ShellInstall.mirroredFramework(root: shellRoot.path, titleID: tid))
+            try fm.createDirectory(at: fw, withIntermediateDirectories: true)
+            let manifest = """
+            {"schema":1,"title_id":"\(tid)","chain":"b-\(chain)","framework_executable":"DmGame\(tid)","gfx_api":"\(gfxAPI)"}
+            """
+            try manifest.write(to: fw.appendingPathComponent("game.manifest.json"), atomically: true, encoding: .utf8)
+            if includeBinary {
+                try Data("bin".utf8).write(to: fw.appendingPathComponent("DmGame\(tid)"))
+            }
+        }
+
+        let oldTID = "010000000000A001"
+        let matchTID = "010000000000A002"
+        let vulkanTID = "010000000000A003"
+        let brokenTID = "010000000000A004"
+
+        try writeMirroredFramework(tid: oldTID, chain: previousChain, gfxAPI: "nvn")
+        try writeMirroredFramework(tid: matchTID, chain: currentChain, gfxAPI: "nvn")
+        try writeMirroredFramework(tid: vulkanTID, chain: previousChain, gfxAPI: "vulkan")
+        try writeMirroredFramework(tid: brokenTID, chain: previousChain, gfxAPI: "nvn", includeBinary: false)
+
+        let oldGame = LibraryGame(titleID: oldTID, name: "Pure iOS Old")
+        let matchingGame = LibraryGame(titleID: matchTID, name: "Pure iOS Current")
+        let vulkanGame = LibraryGame(titleID: vulkanTID, name: "Pure iOS Vulkan")
+        let brokenGame = LibraryGame(titleID: brokenTID, name: "Pure iOS Incomplete")
+
+        let age = ToolsAge()
+        let updated = expectation(description: "Tools age assesses pure iOS frameworks")
+        let sub = age.$assessments.dropFirst().sink { assessments in
+            guard assessments.count == 4 else { return }
+            updated.fulfill()
+        }
+        age.check(
+            games: [oldGame, matchingGame, vulkanGame, brokenGame],
+            repo: engine.path,
+            appVersion: "1.5.0",
+            seedRoot: temporary.appendingPathComponent("empty-seeds").path,
+            shellRoot: shellRoot.path
+        )
+        withExtendedLifetime(sub) { wait(for: [updated], timeout: 5) }
+
+        XCTAssertEqual(age.older, [oldGame.id])
+        let oldAssessment = try XCTUnwrap(age.assessments[oldGame.id])
+        XCTAssertEqual(oldAssessment.heroState, .generalSync(fast: false))
+        XCTAssertTrue(oldAssessment.missingOriginalPackage)
+        XCTAssertFalse(oldAssessment.hasUsableSeed)
+        XCTAssertEqual(age.assessments[matchingGame.id]?.heroState, .upToDate)
+        XCTAssertEqual(age.assessments[vulkanGame.id]?.heroState, .upToDate)
+        XCTAssertEqual(age.assessments[brokenGame.id]?.heroState, .upToDate)
+    }
+
+    func testStandaloneDmIOSAppInfoPlistChainAndFallback() throws {
+        let fm = FileManager.default
+        let engine = temporary.appendingPathComponent("standalone-ios-engine")
+        let chainHeader = engine.appendingPathComponent("dm/gfx/nvn/dmsh_chain.h")
+        let marker = engine.appendingPathComponent(EngineLayout.marker)
+        for file in [chainHeader, marker] {
+            try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
+        try Data().write(to: marker)
+        try "#define DMSH_CHAIN \"\(currentChain)\"\n".write(to: chainHeader, atomically: true, encoding: .utf8)
+
+        func makeStandaloneApp(name: String, tid: String, plist: [String: Any]? = nil, rawPlistData: Data? = nil) throws -> LibraryGame {
+            let app = temporary.appendingPathComponent(name + ".app")
+            try fm.createDirectory(at: app, withIntermediateDirectories: true)
+            if let rawPlistData {
+                try rawPlistData.write(to: app.appendingPathComponent("Info.plist"))
+            } else if let plist {
+                try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+                    .write(to: app.appendingPathComponent("Info.plist"))
+            }
+            return LibraryGame(titleID: tid, name: name, iosAppPath: app.path)
+        }
+
+        let oldGame = try makeStandaloneApp(
+            name: "StandaloneOld",
+            tid: "010000000000B001",
+            plist: ["CFBundleExecutable": "DmIOS", "DMChain": "  B-\(previousChain.uppercased()) \n"]
+        )
+        let matchingGame = try makeStandaloneApp(
+            name: "StandaloneMatch",
+            tid: "010000000000B002",
+            plist: ["CFBundleExecutable": "DmIOS", "DMChain": currentChain]
+        )
+        let vulkanGame = try makeStandaloneApp(
+            name: "StandaloneVulkan",
+            tid: "010000000000B003",
+            plist: ["CFBundleExecutable": "DmIOS", "DMChain": previousChain, "DMGfxAPI": "vulkan"]
+        )
+        let missingPlistGame = try makeStandaloneApp(
+            name: "StandaloneMissingPlist",
+            tid: "010000000000B004"
+        )
+        let corruptPlistGame = try makeStandaloneApp(
+            name: "StandaloneCorruptPlist",
+            tid: "010000000000B005",
+            rawPlistData: Data("not a valid plist".utf8)
+        )
+
+        let games = [oldGame, matchingGame, vulkanGame, missingPlistGame, corruptPlistGame]
+        let age = ToolsAge()
+        let updated = expectation(description: "Tools age assesses standalone DmIOS apps")
+        let sub = age.$assessments.dropFirst().sink { assessments in
+            guard assessments.count == games.count else { return }
+            updated.fulfill()
+        }
+        age.check(
+            games: games,
+            repo: engine.path,
+            appVersion: "1.5.0",
+            seedRoot: temporary.appendingPathComponent("empty-seeds-standalone").path,
+            shellRoot: temporary.appendingPathComponent("empty-shell-standalone").path
+        )
+        withExtendedLifetime(sub) { wait(for: [updated], timeout: 5) }
+
+        XCTAssertEqual(age.older, [oldGame.id])
+        XCTAssertEqual(age.assessments[matchingGame.id]?.heroState, .upToDate)
+        XCTAssertEqual(age.assessments[vulkanGame.id]?.heroState, .upToDate)
+        XCTAssertEqual(age.assessments[missingPlistGame.id]?.heroState, .upToDate)
+        XCTAssertEqual(age.assessments[corruptPlistGame.id]?.heroState, .upToDate)
+    }
 }

@@ -447,4 +447,69 @@ import XCTest
         XCTAssertNil(store.fastRefreshBaseDir)
         XCTAssertNil(store.fastRefreshGameName)
     }
+
+    func testPackArchiveWithoutExtractMigratesLegacyTitleIDFolderToNamedGameFolderAndAvoidsEmptyDirWhenNoLegacyExists() throws {
+        let store = makeStore()
+        let out = temporary.appendingPathComponent("out-migrate").path
+        let gamesRoot = out + "/games"
+        self.repo.path = temporary.path
+        store.outDir = out
+
+        // Scenario A: legacy <TID>/romfs.img exists while named dest folder does not exist yet and workDir has no extract/v*.
+        let tidA = "0100888800008888"
+        let gameNameA = "Legacy Named Game"
+        let legacyDirA = gamesRoot + "/" + tidA
+        let legacyAOC = legacyDirA + "/aoc/0100888800008889"
+        try fm.createDirectory(atPath: legacyAOC, withIntermediateDirectories: true)
+        try "romfs-legacy".write(toFile: legacyDirA + "/romfs.img", atomically: true, encoding: .utf8)
+        try "DMROMFSID1 size=12 index=cafe1234\n".write(toFile: legacyDirA + "/romfs.img.id", atomically: true, encoding: .utf8)
+        try "stamp-v0".write(toFile: legacyDirA + "/.packstamp", atomically: true, encoding: .utf8)
+        try "dlc-data".write(toFile: legacyAOC + "/addon.txt", atomically: true, encoding: .utf8)
+
+        let workA = temporary.appendingPathComponent("workA").path
+        try fm.createDirectory(atPath: workA + "/extract", withIntermediateDirectories: true)
+        store.fastRefreshGameName = gameNameA
+        store.selectedTitleID = tidA
+
+        let destA = gamesRoot + "/" + gameNameA
+        XCTAssertFalse(fm.fileExists(atPath: destA))
+
+        let expA = expectation(description: "packArchive migrates legacy archive without extract")
+        var returnedDestA = ""
+        store.packArchive(workDir: workA, titleID: tidA) { path in
+            returnedDestA = path
+            expA.fulfill()
+        }
+        wait(for: [expA], timeout: 5.0)
+
+        XCTAssertEqual(returnedDestA, destA)
+        XCTAssertEqual(store.archivePath, destA)
+        XCTAssertTrue(fm.fileExists(atPath: destA + "/" + gameNameA + ".img"))
+        XCTAssertTrue(fm.fileExists(atPath: destA + "/" + gameNameA + ".img.id"))
+        XCTAssertTrue(fm.fileExists(atPath: destA + "/.packstamp"))
+        XCTAssertTrue(fm.fileExists(atPath: destA + "/aoc/0100888800008889/addon.txt"))
+        XCTAssertTrue(fm.fileExists(atPath: destA + "/.titleid"))
+        XCTAssertFalse(fm.fileExists(atPath: legacyDirA))
+
+        // Scenario B: neither extract/v* nor legacy/local archive exists -> must not leave an empty dest folder behind.
+        let tidB = "0100999900009999"
+        let gameNameB = "External Only Game"
+        let workB = temporary.appendingPathComponent("workB").path
+        try fm.createDirectory(atPath: workB + "/extract", withIntermediateDirectories: true)
+        store.fastRefreshGameName = gameNameB
+        store.selectedTitleID = tidB
+
+        let destB = gamesRoot + "/" + gameNameB
+        let expB = expectation(description: "packArchive leaves no empty folder when no legacy exists")
+        var returnedDestB = "initial"
+        store.packArchive(workDir: workB, titleID: tidB) { path in
+            returnedDestB = path
+            expB.fulfill()
+        }
+        wait(for: [expB], timeout: 5.0)
+
+        XCTAssertEqual(returnedDestB, "")
+        XCTAssertEqual(store.archivePath, "")
+        XCTAssertFalse(fm.fileExists(atPath: destB))
+    }
 }

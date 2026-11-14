@@ -115,8 +115,21 @@ import NXLauncher
                 game.archivePath = build.archivePath
             }
             game.lastTarget = BuildTarget.ios
+            if FileManager.default.fileExists(atPath: ShellInstall.mirroredFramework(root: build.shellRoot, titleID: game.titleID)) {
+                game.hasShellFramework = true
+            }
             if !buildCommit.isEmpty { game.toolsCommit = buildCommit }
             library.upsert(game)
+        } else if build.runningTarget == BuildTarget.ios, var game = library.games.first(where: { $0.id == id }) {
+            let mirror = ShellInstall.mirroredFramework(root: build.shellRoot, titleID: game.titleID)
+            if ShellInstall.missingFile(inFramework: mirror, titleID: game.titleID) == nil {
+                game.hasShellFramework = true
+            }
+            if game.hasIOSBuild {
+                game.lastTarget = BuildTarget.ios
+                if !buildCommit.isEmpty { game.toolsCommit = buildCommit }
+                library.upsert(game)
+            }
         }
         recorded.send()
     }

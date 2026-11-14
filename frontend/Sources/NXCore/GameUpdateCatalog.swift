@@ -18,6 +18,7 @@ package struct GameRefreshAssessment: Equatable, Sendable {
     package var canFastRefreshIOS: Bool
     package var needsMissingImgGuideIOS: Bool
     package var missingOriginalPackage: Bool
+    package var hasUsableSeed: Bool = false
     package var expectedRomfsIdentity: String? = nil
 
     package init(
@@ -28,6 +29,7 @@ package struct GameRefreshAssessment: Equatable, Sendable {
         canFastRefreshIOS: Bool,
         needsMissingImgGuideIOS: Bool,
         missingOriginalPackage: Bool,
+        hasUsableSeed: Bool = false,
         expectedRomfsIdentity: String? = nil
     ) {
         self.heroState = heroState
@@ -37,6 +39,7 @@ package struct GameRefreshAssessment: Equatable, Sendable {
         self.canFastRefreshIOS = canFastRefreshIOS
         self.needsMissingImgGuideIOS = needsMissingImgGuideIOS
         self.missingOriginalPackage = missingOriginalPackage
+        self.hasUsableSeed = hasUsableSeed
         self.expectedRomfsIdentity = expectedRomfsIdentity
     }
 
@@ -61,21 +64,23 @@ package enum GameUpdateCatalog {
 
     /// Uppercase 16-hex TitleIDs mapped to the most recent release carrying game-specific updates (unlisted defaults to "1.2.0").
     package static let updatedVersions: [String: String] = [
-        // 1.5.0 (18 titles)
+        // 1.5.0 (27 titles)
         "0100152000022000": "1.5.0", "01001B300B9BE000": "1.5.0", "010049900F546000": "1.5.0",
         "010051701FB46000": "1.5.0", "01005CA01580E000": "1.5.0", "01006F8002326000": "1.5.0",
-        "0100726014352000": "1.5.0", "01007820196A6000": "1.5.0", "0100A00019DE0000": "1.5.0",
-        "0100A5C00D162000": "1.5.0", "0100B99019412000": "1.5.0", "0100F2C0115B6000": "1.5.0",
-        "0400380020056000": "1.5.0", "0400486024DEC000": "1.5.0", "040074A01BF12000": "1.5.0",
-        "04008E001F098000": "1.5.0", "0400C3F00006E000": "1.5.0", "0400D4201C6EA000": "1.5.0",
-        // 1.4.0 (19 titles)
+        "0100726014352000": "1.5.0", "01007820196A6000": "1.5.0", "01007A2027548000": "1.5.0",
+        "0100A00019DE0000": "1.5.0", "0100A5C00D162000": "1.5.0", "0100B99019412000": "1.5.0",
+        "0100C49025D3E000": "1.5.0", "0100C510166F0000": "1.5.0", "0100C9C00E25C000": "1.5.0",
+        "0100F2C0115B6000": "1.5.0", "040032B023CA4000": "1.5.0", "0400380020056000": "1.5.0",
+        "040041E0212AE000": "1.5.0", "0400486024DEC000": "1.5.0", "0400569027BF4000": "1.5.0",
+        "040074A01BF12000": "1.5.0", "04008E001F098000": "1.5.0", "0400921025B32000": "1.5.0",
+        "0400C3F00006E000": "1.5.0", "0400C76024710000": "1.5.0", "0400D4201C6EA000": "1.5.0",
+        // 1.4.0 (18 titles)
         "010012101468C000": "1.4.0", "010014C011146000": "1.4.0", "010019A01E2F2000": "1.4.0",
         "01002B00111A2000": "1.4.0", "0100429011144000": "1.4.0", "010055D009F78000": "1.4.0",
         "010056B015FE8000": "1.4.0", "010057D006492000": "1.4.0", "010061D00DB74000": "1.4.0",
         "01007300020FA000": "1.4.0", "01007EF00011E000": "1.4.0", "01008DD013200000": "1.4.0",
         "01009BC00C38A000": "1.4.0", "0100A6301214E000": "1.4.0", "0100A7C01B792000": "1.4.0",
         "0100B8E016F76000": "1.4.0", "0100CE4010AAC000": "1.4.0", "0100DA801624E000": "1.4.0",
-        "0400C76024710000": "1.4.0",
         // 1.3.0 (8 titles)
         "0100276009872000": "1.3.0", "010035F022078000": "1.3.0", "01006A800016E000": "1.3.0",
         "01008D9022462000": "1.3.0", "01008F701C074000": "1.3.0", "0100B7C00933A000": "1.3.0",
@@ -83,6 +88,12 @@ package enum GameUpdateCatalog {
         // 1.2.2 (3 titles)
         "01001F5010DFA000": "1.2.2", "040077201BE50000": "1.2.2", "04007EF01F8AE000": "1.2.2",
     ]
+
+    /// Returns the last NX2Apple release version recorded in the catalog for `titleID`, or `nil` when unlisted.
+    package static func catalogVersion(for titleID: String) -> String? {
+        let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        return tid.isEmpty ? nil : updatedVersions[tid]
+    }
 
     /// Evaluates whether a game has game-specific changes in the active engine/release and returns its display version label.
     package static func hasSpecificUpdate(
@@ -198,6 +209,7 @@ package enum GameUpdateCatalog {
             canFastRefreshIOS: canFastRefreshIOS,
             needsMissingImgGuideIOS: needsMissingImgGuideIOS,
             missingOriginalPackage: missingOriginalPackage,
+            hasUsableSeed: effectiveSeedPath != nil,
             expectedRomfsIdentity: inspection.record?.romfsIdentity
         )
     }

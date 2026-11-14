@@ -88,10 +88,11 @@ extension LiveConsoleDriver {
 
     func checkTools(_ games: [LibraryGame]) {
         guard tracking.observesSystem else { return }
-        let signature = games.map { $0.id.uuidString + $0.toolsCommit + $0.appPath }
+        let root = shellRoot()
+        let signature = games.map { $0.id.uuidString + $0.toolsCommit + $0.appPath + $0.iosAppPath + ($0.hasShellFramework ? "1" : "0") + root }
         guard signature != tracking.toolsChecked else { return }
         tracking.toolsChecked = signature
-        toolsAge.check(games: games, repo: repo(), libraryFolder: library.folder)
+        toolsAge.check(games: games, repo: repo(), libraryFolder: library.folder, shellRoot: root)
     }
 
     // MARK: A session

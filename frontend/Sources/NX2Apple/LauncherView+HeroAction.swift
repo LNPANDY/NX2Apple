@@ -167,7 +167,8 @@ extension LauncherView {
             games: library.games,
             repo: stores.repo.path,
             libraryFolder: library.folder,
-            seedRoot: BuildSeedCache.defaultRoot(home: stores.build.home)
+            seedRoot: BuildSeedCache.defaultRoot(home: stores.build.home),
+            shellRoot: stores.build.shellCachePath
         )
     }
 }

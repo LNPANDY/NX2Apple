@@ -489,6 +489,7 @@ extension BuildStore {
                 ? (legacyDir + "/romfs.img")
                 : RomFSArchive.primaryImagePath(in: legacyDir, fm: fm)
             guard let legacyImg, fm.fileExists(atPath: legacyImg) else { continue }
+            try? fm.createDirectory(atPath: dest, withIntermediateDirectories: true)
 
             if !fm.fileExists(atPath: targetImg) {
                 if moveOrCopyReplacing(from: legacyImg, to: targetImg, fm: fm) {

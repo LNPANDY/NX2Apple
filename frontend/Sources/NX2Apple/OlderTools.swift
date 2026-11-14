@@ -38,7 +38,8 @@ final class ToolsAge: ObservableObject {
         repo: String,
         appVersion: String = AppUpdateStore.appVersion,
         libraryFolder: String = "",
-        seedRoot: String = BuildSeedCache.defaultRoot()
+        seedRoot: String = BuildSeedCache.defaultRoot(),
+        shellRoot: String = ""
     ) {
         generation += 1
         let mine = generation
@@ -55,14 +56,14 @@ final class ToolsAge: ObservableObject {
             }
 
             let gitMarked = Self.olderGames(builds, head: engineHead, lookupDiff: lookupDiff)
-            let result = gitMarked.union(Self.shaderChainMismatches(games, repo: repo))
+            let result = gitMarked.union(Self.shaderChainMismatches(games, repo: repo, shellRoot: shellRoot))
 
             var assessmentsMap: [UUID: GameRefreshAssessment] = [:]
             assessmentsMap.reserveCapacity(games.count)
             for game in games {
                 let isMarkedOlder = result.contains(game.id)
                 let hasMac = Self.hasMacBuildOffThread(game)
-                let hasIOS = Self.hasIOSBuildOffThread(game, fm: fm)
+                let hasIOS = Self.hasIOSBuildOffThread(game, shellRoot: shellRoot, fm: fm)
                 let hasInputs = Self.hasReadableSourceInputs(game, fm: fm)
                 let outDir = Self.resolvedOutputDirectory(for: game, libraryFolder: libraryFolder)
                 let gitSpecificChanged = Self.specificChangeFlag(
@@ -95,19 +96,81 @@ final class ToolsAge: ObservableObject {
         }
     }
 
-    /// The packer stamps the chain in NVN bundles. A missing stamp is normal for other graphics backends.
-    nonisolated private static func shaderChainMismatches(_ games: [LibraryGame], repo: String) -> Set<UUID> {
+    /// The packer stamps the chain in NVN bundles (Mac Info.plist `DMChain` and iOS framework `game.manifest.json` `chain`).
+    /// A missing stamp is normal for other graphics backends.
+    nonisolated private static func shaderChainMismatches(_ games: [LibraryGame], repo: String, shellRoot: String = "") -> Set<UUID> {
         let pattern = #"\A[0-9a-f]{12}\z"#
         guard let current = EngineLayout.shaderChain(repo: repo),
               current.range(of: pattern, options: .regularExpression) != nil else { return [] }
+        let fm = FileManager.default
         return Set(games.compactMap { game in
-            guard !game.appPath.isEmpty,
-                  let app = try? MacGameBundle.read(URL(fileURLWithPath: game.appPath)),
-                  app.titleID == game.titleID,
-                  let chain = app.shaderChain, chain != current,
-                  chain.range(of: pattern, options: .regularExpression) != nil else { return nil }
-            return game.id
+            if !game.appPath.isEmpty,
+               let app = try? MacGameBundle.read(URL(fileURLWithPath: game.appPath)),
+               app.titleID == game.titleID,
+               let chain = app.shaderChain, chain != current,
+               chain.range(of: pattern, options: .regularExpression) != nil {
+                return game.id
+            }
+            if let iosChain = iosFrameworkChain(for: game, shellRoot: shellRoot, fm: fm),
+               iosChain != current,
+               iosChain.range(of: pattern, options: .regularExpression) != nil {
+                return game.id
+            }
+            return nil
         })
+    }
+
+    nonisolated private static func iosFrameworkChain(for game: LibraryGame, shellRoot: String, fm: FileManager) -> String? {
+        let tid = game.titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !tid.isEmpty else { return nil }
+        var candidates: [String] = []
+        if !shellRoot.isEmpty {
+            candidates.append(ShellInstall.mirroredFramework(root: shellRoot, titleID: tid))
+        }
+        if !game.iosAppPath.isEmpty {
+            if let appShell = ShellInstall.paths(ofApp: game.iosAppPath) {
+                candidates.append(ShellInstall.mirroredFramework(root: appShell.root, titleID: tid))
+            }
+            candidates.append(game.iosAppPath + "/Frameworks/DmGame\(tid).framework")
+            candidates.append(ShellInstall.mirroredFramework(root: game.iosAppPath, titleID: tid))
+        }
+        func normalizeChain(_ raw: Any?) -> String? {
+            guard let trimmed = (raw as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  !trimmed.isEmpty else { return nil }
+            return trimmed.hasPrefix("b-") ? String(trimmed.dropFirst(2)) : trimmed
+        }
+        for fw in candidates {
+            guard ShellInstall.missingFile(inFramework: fw, titleID: tid, fm: fm) == nil,
+                  let data = fm.contents(atPath: fw + "/game.manifest.json"),
+                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
+            if let manifestTID = (obj["title_id"] as? String) ?? (obj["titleID"] as? String),
+               !manifestTID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               manifestTID.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(tid) != .orderedSame {
+                continue
+            }
+            if let api = (obj["gfx_api"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+               api == "vulkan" || api == "gl" {
+                return nil
+            }
+            guard let chain = normalizeChain(obj["chain"]) else { continue }
+            return chain
+        }
+        if !game.iosAppPath.isEmpty,
+           ShellInstall.paths(ofApp: game.iosAppPath) == nil,
+           let plistData = fm.contents(atPath: game.iosAppPath + "/Info.plist"),
+           let info = (try? PropertyListSerialization.propertyList(from: plistData, format: nil)) as? [String: Any] {
+            if let api = (info["DMGfxAPI"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+               api == "vulkan" || api == "gl" {
+                return nil
+            }
+            if let plistTID = (info["DMTitleID"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !plistTID.isEmpty,
+               plistTID.caseInsensitiveCompare(tid) != .orderedSame {
+                return nil
+            }
+            return normalizeChain(info["DMChain"])
+        }
+        return nil
     }
 
     nonisolated private static func hasMacBuildOffThread(_ game: LibraryGame) -> Bool {
@@ -116,12 +179,8 @@ final class ToolsAge: ObservableObject {
         return app.titleID == game.titleID
     }
 
-    nonisolated private static func hasIOSBuildOffThread(_ game: LibraryGame, fm: FileManager) -> Bool {
-        if game.hasShellFramework || game.shellIPAExists { return true }
-        if !game.installedDevice.isEmpty && game.installedViaShellReceipt { return true }
-        if !game.ipaPath.isEmpty && fm.fileExists(atPath: game.ipaPath) { return true }
-        if !game.iosAppPath.isEmpty && fm.fileExists(atPath: game.iosAppPath + "/Info.plist") { return true }
-        return false
+    nonisolated private static func hasIOSBuildOffThread(_ game: LibraryGame, shellRoot: String = "", fm: FileManager) -> Bool {
+        game.hasIOSBuild(shellRoot: shellRoot, fm: fm)
     }
 
     nonisolated private static func hasReadableSourceInputs(_ game: LibraryGame, fm: FileManager) -> Bool {
