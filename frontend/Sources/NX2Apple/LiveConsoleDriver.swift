@@ -457,6 +457,8 @@ struct ConsolePadSnapshot: Equatable {
     /// The launcher's app updates and builds, for the General page's update row, which waits while a build runs (LiveConsoleDriver+Desktop). Set by the session.
     weak var appUpdates: AppUpdateStore?
     weak var builds: BuildStore?
+    weak var buildQueue: BuildQueueStore?
+    var buildEngineID: () -> String = { "" }
 
     /// Controllers that have no player take the next free one, in the order they are listed, as a console does. A fifth has none.
     static func autoAssigned(_ pads: [ConsolePadSnapshot], remembered: [String: Int] = [:]) -> [ConsolePadSnapshot] {

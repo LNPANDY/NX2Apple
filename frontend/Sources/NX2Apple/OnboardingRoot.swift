@@ -18,6 +18,7 @@ import NXLauncher
                                        sticks: { [stores] in stores.sticks.settings })
         driver.bindActivity(stores.build)   // the top bar's chip shows the desktop's build (#1004)
         driver.bindBuilds(stores.build, queue: stores.queue)   // the Builds page (#816)
+        driver.buildEngineID = { [stores] in stores.engineSync.selection.engineID }
         return driver
     }()
 

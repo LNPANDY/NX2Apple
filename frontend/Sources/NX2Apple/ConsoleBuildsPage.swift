@@ -3,8 +3,7 @@ import NXCore
 import NXLauncher
 
 /// The Builds page (#816, from the menu): the desktop's running build with its stages as the Builds page shows them (the current
-/// stage's own share, never a time or a whole-build percentage), Stop (asked first), and the build queue, read only. Builds start on
-/// the desktop.
+/// stage's own share, never a time or a whole-build percentage), Stop (asked first), and the build queue.
 @MainActor struct ConsoleBuildsPage<Driver: ConsoleDriver>: View {
     @ObservedObject var driver: Driver
     let lang: Lang

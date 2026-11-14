@@ -95,6 +95,8 @@ extension LiveConsoleDriver {
 
     /// The Builds page follows the build store and the queue: the operation line, the stages, Stop, and the queue's rows.
     func bindBuilds(_ build: BuildStore, queue: BuildQueueStore) {
+        builds = build
+        buildQueue = queue
         let update: () -> Void = { [weak self, weak build, weak queue] in
             guard let self, let build else { return }
             self.state.builds = Self.builds(running: build.running, stopping: build.stopping,
@@ -106,6 +108,34 @@ extension LiveConsoleDriver {
             .sink { _ in MainActor.assumeIsolated(update) }
             .store(in: &cancellables)
         update()
+    }
+
+    func buildGame(_ gameID: String, queueOnly: Bool) {
+        guard let game = libraryGame(gameID), state.games.contains(where: { $0.id == gameID && $0.status == .needsBuild }),
+              let queue = buildQueue, let builds else { return }
+        let entry = QueueEntry(game: game, engineID: buildEngineID(), target: BuildTarget.mac)
+        if let folder = entry.gameFolder, case .failure(let problem) = GameFolder.scan(GameFolder.resolve(folder)) {
+            showToast(builds.gameFolderProblemText(problem)); return
+        }
+        let files = entry.gameFolder.map { [$0] } ?? entry.inputs.values.flatMap { $0 }
+        guard !files.isEmpty, !(entry.inputs["base"] ?? []).isEmpty || entry.gameFolder != nil else {
+            showToast(t("console.build.missingBase")); return
+        }
+        guard let missing = files.first(where: { !FileManager.default.fileExists(atPath: $0) }) else {
+            if entry.gameFolder == nil && !(entry.inputs["keys"] ?? []).contains(where: { FileManager.default.fileExists(atPath: $0) }) && !builds.savedKeysExist {
+                showToast(t("console.build.missingKeys")); return
+            }
+            queue.enqueue([entry])
+            if !queueOnly && !builds.running {
+                if let queued = queue.queued.first(where: { $0.titleID == entry.titleID }) {
+                    while queue.canMoveUp(queued.id) { queue.moveUp(queued.id) }
+                }
+                queue.start()
+            }
+            state.openBuilds()
+            return
+        }
+        showToast(String(format: t("console.build.missingFile"), (missing as NSString).lastPathComponent))
     }
 
     static func builds(running: Bool, stopping: Bool, title: String, stages: [Stage], queue: [QueueEntry]) -> ConsoleBuilds {

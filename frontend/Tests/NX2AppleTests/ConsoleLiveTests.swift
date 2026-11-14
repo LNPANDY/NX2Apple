@@ -1,5 +1,6 @@
 import XCTest
 import SwiftUI
+import NXModel
 @testable import NX2Apple
 @testable import NXCore
 @testable import NXLauncher
@@ -68,6 +69,56 @@ import SwiftUI
         chosen.inputs = ["keys": ["/k"]]
         XCTAssertEqual(LiveConsoleDriver.status(of: chosen, brokenMessage: "x"), .needsBuild)
         XCTAssertEqual(LiveConsoleDriver.platforms(of: broken), [.mac])
+    }
+
+    func testUnbuiltGameCanQueueAndStartWithSavedKeys() throws {
+        let (driver, library, _) = try makeDriver()
+        let stores = LauncherStores(localizer: Localizer(.en), defaults: testDefaults)
+        let package = temporary.appendingPathComponent("base.nsp")
+        try Data("package".utf8).write(to: package)
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data("keys".utf8).write(to: keys)
+        var game = LibraryGame(titleID: "01001A9012346000", name: "Unbuilt")
+        game.inputs = ["base": [package.path]]
+        game.outputDirectory = temporary.path
+        library.upsert(game)
+        driver.refresh()
+        let queue = BuildQueueStore(file: nil, engineID: { "test-engine" }, busy: { false }, start: { _ in nil })
+        driver.bindBuilds(stores.build, queue: queue)
+        driver.buildEngineID = { "test-engine" }
+
+        driver.buildGame(game.id.uuidString, queueOnly: true)
+        XCTAssertTrue(queue.entries.isEmpty)
+        XCTAssertEqual(driver.state.toast?.message, L10n.string("console.build.missingKeys", .en))
+
+        stores.build.saveKeys(keys.path)
+        driver.buildGame(game.id.uuidString, queueOnly: true)
+        XCTAssertEqual(queue.queued.count, 1)
+        XCTAssertEqual(queue.queued.first?.inputs["base"], [package.path])
+        XCTAssertEqual(queue.queued.first?.outputDirectory, temporary.path)
+        XCTAssertEqual(queue.queued.first?.engineID, "test-engine")
+        XCTAssertEqual(queue.queued.first?.target, BuildTarget.mac)
+        XCTAssertEqual(driver.state.presentedSheet, .builds)
+
+        driver.back()
+        driver.buildGame(game.id.uuidString, queueOnly: false)
+        XCTAssertEqual(queue.running?.gameID, game.id)
+        XCTAssertEqual(queue.entries.count, 1)
+        XCTAssertEqual(LiveConsoleDriver.builds(running: true, stopping: false, title: "Unbuilt", stages: [], queue: queue.entries).queue.first?.name, "Unbuilt")
+    }
+
+    func testUnbuiltGameReportsMissingPackageBeforeQueueing() throws {
+        let (driver, library, _) = try makeDriver()
+        let stores = LauncherStores(localizer: Localizer(.en), defaults: testDefaults)
+        var game = LibraryGame(titleID: "01001A9012346000", name: "Unbuilt")
+        game.inputs = ["base": [temporary.appendingPathComponent("gone.nsp").path]]
+        library.upsert(game)
+        driver.refresh()
+        let queue = BuildQueueStore(file: nil, engineID: { "test-engine" }, busy: { false }, start: { _ in nil })
+        driver.bindBuilds(stores.build, queue: queue)
+        driver.buildGame(game.id.uuidString, queueOnly: false)
+        XCTAssertTrue(queue.entries.isEmpty)
+        XCTAssertTrue(driver.state.toast?.message.contains("gone.nsp") == true)
     }
 
     func testPlayRoutesToTheLaunchWithTheDesktopEnvironment() throws {

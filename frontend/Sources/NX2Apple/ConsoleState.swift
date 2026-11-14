@@ -470,6 +470,7 @@ struct ConsoleState {
     func askResetOptions(_ gameID: String)
     func resetOptions(_ gameID: String)
     func openOnDesktop(_ gameID: String)
+    func buildGame(_ gameID: String, queueOnly: Bool)
     /// A launcher switch (on the Library, Controllers or Settings page), and the app's update (checked, or asked about and then installed or restarted into).
     func setPref(_ pref: ConsolePref, on: Bool)
     func appUpdateAction()
@@ -556,6 +557,7 @@ extension ConsoleDriver {
     func askResetOptions(_ gameID: String) {}
     func resetOptions(_ gameID: String) {}
     func openOnDesktop(_ gameID: String) { exitToDesktop() }
+    func buildGame(_ gameID: String, queueOnly: Bool) {}
     func setPref(_ pref: ConsolePref, on: Bool) {}
     func appUpdateAction() {}
     func confirmAppUpdate() {}
