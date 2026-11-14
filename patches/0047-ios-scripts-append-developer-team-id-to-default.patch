@@ -9,7 +9,6 @@ Append .<TEAM_ID> to default single-game iOS bundle IDs when a real Apple team i
 Upstream-Status: pending
 Reason: Append the developer Team ID to default single-game iOS bundle identifiers so personal teams avoid global App ID namespace collisions out of the box
 Issue: LNPANDY/NX2Apple#1143
-
 ---
  dm/ios/tests/test_bundle_id.py | 350 +++++++++++++++++++++++++++++++++
  dm/ios/tools/build_ipa.sh      |  13 +-
@@ -19,7 +18,7 @@ Issue: LNPANDY/NX2Apple#1143
 
 diff --git a/dm/ios/tests/test_bundle_id.py b/dm/ios/tests/test_bundle_id.py
 new file mode 100644
-index 000000000..76743654e
+index 0000000..75631a4
 --- /dev/null
 +++ b/dm/ios/tests/test_bundle_id.py
 @@ -0,0 +1,350 @@
@@ -161,7 +160,7 @@ index 000000000..76743654e
 +                'check_native_python': None, 'free_gb': 10000, 'find_nx_extract': root / 'nx_extract',
 +                'extract': extraction, 'check_formats': None, 'can_clone': False, 'build_mismatch': [],
 +                'extract_aoc': None, 'rewrite': profile, 'build_vk_shaders': root / 'shaders',
-+                'provisional_prep': None, 'chain_header': None, 'refine_after_rewrite': profile,
++                'provisional_prep': None, 'chain_header': None,
 +                'mac_host': (root / 'dmhost', root / 'font.ttf'), 'mac_run': 'run',
 +            }.items():
 +                stack.enter_context(patch.object(build, name, return_value=value))
@@ -374,7 +373,7 @@ index 000000000..76743654e
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index b035395ad..93f16d2ac 100755
+index 756350a..896320f 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -16,7 +16,7 @@
@@ -405,7 +404,7 @@ index b035395ad..93f16d2ac 100755
  export DM_LANG=${DM_LANG:-en-US}
  export DM_FORK_PATCHES=$(paste -sd, "$DM/fork_patches.txt" 2>/dev/null || true)   # DMForkPatches in Info.plist (scripts/patches.py writes the list; empty on a build without fork patches)
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 2522d3beb..81151c68d 100755
+index b65b573..f39ea9f 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -56,7 +56,7 @@ TITLE_ID = ''                           # the game to pack when the folder holds
@@ -426,7 +425,7 @@ index 2522d3beb..81151c68d 100755
  XCODE_WORKSPACE = ''                    # shared .xcworkspace (empty = NxNative.xcworkspace beside the game's NSP folder)
  LANGUAGE = ''                           # game language, a code or a name: 'ja', 'fr', 'de', 'es', 'zh-Hans', 'zh-Hant', 'ko', 'Japanese', ... (empty = English); it must be one the game supports (the console line lists them);
                                          #   DM_LANG=<code> in the app's Documents/env.txt changes it without a rebuild
-@@ -3395,7 +3395,7 @@ def parse_args(argv):
+@@ -3392,7 +3392,7 @@ def parse_args(argv):
      ap.add_argument('-p', '--package', help='version packed into the IPA, e.g. v327680 / v0 (default: the newest in the folder)')
      ap.add_argument('-o', '--out', help='output IPA, or app with --platform mac-app (default: <the profile\'s ipa>, or <game name>.app, in the NSP folder)')
      ap.add_argument('--app-name', help='app name on the home screen (default: the game name in the base NSP)')
@@ -435,7 +434,7 @@ index 2522d3beb..81151c68d 100755
      ap.add_argument('--romfs', choices=('bundle', 'separate'), help='bundle = the game files go into the IPA (default: the ROMFS setting, bundle); separate = they stay out of the IPA and the Xcode app: the build is small and fast, and the RomFS image '
                      'is copied to the phone once per game version with the scripts/push_romfs.sh command printed at the end (the app refuses an image of another version)')
      ap.add_argument('--shader-files', action=argparse.BooleanOptionalAction, help='an NVN game\'s shader library goes into the IPA as its separate files, not as one file, for install tools that cannot copy '
-@@ -3412,7 +3412,7 @@ def parse_args(argv):
+@@ -3409,7 +3409,7 @@ def parse_args(argv):
      ap.add_argument('--fallback-icon', help='the app icon only when --icon / ICON is not given and the game has none of its own (a dump, a NUP without one), a JPEG or PNG of any size: a game with its own icon '
                      'keeps it, so a front end can pass a stand-in without knowing what the game carries (default: the FALLBACK_ICON setting, else such an app\'s icon is blank)')
      ap.add_argument('--mac-sign', help='--platform mac-app: the codesign identity for the app, e.g. "Developer ID Application: <name> (<team>)" (default: the MAC_SIGN setting, else ad-hoc)')
@@ -444,7 +443,7 @@ index 2522d3beb..81151c68d 100755
      ap.add_argument('--xcode-workspace', help='workspace collecting prepared games (default: NxNative.xcworkspace beside the NSP folder; use with --prepare-xcode)')
      ap.add_argument('-l', '--language', help='game language, a code or a name: ja, fr, de, es, it, nl, pt, ru, ko, zh-Hans, zh-Hant, en-GB, fr-CA, es-419, pt-BR, Japanese, ... (default: the LANGUAGE setting, else English); '
                      'it must be one the game supports, which the console lists')
-@@ -3447,6 +3447,89 @@ def parse_args(argv):
+@@ -3444,6 +3444,89 @@ def parse_args(argv):
      return ap.parse_args(argv)
  
  
@@ -534,7 +533,7 @@ index 2522d3beb..81151c68d 100755
  def icon_file(value, option):
      """The image an icon option or setting names, None when it is empty. Checked when the build starts, not after the extraction: build_ipa.sh would only log a missing one"""
      if not value: return None
-@@ -3727,8 +3810,8 @@ def main(args=None):
+@@ -3725,8 +3808,8 @@ def main(args=None):
      # the app name and bundle ID both come from the base NSP: the game name in its control data, and a bundle ID from its title ID; a setting / the command line overrides them
      app_name = args.app_name or APP_NAME or nacp.name(base / 'control.nacp') or (g.get('name') if dump else '')   # a dump has no control data, a NUP may have no NACP
      if not app_name and not (mac and not mac_pack): raise BuildError(f'no game name in the base extraction ({base / "control.nacp"}; an older extraction did not save it: delete extract/ and run again, or give --app-name)')

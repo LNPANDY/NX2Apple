@@ -50,7 +50,7 @@ Issue: LNPANDY/NX2Apple#421
  create mode 100644 dm/ios/tests/test_quit_prompt.py
 
 diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
-index 784727b3..a7e9c692 100644
+index 784727b..a7e9c69 100644
 --- a/dm/ios/Sources/DmGameMenu.h
 +++ b/dm/ios/Sources/DmGameMenu.h
 @@ -11,7 +11,8 @@ int dm_pad_layout(void);   // DmGamepad.m: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_
@@ -64,7 +64,7 @@ index 784727b3..a7e9c692 100644
  }
  #endif
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 3a1b5245..92f5e6ad 100644
+index 3a1b524..92f5e6a 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,7 @@
@@ -127,7 +127,7 @@ index 3a1b5245..92f5e6ad 100644
  void dm_gamepad_reset(void) {   // On resign active: release everything (a key held while switching away and released in background gets no "release")
      dispatch_async(dispatch_get_main_queue(), ^{ [g_view reset]; });
 diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
-index 1f3ad5b8..f91b0027 100644
+index 1f3ad5b..f91b002 100644
 --- a/dm/ios/Sources/GameMenu.swift
 +++ b/dm/ios/Sources/GameMenu.swift
 @@ -30,6 +30,7 @@ private func gameMenuItems() -> [UIMenuElement] {
@@ -139,7 +139,7 @@ index 1f3ad5b8..f91b0027 100644
  }
  
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 22cd1bb2..66ce5c4e 100644
+index 22cd1bb..66ce5c4 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -13,9 +13,14 @@
@@ -369,7 +369,7 @@ index 22cd1bb2..66ce5c4e 100644
 +}
 diff --git a/dm/ios/Sources/quit_prompt.h b/dm/ios/Sources/quit_prompt.h
 new file mode 100644
-index 00000000..66cd9042
+index 0000000..66cd904
 --- /dev/null
 +++ b/dm/ios/Sources/quit_prompt.h
 @@ -0,0 +1,211 @@
@@ -585,7 +585,7 @@ index 00000000..66cd9042
 +
 +NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 84efd5df..2b649987 100644
+index 84efd5d..2b64998 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 @@ -121,3 +121,4 @@ void dm_audio_reset(void) {}
@@ -595,7 +595,7 @@ index 84efd5df..2b649987 100644
 +void dm_host_shutdown(const char *why) { (void)why; }
 diff --git a/dm/ios/tests/quit_prompt/quit_prompt_check.m b/dm/ios/tests/quit_prompt/quit_prompt_check.m
 new file mode 100644
-index 00000000..04c85b36
+index 0000000..04c85b3
 --- /dev/null
 +++ b/dm/ios/tests/quit_prompt/quit_prompt_check.m
 @@ -0,0 +1,130 @@
@@ -731,7 +731,7 @@ index 00000000..04c85b36
 +}
 diff --git a/dm/ios/tests/test_quit_prompt.py b/dm/ios/tests/test_quit_prompt.py
 new file mode 100644
-index 00000000..3f409e9f
+index 0000000..3f409e9
 --- /dev/null
 +++ b/dm/ios/tests/test_quit_prompt.py
 @@ -0,0 +1,37 @@

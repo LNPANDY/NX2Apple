@@ -20,10 +20,10 @@ Issue: LNPANDY/NX2Apple#837
  create mode 100644 dm/tools/tests/test_split_zstd.py
 
 diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
-index 35555ffc..c3ab570b 100644
+index b7296c5..4b4cc75 100644
 --- a/dm/gfx/tools/shader_split.py
 +++ b/dm/gfx/tools/shader_split.py
-@@ -2827,12 +2827,14 @@ def unzs_dict(d, did, where):
+@@ -2923,12 +2923,14 @@ def unzs_dict(d, did, where):
      return zstd.decompress(d, zstd_dict=_ZD[did])
  
  def unzs(path):
@@ -45,7 +45,7 @@ index 35555ffc..c3ab570b 100644
      """The uncompressed size a zstd or LZ4 frame header records, None when it records none"""
 diff --git a/dm/tools/tests/test_split_zstd.py b/dm/tools/tests/test_split_zstd.py
 new file mode 100644
-index 00000000..9693d568
+index 0000000..9693d56
 --- /dev/null
 +++ b/dm/tools/tests/test_split_zstd.py
 @@ -0,0 +1,63 @@
@@ -113,10 +113,10 @@ index 00000000..9693d568
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
-index 4e904646..0d802fcb 100644
+index 57de59e..397bfdd 100644
 --- a/docs/reference/shaders.md
 +++ b/docs/reference/shaders.md
-@@ -105,6 +105,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+@@ -113,6 +113,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
  - **Fix:** it now goes by the zstd magic (`28 b5 2f fd`) whatever the name.
  - **Found on:** [Paper Mario: The Thousand-Year Door](../../dm/games/0100ECD018EBE000/README.md) (8,726 of the RomFS's 9,959 files, the shader archives among them). Of the other 21 games' RomFS on hand only Super Mario Galaxy's `GDDR3.zst` (a Vulkan game, no NVN split) has such a file.
  

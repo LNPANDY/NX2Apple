@@ -35,7 +35,7 @@ Issue: LNPANDY/NX2Apple
  create mode 100644 dm/tools/tests/test_msl_trailer.py
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index d1d1960a0..fbfde7bc1 100644
+index b1767b4..fe0c43b 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
 @@ -24,9 +24,13 @@
@@ -154,7 +154,7 @@ index d1d1960a0..fbfde7bc1 100644
  }
  static const shinfo *sh_find(const char *key, int frag) { shinfo k; memcpy(k.key, key, 16); k.frag = frag; return g_nsh ? bsearch(&k, g_sh, g_nsh, sizeof *g_sh, sh_cmp) : NULL; }
  
-@@ -2163,7 +2201,7 @@ static void note_miss(const char *name) {
+@@ -2231,7 +2269,7 @@ static void note_miss(const char *name) {
  }
  
  void dm_gl_teardown(void) { @autoreleasepool {
@@ -163,7 +163,7 @@ index d1d1960a0..fbfde7bc1 100644
      dm_gl_drain();
      pass_end();
      g_cb = nil;
-@@ -2217,6 +2255,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
+@@ -2285,6 +2323,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
      g_frames = 0;
  
      g_lib = nil; g_util = nil;
@@ -173,7 +173,7 @@ index d1d1960a0..fbfde7bc1 100644
      g_ev = nil; g_q = nil; g_dev = nil;
 diff --git a/dm/gfx/msl_mount.h b/dm/gfx/msl_mount.h
 new file mode 100644
-index 000000000..75a5a83a9
+index 0000000..75a5a83
 --- /dev/null
 +++ b/dm/gfx/msl_mount.h
 @@ -0,0 +1,28 @@
@@ -207,7 +207,7 @@ index 000000000..75a5a83a9
 +#endif
 diff --git a/dm/gfx/nvn/msl_mount.c b/dm/gfx/nvn/msl_mount.c
 new file mode 100644
-index 000000000..4167f1cdc
+index 0000000..4167f1c
 --- /dev/null
 +++ b/dm/gfx/nvn/msl_mount.c
 @@ -0,0 +1,260 @@
@@ -472,18 +472,18 @@ index 000000000..4167f1cdc
 +    pthread_mutex_unlock(&g_msl_tr_mu);
 +}
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 206232e50..e1c301bcb 100644
+index 592b6d6..7292e8b 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -36,6 +36,7 @@
- #include "nvn_primitive.h"
+@@ -37,6 +37,7 @@
+ #include "nvn_link_drain.h"
  #include "nvn_timestamp.h"
  #include "msl_image.h"
 +#include "../msl_mount.h"
  #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
  #include "game_profile.h"   // game profile constants (profile id, the profile's switches)
  // Texture slot table per stage: 0-127 the combined handles (nvnCommandBufferBindTexture), 128-255 the separate texture binds (NVN_SEPTEX_SLOT0, nvn_obj.h)
-@@ -5813,13 +5814,25 @@ static int clear_rect_zero(int i) {
+@@ -6121,13 +6122,25 @@ static int clear_rect_zero(int i) {
      *img = m;
      return m ? msl_image_find(m, path.lastPathComponent.UTF8String) : NULL;
  }
@@ -512,7 +512,7 @@ index 206232e50..e1c301bcb 100644
  }
  static NSString *exe_rel(const char *rel) {
      char buf[4096]; uint32_t n = sizeof buf;
-@@ -5855,10 +5868,13 @@ static void shmap_read(void) {
+@@ -6163,10 +6176,13 @@ static void shmap_read(void) {
      g_shmap_path = path;
      const char *m = getenv("DM_MSL_DIR");
      // Library directory = <DM_MSL_DIR or default cache>/b-<translation chain version>: the version comes from dm/gfx/nvn/dmsh_chain.h (tools/dmsh_chain.py), one for every game; a host built from an old source tree only accepts libraries of the old version
@@ -527,7 +527,7 @@ index 206232e50..e1c301bcb 100644
          else MLOG("[RED] shader library %s (a folder or a .img file) does not exist: translation chain version %s of this source tree has not been built yet (dm/gfx/tools/dmsh_build.py)", g_msl_dir.UTF8String, DMSH_CHAIN);
      }
      // The library's stamp (inputs.tsv, written by a full dmsh_build.py run): the game and the digest of the profile inputs it was built from. The chain version is the same for every
-@@ -6048,14 +6064,20 @@ static void pso_user_record(const char *fmt, ...) {
+@@ -6357,14 +6373,20 @@ static void pso_user_record(const char *fmt, ...) {
  // The library is tagged with its digest (lib_tag), from the mapped bytes
  static id<MTLLibrary> lib_from_file(NSString *path, NSError **err) {
      int fd = open(path.fileSystemRepresentation, O_RDONLY); struct stat st;
@@ -550,7 +550,7 @@ index 206232e50..e1c301bcb 100644
      }
      if (fd < 0 || fstat(fd, &st) || st.st_size <= 0) { if (fd >= 0) close(fd); if (err) *err = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"cannot open %@", path]}]; return nil; }
      size_t len = (size_t)st.st_size; void *m = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0); close(fd);
-@@ -9473,8 +9495,13 @@ void mtl_pso_line(char *o, size_t n) {
+@@ -10071,8 +10093,13 @@ void mtl_pso_line(char *o, size_t n) {
  // their bases cannot be made yet, so the stamp names one such file (pre_device_stamp) and a later start builds them once it is there. g_pre_nolib_file: the first one seen in this
  // run, a name in the library, under g_pre_fail_lock
  static _Atomic int g_pre_nolib; static NSString *g_pre_nolib_file;
@@ -566,7 +566,7 @@ index 206232e50..e1c301bcb 100644
  // 1 (and the file noted) when the library lacks <key><suffix>
  static int pre_lib_absent(NSString *key, NSString *suffix) {
      NSString *name = [key stringByAppendingString:suffix];
-@@ -17517,10 +17544,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -18624,10 +18651,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
  
      romfs_img *mimg = atomic_exchange(&g_msl_img, NULL);
      if (mimg) romfs_image_close(mimg);
@@ -580,7 +580,7 @@ index 206232e50..e1c301bcb 100644
      g_pso_user_seen = nil; g_progpf_seen = nil; g_hy_kick_set = nil;
      g_pre_known = nil; g_pre_fails = nil; g_pre_nolib_file = nil; g_pre_nolib = 0;
 diff --git a/dm/gfx/tests/t_shmap_warm.m b/dm/gfx/tests/t_shmap_warm.m
-index 5caa8ab5a..39355689d 100644
+index 5caa8ab..3935568 100644
 --- a/dm/gfx/tests/t_shmap_warm.m
 +++ b/dm/gfx/tests/t_shmap_warm.m
 @@ -48,6 +48,84 @@ int main(void) { @autoreleasepool {
@@ -669,7 +669,7 @@ index 5caa8ab5a..39355689d 100644
      printf("%d checks, %d failed\n", g_checks, g_failed);
      return g_failed != 0;
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 74bb322ef..cb3d78ce1 100644
+index 7fc2312..5f1ad47 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
 @@ -22,9 +22,13 @@
@@ -774,7 +774,7 @@ index 74bb322ef..cb3d78ce1 100644
  }
  static const shinfo *sh_find(const char *key) { shinfo k; memcpy(k.key, key, 16); return g_nsh ? bsearch(&k, g_sh, g_nsh, sizeof *g_sh, sh_cmp) : NULL; }
  
-@@ -1833,7 +1871,7 @@ static void vk_set_free_cb(const void *value, void *context) {
+@@ -1842,7 +1880,7 @@ static void vk_set_free_cb(const void *value, void *context) {
  }
  
  void dm_vk_teardown(void) { @autoreleasepool {
@@ -783,7 +783,7 @@ index 74bb322ef..cb3d78ce1 100644
      dm_vk_drain();
  
      pthread_mutex_lock(&g_sets_mu);
-@@ -1859,6 +1897,7 @@ void dm_vk_teardown(void) { @autoreleasepool {
+@@ -1868,6 +1906,7 @@ void dm_vk_teardown(void) { @autoreleasepool {
  
      free(g_sh); g_sh = NULL; g_nsh = 0;
      g_lib = nil;
@@ -792,7 +792,7 @@ index 74bb322ef..cb3d78ce1 100644
      g_ev = nil;
      g_q = nil;
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index 8ea745153..80bdd7c18 100644
+index 8ea7451..80bdd7c 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
 @@ -78,6 +78,7 @@ __attribute__((weak)) void dm_codec_video_stop_all(void) {}
@@ -812,7 +812,7 @@ index 8ea745153..80bdd7c18 100644
      dm_guest_memory_release(1);
      dm_ue_malloc_teardown();
 diff --git a/dm/host/romfs_identity.h b/dm/host/romfs_identity.h
-index d18a06640..e6c7b31c2 100644
+index d18a066..e6c7b31 100644
 --- a/dm/host/romfs_identity.h
 +++ b/dm/host/romfs_identity.h
 @@ -5,6 +5,7 @@
@@ -852,7 +852,7 @@ index d18a06640..e6c7b31c2 100644
  static void romfs_id_field(char *dst, size_t cap, const char *v, size_t n) {
      if (n >= cap) n = cap - 1;
 diff --git a/dm/host/romfs_image.h b/dm/host/romfs_image.h
-index 687b41cff..8c9853ebf 100644
+index 687b41c..8c9853e 100644
 --- a/dm/host/romfs_image.h
 +++ b/dm/host/romfs_image.h
 @@ -2,6 +2,7 @@
@@ -1012,10 +1012,10 @@ index 687b41cff..8c9853ebf 100644
      }
  }
 diff --git a/dm/host/tests/t_fs.c b/dm/host/tests/t_fs.c
-index ee478a124..cba1e7b4d 100644
+index 8a7711e..fa67084 100644
 --- a/dm/host/tests/t_fs.c
 +++ b/dm/host/tests/t_fs.c
-@@ -226,6 +226,82 @@ int main(void) {
+@@ -288,6 +288,82 @@ int main(void) {
          }
          f = fopen(ip, "wb"); fwrite(img, 1, 39 + 50, f); fclose(f);   // cut off inside the index, as a copy stopped partway
          CHECK(!img_open(ip), "a cut-off image is refused");
@@ -1099,7 +1099,7 @@ index ee478a124..cba1e7b4d 100644
      snprintf(save, sizeof save, "%s/save", root); snprintf(work, sizeof work, "%s.work", save);
      mkdir(save, 0755); snprintf(p, sizeof p, "%s/a", save); put(p, "old");
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index 448a23367..e86c3e930 100644
+index 448a233..e86c3e9 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -104,7 +104,10 @@ class ManifestTests(unittest.TestCase):
@@ -1139,7 +1139,7 @@ index 448a23367..e86c3e930 100644
  
  class FrameworkPackagingTests(unittest.TestCase):
 diff --git a/dm/ios/tests/test_romfs_startup.py b/dm/ios/tests/test_romfs_startup.py
-index 4792b5ef8..54671a309 100644
+index 4792b5e..54671a3 100644
 --- a/dm/ios/tests/test_romfs_startup.py
 +++ b/dm/ios/tests/test_romfs_startup.py
 @@ -157,6 +157,38 @@ class Startup(unittest.TestCase):
@@ -1182,10 +1182,10 @@ index 4792b5ef8..54671a309 100644
          """Slim builds carry no add-on content: games/<id>/aoc (the layout hle_fs.c aoc_dir reads) must reach DM_AOC_DIR, before aoc_locate takes Documents/aoc or <App>/aoc, and never over an explicit value."""
          main = (REPO / 'dm/ios/Sources/main.m').read_text()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index bafc552ef..4378bddc9 100755
+index 8562179..970f063 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -232,10 +232,11 @@ if [ "$FRAMEWORK" = 1 ]; then
+@@ -234,10 +234,11 @@ if [ "$FRAMEWORK" = 1 ]; then
    fi
    NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
    FW_LOADER=FR; [ -z "$FRAMEWORK_ONLY" ] || FW_LOADER=FH
@@ -1200,7 +1200,7 @@ index bafc552ef..4378bddc9 100755
      --header Gen/framework/objc_namespace.h --exports Gen/framework/exported_symbols.txt \
      "$DM/host" "$DM/gfx" "$DM/ios/Sources" "$DM/ios/framework") || die "framework ObjC namespace"
 diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
-index 105b8530b..4f03f2a50 100644
+index 105b853..4f03f2a 100644
 --- a/dm/ios/tools/gen_manifest.py
 +++ b/dm/ios/tools/gen_manifest.py
 @@ -28,6 +28,8 @@ SHADER_MAP = 'dm/shader_map.tsv'  # inside the framework: main.m points DM_NVN_S
@@ -1252,7 +1252,7 @@ index 105b8530b..4f03f2a50 100644
      data = manifest(args)
      out = Path(args.out)
 diff --git a/dm/tools/romfs.py b/dm/tools/romfs.py
-index ae1dbfb36..508a3cb7e 100644
+index 42fbbfe..50644ae 100644
 --- a/dm/tools/romfs.py
 +++ b/dm/tools/romfs.py
 @@ -20,20 +20,72 @@ from typing import TYPE_CHECKING
@@ -1346,7 +1346,7 @@ index ae1dbfb36..508a3cb7e 100644
          _fd_ranges[self.fd] = (self.start, self.length)
      def readable(self): return True
 diff --git a/dm/tools/romfs_image.py b/dm/tools/romfs_image.py
-index c06bf0b8f..769d0b31a 100755
+index c06bf0b..769d0b3 100755
 --- a/dm/tools/romfs_image.py
 +++ b/dm/tools/romfs_image.py
 @@ -14,12 +14,26 @@
@@ -1972,7 +1972,7 @@ index c06bf0b8f..769d0b31a 100755
 +        sys.exit(f'[RED] {e}')
 diff --git a/dm/tools/tests/test_msl_trailer.py b/dm/tools/tests/test_msl_trailer.py
 new file mode 100644
-index 000000000..716a7971a
+index 0000000..716a797
 --- /dev/null
 +++ b/dm/tools/tests/test_msl_trailer.py
 @@ -0,0 +1,491 @@
