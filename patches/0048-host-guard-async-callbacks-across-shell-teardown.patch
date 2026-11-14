@@ -22,7 +22,7 @@ Issue: LNPANDY/NX2Apple (v1.5.0 local)
  11 files changed, 237 insertions(+), 21 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 2b3631e..592b6d6 100644
+index 50cdd92..b4ba610 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -93,6 +93,7 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
@@ -55,7 +55,7 @@ index 2b3631e..592b6d6 100644
      } });
  }
  // What a drain takes out of the residency set leaves it, and is released, at the set's next commit, which the next submission makes. With none open none may come: the drain is
-@@ -18439,6 +18445,7 @@ void mem_census(const char *why) { @autoreleasepool {
+@@ -18453,6 +18459,7 @@ void mem_census(const char *why) { @autoreleasepool {
  
  void dm_gfx_teardown(void) { @autoreleasepool {
      atomic_store(&g_gfx_teardown, 1);
@@ -63,7 +63,7 @@ index 2b3631e..592b6d6 100644
      mtl_present_discard(1);
      dispatch_group_wait(bg_group(), DISPATCH_TIME_FOREVER);
  
-@@ -18685,6 +18692,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -18704,6 +18711,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      g_ev = nil; g_mdi_ev = nil; g_ext_ev = nil;
      g_q4 = nil; g_q = nil; g_dev = nil;
      g_feedback_q = nil;
