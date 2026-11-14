@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sendme365 <19932862+sendme365@users.noreply.github.com>
+Date: Sun, 8 Nov 2026 15:14:37 +0800
+Subject: [PATCH] Drop a removed game's framework from the shell's staged app
+
+The shell embeds one framework per game, and Xcode's embed phase copies
+what the project lists, it never removes. A game taken out of the shell
+therefore stays in the app of an earlier build: the stale copy fails the
+next build's validation (it wants an Info.plist in every embedded
+framework) or installs a game the shell no longer lists.
+
+build_shell.sh now drops the stale game frameworks from every
+configuration's products after generating the project (--prepare-xcode
+and --build alike), and the app signature with them, since the seal
+named them: the next build stages and signs the app again.
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: fork packaging fix: the staged app must not keep a removed game's framework (upstream's shell does not embed games)
+Issue: LNPANDY/NX2Apple#1284
+
+---
+ dm/ios/tools/build_shell.sh | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/dm/ios/tools/build_shell.sh b/dm/ios/tools/build_shell.sh
+index 8c9c2df..88fe488 100755
+--- a/dm/ios/tools/build_shell.sh
++++ b/dm/ios/tools/build_shell.sh
+@@ -61,6 +61,27 @@ PY
+ export GAME=$(head -1 "$FWLIST" | cut -f1)
+ t "shell: $DM_SHELL_NAME ($DM_BUNDLE_ID), games: $(cut -f3 "$FWLIST" | paste -sd, -)"
+ 
++# A game removed from the shell leaves its framework in the app of an earlier build: Xcode's embed phase
++# copies the frameworks the project lists, it never removes one, and the stale copy then fails the next
++# build's validation (a framework without an Info.plist) or ships a game the shell no longer lists.
++# Drop the stale frameworks from every configuration's products, and the app signature with them (the
++# seal named them), so the next build stages and signs the app again.
++drop_stale_frameworks() {
++  local app fw dropped
++  for app in "$DD"/Build/Products/*/DmShell.app; do
++    [ -d "$app/Frameworks" ] || continue
++    dropped=''
++    for fw in "$app"/Frameworks/DmGame*.framework; do
++      [ -d "$fw" ] || continue
++      cut -f2 "$FWLIST" | while IFS= read -r p; do basename "$p"; done | grep -qxF "$(basename "$fw")" && continue
++      rm -rf "$fw"; dropped=1
++      t "dropped $(basename "$fw"), a game the shell no longer embeds, from ${app#"$DD"/Build/Products/}"
++    done
++    [ -n "$dropped" ] || continue
++    rm -rf "$app/_CodeSignature"
++  done
++}
++
+ t "generate Gen/ (shared files, the project)"
+ for item in Sources Shell tools; do ln -sfn "$IOS_SOURCE/$item" "$S/$item" || die "link $item"; done
+ cd "$S" || die "cd $S"
+@@ -94,6 +115,7 @@ if not done: sys.exit('[RED] project-shell.yml has no @FRAMEWORKS@ line')
+ open(out, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
+ PY
+ xcodegen generate -q > /dev/null || die "xcodegen"
++drop_stale_frameworks
+ COMMIT=$(git -C "$DM" rev-parse --short=12 HEAD 2> /dev/null) && { [ -z "$(git -C "$DM" status --porcelain --untracked-files=no 2> /dev/null)" ] || COMMIT=$COMMIT+dirty
+   /usr/libexec/PlistBuddy -c "Add :DMCommit string $COMMIT" Gen/Info.plist > /dev/null || die "DMCommit"; t "source: $COMMIT"; }
+ /usr/libexec/PlistBuddy -c "Add :DMChain string $V" Gen/Info.plist > /dev/null || die "DMChain"
