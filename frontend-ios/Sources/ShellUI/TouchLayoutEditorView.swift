@@ -577,18 +577,19 @@ struct TouchLayoutEditorView: View {
 
     /// Hold (the built-in behavior) or Toggle for the selected key: one tap turns a toggled key on in the game, the next tap off.
     private var selectedMode: some View {
-        Picker(ShellStrings.text("Button mode"), selection: Binding(get: { model.selectedToggles ? Self.toggleMode : Self.holdMode },
-                                                                    set: { if !ignoresPress() { model.setToggles($0 == Self.toggleMode) } })) {
-            Text(ShellStrings.text("Hold")).tag(Self.holdMode)
-            Text(ShellStrings.text("Toggle")).tag(Self.toggleMode)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .tint(ShellPalette.cream)
+        NativeCreamSegmentedControl(
+            options: [
+                SettingOption(id: Self.holdMode, verbatimLabel: ShellStrings.text("Hold")),
+                SettingOption(id: Self.toggleMode, verbatimLabel: ShellStrings.text("Toggle"))
+            ],
+            value: model.selectedToggles ? Self.toggleMode : Self.holdMode,
+            inline: false,
+            accessibilityLabel: ShellStrings.text("Button mode"),
+            accessibilityIdentifier: "touchLayout.mode",
+            change: { model.setToggles($0 == Self.toggleMode) }
+        )
         .frame(width: Self.modeWidth)
         .disabled(!exactGeometryReady)
-        .accessibilityLabel(ShellStrings.text("Button mode"))
-        .accessibilityIdentifier("touchLayout.mode")
         .shellTarget("lay.mode", enabled: exactGeometryReady) { model.setToggles(!model.selectedToggles) }
     }
 

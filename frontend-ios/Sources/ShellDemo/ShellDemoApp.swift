@@ -154,17 +154,25 @@ struct DemoScreen: View {
         }
         return SampleData.controllers
     }
+    @MainActor private static let sampleBaselineValues: [String: [String: String]] = Dictionary(
+        uniqueKeysWithValues: SampleData.games.map { game in
+            (game.id, Dictionary(uniqueKeysWithValues: game.sections.flatMap(\.rows).map { ($0.id, $0.value) }))
+        }
+    )
+
     private var actions: ShellActions {
         ShellActions(onPlay: { _ in notice = demoText("Play requested. The demo does not launch games.") },
                      onChange: { game, row, value in
             guard let g = games.firstIndex(where: { $0.id == game }) else { return }
+            let baseline = Self.sampleBaselineValues[game]?[row]
             for section in games[g].sections.indices {
                 if let index = games[g].sections[section].rows.firstIndex(where: { $0.id == row }) {
                     games[g].sections[section].rows[index].value = value
                     games[g].sections[section].rows[index].fromShell = false
-                    games[g].hasModifiedSettings = true
+                    games[g].sections[section].rows[index].changed = baseline.map { $0 != value } ?? true
                 }
             }
+            games[g].hasModifiedSettings = games[g].sections.flatMap(\.rows).contains(where: \.changed)
         }, onPickGameData: { _ in notice = demoText("Choose game data requested. The host supplies the picker.") },
                      onUseAppData: { _ in notice = demoText("Use app data requested.") },
                      onPickCloudSaves: { _ in notice = demoText("Choose cloud folder requested. The host supplies the picker.") },

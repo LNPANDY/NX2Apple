@@ -89,6 +89,7 @@ public struct SettingOption: Identifiable, Equatable, Sendable {
     /// The label is a text of the game's launcher.json: it is shown in the player's language when the catalog has it.
     public init(_ value: String, _ label: String) { self.init(value, label, in: ShellStrings.bundle) }
     init(_ value: String, _ label: String, in bundle: Bundle) { id = value; self.label = ShellStrings.setting(label, bundle: bundle) }
+    init(id: String, verbatimLabel: String) { self.id = id; self.label = verbatimLabel }
 }
 
 public enum SettingKind: Equatable, Sendable {

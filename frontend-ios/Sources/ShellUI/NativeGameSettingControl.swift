@@ -17,6 +17,7 @@ struct NativeGameSettingControl: View {
                     label
                 }
                 .toggleStyle(NativeCreamToggleStyle())
+                .accessibilityIdentifier("setting.\(row.id)")
                 .shellTarget(targetPrefix + row.id, enabled: row.enabled) { change(row.value == on ? off : on) }
             case .range(let lower, let upper, let step, let unit):
                 VStack(alignment: .leading, spacing: 12) {
@@ -37,11 +38,11 @@ struct NativeGameSettingControl: View {
                             }
                     }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("setting.\(row.id)")
             }
         }
         .disabled(!row.enabled)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("setting.\(row.id)")
     }
 
     private var label: some View {
@@ -59,14 +60,26 @@ struct NativeGameSettingControl: View {
 /// VoiceOver reads "Changed from the tested value" with the label.
 struct ChangedSettingLabel: View {
     let row: SettingRow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        HStack(spacing: 7) {
-            if row.changed {
-                Circle().fill(ShellPalette.attention).frame(width: 6, height: 6)
-                    .accessibilityLabel(ShellStrings.text("Changed from the tested value"))
+        Text(row.label)
+            .font(.body)
+            .padding(.leading, row.changed ? 13 : 0)
+            .overlay(alignment: .leading) {
+                Circle()
+                    .fill(ShellPalette.attention)
+                    .frame(width: 6, height: 6)
+                    .opacity(row.changed ? 1 : 0)
+                    .scaleEffect(row.changed ? 1 : 0.4)
+                    .accessibilityHidden(true)
             }
-            Text(row.label).font(.body)
-        }
-        .accessibilityElement(children: .combine)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: row.changed)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                row.changed
+                    ? "\(row.label), \(ShellStrings.text("Changed from the tested value"))"
+                    : row.label
+            )
     }
 }
