@@ -379,6 +379,30 @@ class MetalArgsTest(unittest.TestCase):
             with mock.patch.object(tc, 'metal_dir', return_value=root):
                 self.assertEqual(tc.metal_tool('metal-tt'), root / 'bin/metal-tt.exe')
 
+    def test_xcrun_metal_tt_resolves_to_the_shipped_tool(self) -> None:
+        # find() returned None for metal-tt unconditionally, so `xcrun -sdk iphoneos metal-tt`
+        # exited 127 on a Metal build that ships it and the offline pipeline archive was skipped
+        # on a machine that can run it. It must resolve to the tool metal_tool finds.
+        from nspb_qt.win import xcrun_shim
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / 'bin').mkdir()
+            exe = root / 'bin/metal-tt.exe'
+            exe.write_bytes(b'x')
+            with mock.patch.object(tc, 'metal_dir', return_value=root):
+                self.assertEqual(xcrun_shim.find('iphoneos', 'metal-tt'), exe)
+
+    def test_xcrun_metal_tt_is_none_when_the_build_does_not_ship_it(self) -> None:
+        # The other half: absent still means None, which is what exits 127 naming the tool and
+        # what switches the pipeline archive off, rather than a half-written archive.
+        from nspb_qt.win import xcrun_shim
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / 'bin').mkdir()
+            (root / 'bin/metal.exe').write_bytes(b'x')
+            with mock.patch.object(tc, 'metal_dir', return_value=root):
+                self.assertIsNone(xcrun_shim.find('iphoneos', 'metal-tt'))
+
     def test_metal_tool_takes_name_then_sdk(self) -> None:
         """The signature is (name, sdk). Both call sites once had it backwards, which made
         every `xcrun -sdk iphoneos metal` fall back to a slow Python wrapper instead of
