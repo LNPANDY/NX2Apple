@@ -234,6 +234,7 @@ Il motore esegue i giochi Switch 2 come profili normali, senza un'opzione Switch
 | Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | Arriva al primo campo sul Mac (aggiornamento v196608), da un NUP. Nessuna IPA | Non provato |
 | Mario Kart World | `0400C3F00006E000` | Arriva a una gara sul Mac (v0), 60 fps. Nessuna IPA | Non provato |
 | Mario Tennis Fever | `0400D4201C6EA000` | Gira sul Mac (aggiornamento v327680), 60 fps. Nessuna IPA | Non provato |
+| The Legend of Zelda: Ocarina of Time | `0400486024DEC000` | Gira sul Mac fino al titolo, all'apertura e alla Foresta Kokiri (aggiornamento v131072), circa 59 fps. Per ora solo Mac | Compilato da riga di comando e giocato sul Mac fino all'interno del Castello di Ganon: 462.601 frame in 2 h 41 min, tempo per frame p50 16,66 ms, nessun crash. Host `92aa1222`, 240 commit dietro `main`, quindi ciò che viene dopo non è coperto |
 
 La struttura della cartella e i dettagli sono nella [pagina inglese](GAMES.md#switch-2-games). Questa pagina e il launcher non dicono come ottenere i file: vengono dalla tua console.
 
@@ -384,6 +385,7 @@ l'aggiornamento si sovrappone ad essa). "Nessuno (v0)" significa che è sufficie
 | Xenoblade Chronicles: Definitive Edition | `0100FF500E34A000` | 1.1.2 (v196608) | Profilo presente, non verificato su telefono |
 | Splatoon Raiders (Switch 2) | `0400380020056000` | v65536 | Profilo presente, non verificato su telefono |
 | Hyrule Warriors: Age of Imprisonment (Switch 2) | `04003F40232DE000` | v196608 | Profilo presente, non verificato su telefono |
+| The Legend of Zelda: Ocarina of Time (Switch 2) | `0400486024DEC000` | v131072 | **Verificato qui** — gira sul Mac, fino all'interno del Castello di Ganon (462.601 frame in 2 h 41 min) |
 | Donkey Kong Bananza (Switch 2) | `040074A01BF12000` | v458752 | **Verificato qui** — compila, si installa e gira su un iPhone |
 | Fire Emblem Fortune's Weave (Switch 2) | `04007EF01F8AE000` | v131072 | **Verificato** — gira su iPhone 18 Pro Max a 60 fps (#1143) |
 | Pokémon Pokopia (Switch 2) | `0400A3A01EE4C000` | v655360 | Profilo presente, non verificato su telefono |
