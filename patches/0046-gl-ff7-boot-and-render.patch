@@ -1,0 +1,477 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: UseAfterMe <441384+UseAfterMe@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 19:09:59 -0500
+Subject: [PATCH] gl: what FINAL FANTASY VII needs to boot and render
+ (eglQuerySurface, uniform blocks, depthless variants)
+
+FINAL FANTASY VII (0100A5B00BDC6000) renders with OpenGL ES through EGL. On this
+layer it asserted at startup on an unimplemented eglQuerySurface, so shader
+capture got nothing.
+
+- eglQuerySurface: width and height of the backing images, with EGL errors
+  that eglGetError now reports and clears.
+- Named uniform blocks: glBindBuffer(GL_UNIFORM_BUFFER), glBindBufferBase,
+  glBindBufferRange, glGetUniformBlockIndex and glUniformBlockBinding.
+  gl_shaders.py records them as B:<name>=<binding>:<size>, and each draw binds
+  the indexed buffer to the stage's slot.
+- gl_shaders.py: '#version 300/310/320' without 'es' (NVIDIA accepts it) is
+  read as ES; textureLodOffset at LOD 0 with an offset passed in a variable
+  becomes textureLod with the offset divided by textureSize, like the existing
+  textureOffset rewrite. A fragment shader that writes gl_FragDepth gets a
+  second function with no depth output (gl_<key>_nd_f), used when the target
+  has no depth attachment, where GL drops the write and Metal rejects the
+  pipeline (the magenta screen after the splash).
+- State queries the game reads back: glIsEnabled, glGetBooleanv (color and
+  depth write masks), glBlendColor with GL_BLEND_COLOR, and the blend and
+  stencil values of glGetIntegerv.
+
+Tested: t_gl_imports (both modes) and the new test_gl_shaders.py. On a Mac,
+the game boots to the title menu, and New Game plays the opening movie into the
+first scene: walking, dialog and the first battle render and play, with all 17
+captured shaders translated and no crash over a 7.5-minute run.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: FINAL FANTASY VII (0100A5B00BDC6000) crashes at startup on eglQuerySurface and needs uniform blocks and depthless shader variants to render
+Issue: LNPANDY/NX2Apple#1287
+---
+ dm/gfx/gl/hle_gl.m              | 128 +++++++++++++++++++++++++++++---
+ dm/gfx/tests/t_gl_imports.m     |  25 +++++++
+ dm/gfx/tests/test_gl_shaders.py |  49 ++++++++++++
+ dm/gfx/tools/gl_shaders.py      |  29 +++++++-
+ 4 files changed, 219 insertions(+), 12 deletions(-)
+ create mode 100644 dm/gfx/tests/test_gl_shaders.py
+
+diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
+index d85e345..07a2d77 100644
+--- a/dm/gfx/gl/hle_gl.m
++++ b/dm/gfx/gl/hle_gl.m
+@@ -155,7 +155,8 @@ static int is_intt(int t) { return t >= T_INT && t <= T_BOOL; }
+ typedef struct { char name[48]; uint8_t slot, type; } shattr;                         // a vertex input
+ typedef struct { char name[48]; uint16_t off, count, stride; uint8_t type; } shuni;   // a default block member (count 0 = not an array)
+ typedef struct { char name[48]; uint8_t slot, type; } shsamp;                         // a combined sampler: texture and sampler slot
+-typedef struct { char key[17]; int frag, ub_slot, ub_size, na, nu, nt; shattr *a; shuni *u; shsamp *t; } shinfo;
++typedef struct { char name[64]; unsigned slot, size; } shblock;
++typedef struct { char key[17]; int frag, ub_slot, ub_size, na, nu, nt, nb; shattr *a; shuni *u; shsamp *t; shblock *b; } shinfo;
+ static shinfo *g_sh; static int g_nsh;
+ static int sh_cmp(const void *a, const void *b) { int c = memcmp(((const shinfo *)a)->key, ((const shinfo *)b)->key, 16); return c ? c : ((const shinfo *)a)->frag - ((const shinfo *)b)->frag; }
+ static void sh_load(void) {
+@@ -172,16 +173,19 @@ static void sh_load(void) {
+         if (g_nsh == cap) { cap = cap ? cap * 2 : 1024; g_sh = realloc(g_sh, cap * sizeof *g_sh); }
+         shinfo *s = &g_sh[g_nsh++]; memset(s, 0, sizeof *s);
+         memcpy(s->key, key, 16); s->frag = !strcmp(stage, "frag"); s->ub_slot = -1;
+-        int na = 0, nu = 0, nt = 0;
+-        for (char *c = res; c && *c; c++) if (c == res || c[-1] == ' ') { na += *c == 'a'; nu += *c == 'u'; nt += *c == 't'; }
+-        s->a = zalloc((na + 1) * sizeof *s->a); s->u = zalloc((nu + 1) * sizeof *s->u); s->t = zalloc((nt + 1) * sizeof *s->t);
++        int na = 0, nu = 0, nt = 0, nb = 0;
++        for (char *c = res; c && *c; c++) if (c == res || c[-1] == ' ') { na += *c == 'a'; nu += *c == 'u'; nt += *c == 't'; nb += *c == 'B'; }
++        s->a = zalloc((na + 1) * sizeof *s->a); s->u = zalloc((nu + 1) * sizeof *s->u); s->t = zalloc((nt + 1) * sizeof *s->t); s->b = zalloc((nb + 1) * sizeof *s->b);
+         for (char *t = res ? strtok(res, " ") : NULL; t; t = strtok(NULL, " ")) {
+             char nm[64], ty[32]; unsigned a1, a2, a3;
+             if (t[0] == 'a' && sscanf(t, "a:%63[^=]=%u:%31s", nm, &a1, ty) == 3 && a1 < 16) { shattr *x = &s->a[s->na++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty); }
+             else if (t[0] == 'u' && sscanf(t, "u:%63[^=]=%u:%31[^:]:%u:%u", nm, &a1, ty, &a2, &a3) == 5) {
+                 shuni *x = &s->u[s->nu++]; strlcpy(x->name, nm, sizeof x->name); x->off = a1; x->type = tcode(ty); x->count = a2; x->stride = a3;
+             } else if (t[0] == 't' && sscanf(t, "t:%63[^=]=%u:%31s", nm, &a1, ty) == 3) { shsamp *x = &s->t[s->nt++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty); }
+-            else if (t[0] == 'b' && sscanf(t, "b:%u:%u", &a1, &a2) == 2) { s->ub_slot = a1; s->ub_size = a2; }
++            else if (t[0] == 'B' && sscanf(t, "B:%63[^=]=%u:%u", nm, &a1, &a2) == 3 && a1 < 15) {
++                shblock *x = &s->b[s->nb++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->size = a2;
++            }
++            else if (t[0] == 'b'  && sscanf(t, "b:%u:%u", &a1, &a2) == 2) { s->ub_slot = a1; s->ub_size = a2; }
+         }
+         if (s->ub_slot >= 15) GLOG("[RED] shader %s: uniform block at buffer slot %d meets the vertex buffer slots", s->key, s->ub_slot);
+     }
+@@ -326,11 +330,14 @@ typedef struct { pkey_t k; void *pso; } pent_t;   // pso: a retained id<MTLRende
+ // amap: the game's attribute index of each Metal vertex input (glBindAttribLocation before the link, else the input's own number, which glGetAttribLocation returns);
+ // LÖVE binds VertexPosition, VertexTexCoord, VertexColor and ConstantColor to 0–3 in every program
+ typedef struct { char name[48]; int index; } abind_t;
++typedef struct { char name[64]; unsigned binding; int slot[2]; unsigned size[2]; } pblock_t;
+ // vs, fs: the attached shaders, each counted in its refs; deleted: glDeleteProgram flagged it while current (it goes at the next glUseProgram of another);
+ // what the link took from them (si, fn, the uniform table) is the program's own, so attaching, detaching or deleting a shader later leaves the linked program as it is
+ typedef struct {
+     GLuint vs, fs; int linked, deleted; const shinfo *si[2]; __strong id<MTLFunction> fn[2];
+     int nu; puni_t *u; uint8_t *ub[2]; uint64_t ub_gen[2]; uint32_t serial;
++    pblock_t *blocks; int nblocks;
++    __strong id<MTLFunction> fn_no_depth;
+     pent_t *pc; int npc, cappc;
+     abind_t bind[16]; int nbind; int8_t amap[16];
+ } prog_t;
+@@ -362,9 +369,10 @@ static int sp_check(GLuint n, int prog, const char *fn) {
+ // va: each attribute's current value (glVertexAttrib4f), what a vertex input reads when its array is disabled: LÖVE's VertexColor and ConstantColor
+ #define NUNITS 96
+ static struct {
+-    GLuint array_buf, rb, fb, read_fb, prog, vao; int unit;
++    GLuint array_buf, uniform_buf, rb, fb, read_fb, prog, vao; int unit;
++    struct { GLuint buffer; size_t offset, size; } ubo[96];
+     struct { GLuint t2d, tcube, t3d, t2da; } units[NUNITS];
+-    float clear_c[4]; double clear_d; int clear_s;
++    float clear_c[4], blend_c[4]; double clear_d; int clear_s;
+     uint8_t cmask, dmask, depth, blend, cull, scissor, stencil, poffset, srgb;
+     GLenum dfunc, cull_face, front, bsrc, bdst, bsa, bda, eqc, eqa;
+     GLenum sfunc, sfail, szfail, spass; GLint sref; GLuint smask, swmask;
+@@ -803,7 +811,7 @@ static id<MTLRenderPipelineState> pso_get(prog_t *p, const pkey_t *k) {
+     id<MTLRenderPipelineState> pso = nil;
+     @autoreleasepool {
+         MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+-        pd.vertexFunction = p->fn[0]; pd.fragmentFunction = p->fn[1];
++        pd.vertexFunction = p->fn[0]; pd.fragmentFunction = !k->dpf && p->fn_no_depth ? p->fn_no_depth : p->fn[1];
+         MTLVertexDescriptor *vd = [MTLVertexDescriptor vertexDescriptor];
+         const shinfo *vs = p->si[0];
+         for (int i = 0; i < vs->na; i++) {
+@@ -889,6 +897,7 @@ static void enc_state(void) {
+     float pf = S.poffset ? S.pfactor : 0, pu = S.poffset ? S.punits : 0;
+     if (pf != E.pf || pu != E.pu) { E.pf = pf; E.pu = pu; [e setDepthBias:pu slopeScale:pf clamp:0]; }
+     if (S.stencil && (int)(S.sref & 0xff) != E.sref) { E.sref = S.sref & 0xff; [e setStencilReferenceValue:E.sref]; }
++    [e setBlendColorRed:S.blend_c[0] green:S.blend_c[1] blue:S.blend_c[2] alpha:S.blend_c[3]];
+     id<MTLDepthStencilState> ds = dss_get();
+     if ((__bridge void *)ds != E.dss) { E.dss = (__bridge void *)ds; [e setDepthStencilState:ds]; }
+ }
+@@ -906,6 +915,24 @@ static void bind_uniforms_textures(prog_t *p) {
+             E.ub_gen[st] = p->ub_gen[st];
+         }
+     }
++    // Named uniform blocks use the current indexed binding, independently per stage.
++    // Mark reads so glBufferSubData preserves data used by already encoded draws.
++    for (int i = 0; i < p->nblocks; i++) {
++        pblock_t *block = &p->blocks[i];
++        if (block->binding >= 96) continue;
++        GLuint index = block->binding;
++        buf_t *b = buf_of(S.ubo[index].buffer);
++        for (int st = 0; st < 2; st++) {
++            if (block->slot[st] < 0) continue;
++            size_t off = S.ubo[index].offset, size = block->size[st];
++            if (!b || !b->mb || off > b->size || size > b->size - off || (S.ubo[index].size && size > S.ubo[index].size)) {
++                RED1("uniform block %s has no complete buffer binding", block->name); continue;
++            }
++            if (st) [e setFragmentBuffer:b->mb offset:off atIndex:block->slot[st]];
++            else [e setVertexBuffer:b->mb offset:off atIndex:block->slot[st]];
++            b->use = g_serial;
++        }
++    }
+     for (int i = 0; i < p->nu; i++) {
+         puni_t *u = &p->u[i];
+         if (!is_samp(u->type)) continue;
+@@ -1184,6 +1211,24 @@ static void cap_set(GLenum cap, int on) {
+     for (int i = 0; i < n; i++) if (seen[i] == cap) return;
+     if (n < 32) { seen[n++] = cap; GLOG("[RED] gl%s(%#x) not implemented", on ? "Enable" : "Disable", cap); }
+ }
++GL(glIsEnabled, uint32_t, GLenum cap) {
++    uint8_t *value = cap_of(cap);
++    if (value) return *value != 0;
++    if (cap == GL_FRAMEBUFFER_SRGB) return S.srgb != 0;
++    if (cap == GL_COLOR_TABLE) return S.color_table != 0;
++    RED1("glIsEnabled(%#x) not implemented", cap); return 0;
++}
++GL(glGetBooleanv, void, GLenum pname, uint8_t *value) {
++    if (!value) return;
++    if (pname == 0x0c23) { for (int i = 0; i < 4; i++) value[i] = (S.cmask >> i) & 1; return; }   // COLOR_WRITEMASK
++    if (pname == 0x0b72) { *value = S.dmask; return; }   // DEPTH_WRITEMASK
++    uint8_t *cap = cap_of(pname); if (cap) { *value = *cap != 0; return; }
++    RED1("glGetBooleanv(%#x) not implemented", pname); *value = 0;
++}
++GL(glBlendColor, void, GLfloat r, GLfloat g, GLfloat b, GLfloat a) {
++    S.blend_c[0] = fminf(1, fmaxf(0, r)); S.blend_c[1] = fminf(1, fmaxf(0, g));
++    S.blend_c[2] = fminf(1, fmaxf(0, b)); S.blend_c[3] = fminf(1, fmaxf(0, a));
++}
+ GL(glEnable, void, GLenum cap) { cap_set(cap, 1); }
+ GL(glDisable, void, GLenum cap) { cap_set(cap, 0); }
+ GL(glColorMask, void, uint32_t r, uint32_t g, uint32_t b, uint32_t a) { S.cmask = (r & 0xff ? 1 : 0) | (g & 0xff ? 2 : 0) | (b & 0xff ? 4 : 0) | (a & 0xff ? 8 : 0); }
+@@ -1259,6 +1304,21 @@ GL(glGetString, const char *, GLenum n) {
+ GL(glGetStringi, const char *, GLenum n, GLuint i) { return n == GL_EXTENSIONS && i < (GLuint)NEXTS ? g_exts[i] : NULL; }
+ GL(glGetIntegerv, void, GLenum p, GLint *v) {
+     switch (p) {
++        case 0x80c9: *v = S.bsrc; return;
++        case 0x80c8: *v = S.bdst; return;
++        case 0x80cb: *v = S.bsa; return;
++        case 0x80ca: *v = S.bda; return;
++        case 0x8009: *v = S.eqc; return;
++        case 0x883d: *v = S.eqa; return;
++        case 0x0b74: *v = S.dfunc; return;
++        case 0x0b92: case 0x8800: *v = S.sfunc; return;
++        case 0x0b97: case 0x8ca3: *v = S.sref; return;
++        case 0x0b93: case 0x8ca4: *v = S.smask; return;
++        case 0x0b98: case 0x8ca5: *v = S.swmask; return;
++        case 0x0b94: case 0x8801: *v = S.sfail; return;
++        case 0x0b95: case 0x8802: *v = S.szfail; return;
++        case 0x0b96: case 0x8803: *v = S.spass; return;
++        case 0x8a28: *v = S.uniform_buf; return;
+         case GL_NUM_EXTENSIONS: *v = NEXTS; return;
+         case GL_MAJOR_VERSION: *v = 4; return;
+         case GL_MINOR_VERSION: *v = 5; return;
+@@ -1302,6 +1362,7 @@ GL(glGetIntegerv, void, GLenum p, GLint *v) {
+ }
+ GL(glGetFloatv, void, GLenum p, GLfloat *v) {
+     switch (p) {
++        case 0x8005: memcpy(v, S.blend_c, sizeof S.blend_c); return;
+         case GL_MAX_TEXTURE_LOD_BIAS: *v = 15; return;
+         case GL_MAX_TEXTURE_MAX_ANISOTROPY: *v = 16; return;
+         case GL_VIEWPORT: for (int i = 0; i < 4; i++) v[i] = (float)S.vp[i]; return;
+@@ -1314,14 +1375,23 @@ GL(glGetFloatv, void, GLenum p, GLfloat *v) {
+ // ---------- Buffers and vertex arrays ----------
+ GL(glGenBuffers, void, GLsizei n, GLuint *out) { for (GLsizei i = 0; i < n; i++) out[i] = name_new((void ***)&g_bufs, &g_nbufs, &g_capbufs, sizeof(buf_t)); }
+ GL(glDeleteBuffers, void, GLsizei n, const GLuint *b) {
+-    for (GLsizei i = 0; i < n; i++) { buf_t *x = buf_of(b[i]); if (!x) continue; x->mb = nil; free(x); g_bufs[b[i]] = NULL; if (S.array_buf == b[i]) S.array_buf = 0; if (cur_vao()->ebo == b[i]) cur_vao()->ebo = 0; }
++    for (GLsizei i = 0; i < n; i++) { buf_t *x = buf_of(b[i]); if (!x) continue; x->mb = nil; free(x); g_bufs[b[i]] = NULL; if (S.array_buf == b[i]) S.array_buf = 0; if (S.uniform_buf == b[i]) S.uniform_buf = 0; for (int j = 0; j < 96; j++) if (S.ubo[j].buffer == b[i]) S.ubo[j].buffer = 0; if (cur_vao()->ebo == b[i]) cur_vao()->ebo = 0; }
+ }
+ GL(glBindBuffer, void, GLenum target, GLuint b) {
+     if (target == GL_ARRAY_BUFFER) S.array_buf = b;
+     else if (target == GL_ELEMENT_ARRAY_BUFFER) cur_vao()->ebo = b;
++    else if (target == 0x8a11) S.uniform_buf = b;   // UNIFORM_BUFFER
+     else RED1("glBindBuffer target %#x not implemented", target);
+ }
+-static buf_t *bound_buf(GLenum target) { return buf_of(target == GL_ARRAY_BUFFER ? S.array_buf : target == GL_ELEMENT_ARRAY_BUFFER ? cur_vao()->ebo : 0); }
++GL(glBindBufferBase, void, GLenum target, GLuint index, GLuint buffer) {
++    if (target != 0x8a11 || index >= 96 || (buffer && !buf_of(buffer))) { RED1("invalid uniform buffer base binding"); return; }
++    S.uniform_buf = buffer; S.ubo[index].buffer = buffer; S.ubo[index].offset = S.ubo[index].size = 0;
++}
++GL(glBindBufferRange, void, GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) {
++    if (target != 0x8a11 || index >= 96 || offset < 0 || size <= 0 || (buffer && !buf_of(buffer))) { RED1("invalid uniform buffer range binding"); return; }
++    S.uniform_buf = buffer; S.ubo[index].buffer = buffer; S.ubo[index].offset = offset; S.ubo[index].size = size;
++}
++static buf_t *bound_buf(GLenum target) { return buf_of(target == GL_ARRAY_BUFFER ? S.array_buf : target == GL_ELEMENT_ARRAY_BUFFER ? cur_vao()->ebo : target == 0x8a11 ? S.uniform_buf : 0); }
+ // Orphaning: data for a buffer a pending command buffer may still read goes into a new MTLBuffer, so draws already encoded keep the old contents
+ GLB(glBufferData, void, GLenum target, GLsizeiptr size, const void *data, GLenum usage) {
+     (void)usage;
+@@ -1782,6 +1852,8 @@ GL(glDetachShader, void, GLuint pr, GLuint sh) {
+ static void prog_clear(prog_t *p) {
+     for (int i = 0; i < p->npc; i++) if (p->pc[i].pso) CFRelease(p->pc[i].pso);
+     free(p->pc); p->pc = NULL; p->npc = p->cappc = 0;
++    p->fn_no_depth = nil;
++    free(p->blocks); p->blocks = NULL; p->nblocks = 0;
+     free(p->u); p->u = NULL; p->nu = 0; free(p->ub[0]); free(p->ub[1]); p->ub[0] = p->ub[1] = NULL; p->fn[0] = p->fn[1] = nil; p->linked = 0;
+ }
+ // Uniforms are merged by name over both stages, as GL links them; a location is uniform index × 4096 + array element
+@@ -1793,10 +1865,18 @@ GLB(glLinkProgram, void, GLuint pr) {
+     shader_t *vs = shader_of(p->vs), *fs = shader_of(p->fs);
+     if (!vs || !fs || !vs->fn || !fs->fn) { RED1("program %u: a shader is missing from the library, its draws are skipped", pr); return; }
+     p->si[0] = vs->si; p->si[1] = fs->si; p->fn[0] = vs->fn; p->fn[1] = fs->fn;
++    p->fn_no_depth = [g_lib newFunctionWithName:[NSString stringWithFormat:@"gl_%s_nd_f", fs->key]];
++    p->blocks = zalloc((vs->si->nb + fs->si->nb + 1) * sizeof *p->blocks);
+     int cap = vs->si->nu + vs->si->nt + fs->si->nu + fs->si->nt; p->u = zalloc((cap + 1) * sizeof *p->u);
+     for (int st = 0; st < 2; st++) {
+         const shinfo *si = p->si[st];
+         p->ub[st] = zalloc(si->ub_size + 16);
++        for (int i = 0; i < si->nb; i++) {
++            const shblock *sb = &si->b[i]; pblock_t *b = NULL;
++            for (int j = 0; j < p->nblocks; j++) if (!strcmp(p->blocks[j].name, sb->name)) b = &p->blocks[j];
++            if (!b) { b = &p->blocks[p->nblocks++]; strlcpy(b->name, sb->name, sizeof b->name); b->binding = sb->slot; b->slot[0] = b->slot[1] = -1; }
++            b->slot[st] = sb->slot; b->size[st] = sb->size;
++        }
+         for (int i = 0; i < si->nu + si->nt; i++) {
+             const char *nm = i < si->nu ? si->u[i].name : si->t[i - si->nu].name;
+             puni_t *u = NULL;
+@@ -1820,6 +1900,16 @@ GLB(glLinkProgram, void, GLuint pr) {
+     p->serial = ++serials; p->ub_gen[0]++; p->ub_gen[1]++; p->linked = 1;
+     OLOG("LinkProgram %u: vs %s fs %s, %d uniforms", pr, vs->key, fs->key, p->nu);
+ }
++GL(glGetUniformBlockIndex, GLuint, GLuint program, const GLchar *name) {
++    prog_t *p = prog_of(program);
++    if (p && p->linked && name) for (int i = 0; i < p->nblocks; i++) if (!strcmp(p->blocks[i].name, name)) return (GLuint)i;
++    return 0xffffffffu;   // GL_INVALID_INDEX
++}
++GL(glUniformBlockBinding, void, GLuint program, GLuint index, GLuint binding) {
++    prog_t *p = prog_of(program);
++    if (!p || index >= (GLuint)p->nblocks || binding >= 96) { RED1("invalid uniform block binding"); return; }
++    p->blocks[index].binding = binding;
++}
+ GL(glBindAttribLocation, void, GLuint pr, GLuint index, const GLchar *name) {   // takes effect at the next link
+     if (!SP_CHECK(pr, 1)) return;
+     if (index >= 16) { gl_error(GL_INVALID_VALUE); return; }   // GL_MAX_VERTEX_ATTRIBS
+@@ -1973,6 +2063,7 @@ GL(glGetUniformuiv, void, GLuint pr, GLint loc, GLuint *v) { uni_read(pr, loc, v
+ // ---------- EGL ----------
+ #define EGL_TRUE 1
+ static struct { int init; int surface; uint32_t w, h; } g_egl;
++static _Thread_local EGLint g_egl_error = 0x3000;   // EGL_SUCCESS; consumed by eglGetError
+ static uint64_t g_frames;
+ // Every 300 frames: draws, passes, uploads; every 1800: memory (the process footprint, Metal's allocations, the GL objects alive), as the NVN layer's memory report
+ static void frame_end(void) {
+@@ -2036,7 +2127,7 @@ EGL(eglQueryString, const char *, EGLDisplay d, EGLint name) {
+     switch (name) { case 0x3053: return "NVIDIA"; case 0x3054: return "1.5"; case 0x3055: return "EGL_KHR_create_context"; case 0x308d: return "OpenGL"; }   // VENDOR, VERSION, EXTENSIONS, CLIENT_APIS
+     return NULL;
+ }
+-EGL(eglGetError, EGLint, void) { return 0x3000; }   // SUCCESS
++EGL(eglGetError, EGLint, void) { EGLint error = g_egl_error; g_egl_error = 0x3000; return error; }
+ EGL(eglQueryAPI, EGLenum, void) { return 0x30a2; }   // OPENGL_API
+ EGL(eglWaitNative, EGLBoolean, EGLint engine) { (void)engine; return EGL_TRUE; }
+ EGL(eglWaitGL, EGLBoolean, void) { return EGL_TRUE; }
+@@ -2058,6 +2149,21 @@ EGL(eglCreateWindowSurface, EGLSurface, EGLDisplay d, EGLConfig cfg, void *win,
+     g_egl.surface = 1;
+     return (EGLSurface)(uintptr_t)3;
+ }
++// FFVII queries the window dimensions before making its context current.
++// Report the actual backing images, rather than the viewport or a guessed size.
++EGL(eglQuerySurface, EGLBoolean, EGLDisplay d, EGLSurface surface, EGLint attr, EGLint *value) {
++    if (d != (EGLDisplay)&g_egl) { g_egl_error = 0x3008; return 0; }   // BAD_DISPLAY
++    if (!g_egl.init) { g_egl_error = 0x3001; return 0; }   // NOT_INITIALIZED
++    if (surface != (EGLSurface)(uintptr_t)3 || !g_egl.surface) { g_egl_error = 0x300d; return 0; }   // BAD_SURFACE
++    if (!value) { g_egl_error = 0x300c; return 0; }   // BAD_PARAMETER
++    switch (attr) {
++        case 0x3057: *value = (EGLint)g_win.w; break;   // WIDTH
++        case 0x3056: *value = (EGLint)g_win.h; break;   // HEIGHT
++        case 0x3028: *value = 1; break;   // CONFIG_ID
++        default: RED1("eglQuerySurface(%#x) not implemented", attr); g_egl_error = 0x3004; return 0;   // BAD_ATTRIBUTE
++    }
++    return EGL_TRUE;
++}
+ EGL(eglDestroySurface, EGLBoolean, EGLDisplay d, EGLSurface s) { (void)d; (void)s; return EGL_TRUE; }
+ EGL(eglMakeCurrent, EGLBoolean, EGLDisplay d, EGLSurface dr, EGLSurface rd, EGLContext c) {
+     (void)d; (void)rd;
+diff --git a/dm/gfx/tests/t_gl_imports.m b/dm/gfx/tests/t_gl_imports.m
+index 7105b64..162fd10 100644
+--- a/dm/gfx/tests/t_gl_imports.m
++++ b/dm/gfx/tests/t_gl_imports.m
+@@ -36,6 +36,31 @@ int main(int argc, char **argv) {
+     (void)argv;
+     int stubs = argc > 1;
+     setenv("DM_GL_STUBS", stubs ? "1" : "0", 1);
++    // FFVII: query the backing surface before making its context current.
++    g_egl.init = g_egl.surface = 1; g_win.w = 1280; g_win.h = 720;
++    EGLint dimension = -1;
++    assert(h_eglQuerySurface(&g_egl, (void *)3, 0x3057, &dimension) && dimension == 1280);
++    assert(h_eglQuerySurface(&g_egl, (void *)3, 0x3056, &dimension) && dimension == 720);
++    assert(!h_eglQuerySurface(&g_egl, (void *)3, 0xffff, &dimension) && dimension == 720);
++    assert(h_eglGetError() == 0x3004 && h_eglGetError() == 0x3000);
++    assert(!h_eglQuerySurface(&g_egl, (void *)9, 0x3057, &dimension));
++    assert(h_eglGetError() == 0x300d);
++    GLuint buffer; h_glGenBuffers(1, &buffer);
++    h_glBindBufferBase(0x8a11, 4, buffer);
++    assert(S.uniform_buf == buffer && S.ubo[4].buffer == buffer && !S.ubo[4].offset);
++    h_glBindBufferRange(0x8a11, 4, buffer, 256, 80);
++    assert(S.ubo[4].offset == 256 && S.ubo[4].size == 80);
++    h_glDeleteBuffers(1, &buffer); assert(!S.uniform_buf && !S.ubo[4].buffer);
++    GLuint block_program = h_glCreateProgram(); prog_t *bp = prog_of(block_program);
++    bp->linked = 1; bp->nblocks = 2; bp->blocks = calloc(2, sizeof *bp->blocks);
++    strcpy(bp->blocks[0].name, "VertexBlock"); strcpy(bp->blocks[1].name, "FragmentBlock");
++    assert(h_glGetUniformBlockIndex(block_program, "FragmentBlock") == 1);
++    assert(h_glGetUniformBlockIndex(block_program, "missing") == 0xffffffffu);
++    h_glUniformBlockBinding(block_program, 1, 7); assert(bp->blocks[1].binding == 7);
++    h_glDeleteProgram(block_program);
++    h_glColorMask(1, 0, 1, 0); uint8_t mask[4] = {9,9,9,9};
++    h_glGetBooleanv(0x0c23, mask); assert(mask[0] == 1 && mask[1] == 0 && mask[2] == 1 && mask[3] == 0);
++    h_glColorMask(1,1,1,1); h_glEnable(GL_BLEND); assert(h_glIsEnabled(GL_BLEND)); h_glDisable(GL_BLEND);
+     // The calls from the issue must bind without using a GL loader first.
+     GLuint (*create)(GLenum) = import("glCreateShader");
+     assert((void *)create == (void *)h_glCreateShader);
+diff --git a/dm/gfx/tests/test_gl_shaders.py b/dm/gfx/tests/test_gl_shaders.py
+new file mode 100644
+index 0000000..d2a2a5a
+--- /dev/null
++++ b/dm/gfx/tests/test_gl_shaders.py
+@@ -0,0 +1,49 @@
++"""gl_shaders.py: what FINAL FANTASY VII's GLSL (0100A5B00BDC6000) needs from the GL → MSL translation.
++The translation tests need glslangValidator on PATH and the in-repo spirv-cross (dmsh_chain.SPIRV_CROSS), and are skipped without them."""
++import os
++from pathlib import Path
++import shutil
++import sys
++import tempfile
++import unittest
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
++import gl_shaders   # noqa: E402
++
++TOOLS = bool(shutil.which('glslangValidator')) and os.path.isfile(gl_shaders.SPIRV_CROSS)
++
++
++class FixupTests(unittest.TestCase):
++    def test_lod_zero_offset_from_a_parameter(self):   # FFVII's FXAA passes the offset through a helper's parameter, which NVIDIA inlines
++        out = gl_shaders.fixups('vec4 f(ivec2 o) { return textureLodOffset(tex, uv, 0.0, o); }')
++        self.assertIn('textureLod(tex, (uv) + vec2(o) / vec2(textureSize(tex, 0)), 0.0)', out)
++        self.assertNotIn('textureLodOffset', out)
++
++    def test_other_lods_stay(self):
++        src = 'vec4 f(ivec2 o) { return textureLodOffset(tex, uv, 1.0, o); }'
++        self.assertEqual(gl_shaders.fixups(src), src)
++
++
++@unittest.skipUnless(TOOLS, 'needs glslangValidator and spirv-cross')
++class TranslateTests(unittest.TestCase):
++    def test_es_version_without_profile_and_named_block(self):   # FFVII writes '#version 320' and binds named uniform blocks
++        src = (b'#version 320\nprecision highp float;\nlayout(binding=0) uniform BlockVertex { mat4 projection; };\n'
++               b'layout(location=0) in vec4 position;\nvoid main(){gl_Position=projection*position;}\n')
++        with tempfile.TemporaryDirectory() as d:
++            result = gl_shaders.translate(src, 'vert', 'synthetic', d)
++            self.assertIsInstance(result, tuple, result)
++            self.assertIn('B:BlockVertex=0:64', result[1])
++
++    def test_depth_writer_gets_a_depthless_variant(self):   # GL drops gl_FragDepth on a target without depth, Metal rejects the pipeline
++        src = b'#version 320\nprecision highp float;\nlayout(location=0) out vec4 color;\nvoid main(){color=vec4(1);gl_FragDepth=0.5;}\n'
++        with tempfile.TemporaryDirectory() as d:
++            result = gl_shaders.translate(src, 'frag', 'depth_test', d)
++            self.assertIsInstance(result, tuple, result)
++            variant = Path(d) / 'depth_test_nd_f.metal'
++            self.assertTrue(variant.exists())
++            self.assertNotIn('[[depth(', variant.read_text())
++            self.assertIn('[[depth(', Path(result[0]).read_text())
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/gfx/tools/gl_shaders.py b/dm/gfx/tools/gl_shaders.py
+index f835488..b60c58b 100644
+--- a/dm/gfx/tools/gl_shaders.py
++++ b/dm/gfx/tools/gl_shaders.py
+@@ -97,6 +97,17 @@ def fixups(t):
+         if len(args) == 3 and re.search(r'[A-Za-z_]\w*', re.sub(r'\b[iu]?vec[234]\b', '', args[2])):   # an offset with a variable in it
+             s_, p_, o_ = (x.strip() for x in args)
+             out.append(t[i:m.start()] + f'texture({s_}, ({p_}) + vec2({o_}) / vec2(textureSize({s_}, 0)))'); i = end
++    t = ''.join(out) + t[i:]
++    # FXAA passes its offset through a helper parameter. NVIDIA inlines it before
++    # checking the constant-offset rule. At LOD zero, shift normalized coordinates
++    # by offset / textureSize instead (the existing textureOffset path does likewise).
++    out, i = [], 0
++    for m in re.finditer(r'\btextureLodOffset\s*\(', t):
++        if m.start() < i: continue
++        args, end = call_args(t, m.end() - 1)
++        if len(args) == 4 and re.fullmatch(r'0(?:\.0*)?', args[2].strip()):
++            sampler, pos, lod, offset = (x.strip() for x in args)
++            out.append(t[i:m.start()] + f'textureLod({sampler}, ({pos}) + vec2({offset}) / vec2(textureSize({sampler}, 0)), {lod})'); i = end
+     return ''.join(out) + t[i:]
+ 
+ def glsl_type(t, refl):
+@@ -135,6 +146,10 @@ def es100(t, stage):
+ def translate(src, stage, key, tmp):
+     """GLSL → MSL; returns (msl path, table fields) or an error string"""
+     t = src.decode('latin1')
++    # NVIDIA accepts ES version numbers without the profile suffix (FFVII).
++    # Normalize only ES-only versions; keep the original bytes for the lookup hash.
++    t = re.sub(r'(?m)^([ \t]*#version[ \t]+(?:300|310|320))[ \t]*(\r?)$', r'\1 es\2', t)
++    src = t.encode('latin1')
+     v = re.search(r'^[ \t]*#version[ \t]+(\d+)[^\n]*\n?', t, re.M)
+     if not v or v.group(1) == '100': src = es100(t.replace(v.group(0), '', 1) if v else t, stage).encode('latin1')
+     g = os.path.join(tmp, f'{key}.{stage}'); spv = g + '.spv'; msl = os.path.join(tmp, f'{key}_{stage[0]}.metal')
+@@ -164,7 +179,10 @@ def translate(src, stage, key, tmp):
+     bools = {n for n in re.findall(r'\buniform\s+(?:(?:lowp|mediump|highp)\s+)?bool\s+(\w+)\s*;', pre)}
+     for u in refl.get('ubos', []):
+         t = refl['types'][u['type']]
+-        if t['name'] != 'gl_DefaultUniformBlock': return f'uniform block {t["name"]} is not the default block'
++        if t['name'] != 'gl_DefaultUniformBlock':
++            if u.get('array'): return f'uniform block array {t["name"]} is not implemented'
++            f.append(f'B:{t["name"]}={u["binding"]}:{u["block_size"]}')
++            continue
+         f.append(f'b:{u["binding"]}:{u["block_size"]}')
+         e = uni_members(refl, t['members'], '', 0, f, bools)
+         if e: return e
+@@ -174,6 +192,13 @@ def translate(src, stage, key, tmp):
+     for k in ('separate_images', 'separate_samplers', 'images', 'ssbos', 'push_constants'):
+         if refl.get(k): return f'{k} are not implemented'
+     if any(int(x) > 15 for x in re.findall(r'\[\[(?:sampler|buffer)\((\d+)\)\]\]', m)): return 'a buffer or sampler slot above 15'
++    if stage == 'frag' and re.search(rb'\bgl_FragDepth\b', src):
++        # GL discards depth output when the framebuffer has no depth attachment.
++        # Metal needs a function with no depth output for that pipeline variant.
++        nd = re.sub(r'\bgl_FragDepth\b', 'dm_discarded_depth', src.decode('latin1'))
++        nd = re.sub(r'(?m)^(#version[^\n]*\n)', r'\1highp float dm_discarded_depth;\n', nd, count=1)
++        variant = translate(nd.encode('latin1'), stage, key + '_nd', tmp)
++        if not isinstance(variant, tuple): return 'depthless variant: ' + variant
+     return msl, f
+ 
+ def one(item, tmp):
+@@ -227,6 +252,8 @@ def main():
+         dirs = [(os.path.join(out, 'gl'), 'macosx', [MAC_MIN_FLAG])]   # the Mac host's minimum macOS, as the NVN chain's libraries (dmsh_chain.py MAC_MIN)
+         if ios: dirs.append((os.path.join(ios, 'gl'), 'iphoneos', list(IOS_FLAGS)))   # relaxed as in vk_shaders.py and ios_metal.py: no NaN / Inf assumption on the iPhone's GPU compiler
+         msls = [v[2] for v in seen.values()]
++        msls += [m[:-8] + '_nd_f.metal' for m in list(msls)
++                 if m.endswith('_f.metal') and os.path.isfile(m[:-8] + '_nd_f.metal')]
+         for d, sdk, extra in dirs:
+             lib = metallib(msls, d, sdk, extra)
+             open(os.path.join(d, 'gl_shaders.tsv'), 'w').write('\n'.join(tsv) + '\n')
