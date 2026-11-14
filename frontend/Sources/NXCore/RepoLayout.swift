@@ -9,6 +9,7 @@ package enum RepoLayout {
     /// tool the launcher calls goes into this list and is then checked before every build.
     package static let buildScript = "scripts/build_ipa_from_nsp.py"
     package static let romfsImageTool = "dm/tools/romfs_image.py"
+    package static let buildSeedTool = "dm/tools/build_seed.py"
     package static let requiredTools = [buildScript, romfsImageTool]
 
     /// Home shown as ~ (shorter in a one-line row, and it keeps the account name out of screenshots).
@@ -50,6 +51,18 @@ package enum RepoLayout {
     package static func supportsFallbackIcon(_ dir: String) -> Bool {
         guard let text = try? String(contentsOfFile: EngineLayout.root(dir) + "/" + buildScript, encoding: .utf8) else { return false }
         return text.contains("'--fallback-icon'") || text.contains("\"--fallback-icon\"")
+    }
+
+    /// Whether the checkout's build script takes `--from-seed` (PR #3 fast refresh).
+    package static func supportsBuildSeed(_ dir: String) -> Bool {
+        guard let text = try? String(contentsOfFile: EngineLayout.root(dir) + "/" + buildScript, encoding: .utf8) else { return false }
+        return text.contains("'--from-seed'") || text.contains("\"--from-seed\"")
+    }
+
+    /// Whether the checkout's romfs tool takes `--extract-msl` (PR #3 shader trailer extraction).
+    package static func supportsExtractMsl(_ dir: String) -> Bool {
+        guard let text = try? String(contentsOfFile: EngineLayout.root(dir) + "/" + romfsImageTool, encoding: .utf8) else { return false }
+        return text.contains("'--extract-msl'") || text.contains("\"--extract-msl\"")
     }
 
     /// The checkout of this repository the app drives. A released .app ships on its own,

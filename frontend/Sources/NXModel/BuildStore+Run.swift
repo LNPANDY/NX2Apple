@@ -7,6 +7,9 @@ import NXCore
 extension BuildStore {
     package func startBuild() {
         guard !running else { return }
+        fastRefreshActive = false
+        fastRefreshGameName = nil
+        fastRefreshBaseDir = nil
         selectedTitleID = nil
         queuedExportIPA = nil
         queuedExportOneGame = nil
@@ -15,6 +18,9 @@ extension BuildStore {
 
     func runBuild() {
         guard !running else { return }
+        fastRefreshActive = false
+        fastRefreshGameName = nil
+        fastRefreshBaseDir = nil
         guard prepareBuildPreflight() else { return }
         // The shared app needs a device this Mac knows. Found out here, before an hour of building, not after it.
         if target != BuildTarget.mac, !shellDeviceChecked, !exportsShell {
@@ -382,7 +388,7 @@ extension BuildStore {
     }
 
     /// Looks the device up in `devicectl list devices` (in the background), then starts the build, or says how to pair it.
-    package func verifyShellDevice() {
+    package func verifyShellDevice(then resume: (() -> Void)? = nil) {
         buildingGame = true; runningTarget = target
         beginOperation(.building, game: gameName, titleID: gameTitleID, destination: .target)
         stopping = false; stoppedByPlayer = false; installPhaseActive = true
@@ -394,19 +400,25 @@ extension BuildStore {
                 self.installPhaseActive = false
                 self.running = false
                 if self.stopping {
+                    self.fastRefreshActive = false
+                    self.fastRefreshBaseDir = nil
+                    self.fastRefreshGameName = nil
                     self.skipStaleCheckForQueuedEntry = false
                     self.stopping = false
                     self.doneNote = self.t("msg.stopped")
                     return
                 }
                 if link == .notPaired {
+                    self.fastRefreshActive = false
+                    self.fastRefreshBaseDir = nil
+                    self.fastRefreshGameName = nil
                     self.skipStaleCheckForQueuedEntry = false
                     self.failure = BuildFailure(kind: .devicePairing, gameName: nil)
                     self.doneNote = String(format: self.t("shell.notPaired"), self.devices.deviceName(device))
                     return
                 }
                 self.shellDeviceChecked = true
-                self.runBuild()
+                if let resume { resume() } else { self.runBuild() }
             }
         }
     }

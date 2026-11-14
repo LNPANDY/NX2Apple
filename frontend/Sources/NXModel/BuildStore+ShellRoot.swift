@@ -30,7 +30,7 @@ extension BuildStore {
     /// The shell folder the cache row shows: the frameworks' mirror, shell.json and the banner cache live here.
     package var shellCachePath: String { ShellLibrary.previewRoot(defaults: defaults, parent: shellRootParent, home: home) }
     /// The folder a first shell root would sit in: the output folder, else the game's folder.
-    package var shellRootParent: String { outDir.isEmpty ? inputFolder : outDir }
+    package var shellRootParent: String { effectiveOutputFolder }
     /// The shell folder of the install: the saved one, else next to the output folder (or the game's folder).
     package var shellRoot: String { ShellLibrary.resolveRoot(defaults: defaults, parent: shellRootParent, home: home) }
 

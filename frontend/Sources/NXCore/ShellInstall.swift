@@ -414,6 +414,11 @@ package struct ShellInstaller {
     package func install(framework: String, titleID: String, name: String, archive: String) -> Outcome {
         let signed = signAndInstallApp(framework: framework, titleID: titleID, name: name)
         guard signed.outcome.ok else { return signed.outcome }
+        if archive.isEmpty {
+            var res = signed.outcome
+            if !signed.notes.isEmpty { res.message = ([res.message] + signed.notes).joined(separator: "\n") }
+            return res
+        }
         // 7: the game data, only what the device does not have yet
         var result = copyGameData(titleID: titleID, archive: archive, app: signed.outcome.appPath,
                                   bundleID: signed.outcome.bundleID, outcome: signed.outcome, appJoinsParts: true)

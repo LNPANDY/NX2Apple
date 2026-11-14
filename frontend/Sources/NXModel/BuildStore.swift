@@ -232,6 +232,19 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package let shellMoveStop = LockedFlag()
     let installCancel = LockedFlag()
     var installPhaseActive = false
+    package var fastRefreshActive = false
+    package var fastRefreshTitleID: String? = nil
+    package var fastRefreshGameName: String? = nil
+    package var fastRefreshBaseDir: String? = nil
+
+    /// Output folder for the current operation: respects fastRefreshBaseDir during fast refresh,
+    /// falling back to outDir or inputFolder for standard builds.
+    package var effectiveOutputFolder: String {
+        if fastRefreshActive, let base = fastRefreshBaseDir, !base.isEmpty {
+            return base
+        }
+        return outDir.isEmpty ? inputFolder : outDir
+    }
     /// The home folder the default shell root is in. Tests use a temporary one, so they never touch the real Application Support.
     package var home = NSHomeDirectory()
 

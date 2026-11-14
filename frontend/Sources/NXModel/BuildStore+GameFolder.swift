@@ -92,6 +92,7 @@ extension BuildStore {
 
     /// The key of the work folder (`<key>_build`): the folder's title ID, else the base package's (TitleID.buildKey).
     package var buildKey: String {
+        if fastRefreshActive, let fastRefreshTitleID, !fastRefreshTitleID.isEmpty { return fastRefreshTitleID }
         if let selectedTitleID { return selectedTitleID }
         guard let f = gameFolder else { return TitleID.buildKey(basePath) }
         return f.hasTitleID ? f.titleIDHex : TitleID.buildKey(f.scriptInput)
@@ -102,6 +103,7 @@ extension BuildStore {
 
     /// The game's title ID as 16 hex digits, when the inputs tell it.
     package var gameTitleID: String? {
+        if fastRefreshActive, let fastRefreshTitleID, !fastRefreshTitleID.isEmpty { return fastRefreshTitleID }
         if let selectedTitleID { return selectedTitleID }
         if let f = gameFolder { return f.hasTitleID ? f.titleIDHex : nil }
         return TitleID.parse(basePath).map { String(format: "%016llX", $0) }
@@ -115,6 +117,10 @@ extension BuildStore {
 
     /// A name for the game in messages and the shared app: the profile's for a game folder (it has no control data), else the base package's file name.
     package var gameName: String {
+        if let fastRefreshGameName, !fastRefreshGameName.isEmpty { return fastRefreshGameName }
+        if fastRefreshActive, let fastRefreshTitleID, let tid = UInt64(fastRefreshTitleID, radix: 16) {
+            return GameFolder.profileName(tid, engineRoot: EngineLayout.root(repo.path)) ?? fastRefreshTitleID
+        }
         if let selectedTitleID, let tid = UInt64(selectedTitleID, radix: 16) {
             return GameFolder.profileName(tid, engineRoot: EngineLayout.root(repo.path)) ?? selectedTitleID
         }
