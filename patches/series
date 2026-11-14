@@ -48,3 +48,4 @@
 0048-host-guard-async-callbacks-across-shell-teardown.patch
 0049-ios-record-built-at-timestamp-in-embedded-game-m.patch
 0050-ios-fix-bigstack-exit-crash-guest-quit-to-shell.patch
+0051-host-gfx-tools-ios-support-dmmsltr1-shader-trail.patch

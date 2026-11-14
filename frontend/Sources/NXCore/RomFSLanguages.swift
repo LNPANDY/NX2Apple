@@ -38,8 +38,9 @@ package enum RomFSLanguages {
         return table.filter { codes.contains($0.code) }.map { [$0.code, $0.label] }
     }
 
-    /// Reads the `[code, label]` pairs from a RomFS image (`romfs.img`), a RomFS tree (`romfs/`), a folder holding either, or a
-    /// `.app` bundle (`Contents/Resources/romfs.img` or `Contents/Resources/romfs`). Empty when fewer than two languages are found.
+    /// Reads the `[code, label]` pairs from a RomFS image (`romfs.img` or a custom `<game>.img`), a RomFS tree (`romfs/`), a folder
+    /// holding either, or a `.app` bundle (`Contents/Resources/romfs.img` or `Contents/Resources/romfs`). Empty when fewer than two
+    /// languages are found.
     package static func options(in path: String, fm: FileManager = .default) -> [[String]] {
         guard !path.isEmpty else { return [] }
         for candidate in candidates(for: path) {
@@ -47,6 +48,13 @@ package enum RomFSLanguages {
             guard fm.fileExists(atPath: candidate, isDirectory: &isDir) else { continue }
             let found = isDir.boolValue ? fromDirectory(candidate, fm: fm) : cachedFromImage(candidate, fm: fm)
             if found.count > 1 { return found }
+        }
+        var pathIsDir: ObjCBool = false
+        if fm.fileExists(atPath: path, isDirectory: &pathIsDir), pathIsDir.boolValue {
+            for image in directCustomImages(in: path, fm: fm) {
+                let found = cachedFromImage(image, fm: fm)
+                if found.count > 1 { return found }
+            }
         }
         return []
     }
@@ -147,9 +155,19 @@ package enum RomFSLanguages {
         return found
     }
 
+    private static func standardImageCandidates(for path: String) -> [String] {
+        [
+            path + "/Contents/Resources/romfs.img",
+            path + "/Contents/Resources/RomFS.img",
+            path + "/romfs.img",
+            path + "/RomFS.img"
+        ]
+    }
+
     private static func candidates(for path: String) -> [String] {
         [
             path + "/Contents/Resources/romfs.img",
+            path + "/Contents/Resources/RomFS.img",
             path + "/Contents/Resources/romfs",
             path + "/romfs.img",
             path + "/RomFS.img",
@@ -157,6 +175,27 @@ package enum RomFSLanguages {
             path + "/RomFS",
             path
         ]
+    }
+
+    private static func directCustomImages(in dir: String, fm: FileManager) -> [String] {
+        for std in standardImageCandidates(for: dir) {
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: std, isDirectory: &isDir), !isDir.boolValue {
+                return []
+            }
+        }
+        guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return [] }
+        return names.sorted().compactMap { name -> String? in
+            let lower = name.lowercased()
+            guard !name.hasPrefix("."),
+                  name.count > 4,
+                  lower.hasSuffix(".img"),
+                  !lower.contains(".nxpart") else { return nil }
+            let full = dir + "/" + name
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: full, isDirectory: &isDir), !isDir.boolValue else { return nil }
+            return full
+        }
     }
 
     private static func tagsFromMask(_ text: String) -> [String] {
@@ -189,8 +228,40 @@ package enum RomFSLanguages {
         return []
     }
 
+    /// Validates the fixed 64-byte `DMMSLTR1` footer at EOF when `fileSize > baseEnd`.
+    private static func hasValidMSLTrailer(handle: FileHandle, fileSize: UInt64, baseEnd: UInt64) -> Bool {
+        guard fileSize - baseEnd >= 64 else { return false }
+        let footerPos = fileSize - 64
+        guard (try? handle.seek(toOffset: footerPos)) != nil,
+              let footData = try? handle.read(upToCount: 64), footData.count == 64 else { return false }
+        let f = [UInt8](footData)
+        func le64(_ o: Int) -> UInt64 {
+            (0..<8).reduce(0) { $0 | UInt64(f[o + $1]) << (8 * UInt64($1)) }
+        }
+        let version = UInt32(f[8]) | (UInt32(f[9]) << 8) | (UInt32(f[10]) << 16) | (UInt32(f[11]) << 24)
+        let gfxAPI = f[12]
+        let chainLen = Int(UInt16(f[14]) | (UInt16(f[15]) << 8))
+        let baseRomfsSize = le64(16), mslOffset = le64(24), mslSize = le64(32)
+        let pageMask: UInt64 = 16383
+        guard f[0..<8].elementsEqual("DMMSLTR1".utf8),
+              version == 1,
+              (1...3).contains(gfxAPI),
+              chainLen <= 24,
+              !f[40..<(40 + chainLen)].contains(0),
+              f[(40 + chainLen)..<64].allSatisfy({ $0 == 0 }),
+              baseRomfsSize == baseEnd,
+              baseEnd <= UInt64.max - pageMask,
+              mslOffset == ((baseEnd + pageMask) & ~pageMask),
+              mslSize >= 32,
+              mslOffset <= footerPos,
+              mslSize <= footerPos - mslOffset else { return false }
+        let rawEnd = mslOffset + mslSize
+        guard rawEnd <= UInt64.max - 7, ((rawEnd + 7) & ~UInt64(7)) == footerPos else { return false }
+        return true
+    }
+
     /// Reads `System/RegionLangMask.txt` or `Mals/` from a `DMROMFS1` image (`dm/tools/romfs.py`) by seeking to the index at the
-    /// end of the file, without reading the multi-GB data region.
+    /// end of the base image (with or without a `DMMSLTR1` shader trailer), without reading the multi-GB data region.
     private static func fromImage(_ path: String) -> [[String]] {
         guard let handle = FileHandle(forReadingAtPath: path) else { return [] }
         defer { try? handle.close() }
@@ -208,8 +279,12 @@ package enum RomFSLanguages {
         }
         guard head[0..<8].elementsEqual("DMROMFS1".utf8) else { return [] }
         let idxOff = u64(head, 8), idxSize = u64(head, 16), count = u64(head, 24)
-        guard idxOff >= 32, idxOff <= fileSize, idxSize == fileSize - idxOff,
-              idxSize <= 64 * 1024 * 1024, count >= 1, count <= idxSize / 24,
+        guard idxOff >= 32, idxOff <= fileSize, idxSize <= fileSize - idxOff else { return [] }
+        let baseEnd = idxOff + idxSize
+        if fileSize > baseEnd {
+            guard hasValidMSLTrailer(handle: handle, fileSize: fileSize, baseEnd: baseEnd) else { return [] }
+        }
+        guard idxSize <= 64 * 1024 * 1024, count >= 1, count <= idxSize / 24,
               (try? handle.seek(toOffset: idxOff)) != nil,
               let idxData = try? handle.read(upToCount: Int(idxSize)), idxData.count == Int(idxSize) else { return [] }
         let idx = [UInt8](idxData)

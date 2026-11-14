@@ -26,6 +26,32 @@ import Testing
         #expect(try GameManifest.parse(Data(with.utf8)).console == "switch2")
     }
 
+    @Test func parsesAndValidatesGfxAPI() throws {
+        let good = String(decoding: try fixture(Fixtures.orbit, "game.manifest.json"), as: UTF8.self)
+        #expect(try GameManifest.parse(Data(good.utf8)).gfxAPI == nil)
+        let explicitNull = good.replacingOccurrences(of: "\"schema\": 1", with: "\"schema\": 1, \"gfx_api\": null")
+        #expect(try GameManifest.parse(Data(explicitNull.utf8)).gfxAPI == nil)
+
+        for api in ["nvn", "vulkan", "gl"] {
+            let text = good.replacingOccurrences(of: "\"schema\": 1", with: "\"schema\": 1, \"gfx_api\": \"\(api)\"")
+            #expect(try GameManifest.parse(Data(text.utf8)).gfxAPI == api)
+        }
+
+        for invalid in ["\"metal\"", "\"NVN\"", "\"\"", "123"] {
+            let text = good.replacingOccurrences(of: "\"schema\": 1", with: "\"schema\": 1, \"gfx_api\": \(invalid)")
+            #expect(throws: DecodingError.self) {
+                _ = try JSONDecoder().decode(GameManifest.self, from: Data(text.utf8))
+            }
+            do {
+                _ = try GameManifest.parse(Data(text.utf8))
+                Issue.record("Expected GameManifest.parse to reject gfx_api \(invalid)")
+            } catch {
+                #expect(error.cause == .manifestDamaged)
+                #expect(error.detail.contains("gfx_api"))
+            }
+        }
+    }
+
     @Test func malformedManifestsGiveReadableReasons() throws {
         func problem(_ text: String) -> GameProblem? {
             do { _ = try GameManifest.parse(Data(text.utf8)); return nil } catch { return error }

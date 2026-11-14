@@ -297,9 +297,11 @@ public struct ShellHostConfig: Sendable {
         shellScan = Task { [weak self] in
             let found = await Task.detached(priority: .utility) { () -> [String: URL] in
                 let index = ShellDataIndex(folder: folder)
-                var found: [String: URL] = [:]
-                for (titleID, identity) in wanted where !Task.isCancelled { if let dir = index.folder(matching: identity) { found[titleID] = dir } }
-                return found
+                var matches: [String: URL] = [:]
+                for (titleID, identity) in wanted where !Task.isCancelled {
+                    if let url = index.imageURL(matching: identity) { matches[titleID] = url }
+                }
+                return matches
             }.value
             guard let self, !Task.isCancelled, self.scannedShellFolder == folder.path else { return }
             self.shellScan = nil

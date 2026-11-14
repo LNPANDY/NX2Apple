@@ -451,7 +451,7 @@ public enum DataLocator {
         }
         switch global {   // the shell-level data folder: the game's own bookmark wins, this backs it up
         case .url(let url):
-            if let match = shellMatch, select(match, source: .shell) { return result }
+            if let match = shellMatch, select(match, source: .shell, allowFile: true) { return result }
             for titleFolder in titleFolders(in: url, titleID: manifest.titleID, fm) where select(titleFolder, source: .shell) {
                 return result
             }
@@ -484,15 +484,21 @@ public enum DataLocator {
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
         if !isDir.boolValue {
-            guard allowPickedFile, url.pathExtension.lowercased() == "img", isComplete(url, manifest: manifest, fm), acceptsImage(url)
+            guard allowPickedFile, RomfsImageName.isNonPartImage(url.lastPathComponent), isComplete(url, manifest: manifest, fm), acceptsImage(url)
             else { return nil }
             return (url.deletingLastPathComponent(), url)
         }
         let canonicalImage = url.appendingPathComponent("romfs.img")
         if isComplete(canonicalImage, manifest: manifest, fm), acceptsImage(canonicalImage) { return (url, canonicalImage) }
-        let names = ((try? fm.contentsOfDirectory(atPath: url.path)) ?? []).filter { $0 != "romfs.img" && $0.lowercased() == "romfs.img" }
-        for name in names.sorted() {
+        let entries = ((try? fm.contentsOfDirectory(atPath: url.path)) ?? []).sorted()
+        for name in entries where name != "romfs.img" && name.lowercased() == "romfs.img" {
             let image = url.appendingPathComponent(name)
+            if isComplete(image, manifest: manifest, fm), acceptsImage(image) { return (url, image) }
+        }
+        for name in entries where name.lowercased() != "romfs.img" && RomfsImageName.isNonPartImage(name) {
+            let image = url.appendingPathComponent(name)
+            guard let attrs = try? fm.attributesOfItem(atPath: image.path),
+                  attrs[.type] as? FileAttributeType == .typeRegular else { continue }
             if isComplete(image, manifest: manifest, fm), acceptsImage(image) { return (url, image) }
         }
         for tree in [url.appendingPathComponent("romfs", isDirectory: true), url]
@@ -500,13 +506,20 @@ public enum DataLocator {
         return nil
     }
 
-    /// A non-empty image, and when the manifest names the image it was built for (`romfs_identity`, `size=<bytes>`), exactly that
-    /// size: a copy cut off partway (the device locked or was unplugged during the Mac launcher's copy) is not game data yet.
+    /// A non-empty image, and when the manifest names the image it was built for (`romfs_identity`, `size=<bytes>`), either that
+    /// exact base size or a larger image ending with a valid `DMMSLTR1` trailer whose `baseRomfsSize` matches: a copy cut off
+    /// partway or carrying trailing garbage is not game data.
     static func isComplete(_ url: URL, manifest: GameManifest, _ fm: FileManager) -> Bool {
         guard let attributes = try? fm.attributesOfItem(atPath: url.path),
               attributes[.type] as? FileAttributeType != .typeDirectory,
               let size = (attributes[.size] as? NSNumber)?.int64Value, size > 0 else { return false }
-        return expectedImageSize(manifest).map { $0 == size } ?? true
+        guard let want = expectedImageSize(manifest) else { return true }
+        guard want > 0 else { return false }
+        if size == want { return true }
+        if size > want {
+            return RomfsTrailer.inspect(at: url)?.baseRomfsSize == UInt64(want)
+        }
+        return false
     }
 
     /// `size=<bytes>` of the manifest's `romfs_identity` line (`DMROMFSID1 title=… size=… index=…`), nil without one.

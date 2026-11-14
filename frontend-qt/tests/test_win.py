@@ -6933,5 +6933,338 @@ class WindowsEngineBumpFollowUpTest(unittest.TestCase):
         self.assertIn(('close', 0x12340000ABCD), calls)
 
 
+class RomfsTrailerAndManifestArgsTests(unittest.TestCase):
+    """Tests for DMMSLTR1 64B trailer validation, custom *.img directory lookup, and manifest metadata flags."""
+
+    @staticmethod
+    def _make_dmromfs1_image(mask: str) -> bytes:
+        import struct
+        payload = mask.encode('utf-8')
+        data_off = 32
+        idx_off = data_off + len(payload)
+        names = b'SystemRegionLangMask.txt'
+        ent_struct = struct.Struct('<QQIHBB')
+        entries = (
+            ent_struct.pack(1, 1, 0, 0, 0, 0)
+            + ent_struct.pack(2, 1, 0, 6, 0, 0)
+            + ent_struct.pack(data_off, len(payload), 6, 18, 1, 0)
+        )
+        idx = entries + names
+        return struct.pack('<8sQQQ', b'DMROMFS1', idx_off, len(idx), 3) + payload + idx
+
+    @staticmethod
+    def _append_dmmsl_trailer(
+        base: bytes,
+        *,
+        gfx_api: int = 1,
+        flags: int = 0,
+        chain: str = 'b-d0e99bd4b2fe',
+        msl_size: int = 40,
+    ) -> bytes:
+        import struct
+        base_end = len(base)
+        msl_offset = (base_end + 16383) & ~16383
+        pad1 = b'\x00' * (msl_offset - base_end)
+        msl_payload = (b'DMROMFS1' + b'\x00' * max(0, msl_size - 8))[:msl_size]
+        raw_end = msl_offset + len(msl_payload)
+        aligned_end = (raw_end + 7) & ~7
+        pad2 = b'\x00' * (aligned_end - raw_end)
+        chain_bytes = chain.encode('utf-8')[:24]
+        footer = (
+            b'DMMSLTR1'
+            + struct.pack(
+                '<IBBHQQQ',
+                1,
+                gfx_api,
+                flags,
+                len(chain_bytes),
+                base_end,
+                msl_offset,
+                len(msl_payload),
+            )
+            + chain_bytes
+            + b'\x00' * (24 - len(chain_bytes))
+        )
+        assert len(footer) == 64
+        return base + pad1 + msl_payload + pad2 + footer
+
+    def test_romfs_languages_accepts_valid_dmmsltr1_trailers_and_refreshes_cache(self) -> None:
+        from nspb_qt import romfs_languages as rl
+
+        base = self._make_dmromfs1_image('JPja USen CNzh\n011\n')
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            nvn_bytes = self._append_dmmsl_trailer(base, gfx_api=1, flags=0, chain='b-d0e99bd4b2fe', msl_size=37)
+            nvn_img = root / 'nvn.img'
+            nvn_img.write_bytes(nvn_bytes)
+            self.assertEqual([o[0] for o in rl.options_in(nvn_img)], ['en-US', 'ja', 'zh-Hans'])
+
+            vk_img = root / 'vk.img'
+            vk_img.write_bytes(self._append_dmmsl_trailer(base, gfx_api=2, flags=0, chain='', msl_size=32))
+            self.assertEqual([o[0] for o in rl.options_in(vk_img)], ['en-US', 'ja', 'zh-Hans'])
+
+            gl_img = root / 'gl.img'
+            gl_img.write_bytes(
+                self._append_dmmsl_trailer(base, gfx_api=3, flags=1, chain='b-abcdef0123456789abcdef', msl_size=48)
+            )
+            self.assertEqual([o[0] for o in rl.options_in(gl_img)], ['en-US', 'ja', 'zh-Hans'])
+
+            # In-place upgrade refreshes (path, st_size, st_mtime_ns) cache and narrows launcher.json
+            upgrading = root / 'upgrading.img'
+            upgrading.write_bytes(nvn_bytes[:-1])
+            self.assertEqual(rl.options_in(upgrading), [])
+            upgrading.write_bytes(nvn_bytes)
+            self.assertEqual([o[0] for o in rl.options_in(upgrading)], ['en-US', 'ja', 'zh-Hans'])
+
+            launcher_json = root / 'launcher.json'
+            launcher_json.write_text(
+                json.dumps({
+                    'schema': 1,
+                    'game': '040074A01BF12000',
+                    'settings': [{
+                        'env': 'DM_LANG',
+                        'kind': 'choice',
+                        'section': 'Game',
+                        'label': 'Game language',
+                        'note': "This game's files do not list its languages.",
+                        'default': 'en-US',
+                        'level': 'basic',
+                        'options': [[code, label] for code, label in rl.TABLE],
+                    }],
+                }),
+                encoding='utf-8',
+            )
+            self.assertTrue(rl.apply_to_launcher_json(launcher_json, upgrading))
+            updated = json.loads(launcher_json.read_text(encoding='utf-8'))
+            self.assertEqual([o[0] for o in updated['settings'][0]['options']], ['en-US', 'ja', 'zh-Hans'])
+
+    def test_romfs_languages_rejects_corrupt_or_overflowing_dmmsltr1_trailers(self) -> None:
+        import struct
+        from nspb_qt import romfs_languages as rl
+
+        base = self._make_dmromfs1_image('USen JPja\n')
+        valid = bytearray(self._append_dmmsl_trailer(base, gfx_api=1, flags=0, chain='b-1234567890ab', msl_size=40))
+        foot = len(valid) - 64
+
+        def mut(patch_fn) -> bytes:
+            b = bytearray(valid)
+            patch_fn(b)
+            return bytes(b)
+
+        bad_cases = [
+            base + b'\x00' * 10,
+            base + b'\x00' * 63,
+            bytes(valid[:-1]),
+            bytes(valid[:16384 + 20]),
+            bytes(valid[:foot]) + b'\x00' * 8 + bytes(valid[foot:]),
+            mut(lambda b: b.__setitem__(foot + 7, ord('0'))),
+            mut(lambda b: struct.pack_into('<I', b, foot + 8, 2)),
+            mut(lambda b: b.__setitem__(foot + 12, 0)),
+            mut(lambda b: b.__setitem__(foot + 12, 4)),
+            mut(lambda b: b.__setitem__(foot + 12, 255)),
+            mut(lambda b: struct.pack_into('<Q', b, foot + 16, len(base) + 1)),
+            mut(lambda b: struct.pack_into('<Q', b, foot + 24, len(base))),
+            mut(lambda b: struct.pack_into('<Q', b, foot + 32, 31)),
+            mut(lambda b: struct.pack_into('<Q', b, foot + 32, (1 << 64) - 1)),
+            mut(lambda b: struct.pack_into('<H', b, foot + 14, 25)),
+            mut(lambda b: b.__setitem__(foot + 42, 0)),
+            mut(lambda b: b.__setitem__(foot + 63, ord('x'))),
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for idx, data in enumerate(bad_cases):
+                p = root / f'bad_trailer_{idx}.img'
+                p.write_bytes(data)
+                self.assertEqual(rl.options_in(p), [], f'case {idx} should be rejected')
+
+    def test_romfs_languages_directory_fallback_scans_sorted_custom_img_and_skips_parts_and_hidden(self) -> None:
+        from nspb_qt import romfs_languages as rl
+
+        with tempfile.TemporaryDirectory() as td:
+            folder = Path(td) / 'custom_dir'
+            folder.mkdir()
+            wrong = self._make_dmromfs1_image('EUde EUit\n')
+            (folder / '.hidden.img').write_bytes(wrong)
+            (folder / '._星露谷物语.img').write_bytes(wrong)
+            (folder / '00_game.nxpart.img').write_bytes(wrong)
+            (folder / '00_game.img.nxpart.0000.0002').write_bytes(wrong)
+            (folder / '01_folder.img').mkdir()
+            (folder / '02_dlc.img').write_bytes(self._make_dmromfs1_image('USen\n'))
+
+            stardew = self._append_dmmsl_trailer(
+                self._make_dmromfs1_image('USen JPja CNzh\n'),
+                gfx_api=1,
+                flags=0,
+                chain='b-stardew12345',
+                msl_size=40,
+            )
+            (folder / 'a_星露谷物语.img').write_bytes(stardew)
+            (folder / 'b_空洞骑士.img').write_bytes(self._make_dmromfs1_image('USen EUfr\n'))
+
+            self.assertEqual([o[0] for o in rl.options_in(folder)], ['en-US', 'ja', 'zh-Hans'])
+
+            # Standard romfs.img takes precedence; when corrupt, do not fall back to sibling *.img files
+            (folder / 'romfs.img').write_bytes(b'corrupt')
+            self.assertEqual(rl.options_in(folder), [])
+
+    def test_build_manifest_args_includes_gfx_api_and_utc_built_at_and_main_wires_them(self) -> None:
+        import re
+        import time
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo = root / 'engine'
+            patched = root / 'patched'
+            gd = root / 'gd'
+            patched.mkdir()
+            gd.mkdir()
+            out_manifest = root / 'game.manifest.json'
+
+            # 1. Default backwards-compatible call omits --gfx-api and --built-at
+            legacy_args = build_app.build_manifest_args(
+                repo=repo,
+                out_manifest=out_manifest,
+                game='0100000000010000',
+                name='Super Mario Odyssey',
+                version='1.3.0',
+                pkg='v0',
+                mods=['main'],
+                chain_ver='deadbeef',
+                marker='romfs/a.bin',
+                romfs_id='DMROMFSID1',
+                fw_name='DmGame0100000000010000',
+                patched=patched,
+                gd=gd,
+            )
+            self.assertNotIn('--gfx-api', legacy_args)
+            self.assertNotIn('--built-at', legacy_args)
+
+            # 2. Explicit gfx_api and built_at flags are forwarded verbatim
+            explicit_args = build_app.build_manifest_args(
+                repo=repo,
+                out_manifest=out_manifest,
+                game='0100000000010000',
+                name='Super Mario Odyssey',
+                version='1.3.0',
+                pkg='v0',
+                mods=['main'],
+                chain_ver='deadbeef',
+                marker='romfs/a.bin',
+                romfs_id='DMROMFSID1',
+                fw_name='DmGame0100000000010000',
+                patched=patched,
+                gd=gd,
+                gfx_api='vulkan',
+                built_at='2026-11-13T18:16:06Z',
+            )
+            idx_gfx = explicit_args.index('--gfx-api')
+            self.assertEqual(explicit_args[idx_gfx + 1], 'vulkan')
+            idx_built = explicit_args.index('--built-at')
+            self.assertEqual(explicit_args[idx_built + 1], '2026-11-13T18:16:06Z')
+
+            # 3. End-to-end call-chain check through build_app.main() in DM_FRAMEWORK_ONLY mode
+            (repo / 'dm/games/0100000000010000').mkdir(parents=True)
+            for fname in ('game.tsv', 'shader_map.tsv', 'pso_manifest.tsv'):
+                (repo / 'dm/games/0100000000010000' / fname).write_text('# stub\n', encoding='utf-8')
+            (repo / 'dm/games/game.py').write_text(
+                'from pathlib import Path\n'
+                'class _P:\n'
+                '    def __init__(self, d): self.dir = d\n'
+                '    def get(self, k, default=""):\n'
+                '        return {"package": "v0", "modules": "main", "romfs_marker": "a.bin", "ipa": "out.ipa"}.get(k, default)\n'
+                '    def modules_in(self, _p): return ["main"]\n'
+                'def load(_g): return _P(Path(__file__).resolve().parent / "0100000000010000")\n',
+                encoding='utf-8',
+            )
+            (repo / 'dm/gfx/nvn').mkdir(parents=True)
+            (repo / 'dm/gfx/nvn/dmsh_chain.h').write_text('#define DMSH_CHAIN "cafe1234"\n', encoding='utf-8')
+            (repo / 'dm/host').mkdir(parents=True)
+            (repo / 'dm/host/main.c').write_text('int main(void){return 0;}\n', encoding='utf-8')
+            for rel in (
+                'dm/ios/framework/DmGameMarker.m',
+                'dm/ios/framework/ShellGlue.m',
+                'dm/ios/Sources/front_ios.m',
+                'dm/ios/Sources/DmGamepad.m',
+                'dm/ios/Sources/CloudSaves.m',
+                'dm/ios/Sources/SaveSync.m',
+                'dm/ios/Sources/DataBookmark.m',
+            ):
+                p = repo / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text('// stub\n', encoding='utf-8')
+
+            w = root / 'work'
+            (w / 'build/patched_v0').mkdir(parents=True)
+            (w / 'build/patched_v0/main.patched.bin').write_bytes(b'\x00' * 16)
+            (w / 'build/patched_v0/main.fixups.tsv').write_text('', encoding='utf-8')
+            (w / 'data/v0/RomFS').mkdir(parents=True)
+            (w / 'build/ios/dmsh_b/vk').mkdir(parents=True)
+            (w / 'build/ios/dmsh_b/vk/vk_shaders.metallib').write_bytes(b'MTLB')
+            fw_out = root / 'fw_out'
+            sdk = make_fake_sdk(root)
+
+            captured_manifest_cmd: list[str] = []
+
+            def fake_py(*py_args, **_kw) -> str:
+                strs = [str(a) for a in py_args]
+                if strs[0].endswith('game.py') and strs[1] == 'header':
+                    Path(strs[3]).write_text('// profile\n', encoding='utf-8')
+                elif strs[0].endswith('gen_embed.py'):
+                    Path(strs[-2]).write_text('// embed\n', encoding='utf-8')
+                elif strs[0].endswith('settings.py'):
+                    Path(strs[4]).write_text('{"schema": 1, "settings": []}\n', encoding='utf-8')
+                elif strs[0].endswith('game.py') and strs[1] == 'profile':
+                    Path(strs[3]).write_text('', encoding='utf-8')
+                elif strs[0].endswith('gen_manifest.py'):
+                    captured_manifest_cmd.extend(strs)
+                    Path(strs[1]).write_text('{}\n', encoding='utf-8')
+                return ''
+
+            saved_path = list(sys.path)
+            saved_game_mod = sys.modules.pop('game', None)
+            fixed_utc = time.struct_time((2026, 11, 13, 18, 16, 6, 4, 317, 0))
+            env_patch = {
+                'NSPB_REPO': str(repo),
+                'GAME': '0100000000010000',
+                'W': str(w),
+                'DM_DISPLAY_NAME': 'Super Mario Odyssey',
+                'GFXAPI': 'vulkan',
+                'DM_FRAMEWORK_ONLY': str(fw_out),
+            }
+            try:
+                with (
+                    mock.patch.dict(os.environ, env_patch, clear=False),
+                    mock.patch.object(build_app, 'romfs_has', return_value=True),
+                    mock.patch.object(build_app, 'host_sources', return_value=([], [])),
+                    mock.patch.object(build_app, 'compat_rt_needed', return_value=False),
+                    mock.patch.object(build_app, 'compile_all', return_value=[]),
+                    mock.patch.object(build_app, 'link_framework', side_effect=lambda *_a, **_k: (fw_out / 'DmGame0100000000010000.framework' / 'DmGame0100000000010000').write_bytes(b'dylib')),
+                    mock.patch.object(build_app, 'py', side_effect=fake_py),
+                    mock.patch.object(build_app.tc, 'ios_sdk', return_value=sdk),
+                    mock.patch.object(build_app.tc, 'llvm_tool', return_value=root / 'clang.exe'),
+                    mock.patch.object(build_app.tc, 'ensure_ld64_lld', return_value=(root / 'ld64.lld.exe', '')),
+                    mock.patch.object(build_app.time, 'gmtime', return_value=fixed_utc),
+                ):
+                    rc = build_app.main([])
+            finally:
+                sys.path[:] = saved_path
+                sys.modules.pop('game', None)
+                if saved_game_mod is not None:
+                    sys.modules['game'] = saved_game_mod
+
+            self.assertEqual(rc, 0)
+            self.assertTrue(captured_manifest_cmd, 'main() did not invoke gen_manifest.py')
+            self.assertIn('--gfx-api', captured_manifest_cmd)
+            self.assertEqual(captured_manifest_cmd[captured_manifest_cmd.index('--gfx-api') + 1], 'vulkan')
+            self.assertIn('--built-at', captured_manifest_cmd)
+            built_val = captured_manifest_cmd[captured_manifest_cmd.index('--built-at') + 1]
+            self.assertEqual(built_val, '2026-11-13T18:16:06Z')
+            self.assertRegex(built_val, r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
+            # PR 1 keeps existing msl packing intact inside DmGame<ID>.framework/msl
+            self.assertTrue(
+                (fw_out / 'DmGame0100000000010000.framework' / 'msl' / 'vk' / 'vk_shaders.metallib').is_file()
+            )
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -104,13 +104,14 @@ enum DataFolderDiagnostics {
                         sawSplitParts = true
                         continue
                     }
-                    if lower == "romfs.img", let size = values?.fileSize, size > 0 {
-                        // If this directory's romfs.img belonged to the target game at a nested level, `matchesTargetData` on parent handled it.
-                        if let expectedIdentity, RomfsIdentity.ofImage(at: url) == expectedIdentity {
+                    if RomfsImageName.isNonPartImage(name), let size = values?.fileSize, size > 0 {
+                        // If this directory's image belonged to the target game at a nested level, `matchesTargetData` on parent handled it.
+                        let imageIdentity = RomfsIdentity.ofImage(at: url)
+                        if let expectedIdentity, imageIdentity == expectedIdentity {
                             if !relativePrefix.isEmpty, nestedMatch == nil {
                                 nestedMatch = relativePrefix
                             }
-                        } else {
+                        } else if lower == "romfs.img" || (imageIdentity != nil && dir.lastPathComponent.lowercased() != "aoc") {
                             let parentName = dir.lastPathComponent.uppercased()
                             let hint = (isTitleID(parentName) && parentName != targetID) ? (knownTitles[parentName] ?? parentName) : nil
                             recordWrongGame(hint)
@@ -149,6 +150,13 @@ enum DataFolderDiagnostics {
             let lower = name.lowercased()
             if lower == "romfs.img" || lower == "romfs" {
                 return true
+            }
+            if RomfsImageName.isNonPartImage(name) {
+                let child = dir.appendingPathComponent(name)
+                if let attrs = try? fm.attributesOfItem(atPath: child.path),
+                   attrs[.type] as? FileAttributeType == .typeRegular {
+                    return true
+                }
             }
         }
         return false

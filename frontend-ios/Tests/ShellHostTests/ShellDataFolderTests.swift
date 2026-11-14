@@ -20,6 +20,53 @@ import ShellUI
     }
     static let indexA = Array(1...13).map(UInt8.init), indexB = Array(21...33).map(UInt8.init)
 
+    /// Appends a spec-compliant 16 KiB-aligned MSL sub-image and 64-byte `DMMSLTR1` footer (`dm_msl_footer` in `romfs_image.h`).
+    static func dmromfsWithTrailer(
+        _ base: Data,
+        mslPayload: [UInt8] = [UInt8](repeating: 0x5a, count: 45),
+        version: UInt32 = 1,
+        gfxAPI: UInt8 = 1,
+        flags: UInt8 = 0,
+        chain: String = "b-3f9a2c",
+        overrideBaseSize: UInt64? = nil,
+        overrideMslOffset: UInt64? = nil,
+        overrideMslSize: UInt64? = nil,
+        overrideChainLen: UInt16? = nil,
+        magic: String = "DMMSLTR1"
+    ) -> Data {
+        func le16(_ v: UInt16) -> [UInt8] { [UInt8(v & 0xff), UInt8((v >> 8) & 0xff)] }
+        func le32(_ v: UInt32) -> [UInt8] { (0..<4).map { UInt8((v >> (8 * UInt32($0))) & 0xff) } }
+        func le64(_ v: UInt64) -> [UInt8] { (0..<8).map { UInt8((v >> (8 * UInt64($0))) & 0xff) } }
+
+        let baseEnd = UInt64(base.count)
+        let alignedMslOffset = (baseEnd + 16_383) & ~16_383
+        var out = base
+        out.append(Data(count: Int(alignedMslOffset - baseEnd)))
+        out.append(contentsOf: mslPayload)
+        let rawEnd = UInt64(out.count)
+        let footerOffset = (rawEnd + 7) & ~7
+        out.append(Data(count: Int(footerOffset - rawEnd)))
+
+        let chainUTF8 = Array(chain.utf8.prefix(24))
+        var chainField = [UInt8](repeating: 0, count: 24)
+        for (i, b) in chainUTF8.enumerated() { chainField[i] = b }
+
+        var footer = [UInt8]()
+        let magicBytes = Array(magic.utf8.prefix(8))
+        footer.append(contentsOf: magicBytes + [UInt8](repeating: 0, count: max(0, 8 - magicBytes.count)))
+        footer.append(contentsOf: le32(version))
+        footer.append(gfxAPI)
+        footer.append(flags)
+        footer.append(contentsOf: le16(overrideChainLen ?? UInt16(chainUTF8.count)))
+        footer.append(contentsOf: le64(overrideBaseSize ?? baseEnd))
+        footer.append(contentsOf: le64(overrideMslOffset ?? alignedMslOffset))
+        footer.append(contentsOf: le64(overrideMslSize ?? UInt64(mslPayload.count)))
+        footer.append(contentsOf: chainField)
+        precondition(footer.count == 64)
+        out.append(contentsOf: footer)
+        return out
+    }
+
     func place(_ data: Data, at url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: url)
@@ -235,6 +282,114 @@ extension ShellDataFolderTests {
         let url = Fixtures.gamesURL.appendingPathComponent(Fixtures.orbit).appendingPathComponent("game.manifest.json")
         let m = try GameManifest.parse(Data(contentsOf: url))
         #expect(RomfsIdentity.parse(m.romfsIdentity) == nil, "the fixture's line is `DMROMFSID1 fixture`: only the by-name paths apply")
+    }
+
+    @Test func validDMMSLTR1TrailerPreservesBaseIdentityAndInspectsMetadata() throws {
+        let box = try Sandbox()
+        let baseA = Self.dmromfs(Self.indexA) // 61 bytes
+        let plainURL = box.root.appendingPathComponent("plain.img")
+        try place(baseA, at: plainURL)
+        #expect(RomfsTrailer.inspect(at: plainURL) == nil)
+
+        let nvnURL = box.root.appendingPathComponent("nvn.img")
+        let nvnData = Self.dmromfsWithTrailer(baseA, mslPayload: [UInt8](repeating: 0xab, count: 45), gfxAPI: 1, flags: 0, chain: "b-d0e99bd4b2fe")
+        try place(nvnData, at: nvnURL)
+        let nvnTrailer = try #require(RomfsTrailer.inspect(at: nvnURL))
+        #expect(nvnTrailer == RomfsTrailer(version: 1, gfxAPI: 1, multiProgram: false, baseRomfsSize: 61, mslOffset: 16_384, mslSize: 45, chain: "b-d0e99bd4b2fe"))
+        #expect(RomfsIdentity.ofImage(at: nvnURL) == RomfsIdentity(size: 61, index: 0x90b5abb4d1ea10d2))
+
+        let glMultiURL = box.root.appendingPathComponent("gl_multi.img")
+        let glData = Self.dmromfsWithTrailer(baseA, mslPayload: [UInt8](repeating: 0xcd, count: 64), gfxAPI: 3, flags: 1, chain: "")
+        try place(glData, at: glMultiURL)
+        let glTrailer = try #require(RomfsTrailer.inspect(at: glMultiURL))
+        #expect(glTrailer == RomfsTrailer(version: 1, gfxAPI: 3, multiProgram: true, baseRomfsSize: 61, mslOffset: 16_384, mslSize: 64, chain: ""))
+        #expect(RomfsIdentity.ofImage(at: glMultiURL) == RomfsIdentity(size: 61, index: 0x90b5abb4d1ea10d2))
+
+        let m = try manifest(title: Fixtures.orbit, size: 61, index: "90b5abb4d1ea10d2")
+        #expect(DataLocator.isComplete(nvnURL, manifest: m, .default))
+        #expect(DataLocator.isComplete(glMultiURL, manifest: m, .default))
+
+        // Flat sibling custom-named images in one folder are matched to each game's exact file URL.
+        let flat = box.root.appendingPathComponent("FlatRoot", isDirectory: true)
+        let stardew = flat.appendingPathComponent("星露谷物语.img")
+        let hollow = flat.appendingPathComponent("空洞骑士.img")
+        try place(nvnData, at: stardew)
+        try place(Self.dmromfsWithTrailer(Self.dmromfs(Self.indexB)), at: hollow)
+        try place(nvnData, at: flat.appendingPathComponent(".hidden.img"))
+        try place(nvnData, at: flat.appendingPathComponent("bad.nxpart.img"))
+        try place(Data("p".utf8), at: flat.appendingPathComponent("星露谷物语.img.nxpart.0000.0002"))
+
+        let index = ShellDataIndex(folder: flat)
+        let matchA = try #require(index.imageURL(matching: try ident(Self.indexA)))
+        let matchB = try #require(index.imageURL(matching: try ident(Self.indexB)))
+        #expect(path(matchA) == path(stardew))
+        #expect(path(matchB) == path(hollow))
+        #expect(index.folder(matching: try ident(Self.indexA)).map(path) == path(flat))
+
+        let mB = try manifest(title: Fixtures.chain, size: 61, index: "9da33c3b161c746a")
+        let locA = DataLocator.locate(manifest: m, picked: .none, appFolder: box.appData.appendingPathComponent(m.titleID),
+                                      global: .url(flat), shellMatch: matchA)
+        let locB = DataLocator.locate(manifest: mB, picked: .none, appFolder: box.appData.appendingPathComponent(mB.titleID),
+                                      global: .url(flat), shellMatch: matchB)
+        #expect(locA.source == .shell && locA.url.map(path) == path(flat) && locA.romfsURL.map(path) == path(stardew))
+        #expect(locB.source == .shell && locB.url.map(path) == path(flat) && locB.romfsURL.map(path) == path(hollow))
+
+        // Direct directory fallback without shellMatch also skips the non-matching first sibling and binds the second.
+        let pickedB = DataLocator.locate(manifest: mB, picked: .url(flat), appFolder: box.appData.appendingPathComponent(mB.titleID))
+        #expect(pickedB.source == .picked && pickedB.romfsURL.map(path) == path(hollow))
+    }
+
+    @Test func corruptedTruncatedOrMisalignedTrailersAreRejected() throws {
+        let box = try Sandbox()
+        let baseA = Self.dmromfs(Self.indexA)
+        let valid = Self.dmromfsWithTrailer(baseA)
+        let wantIdent = try ident(Self.indexA)
+        let m = try manifest(title: Fixtures.orbit, size: 61, index: "90b5abb4d1ea10d2")
+
+        var extraZeroPadding = valid.dropLast(64)
+        extraZeroPadding.append(Data(count: 8))
+        extraZeroPadding.append(valid.suffix(64))
+
+        var embeddedNulInChain = valid
+        embeddedNulInChain[embeddedNulInChain.count - 24 + 2] = 0
+
+        var dirtyChainPadding = valid
+        dirtyChainPadding[dirtyChainPadding.count - 1] = 0x7f
+
+        var overflowHeader = valid
+        let nearMax: UInt64 = UInt64.max - 8
+        for k in 0..<8 { overflowHeader[8 + k] = UInt8((nearMax >> (8 * UInt64(k))) & 0xff) }
+
+        let badCases: [(String, Data)] = [
+            ("short_garbage", baseA + Data([1, 2, 3, 4, 5])),
+            ("long_garbage", baseA + Data(repeating: 0x99, count: 128)),
+            ("truncated_1b", Data(valid.dropLast(1))),
+            ("truncated_mid_msl", Data(valid.prefix(16_400))),
+            ("bad_magic", Self.dmromfsWithTrailer(baseA, magic: "DMMSLTR0")),
+            ("bad_version", Self.dmromfsWithTrailer(baseA, version: 2)),
+            ("gfx_zero", Self.dmromfsWithTrailer(baseA, gfxAPI: 0)),
+            ("gfx_four", Self.dmromfsWithTrailer(baseA, gfxAPI: 4)),
+            ("wrong_base_size", Self.dmromfsWithTrailer(baseA, overrideBaseSize: 60)),
+            ("unaligned_msl_offset", Self.dmromfsWithTrailer(baseA, overrideMslOffset: 64)),
+            ("next_page_msl_offset", Self.dmromfsWithTrailer(baseA, overrideMslOffset: 32_768)),
+            ("msl_too_small", Self.dmromfsWithTrailer(baseA, mslPayload: [UInt8](repeating: 0x11, count: 32), overrideMslSize: 31)),
+            ("msl_overflow_u64", Self.dmromfsWithTrailer(baseA, overrideMslSize: UInt64.max)),
+            ("extra_padding_before_footer", Data(extraZeroPadding)),
+            ("chain_len_25", Self.dmromfsWithTrailer(baseA, overrideChainLen: 25)),
+            ("nul_inside_chain", embeddedNulInChain),
+            ("nonzero_chain_padding", dirtyChainPadding),
+            ("header_offset_overflow", overflowHeader)
+        ]
+
+        for (label, data) in badCases {
+            let dir = box.root.appendingPathComponent(label, isDirectory: true)
+            let url = dir.appendingPathComponent("romfs.img")
+            try place(data, at: url)
+            #expect(RomfsTrailer.inspect(at: url) == nil, "inspect should reject \(label)")
+            #expect(RomfsIdentity.ofImage(at: url) == nil, "ofImage should reject \(label)")
+            #expect(!DataLocator.isComplete(url, manifest: m, .default), "isComplete should reject \(label)")
+            #expect(ShellDataIndex(folder: dir).imageURL(matching: wantIdent) == nil, "ShellDataIndex should reject \(label)")
+        }
     }
 }
 
@@ -479,5 +634,74 @@ final class MutablePicker: FolderPicker, @unchecked Sendable {
         let plan = EngineLaunchPlan.make(game: launched, appResources: box.root, documents: box.root, envFileText: nil)
         #expect(URL(fileURLWithPath: try #require(plan.environment["DM_ROMFS"])).resolvingSymlinksInPath().path == titleFolder.appendingPathComponent("romfs.img").resolvingSymlinksInPath().path)
         #expect(URL(fileURLWithPath: try #require(plan.environment["DM_AOC_DIR"])).resolvingSymlinksInPath().path == titleFolder.appendingPathComponent("aoc").resolvingSymlinksInPath().path)
+    }
+
+    @Test func flatSiblingCustomNamedImagesWithTrailersResolveToEachGamesExactFile() async throws {
+        let box = try Sandbox()
+        let fm = FileManager.default
+        let chainHex = "0100ABCDEF112233"
+        defer { UserDefaults().removePersistentDomain(forName: box.suite + chainHex) }
+
+        // Give Orbit (indexA) and a second playable game (indexB) distinct identities of the same base size (61 B).
+        try giveOrbitAnIdentity(in: box)
+        let secondDir = box.games.appendingPathComponent(chainHex, isDirectory: true)
+        try fm.copyItem(at: box.games.appendingPathComponent(Fixtures.orbit), to: secondDir)
+        for file in ["game.manifest.json", "launcher.json"] {
+            let url = secondDir.appendingPathComponent(file)
+            let updated = try String(contentsOf: url, encoding: .utf8)
+                .replacingOccurrences(of: Fixtures.orbit, with: chainHex)
+                .replacingOccurrences(of: "Orbit Fixture", with: "Hollow Fixture")
+                .replacingOccurrences(of: "90b5abb4d1ea10d2", with: "9da33c3b161c746a")
+            try updated.write(to: url, atomically: true, encoding: .utf8)
+        }
+
+        let shared = box.root.appendingPathComponent("SharedFlatDrive", isDirectory: true)
+        let stardewURL = shared.appendingPathComponent("星露谷物语.img")
+        let hollowURL = shared.appendingPathComponent("空洞骑士.img")
+        let stardewData = ShellDataFolderTests.dmromfsWithTrailer(ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexA), mslPayload: [UInt8](repeating: 0x31, count: 48))
+        let hollowData = ShellDataFolderTests.dmromfsWithTrailer(ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexB), mslPayload: [UInt8](repeating: 0x32, count: 96))
+        let helpers = ShellDataFolderTests()
+        try helpers.place(stardewData, at: stardewURL)
+        try helpers.place(hollowData, at: hollowURL)
+        // Noise files that must never be mistaken for images:
+        try helpers.place(stardewData, at: shared.appendingPathComponent(".隐藏镜像.img"))
+        try helpers.place(stardewData, at: shared.appendingPathComponent("星露谷物语.nxpart.img"))
+        try helpers.place(Data("part".utf8), at: shared.appendingPathComponent("星露谷物语.img.nxpart.0000.0002"))
+
+        let index = ShellDataIndex(folder: shared)
+        let identA = try helpers.ident(ShellDataFolderTests.indexA)
+        let identB = try helpers.ident(ShellDataFolderTests.indexB)
+        #expect(index.imageURL(matching: identA)?.resolvingSymlinksInPath().path == stardewURL.resolvingSymlinksInPath().path)
+        #expect(index.imageURL(matching: identB)?.resolvingSymlinksInPath().path == hollowURL.resolvingSymlinksInPath().path)
+        #expect(index.folder(matching: identA)?.resolvingSymlinksInPath().path == shared.resolvingSymlinksInPath().path)
+
+        let launcher = RecordingLauncher()
+        let settings = ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!)
+        let host = ShellHostModel(config: box.config(), launcher: launcher, picker: MutablePicker(shared), shellSettings: settings)
+        await host.pickShellDataNow()
+        await host.waitForDataChecks()
+
+        #expect(host.details.first { $0.id == Fixtures.orbit }?.game.state == .playable)
+        #expect(host.details.first { $0.id == chainHex }?.game.state == .playable)
+
+        await host.playNow(Fixtures.orbit)
+        let launchedOrbit = try #require(launcher.launched.last)
+        let orbitPlan = EngineLaunchPlan.make(game: launchedOrbit, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(URL(fileURLWithPath: try #require(orbitPlan.environment["DM_ROMFS"])).resolvingSymlinksInPath().path == stardewURL.resolvingSymlinksInPath().path)
+
+        await host.playNow(chainHex)
+        let launchedHollow = try #require(launcher.launched.last)
+        let hollowPlan = EngineLaunchPlan.make(game: launchedHollow, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(URL(fileURLWithPath: try #require(hollowPlan.environment["DM_ROMFS"])).resolvingSymlinksInPath().path == hollowURL.resolvingSymlinksInPath().path)
+
+        // Diagnostics also recognize custom-named non-part .img files in nested and wrong-game folders.
+        let nestedRoot = box.root.appendingPathComponent("DiagRoot", isDirectory: true)
+        try helpers.place(stardewData, at: nestedRoot.appendingPathComponent("Inner/星露谷物语.img"))
+        let orbitManifest = try GameManifest.parse(Data(contentsOf: box.games.appendingPathComponent(Fixtures.orbit + "/game.manifest.json")))
+        #expect(DataFolderDiagnostics.diagnose(folder: nestedRoot, manifest: orbitManifest) == .nestedGameData(subfolder: "Inner"))
+
+        let wrongRoot = box.root.appendingPathComponent("WrongRoot", isDirectory: true)
+        try helpers.place(hollowData, at: wrongRoot.appendingPathComponent("空洞骑士.img"))
+        #expect(DataFolderDiagnostics.diagnose(folder: wrongRoot, manifest: orbitManifest) == .wrongGame(otherTitleOrID: nil))
     }
 }
