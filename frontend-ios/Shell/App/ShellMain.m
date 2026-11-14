@@ -233,24 +233,32 @@ static const char *register_external_signature(const char *executable) {
         close(fd);
         return "This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple.";
     }
-    void *blob = malloc(sig_sz);
-    if (!blob) { close(fd); return "Out of memory reading framework signature."; }
-    if (pread(fd, blob, sig_sz, (off_t)(slice_off + sig_off)) != (ssize_t)sig_sz) {
-        free(blob); close(fd);
-        return "The game's code signature could not be read.";
-    }
     fsignatures_t fsig;
     memset(&fsig, 0, sizeof fsig);
     fsig.fs_file_start = (off_t)slice_off;
-    fsig.fs_blob_start = blob;
+    fsig.fs_blob_start = (void *)(uintptr_t)sig_off;   // slice-relative file offset expected by XNU
     fsig.fs_blob_size = sig_sz;
     int rc = fcntl(fd, F_ADDFILESIGS_RETURN, &fsig);
     int saved_errno = errno;
-    free(blob);
-    close(fd);
     if (rc < 0 && saved_errno != EEXIST) {
+        close(fd);
         fprintf(stderr, "[RED] boot: F_ADDFILESIGS_RETURN failed for %s: errno=%d (%s)\n",
                 executable, saved_errno, strerror(saved_errno));
+        return "iOS refused the code signature of this game's framework. Install the game again from NX2Apple.";
+    }
+    char lv_msg[256];
+    lv_msg[0] = '\0';
+    fchecklv_t lv;
+    memset(&lv, 0, sizeof lv);
+    lv.lv_file_start = (off_t)slice_off;
+    lv.lv_error_message_size = sizeof lv_msg;
+    lv.lv_error_message = lv_msg;
+    int lv_rc = fcntl(fd, F_CHECK_LV, &lv);
+    int lv_errno = errno;
+    close(fd);
+    if (lv_rc < 0) {
+        fprintf(stderr, "[RED] boot: F_CHECK_LV failed for %s: errno=%d (%s) %s\n",
+                executable, lv_errno, strerror(lv_errno), lv_msg);
         return "iOS refused the code signature of this game's framework. Install the game again from NX2Apple.";
     }
     return NULL;

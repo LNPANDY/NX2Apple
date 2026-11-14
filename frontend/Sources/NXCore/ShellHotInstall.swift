@@ -121,8 +121,13 @@ package enum ShellHotInstall {
         ["/usr/bin/xattr", "-cr", framework]
     }
 
-    package static func codesignFrameworkCommand(codesign: String = "/usr/bin/codesign", identity: String, framework: String) -> [String] {
-        [codesign, "--force", "--sign", identity, "--timestamp=none", framework]
+    package static func codesignFrameworkCommand(codesign: String = "/usr/bin/codesign", identity: String,
+                                                 bundleIdentifier: String = "", framework: String) -> [String] {
+        var args = [codesign, "--force", "--sign", identity]
+        // Align CodeDirectory identifier with the host app's bundle ID so Personal Team LocalProvision allows external mmap/dlopen.
+        if !bundleIdentifier.isEmpty { args += ["--identifier", bundleIdentifier] }
+        args += ["--timestamp=none", framework]
+        return args
     }
 
     package static func copyFrameworkCommand(xcrun: String, device: String, bundleID: String,
@@ -246,7 +251,8 @@ extension ShellInstaller {
                 return nil
             }
             _ = run(ShellHotInstall.cleanFrameworkAttributesCommand(framework: localCopy), env: nil, label: installName, step: { _ in nil })
-            let signed = run(ShellHotInstall.codesignFrameworkCommand(codesign: codesignPath, identity: identity, framework: localCopy),
+            let signed = run(ShellHotInstall.codesignFrameworkCommand(codesign: codesignPath, identity: identity,
+                                                                      bundleIdentifier: library.bundleID, framework: localCopy),
                              env: nil, label: installName, step: { _ in nil })
             guard signed.status == 0,
                   let footprint = ShellHotInstall.frameworkFootprint(atPath: localCopy, fm: fm) else {

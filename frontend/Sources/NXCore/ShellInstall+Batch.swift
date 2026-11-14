@@ -23,13 +23,31 @@ extension ShellInstaller {
     /// Signs and installs the shared app from the frameworks already built in `shell.json`, without rebuilding any game or
     /// transferring `romfs.img` game data.
     package func installBuilt(framework: String, titleID: String, name: String) -> Outcome {
+        func withNotes(_ result: (outcome: Outcome, notes: [String])) -> Outcome {
+            var outcome = result.outcome
+            if !result.notes.isEmpty {
+                outcome.message = ([outcome.message] + result.notes).joined(separator: "\n")
+            }
+            return outcome
+        }
+        let fm = FileManager.default
+        if fm.fileExists(atPath: framework) {
+            let existing = ShellLibrary.load(root: root).games
+            var hotGames: [HotGame] = existing.compactMap { game in
+                guard game.titleID.caseInsensitiveCompare(titleID) != .orderedSame else { return nil }
+                let resolved = fm.fileExists(atPath: game.framework) ? game.framework
+                    : ShellInstall.mirroredFramework(root: root, titleID: game.titleID)
+                guard fm.fileExists(atPath: resolved) else { return nil }
+                return HotGame(framework: resolved, titleID: game.titleID, name: game.name, pickedArtwork: nil)
+            }
+            hotGames.append(HotGame(framework: framework, titleID: titleID, name: name, pickedArtwork: pickedArtwork))
+            if let hot = tryHotInstall(games: hotGames) {
+                return hot.outcome.ok ? withNotes(hot) : hot.outcome
+            }
+        }
         let signed = signAndInstallApp(framework: framework, titleID: titleID, name: name)
         guard signed.outcome.ok else { return signed.outcome }
-        var outcome = signed.outcome
-        if !signed.notes.isEmpty {
-            outcome.message = ([outcome.message] + signed.notes).joined(separator: "\n")
-        }
-        return outcome
+        return withNotes(signed)
     }
 
     /// Signs and installs the shared app once for all games built in a queue batch, then copies the missing game data of each game.
