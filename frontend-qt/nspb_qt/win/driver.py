@@ -97,12 +97,16 @@ def load_upstream(repo: Path) -> ModuleType:
     and the only use is recovering HOME when the environment lacks one. The stand-in is
     installed by the shim's `sitecustomize`, so importing this module after `shim.install` has
     run is enough; when that did not happen, a minimal stub is registered here so the loader
-    never fails on an import the rest of the file does not need.
+    never fails on an import the rest of the file does not need. `fcntl` and `signal.SIGHUP`
+    are the same case: named at module level (tree_tar's locking, and STOPS), so without a
+    stand-in the import of the whole script fails rather than one unused feature.
     """
     if 'pwd' not in sys.modules:
         _install_pwd_stub()
     if 'fcntl' not in sys.modules:
         _install_fcntl_stub()
+    if not hasattr(signal, 'SIGHUP'):
+        _install_sighup_stub()
     if not hasattr(os, 'getuid'):
         os.getuid = lambda: 0  # type: ignore[attr-defined]
     path = repo / 'scripts' / 'build_ipa_from_nsp.py'
@@ -184,6 +188,26 @@ def _install_fcntl_stub() -> None:
     fcntl.fcntl = lambda fd, cmd, arg=0: 0
     fcntl.ioctl = lambda fd, req, arg=0, mutate_flag=True: 0
     sys.modules['fcntl'] = fcntl
+
+
+def _install_sighup_stub() -> None:
+    """The SIGHUP half of the shim's POSIX signal adapter, for a load without the shim.
+
+    `scripts/build_ipa_from_nsp.py` names signal.SIGHUP at module level (STOPS), so Windows
+    fails the whole import, not just the signal handling. See the shim's sitecustomize for
+    why registering it is a no-op that returns None.
+    """
+    if hasattr(signal, 'SIGHUP'):
+        return
+    signal.SIGHUP = 1
+    real = signal.signal
+
+    def _no_hup(sig, handler):
+        if sig == signal.SIGHUP:
+            return None
+        return real(sig, handler)
+
+    signal.signal = _no_hup
 
 
 _k32 = ctypes.windll.kernel32 if sys.platform == 'win32' and hasattr(ctypes, 'windll') else None
@@ -521,7 +545,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
         with tempfile.TemporaryDirectory(prefix='nx_extract_') as td, \
                 tempfile.TemporaryDirectory(prefix='nx_extract_art_') as art:
             mod.run([dotnet, 'build', proj, '-c', 'Release',
-                     '-p:PublishAot=false', '--artifacts-path', art,
+                     '-p:PublishAot=false', *tc.csc_tool_args(), '--artifacts-path', art,
                      '-o', td, '-v', 'quiet', '-nologo'],
                     Path(logs) / 'nx_extract_build.log', env=env)
             exe = Path(td) / 'nx_extract.exe'
@@ -561,7 +585,8 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
         with tempfile.TemporaryDirectory(prefix='nx_extract_') as td, \
                 tempfile.TemporaryDirectory(prefix='nx_extract_art_') as art:
             mod.run([dotnet, 'build', proj, '-c', 'Release', '-p:PublishAot=false',
-                     '--artifacts-path', art, '-o', td, '-v', 'quiet', '-nologo'],
+                     *tc.csc_tool_args(), '--artifacts-path', art, '-o', td, '-v', 'quiet',
+                     '-nologo'],
                     log, env=env if env is not None else os.environ)
             exe = Path(td) / 'nx_extract.exe'
             if not exe.exists():

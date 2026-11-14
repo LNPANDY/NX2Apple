@@ -19,8 +19,9 @@ Mapped calls, and why each needs translating rather than just forwarding:
 Anything else exits 127 with a message naming the call, so an unmapped step shows up in the
 build log as a missing tool instead of silently producing a wrong result.
 
-`metal-tt` is deliberately absent: the Windows Metal tools do not ship it, and pretending it
-works would produce a half-written pipeline archive.
+`metal-tt` is resolved like any other tool: some Windows Metal builds ship it (32023.850 has
+`bin/metal-tt.exe`), older ones do not. When it is absent the call exits 127 naming it, rather
+than pretending it works and producing a half-written pipeline archive.
 """
 from __future__ import annotations
 
@@ -127,7 +128,9 @@ def find(sdk: str, tool: str) -> Path | None:
     if tool == 'actool':
         return None            # the asset catalog is replaced by loose PNGs
     if tool == 'metal-tt':
-        return None            # not shipped by Apple's Windows Metal tools
+        # Some Windows Metal builds do ship it (32023.850 has bin/metal-tt.exe), older ones do
+        # not. Return what is actually there so the offline pipeline archive runs when it can.
+        return tc.metal_tool('metal-tt')
     if tool in TOOL_MAP:
         return tc.llvm_tool(TOOL_MAP[tool])
     return tc.llvm_tool(tool)
@@ -260,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
     exe = find(sdk, tool)
     if not exe:
         _die(f'no Windows tool for `xcrun -sdk {sdk} {tool}`'
-             + (' (the Windows Metal tools do not ship metal-tt)' if tool == 'metal-tt' else
+             + (' (this Metal Developer Tools build has no metal-tt.exe)' if tool == 'metal-tt' else
                 ' (the app is built with clang + ld64.lld, not Swift or actool)'
                 if tool in ('swiftc', 'actool') else
                 ' (see the Windows build section of frontend-qt/README.md)'))

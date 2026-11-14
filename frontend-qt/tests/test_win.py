@@ -361,9 +361,23 @@ class MetalArgsTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn('linker unavailable', detail)
 
-    def test_metal_tt_has_no_windows_tool(self) -> None:
-        # the pipeline archive is disabled here, and the caller relies on this being None
-        self.assertIsNone(tc.metal_tool('metal-tt'))
+    def test_metal_tt_none_when_absent(self) -> None:
+        # The caller relies on None when the tool is absent. Some Windows Metal builds do ship
+        # metal-tt.exe (32023.850), so this must not assert it is never there.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / 'bin').mkdir()
+            (root / 'bin/metal.exe').write_bytes(b'x')
+            with mock.patch.object(tc, 'metal_dir', return_value=root):
+                self.assertIsNone(tc.metal_tool('metal-tt'))
+
+    def test_metal_tt_found_when_shipped(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / 'bin').mkdir()
+            (root / 'bin/metal-tt.exe').write_bytes(b'x')
+            with mock.patch.object(tc, 'metal_dir', return_value=root):
+                self.assertEqual(tc.metal_tool('metal-tt'), root / 'bin/metal-tt.exe')
 
     def test_metal_tool_takes_name_then_sdk(self) -> None:
         """The signature is (name, sdk). Both call sites once had it backwards, which made
@@ -703,6 +717,121 @@ class ShimTest(unittest.TestCase):
                                capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    def _map_in_child(self, td: Path, script: str) -> subprocess.CompletedProcess:
+        """Run `script` against the generated sitecustomize, as a build's child interpreter does."""
+        shim.install(td / 'shim', python_exe=sys.executable)
+        env = dict(os.environ, PYTHONPATH=str(td / 'shim'), NSPB_SHIM_OFF='')
+        return subprocess.run([sys.executable, '-c', script], env=env,
+                              capture_output=True, text=True)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows subprocess shim')
+    def test_extractor_mapping_runs_the_dll_through_dotnet(self) -> None:
+        # What driver.build_nx_extract / find_nx_extract return is a .NET apphost, and on a
+        # Windows build with incomplete user-mode CET every such apphost fails fast ("Your
+        # Windows doesn't fully support CET"). The dll beside it is the same program through
+        # the unmarked host. Both spellings the driver returns must map: `nx_extract.exe`
+        # (find_nx_extract, and the bundled path) and `nx_extract` (build_nx_extract's
+        # work/tools/nx_extract/nx_extract).
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            out = root / 'nx_extract-abc123'
+            out.mkdir()
+            (out / 'nx_extract.exe').write_bytes(b'MZ-apphost')
+            (out / 'nx_extract.dll').write_bytes(b'MZ-dll')
+            script = ("import sitecustomize as s, toolchain\n"
+                      "from pathlib import Path\n"
+                      "toolchain.dotnet_dir = lambda: Path('portable-dotnet')\n"
+                      f"out = Path({str(out)!r})\n"
+                      "host = str(Path('portable-dotnet') / 'dotnet.exe')\n"
+                      "for name in ('nx_extract.exe', 'nx_extract', 'nx_extract.EXE'):\n"
+                      "    got = s._map([str(out / name), '--source-sha'])\n"
+                      "    assert got == [host, str(out / 'nx_extract.dll'), '--source-sha'], (name, got)\n")
+            r = self._map_in_child(root, script)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows subprocess shim')
+    def test_extractor_mapping_leaves_a_binary_without_a_dll_alone(self) -> None:
+        # The committed dm/tools/nx_extract_bin/nx_extract is a Mach-O universal binary
+        # (cafebabe): no dll beside it and nothing to run through dotnet. The mapping must not
+        # invent a command for it -- on Windows the driver builds from source instead, and a
+        # wrong rewrite here would hide that behind a confusing .NET error.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bundled = root / 'dm/tools/nx_extract_bin'
+            bundled.mkdir(parents=True)
+            (bundled / 'nx_extract').write_bytes(b'\xca\xfe\xba\xbe\x00\x00\x00\x02')
+            script = ("import sitecustomize as s\n"
+                      f"p = {str(bundled / 'nx_extract')!r}\n"
+                      "got = s._map([p, '--source-sha'])\n"
+                      "assert got == [p, '--source-sha'], got\n")
+            r = self._map_in_child(root, script)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows subprocess shim')
+    def test_extractor_mapping_keeps_every_argument(self) -> None:
+        # nsp.run() hands the extractor its whole command line; the rewrite replaces argv[0]
+        # and must leave the rest in order, including paths with spaces and `--opt=value`.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            out = root / 'nx_extract-abc123'
+            out.mkdir()
+            (out / 'nx_extract.dll').write_bytes(b'MZ-dll')
+            argv = ['--list', '--program=0100AAAA00000000',
+                    'C:\\some folder\\package.nsp', 'C:\\out\\dir', '--allow-damaged']
+            script = ("import sitecustomize as s, toolchain\n"
+                      "from pathlib import Path\n"
+                      "toolchain.dotnet_dir = lambda: Path('portable-dotnet')\n"
+                      f"got = s._map([{str(out / 'nx_extract.exe')!r}] + {argv!r})\n"
+                      f"assert got[2:] == {argv!r}, got\n"
+                      "assert got[1].endswith('nx_extract.dll'), got\n")
+            r = self._map_in_child(root, script)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows signal adapter')
+    def test_sighup_stand_in_lets_the_nsp_script_register_its_stop_signals(self) -> None:
+        # scripts/build_ipa_from_nsp.py builds STOPS = (signal.SIGTERM, signal.SIGHUP) at
+        # module level and cli() registers a handler for each, restoring them in its finally.
+        # Windows has neither the constant nor the ability to catch 1 (CTRL_BREAK_EVENT
+        # there), so without the stand-in the import of the whole NSP script fails.
+        with tempfile.TemporaryDirectory() as td:
+            script = ("import signal\n"
+                      "assert hasattr(signal, 'SIGHUP'), 'no SIGHUP stand-in'\n"
+                      "h = lambda s, f: None\n"
+                      "saved = {s: signal.signal(s, h) for s in (signal.SIGTERM, signal.SIGHUP)}\n"
+                      "assert saved[signal.SIGHUP] is None, saved\n"
+                      "assert signal.getsignal(signal.SIGTERM) is h, 'a real signal must pass through'\n"
+                      "for s, old in saved.items():\n"
+                      "    signal.signal(s, signal.SIG_DFL if old is None else old)\n")
+            r = self._map_in_child(Path(td), script)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows signal adapter')
+    def test_load_upstream_stands_in_sighup_without_the_shim(self) -> None:
+        # load_upstream is also called with no shim on PYTHONPATH (the tests do it, and so
+        # does any caller that imports the driver directly). Its own fallback must cover the
+        # same import, and must be idempotent: a second call must not wrap signal.signal again.
+        with tempfile.TemporaryDirectory() as td:
+            env = {k: v for k, v in os.environ.items() if k != 'PYTHONPATH'}
+            env['NSPB_SHIM_OFF'] = '1'
+            script = ("import sys\n"
+                      f"sys.path.insert(0, {str(QT)!r})\n"
+                      "import signal\n"
+                      "assert not hasattr(signal, 'SIGHUP'), 'the shim must not be loaded here'\n"
+                      "from nspb_qt.win import driver\n"
+                      "driver._install_sighup_stub()\n"
+                      "once = signal.signal\n"
+                      "driver._install_sighup_stub()\n"
+                      "assert signal.signal is once, 'wrapped twice'\n"
+                      "assert signal.SIGHUP == 1, signal.SIGHUP\n"
+                      "assert signal.signal(signal.SIGHUP, lambda s, f: None) is None\n"
+                      "h = lambda s, f: None\n"
+                      "prev = signal.signal(signal.SIGTERM, h)\n"
+                      "assert signal.getsignal(signal.SIGTERM) is h\n"
+                      "signal.signal(signal.SIGTERM, prev)\n")
+            r = subprocess.run([sys.executable, '-c', script], env=env,
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
 
 class DriverCliTest(unittest.TestCase):
     """Mac-only options are refused before any work starts."""
@@ -778,12 +907,24 @@ class DriverPatchTest(unittest.TestCase):
         self.assertTrue(self.mod.apple_silicon())
 
     def test_check_prereqs_raises_with_a_report(self) -> None:
-        with self.assertRaises(self.mod.BuildError) as ctx:
-            self.mod.check_prereqs({}, Path('missing/dmsh_xlate'), mac=False)
+        # The report is about the PC's tools, so the test has to establish that one is missing.
+        # On a fully provisioned machine check_all() finds nothing required-and-bad and
+        # check_prereqs falls through to the repository check -- a different message, which is
+        # what this test used to hit on any PC that had everything installed.
+        missing = tc.Probe(id='llvm', name='LLVM (clang)', state='missing',
+                           hint='Install all missing in the Dependencies panel')
+        with mock.patch.object(tc, 'check_all', return_value=[missing]):
+            with self.assertRaises(self.mod.BuildError) as ctx:
+                self.mod.check_prereqs({}, Path('missing/dmsh_xlate'), mac=False)
         msg = str(ctx.exception)
         self.assertIn('missing on this PC', msg)
         # the message must name what to do, not just what is wrong
         self.assertTrue('LLVM' in msg or 'clang' in msg.lower())
+        # with every tool present the repository check is what fires, on any machine
+        with mock.patch.object(tc, 'check_all', return_value=[]):
+            with self.assertRaises(self.mod.BuildError) as ctx:
+                self.mod.check_prereqs({}, Path('missing/dmsh_xlate'), mac=False)
+        self.assertIn('missing from the repository', str(ctx.exception))
 
     def test_check_prereqs_refuses_mac(self) -> None:
         with self.assertRaises(self.mod.BuildError) as ctx:
@@ -1665,6 +1806,95 @@ class DotnetTest(unittest.TestCase):
             self.assertEqual(out, root / f'dotnet-{tc.DOTNET_VERSION}')
             self.assertTrue((out / 'dotnet.exe').is_file())
             self.assertTrue((out / 'sdk/10.0.403/dotnet.dll').is_file())
+
+
+    def _fake_sdk(self, td: str) -> tuple[Path, Path]:
+        """A .NET root with the SDK's Roslyn apphost and dll, as csc_tool_args finds them."""
+        root = Path(td) / 'dotnet'
+        bincore = root / 'sdk' / '10.0.403' / 'Roslyn' / 'bincore'
+        bincore.mkdir(parents=True)
+        (root / 'dotnet.exe').write_bytes(b'MZ')
+        (bincore / 'csc.exe').write_bytes(b'MZ')
+        (bincore / 'csc.dll').write_bytes(b'MZ')
+        return root, bincore
+
+    def test_csc_args_empty_when_the_apphost_works(self) -> None:
+        """A healthy machine keeps the SDK's own compiler: no wrapper, no MSBuild overrides."""
+        with tempfile.TemporaryDirectory() as td:
+            root, _ = self._fake_sdk(td)
+            ok = subprocess.CompletedProcess([], 0, 'Microsoft (R) Visual C#', '')
+            with mock.patch.object(tc, 'dotnet_dir', return_value=root), \
+                    mock.patch.object(tc, 'dotnet_sdks', return_value=['10.0.403']), \
+                    mock.patch.object(tc, 'tools_dir', return_value=Path(td) / 'tools'), \
+                    mock.patch.object(tc.subprocess, 'run', return_value=ok) as run:
+                self.assertEqual(tc.csc_tool_args(), [])
+            self.assertEqual(run.call_count, 1)
+            self.assertFalse((Path(td) / 'tools' / 'csc-wrap').exists())
+
+    def test_csc_args_route_through_dotnet_when_cet_blocks_the_apphost(self) -> None:
+        """Windows 11 build 22000: csc.exe exits 6 with the CET message, so publish died in
+        Microsoft.CSharp.Core.targets and tool_lock reported "the translator does not run"."""
+        with tempfile.TemporaryDirectory() as td:
+            root, bincore = self._fake_sdk(td)
+            tools = Path(td) / 'tools'
+            cet = subprocess.CompletedProcess(
+                [], 6, '', "Fatal error.\nYour Windows doesn't fully support CET.")
+            with mock.patch.object(tc, 'dotnet_dir', return_value=root), \
+                    mock.patch.object(tc, 'dotnet_sdks', return_value=['10.0.403']), \
+                    mock.patch.object(tc, 'tools_dir', return_value=tools), \
+                    mock.patch.object(tc.subprocess, 'run', return_value=cet):
+                args = tc.csc_tool_args()
+            self.assertIn('-p:UseSharedCompilation=false', args)
+            self.assertIn('-p:CscToolExe=csc.cmd', args)
+            wrap = tools / 'csc-wrap'
+            self.assertIn(f'-p:CscToolPath={wrap}', args)
+            body = (wrap / 'csc.cmd').read_text(encoding='utf-8')
+            self.assertIn(str(root / 'dotnet.exe'), body)
+            self.assertIn(str(bincore / 'csc.dll'), body)
+            self.assertIn('%*', body)
+
+    def test_csc_args_do_not_mask_another_apphost_failure(self) -> None:
+        """"You must install or update .NET" is a different problem: leave it to fail visibly."""
+        with tempfile.TemporaryDirectory() as td:
+            root, _ = self._fake_sdk(td)
+            other = subprocess.CompletedProcess(
+                [], 2147516566, '', 'You must install or update .NET to run this application.')
+            with mock.patch.object(tc, 'dotnet_dir', return_value=root), \
+                    mock.patch.object(tc, 'dotnet_sdks', return_value=['10.0.403']), \
+                    mock.patch.object(tc, 'tools_dir', return_value=Path(td) / 'tools'), \
+                    mock.patch.object(tc.subprocess, 'run', return_value=other):
+                self.assertEqual(tc.csc_tool_args(), [])
+            self.assertFalse((Path(td) / 'tools' / 'csc-wrap').exists())
+
+    def test_csc_probe_sets_dotnet_root(self) -> None:
+        """Without DOTNET_ROOT the apphost looks in C:\\Program Files\\dotnet and fails with a
+        different message, which hid the CET one this probe exists to find."""
+        with tempfile.TemporaryDirectory() as td:
+            root, _ = self._fake_sdk(td)
+            ok = subprocess.CompletedProcess([], 0, '', '')
+            with mock.patch.object(tc, 'dotnet_dir', return_value=root), \
+                    mock.patch.object(tc, 'dotnet_sdks', return_value=['10.0.403']), \
+                    mock.patch.object(tc, 'tools_dir', return_value=Path(td) / 'tools'), \
+                    mock.patch.object(tc.subprocess, 'run', return_value=ok) as run:
+                tc.csc_tool_args()
+            env = run.call_args.kwargs['env']
+            self.assertEqual(env['DOTNET_ROOT'], str(root))
+            self.assertEqual(env['DOTNET_ROOT_X64'], str(root))
+
+    def test_csc_probe_answer_is_cached(self) -> None:
+        """One `csc.exe -?` per compiler, not one per publish: the answer is keyed on its stamp."""
+        with tempfile.TemporaryDirectory() as td:
+            root, _ = self._fake_sdk(td)
+            cet = subprocess.CompletedProcess([], 6, '', "Your Windows doesn't fully support CET.")
+            with mock.patch.object(tc, 'dotnet_dir', return_value=root), \
+                    mock.patch.object(tc, 'dotnet_sdks', return_value=['10.0.403']), \
+                    mock.patch.object(tc, 'tools_dir', return_value=Path(td) / 'tools'), \
+                    mock.patch.object(tc.subprocess, 'run', return_value=cet) as run:
+                first = tc.csc_tool_args()
+                second = tc.csc_tool_args()
+            self.assertEqual(first, second)
+            self.assertEqual(run.call_count, 1)
+            self.assertTrue(first)
 
 
 class ConsoleWindowTest(unittest.TestCase):
