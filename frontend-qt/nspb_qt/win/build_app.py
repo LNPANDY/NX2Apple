@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 if __package__:
@@ -748,6 +749,20 @@ def build_pso_archive(repo: Path, w: Path, game: str, gd: Path, gp, gfx: str,
     return pso
 
 
+def resolve_bundle_id(game: str, env: Mapping[str, str]) -> str:
+    """Resolve the iOS bundle ID for a single-game build or DmGame framework."""
+    explicit = env.get('DM_BUNDLE_ID')
+    if explicit:
+        return explicit
+    base = f'org.nxnative.{game.lower()}'
+    if env.get('DM_FRAMEWORK_ONLY'):
+        return base
+    team_id = (env.get('DM_TEAM_ID') or '').strip()
+    if team_id and team_id != '0000000000':
+        return f'{base}.{team_id}'
+    return base
+
+
 # ---------------------------------------------------------------- main
 
 def main(argv: list[str] | None = None) -> int:
@@ -824,7 +839,7 @@ def main(argv: list[str] | None = None) -> int:
         except SystemExit:
             die(f'no game name in {nacp} (set DM_DISPLAY_NAME)')
     version = env.get('DM_APP_VERSION') or '1.0'
-    bundle_id = env.get('DM_BUNDLE_ID') or f'org.nxnative.{game.lower()}'
+    bundle_id = resolve_bundle_id(game, env)
     show_fps = env.get('DM_SHOW_FPS', '0') in ('1', 'YES', 'yes', 'TRUE', 'true')
     lang = env.get('DM_LANG') or 'en-US'
     try:

@@ -44,3 +44,4 @@
 0044-host-haptics-drive-joycon-l-and-joycon-r-on-sepa.patch
 0045-nvn-inherit-aliased-virtual-pool-flags-and-bound.patch
 0046-ios-audio-add-dm-audio-mix-audio-session-mixing.patch
+0047-ios-scripts-append-developer-team-id-to-default.patch
