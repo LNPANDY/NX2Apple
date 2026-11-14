@@ -1492,6 +1492,12 @@ class BuildFolder:
 # GameDeletion (mirrors GameDeletion.swift)
 # ---------------------------------------------------------------------------
 
+def _move_to_trash(path: str) -> bool:
+    from PySide6.QtCore import QFile
+
+    return QFile.moveToTrash(path)
+
+
 @dataclass
 class GameDeletionItem:
     kind: str  # 'macApp', 'ipa', 'iosApp', 'archive', 'shellFramework', 'buildFolder', 'log', 'saves'
@@ -1541,7 +1547,7 @@ class GameDeletionPlan:
 
         return GameDeletionPlan(title_id=game.title_id, items=items, saves=saves_item)
 
-    def run(self, delete_saves: bool = False) -> list[str]:
+    def run(self, delete_saves: bool = False, trash: Callable[[str], bool] = _move_to_trash) -> list[str]:
         failed: list[str] = []
         all_items = list(self.items)
         if delete_saves and self.saves:
@@ -1551,12 +1557,17 @@ class GameDeletionPlan:
                 if not os.path.exists(p):
                     continue
                 try:
-                    if os.path.isdir(p) and not os.path.islink(p):
-                        shutil.rmtree(p)
-                    else:
-                        os.remove(p)
-                except OSError:
+                    if not trash(p):
+                        failed.append(p)
+                except Exception:
                     failed.append(p)
+        build_paths = next((it.paths for it in self.items if it.kind == 'buildFolder'), [])
+        if build_paths:
+            folder = os.path.dirname(build_paths[0])
+            try:
+                os.rmdir(folder)
+            except OSError:
+                pass
         return failed
 
 
