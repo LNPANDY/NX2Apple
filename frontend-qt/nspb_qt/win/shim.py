@@ -91,6 +91,24 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             setattr(_signal, _sig_attr, _sig_val)
     if not hasattr(_signal, 'pthread_sigmask'):
         _signal.pthread_sigmask = lambda how, mask: set()
+    # scripts/build_ipa_from_nsp.py builds STOPS = (signal.SIGTERM, signal.SIGHUP) at module
+    # level, so a missing SIGHUP stops the import of the whole NSP script, not just its signal
+    # handling. Windows has no hangup: nothing delivers SIGHUP, and signal.signal(1, handler)
+    # raises "invalid signal value" (1 is CTRL_BREAK_EVENT there, which can be sent but not
+    # caught). Installing a handler for it is therefore a no-op returning None -- what
+    # signal.signal returns for a handler never set from Python, which is exactly how cli's
+    # finally restores it (`SIG_DFL if h is None else h`). Only calls that would otherwise
+    # raise are affected; every other signal goes to the real signal.signal unchanged.
+    if not hasattr(_signal, 'SIGHUP'):
+        _signal.SIGHUP = 1
+        _sig_signal = _signal.signal
+
+        def _win_signal(sig, handler):
+            if sig == _signal.SIGHUP:
+                return None
+            return _sig_signal(sig, handler)
+
+        _signal.signal = _win_signal
 
     def _win_execve(path, argv, env):
         r = subprocess.run([os.fspath(path)] + [os.fspath(a) for a in list(argv)[1:]], env=env)
@@ -855,6 +873,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
                 tempfile.TemporaryDirectory(prefix='dmsh_xlate_art_') as art:
             _run([dotnet, 'publish', str(proj), '-c', 'Release', '--self-contained', 'false',
                   '-p:PublishAot=false', '-p:SatelliteResourceLanguages=en',
+                  *tc.csc_tool_args(),   # the SDK's csc.exe apphost cannot start on every Windows
                   '--artifacts-path', art, '-o', td, '-v', 'quiet', '-nologo'],
                  check=True, **tc.no_window())
             shutil.rmtree(cache_dir, ignore_errors=True)
@@ -884,6 +903,23 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             dn = tc.dotnet_dir()
             dotnet = str(dn / 'dotnet.exe') if dn else (shutil.which('dotnet') or 'dotnet')
             return [dotnet, _dmsh_xlate_dll(args[0], dotnet, tc)] + args[1:]
+        if base in ('nx_extract', 'nx_extract.exe'):
+            # The extractor driver.build_nx_extract / find_nx_extract return is a .NET apphost,
+            # and Windows 11 build 22000's incomplete user-mode CET makes every CET-marked
+            # apphost fail fast: "Your Windows doesn't fully support CET", exit 0x80131506. The SDK's
+            # csc.exe dies that way (toolchain.csc_tool_args routes the build around it), and so
+            # does the built nx_extract.exe -- measured: the apphost prints that fatal error,
+            # `dotnet nx_extract.dll --help` prints its usage. Same program, unmarked host, as
+            # dmsh_xlate above. The dll is always beside it: the driver copies the whole build
+            # output. No dll means the committed dm/tools/nx_extract_bin/nx_extract, a Mach-O
+            # universal binary (cafebabe) that no Windows build uses; it is left to fail visibly.
+            stem = args[0][:-4] if args[0].lower().endswith('.exe') else args[0]
+            dll = stem + '.dll'
+            if os.path.isfile(dll):
+                import toolchain as tc
+                dn = tc.dotnet_dir()
+                dotnet = str(dn / 'dotnet.exe') if dn else (shutil.which('dotnet') or 'dotnet')
+                return [dotnet, dll] + args[1:]
         if base in ('python3', 'python3.exe') or base in ('python', 'python.exe'):
             py_exe = os.environ.get('NSPB_PYTHON') or sys.executable
             return [py_exe] + [a for a in args[1:] if a != '-I']

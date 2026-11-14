@@ -612,7 +612,14 @@ class WindowsEngineContractTests(unittest.TestCase):
                 # Calculate expected SHA via a second probe
                 seen_shas: list[str] = []
 
+                real_run = win_driver.subprocess.run
+
                 def fake_subproc_run(cmd, *a, **kw):
+                    # build_nx_extract also asks the SDK's compiler whether it can start
+                    # (toolchain.csc_tool_args). Only the --source-sha calls are this test's
+                    # subject; anything else goes to the real subprocess.
+                    if not (isinstance(cmd, (list, tuple)) and cmd and cmd[-1] == '--source-sha'):
+                        return real_run(cmd, *a, **kw)
                     exe_str = str(cmd[0])
                     data = Path(exe_str).read_bytes() if Path(exe_str).is_file() else b''
                     if data == b'MZ-stale':
