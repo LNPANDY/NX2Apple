@@ -2055,6 +2055,8 @@
   "settings.cat.general": "General",
   "settings.cat.library": "Biblioteca",
   "settings.cat.tools": "Herramientas",
+  "settings.display": "Pantalla",
+  "settings.display.launcher": "Con el launcher",
   "settings.general": "General",
   "settings.heading": "Ajustes",
   "settings.language": "Idioma",

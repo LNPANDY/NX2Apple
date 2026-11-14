@@ -2055,6 +2055,8 @@
   "settings.cat.general": "일반",
   "settings.cat.library": "라이브러리",
   "settings.cat.tools": "도구",
+  "settings.display": "디스플레이",
+  "settings.display.launcher": "런처와 동일",
   "settings.general": "일반",
   "settings.heading": "설정",
   "settings.language": "언어",

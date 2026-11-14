@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NXCore
 import NXModel
@@ -17,6 +18,8 @@ package struct AppCard: View {
     let uninstallPlan: () -> Uninstall.Plan
     let part: Part
     @AppStorage(LauncherAppearance.defaultsKey) private var appearance = LauncherAppearance.system.rawValue
+    @AppStorage(GameDisplay.defaultsKey) private var gameDisplayUUID = ""
+    @State private var screens = NSScreen.screens
     @EnvironmentObject var loc: Localizer
 
     package enum Part { case general, updates, maintenance }
@@ -46,10 +49,16 @@ package struct AppCard: View {
     }
 
     package var body: some View {
-        switch part {
-        case .general: general
-        case .updates: updatesGroup
-        case .maintenance: maintenance
+        Group {
+            switch part {
+            case .general: general
+            case .updates: updatesGroup
+            case .maintenance: maintenance
+            }
+        }
+        // The Display row lists the screens connected now (#1092)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+            screens = NSScreen.screens
         }
     }
 
@@ -67,6 +76,15 @@ package struct AppCard: View {
                     loc.choose(v)
                 }
                 .padTarget("set.language", scope: "main", activate: { cycleLanguage(1) }, adjust: { cycleLanguage($0) })
+            }
+            CardDivider()
+            // The screen a game opens on (#1092): kept by its UUID, which stays when the screen is plugged in again. A screen that is not
+            // connected shows as the launcher's, and GameStart falls back to it.
+            CardRow(loc.t("settings.display")) {
+                LauncherDropdown(options: [(value: "", label: loc.t("settings.display.launcher"))] + screens.compactMap { screen in
+                    GameDisplay.uuid(of: screen).map { (value: $0, label: screen.localizedName) }
+                }, selection: screens.contains { GameDisplay.uuid(of: $0) == gameDisplayUUID } ? gameDisplayUUID : "",
+                    label: loc.t("settings.display"), style: .button) { gameDisplayUUID = $0 }
             }
             CardDivider()
             // System, Light or Dark for the launcher's windows and sheets (LauncherAppearance)

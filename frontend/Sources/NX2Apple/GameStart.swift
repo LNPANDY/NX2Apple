@@ -12,7 +12,8 @@ enum GameStart {
                                        labels: (String) -> String, lang: Lang = Lang.initial(), fullscreen: Bool = false, player: PlayerProfile? = nil,
                                        saves: (global: SaveGlobalSettings, game: SaveGameOverride)? = nil,
                                        sticks: StickDeadzoneSettings? = nil, homeMenu: Bool = false, launcherBundleID: String? = Bundle.main.bundleIdentifier,
-                                       screen: NSScreen? = NSApp?.keyWindow?.screen ?? NSScreen.main) -> [String: String] {
+                                       screen: NSScreen? = NSApp?.keyWindow?.screen ?? NSScreen.main,
+                                       defaults: UserDefaults = .standard) -> [String: String] {
         library.migrateLaunchOptions()
         CloudSavesMigration.run()   // before the app reads its env.txt: DM_SAVE_SYNC=icloud keeps the folder the iPhone app uses
         let settings = LaunchSetting.forMac(app: game.appPath, titleID: game.titleID, repo: repo, labels: labels) ?? []
@@ -25,7 +26,9 @@ enum GameStart {
                                                 appReadsStore: SavedChoices.appReadsStore(app: game.appPath),
                                                 controllerStore: mappings, savingEnabled: savingEnabled)
         if fullscreen, settings.contains(where: { $0.env == "DM_FULLSCREEN" }) { environment["DM_FULLSCREEN"] = "1" }
-        if let id = displayID(of: screen) { environment["DM_SCREEN"] = String(id) }
+        if let id = GameDisplay.displayID(savedUUID: defaults.string(forKey: GameDisplay.defaultsKey) ?? "", launcher: screen, screens: NSScreen.screens) {
+            environment["DM_SCREEN"] = String(id)
+        }
         environment["DM_HOME_QUIT_TEXT"] = HomeButtonHint.promptText(gameName: game.displayName(lang), labels: labels, homeMenu: homeMenu)   // the game's Home button quit prompt in the launcher's language (#336)
         // Console mode's game: the Home menu's Back to console mode, which pauses it in the background (#952). The desktop's Play passes none.
         if homeMenu { environment.merge(HomeButtonHint.homeMenuEnvironment(launcherBundleID: launcherBundleID)) { $1 } }

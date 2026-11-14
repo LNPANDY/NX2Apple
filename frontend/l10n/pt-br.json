@@ -2055,6 +2055,8 @@
   "settings.cat.general": "Geral",
   "settings.cat.library": "Biblioteca",
   "settings.cat.tools": "Ferramentas",
+  "settings.display": "Tela",
+  "settings.display.launcher": "Tela do launcher",
   "settings.general": "Geral",
   "settings.heading": "Ajustes",
   "settings.language": "Idioma",

@@ -2054,6 +2054,8 @@
   "settings.cat.general": "General",
   "settings.cat.library": "Library",
   "settings.cat.tools": "Tools",
+  "settings.display": "Display",
+  "settings.display.launcher": "Launcher screen",
   "settings.general": "General",
   "settings.heading": "Settings",
   "settings.language": "Language",
