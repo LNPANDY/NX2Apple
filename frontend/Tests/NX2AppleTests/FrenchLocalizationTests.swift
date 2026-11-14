@@ -27,6 +27,8 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "console.gamePage.version",   // Version, the game page's fact (#816)
         // Shell words shared by English and French.
         "ios.host.ok", "ios.host.shellName", "ios.ui.interface", "ios.ui.padPlus", "ios.ui.version", "ios.ui.touchEditorPortrait", "ios.ui.gameVersionLabel",
+        // Brand and device names on the batch refresh badge and platform tags.
+        "batchRefresh.versionBadge", "batchRefresh.platformIOS", "batchRefresh.platformMac",
     ]
 
     func testNothingIsLeftInEnglishButTheListedNames() {

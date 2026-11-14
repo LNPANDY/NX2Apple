@@ -50,3 +50,4 @@
 0050-ios-fix-bigstack-exit-crash-guest-quit-to-shell.patch
 0051-host-gfx-tools-ios-support-dmmsltr1-shader-trail.patch
 0052-ios-strip-msl-from-framework-only-builds-and-wri.patch
+0053-build-add-persistent-build-seeds-and-fast-refres.patch

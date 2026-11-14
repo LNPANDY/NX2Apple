@@ -67,6 +67,7 @@ else:                                       # pragma: no cover - script mode
 _UPSTREAM_RUN = None
 
 #: Options that exist upstream but cannot work on Windows, with the reason shown to the user.
+#: Fast-refresh seed options (--from-seed, --seed-cache-dir, --prefill-msl) are supported on Windows and never refused.
 REFUSED_OPTIONS = {
     '--prepare-xcode': 'generates an Xcode project, which needs Xcode and xcodegen (macOS only)',
     '--platform': 'only "--platform ios" builds on Windows: the mac platforms run the game in '

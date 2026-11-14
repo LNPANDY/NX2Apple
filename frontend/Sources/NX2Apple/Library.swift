@@ -516,6 +516,21 @@ final class GameLibrary: ObservableObject {
     }
 
     @MainActor @discardableResult func rememberInputs(_ model: BuildStore) -> UUID? {
+        if model.fastRefreshActive, let titleID = model.gameTitleID?.uppercased(), !titleID.isEmpty {
+            var game = games.first { $0.titleID.caseInsensitiveCompare(titleID) == .orderedSame }
+                ?? LibraryGame(titleID: titleID, name: model.gameName)
+            if game.outputDirectory.isEmpty && !model.effectiveOutputFolder.isEmpty {
+                game.outputDirectory = model.effectiveOutputFolder
+            }
+            game.lastTarget = model.target
+            if !model.effectiveOutputFolder.isEmpty,
+               let existing = MacAppOutput.existing(in: URL(fileURLWithPath: model.effectiveOutputFolder), titleID: titleID, preferred: game.appPath) {
+                game.appPath = existing.path
+            }
+            upsert(game)
+            selectedID = game.id
+            return game.id
+        }
         guard !model.basePath.isEmpty else { return nil }
         let titleID = model.gameTitleID ?? URL(fileURLWithPath: model.basePath).standardizedFileURL.path
         // A base whose name has no title ID is the entry the scan found for it by its NCA headers (#1012), not a second one.

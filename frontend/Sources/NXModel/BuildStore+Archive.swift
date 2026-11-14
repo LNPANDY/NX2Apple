@@ -15,7 +15,7 @@ extension BuildStore {
         var multiProgram: Bool
     }
 
-    private struct TrailerInjectionError: Error, Sendable {
+    struct TrailerInjectionError: Error, Sendable {
         var status: Int32
         var message: String
     }
@@ -78,12 +78,13 @@ extension BuildStore {
     /// `then` continues the build with the archive's folder (installing on a device or exporting the shared app).
     /// `titleID` names the game's title ID (the framework's title ID), falling back to the build key when omitted.
     package func packArchive(workDir: String, titleID: String? = nil, then: @escaping (String) -> Void) {
-        buildingGame = true; runningTarget = BuildTarget.ios
+        buildingGame = true
+        runningTarget = BuildTarget.ios
         if operation == nil { beginOperation(.building, game: gameName, titleID: titleID, destination: .target) }
         running = true
         archiveGeneration &+= 1
         let generation = archiveGeneration
-        let gamesRoot = (outDir.isEmpty ? inputFolder : outDir) + "/games"
+        let gamesRoot = effectiveOutputFolder + "/games"
         let tid = titleID.flatMap { $0.isEmpty ? nil : $0 } ?? buildKey
         let retryName = (shellRetry?.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanedFallbackName = RomFSArchive.cleanPackageGameName(gameName)
@@ -91,22 +92,83 @@ extension BuildStore {
         let repoPath = repo.path
         let pythonPath = deps.pythonPath
         let runner = self.runner
+        let externalImg = fastRefreshExternalImgPath
+        fastRefreshExternalImgPath = nil
         let idx = 1000
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let fm = FileManager.default
             let extract = workDir + "/extract"
             guard let v = RomFSArchive.extractedVersion(in: extract) else {
-                hop {
-                    guard let self, self.archiveGeneration == generation else { return }
-                    if self.stopping {
-                        self.finishStoppedArchive()
+                let resolvedName = Self.resolveArchiveGameName(
+                    workDir: workDir, tid: tid, repoPath: repoPath,
+                    retryName: retryName, fallbackName: cleanedFallbackName, fm: fm
+                )
+                let folderName = RomFSArchive.archiveDirectoryName(gameName: resolvedName, titleID: tid, gamesRoot: gamesRoot, fm: fm)
+                let dest = gamesRoot + "/" + folderName
+                let targetImg = dest + "/" + folderName + ".img"
+
+                Self.migrateLegacyArchiveIfNeeded(gamesRoot: gamesRoot, tid: tid, folderName: folderName, dest: dest, targetImg: targetImg, fm: fm)
+
+                if fm.fileExists(atPath: targetImg) {
+                    try? fm.createDirectory(atPath: dest, withIntermediateDirectories: true)
+                    try? (tid.uppercased() + "\n").write(toFile: dest + "/.titleid", atomically: true, encoding: .utf8)
+
+                    let trailerOut: String?
+                    switch Self.injectIOSShaderTrailerIfNeeded(
+                        targetImg: targetImg, workDir: workDir, tid: tid, isIOSBuild: isIOSBuild,
+                        repoPath: repoPath, pythonPath: pythonPath, runner: runner, fm: fm
+                    ) {
+                    case .success(let logLine):
+                        trailerOut = logLine
+                    case .failure(let err):
+                        hop {
+                            guard let self, self.archiveGeneration == generation else { return }
+                            if self.stopping {
+                                self.finishStoppedArchive()
+                                return
+                            }
+                            self.failArchiveTrailer(stageID: idx, error: err)
+                        }
                         return
                     }
-                    self.stages.append(Stage(id: idx, name: self.t("prog.archiveShort"), state: .failed, detail: self.t("prog.noRomfs")))
-                    self.doneNote = String(format: self.t("msg.archiveSkipped"), extract)
-                    self.running = false
-                    self.cleanupStaging()
+                    let aocCount = Self.placeAddOnContentOnBackground(workDir: workDir, in: dest)
+                    PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: false, removeShellFramework: false)
+                    hop {
+                        guard let self, self.archiveGeneration == generation else { return }
+                        if self.stopping {
+                            self.finishStoppedArchive()
+                            return
+                        }
+                        if let trailerOut, !trailerOut.isEmpty { self.say(trailerOut) }
+                        self.archivePath = dest
+                        self.upsertArchiveStage(id: idx, state: .done, detail: String(format: self.t("prog.archiveReused"), 1))
+                        self.say(String(format: self.t("msg.archiveReused"), dest))
+                        if aocCount > 0 { self.say(String(format: self.t("msg.aocCopied"), aocCount)) }
+                        then(dest)
+                    }
+                } else {
+                    var extNotes: [String] = []
+                    if isIOSBuild, let externalImg, !externalImg.isEmpty {
+                        Self.updateExternalImageTrailerInPlace(
+                            imgPath: externalImg, workDir: workDir, tid: tid,
+                            repoPath: repoPath, pythonPath: pythonPath, runner: runner, fm: fm,
+                            onNote: { extNotes.append($0) }
+                        )
+                    }
+                    PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: false, removeShellFramework: false)
+                    hop {
+                        guard let self, self.archiveGeneration == generation else { return }
+                        if self.stopping {
+                            self.finishStoppedArchive()
+                            return
+                        }
+                        for note in extNotes where !note.isEmpty { self.say(note) }
+                        self.say(String(format: self.t("msg.archiveSkipped"), extract))
+                        self.upsertArchiveStage(id: idx, state: .done, detail: self.t("prog.noRomfs"))
+                        self.archivePath = ""
+                        then("")
+                    }
                 }
                 return
             }
@@ -569,7 +631,7 @@ extension BuildStore {
         return nil
     }
 
-    private nonisolated static func injectIOSShaderTrailerIfNeeded(
+    nonisolated static func injectIOSShaderTrailerIfNeeded(
         targetImg: String,
         workDir: String,
         tid: String,
@@ -583,17 +645,34 @@ extension BuildStore {
               isIOSBuild else {
             return .success(nil)
         }
-        do {
-            try PostBuildCleanup.breakHardLinksIfNeeded(at: targetImg, fm: fm)
-        } catch {
-            return .failure(TrailerInjectionError(status: 1, message: error.localizedDescription))
-        }
 
         let resolvedPy = pythonPath.isEmpty ? Toolchain.findPython().path : pythonPath
         let py = resolvedPy.isEmpty ? "/usr/bin/python3" : resolvedPy
         let tool = EngineLayout.root(repoPath) + "/" + RepoLayout.romfsImageTool
         let env = ["PATH": BuildCommands.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: py)]
             .merging(BundledTools.environment(for: py)) { $1 }
+
+        // FIRST run romfs_image.py --inspect-msl <targetImg>
+        var initialHasTrailer = false
+        let inspectRes = runner.capture(ProcessLaunch(
+            executable: py, arguments: ["-I", tool, "--inspect-msl", targetImg], environment: env, mergesErrors: true
+        ))
+        if inspectRes.ok,
+           let status = BuildSeedCache.parseTrailerStatus(from: inspectRes.out) {
+            initialHasTrailer = status.hasTrailer
+            if BuildSeedCache.shouldSkipTrailerInjection(
+                status: status, gfxAPI: shaderSource.gfxAPI, chain: shaderSource.chain, multiProgram: shaderSource.multiProgram
+            ) {
+                // 0 disk I/O!
+                return .success(nil)
+            }
+        }
+
+        do {
+            try PostBuildCleanup.breakHardLinksIfNeeded(at: targetImg, fm: fm)
+        } catch {
+            return .failure(TrailerInjectionError(status: 1, message: error.localizedDescription))
+        }
 
         func run(modeFlag: String) -> ProcessResult {
             var args = ["-I", tool, modeFlag, targetImg, shaderSource.path]
@@ -603,9 +682,11 @@ extension BuildStore {
             return runner.capture(ProcessLaunch(executable: py, arguments: args, environment: env, mergesErrors: true))
         }
 
-        var result = run(modeFlag: "--append-msl")
+        let primaryMode = initialHasTrailer ? "--replace-msl" : "--append-msl"
+        var result = run(modeFlag: primaryMode)
         if !result.ok {
-            result = run(modeFlag: "--replace-msl")
+            let fallbackMode = initialHasTrailer ? "--append-msl" : "--replace-msl"
+            result = run(modeFlag: fallbackMode)
         }
         let text = result.out.trimmingCharacters(in: .whitespacesAndNewlines)
         guard result.ok else {

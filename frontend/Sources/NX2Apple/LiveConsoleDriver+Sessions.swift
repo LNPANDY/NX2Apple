@@ -91,7 +91,7 @@ extension LiveConsoleDriver {
         let signature = games.map { $0.id.uuidString + $0.toolsCommit + $0.appPath }
         guard signature != tracking.toolsChecked else { return }
         tracking.toolsChecked = signature
-        toolsAge.check(games: games, repo: repo())
+        toolsAge.check(games: games, repo: repo(), libraryFolder: library.folder)
     }
 
     // MARK: A session

@@ -1,7 +1,7 @@
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
-import NXModel
+@testable import NXModel
 
 /// A build that ends while console mode is up (no LauncherView) is still written into the library: BuildRecorder lives in the session.
 @MainActor final class BuildRecorderTests: IsolatedDefaultsTestCase {
@@ -243,5 +243,111 @@ import NXModel
         wait(for: [installEnded], timeout: 10)
         withExtendedLifetime(installSub) {}
         drainMainQueue()
+    }
+
+    func testFastRefreshRecordsIntoLibraryWithoutPollutingInputsOrSelectedTitleID() throws {
+        final class ScriptedRunner: ProcessRunner, @unchecked Sendable {
+            var onStart: ((ProcessLaunch, @escaping (Int32) -> Void) -> Void)?
+            func capture(_ launch: ProcessLaunch) -> ProcessResult { ProcessResult(status: 0, out: "") }
+            func stream(_ launch: ProcessLaunch, line: @escaping (String) -> Void) -> Bool { true }
+            func streamLines(_ launch: ProcessLaunch, started: @escaping (RunningProcess) -> Void, line: @escaping (String) -> Void) -> ProcessResult {
+                ProcessResult(status: 0, out: "")
+            }
+            func start(_ launch: ProcessLaunch, onOutput: @escaping (Data) -> Void, onExit: @escaping (Int32) -> Void) throws -> RunningProcess {
+                if let onStart {
+                    onStart(launch, onExit)
+                } else {
+                    DispatchQueue.global(qos: .userInitiated).async { onExit(0) }
+                }
+                return Process()
+            }
+        }
+
+        let fm = FileManager.default
+        let celesteTID = "01002B30028F6000"
+        let hadesTID = "0100535012974000"
+
+        // Prepare mock repo with EngineLayout marker and --from-seed build script
+        let mockRepo = temporary.appendingPathComponent("repo")
+        try fm.createDirectory(at: mockRepo.appendingPathComponent("dm/tools/nx_extract"), withIntermediateDirectories: true)
+        try Data().write(to: mockRepo.appendingPathComponent("dm/tools/nx_extract/Program.cs"))
+        try fm.createDirectory(at: mockRepo.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        try "ap.add_argument('--from-seed')\n".write(
+            to: mockRepo.appendingPathComponent("scripts/build_ipa_from_nsp.py"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "ap.add_argument('--extract-msl')\n".write(
+            to: mockRepo.appendingPathComponent("dm/tools/romfs_image.py"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let outDir = temporary.appendingPathComponent("out")
+        try fm.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        let runner = ScriptedRunner()
+        let stores = LauncherStores(runner: runner, defaults: testDefaults)
+        stores.repo.path = mockRepo.path
+        stores.build.home = temporary.appendingPathComponent("home").path
+        stores.build.preflightApp = nil
+
+        // Pre-populate library with Celeste (no NSP inputs saved)
+        let libFile = temporary.appendingPathComponent("library-fast-refresh.json")
+        let celeste = LibraryGame(titleID: celesteTID, name: "Celeste", inputs: [:])
+        try JSONEncoder().encode([celeste]).write(to: libFile)
+        let library = GameLibrary(file: libFile)
+        let recorder = BuildRecorder(stores: stores, library: library)
+        defer { withExtendedLifetime(recorder) {} }
+
+        // Pre-populate Build form with a completely different game (Hades)
+        let hadesNSP = temporary.appendingPathComponent("Hades [\(hadesTID)][v0].nsp").path
+        let slot = try XCTUnwrap(stores.build.slots.firstIndex { $0.id == "base" })
+        stores.build.slots[slot].paths = [hadesNSP]
+        stores.build.outDir = ""
+
+        let bundleID = TestPreferences.domain(in: temporary, "fastrefresh")
+        runner.onStart = { launch, onExit in
+            if let oIdx = launch.arguments.firstIndex(of: "-o"), oIdx + 1 < launch.arguments.count {
+                let appURL = URL(fileURLWithPath: launch.arguments[oIdx + 1])
+                let execs = appURL.appendingPathComponent("Contents/MacOS")
+                try? fm.createDirectory(at: execs, withIntermediateDirectories: true)
+                for bin in ["nxnative", "dmhost"] {
+                    let link = execs.appendingPathComponent(bin)
+                    try? fm.removeItem(at: link)
+                    try? fm.createSymbolicLink(at: link, withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+                }
+                let info: [String: Any] = [
+                    "DMTitleID": celesteTID,
+                    "CFBundleDisplayName": "Celeste",
+                    "CFBundleExecutable": "nxnative",
+                    "CFBundleIdentifier": bundleID,
+                ]
+                if let plist = try? PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0) {
+                    try? plist.write(to: appURL.appendingPathComponent("Contents/Info.plist"))
+                }
+            }
+            DispatchQueue.global(qos: .userInitiated).async { onExit(0) }
+        }
+
+        let finished = expectation(description: "fast refresh finishes")
+        let sub = stores.build.$done.filter { $0 }.prefix(1).sink { _ in finished.fulfill() }
+        stores.build.startFastRefresh(
+            titleID: celesteTID,
+            targetName: BuildTarget.mac,
+            outDir: outDir.path,
+            gameName: "Celeste"
+        )
+        wait(for: [finished], timeout: 10)
+        withExtendedLifetime(sub) {}
+        drainMainQueue()
+
+        let updatedCeleste = try XCTUnwrap(library.games.first { $0.titleID == celesteTID })
+        XCTAssertFalse(updatedCeleste.appPath.isEmpty, "Celeste appPath must be recorded into library")
+        XCTAssertTrue(updatedCeleste.isReady, "Celeste must be ready after fast refresh")
+        XCTAssertEqual(updatedCeleste.inputs, [:], "Celeste inputs must not be polluted by Build form game")
+        XCTAssertNil(library.games.first { $0.titleID == hadesTID }, "Build form game Hades must not be inserted into library")
+        XCTAssertNil(stores.build.selectedTitleID, "selectedTitleID must remain nil after fast refresh")
+        XCTAssertEqual(stores.build.gameTitleID, hadesTID, "Build form gameTitleID must return to Hades after fast refresh")
     }
 }

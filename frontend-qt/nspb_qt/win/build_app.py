@@ -949,7 +949,13 @@ def main(argv: list[str] | None = None) -> int:
     for m in mods:
         if not ((patched / f'{m}.patched.bin').exists() and (patched / f'{m}.fixups.tsv').exists()):
             die(f'no rewritten module {patched}/{m} (the rewrite step must run first)')
-    if not romfs_has(repo, romfs, marker):
+    romfs_identity = (env.get('DM_ROMFS_IDENTITY') or '').strip()
+    allow_missing_romfs = (
+        (env.get('DM_COPY_ROMFS', '').upper() == 'NO' or bool(env.get('DM_FRAMEWORK_ONLY')))
+        and romfs_identity.startswith('DMROMFSID1 ')
+        and not Path(romfs).exists()
+    )
+    if not allow_missing_romfs and not romfs_has(repo, romfs, marker):
         die(f'no RomFS at {romfs} (missing {marker})')
 
     nacp = Path(env['CONTROL']) if env.get('CONTROL') else (w / 'data/v0/control.nacp')
@@ -1234,6 +1240,8 @@ def main(argv: list[str] | None = None) -> int:
             if r_id.returncode != 0 or not r_id.stdout.strip():
                 die(f'identity of {romfs}: {r_id.stderr.strip() or r_id.stdout.strip()}')
             romfs_id = r_id.stdout.strip()
+        elif not romfs.is_file() and romfs_identity.startswith('DMROMFSID1 '):
+            romfs_id = romfs_identity
 
         manifest_args = build_manifest_args(
             repo=repo,
@@ -1334,6 +1342,10 @@ def main(argv: list[str] | None = None) -> int:
                 # CRLF leaves a trailing CR, so romfs_id_parse rejects it.
                 rid_file.write_bytes(r_id.stdout.replace(b'\r\n', b'\n'))
                 maps.append(f'Payload/DmIOS.app/romfs.id={rid_file}')
+        elif romfs_identity.startswith('DMROMFSID1 '):
+            rid_file = base / 'romfs.id'
+            rid_file.write_bytes(romfs_identity.encode('utf-8') + b'\n')
+            maps.append(f'Payload/DmIOS.app/romfs.id={rid_file}')
         t('packing a slim IPA without the RomFS (the game files come from Documents/romfs)')
     try:
         store = gp('zip_store', '') or ''

@@ -31,6 +31,7 @@ extension BuildStore {
     /// Evaluates `prod.keys` against `[basePath, updatePath] + dlcPaths` when building from encrypted Switch packages.
     /// Unknown or unreadable containers (`cannotCheck`) return `nil` so non-blocking cases proceed normally.
     package func keyPreflightProblem() -> String? {
+        guard !fastRefreshActive else { return nil }
         guard gameFolder == nil else { return nil }
         let files = [basePath, updatePath] + dlcPaths
         guard !keysPath.isEmpty, !basePath.isEmpty else { return nil }
@@ -39,11 +40,12 @@ extension BuildStore {
 
     /// Checks output-volume peak space (using 3.5x for `.nsz` / `.xcz` and 1.0x for `.nsp` / `.xci`) and, for iOS shared-shell
     /// builds whose `shellRoot` sits on a different volume from the output folder, verifies `shellRoot` free space as well.
+    /// When `fastRefreshActive` is true, evaluates a compact refresh budget (~500 MB) instead of package extraction budget.
     package func preflightSpaceProblem() -> String? {
-        let folder = outDir.isEmpty ? inputFolder : outDir
+        let folder = effectiveOutputFolder
         let inputPaths = [basePath, updatePath] + dlcPaths
         if !folder.isEmpty, let free = spaceAvailable(folder) {
-            let needed = BuildSpace.estimatedNeeded(for: inputPaths)
+            let needed = fastRefreshActive ? 500_000_000 : BuildSpace.estimatedNeeded(for: inputPaths)
             let space = BuildSpace(needed: needed, available: free)
             if space.isShort {
                 return String(
@@ -60,7 +62,8 @@ extension BuildStore {
                !folder.isEmpty,
                !BuildSpace.sameVolume(folder, root, volumeID: volumeIdentifier),
                let shellFree = spaceAvailable(root) {
-                let shellSpace = BuildSpace(needed: BuildSpace.shellRootMinimumBytes, available: shellFree)
+                let minBytes = fastRefreshActive ? 500_000_000 : BuildSpace.shellRootMinimumBytes
+                let shellSpace = BuildSpace(needed: minBytes, available: shellFree)
                 if shellSpace.isShort {
                     return String(
                         format: t("preflight.shortShellRoot"),
