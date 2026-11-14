@@ -182,6 +182,29 @@ import NXModel
         XCTAssertNil(build.preflightSpaceProblem())
     }
 
+    func testABuildAgainDoesNotCountTheGameFilesItExtractedBefore() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        stores.localizer.lang = .en
+        let build = stores.build
+        build.target = BuildTarget.mac
+        let base = temporary.appendingPathComponent("Game [0100000000010000].nsp")
+        try Data(count: 10_000).write(to: base)
+        build.updateSlot("base") { $0.paths = [base.path] }
+        build.spaceAvailable = { _ in 2_000 }
+
+        XCTAssertNotNil(build.preflightSpaceProblem())
+        let version = temporary.appendingPathComponent(build.buildKey + "_build/extract/v0")
+        try FileManager.default.createDirectory(at: version.appendingPathComponent("ExeFS"), withIntermediateDirectories: true)
+        try Data(count: 1_000).write(to: version.appendingPathComponent("RomFS.img"))
+        try Data().write(to: version.appendingPathComponent("ExeFS/main"))
+        try "fingerprint\n".write(to: version.appendingPathComponent("extract.key"), atomically: true, encoding: .utf8)
+        XCTAssertNotNil(build.preflightSpaceProblem(), "a small extraction leaves most of the game files still to extract")
+        try Data(count: 9_000).write(to: version.appendingPathComponent("RomFS.img"))
+        XCTAssertNil(build.preflightSpaceProblem(), "a build again into the same folder needs no space for what it extracted before")
+        try FileManager.default.removeItem(at: version.appendingPathComponent("extract.key"))
+        XCTAssertNotNil(build.preflightSpaceProblem(), "an unfinished extraction (no extract.key) is not counted")
+    }
+
     // MARK: Module 3A - [k/n] stage position and monotonic overall progress
 
     func testBuildStoreTracksStagePositionAndMonotonicOverallProgressAcrossStageTransitions() throws {

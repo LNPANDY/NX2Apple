@@ -39,6 +39,18 @@ package struct BuildSpace: Equatable, Sendable {
         return total
     }
 
+    /// The bytes of the finished extractions in a build folder's `extract/` (each `v<version>` with its `extract.key`,
+    /// `ExeFS/main` and `RomFS.img`). A new build in the same folder reuses or replaces them, so they need no new space (#1243).
+    package static func finishedExtraction(in workDir: String, fm: FileManager = .default) -> Int64 {
+        let extract = workDir + "/extract"
+        let finished = ((try? fm.contentsOfDirectory(atPath: extract)) ?? []).filter { version in
+            guard version.first == "v", version.count > 1, version.dropFirst().allSatisfy(\.isASCII), version.dropFirst().allSatisfy(\.isNumber) else { return false }
+            let path = extract + "/" + version
+            return ["extract.key", "ExeFS/main", "RomFS.img"].allSatisfy { fm.fileExists(atPath: path + "/" + $0) }
+        }
+        return size(of: finished.map { extract + "/" + $0 }, fm: fm)
+    }
+
     /// Stable volume identifier for `path` (or its nearest existing ancestor), nil when the file system cannot answer.
     package static func volumeID(at path: String, fm: FileManager = .default) -> String? {
         guard !path.isEmpty else { return nil }
