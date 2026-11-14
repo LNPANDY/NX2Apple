@@ -15,6 +15,7 @@
 | Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | 在 Mac 上能玩到第一片原野（更新 v196608），从 NUP 构建。没有构建过 IPA | 没有试过 |
 | Mario Kart World | `0400C3F00006E000` | 在 Mac 上能玩到比赛（v0），60 fps。没有构建过 IPA | 没有试过 |
 | Mario Tennis Fever | `0400D4201C6EA000` | 在 Mac 上可玩（更新 v327680），60 fps。没有构建过 IPA | 没有试过 |
+| The Legend of Zelda: Ocarina of Time | `0400486024DEC000` | 在 Mac 上能玩到标题画面、开场和科吉里森林（更新 v131072），约 59 fps。目前仅 Mac | 从命令行构建，在 Mac 上玩到盖侬城堡内部：2 小时 41 分钟共 462,601 帧，帧时间 p50 16.66 ms，没有崩溃。用的是 host `92aa1222`，落后 `main` 240 个提交，之后的进度没有覆盖 |
 
 引擎读取的文件夹结构（`updates` 和 `dlc` 可选）：
 
@@ -173,6 +174,7 @@ shader 表、每个游戏各自的开关。本 fork 在此基础上加了 RomFS 
 | Xenoblade Chronicles: Definitive Edition | `0100FF500E34A000` | 1.1.2 (v196608) | 有 profile，未在手机上验证 |
 | Splatoon Raiders（Switch 2） | `0400380020056000` | v65536 | 有 profile，未在手机上验证 |
 | 塞尔达无双 封印战记（Switch 2） | `04003F40232DE000` | v196608 | 有 profile，未在手机上验证 |
+| 塞尔达传说 时之笛（Switch 2） | `0400486024DEC000` | v131072 | **本 fork 已验证** —— 在 Mac 上可玩，玩到盖侬城堡内部（2 小时 41 分钟 462,601 帧） |
 | 咚奇刚 蕉力全开（Switch 2） | `040074A01BF12000` | v458752 | **本 fork 已验证** —— 构建、安装、在 iPhone 上运行 |
 | Fire Emblem Fortune's Weave（Switch 2） | `04007EF01F8AE000` | v131072 | **已在 iPhone 验证** —— iPhone 18 Pro Max 60 fps 可玩（#1143） |
 | Pokémon Pokopia（Switch 2） | `0400A3A01EE4C000` | v655360 | 有 profile，未在手机上验证 |
