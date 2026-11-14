@@ -158,6 +158,18 @@ extension LibraryGame {
         hasIPA || hasIOSApp || hasShellFramework || onDevice
     }
 
+    /// Recognizes any valid iOS build, also probing `shellRoot/frameworks/DmGame<TID>.framework` when `shellRoot` is non-empty.
+    func hasIOSBuild(shellRoot: String, fm: FileManager = .default) -> Bool {
+        if hasIOSBuild { return true }
+        let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !shellRoot.isEmpty, !tid.isEmpty else { return false }
+        return ShellInstall.missingFile(
+            inFramework: ShellInstall.mirroredFramework(root: shellRoot, titleID: tid),
+            titleID: tid,
+            fm: fm
+        ) == nil
+    }
+
     /// An iPhone build made before the shared app: a legacy single IPA or standalone app.
     var isOlderIOSBuild: Bool {
         guard hasIOSBuild else { return false }

@@ -91,12 +91,16 @@ final class GameUpdateCatalogTests: XCTestCase {
     }
 
     func testCatalogVersionCountsDefaultsAndReleaseBaseStripping() {
-        XCTAssertEqual(GameUpdateCatalog.updatedVersions.count, 48)
+        XCTAssertEqual(GameUpdateCatalog.updatedVersions.count, 56)
         let grouped = Dictionary(grouping: GameUpdateCatalog.updatedVersions.values, by: { $0 }).mapValues(\.count)
-        XCTAssertEqual(grouped["1.5.0"], 18)
-        XCTAssertEqual(grouped["1.4.0"], 19)
+        XCTAssertEqual(grouped["1.5.0"], 27)
+        XCTAssertEqual(grouped["1.4.0"], 18)
         XCTAssertEqual(grouped["1.3.0"], 8)
         XCTAssertEqual(grouped["1.2.2"], 3)
+
+        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "01007A2027548000"), "1.5.0")
+        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "0400C76024710000"), "1.5.0")
+        XCTAssertNil(GameUpdateCatalog.catalogVersion(for: tidUnlisted))
 
         XCTAssertEqual(GameUpdateCatalog.releaseBaseVersion(" v1.5.0-local "), "1.5.0")
         XCTAssertEqual(GameUpdateCatalog.releaseBaseVersion("1.5.0-rc2"), "1.5.0")
@@ -158,6 +162,7 @@ final class GameUpdateCatalogTests: XCTestCase {
         XCTAssertFalse(specificFull.canFastRefreshAny)
         XCTAssertFalse(specificFull.needsMissingImgGuideIOS)
         XCTAssertTrue(specificFull.missingOriginalPackage)
+        XCTAssertFalse(specificFull.hasUsableSeed)
 
         try createSeed(seedRoot: seedRoot, tid: tidSpecific150, chain: "oldchain0001", withMetalSources: true)
         let pathBMissingImg = GameUpdateCatalog.assess(
@@ -178,6 +183,7 @@ final class GameUpdateCatalogTests: XCTestCase {
         XCTAssertFalse(pathBMissingImg.canFastRefreshIOS)
         XCTAssertTrue(pathBMissingImg.needsMissingImgGuideIOS)
         XCTAssertTrue(pathBMissingImg.missingOriginalPackage)
+        XCTAssertTrue(pathBMissingImg.hasUsableSeed)
 
         let localImg = outDir + "/games/Sample Game/Sample Game.img"
         try fm.createDirectory(atPath: (localImg as NSString).deletingLastPathComponent, withIntermediateDirectories: true)

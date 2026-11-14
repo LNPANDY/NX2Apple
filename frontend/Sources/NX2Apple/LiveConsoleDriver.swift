@@ -71,6 +71,7 @@ struct ConsolePadSnapshot: Equatable {
     private let saves: (String) -> (global: SaveGlobalSettings, game: SaveGameOverride)?   // the save settings (SaveSettingsStore)
     private let sticks: () -> StickDeadzoneSettings?   // StickDeadzoneStore
     private let player: () -> PlayerProfile?   // whose saves the game plays with (PlayerProfileStore)
+    let shellRoot: () -> String
     private let pads: () -> [ConsolePadSnapshot]
     private let steamPads: () -> [ConsolePadSnapshot]
     private let launch: (LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void
@@ -103,11 +104,13 @@ struct ConsolePadSnapshot: Equatable {
          artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, playerOutput: ((String, Int) -> Void)? = nil,
          player: @escaping () -> PlayerProfile? = { nil },
          saves: @escaping (String) -> (global: SaveGlobalSettings, game: SaveGameOverride)? = { _ in nil },
-         sticks: @escaping () -> StickDeadzoneSettings? = { nil }) {
+         sticks: @escaping () -> StickDeadzoneSettings? = { nil },
+         shellRoot: @escaping () -> String = { "" }) {
         sessions = PlaySessionStore(file: observeSystem ? PlaySessionStore.defaultFile : nil)   // a test keeps its history in memory
         tracking.observesSystem = observeSystem
         self.saves = saves
         self.sticks = sticks
+        self.shellRoot = shellRoot
         self.sendPlayerOutput = playerOutput
         self.player = player
         self.library = library; self.controls = controls; self.repo = repo; self.lang = lang; self.labels = labels

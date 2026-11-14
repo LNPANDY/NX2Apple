@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import plistlib
 import re
 import shutil
 import struct
@@ -101,18 +102,20 @@ class RefreshFlowCoreTests(unittest.TestCase):
             f'sys.path.insert(0, {str(QT)!r})\n'
             'from nspb_qt import refresh_flow as mod\n'
             'assert mod.HAS_QT is False\n'
-            'assert len(mod.GAME_UPDATED_VERSIONS) == 48\n'
+            'assert len(mod.GAME_UPDATED_VERSIONS) == 56\n'
         )
         proc = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    def test_catalog_48_titles_match_swift_source_exactly(self) -> None:
-        self.assertEqual(len(rf.GAME_UPDATED_VERSIONS), 48)
+    def test_catalog_56_titles_match_swift_source_exactly(self) -> None:
+        self.assertEqual(len(rf.GAME_UPDATED_VERSIONS), 56)
         counts: dict[str, int] = {}
         for ver in rf.GAME_UPDATED_VERSIONS.values():
             counts[ver] = counts.get(ver, 0) + 1
-        self.assertEqual(counts, {'1.5.0': 18, '1.4.0': 19, '1.3.0': 8, '1.2.2': 3})
+        self.assertEqual(counts, {'1.5.0': 27, '1.4.0': 18, '1.3.0': 8, '1.2.2': 3})
         self.assertEqual(rf.catalog_version_for('0100152000022000'), '1.5.0')
+        self.assertEqual(rf.catalog_version_for('01007A2027548000'), '1.5.0')
+        self.assertEqual(rf.catalog_version_for('0400C76024710000'), '1.5.0')
         self.assertEqual(rf.catalog_version_for('0100111100001111'), '1.2.0')
         self.assertEqual(rf.release_base_version('1.5.0-local'), '1.5.0')
 
@@ -405,6 +408,102 @@ class RefreshFlowCoreTests(unittest.TestCase):
             )
         self.assertFalse(ok_bad)
         self.assertFalse(any('.pull.tmp' in p.name for p in dest_bad.iterdir()))
+
+
+class DetectBuiltGameOlderTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._td.name)
+
+    def tearDown(self) -> None:
+        self._td.cleanup()
+
+    def _make_engine(self, chain: str = 'a5e7fb6e4fa4') -> Path:
+        repo = self.tmp / f'engine-{chain}'
+        hdr = repo / 'dm' / 'gfx' / 'nvn' / 'dmsh_chain.h'
+        hdr.parent.mkdir(parents=True, exist_ok=True)
+        hdr.write_text(f'#define DMSH_CHAIN "{chain}"\n', encoding='utf-8')
+        return repo
+
+    def test_built_chain_tag_strips_b_prefix_case_insensitive(self) -> None:
+        repo = self._make_engine('a5e7fb6e4fa4')
+        ipa = self.tmp / 'game.ipa'
+        ipa.write_bytes(b'ipa')
+
+        g_match = lib_mod.LibraryGame(
+            title_id='0100152000022000',
+            name='Mario Kart',
+            ipa_path=str(ipa),
+            built_chain_tag='b-a5e7fb6e4fa4',
+        )
+        self.assertEqual(rf.detect_built_game_older(g_match, str(repo)), (False, ''))
+
+        g_upper = lib_mod.LibraryGame(
+            title_id='0100152000022000',
+            name='Mario Kart',
+            ipa_path=str(ipa),
+            built_chain_tag='B-A5E7FB6E4FA4',
+        )
+        self.assertEqual(rf.detect_built_game_older(g_upper, str(repo)), (False, ''))
+
+        g_older = lib_mod.LibraryGame(
+            title_id='0100152000022000',
+            name='Mario Kart',
+            ipa_path=str(ipa),
+            built_chain_tag='b-deadbeef1234',
+        )
+        self.assertEqual(rf.detect_built_game_older(g_older, str(repo)), (True, ''))
+
+    def test_ios_framework_skips_vulkan_and_gl_gfx_api(self) -> None:
+        repo = self._make_engine('a5e7fb6e4fa4')
+        tid = '0100152000022000'
+        ipa = self.tmp / 'game.ipa'
+        ipa.write_bytes(b'ipa')
+
+        for idx, (api, chain, expected_older) in enumerate([
+            ('vulkan', 'oldchain0001', False),
+            ('GL', 'oldchain0001', False),
+            ('nvn', 'b-oldchain0001', True),
+            ('nvn', 'b-a5e7fb6e4fa4', False),
+        ]):
+            shell_cache = self.tmp / f'shell-{idx}'
+            mp = shell_cache / 'frameworks' / f'DmGame{tid}.framework' / 'game.manifest.json'
+            mp.parent.mkdir(parents=True, exist_ok=True)
+            mp.write_text(json.dumps({'gfx_api': api, 'chain': chain}), encoding='utf-8')
+            game = lib_mod.LibraryGame(title_id=tid, name='Game', ipa_path=str(ipa))
+            is_older, _ = rf.detect_built_game_older(game, str(repo), str(shell_cache))
+            self.assertEqual(is_older, expected_older, f'api={api}, chain={chain}')
+
+    def test_standalone_ios_app_plist_dmchain_and_shell_exclusion_and_corrupt_safe(self) -> None:
+        repo = self._make_engine('a5e7fb6e4fa4')
+        tid = '0100152000022000'
+
+        app_match = self.tmp / 'match' / 'DmIOS.app'
+        app_match.mkdir(parents=True, exist_ok=True)
+        with open(app_match / 'Info.plist', 'wb') as f:
+            plistlib.dump({'DMChain': 'b-a5e7fb6e4fa4'}, f)
+        g_match = lib_mod.LibraryGame(title_id=tid, name='Game', ios_app_path=str(app_match))
+        self.assertEqual(rf.detect_built_game_older(g_match, str(repo)), (False, ''))
+
+        app_older = self.tmp / 'older' / 'DmIOS.app'
+        app_older.mkdir(parents=True, exist_ok=True)
+        with open(app_older / 'Info.plist', 'wb') as f:
+            plistlib.dump({'DMChain': 'B-OLDCHAIN0001'}, f)
+        g_older = lib_mod.LibraryGame(title_id=tid, name='Game', ios_app_path=str(app_older))
+        self.assertEqual(rf.detect_built_game_older(g_older, str(repo)), (True, ''))
+
+        shell_app = self.tmp / 'shell' / 'DmShell.app'
+        shell_app.mkdir(parents=True, exist_ok=True)
+        with open(shell_app / 'Info.plist', 'wb') as f:
+            plistlib.dump({'DMChain': 'b-oldchain0001'}, f)
+        g_shell = lib_mod.LibraryGame(title_id=tid, name='Game', ios_app_path=str(shell_app))
+        self.assertEqual(rf.detect_built_game_older(g_shell, str(repo)), (False, ''))
+
+        app_bad = self.tmp / 'bad' / 'DmIOS.app'
+        app_bad.mkdir(parents=True, exist_ok=True)
+        (app_bad / 'Info.plist').write_bytes(b'not-a-valid-plist')
+        g_bad = lib_mod.LibraryGame(title_id=tid, name='Game', ios_app_path=str(app_bad))
+        self.assertEqual(rf.detect_built_game_older(g_bad, str(repo)), (False, ''))
 
 
 if rf.HAS_QT:

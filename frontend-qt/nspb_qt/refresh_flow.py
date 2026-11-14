@@ -53,13 +53,13 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# 1. Game Update Catalog (48 TitleIDs synced with CHANGELOG.md & Swift)
+# 1. Game Update Catalog (56 TitleIDs synced with CHANGELOG.md & Swift)
 # ---------------------------------------------------------------------------
 
 DEFAULT_CATALOG_VERSION = '1.2.0'
 
 GAME_UPDATED_VERSIONS: dict[str, str] = {
-    # 1.5.0 (18 games)
+    # 1.5.0 (27 games)
     '0100152000022000': '1.5.0',
     '01001B300B9BE000': '1.5.0',
     '010049900F546000': '1.5.0',
@@ -68,17 +68,26 @@ GAME_UPDATED_VERSIONS: dict[str, str] = {
     '01006F8002326000': '1.5.0',
     '0100726014352000': '1.5.0',
     '01007820196A6000': '1.5.0',
+    '01007A2027548000': '1.5.0',
     '0100A00019DE0000': '1.5.0',
     '0100A5C00D162000': '1.5.0',
     '0100B99019412000': '1.5.0',
+    '0100C49025D3E000': '1.5.0',
+    '0100C510166F0000': '1.5.0',
+    '0100C9C00E25C000': '1.5.0',
     '0100F2C0115B6000': '1.5.0',
+    '040032B023CA4000': '1.5.0',
     '0400380020056000': '1.5.0',
+    '040041E0212AE000': '1.5.0',
     '0400486024DEC000': '1.5.0',
+    '0400569027BF4000': '1.5.0',
     '040074A01BF12000': '1.5.0',
     '04008E001F098000': '1.5.0',
+    '0400921025B32000': '1.5.0',
     '0400C3F00006E000': '1.5.0',
+    '0400C76024710000': '1.5.0',
     '0400D4201C6EA000': '1.5.0',
-    # 1.4.0 (19 games)
+    # 1.4.0 (18 games)
     '010012101468C000': '1.4.0',
     '010014C011146000': '1.4.0',
     '010019A01E2F2000': '1.4.0',
@@ -97,7 +106,6 @@ GAME_UPDATED_VERSIONS: dict[str, str] = {
     '0100B8E016F76000': '1.4.0',
     '0100CE4010AAC000': '1.4.0',
     '0100DA801624E000': '1.4.0',
-    '0400C76024710000': '1.4.0',
     # 1.3.0 (8 games)
     '0100276009872000': '1.3.0',
     '010035F022078000': '1.3.0',
@@ -785,9 +793,11 @@ def detect_built_game_older(
 
     if game.built_chain_tag:
         tag = game.built_chain_tag.strip()
-        if cur_chain and tag.startswith('b-') and tag != cur_chain:
-            return True, ''
-        if cur_commit and not tag.startswith('b-'):
+        tag_low = tag.lower()
+        if tag_low.startswith('b-'):
+            if cur_chain and tag_low[2:] != cur_chain.strip().lower():
+                return True, ''
+        elif cur_commit:
             expected_tag = f'{cur_commit}+{cur_patches}' if cur_patches else cur_commit
             if tag != expected_tag:
                 built_commit = tag.split('+', 1)[0]
@@ -812,6 +822,7 @@ def detect_built_game_older(
                 pass
 
     tid = (game.title_id or '').strip().upper()
+    matched_fw = False
     if game.is_ready_for_ios and shell_cache_path:
         fw_cands = [
             Path(shell_cache_path, 'frameworks', f'DmGame{tid}.framework', 'game.manifest.json'),
@@ -819,18 +830,24 @@ def detect_built_game_older(
         for mp in fw_cands:
             if not mp.is_file():
                 continue
+            matched_fw = True
             try:
                 mdata = json.loads(mp.read_text(encoding='utf-8'))
             except Exception:
                 continue
             if not isinstance(mdata, dict):
                 continue
-            fw_chain = str(mdata.get('chain') or '').strip()
+            # Match Swift OlderTools.swift: skip chain checks for Vulkan/GL builds.
+            gfx_api = str(mdata.get('gfx_api') or '').strip().lower()
+            if gfx_api in ('vulkan', 'gl'):
+                continue
+            fw_chain_raw = str(mdata.get('chain') or '').strip().lower()
+            fw_chain = fw_chain_raw[2:] if fw_chain_raw.startswith('b-') else fw_chain_raw
             fw_commit = str(mdata.get('commit') or mdata.get('nxnative_commit') or '').strip()
             fw_patches = str(mdata.get('fork_patches') or '').strip()
             if fw_commit:
                 built_commit = fw_commit
-            if cur_chain and fw_chain and fw_chain != cur_chain:
+            if cur_chain and fw_chain and fw_chain != cur_chain.strip().lower():
                 return True, built_commit
             if cur_commit and fw_commit:
                 if '+dirty' in fw_commit or '+dirty' in cur_commit:
@@ -839,6 +856,23 @@ def detect_built_game_older(
                     return True, built_commit
                 if fw_patches and fw_patches != cur_patches:
                     return True, built_commit
+
+    # Standalone single-game iOS bundle (e.g. DmIOS.app): check Info.plist DMChain when no shared framework manifest matched.
+    if not matched_fw and game.has_ios_app:
+        ios_bn = os.path.basename(game.ios_app_path.rstrip('/\\')).lower()
+        if ios_bn != 'dmshell.app' and not ios_bn.endswith('.framework'):
+            ios_plist = Path(game.ios_app_path, 'Info.plist')
+            if ios_plist.is_file():
+                try:
+                    with open(ios_plist, 'rb') as f:
+                        pl = plistlib.load(f)
+                    if isinstance(pl, dict):
+                        dm_chain_raw = str(pl.get('DMChain') or '').strip().lower()
+                        dm_chain = dm_chain_raw[2:] if dm_chain_raw.startswith('b-') else dm_chain_raw
+                        if cur_chain and dm_chain and dm_chain != cur_chain.strip().lower():
+                            return True, built_commit
+                except Exception:
+                    pass
 
     return False, built_commit
 

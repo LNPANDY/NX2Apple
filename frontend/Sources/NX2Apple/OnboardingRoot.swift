@@ -15,7 +15,8 @@ import NXLauncher
         let driver = LiveConsoleDriver(library: library, controls: controls, repo: { [stores] in stores.repo.path }, lang: { [stores] in stores.localizer.lang },
                                        labels: { [stores] in stores.localizer.t($0) }, player: { [stores] in stores.players.active },
                                        saves: { [stores] in (stores.saveSettings.global, stores.saveSettings.game($0)) },
-                                       sticks: { [stores] in stores.sticks.settings })
+                                       sticks: { [stores] in stores.sticks.settings },
+                                       shellRoot: { [stores] in stores.build.shellCachePath })
         driver.bindActivity(stores.build)   // the top bar's chip shows the desktop's build (#1004)
         driver.bindBuilds(stores.build, queue: stores.queue)   // the Builds page (#816)
         driver.buildEngineID = { [stores] in stores.engineSync.selection.engineID }
