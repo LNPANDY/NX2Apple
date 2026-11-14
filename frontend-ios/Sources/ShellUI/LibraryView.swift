@@ -40,6 +40,7 @@ public struct LibraryView: View {
     /// The controller's state while the button test is open, from the host.
     public let padSnapshot: PadSnapshot?
     public let signingWarning: SigningWarning?
+    public let canOpenHomeButtonSettings: Bool
     public var onDismissSigningWarning: () -> Void
     public var actions: ShellActions
     public var input: ShellInputLog
@@ -69,6 +70,7 @@ public struct LibraryView: View {
     /// The touch controls' layout editor, while open (over the shell settings).
     @State var touchLayout: TouchLayoutEditorModel?
     @State var focus: FocusAppearance
+    @State var focusRefresh = 0
     @State var targets = FocusTargetBuffer()
     @State var settingsPosition = ScrollPosition()
     @State var settingsHeroVisible = true
@@ -93,7 +95,8 @@ public struct LibraryView: View {
                 initialControllersOpen: Bool = false, initialShellSettingsOpen: Bool = false, initialFocusVisible: Bool = false,
                 globalPadMap: PadMap = PadMap(), padMerge: Bool = false, padSnapshot: PadSnapshot? = nil,
                 signingWarning: SigningWarning? = nil, onDismissSigningWarning: @escaping () -> Void = {},
-                initialPadMapping: String? = nil, initialButtonTestOpen: Bool = false) {
+                initialPadMapping: String? = nil, initialButtonTestOpen: Bool = false,
+                canOpenHomeButtonSettings: Bool = false) {
         ShellPalette.configureNativeAppearance()
         self.games = games
         self.controllers = controllers
@@ -101,6 +104,7 @@ public struct LibraryView: View {
         self.padMerge = padMerge
         self.padSnapshot = padSnapshot
         self.signingWarning = signingWarning
+        self.canOpenHomeButtonSettings = canOpenHomeButtonSettings
         self.onDismissSigningWarning = onDismissSigningWarning
         _padMapping = State(initialValue: initialPadMapping.map { PadMappingState(gameID: $0) })
         _buttonTestOpen = State(initialValue: initialButtonTestOpen)
@@ -137,6 +141,7 @@ public struct LibraryView: View {
         }
         .environment(\.shellNativeBars, true)
         .environment(\.shellFocus, focus)
+        .environment(\.shellFocusRefresh, focusRefresh)
         .coordinateSpace(name: "shell")
         .tint(ShellPalette.cream).preferredColorScheme(.dark)
     }
@@ -220,6 +225,7 @@ public struct LibraryView: View {
         .environment(\.shellAskRestoreBackup, { game, label in openRestoreBackup(game.id, label: label) })
         .environment(\.shellAskDelete, { game in openDelete(game.id) })
         .environment(\.shellFocus, focus)
+        .environment(\.shellFocusRefresh, focusRefresh)
         .environment(\.shellInputDevice, device)
         .foregroundStyle(.white)
         .font(ShellFonts.font(15)).tint(ShellPalette.cream).preferredColorScheme(.dark)
@@ -234,6 +240,7 @@ public struct LibraryView: View {
         }
         .onAnyTouch { gate.touch() }
         .modifier(ShellKeyboardNavigation(active: !menuPresented) { handle($0, from: .keyboard) })
+        .onAppear { focusRefresh &+= 1 }
         .onDisappear { targets.values.removeAll(); targets.libraryValues.removeAll() }
         .onChange(of: settingsOpen) { _, open in
             settingsArrived = false
@@ -347,6 +354,7 @@ public struct LibraryView: View {
             .coordinateSpace(name: "shell")
             .environment(\.shellNativeBars, true)
             .environment(\.shellFocus, focus)
+        .environment(\.shellFocusRefresh, focusRefresh)
             .environment(\.shellIgnoresPress, { [gate] in gate.isSystemEcho })
             .onPreferenceChange(FocusTargets.self) { targets.values = visibleTargets($0) }
             .tint(ShellPalette.cream)
@@ -364,7 +372,9 @@ public struct LibraryView: View {
                 }
                 if retention.draws(.controllers, open: controllersOpen) {
                     ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap,
-                                    padMerge: padMerge, onPadMergeChange: menuActions.onPadMergeChange)
+                                    padMerge: padMerge, onPadMergeChange: menuActions.onPadMergeChange,
+                                    canOpenHomeButtonSettings: canOpenHomeButtonSettings,
+                                    onOpenHomeButtonSettings: menuActions.onOpenHomeButtonSettings)
                         .background(ShellPalette.background)
                         .accessibilityHidden(choice != nil || padMapping != nil || buttonTestOpen || retention.isLeaving(.controllers, open: controllersOpen))
                         .allowsHitTesting(!retention.isLeaving(.controllers, open: controllersOpen))

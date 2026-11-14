@@ -36,11 +36,11 @@ struct EngineGameLauncher: GameLauncher {
             withCStrings(pairs.map(\.value)) { values in
                 withCStrings(plan.arguments) { argv in
                     dm_shell_start_game(keys, values, Int32(pairs.count), argv, Int32(plan.arguments.count),
-                                        plan.frameworkExecutable.path, plan.imageMarker, plan.logURL.path, plan.workingDirectory.path)
+                                        plan.frameworkExecutable.path, plan.imageMarker, plan.logURL.path, plan.workingDirectory.path, game.titleID)
                 }
             }
         }
-        if let failure { throw Failure.engine(String(cString: failure)) }
+        if let failure { throw Failure.engine(localizeEngineLaunchError(String(cString: failure))) }
         dm_shell_present_game()
     }
 }

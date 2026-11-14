@@ -56,8 +56,9 @@ package enum ShellHotInstall {
     }
 
     package static func defaultSigningIdentity(team: String, runner: ProcessRunner) -> String? {
-        guard !team.isEmpty else { return nil }
-        return DeviceTools.certificateTeams(runner: runner).first { $0.id == team && !$0.identity.isEmpty }?.identity
+        guard !team.isEmpty,
+              let match = DeviceTools.certificateTeams(runner: runner).first(where: { $0.id == team && !$0.identity.isEmpty }) else { return nil }
+        return !match.sha1.isEmpty ? match.sha1 : match.identity
     }
 
     /// True when `<framework>/game.manifest.json` declares `loader == "FH"` and its executable exists on disk.
@@ -120,8 +121,13 @@ package enum ShellHotInstall {
         ["/usr/bin/xattr", "-cr", framework]
     }
 
-    package static func codesignFrameworkCommand(codesign: String = "/usr/bin/codesign", identity: String, framework: String) -> [String] {
-        [codesign, "--force", "--sign", identity, "--timestamp=none", framework]
+    package static func codesignFrameworkCommand(codesign: String = "/usr/bin/codesign", identity: String,
+                                                 bundleIdentifier: String = "", framework: String) -> [String] {
+        var args = [codesign, "--force", "--sign", identity]
+        // Align CodeDirectory identifier with the host app's bundle ID so Personal Team LocalProvision allows external mmap/dlopen.
+        if !bundleIdentifier.isEmpty { args += ["--identifier", bundleIdentifier] }
+        args += ["--timestamp=none", framework]
+        return args
     }
 
     package static func copyFrameworkCommand(xcrun: String, device: String, bundleID: String,
@@ -150,6 +156,7 @@ extension ShellInstaller {
     /// Attempts a ~2-second hot framework sign + push into `Documents/Frameworks/` when the shared app is already installed on
     /// `device` with the same team and valid provisioning lifetime. Returns nil whenever full `xcodebuild` should run instead.
     func tryHotInstall(games: [HotGame]) -> (outcome: Outcome, notes: [String])? {
+        guard allowHotInstall else { return nil }
         let fm = FileManager.default
         guard !games.isEmpty, !team.isEmpty, !device.isEmpty else { return nil }
         guard games.allSatisfy({ ShellHotInstall.supportsHotPush(framework: $0.framework, titleID: $0.titleID, fm: fm) }) else {
@@ -244,7 +251,8 @@ extension ShellInstaller {
                 return nil
             }
             _ = run(ShellHotInstall.cleanFrameworkAttributesCommand(framework: localCopy), env: nil, label: installName, step: { _ in nil })
-            let signed = run(ShellHotInstall.codesignFrameworkCommand(codesign: codesignPath, identity: identity, framework: localCopy),
+            let signed = run(ShellHotInstall.codesignFrameworkCommand(codesign: codesignPath, identity: identity,
+                                                                      bundleIdentifier: library.bundleID, framework: localCopy),
                              env: nil, label: installName, step: { _ in nil })
             guard signed.status == 0,
                   let footprint = ShellHotInstall.frameworkFootprint(atPath: localCopy, fm: fm) else {

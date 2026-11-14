@@ -443,6 +443,14 @@ lookup shows the English text, then the key, and one line goes to standard error
 swift test --package-path frontend
 ```
 
+To skip the multi-minute UI width and interaction-budget suites on routine local pushes, `pre-push` runs:
+
+```bash
+swift test --package-path frontend --skip 'LauncherControlWidthTests|LauncherPerformanceTests'
+```
+
+Run `swift test --package-path frontend --filter LauncherControlWidthTests` whenever a change touches UI layout, control sizing or localized button widths, and CI still runs the full `swift test` suite on every pull request.
+
 The Swift tests cover bundle validation, persistent metadata, folder discovery,
 source-file preservation, and automatic registration through a synthetic build
 process, including when the window is hidden. Set `NX_LAUNCHER_CAPTURE_DIR` to

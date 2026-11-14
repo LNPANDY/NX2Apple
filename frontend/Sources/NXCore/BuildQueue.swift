@@ -3,7 +3,7 @@ import Foundation
 /// One entry of the build queue (LNPANDY/NX2Apple#943): a snapshot of what to build, taken when the player adds it. Nothing in it
 /// follows the Build form, the library or the engine selection afterwards, so the queue builds what was asked for.
 package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
-    package enum Status: String, Codable, Sendable { case queued, running, done, failed, skipped }
+    package enum Status: String, Codable, Sendable { case queued, running, done, failed, skipped, stopped }
 
     package var id: UUID
     /// The library entry, nil when the game is not in the library (a build from the form).
@@ -39,7 +39,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.destinationName = destinationName
     }
 
-    package var finished: Bool { status == .done || status == .failed || status == .skipped }
+    package var finished: Bool { status == .done || status == .failed || status == .skipped || status == .stopped }
 
     /// The inputs in one line: which rows have files ("Base game, Update, 2 DLC"), a game folder as such.
     package func inputSummary(_ t: (String) -> String) -> String {

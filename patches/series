@@ -45,3 +45,6 @@
 0045-nvn-inherit-aliased-virtual-pool-flags-and-bound.patch
 0046-ios-audio-add-dm-audio-mix-audio-session-mixing.patch
 0047-ios-scripts-append-developer-team-id-to-default.patch
+0048-host-guard-async-callbacks-across-shell-teardown.patch
+0049-ios-record-built-at-timestamp-in-embedded-game-m.patch
+0050-ios-fix-bigstack-exit-crash-guest-quit-to-shell.patch

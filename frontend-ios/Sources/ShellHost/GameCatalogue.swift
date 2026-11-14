@@ -222,9 +222,7 @@ public enum GameCatalogue {
                         continue
                     }
                     if bundled.problem == nil,
-                       let bundledBuilt = bundled.manifest?.builtAt, !bundledBuilt.isEmpty,
-                       let hotBuilt = hot.manifest?.builtAt, !hotBuilt.isEmpty,
-                       bundledBuilt >= hotBuilt {
+                       shouldDiscardStaleHotFramework(bundled: bundled, hot: hot, fileManager: fm) {
                         discardFolder(hot.directory, in: hotRoot, fm: fm)
                         continue
                     }
@@ -235,6 +233,33 @@ public enum GameCatalogue {
             }
         }
         return entries.sorted { ($0.manifest?.name ?? "\u{10FFFF}\($0.id)").localizedCaseInsensitiveCompare($1.manifest?.name ?? "\u{10FFFF}\($1.id)") == .orderedAscending }
+    }
+
+    /// True when the bundled framework is at least as fresh as the hot-pushed copy under `Documents/Frameworks`.
+    /// When both carries `built_at`, compare timestamps strictly so a re-signed older IPA keeps a newer hot build;
+    /// when a legacy bundled `.framework` lacks `built_at`, fall back to strictly newer executable/manifest mtime.
+    public static func shouldDiscardStaleHotFramework(bundled: CatalogueEntry, hot: CatalogueEntry, fileManager fm: FileManager = .default) -> Bool {
+        if let bundledBuilt = bundled.manifest?.builtAt, !bundledBuilt.isEmpty,
+           let hotBuilt = hot.manifest?.builtAt, !hotBuilt.isEmpty {
+            return bundledBuilt >= hotBuilt
+        }
+        guard bundled.directory.pathExtension == "framework",
+              let bundledDate = frameworkModificationDate(bundled, fileManager: fm),
+              let hotDate = frameworkModificationDate(hot, fileManager: fm) else {
+            return false
+        }
+        return bundledDate > hotDate
+    }
+
+    private static func frameworkModificationDate(_ entry: CatalogueEntry, fileManager fm: FileManager) -> Date? {
+        if let executable = entry.manifest?.frameworkExecutable, !executable.isEmpty {
+            let exeURL = entry.directory.appendingPathComponent(executable)
+            if let date = (try? fm.attributesOfItem(atPath: exeURL.path))?[.modificationDate] as? Date {
+                return date
+            }
+        }
+        let manifestURL = entry.directory.appendingPathComponent("game.manifest.json")
+        return (try? fm.attributesOfItem(atPath: manifestURL.path))?[.modificationDate] as? Date
     }
 
     private static func scanSingleRoot(_ root: URL, fileManager fm: FileManager) -> [CatalogueEntry] {

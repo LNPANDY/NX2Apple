@@ -577,6 +577,70 @@
         }
       }
     },
+    "Add NX2Apple under Home Button Override.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple unter „Home-Taste überschreiben“ hinzufügen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add NX2Apple under Home Button Override."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade NX2Apple en Anulación del botón de inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez NX2Apple dans Remplacement du bouton d’accueil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi NX2Apple in Sostituzione tasto Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ホームボタンの優先設定」に NX2Apple を追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘홈 버튼 재정의’에 NX2Apple을 추가합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicione o NX2Apple em Substituição do Botão de Início."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lägg till NX2Apple under Åsidosätt hemknapp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“主屏幕按钮覆盖”中添加 NX2Apple。"
+          }
+        }
+      }
+    },
     "All controllers are player 1": {
       "localizations": {
         "de": {
@@ -2301,6 +2365,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "按键"
+          }
+        }
+      }
+    },
+    "By default on iOS, holding the controller Home button opens the Apple Games app. To let NX2Apple use it, go to Settings > General > Game Controller > Home Button Override, then add NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmäßig öffnet langes Drücken der Home-Taste am Controller unter iOS die Apple-Spiele-App. Um sie in NX2Apple zu nutzen, wähle „Einstellungen > Allgemein > Gamecontroller > Home-Taste überschreiben“ und füge NX2Apple hinzu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By default on iOS, holding the controller Home button opens the Apple Games app. To let NX2Apple use it, go to Settings > General > Game Controller > Home Button Override, then add NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De forma predeterminada en iOS, mantener pulsado el botón de inicio del mando abre la app Juegos de Apple. Para usarlo en NX2Apple, ve a Ajustes > General > Mando de videojuegos > Anulación del botón de inicio y añade NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par défaut sur iOS, maintenir le bouton d’accueil de la manette ouvre l’app Jeux d’Apple. Pour l’utiliser dans NX2Apple, accédez à Réglages > Général > Manette de jeu > Remplacement du bouton d’accueil, puis ajoutez NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per impostazione predefinita su iOS, tenere premuto il tasto Home del controller apre l’app Giochi di Apple. Per usarlo in NX2Apple, vai in Impostazioni > Generali > Controller di gioco > Sostituzione tasto Home e aggiungi NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS の標準設定では、コントローラーのホームボタン長押しで純正「ゲーム」アプリが開きます。NX2Apple で使うには、「設定 > 一般 > ゲームコントローラ > ホームボタンの優先設定」でアプリを追加し NX2Apple を選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 기본 설정에서는 컨트롤러 홈 버튼을 길게 누르면 기본 ‘게임’ 앱이 열립니다. NX2Apple에서 사용하려면 ‘설정 > 일반 > 게임 컨트롤러 > 홈 버튼 재정의’에서 앱을 추가하고 NX2Apple을 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por padrão no iOS, segurar o botão de Início do controle abre o app Jogos da Apple. Para usá-lo no NX2Apple, acesse Ajustes > Geral > Controle de Videogame > Substituição do Botão de Início e adicione o NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Som standard i iOS öppnas Apples Spel-app när du håller in handkontrollens hemknapp. För att låta NX2Apple använda den går du till Inställningar > Allmänt > Spelkontroll > Åsidosätt hemknapp och lägger till NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 默认会将长按手柄主屏幕按钮用于打开系统自带的“游戏”App。若要用于返回启动器，请前往“设置 > 通用 > 手柄控制器”，在“主屏幕按钮”下方的“主屏幕按钮覆盖”中添加并选择 NX2Apple。"
           }
         }
       }
@@ -7873,6 +8001,70 @@
         }
       }
     },
+    "Hold - and + (View + Menu) together for 2 seconds to quit to the launcher": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- und + (View + Menu) gleichzeitig 2 Sekunden gedrückt halten, um zum Launcher zurückzukehren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold - and + (View + Menu) together for 2 seconds to quit to the launcher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén pulsados - y + (View + Menu) a la vez durante 2 segundos para volver al lanzador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintenir - et + (View + Menu) ensemble pendant 2 secondes pour revenir au lanceur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuti - e + (View + Menu) insieme per 2 secondi per tornare al launcher"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- と +（View + Menu）を同時に 2 秒間長押ししてランチャーに戻る"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- 와 +(View + Menu)를 동시에 2초 동안 길게 눌러 런처로 돌아가기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segure - e + (View + Menu) juntos por 2 segundos para voltar ao inicializador"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håll in - och + (View + Menu) samtidigt i 2 sekunder för att återgå till startprogrammet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同时按住 - + +（View + Menu）2 秒返回启动器"
+          }
+        }
+      }
+    },
     "Hold B to close": {
       "localizations": {
         "de": {
@@ -7933,6 +8125,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "按住 B 关闭"
+          }
+        }
+      }
+    },
+    "Hold Home for 2 seconds to quit (requires Home button override)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home-Taste 2 Sekunden gedrückt halten zum Beenden (erfordert Home-Tasten-Überschreibung)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Home for 2 seconds to quit (requires Home button override)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén pulsado el botón de inicio 2 segundos para salir (requiere anulación del botón de inicio)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintenir le bouton d’accueil 2 secondes pour quitter (remplacement du bouton d’accueil requis)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuto il tasto Home per 2 secondi per uscire (richiede sostituzione tasto Home)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームボタンを 2 秒間長押しして終了（ホームボタンの優先設定が必要）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 버튼을 2초 동안 길게 눌러 종료(홈 버튼 재정의 필요)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segure o botão de Início por 2 segundos para sair (requer substituição do botão de Início)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håll in hemknappen i 2 sekunder för att avsluta (kräver åsidosättning av hemknappen)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住主屏幕按钮 2 秒退出（需开启主屏幕按钮覆盖）"
           }
         }
       }
@@ -8125,6 +8381,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "如何更新"
+          }
+        }
+      }
+    },
+    "In a game": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Spiel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a game"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En un juego"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En jeu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In gioco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲーム中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 중"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No jogo"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I ett spel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在游戏中"
           }
         }
       }
@@ -12093,6 +12413,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存在本机 · %@"
+          }
+        }
+      }
+    },
+    "Open Game Controller Settings": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gamecontroller-Einstellungen öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Game Controller Settings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir ajustes del mando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les réglages de la manette"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri impostazioni controller"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームコントローラ設定を開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 컨트롤러 설정 열기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes do Controle"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öppna spelkontrollinställningar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开手柄控制器设置"
           }
         }
       }

@@ -185,4 +185,61 @@ import Testing
         #expect(!strippedInfo.hasCodeSignature)
         #expect(FrameworkSignature.preflightExternal(executable: dylib, appBundleURL: appBundle, hostTeamID: nil)?.contains("unsigned") == true)
     }
+
+    @Test func reinstallingLegacyBundledFrameworkWithoutBuiltAtDiscardsOlderHotCopy() throws {
+        let box = try FrameworkBox()
+        let hotRoot = box.documents.appendingPathComponent("Frameworks", isDirectory: true)
+        let fm = FileManager.default
+        let olderDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let newerDate = Date(timeIntervalSince1970: 1_700_003_600)
+
+        func setMtime(_ fw: URL, titleID: String, date: Date) throws {
+            let attrs: [FileAttributeKey: Any] = [.modificationDate: date]
+            try fm.setAttributes(attrs, ofItemAtPath: fw.appendingPathComponent("DmGame\(titleID)").path)
+            try fm.setAttributes(attrs, ofItemAtPath: fw.appendingPathComponent("game.manifest.json").path)
+        }
+
+        // Case A: overwriting with a legacy IPA lacking built_at whose bundled framework is newer on disk reclaims older hot copy.
+        let hotOrbit = try writeFramework(in: hotRoot, titleID: Fixtures.orbit, name: "Orbit Hot Old", builtAt: "2026-11-10T10:00:00Z")
+        try setMtime(hotOrbit, titleID: Fixtures.orbit, date: olderDate)
+        let bundledOrbit = try writeFramework(in: box.frameworks, titleID: Fixtures.orbit, name: "Orbit Legacy IPA", builtAt: nil)
+        try setMtime(bundledOrbit, titleID: Fixtures.orbit, date: newerDate)
+
+        // Case B: pushing a newer hot framework on top of an older legacy bundled IPA keeps the hot copy.
+        let bundledSecond = try writeFramework(in: box.frameworks, titleID: secondTitleID, name: "Second Legacy Bundled", builtAt: nil)
+        try setMtime(bundledSecond, titleID: secondTitleID, date: olderDate)
+        let hotSecond = try writeFramework(in: hotRoot, titleID: secondTitleID, name: "Second Hot New", builtAt: "2026-11-12T10:00:00Z")
+        try setMtime(hotSecond, titleID: secondTitleID, date: newerDate)
+
+        let scanned = GameCatalogue.scan(root: box.frameworks, hotRoot: hotRoot)
+        let orbitEntry = try #require(scanned.first { $0.id == Fixtures.orbit })
+        #expect(orbitEntry.title == "Orbit Legacy IPA")
+        #expect(orbitEntry.directory.standardizedFileURL == bundledOrbit.standardizedFileURL)
+        #expect(!fm.fileExists(atPath: hotOrbit.path))
+
+        let secondEntry = try #require(scanned.first { $0.id == secondTitleID })
+        #expect(secondEntry.title == "Second Hot New")
+        #expect(secondEntry.directory.standardizedFileURL == hotSecond.standardizedFileURL)
+        #expect(fm.fileExists(atPath: hotSecond.path))
+    }
+
+    @Test func resigningOlderBundledFrameworkWithNewerDiskMtimeKeepsNewerHotBuild() throws {
+        let box = try FrameworkBox()
+        let hotRoot = box.documents.appendingPathComponent("Frameworks", isDirectory: true)
+        let fm = FileManager.default
+
+        let bundledOrbit = try writeFramework(in: box.frameworks, titleID: Fixtures.orbit, name: "Orbit Re-signed Bundled", builtAt: "2026-11-10T10:00:00Z")
+        let hotOrbit = try writeFramework(in: hotRoot, titleID: Fixtures.orbit, name: "Orbit Newer Hot", builtAt: "2026-11-11T10:00:00Z")
+
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_010_000)],
+                             ofItemAtPath: bundledOrbit.appendingPathComponent("DmGame\(Fixtures.orbit)").path)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000)],
+                             ofItemAtPath: hotOrbit.appendingPathComponent("DmGame\(Fixtures.orbit)").path)
+
+        let scanned = GameCatalogue.scan(root: box.frameworks, hotRoot: hotRoot)
+        let orbitEntry = try #require(scanned.first { $0.id == Fixtures.orbit })
+        #expect(orbitEntry.title == "Orbit Newer Hot")
+        #expect(orbitEntry.directory.standardizedFileURL == hotOrbit.standardizedFileURL)
+        #expect(fm.fileExists(atPath: hotOrbit.path))
+    }
 }

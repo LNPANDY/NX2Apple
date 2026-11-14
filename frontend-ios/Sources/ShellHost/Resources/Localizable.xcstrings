@@ -961,6 +961,70 @@
         }
       }
     },
+    "A game is already running.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Spiel läuft bereits."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A game is already running."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya hay un juego en ejecución."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un jeu est déjà en cours d’exécution."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un gioco è già in esecuzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでにゲームが実行中です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미 실행 중인 게임이 있습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um jogo já está em execução."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ett spel körs redan."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有游戏正在运行。"
+          }
+        }
+      }
+    },
     "Another device": {
       "localizations": {
         "de": {
@@ -1793,6 +1857,70 @@
         }
       }
     },
+    "Hold {-} and {+} to quit": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{-} und {+} gedrückt halten zum Beenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold {-} and {+} to quit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén {-} y {+} para salir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintenez {-} et {+} pour quitter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuti {-} e {+} per uscire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{-} と {+} の長押しで終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료하려면 {-}와 {+} 길게 누르기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segure {-} e {+} para sair"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håll in {-} och {+} för att avsluta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长按 {-} 和 {+} 退出游戏"
+          }
+        }
+      }
+    },
     "Joining .nxpart split files in this app's folder (%@ of %@).": {
       "localizations": {
         "de": {
@@ -2237,6 +2365,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "更多设置在开始界面"
+          }
+        }
+      }
+    },
+    "NX2Apple": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
           }
         }
       }
@@ -3393,70 +3585,6 @@
         }
       }
     },
-    "Shell": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hinweis"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shell"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shell"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Information"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Avviso"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "シェル"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "셸"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shell"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Meddelande"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "壳"
-          }
-        }
-      }
-    },
     "Some files of %@ could not be deleted.": {
       "localizations": {
         "de": {
@@ -4289,6 +4417,70 @@
         }
       }
     },
+    "The game's start arguments are incomplete.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Startargumente des Spiels sind unvollständig."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game's start arguments are incomplete."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los argumentos de inicio del juego están incompletos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les arguments de lancement du jeu sont incomplets."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli argomenti di avvio del gioco sono incompleti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームの起動引数が不完全です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 시작 인수가 불완전합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os argumentos de inicialização do jogo estão incompletos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets startargument är ofullständiga."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏的启动参数不完整。"
+          }
+        }
+      }
+    },
     "The location you picked before is no longer readable (the app was signed differently). Please choose it again.": {
       "localizations": {
         "de": {
@@ -4989,6 +5181,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "此游戏是为本 App 的其它版本构建的。请更新 App 或在 Mac 启动器中重新构建。"
+          }
+        }
+      }
+    },
+    "This game was updated while the app was open. Close and reopen the app to load the new build.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Spiel wurde aktualisiert, während die App geöffnet war. Schließe die App und öffne sie erneut, um die neue Version zu laden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game was updated while the app was open. Close and reopen the app to load the new build."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este juego se actualizó mientras la app estaba abierta. Cierra y vuelve a abrir la app para cargar la nueva versión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce jeu a été mis à jour pendant que l’app était ouverte. Fermez puis rouvrez l’app pour charger la nouvelle version."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo gioco è stato aggiornato mentre l’app era aperta. Chiudi e riapri l’app per caricare la nuova versione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリを開いている間にこのゲームが更新されました。新しいビルドを読み込むには、アプリを一度閉じて開き直してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱이 열려 있는 동안 이 게임이 업데이트되었습니다. 새 빌드를 불러오려면 앱을 닫았다가 다시 여세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este jogo foi atualizado enquanto o app estava aberto. Feche e abra o app novamente para carregar a nova compilação."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det här spelet uppdaterades medan appen var öppen. Stäng och öppna appen igen för att läsa in den nya versionen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用打开期间此游戏已更新。请关闭并重新打开应用以加载新版本。"
           }
         }
       }
@@ -5885,6 +6141,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "game.manifest.json 的 schema 为 %lld，本 App 读取 %lld。"
+          }
+        }
+      }
+    },
+    "iOS refused the code signature of this game's framework. Install the game again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS hat die Codesignatur des Frameworks dieses Spiels abgelehnt. Installiere das Spiel erneut über NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS refused the code signature of this game's framework. Install the game again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS rechazó la firma de código del framework de este juego. Vuelve a instalar el juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS a refusé la signature de code du framework de ce jeu. Réinstallez le jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS ha rifiutato la firma del codice del framework di questo gioco. Installa di nuovo il gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS がこのゲームのフレームワークのコード署名を拒否しました。NX2Apple からゲームを再インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS에서 이 게임 프레임워크의 코드 서명을 거부했습니다. NX2Apple에서 게임을 다시 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O iOS recusou a assinatura de código do framework deste jogo. Instale o jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS nekade kodsignaturen för det här spelets ramverk. Installera spelet igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 拒绝了此游戏框架的代码签名。请从 NX2Apple 重新安装该游戏。"
           }
         }
       }

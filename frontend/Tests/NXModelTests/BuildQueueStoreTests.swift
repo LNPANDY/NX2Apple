@@ -123,14 +123,52 @@ import NXCore
         let q = store()
         q.enqueue([entry("A"), entry("B")])
         q.start()
-        busy = false; q.buildEnded(succeeded: false, reason: "Stopped", stopped: true)
+        busy = false; q.buildEnded(succeeded: false, stopped: true)
         XCTAssertTrue(q.paused)
+        XCTAssertEqual(q.entries[0].status, .stopped)
+        XCTAssertNil(q.entries[0].reason)
         XCTAssertEqual(started, ["A"], "the next game does not start")
         q.enqueue([entry("C")])
         XCTAssertEqual(started, ["A"], "nor does a game added meanwhile")
         q.resume()
         XCTAssertFalse(q.paused)
         XCTAssertEqual(started, ["A", "B"])
+    }
+
+    func testStoppedAndFailedEntriesCanRetryRemoveOrClearFinished() {
+        let q = store()
+        q.enqueue([entry("A"), entry("B"), entry("C")])
+        q.start()
+        busy = false; q.buildEnded(succeeded: true)                          // A -> .done
+        busy = false; q.buildEnded(succeeded: false, reason: "missing key")  // B -> .failed
+        busy = false; q.buildEnded(succeeded: false, stopped: true)          // C -> .stopped
+        XCTAssertEqual(q.entries.map(\.status), [.done, .failed, .stopped])
+        XCTAssertTrue(q.hasFinished)
+
+        // Stopped status persists across reload without masquerading as failed.
+        let reloaded = store()
+        XCTAssertEqual(reloaded.entries.map(\.status), [.done, .failed, .stopped])
+        XCTAssertNil(reloaded.entries[2].reason)
+
+        // Retry failed B under a new engine refreshes engineID and queues at the end.
+        engine = "release-2"
+        let bID = reloaded.entries[1].id
+        let cID = reloaded.entries[2].id
+        reloaded.retry(bID)
+        XCTAssertEqual(reloaded.entries.last?.id, bID)
+        XCTAssertEqual(reloaded.entries.last?.status, .queued)
+        XCTAssertEqual(reloaded.entries.last?.engineID, "release-2")
+        XCTAssertNil(reloaded.entries.last?.reason)
+
+        // Remove individual stopped entry C while keeping done A and queued B.
+        reloaded.remove(cID)
+        XCTAssertEqual(reloaded.entries.map(\.titleID), ["A", "B"])
+
+        // clearFinished drops finished entries only and keeps queued/running items.
+        reloaded.clearFinished()
+        XCTAssertEqual(reloaded.entries.map(\.titleID), ["B"])
+        XCTAssertEqual(reloaded.entries.map(\.status), [.queued])
+        XCTAssertFalse(reloaded.hasFinished)
     }
 
     func testAPausedQueueIsStillPausedAfterARestartAndStartsNothing() {

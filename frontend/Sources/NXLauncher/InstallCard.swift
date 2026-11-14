@@ -68,12 +68,13 @@ package struct InstallCard: View {
                         }
                     }
                 }
-                if !build.builtShellGames().isEmpty {
+                let builtCount = build.builtShellGames().count
+                if builtCount > 0 {
                     CardDivider()
                     CardRow(loc.t("shell.builtTitle"), detail: loc.t("shell.installBuiltNote")) {
-                        Button(loc.t("shell.installBuilt")) { build.installBuiltGames() }
+                        Button(String(format: loc.t("shell.installBuilt"), builtCount)) { build.installBuiltGames() }
                             .buttonStyle(LauncherSecondaryButtonStyle())
-                            .disabled(!build.canInstallBuiltGames)
+                            .disabled(build.running || !build.installsDirectly || devices.exportIPA)
                             .help(loc.t("shell.installBuiltNote"))
                     }
                     if !build.sharedAppDataSources().isEmpty {

@@ -1,0 +1,588 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sat, 14 Nov 2026 00:47:44 +0800
+Subject: [PATCH] host: guard async callbacks across shell teardown and join
+ background threads
+
+Upstream-Status: pending
+Reason: Guard async callbacks across iOS shell teardown and join host background threads
+Issue: LNPANDY/NX2Apple (v1.5.0 local)
+
+---
+ dm/gfx/nvn/nvn_mtl.m              | 14 ++++++--
+ dm/host/haptics_apple.m           | 37 +++++++++++++++-----
+ dm/host/hle_cheats.c              | 27 ++++++++++++---
+ dm/host/hle_codec_video.c         | 53 ++++++++++++++++++++++++++++
+ dm/host/hle_lifecycle.c           | 12 ++++++-
+ dm/host/pad_switch2_apple.h       |  1 +
+ dm/host/pad_switch2_apple.m       | 57 ++++++++++++++++++++++++++++---
+ dm/host/tests/t_cheats.c          |  6 ++++
+ dm/host/tests/t_controllers_mac.m |  1 +
+ dm/host/tests/t_haptics_apple.m   | 48 ++++++++++++++++++++++++++
+ dm/ios/Sources/DmGamepad.m        |  2 ++
+ 11 files changed, 237 insertions(+), 21 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 4aa8feab7..206232e50 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -92,6 +92,7 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
+ static int g_warm_started;
+ static void warm_claim(void);
+ static _Atomic int g_gfx_teardown;
++static _Atomic uint64_t g_defer_gen __attribute__((section("__DATA,__dm_keep")));
+ static dispatch_group_t g_bg_group __attribute__((section("__DATA,__dm_keep")));
+ static dispatch_once_t g_bg_group_once __attribute__((section("__DATA,__dm_keep")));
+ static inline dispatch_group_t bg_group(void) {
+@@ -601,13 +602,18 @@ static void defer_obj_at(id obj, int keep_resident, uint64_t fence) {
+ // oe::PopNotificationMessage and submits nothing, while its streaming threads remade a run of about 10 MB of a virtual pool 70 times a second (vrun_set). Each old buffer waited for
+ // the next submission's fence, and GPU allocated went from 11 to 20 GB in 12 s, with 6.7 GB of swap in 20 s (PR #1392). Entries handed back while g_smu was busy are tried again 10 ms later
+ static _Atomic int g_defer_queued;
++static void defer_kick_gen(uint64_t gen);
+ static void defer_kick(void) {
+-    if (atomic_load(&g_gfx_teardown) || atomic_exchange(&g_defer_queued, 1)) return;
++    defer_kick_gen(atomic_load(&g_defer_gen));
++}
++static void defer_kick_gen(uint64_t gen) {
++    if (atomic_load(&g_gfx_teardown) || atomic_load(&g_defer_gen) != gen || atomic_exchange(&g_defer_queued, 1)) return;
+     bg_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ @autoreleasepool {
+         atomic_store(&g_defer_queued, 0);   // before the drain: an entry queued during it kicks again
+-        if (atomic_load(&g_gfx_teardown)) return;
++        if (atomic_load(&g_gfx_teardown) || atomic_load(&g_defer_gen) != gen) return;
+         int back = defer_drain(); res_commit();
+-        if (back && !atomic_load(&g_gfx_teardown)) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_MSEC), dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ defer_kick(); });
++        if (back && !atomic_load(&g_gfx_teardown) && atomic_load(&g_defer_gen) == gen)
++            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_MSEC), dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ defer_kick_gen(gen); });
+     } });
+ }
+ // What a drain takes out of the residency set leaves it, and is released, at the set's next commit, which the next submission makes. With none open none may come: the drain is
+@@ -17354,6 +17360,7 @@ void mem_census(const char *why) { @autoreleasepool {
+ 
+ void dm_gfx_teardown(void) { @autoreleasepool {
+     atomic_store(&g_gfx_teardown, 1);
++    atomic_fetch_add(&g_defer_gen, 1);
+     mtl_present_discard(1);
+     dispatch_group_wait(bg_group(), DISPATCH_TIME_FOREVER);
+ 
+@@ -17570,6 +17577,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+     g_ev = nil; g_mdi_ev = nil; g_ext_ev = nil;
+     g_q4 = nil; g_q = nil; g_dev = nil;
+     g_feedback_q = nil;
++    atomic_fetch_add(&g_defer_gen, 1);
+     atomic_store(&g_gfx_teardown, 0);
+ } }
+ #pragma clang attribute pop
+diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
+index 203363eb0..ce6153bf8 100644
+--- a/dm/host/haptics_apple.m
++++ b/dm/host/haptics_apple.m
+@@ -13,6 +13,7 @@
+ #endif
+ #include <math.h>
+ #include <pthread.h>
++#include <stdatomic.h>
+ #include <time.h>
+ 
+ @interface DmRumbleChannel : NSObject
+@@ -37,6 +38,8 @@ - (void)stop;
+ @end
+ 
+ static dispatch_queue_t queue;
++static _Atomic uint64_t g_haptics_gen __attribute__((section("__DATA,__dm_keep")));
++static _Atomic int g_haptics_down __attribute__((section("__DATA,__dm_keep")));
+ static NSMutableArray<DmRumbleChannel *> *channels[DM_PLAYERS];
+ static GCController *controllers[DM_PLAYERS];
+ static GCHapticsLocality controllerLocalities[DM_PLAYERS];
+@@ -128,8 +131,9 @@ - (void)halt {
+         self.pattern = nil; self.previous = nil; self.level = (dm_haptic_level){0, 0};
+         NSTimeInterval left = self.engine ? self.pulseEnd - self.engine.currentTime : 0;
+         if (left > 0) {
+-            __weak DmRumbleChannel *weak = self; CHHapticEngine *engine = self.engine;
++            __weak DmRumbleChannel *weak = self; CHHapticEngine *engine = self.engine; uint64_t hgen = atomic_load(&g_haptics_gen);
+             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((left + 0.05) * NSEC_PER_SEC)), queue, ^{
++                if (atomic_load(&g_haptics_down) || atomic_load(&g_haptics_gen) != hgen) return;
+                 DmRumbleChannel *c = weak; if (c && c.engine == engine && c.pattern) return;   // a new effect took the engine meanwhile
+                 @try { [engine stopWithCompletionHandler:nil]; }
+                 @catch (NSException *x) { if (c && c.engine == engine) [c stoppedEngine:x stage:"stop engine"]; }   // one no channel holds is gone anyway
+@@ -147,9 +151,10 @@ - (BOOL)pulse:(NSError **)error {
+     NSTimeInterval at = MAX(self.engine.currentTime, self.pulseEnd);
+     if (!next || ![next startAtTime:at error:error]) return NO;
+     self.previous = self.pattern; self.pattern = next; self.pulseEnd = at + PULSE;
+-    __weak DmRumbleChannel *weak = self; uint64_t generation = self.generation;
++    __weak DmRumbleChannel *weak = self; uint64_t generation = self.generation; uint64_t hgen = atomic_load(&g_haptics_gen);
+     NSTimeInterval wait = MAX(0, self.pulseEnd - PULSE_LEAD - self.engine.currentTime);
+     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(wait * NSEC_PER_SEC)), queue, ^{
++        if (atomic_load(&g_haptics_down) || atomic_load(&g_haptics_gen) != hgen) return;
+         DmRumbleChannel *c = weak;
+         if (!c || c.generation != generation || c.pattern != next || c.level.intensity == 0) return;   // stopped, replaced or silent
+         [c guarded:"pulse" work:^{ NSError *e = nil; if (![c pulse:&e]) [c failed:e stage:"pulse"]; }];
+@@ -178,8 +183,12 @@ - (BOOL)startEngine {
+     }
+     __weak DmRumbleChannel *weak = self;
+     uint64_t generation = ++self.generation;
++    uint64_t hgen = atomic_load(&g_haptics_gen);
+     void (^reset)(void) = ^{
+-        dispatch_async(queue, ^{
++        dispatch_queue_t q = queue;
++        if (!q || atomic_load(&g_haptics_down) || atomic_load(&g_haptics_gen) != hgen) return;
++        dispatch_async(q, ^{
++            if (atomic_load(&g_haptics_down) || atomic_load(&g_haptics_gen) != hgen) return;
+             DmRumbleChannel *c = weak; if (!c || c.generation != generation) return;
+             [c stop];
+             dm_haptics_clear(c.player);   // queued effects from before an interruption cannot restart
+@@ -250,8 +259,9 @@ - (void)applyLevel:(dm_haptic_level)level {
+     if (!self.simple) ((id<CHHapticAdvancedPatternPlayer>)self.pattern).isMuted = NO;
+     if (level.intensity == 0) {
+         // Reuse a warm player for nearby pulses, then release idle hardware. This never times out an active effect.
+-        __weak DmRumbleChannel *weak = self;
++        __weak DmRumbleChannel *weak = self; uint64_t hgen = atomic_load(&g_haptics_gen);
+         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), queue, ^{
++            if (atomic_load(&g_haptics_down) || atomic_load(&g_haptics_gen) != hgen) return;
+             DmRumbleChannel *c = weak; if (c && c.silenceGeneration == silence) [c stop];
+         });
+     }
+@@ -351,18 +361,23 @@ static void native_stop(int p) {
+     outputGeneration[p]++;
+     if (nativeOutputs[p]) nativeOutputs[p]((dm_haptic_state){.player=p}, gain);
+ }
+-static void native_apply(dm_haptic_state s, uint64_t generation) {
++static void native_apply(dm_haptic_state s, uint64_t generation, uint64_t hgen) {
+     int p=s.player;
++    if (atomic_load(&g_haptics_down) || atomic_load(&g_haptics_gen) != hgen) return;
+     if (!nativeOutputs[p] || generation != outputGeneration[p] || s.epoch != dm_haptics_epoch(p)) return;
+     nativeOutputs[p](s,gain);
+     if (s.motor[0].amplitude_low || s.motor[0].amplitude_high || s.motor[1].amplitude_low || s.motor[1].amplitude_high)
+-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40*NSEC_PER_MSEC),queue,^{ native_apply(s,generation); });
++        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40*NSEC_PER_MSEC),queue,^{ native_apply(s,generation,hgen); });
+ }
+ static void apply(dm_haptic_state s) {
+-    dispatch_async(queue, ^{ @autoreleasepool {
++    dispatch_queue_t q = queue;
++    uint64_t hgen = atomic_load(&g_haptics_gen);
++    if (!q || atomic_load(&g_haptics_down)) return;
++    dispatch_async(q, ^{ @autoreleasepool {
++        if (atomic_load(&g_haptics_down) || atomic_load(&g_haptics_gen) != hgen) return;
+         if (s.epoch != dm_haptics_epoch(s.player)) return;
+         if (sinks[s.player]) { sink_apply(s); return; }   // the player is in range, as channels[] below assumes (hle_haptics.c)
+-        if (nativeOutputs[s.player]) { native_apply(s,++outputGeneration[s.player]); return; }
++        if (nativeOutputs[s.player]) { native_apply(s,++outputGeneration[s.player],hgen); return; }
+         NSArray<DmRumbleChannel *> *out = channels[s.player];
+ #if !TARGET_OS_IPHONE
+         if ([out.firstObject isKindOfClass:DmDs4Channel.class]) { ds4_apply(s); return; }
+@@ -529,12 +544,16 @@ static void suspend(unsigned reason, BOOL on) {
+ }
+ void dm_haptics_apple_focus(int active) { if(queue) suspend(DM_HAPTICS_UNFOCUSED,!active); }
+ void dm_haptics_apple_shutdown(void) {
++    atomic_store(&g_haptics_down, 1);
++    atomic_fetch_add(&g_haptics_gen, 1);
++    dm_haptics_init(NULL, 0);
+     if (queue) suspend(DM_HAPTICS_INACTIVE, YES);
+ }
+ static int g_haptics_inited;
+ static int g_haptics_atexit __attribute__((section("__DATA,__dm_keep")));
+ static id g_haptics_obs[5];
+ void dm_haptics_apple_teardown(void) {
++    dm_haptics_apple_shutdown();
+     NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+     for (int i = 0; i < 5; i++) {
+         if (g_haptics_obs[i]) {
+@@ -579,6 +598,8 @@ void dm_haptics_apple_init(void) {
+         pthread_mutex_unlock(&routeLock);
+         return;
+     }
++    atomic_fetch_add(&g_haptics_gen, 1);
++    atomic_store(&g_haptics_down, 0);
+     g_haptics_inited = 1;
+     gain = 1;
+     rumble_min = 0;
+diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
+index c27edc52f..26199b398 100644
+--- a/dm/host/hle_cheats.c
++++ b/dm/host/hle_cheats.c
+@@ -1053,10 +1053,14 @@ void dm_cheats_present(void) {
+ 
+ // The fixed ~60 Hz passes when the game is not presenting (window minimized, graphics suspended or before the first
+ // present): a stopped game still changes under its cheats, as on hardware where the cheat process keeps running
++static _Atomic int g_tick_stop __attribute__((section("__DATA,__dm_keep")));
++static pthread_t g_tick_th __attribute__((section("__DATA,__dm_keep")));
++
+ static void *cheat_tick_thread(void *arg) {
+     (void)arg;
+-    for (;;) {
++    while (!atomic_load(&g_tick_stop)) {
+         usleep(16667);   // ~60 Hz
++        if (atomic_load(&g_tick_stop)) break;
+         if (now_ns() - atomic_load(&g_present_ns) < 250000000ull) continue;   // presenting again: the hook applies
+         cheats_pass();
+     }
+@@ -1069,10 +1073,15 @@ static void *cheat_tick_thread(void *arg) {
+ static int g_tick_started __attribute__((section("__DATA,__dm_keep")));
+ static void tick_start(void) {
+     if (g_tick_started) return;
++    atomic_store(&g_tick_stop, 0);
+     g_tick_started = 1;
+-    pthread_t th; pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
+-    if (pthread_create(&th, &a, cheat_tick_thread, NULL)) LOG("[RED] cheats: cannot start the ~60 Hz apply thread (errno %d), only presents apply", errno);
+-    pthread_attr_destroy(&a);
++    pthread_t th;
++    if (pthread_create(&th, NULL, cheat_tick_thread, NULL)) {
++        g_tick_started = 0;
++        LOG("[RED] cheats: cannot start the ~60 Hz apply thread (errno %d), only presents apply", errno);
++        return;
++    }
++    g_tick_th = th;
+ }
+ 
+ // ---------- the cheat states: <build>.enabled, DM_CHEATS_ON, the folder's flag files ----------
+@@ -1883,11 +1892,21 @@ void dm_cheats_init(void) {
+ // A clean exit: no cheat runs any more, so the safe-mode flag goes (atexit, and dm_host_exit before its _exit)
+ void dm_cheats_exit(void) {
+     atomic_store(&g_exiting, 1);   // a pass still running on another thread must not write the flag back
++    atomic_store(&g_tick_stop, 1);
+     if (!g_dir[0]) return;
+     files_drain();                 // a queued <build>.enabled lands before the process ends; a queued flag sees g_exiting
+     char p[1100]; flag_file(p, sizeof p, "running");
+     unlink(p);
+ }
++void dm_cheats_teardown(void) {
++    atomic_store(&g_exiting, 1);
++    atomic_store(&g_tick_stop, 1);
++    if (g_tick_started) {
++        pthread_join(g_tick_th, NULL);
++        g_tick_started = 0;
++    }
++    files_drain();
++}
+ 
+ // ---------- the Mac cheats menu and panel (callers: front_mac.m; nothing else uses these) ----------
+ // Cheap accessors read straight from the shared state: the list itself is rebuilt only from the main thread (this
+diff --git a/dm/host/hle_codec_video.c b/dm/host/hle_codec_video.c
+index 47120c47e..9c2264910 100644
+--- a/dm/host/hle_codec_video.c
++++ b/dm/host/hle_codec_video.c
+@@ -695,3 +695,56 @@ HLE_FORCE("_ZN2nn6syncpt3sdk21DestroySyncPointEventEPNS1_18SyncPointEventTypeE",
+     static void (*destroy)(void *); if (!destroy && !(destroy = guest_sym("_ZN2nn2os18DestroySystemEventEPNS0_15SystemEventTypeE"))) die("nn::os::DestroySystemEvent missing");
+     destroy(e); SPT(e)->magic = 0;
+ }
++
++void dm_codec_video_stop_all(void) {
++    dm_host_mutex_lock(&g_cv_mu);
++    for (int i = 0; i < 16; i++) {
++        cv_dec *d = g_cv[i];
++        if (!d) continue;
++        dm_host_mutex_lock(&d->mu);
++        d->quit = 1;
++        pthread_cond_signal(&d->work);
++        pthread_mutex_unlock(&d->mu);
++    }
++    pthread_mutex_unlock(&g_cv_mu);
++}
++void dm_codec_video_teardown_post(void) {
++    cv_dec *list[16] = {0};
++    dm_host_mutex_lock(&g_cv_mu);
++    for (int i = 0; i < 16; i++) {
++        list[i] = g_cv[i];
++        g_cv[i] = NULL;
++    }
++    memset(g_cv_pools, 0, sizeof g_cv_pools);
++    pthread_mutex_unlock(&g_cv_mu);
++    for (int i = 0; i < 16; i++) {
++        cv_dec *d = list[i];
++        if (!d) continue;
++        dm_host_mutex_lock(&d->mu);
++        d->quit = 1;
++        pthread_cond_signal(&d->work);
++        pthread_mutex_unlock(&d->mu);
++        pthread_join(d->th, NULL);
++        if (d->codec != CV_H264 && d->codec != CV_AV1 && d->vpx_ok) vpx_codec_destroy(&d->vpx);
++        if (d->avc) mavc_free(d->avc);
++        if (d->av1) mav1_free(d->av1);
++        for (int j = 0; j < d->nheld; j++) vpx_img_free(d->held[j]);
++        for (uint32_t k = 0; k < d->qcount; k++) free(d->q[(d->qhead + k) % CV_HOLD].data);
++        free(d->csd);
++        d->magic = 0;
++        pthread_cond_destroy(&d->work);
++        pthread_mutex_destroy(&d->mu);
++        free(d);
++    }
++    dm_host_mutex_lock(&g_cv_mu);
++    for (int k = 0; k < BLANK_MAX; k++) {
++        if (g_blank[k].mem) {
++            munmap(g_blank[k].mem, g_blank[k].size);
++            memset(&g_blank[k], 0, sizeof g_blank[k]);
++        }
++    }
++    pthread_mutex_unlock(&g_cv_mu);
++    pthread_mutex_lock(&g_spt_mu);
++    memset(g_spt, 0, sizeof g_spt);
++    pthread_mutex_unlock(&g_spt_mu);
++}
+diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
+index 0794371a2..0655d1c48 100644
+--- a/dm/host/hle_lifecycle.c
++++ b/dm/host/hle_lifecycle.c
+@@ -41,7 +41,12 @@ __attribute__((weak)) void dm_audren_teardown_post(void) {}
+ __attribute__((weak)) void dm_movie_stop_all(void) {}
+ __attribute__((weak)) void dm_movie_teardown_post(void) {}
+ __attribute__((weak)) void dm_save_sync_stop(void) {}
++__attribute__((weak)) void dm_haptics_apple_shutdown(void) {}
+ __attribute__((weak)) void dm_haptics_apple_teardown(void) {}
++__attribute__((weak)) void dm_switch2_teardown(void) {}
++__attribute__((weak)) void dm_codec_video_stop_all(void) {}
++__attribute__((weak)) void dm_codec_video_teardown_post(void) {}
++__attribute__((weak)) void dm_cheats_teardown(void) {}
+ __attribute__((weak)) void dm_gfx_teardown(void) {}
+ __attribute__((weak)) void dm_fs_teardown(void) {}
+ __attribute__((weak)) void dm_ue_malloc_teardown(void) {}
+@@ -53,13 +58,18 @@ void dm_host_teardown_for_shell(void) {
+     dm_audren_stop_all();
+     dm_audio_stop_all();
+     dm_movie_stop_all();
++    dm_codec_video_stop_all();
+     dm_save_sync_stop();
+-    dm_haptics_apple_teardown();
++    dm_haptics_apple_shutdown();
+     dm_guest_clock_wake_teardown();
+     dm_gfx_suspend(1);
+     dm_threads_park_all();
++    dm_haptics_apple_teardown();
++    dm_switch2_teardown();
+     dm_audren_teardown_post();
+     dm_movie_teardown_post();
++    dm_codec_video_teardown_post();
++    dm_cheats_teardown();
+     dm_gfx_teardown();
+     dm_fs_teardown();
+     dm_guest_memory_release(1);
+diff --git a/dm/host/pad_switch2_apple.h b/dm/host/pad_switch2_apple.h
+index cf7b96d2b..56f3d6db9 100644
+--- a/dm/host/pad_switch2_apple.h
++++ b/dm/host/pad_switch2_apple.h
+@@ -33,6 +33,7 @@ typedef struct {
+ } dm_switch2_front;
+ 
+ int dm_switch2_start(const dm_switch2_front *front);   // 1: started; 0: off (DM_SW2 is not 1, or the Info.plist has no Bluetooth usage description)
++void dm_switch2_teardown(void);                         // stops scanning and disconnects sessions, safe to call multiple times
+ void dm_switch2_active(int on);                         // focus lost (0): the sensors stop driving the game's; back (1): they continue
+ s2_pad *dm_switch2_pads(void);                          // the pads, a list through next
+ // Rumble: the sink for a player whose pad is a Switch 2 controller (dm_haptics_apple_set_sink(player, dm_switch2_rumble)). The game's two full-key motors, left and right, reach the
+diff --git a/dm/host/pad_switch2_apple.m b/dm/host/pad_switch2_apple.m
+index b04bdc7ac..36895b3a9 100644
+--- a/dm/host/pad_switch2_apple.m
++++ b/dm/host/pad_switch2_apple.m
+@@ -58,6 +58,7 @@ @interface S2Session : NSObject <CBPeripheralDelegate>
+ 
+ static NSMutableDictionary<NSUUID *, S2Session *> *g_sessions;
+ static CBCentralManager *g_central;
++static _Atomic uint64_t g_s2_gen __attribute__((section("__DATA,__dm_keep")));
+ static void s2_session_closed(S2Session *s);
+ static void s2_rumble_timer(void);
+ 
+@@ -103,7 +104,11 @@ - (instancetype)initWith:(CBPeripheral *)p pid:(uint16_t)pid use:(int)use {
+ - (void)begin {
+     [_peripheral discoverServices:nil];
+     __weak S2Session *w = self;   // a controller that connects but never finishes the handshake is dropped
+-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ S2Session *s = w; if (s && !s->_handshaken) [s fail:@"handshake timed out"]; });
++    uint64_t sgen = atomic_load(&g_s2_gen);
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
++        if (atomic_load(&g_s2_gen) != sgen || !g_central) return;
++        S2Session *s = w; if (s && !s->_handshaken) [s fail:@"handshake timed out"];
++    });
+ }
+ - (void)fail:(NSString *)why {
+     LOG("[sw2] %s: %s", s2_kind(_pid), why.UTF8String);
+@@ -137,8 +142,9 @@ - (void)pump {
+     uint8_t f[8 + 255]; size_t n = s2_command(f, sizeof f, c.cmd, c.sub, c.payload.bytes, c.payload.length);
+     if (!n) { if (c.done) c.done(nil); [self pump]; return; }
+     _pending = YES; _pendingCmd = c.cmd; _cb = c.done; NSUInteger mine = ++_seq; uint8_t id = c.cmd;
+-    __weak S2Session *w = self;
++    __weak S2Session *w = self; uint64_t sgen = atomic_load(&g_s2_gen);
+     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
++        if (atomic_load(&g_s2_gen) != sgen || !g_central) return;
+         S2Session *s = w; if (!s || !s->_pending || s->_seq != mine) return;
+         s->_pending = NO; void (^d)(NSData *) = s->_cb; s->_cb = nil;
+         LOG("[sw2] %s: command 0x%02x timed out", s2_kind(s->_pid), id);
+@@ -451,16 +457,17 @@ - (void)centralManagerDidUpdateState:(CBCentralManager *)c {
+ #if TARGET_OS_OSX
+         static BOOL asked;
+         if (!g_host_known && !asked) {   // this Mac's address, from the Bluetooth host controller once the app may use Bluetooth (off the main queue: the first call can take seconds); the scan starts after it
+-            asked = YES; __weak CBCentralManager *wc = c;
++            asked = YES; __weak CBCentralManager *wc = c; uint64_t sgen = atomic_load(&g_s2_gen);
+             dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                 const char *addr = IOBluetoothHostController.defaultController.addressAsString.UTF8String;   // "aa-bb-cc-dd-ee-ff"
+                 unsigned a[6]; BOOL ok = addr && sscanf(addr, "%x%*c%x%*c%x%*c%x%*c%x%*c%x", &a[0], &a[1], &a[2], &a[3], &a[4], &a[5]) == 6 && (a[0] | a[1] | a[2] | a[3] | a[4] | a[5]);
+                 uint8_t le[6]; for (int i = 0; i < 6; i++) le[i] = ok ? (uint8_t)a[5 - i] : 0;
+                 NSData *leData = [NSData dataWithBytes:le length:6];
+                 dispatch_async(dispatch_get_main_queue(), ^{
++                    if (atomic_load(&g_s2_gen) != sgen || !g_central) return;
+                     if (ok) { memcpy(g_host, leData.bytes, 6); g_host_known = 1; }
+                     else LOG("[sw2] this Mac's Bluetooth address could not be read: controllers are used without pairing (DM_SW2_HOST=aa:bb:cc:dd:ee:ff names it)");
+-                    CBCentralManager *cm = wc; if (cm && cm.state == CBManagerStatePoweredOn) [self scan:cm];
++                    CBCentralManager *cm = wc; if (cm && cm == g_central && cm.state == CBManagerStatePoweredOn) [self scan:cm];
+                 });
+             });
+             return;
+@@ -490,8 +497,9 @@ - (void)centralManager:(CBCentralManager *)c didDiscoverPeripheral:(CBPeripheral
+     g_sessions[p.identifier] = s;
+     LOG("[sw2] %s %s (rssi %d), connecting", use == S2_ADV_WAKE ? "woke:" : "pairing:", s2_kind(a.pid), rssi.intValue);
+     [c connectPeripheral:p options:nil];
+-    NSUUID *id = p.identifier; __weak CBCentralManager *wc = c;
++    NSUUID *id = p.identifier; __weak CBCentralManager *wc = c; uint64_t sgen = atomic_load(&g_s2_gen);
+     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
++        if (atomic_load(&g_s2_gen) != sgen || !g_central) return;
+         S2Session *t = g_sessions[id];
+         if (t && t.peripheral.state != CBPeripheralStateConnected) { LOG("[sw2] connecting timed out"); [wc cancelPeripheralConnection:t.peripheral]; s2_session_closed(t); }
+     });
+@@ -534,12 +542,51 @@ static void s2_rumble_timer(void) {
+     }];
+ }
+ 
++static void s2_teardown_on_main(void) {
++    [g_rumble_timer invalidate];
++    g_rumble_timer = nil;
++    if (g_central) {
++        [g_central stopScan];
++        g_central.delegate = nil;
++    }
++    NSArray<S2Session *> *sessions = g_sessions ? g_sessions.allValues : nil;
++    for (S2Session *s in sessions) {
++        if (s.peripheral) {
++            s.peripheral.delegate = nil;
++            if (g_central) [g_central cancelPeripheralConnection:s.peripheral];
++        }
++        [s teardown];
++    }
++    [g_sessions removeAllObjects];
++    g_sessions = nil;
++    while (g_pads) {
++        s2_pad *p = g_pads;
++        g_pads = p->next;
++        if (g_front.detach) g_front.detach(p);
++        free(p);
++    }
++    g_central = nil;
++    g_delegate = nil;
++    memset(&g_front, 0, sizeof g_front);
++}
++void dm_switch2_teardown(void) {
++    atomic_fetch_add(&g_s2_gen, 1);
++    if ([NSThread isMainThread]) {
++        s2_teardown_on_main();
++        return;
++    }
++    if (g_central || g_sessions || g_pads || g_rumble_timer || g_delegate) {
++        dispatch_sync(dispatch_get_main_queue(), ^{ s2_teardown_on_main(); });
++    }
++}
++
+ int dm_switch2_start(const dm_switch2_front *front) {
+     const char *e = getenv("DM_SW2"); if (!e || !atoi(e)) return 0;   // off by default: no Bluetooth client, so no permission prompt
+     if (![NSBundle.mainBundle objectForInfoDictionaryKey:@"NSBluetoothAlwaysUsageDescription"]) {
+         LOG("[sw2] Switch 2 controllers are off: this app's Info.plist has no NSBluetoothAlwaysUsageDescription (an app packed with a newer pack_app.py has it)");
+         return 0;
+     }
++    atomic_fetch_add(&g_s2_gen, 1);
+     g_front = *front;
+     e = getenv("DM_SW2_VERBOSE"); g_verbose = e && atoi(e);
+     e = getenv("DM_PAD_MERGE"); g_joy = !(e && atoi(e));   // merged, every pad is player 1: no pad holds a game's Joy-Cons apart
+diff --git a/dm/host/tests/t_cheats.c b/dm/host/tests/t_cheats.c
+index f7eb1935c..e52c02461 100644
+--- a/dm/host/tests/t_cheats.c
++++ b/dm/host/tests/t_cheats.c
+@@ -652,6 +652,12 @@ int main(void) {
+     load_all();
+     CHECK(strstr(dm_cheats_report(), "1 cheats over 0x100 words") != NULL, "the report names a cheat over Atmosphère's 0x100 words");
+ 
++    // ---- Shell game switch: tick thread joins cleanly and files queue drains ----
++    tick_start();
++    CHECK(g_tick_started == 1, "tick_start starts the ~60 Hz apply thread");
++    dm_cheats_teardown();
++    CHECK(g_tick_started == 0 && atomic_load(&g_tick_stop) == 1 && atomic_load(&g_exiting) == 1, "dm_cheats_teardown stops and joins the tick thread");
++
+     char rmcmd[1100]; snprintf(rmcmd, sizeof rmcmd, "rm -rf '%s'", root);   // the test's cheats folders
+     if (system(rmcmd)) fprintf(stderr, "cannot remove %s\n", root);   // NOLINT(bugprone-command-processor): a fixed rm of the folder mkdtemp made above, no outside input
+     printf("%d / %d checks passed\n", checks - fails, checks);
+diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
+index 9619d973b..a29b3c78b 100644
+--- a/dm/host/tests/t_controllers_mac.m
++++ b/dm/host/tests/t_controllers_mac.m
+@@ -185,6 +185,7 @@ static IOReturn fake_write(IOHIDDeviceRef d, IOHIDReportType type, CFIndex id, c
+ void dm_motion_clear_joy(int p, int side) { assert(p >= 0 && p < DM_PLAYERS && (side == 0 || side == 1)); ++joy_motion_clears[p][side]; }
+ void dm_haptics_apple_set_sink(int p, void (*s)(const dm_haptic_state *)) { (void)p; (void)s; }
+ int dm_switch2_start(const dm_switch2_front *f) { (void)f; return 0; }
++void dm_switch2_teardown(void) {}
+ void dm_switch2_active(int a) { (void)a; }
+ void dm_switch2_rumble(const dm_haptic_state *s) { (void)s; }
+ static dm_motion motions[DM_PLAYERS]; static int motion_present[DM_PLAYERS];
+diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
+index 9efa8f9cd..041eb6995 100644
+--- a/dm/host/tests/t_haptics_apple.m
++++ b/dm/host/tests/t_haptics_apple.m
+@@ -624,5 +624,53 @@ int main(void) { @autoreleasepool {
+     assert(gain == 1 && rumble_min == 0 && dm_haptics_apple_controller_intensity(0.4f) == 0.4f);
+     dm_haptics_apple_shutdown();
+     dm_haptics_apple_teardown();
++    // Stale delayed timer enqueued before teardown must remain a no-op both while torn down and after re-init
++    dm_haptics_apple_init();
++    __block unsigned staleNativeCalls = 0;
++    dm_haptics_apple_output(0, @"stale-timer-owner", ^(dm_haptic_state state, float level) { (void)state; (void)level; ++staleNativeCalls; });
++    drain();
++    unsigned baselineCalls = staleNativeCalls;
++    send_pair(0.6f, 0); drain();
++    assert(staleNativeCalls == baselineCalls + 1 && timers.count > 0);
++    NSArray<TestTimer *> *pendingTimers = [timers copy];
++    [timers removeAllObjects];
++    dm_haptics_apple_teardown();
++    unsigned callsAfterTeardown = staleNativeCalls;
++    for (TestTimer *timer in pendingTimers) timer.block();
++    assert(staleNativeCalls == callsAfterTeardown);
++    // Simulate restore_framework_data() rolling non-__dm_keep globals back to initial state across shell relaunch;
++    // only g_haptics_gen in __DATA,__dm_keep keeps stale timers from colliding with matching outputGeneration/epoch.
++    memset(outputGeneration, 0, sizeof outputGeneration);
++    dm_haptics_apple_init();
++    __block unsigned nextGameCalls = 0;
++    dm_haptics_apple_output(0, @"next-game-owner", ^(dm_haptic_state state, float level) { (void)state; (void)level; ++nextGameCalls; });
++    drain();
++    send_pair(0.3f, 0); drain();
++    [timers removeAllObjects];
++    unsigned callsBeforeStale = nextGameCalls;
++    dispatch_sync(queue, ^{
++        for (TestTimer *timer in pendingTimers) timer.block();
++    });
++    assert(nextGameCalls == callsBeforeStale);
++    assert(staleNativeCalls == callsAfterTeardown);
++    // Stale delayed engine-stop timers queued during halt must not touch the old engine after teardown or re-init.
++    TestController *plainTail = [TestController new];
++    plainTail.haptics = [TestHaptics new];
++    plainTail.haptics.noAdvanced = YES;
++    dm_haptics_apple_controller(0, (id)plainTail); drain();
++    send_pair(0.6f, 0); drain();
++    TestEngine *oldEngine = plainTail.haptics.engines.lastObject;
++    [timers removeAllObjects];
++    dm_haptics_apple_teardown();
++    NSArray<TestTimer *> *haltTimers = [timers copy];
++    [timers removeAllObjects];
++    assert(haltTimers.count > 0);
++    int stopsAtTeardown = oldEngine.stops;
++    for (TestTimer *timer in haltTimers) timer.block();
++    assert(oldEngine.stops == stopsAtTeardown);
++    dm_haptics_apple_init();
++    for (TestTimer *timer in haltTimers) timer.block();
++    assert(oldEngine.stops == stopsAtTeardown);
++    dm_haptics_apple_teardown();
+     puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, the DualSense's handles, level cutoff and the DualShock 4 route passed");
+ } }
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 0e3c942be..508eef082 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -898,7 +898,9 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
+     if (g_merge) dm_pad_set(0, 0, 0, 0, 0);
+     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
+ }
++__attribute__((weak)) void dm_switch2_teardown(void);
+ void dm_gamepad_teardown(void) {
++    if (dm_switch2_teardown) dm_switch2_teardown();
+     if (g_motion) {
+         [g_motion stopAccelerometerUpdates];
+         [g_motion stopDeviceMotionUpdates];

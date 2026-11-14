@@ -18,7 +18,7 @@ import XCTest
         let primary = app.buttons.matching(identifier: "state.action").allElementsBoundByIndex.first { $0.isHittable }
         XCTAssertNotNil(primary)
         primary?.tap()
-        XCTAssertTrue(app.alerts["Shell"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts["NX2Apple"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.alerts.staticTexts["Launching is not available yet."].exists)
         app.alerts.buttons["OK"].tap()
     }

@@ -45,6 +45,9 @@ private struct FocusAppearanceKey: EnvironmentKey {
 private struct IgnoresPressKey: EnvironmentKey {
     static var defaultValue: () -> Bool { { false } }
 }
+private struct ShellFocusRefreshKey: EnvironmentKey {
+    static let defaultValue = 0
+}
 extension EnvironmentValues {
     /// True while a press is the system's echo of a controller button, not a finger (see `LibraryView.noteTouch`). A
     /// control that moves at once on a press, before its value comes back, asks it first.
@@ -55,6 +58,10 @@ extension EnvironmentValues {
     var shellFocus: FocusAppearance {
         get { self[FocusAppearanceKey.self] }
         set { self[FocusAppearanceKey.self] = newValue }
+    }
+    var shellFocusRefresh: Int {
+        get { self[ShellFocusRefreshKey.self] }
+        set { self[ShellFocusRefreshKey.self] = newValue }
     }
 }
 struct ShellFocusTarget: ViewModifier {
@@ -75,6 +82,7 @@ struct ShellFocusTarget: ViewModifier {
         showsRing && visible && focused == id
     }
     @Environment(\.shellFocus) private var focus
+    @Environment(\.shellFocusRefresh) private var focusRefresh
     func body(content: Content) -> some View {
         content
             .overlay {
@@ -95,6 +103,7 @@ struct ShellFocusTarget: ViewModifier {
                             FocusTarget(id: id, frame: geometry.frame(in: .global), activate: action)
                         ])
                     }
+                    .id(focusRefresh)
                 }
             }
             .id(id)

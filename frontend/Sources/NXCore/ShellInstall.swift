@@ -343,6 +343,8 @@ package struct ShellInstaller {
     package var singleCopyLimit: Int64 = ShellDataParts.singleCopyLimit()
     package var signingIdentity: (String, ProcessRunner) -> String? = ShellHotInstall.defaultSigningIdentity
     package var codesignPath = "/usr/bin/codesign"
+    /// Enabled by default; set `NX_DISABLE_HOT_INSTALL=1` to force full `xcodebuild` reinstalls.
+    package var allowHotInstall = ProcessInfo.processInfo.environment["NX_DISABLE_HOT_INSTALL"] != "1"
     package var now: () -> Date = { Date() }
 
     package init(xcrun: String = "/usr/bin/xcrun", repo: String, python: String, root: String, device: String, team: String) {
