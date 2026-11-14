@@ -668,6 +668,7 @@ class GameRefreshAssessment:
     can_fast_ios: bool
     needs_img_guide_ios: bool
     missing_original_package: bool
+    has_usable_seed: bool = False
     expected_romfs_identity: str | None = None
 
     @property
@@ -1006,6 +1007,7 @@ def assess_game_refresh(
             can_fast_ios=False,
             needs_img_guide_ios=False,
             missing_original_package=missing_pkg,
+            has_usable_seed=False,
             expected_romfs_identity=None,
         )
 
@@ -1117,6 +1119,7 @@ def assess_game_refresh(
         can_fast_ios=can_fast_ios,
         needs_img_guide_ios=needs_img_guide_ios,
         missing_original_package=missing_pkg,
+        has_usable_seed=bool(seed_usable),
         expected_romfs_identity=exp_identity,
     )
 
@@ -1865,6 +1868,8 @@ if HAS_QT:
             keys_in = (g.inputs.get('keys') or [''])[0] or getattr(self.m, 'keys_path', '')
 
             show_missing_note = False
+            disabled_mac = False
+            disabled_ios = False
             for target, can_fast in plats:
                 plat_name = (
                     self.m.t('batchRefresh.platformMac')
@@ -1877,6 +1882,10 @@ if HAS_QT:
                     cb.setChecked(False)
                     cb.setEnabled(False)
                     show_missing_note = True
+                    if target == 'mac-app':
+                        disabled_mac = True
+                    else:
+                        disabled_ios = True
                 else:
                     default_checked = can_fast or a.has_specific_update
                     cb.setChecked(default_checked)
@@ -1897,14 +1906,20 @@ if HAS_QT:
                 self._checkboxes.append((cb, q_item, is_fast_group))
                 plat_row.addWidget(cb)
 
-            if show_missing_note:
-                miss_lbl = QLabel(self.m.t('batchRefresh.missingPackage'))
-                miss_lbl.setObjectName('muted')
-                _apply_text_color(miss_lbl, '#ffbd38')
-                plat_row.addWidget(miss_lbl)
-
             plat_row.addStretch(1)
             lay.addLayout(plat_row)
+
+            if show_missing_note:
+                miss_key = (
+                    'batchRefresh.missingImg'
+                    if (not disabled_mac and disabled_ios and a.has_usable_seed and a.needs_img_guide_ios)
+                    else 'batchRefresh.missingPackage'
+                )
+                miss_lbl = QLabel(self.m.t(miss_key))
+                miss_lbl.setObjectName('muted')
+                miss_lbl.setWordWrap(True)
+                _apply_text_color(miss_lbl, '#ffbd38')
+                lay.addWidget(miss_lbl)
             return card
 
         def _update_summary(self) -> None:

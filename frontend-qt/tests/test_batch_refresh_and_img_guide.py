@@ -539,12 +539,13 @@ if rf.HAS_QT:
                         m.t('library.manage'),
                         None,
                         update_badge_text=m.t('library.refresh.badgeVersion', '1.5.0'),
-                        refresh_label=m.t('library.refresh.fastBtn'),
-                        batch_refresh_label=m.t('library.refresh.batchBtn', 2),
+                        refresh_label=f"{m.t('library.refresh.singleFastBoth')} 1.5.0",
+                        batch_refresh_label='',
                         refresh_note=m.t('library.refresh.noteSpecificFast', 'Mario Kart 8', '1.5.0'),
                     )
                     self.assertIn(m.t('library.readyMacAndIOS').upper(), hero.status_lbl.text())
                     self.assertFalse(hero.refresh_btn.isHidden())
+                    self.assertTrue(hero.batch_refresh_btn.isHidden())
 
                     (root / 'MK8.app').mkdir(parents=True, exist_ok=True)
                     (root / 'MK8.ipa').write_bytes(b'ipa')
@@ -562,14 +563,34 @@ if rf.HAS_QT:
                         can_fast_ios=False,
                         needs_img_guide_ios=True,
                         missing_original_package=True,
+                        has_usable_seed=False,
                     )
                     bd = rf.BatchRefreshDialog(m, [rf.BatchRefreshEntry(game=game, assessment=assess)])
                     self.assertEqual(bd.width(), 680)
                     self.assertEqual(len(bd._checkboxes), 2)
                     self.assertTrue(bd._checkboxes[0][0].isEnabled())
                     self.assertFalse(bd._checkboxes[1][0].isEnabled())
+                    from PySide6.QtWidgets import QLabel
+                    bd_texts = [lbl.text() for lbl in bd.findChildren(QLabel)]
+                    self.assertIn(m.t('batchRefresh.missingPackage'), bd_texts)
                     bd.close()
                     bd.deleteLater()
+
+                    assess_seed = rf.GameRefreshAssessment(
+                        state='specific_fast',
+                        has_specific_update=True,
+                        version_label='1.5.0',
+                        can_fast_mac=True,
+                        can_fast_ios=False,
+                        needs_img_guide_ios=True,
+                        missing_original_package=True,
+                        has_usable_seed=True,
+                    )
+                    bd_seed = rf.BatchRefreshDialog(m, [rf.BatchRefreshEntry(game=game, assessment=assess_seed)])
+                    bd_seed_texts = [lbl.text() for lbl in bd_seed.findChildren(QLabel)]
+                    self.assertIn(m.t('batchRefresh.missingImg'), bd_seed_texts)
+                    bd_seed.close()
+                    bd_seed.deleteLater()
 
                     non_native_flags: list[bool] = []
 
@@ -589,4 +610,57 @@ if rf.HAS_QT:
                     hero.close()
                     hero.deleteLater()
                     m.deleteLater()
+                    from PySide6.QtCore import QEvent
+                    import gc
+                    self._app.sendPostedEvents(None, QEvent.DeferredDelete)
                     self._app.processEvents()
+                    del bd, bd_seed, guide, hero, m
+                    gc.collect()
+
+        def test_compute_hero_refresh_strings_includes_has_archive_for_ios(self) -> None:
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                from PySide6.QtCore import QSettings
+                from nspb_qt import model as model_mod
+                from nspb_qt.ui import MainWindow
+
+                arch_dir = root / 'archive_only'
+                arch_dir.mkdir(parents=True, exist_ok=True)
+                with mock.patch.object(lib_mod, 'default_state_dir', return_value=root / 'state'), \
+                     mock.patch.object(model_mod, 'QSettings', side_effect=lambda *a, **kw: QSettings(str(root / 's.ini'), QSettings.IniFormat)), \
+                     mock.patch.object(Model, 'check_deps', lambda _self: None), \
+                     mock.patch.object(lib_mod.ArtworkStore, 'request_banner_async'):
+                    m = Model()
+                    fake_win = mock.Mock(m=m)
+                    game = lib_mod.LibraryGame(
+                        title_id='0100152000022000',
+                        name='Mario Kart 8',
+                        archive_path=str(arch_dir),
+                    )
+                    self.assertFalse(game.has_app)
+                    self.assertFalse(game.has_ipa)
+                    self.assertFalse(game.has_ios_app)
+                    self.assertTrue(game.has_archive)
+                    self.assertTrue(game.is_ready_for_ios)
+
+                    assess = rf.GameRefreshAssessment(
+                        state='specific_full',
+                        has_specific_update=True,
+                        version_label='1.5.0',
+                        can_fast_mac=False,
+                        can_fast_ios=False,
+                        needs_img_guide_ios=True,
+                        missing_original_package=False,
+                    )
+                    fake_win._assessments = {game.title_id.upper(): assess}
+                    _badge, ref_lbl, _batch, _note, _en = MainWindow._compute_hero_refresh_strings(
+                        fake_win, game, is_building=False
+                    )
+                    self.assertIn(m.t('library.refresh.singleFastIOS'), ref_lbl)
+                    m.deleteLater()
+                    from PySide6.QtCore import QEvent
+                    import gc
+                    self._app.sendPostedEvents(None, QEvent.DeferredDelete)
+                    self._app.processEvents()
+                    del m
+                    gc.collect()

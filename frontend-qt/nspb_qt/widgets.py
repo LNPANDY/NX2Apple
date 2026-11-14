@@ -408,6 +408,7 @@ class HeroBannerWidget(QWidget):
 
         self.refresh_btn = QPushButton('')
         self.refresh_btn.setObjectName('creamPill')
+        self.refresh_btn.setFixedHeight(42)
         self.refresh_btn.setCursor(Qt.PointingHandCursor)
         self.refresh_btn.clicked.connect(self.refreshClicked.emit)
         self.refresh_btn.hide()
@@ -422,8 +423,6 @@ class HeroBannerWidget(QWidget):
         status_row.addWidget(self.status_lbl)
         status_row.addWidget(self.sw2_badge)
         status_row.addWidget(self.update_badge)
-        status_row.addWidget(self.refresh_btn)
-        status_row.addWidget(self.batch_refresh_btn)
         status_row.addStretch(1)
         lay.addLayout(status_row)
 
@@ -464,6 +463,7 @@ class HeroBannerWidget(QWidget):
         self.manage_btn.clicked.connect(lambda: self.manageClicked.emit(self.manage_btn))
 
         act_row.addWidget(self.primary_btn)
+        act_row.addWidget(self.refresh_btn)
         act_row.addWidget(self.manage_btn)
         act_row.addStretch(1)
         lay.addLayout(act_row)

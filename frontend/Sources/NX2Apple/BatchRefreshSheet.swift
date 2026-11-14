@@ -84,6 +84,10 @@ struct BatchRefreshSheet: View {
             (hasMac && disabledMac) || (hasIOS && disabledIOS)
         }
 
+        var showsMissingImgHint: Bool {
+            !disabledMac && hasIOS && disabledIOS && assessment.hasUsableSeed && assessment.needsMissingImgGuideIOS && externalIOSImgPath == nil
+        }
+
         var enabledTargets: [String] {
             var list: [String] = []
             if hasMac && !disabledMac { list.append(BuildTarget.mac) }
@@ -139,7 +143,7 @@ struct BatchRefreshSheet: View {
             }
 
             var hasMac = game.isReady
-            var hasIOS = game.hasIOSBuild
+            var hasIOS = game.hasIOSBuild(shellRoot: stores.build.shellCachePath)
             if !hasMac && !hasIOS {
                 if game.lastTarget == BuildTarget.mac {
                     hasMac = true
@@ -170,6 +174,10 @@ struct BatchRefreshSheet: View {
 
     private var fastRows: [CandidateRow] {
         rows.filter(\.isFastGroup)
+    }
+
+    func candidateTargetsForTesting() -> [(id: UUID, hasMac: Bool, hasIOS: Bool)] {
+        rows.map { (id: $0.id, hasMac: $0.hasMac, hasIOS: $0.hasIOS) }
     }
 
     private var fullRows: [CandidateRow] {
@@ -341,7 +349,12 @@ struct BatchRefreshSheet: View {
                                     .lineLimit(1)
                             }
                         }
-                        if row.showsMissingPackageHint {
+                        if row.showsMissingImgHint {
+                            Text(loc.t("batchRefresh.missingImg"))
+                                .font(.manrope(11.5))
+                                .foregroundStyle(LauncherPalette.building)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else if row.showsMissingPackageHint {
                             Text(loc.t("batchRefresh.missingPackage"))
                                 .font(.manrope(11.5))
                                 .foregroundStyle(LauncherPalette.building)

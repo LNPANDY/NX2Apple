@@ -568,6 +568,13 @@ class MainWindow(QMainWindow):
         chead.addWidget(self.coll_count_lbl)
         chead.addStretch(1)
 
+        self.coll_batch_refresh_btn = QPushButton(self.m.t('library.refresh.batchBtnIdle'))
+        self.coll_batch_refresh_btn.setObjectName('ghost')
+        self.coll_batch_refresh_btn.setCursor(Qt.PointingHandCursor)
+        self.coll_batch_refresh_btn.clicked.connect(self._on_hero_batch_refresh_clicked)
+        self.coll_batch_refresh_btn.hide()
+        chead.addWidget(self.coll_batch_refresh_btn)
+
         self.rescan_lib_btn = QPushButton(self.m.t('library.rescan'))
         self.rescan_lib_btn.setObjectName('ghost')
         self.rescan_lib_btn.clicked.connect(self._rescan_library)
@@ -708,6 +715,7 @@ class MainWindow(QMainWindow):
             self.skipped_wrap.hide()
 
         if not self.m.library.games:
+            self.coll_batch_refresh_btn.hide()
             self.lib_stack.setCurrentIndex(0)
             return
 
@@ -784,6 +792,7 @@ class MainWindow(QMainWindow):
                 batch_refresh_enabled=True,
             )
 
+        self._update_coll_batch_refresh_btn()
         self._schedule_refresh_assessments()
 
         # Rebuild horizontal strip
@@ -857,45 +866,65 @@ class MainWindow(QMainWindow):
             self.m.load_game_from_library(g)
             self._switch_page('builds')
 
+    def _update_coll_batch_refresh_btn(self) -> None:
+        if not self.m.library.games:
+            self.coll_batch_refresh_btn.hide()
+            return
+        cnt = sum(
+            1 for g in self.m.library.games
+            if (a := self._assessments.get(g.title_id.upper())) is not None and not a.is_up_to_date
+        )
+        if cnt > 0:
+            self.coll_batch_refresh_btn.setText(self.m.t('library.refresh.batchBtn', cnt))
+            self.coll_batch_refresh_btn.setStyleSheet(
+                'color: #ffbd38; border: 1px solid rgba(255, 189, 56, 0.45); border-radius: 9px; padding: 5px 12px; font-weight: 600;'
+            )
+        else:
+            self.coll_batch_refresh_btn.setText(self.m.t('library.refresh.batchBtnIdle'))
+            self.coll_batch_refresh_btn.setStyleSheet('')
+        self.coll_batch_refresh_btn.setToolTip(self.m.t('batchRefresh.title'))
+        self.coll_batch_refresh_btn.show()
+
     def _compute_hero_refresh_strings(
         self,
         sel: lib.LibraryGame,
         *,
         is_building: bool,
     ) -> tuple[str, str, str, str, bool]:
-        refreshable_games = [
-            g for g in self.m.library.games
-            if (a := self._assessments.get(g.title_id.upper())) is not None and not a.is_up_to_date
-        ]
         sel_a = self._assessments.get(sel.title_id.upper())
-        if is_building:
-            other_cnt = sum(1 for g in refreshable_games if g.title_id.upper() != sel.title_id.upper())
-            batch_lbl = self.m.t('library.refresh.batchOthersBtn', other_cnt) if other_cnt > 0 else ''
-            return ('', '', batch_lbl, '', True)
-
-        if sel_a is None or sel_a.is_up_to_date:
-            other_cnt = len(refreshable_games)
-            batch_lbl = self.m.t('library.refresh.batchOthersBtn', other_cnt) if other_cnt > 0 else ''
-            return ('', '', batch_lbl, '', True)
+        if is_building or sel_a is None or sel_a.is_up_to_date:
+            return ('', '', '', '', True)
 
         if sel_a.state in ('specific_fast', 'specific_full'):
             badge_txt = self.m.t('library.refresh.badgeVersion', sel_a.version_label)
         else:
             badge_txt = self.m.t('library.refresh.badgeGeneral')
 
-        if sel_a.state == 'specific_fast':
-            ref_lbl = self.m.t('library.refresh.fastBtn')
+        has_mac = bool(sel.has_app)
+        has_ios = bool(sel.is_ready_for_ios)
+        if not has_mac and not has_ios:
+            has_mac = True
+        is_fast = (has_mac and sel_a.can_fast_mac) or (has_ios and (sel_a.can_fast_ios or sel_a.needs_img_guide_ios))
+        if has_mac and has_ios:
+            btn_key = 'library.refresh.singleFastBoth' if is_fast else 'library.refresh.singleRebuildBoth'
+        elif has_mac:
+            btn_key = 'library.refresh.singleFastMac' if is_fast else 'library.refresh.singleRebuildMac'
+        else:
+            btn_key = 'library.refresh.singleFastIOS' if is_fast else 'library.refresh.singleRebuildIOS'
+        ver_txt = sel_a.version_label or rf.release_base_version(APP_VERSION)
+        ref_lbl = f'{self.m.t(btn_key)} {ver_txt}'.strip()
+
+        if not sel_a.has_usable_seed and sel_a.missing_original_package:
+            ref_note = self.m.t('library.refresh.noteNeedRomOnce')
+        elif sel_a.state == 'specific_fast':
             ref_note = self.m.t('library.refresh.noteSpecificFast', sel.name or sel.title_id, sel_a.version_label)
-        elif sel_a.state == 'specific_full':
-            ref_lbl = self.m.t('library.refresh.rebuildBtn')
+        elif sel_a.state == 'specific_full' or (not sel_a.can_fast_any and not sel_a.has_usable_seed):
             ref_note = self.m.t('library.refresh.noteSpecificFull')
         else:
-            ref_lbl = self.m.t('library.refresh.fastSyncBtn' if sel_a.can_fast_any else 'library.refresh.syncBtn')
             ref_note = self.m.t('library.refresh.noteGeneral')
 
-        batch_lbl = self.m.t('library.refresh.batchBtn', len(refreshable_games)) if len(refreshable_games) > 1 else ''
         ref_en = bool(sel_a.can_fast_any or sel_a.needs_img_guide_ios or not sel_a.missing_original_package)
-        return (badge_txt, ref_lbl, batch_lbl, ref_note, ref_en)
+        return (badge_txt, ref_lbl, '', ref_note, ref_en)
 
     def _schedule_refresh_assessments(self) -> None:
         if self._window_closed:
@@ -979,6 +1008,7 @@ class MainWindow(QMainWindow):
                         self.hero.batch_refresh_btn.setVisible(bool(batch_lbl))
                         self.hero.refresh_note_lbl.setText(ref_note)
                         self.hero.refresh_note_lbl.setVisible(bool(ref_note))
+                    self._update_coll_batch_refresh_btn()
                 except RuntimeError:
                     return
 

@@ -12,6 +12,7 @@ struct SupportedGamesSheet: View {
     let owned: (String) -> LibraryGame?
     @StateObject private var covers: SupportedCovers
     let showInLibrary: (UUID) -> Void
+    let appVersion: String
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var focus: PadFocus
     @Environment(\.dismiss) private var dismiss
@@ -23,30 +24,48 @@ struct SupportedGamesSheet: View {
     static let coverPixels = 224
 
     init(games: [SupportedGame], owned: @escaping (String) -> LibraryGame?, covers: @escaping @autoclosure () -> SupportedCovers,
-         showInLibrary: @escaping (UUID) -> Void) {
+         showInLibrary: @escaping (UUID) -> Void, appVersion: String = AppUpdateStore.appVersion) {
         self.games = games
         self.owned = owned
         _covers = StateObject(wrappedValue: covers())
         self.showInLibrary = showInLibrary
+        self.appVersion = appVersion
     }
 
     /// At most 720 tall and 80 shorter than the screen.
     static func height(screen: CGFloat) -> CGFloat { LauncherSheet.maxHeight(screen: screen) }
 
+    static func isUpdatedInCurrentRelease(titleID: String, appVersion: String = AppUpdateStore.appVersion) -> Bool {
+        GameUpdateCatalog.catalogVersion(for: titleID) == GameUpdateCatalog.releaseBaseVersion(appVersion)
+    }
+
+    static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String) -> Bool {
+        let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        let updated = GameUpdateCatalog.catalogVersion(for: game.titleID) ?? ""
+        return [game.name, game.titleID, ownedName, updated].contains {
+            $0.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+    }
+
+    static func detailText(for game: SupportedGame, t: (String) -> String) -> String {
+        var parts: [String] = []
+        if game.edition == .switch2 { parts.append(t("switch2.badge")) }
+        parts.append(game.version.map { String(format: t("supported.version"), $0) } ?? t("supported.noVersion"))
+        if let updated = GameUpdateCatalog.catalogVersion(for: game.titleID) {
+            parts.append(String(format: t("supported.lastUpdated"), updated))
+        }
+        return parts.joined(separator: " · ")
+    }
+
     var shown: [SupportedGame] {
-        let needle = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return needle.isEmpty ? games : games.filter { game in
-            [game.name, game.titleID, owned(game.titleID)?.displayName(loc.lang) ?? ""].contains {
-                $0.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-            }
+        games.filter { game in
+            Self.matchesSearch(game, needle: search, ownedName: owned(game.titleID)?.displayName(loc.lang) ?? "")
         }
     }
 
     func detail(_ game: SupportedGame) -> String {
-        var parts: [String] = []
-        if game.edition == .switch2 { parts.append(loc.t("switch2.badge")) }
-        parts.append(game.version.map { String(format: loc.t("supported.version"), $0) } ?? loc.t("supported.noVersion"))
-        return parts.joined(separator: " · ")
+        Self.detailText(for: game, t: { loc.t($0) })
     }
 
     var body: some View {
@@ -71,7 +90,9 @@ struct SupportedGamesSheet: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(shown) { game in
-                            SupportedGameRow(game: game, detail: detail(game), owned: owned(game.titleID), cover: covers.image(game.titleID),
+                            SupportedGameRow(game: game, detail: detail(game),
+                                             isCurrentUpdate: Self.isUpdatedInCurrentRelease(titleID: game.titleID, appVersion: appVersion),
+                                             owned: owned(game.titleID), cover: covers.image(game.titleID),
                                              expanded: selected == game.titleID,
                                              toggle: { selected = selected == game.titleID ? nil : game.titleID },
                                              show: { id in showInLibrary(id); dismiss() })
@@ -110,6 +131,7 @@ struct SupportedGamesSheet: View {
 private struct SupportedGameRow: View {
     let game: SupportedGame
     let detail: String
+    let isCurrentUpdate: Bool
     let owned: LibraryGame?
     let cover: NSImage?
     let expanded: Bool
@@ -132,7 +154,19 @@ private struct SupportedGameRow: View {
                     .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(LauncherPalette.cardBorder))
                     .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(game.name).font(.manrope(14.5, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                        HStack(alignment: .center, spacing: 8) {
+                            Text(game.name).font(.manrope(14.5, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                            if isCurrentUpdate {
+                                Text(loc.t("supported.updatedCurrent"))
+                                    .font(.manrope(10.5, .semibold))
+                                    .foregroundStyle(LauncherPalette.accent)
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(LauncherPalette.accent.opacity(0.14), in: Capsule())
+                            }
+                        }
                         Text(detail).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2).multilineTextAlignment(.leading)
                     }
                     Spacer(minLength: 12)
