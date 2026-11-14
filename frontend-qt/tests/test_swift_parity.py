@@ -1108,6 +1108,8 @@ class LibraryAndSpaceTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_delete_game_removes_only_its_shared_framework_and_shell_entry(self) -> None:
+        import shutil
+
         from nspb_qt.win.shell_export import ShellGame, ShellLibrary
 
         title_id = '010082A0205AE000'
@@ -1134,7 +1136,15 @@ class LibraryAndSpaceTests(unittest.TestCase):
         plan = lib.GameDeletionPlan.plan(game, shell_root=str(shell_root))
         self.assertEqual([(item.kind, item.paths) for item in plan.items],
                          [('shellFramework', [str(game_framework)])])
-        self.assertEqual(plan.run(), [])
+        trashed: list[str] = []
+
+        def trash(path: str) -> bool:   # the system's Trash stays out of the test
+            trashed.append(path)
+            shutil.rmtree(path)
+            return True
+
+        self.assertEqual(plan.run(trash=trash), [])
+        self.assertEqual(trashed, [str(game_framework)])
         self.assertFalse(game_framework.exists())
         self.assertTrue(other_framework.is_dir())
         self.assertEqual([item.title_id for item in ShellLibrary.load(shell_root).games], [other_id])
