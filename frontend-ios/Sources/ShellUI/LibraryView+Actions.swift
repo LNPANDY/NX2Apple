@@ -29,11 +29,13 @@ extension LibraryView {
         a.onUseShellCloud = { if !echo() { o.onUseShellCloud($0) } }
         a.onClearShellData = { if !echo() { o.onClearShellData() } }
         a.onClearShellCloud = { if !echo() { o.onClearShellCloud() } }
+        a.onImportSigningIdentity = { if !echo() { o.onImportSigningIdentity() } }
         a.onGlobalPadMapChange = { if !echo() { o.onGlobalPadMapChange($0, $1) } }
         a.onGlobalPadMapReset = { if !echo() { o.onGlobalPadMapReset() } }
         a.onPadMergeChange = { if !echo() { o.onPadMergeChange($0) } }
         a.onRestoreSaveBackup = { if !echo() { o.onRestoreSaveBackup($0) } }
         a.onDeleteGame = { if !echo() { o.onDeleteGame($0, $1) } }
+        a.onResignGame = { if !echo() { await o.onResignGame($0) } }
         return a
     }
     /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when
@@ -221,6 +223,7 @@ extension LibraryView {
         gate.handling = true
         defer { gate.handling = false }
         if case .controller = source { gate.controller(action) }
+        guard inputEnabled, !signingIdentityPresented, resigningGameID == nil else { return }
         // Every controller button belongs to the button test while it is open: it closes on B held, touch or Escape.
         if buttonTestOpen, case .controller = source { return }
         if device != source { device = source }

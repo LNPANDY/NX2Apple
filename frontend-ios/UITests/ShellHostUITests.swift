@@ -12,6 +12,31 @@ import XCTest
         XCTAssertTrue(app.buttons["tile.\(id)"].waitForExistence(timeout: 10))
     }
 
+    func testSigningIdentityBackReturnsToSettings() {
+        launch(select: "0100000000010000")
+        app.buttons["shellSettings.open"].tap()
+        let signing = app.buttons["shellSettings.signing"]
+        XCTAssertTrue(signing.waitForExistence(timeout: 5))
+        if !signing.isHittable { app.swipeUp() }
+        signing.tap()
+        XCTAssertTrue(app.buttons["signing.chooseP12"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["signing.chooseProfile"].exists)
+        XCTAssertTrue(app.secureTextFields["signing.password"].exists)
+        XCTAssertFalse(app.buttons["signing.save"].isEnabled)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["shellSettings.signing"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["signing.chooseP12"].exists)
+    }
+
+    func testBundledGameSettingsDoNotOfferResigning() {
+        launch(select: "0100000000010000")
+        XCTAssertFalse(app.buttons["signing.open"].exists)
+        app.buttons["settings.open"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["settings.scroll"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["set.resign"].exists)
+        XCTAssertFalse(app.buttons["signing.chooseP12"].exists)
+    }
+
     func testPlayableFixtureSaysLaunchingIsNotAvailable() {
         launch(select: "0100000000010000")
         XCTAssertEqual(app.staticTexts["hero.title"].label, "Orbit Fixture")

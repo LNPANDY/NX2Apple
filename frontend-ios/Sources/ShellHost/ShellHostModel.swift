@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 import ShellControllers
 import ShellUI
 #if canImport(UIKit)
@@ -75,14 +76,118 @@ public struct ShellHostConfig: Sendable {
     public private(set) var input = ShellInputLog()
     /// A short message the host view shows as an alert.
     public var notice: String?
+    public var noticeTitle: String?
     /// The log the host view shows in a read-only sheet.
     public var log: LogPresentation?
     /// Play is preparing the game's resources or handing over to the engine.
     public private(set) var launchingGame = false
+    @ObservationIgnored private let signingSession = GameSigningSession.shared
+    public var resigningGame: Bool { signingSession.resigning }
+
+    public var canResignGames: Bool {
+        !signingSession.hasPendingLaunch && !resigningGame && !signingSession.attemptedLaunch && cloudConflict == nil
+    }
+
+    public var resignableGames: [CatalogueEntry] {
+        guard let root = config.hotFrameworksRoot else { return [] }
+        return entries.filter { entry in
+            guard let url = entry.frameworkURL else { return false }
+            return GameResigning.isEligible(framework: url, hotRoot: root, titleID: entry.id)
+        }
+    }
+
+    private var pendingSigningResult: (() -> Void)?
+
+    public func showSigningResult() {
+        let result = pendingSigningResult
+        pendingSigningResult = nil
+        result?()
+    }
+
+    public func resignGame(_ id: String) async {
+        guard canResignGames,
+              let entry = resignableGames.first(where: { $0.id == id }),
+              let framework = entry.frameworkURL, let root = config.hotFrameworksRoot,
+              let executable = Bundle.main.executableURL,
+              let team = FrameworkSignature.inspect(executable: executable)?.teamID, !team.isEmpty else {
+            pendingSigningResult = { [weak self] in
+                self?.notice = hostText("Restart the app before re-signing an imported game.")
+            }
+            return
+        }
+        // Do not stage a potentially large game when no local identity is available.
+        guard ShellSigningIdentityStore().hasIdentity else {
+            pendingSigningResult = { [weak self] in self?.importingSigningIdentity = true }
+            return
+        }
+        signingSession.resigning = true
+        defer {
+            signingSession.resigning = false
+            signingSession.reload()
+        }
+        let failure = await Task.detached(priority: .userInitiated) { () -> String? in
+            let log = Logger(subsystem: "dev.nx2apple.shell", category: "signing")
+            var detail = ""
+            var steps = ["Preparing private game copy"]
+            do {
+                try GameResigning.replace(framework: framework, hotRoot: root, titleID: id) { copy in
+                    steps.append("Signing staged framework and checking iOS acceptance")
+                    try ShellSigningIdentityStore().sign(framework: copy, expectedTeamID: team)
+                    steps.append("iOS accepted staged signatures; installing game")
+                }
+                return nil
+            } catch let error as ShellSigningIdentityStore.Failure {
+                log.error("Identity unavailable: \(String(describing: error), privacy: .public)")
+                return hostText("Check your signing identity in Settings and unlock this device, then try again. The installed game was not changed.")
+                    + "\n\n" + steps.joined(separator: "\n") + "\nIdentity: \(error)"
+            } catch let error as ShellSigningError {
+                switch error {
+                case .signature(let reason), .invalid(let reason):
+                    log.error("Re-sign failed: \(reason, privacy: .public)")
+                    detail = reason
+                case .kernel(let stage, let code):
+                    log.error("Re-sign failed at \(stage, privacy: .public), errno \(code)")
+                    return hostText("iOS rejected this game's signature. Check that your signing identity matches this app. The installed game was not changed.")
+                        + "\n\n" + steps.joined(separator: "\n") + "\n\(stage): errno \(code)"
+                }
+            } catch {
+                let error = error as NSError
+                log.error("Re-sign file operation failed: \(error.domain, privacy: .public), code \(error.code)")
+                detail = "\(error.domain): \(error.code)"
+            }
+            return hostText("Re-signing failed. Check your identity and profile. iOS must accept the signature. The installed game was not changed.")
+                + "\n\n" + steps.joined(separator: "\n") + "\n" + detail
+        }.value
+        if let failure {
+            pendingSigningResult = { [weak self] in
+                self?.log = LogPresentation(gameID: id, title: hostText("Re-sign"), text: failure, truncated: false)
+            }
+        } else {
+            let expiration = entry.manifest.flatMap { manifest in
+                ShellImportedIdentityValidation.certificateExpiration(
+                    executable: framework.appendingPathComponent(manifest.frameworkExecutable))
+            }
+            let message: String
+            if let expiration, let profileExpiration = signingProfileExpiration {
+                let date = min(expiration, profileExpiration).formatted(date: .abbreviated, time: .omitted)
+                message = hostText("\(entry.title) is signed until \(date).")
+            } else {
+                message = hostText("\(entry.title) has been re-signed. The expiry date is unavailable.")
+            }
+            pendingSigningResult = { [weak self] in
+                self?.noticeTitle = hostText("Game re-signed")
+                self?.notice = message
+            }
+        }
+    }
+
     /// Cloud save conflict or unreadable-archive prompt awaiting the player's decision before launch.
     public var cloudConflict: CloudSavePrompt?
     /// Mild heads-up when the app's provisioning profile expires within 48 hours.
     public private(set) var signingWarning: SigningWarning?
+    public private(set) var signingTeamID: String?
+    private var signingProfileExpiration: Date?
+    public var importingSigningIdentity = false
 
     public private(set) var globalPadMap = PadMap()
     public private(set) var padMerge = false
@@ -170,10 +275,17 @@ public struct ShellHostConfig: Sendable {
         let expirationReader = config.provisioningExpiration
         let clock = config.now
         signingCheckTask = Task { [weak self] in
-            let expiration = await Task.detached(priority: .utility) { expirationReader() }.value
-            guard let self, !self.signingWarningDismissed else { return }
+            let (expiration, team) = await Task.detached(priority: .utility) {
+                (expirationReader(), Bundle.main.executableURL.flatMap { FrameworkSignature.inspect(executable: $0)?.teamID })
+            }.value
+            guard let self else { return }
+            self.signingTeamID = team
+            self.signingProfileExpiration = expiration
+            self.refreshAll()
+            guard !self.signingWarningDismissed else { return }
             self.signingWarning = ProvisioningProfile.warning(expiration: expiration, now: clock())
         }
+        signingSession.register(self)
         reload(afterClaim: true)
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
@@ -328,6 +440,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     private func reload(afterClaim: Bool) {
+        guard !resigningGame else { return }
         forgetCheckedRomfsImages()
         let scanned = GameCatalogue.scan(root: config.gamesRoot, hotRoot: config.hotFrameworksRoot).filter { !isDeleted($0) }
         let built = scanned.map(detail(for:))
@@ -514,8 +627,20 @@ public struct ShellHostConfig: Sendable {
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
                             isSwitch2: entry.manifest?.console == "switch2")
+        let canResign: Bool
+        if let framework = entry.frameworkURL, let root = config.hotFrameworksRoot {
+            canResign = GameResigning.isEligible(framework: framework, hotRoot: root, titleID: entry.id)
+        } else { canResign = false }
+        let signingExpiration: Date?
+        if canResign, let framework = entry.frameworkURL, let executable = entry.manifest?.frameworkExecutable {
+            if let certificate = ShellImportedIdentityValidation.certificateExpiration(executable: framework.appendingPathComponent(executable)),
+               let profile = signingProfileExpiration {
+                signingExpiration = min(certificate, profile)
+            } else { signingExpiration = nil }
+        } else { signingExpiration = nil }
         guard let profile = profile(for: entry, data: data) else {
-            return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false, shadersSatisfied: shadersSatisfied))
+            return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false, shadersSatisfied: shadersSatisfied),
+                              canResign: canResign, signingExpiration: signingExpiration)
         }
         let store = GameSettingsStore(profile: profile, defaults: config.defaults(entry.id), shell: shellSettings.gameDefaults)
         var cloud: String?
@@ -544,7 +669,7 @@ public struct ShellHostConfig: Sendable {
             cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings || !pad.entries.isEmpty,
             dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
             cloudCanUseShell: shellFolder && !cloudFromShell,
-            latestSaveBackup: latestBackup)
+            latestSaveBackup: latestBackup, canResign: canResign, signingExpiration: signingExpiration)
     }
 
     private func dataSource(_ data: DataResolution) -> String {
@@ -605,6 +730,7 @@ public struct ShellHostConfig: Sendable {
             onUseShellCloud: { [weak self] id in self?.useShellCloudSaves(id) },
             onClearShellData: { [weak self] in self?.clearShellData() },
             onClearShellCloud: { [weak self] in self?.clearShellCloud() },
+            onImportSigningIdentity: { [weak self] in self?.importingSigningIdentity = true },
             onGlobalPadMapChange: { [weak self] setting, value in
                 guard let self else { return }
                 if setting == "swapAB" { self.shellSettings.setPadSwapAB(value == "1") }
@@ -615,7 +741,9 @@ public struct ShellHostConfig: Sendable {
             onButtonTest: { [weak self] open in self?.buttonTest(open) },
             onPadMergeChange: { [weak self] on in self?.setPadMerge(on) },
             onRestoreSaveBackup: { [weak self] id in self?.restoreLatestSaveBackup(id) },
-            onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) })
+            onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) },
+            onResignGame: { [weak self] id in await self?.resignGame(id) },
+            onShowSigningResult: { [weak self] in self?.showSigningResult() })
     }
 
     public func change(_ id: String, setting: String, value: String) {
@@ -767,6 +895,7 @@ public struct ShellHostConfig: Sendable {
     /// and cloud saves (those folders are the player's and are not touched) and when it was played, and takes the game off the
     /// list. The game's framework inside the app stays: see `GameDeletion`.
     public func deleteGame(_ id: String, saves: Bool) {
+        guard !resigningGame else { return }
         guard let entry = entry(id) else { return }
         joinGeneration &+= 1
         joiningProgress.removeValue(forKey: id)
@@ -823,7 +952,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     func playNow(_ id: String) async {
-        guard !launchingGame, cloudConflict == nil,
+        guard !launchingGame, !resigningGame, cloudConflict == nil,
               let entry = entry(id), let manifest = entry.manifest, let framework = entry.frameworkURL,
               details.first(where: { $0.id == id })?.game.state == .playable else { return }
         cloudCheckGeneration &+= 1
@@ -900,6 +1029,7 @@ public struct ShellHostConfig: Sendable {
             cancelCloudConflict()
             return
         }
+        guard !resigningGame else { return }
         guard !launchingGame, let pending = pendingCloudLaunch else { return }
         let isUnreadable = pending.report.outcome == .unreadable
         let syncChoice: CloudSaveSyncCheck.Choice
@@ -970,13 +1100,14 @@ public struct ShellHostConfig: Sendable {
     }
 
     private func finishLaunch(_ baseGame: LaunchableGame) async {
+        guard !resigningGame else { return }
         var game = baseGame
         // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
         LastPlayedStore(defaults: config.defaults(game.titleID)).record(config.now())
         refresh(game.titleID)
         do {
             game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
-            try await launcher.launch(game)
+            try await launcher.launch(game) { signingSession.attemptedLaunch = true }
         } catch {
             notice = error.localizedDescription
         }

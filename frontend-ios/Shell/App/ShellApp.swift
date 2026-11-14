@@ -18,6 +18,10 @@ struct EngineGameLauncher: GameLauncher {
     }
 
     @MainActor func launch(_ game: LaunchableGame) async throws {
+        try await launch(game, willLoad: {})
+    }
+
+    @MainActor func launch(_ game: LaunchableGame, willLoad: () -> Void) async throws {
         let fm = FileManager.default
         let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let bundleURL = Bundle.main.bundleURL
@@ -32,6 +36,7 @@ struct EngineGameLauncher: GameLauncher {
         }
         try plan.createFolders()
         let pairs = plan.environment.sorted { $0.key < $1.key }
+        willLoad()
         let failure = withCStrings(pairs.map(\.key)) { keys in
             withCStrings(pairs.map(\.value)) { values in
                 withCStrings(plan.arguments) { argv in

@@ -122,6 +122,22 @@ import Testing
         #expect(!fm.fileExists(atPath: hotOrbit.path), "redundant hot framework is reclaimed once the app bundle carries the build")
     }
 
+    @Test func resignControlIsOfferedOnlyForImportedGame() async throws {
+        let box = try Sandbox()
+        let bundled = ShellHostModel(config: box.config())
+        #expect(bundled.details.allSatisfy { !$0.canResign })
+        await bundled.resignGame(Fixtures.orbit)
+        #expect(bundled.notice == nil)
+        bundled.showSigningResult()
+        #expect(bundled.notice != nil)
+        #expect(!bundled.resigningGame)
+        var cfg = box.config()
+        cfg.hotFrameworksRoot = box.root.appendingPathComponent("Documents/Frameworks")
+        _ = try writeFramework(in: cfg.hotFrameworksRoot!, builtAt: "2026-11-12T10:00:00Z")
+        let model = ShellHostModel(config: cfg)
+        #expect(model.details.first { $0.id == Fixtures.orbit }?.canResign == true)
+    }
+
     @Test func deletingHotOverriddenGameRemovesHotFrameworkAndSuppressesOlderBundledCopy() throws {
         let box = try Sandbox()
         let hotRoot = box.root.appendingPathComponent("Documents/Frameworks", isDirectory: true)
