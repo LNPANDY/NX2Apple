@@ -6689,6 +6689,42 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
             self.assertFalse(got_res2)
             self.assertLess(time.monotonic() - t0, 1.0)
 
+        # Transient PermissionError on rmdir retries cleanly, removes empty stale defender-* sibling dirs,
+        # and preserves non-empty sibling dirs; _launch_elevated_win32 avoids locking work_td as lpDirectory
+        import inspect
+        launch_src = inspect.getsource(d._launch_elevated_win32)
+        self.assertIn('Path(work_td).parent', launch_src)
+        self.assertNotIn('sei.lpDirectory = work_td', launch_src)
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            work_dir = base / 'defender-current'
+            work_dir.mkdir()
+            temp_file = work_dir / 'result.json'
+            temp_file.write_text('{}', encoding='utf-8')
+            stale_empty = base / 'defender-stale'
+            stale_empty.mkdir()
+            stale_active = base / 'defender-active'
+            stale_active.mkdir()
+            (stale_active / 'payload.json').write_text('{}', encoding='utf-8')
+
+            real_rmdir = os.rmdir
+            attempts = {'n': 0}
+
+            def flaky_rmdir(path):
+                if Path(path) == work_dir and attempts['n'] < 2:
+                    attempts['n'] += 1
+                    raise PermissionError(32, 'directory handle still held')
+                return real_rmdir(path)
+
+            with mock.patch('nspb_qt.win.defender.os.rmdir', side_effect=flaky_rmdir), \
+                 mock.patch('nspb_qt.win.defender.time.sleep'):
+                d._cleanup_work_dir(str(work_dir), temp_file)
+
+            self.assertEqual(attempts['n'], 2)
+            self.assertFalse(work_dir.exists())
+            self.assertFalse(stale_empty.exists())
+            self.assertTrue((stale_active / 'payload.json').is_file())
+
     def test_model_defender_generation_guard_and_all_seven_languages(self) -> None:
         import ast
         from nspb_qt.i18n import Lang

@@ -998,13 +998,15 @@ def _launch_elevated_win32(
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
 
+    parent_dir = str(Path(work_td).parent)
+
     sei = SHELLEXECUTEINFOW()
     sei.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
     sei.fMask = SEE_MASK_NOCLOSEPROCESS
     sei.lpVerb = 'runas'
     sei.lpFile = ps_exe
     sei.lpParameters = params
-    sei.lpDirectory = work_td
+    sei.lpDirectory = parent_dir if os.path.isdir(parent_dir) else None
     sei.nShow = SW_HIDE
 
     if not shell32.ShellExecuteExW(ctypes.byref(sei)):
@@ -1032,6 +1034,8 @@ def _launch_elevated_win32(
             pid_alive_fn=_win32_is_pid_alive,
             timeout_sec=timeout_sec,
         )
+        # Wait briefly after result.json appears so elevated powershell.exe releases script/dir handles cleanly
+        kernel32.WaitForSingleObject(h_proc, 1000)
         code = wintypes.DWORD(0)
         if kernel32.GetExitCodeProcess(h_proc, ctypes.byref(code)):
             return int(code.value), ''
@@ -1051,25 +1055,40 @@ def _string_list_field(res_obj: object, key: str) -> list[str]:
     return []
 
 
-def _cleanup_work_dir(work_td: str, *known_files: Path) -> None:
-    for f in known_files:
+def _retry_remove(remove_fn, path_obj: Path, attempts: int = 5, delay_sec: float = 0.05) -> None:
+    """Retry single-file unlink or empty-dir rmdir briefly when Windows releases child handles."""
+    for i in range(attempts):
         try:
-            if f.exists():
-                f.unlink()
+            remove_fn(path_obj)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if i + 1 < attempts:
+                time.sleep(delay_sec)
+
+
+def _cleanup_work_dir(work_td: str, *known_files: Path) -> None:
+    work_path = Path(work_td)
+    for f in known_files:
+        if f.exists():
+            _retry_remove(Path.unlink, f)
+    try:
+        for extra in work_path.glob('*.tmp-*'):
+            _retry_remove(Path.unlink, extra)
+    except OSError:
+        pass
+    _retry_remove(os.rmdir, work_path)
+    if work_path.name.startswith('defender-'):
+        try:
+            for stale in work_path.parent.glob('defender-*'):
+                if stale != work_path and stale.is_dir():
+                    try:
+                        os.rmdir(stale)
+                    except OSError:
+                        pass
         except OSError:
             pass
-    try:
-        for extra in Path(work_td).glob('*.tmp-*'):
-            try:
-                extra.unlink()
-            except OSError:
-                pass
-    except OSError:
-        pass
-    try:
-        os.rmdir(work_td)
-    except OSError:
-        pass
 
 
 def _run_elevated_payload(
