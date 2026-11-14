@@ -199,7 +199,7 @@ class DeleteGameDialog(QDialog):
         self.setMinimumSize(520, 380)
         self.setStyleSheet(style.STYLESHEET)
 
-        self.plan = lib.GameDeletionPlan.plan(game, measure=True)
+        self.plan = lib.GameDeletionPlan.plan(game, measure=True, shell_root=self.m.shell_cache_path)
         self.delete_saves = False
 
         lay = QVBoxLayout(self)
@@ -244,7 +244,16 @@ class DeleteGameDialog(QDialog):
                 rl.setContentsMargins(18, 12, 18, 12)
                 t_lbl = QLabel(part_labels.get(it.kind, it.kind))
                 t_lbl.setObjectName('rowTitle')
-                rl.addWidget(t_lbl, 1)
+                if it.kind == 'shellFramework':
+                    title_col = QVBoxLayout()
+                    title_col.addWidget(t_lbl)
+                    detail = QLabel(self.m.t('delete.part.shellFrameworkNote'))
+                    detail.setObjectName('muted')
+                    detail.setWordWrap(True)
+                    title_col.addWidget(detail)
+                    rl.addLayout(title_col, 1)
+                else:
+                    rl.addWidget(t_lbl, 1)
                 s_lbl = QLabel(lib.format_bytes(it.bytes))
                 s_lbl.setObjectName('mono')
                 rl.addWidget(s_lbl)
