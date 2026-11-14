@@ -187,7 +187,7 @@ extension ConsoleState {
         guard !needle.isEmpty else { return supportedGames }
         return supportedGames.filter { game in
             let ownedTitle = ownedGameID(game).flatMap { id in games.first { $0.id == id }?.title } ?? ""
-            return [game.name, game.titleID, ownedTitle].contains { $0.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+            return SupportedGamesSheet.matchesSearch(game, needle: needle, ownedName: ownedTitle)
         }
     }
     /// The library's game for a supported game the player owns.

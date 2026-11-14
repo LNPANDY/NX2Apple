@@ -149,4 +149,31 @@ import XCTest
         state.typeSupported("y")
         XCTAssertEqual(state.supportedText, "x", "nothing types once the page is closed")
     }
+
+    func testSupportedGamesDisplayLastUpdatedVersionBadgeAndFilterByCatalogVersion() {
+        let currentGame = SupportedGame(titleID: "0100152000022000", name: "Mario Kart 8 Deluxe", edition: .switch1, version: "3.0.3", notes: "")
+        let olderCatalogGame = SupportedGame(titleID: "010012101468C000", name: "Older Profile Game", edition: .switch1, version: "1.0.0", notes: "")
+        let uncatalogedGame = SupportedGame(titleID: "0100000000009999", name: "Uncataloged Game", edition: .switch1, version: "1.0.0", notes: "")
+
+        let currentDetail = SupportedGamesSheet.detailText(for: currentGame, t: { L10n.string($0, .en) })
+        let olderDetail = SupportedGamesSheet.detailText(for: olderCatalogGame, t: { L10n.string($0, .en) })
+        let uncatalogedDetail = SupportedGamesSheet.detailText(for: uncatalogedGame, t: { L10n.string($0, .en) })
+
+        XCTAssertTrue(currentDetail.contains("1.5.0"), currentDetail)
+        XCTAssertTrue(olderDetail.contains("1.4.0"), olderDetail)
+        XCTAssertEqual(uncatalogedDetail, String(format: L10n.string("supported.version", .en), "1.0.0"))
+
+        XCTAssertTrue(SupportedGamesSheet.isUpdatedInCurrentRelease(titleID: currentGame.titleID, appVersion: "1.5.0-rc3"))
+        XCTAssertFalse(SupportedGamesSheet.isUpdatedInCurrentRelease(titleID: olderCatalogGame.titleID, appVersion: "1.5.0"))
+        XCTAssertFalse(SupportedGamesSheet.isUpdatedInCurrentRelease(titleID: uncatalogedGame.titleID, appVersion: "1.5.0"))
+
+        var state = ConsoleState(games: [])
+        state.openSupportedGames([currentGame, olderCatalogGame, uncatalogedGame], owned: [:])
+        state.supportedText = "1.5.0"
+        XCTAssertEqual(state.supportedShown.map(\.titleID), [currentGame.titleID])
+        state.supportedText = "1.4.0"
+        XCTAssertEqual(state.supportedShown.map(\.titleID), [olderCatalogGame.titleID])
+        state.supportedText = "9.9.9"
+        XCTAssertTrue(state.supportedShown.isEmpty)
+    }
 }
