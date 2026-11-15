@@ -1,0 +1,598 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sun, 15 Nov 2026 07:50:52 +0800
+Subject: [PATCH] gfx: adaptive iOS memory-pressure convergence for recycled
+ render-target heaps
+
+Upstream-Status: pending
+Reason: Converge iOS DM_NVN_RT_RECYCLE placement heap pool caps under low memory and dispatch pressure while preserving macOS defaults
+Issue: none
+
+---
+ dm/gfx/nvn/nvn_mtl.m               | 142 ++++++++++++++++++++----
+ dm/gfx/nvn/nvn_rt_recycle.h        |  59 ++++++++++
+ dm/gfx/tests/Makefile              |   2 +
+ dm/gfx/tests/t_rt_recycle.m        |  89 +++++++++++++++
+ dm/gfx/tests/t_rt_recycle_policy.c | 169 +++++++++++++++++++++++++++++
+ 5 files changed, 442 insertions(+), 19 deletions(-)
+ create mode 100644 dm/gfx/nvn/nvn_rt_recycle.h
+ create mode 100644 dm/gfx/tests/t_rt_recycle_policy.c
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index e07ce05..bdd1e27 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -36,6 +36,7 @@
+ #include "nvn_primitive.h"
+ #include "nvn_link_drain.h"
+ #include "nvn_timestamp.h"
++#include "nvn_rt_recycle.h"
+ #include "msl_image.h"
+ #include "../msl_mount.h"
+ #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
+@@ -360,22 +361,90 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
+ // added (resource_vis). Heaps idle for RH_IDLE_NS, and the oldest past
+ // RH_CAP bytes waiting, leave the residency set when a submission begins (rh_trim). DM_NVN_RT_RECYCLE=0 makes each texture its own allocation and each family heap exact and freed
+ // with its last texture, as before; ab alternates it with the DM_AB phases
+-enum { RH_CAP = 256u << 20 }; static const uint64_t RH_IDLE_NS = 3000000000ull;
+-typedef struct { void *heap; uint64_t size, t; } rh_ent;   // heap: retained (CFBridgingRetain); t: when it began to wait
++typedef struct { void *heap; uint64_t size, t; } rh_ent;   // heap: retained (CFBridgingRetain), t: when it began to wait
+ static os_unfair_lock g_rh_lk = OS_UNFAIR_LOCK_INIT; static rh_ent *g_rh; static unsigned g_rh_n, g_rh_cap; static uint64_t g_rh_bytes;
+ static _Atomic uint64_t g_rh_made, g_rh_reused, g_rh_trimmed;   // for the memory readout
++static int g_rh_mode = -1;
++static _Atomic int g_rh_pressure;
++static _Atomic int g_rh_test_override, g_rh_test_is_ios, g_rh_test_pressure;
++static _Atomic uint64_t g_rh_test_avail_bytes;
++static dispatch_queue_t g_rh_mem_q;
++static dispatch_source_t g_rh_mem_src;
+ static int sw_mode(const char *name, int dflt); static inline int sw_on(int m);
+-static int rh_mode(void) { static int m = -1; if (m < 0) m = sw_mode("DM_NVN_RT_RECYCLE", 1); return m; }
++static int rh_mode(void) { if (g_rh_mode < 0) g_rh_mode = sw_mode("DM_NVN_RT_RECYCLE", 1); return g_rh_mode; }
++static void rh_test_set(int enable, int is_ios, uint64_t avail_bytes, int pressure) {
++    atomic_store_explicit(&g_rh_test_is_ios, is_ios, memory_order_relaxed);
++    atomic_store_explicit(&g_rh_test_avail_bytes, avail_bytes, memory_order_relaxed);
++    atomic_store_explicit(&g_rh_test_pressure, pressure, memory_order_relaxed);
++    atomic_store_explicit(&g_rh_test_override, enable, memory_order_release);
++}
++static void rh_cur_policy(rh_policy *out) {
++    int is_ios = TARGET_OS_IPHONE;
++    uint64_t avail = 0;
++    int pressure = atomic_load_explicit(&g_rh_pressure, memory_order_relaxed);
++#if TARGET_OS_IPHONE
++    avail = (uint64_t)os_proc_available_memory();
++#endif
++    if (atomic_load_explicit(&g_rh_test_override, memory_order_acquire)) {
++        is_ios = atomic_load_explicit(&g_rh_test_is_ios, memory_order_relaxed);
++        avail = atomic_load_explicit(&g_rh_test_avail_bytes, memory_order_relaxed);
++        pressure = atomic_load_explicit(&g_rh_test_pressure, memory_order_relaxed);
++    }
++    *out = rh_policy_for_platform(is_ios, avail, pressure);
++}
++// Evict expired or over-budget entries in 64-entry batches, releasing and calling res_remove outside g_rh_lk
++static void rh_evict_to_budget(uint64_t now, const rh_policy *p) {
++    if (!p) return;
++    for (;;) {
++        void *drop[64];
++        unsigned nd = 0;
++        os_unfair_lock_lock(&g_rh_lk);
++        while (g_rh_n && nd < 64) {
++            unsigned old = 0;
++            for (unsigned i = 1; i < g_rh_n; i++) {
++                if (g_rh[i].t < g_rh[old].t) old = i;
++            }
++            if (!rh_needs_evict(g_rh_bytes, now, g_rh[old].t, p)) break;
++            drop[nd++] = g_rh[old].heap;
++            g_rh_bytes = g_rh_bytes >= g_rh[old].size ? g_rh_bytes - g_rh[old].size : 0;
++            g_rh[old] = g_rh[--g_rh_n];
++        }
++        int more = g_rh_n != 0 && nd == 64;
++        os_unfair_lock_unlock(&g_rh_lk);
++        if (!nd) break;
++        for (unsigned i = 0; i < nd; i++) {
++            id<MTLHeap> h = CFBridgingRelease(drop[i]);
++            res_remove(h);
++        }
++        atomic_fetch_add(&g_rh_trimmed, nd);
++        if (!more) break;
++    }
++}
+ // A heap whose texture was freed waits for the next texture it fits (with the switch off it is freed). Runs where the texture's last reference goes (defer_drain: the submit thread or a
+ // completion handler)
+ static void rh_wait(id<MTLHeap> heap) {
++    rh_policy p;
++    rh_cur_policy(&p);
+     if (!heap || atomic_load(&g_gfx_teardown)) return;
+-    if (!sw_on(rh_mode())) { res_remove(heap); return; }
+-    rh_ent e = {(void *)CFBridgingRetain(heap), heap.size, clock_gettime_nsec_np(CLOCK_MONOTONIC)};
++    uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC);
++    if (!sw_on(rh_mode())) {
++        res_remove(heap);
++        rh_policy zero = {0, 0, 0, 1};
++        rh_evict_to_budget(now, &zero);
++        return;
++    }
++    uint64_t sz = (uint64_t)heap.size;
++    if (!rh_should_pool_entry(&p, sz)) {
++        res_remove(heap);
++        rh_evict_to_budget(now, &p);
++        return;
++    }
++    rh_ent e = {(void *)CFBridgingRetain(heap), sz, now};
+     os_unfair_lock_lock(&g_rh_lk);
+     if (g_rh_n == g_rh_cap) { g_rh_cap = g_rh_cap ? 2 * g_rh_cap : 64; g_rh = realloc_or_die(g_rh, g_rh_cap * sizeof *g_rh, "the recycled texture heaps"); }
+     g_rh[g_rh_n++] = e; g_rh_bytes += e.size;
+     os_unfair_lock_unlock(&g_rh_lk);
++    rh_evict_to_budget(now, &p);
+ }
+ @interface NvRecycledHeap : NSObject { @public id<MTLHeap> heap; } @end
+ @implementation NvRecycledHeap
+@@ -392,7 +461,9 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
+     *reused = 0;
+     if (!size) return nil;
+     int on = sw_on(rh_mode());
+-    uint64_t top = size + size / 2;
++    rh_policy p;
++    rh_cur_policy(&p);
++    uint64_t top = rh_reuse_max(size);
+     void *got = NULL;
+     if (on) {
+         os_unfair_lock_lock(&g_rh_lk);
+@@ -403,11 +474,11 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
+             if (h.storageMode != sm || h.cpuCacheMode != cm) continue;   // (a placed texture takes its heap's hazard tracking: a placement heap reports untracked, a descriptor default)
+             best = i;
+         }
+-        if (best < g_rh_n) { got = g_rh[best].heap; g_rh_bytes -= g_rh[best].size; g_rh[best] = g_rh[--g_rh_n]; }
++        if (best < g_rh_n) { got = g_rh[best].heap; g_rh_bytes = g_rh_bytes >= g_rh[best].size ? g_rh_bytes - g_rh[best].size : 0; g_rh[best] = g_rh[--g_rh_n]; }
+         os_unfair_lock_unlock(&g_rh_lk);
+     }
+     if (got) { *reused = 1; atomic_fetch_add(&g_rh_reused, 1); return CFBridgingRelease(got); }
+-    MTLHeapDescriptor *hd = [MTLHeapDescriptor new]; hd.type = MTLHeapTypePlacement; hd.size = on ? size + size / 8 : size;
++    MTLHeapDescriptor *hd = [MTLHeapDescriptor new]; hd.type = MTLHeapTypePlacement; hd.size = on ? rh_alloc_size(size, p.exact_alloc) : size;
+     hd.storageMode = sm; hd.cpuCacheMode = cm; hd.hazardTrackingMode = hm;
+     id<MTLHeap> h = [g_dev newHeapWithDescriptor:hd];
+     if (h && on) atomic_fetch_add(&g_rh_made, 1);
+@@ -464,19 +535,18 @@ static void tu_register(id<MTLTexture> t, uint64_t serial) {
+     if (g_tu_gone.n && nvn_hm_del(&g_tu_gone, &serial)) g_tu_remade++;
+     os_unfair_lock_unlock(&g_tu_lk);
+ }
+-// When a submission begins: heaps that waited RH_IDLE_NS, and the oldest past RH_CAP bytes, leave the residency set and are freed
++// When a submission begins: heaps past the platform idle or budget policy leave the residency set and are freed
+ static void rh_trim(void) {
+-    if (!g_rh_n) return;
+-    uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC); void *drop[64]; unsigned nd = 0;
+-    os_unfair_lock_lock(&g_rh_lk);
+-    while (g_rh_n && nd < 64) {
+-        unsigned old = 0; for (unsigned i = 1; i < g_rh_n; i++) if (g_rh[i].t < g_rh[old].t) old = i;
+-        if (now - g_rh[old].t < RH_IDLE_NS && g_rh_bytes <= RH_CAP) break;
+-        drop[nd++] = g_rh[old].heap; g_rh_bytes -= g_rh[old].size; g_rh[old] = g_rh[--g_rh_n];
++    if (atomic_load(&g_gfx_teardown)) return;
++    uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC);
++    if (!sw_on(rh_mode())) {
++        rh_policy zero = {0, 0, 0, 1};
++        rh_evict_to_budget(now, &zero);
++        return;
+     }
+-    os_unfair_lock_unlock(&g_rh_lk);
+-    for (unsigned i = 0; i < nd; i++) { id<MTLHeap> h = CFBridgingRelease(drop[i]); res_remove(h); }
+-    if (nd) atomic_fetch_add(&g_rh_trimmed, nd);
++    rh_policy p;
++    rh_cur_policy(&p);
++    rh_evict_to_budget(now, &p);
+ }
+ // The R32 storage under a 32-bit colour texture that takes image atomics (tex_upgrade): resident as long as the colour view over it lives, which is what the game's names hold
+ @interface NvAtomicRaw : NSObject { @public id<MTLTexture> raw; } @end
+@@ -836,6 +906,28 @@ void mtl_init(void) {
+     if (!g_nvn_deswz_gpu) MLOG("[RED] GPU deswizzle init failed; swizzled textures fall back to the CPU");
+     MLOG("Metal device %s", g_dev.name.UTF8String);
+     udc_selftest();
++#if TARGET_OS_IPHONE
++    if (!g_rh_mem_q) g_rh_mem_q = dispatch_queue_create("dm.nvn.rh-mem", DISPATCH_QUEUE_SERIAL);
++    if (!g_rh_mem_src) {
++        dispatch_source_t src = dispatch_source_create(DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0,
++            DISPATCH_MEMORYPRESSURE_NORMAL | DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL,
++            g_rh_mem_q);
++        __weak dispatch_source_t wsrc = src;
++        dispatch_source_set_event_handler(src, ^{ @autoreleasepool {
++            dispatch_source_t s = wsrc;
++            if (!s || atomic_load(&g_gfx_teardown)) return;
++            unsigned long flags = dispatch_source_get_data(s);
++            if (flags & (DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL)) {
++                atomic_store_explicit(&g_rh_pressure, 1, memory_order_release);
++                rh_trim();
++            } else if (flags & DISPATCH_MEMORYPRESSURE_NORMAL) {
++                atomic_store_explicit(&g_rh_pressure, 0, memory_order_release);
++            }
++        } });
++        g_rh_mem_src = src;
++        dispatch_resume(src);
++    }
++#endif
+ }
+ 
+ void dm_mtl_l3_tick(uint32_t tick) {
+@@ -18489,6 +18581,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+     atomic_fetch_add(&g_defer_gen, 1);
+     mtl_present_discard(1);
+     dispatch_group_wait(bg_group(), DISPATCH_TIME_FOREVER);
++    dispatch_source_t msrc = g_rh_mem_src;
++    dispatch_queue_t mq = g_rh_mem_q;
++    if (msrc) dispatch_source_cancel(msrc);
++    if (mq) dispatch_sync(mq, ^{});
++    g_rh_mem_src = nil;
++    g_rh_mem_q = nil;
+ 
+     if (g_q) {
+         if (on_sub_thread()) { up_flush(); rec_drain(); }
+@@ -18721,6 +18819,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+     for (unsigned i = 0; i < g_rh_n; i++) if (g_rh[i].heap) CFRelease(g_rh[i].heap);
+     free(g_rh); g_rh = NULL; g_rh_n = g_rh_cap = 0; g_rh_bytes = 0;
+     os_unfair_lock_unlock(&g_rh_lk);
++    g_rh_mode = -1;
++    atomic_store(&g_rh_made, 0);
++    atomic_store(&g_rh_reused, 0);
++    atomic_store(&g_rh_trimmed, 0);
++    atomic_store(&g_rh_pressure, 0);
++    rh_test_set(0, 0, 0, 0);
+ 
+     pthread_mutex_lock(&g_res_commit_mu);
+     pthread_mutex_lock(&g_res_mu);
+diff --git a/dm/gfx/nvn/nvn_rt_recycle.h b/dm/gfx/nvn/nvn_rt_recycle.h
+new file mode 100644
+index 0000000..c569dbd
+--- /dev/null
++++ b/dm/gfx/nvn/nvn_rt_recycle.h
+@@ -0,0 +1,59 @@
++// Pure-C policy helpers for recycled render-target placement heaps (nvn_mtl.m).
++#ifndef NVN_RT_RECYCLE_H
++#define NVN_RT_RECYCLE_H
++
++#include <stdint.h>
++
++enum { RH_CAP = 256u << 20 };
++#define RH_IDLE_NS 3000000000ull
++
++typedef struct {
++    uint64_t cap_bytes;
++    uint64_t max_entry_bytes;
++    uint64_t idle_ns;
++    int exact_alloc;
++} rh_policy;
++
++static inline rh_policy rh_policy_for_platform(int is_ios, uint64_t avail_bytes, int pressure) {
++    if (!is_ios) {
++        return (rh_policy){(uint64_t)RH_CAP, (uint64_t)RH_CAP, RH_IDLE_NS, 0};
++    }
++    if (pressure != 0 || avail_bytes < (768ull << 20)) {
++        return (rh_policy){0, 0, 0, 1};
++    }
++    if (avail_bytes < (1024ull << 20)) {
++        return (rh_policy){16ull << 20, 8ull << 20, 500000000ull, 1};
++    }
++    if (avail_bytes < (1536ull << 20)) {
++        return (rh_policy){48ull << 20, 16ull << 20, 1500000000ull, 1};
++    }
++    return (rh_policy){96ull << 20, 32ull << 20, 2000000000ull, 1};
++}
++
++static inline int rh_entry_expired(uint64_t now, uint64_t entry_t, uint64_t idle_ns) {
++    return idle_ns == 0 || (now >= entry_t && (now - entry_t) >= idle_ns);
++}
++
++static inline uint64_t rh_alloc_size(uint64_t size, int exact_alloc) {
++    if (exact_alloc) return size;
++    uint64_t extra = size / 8;
++    return size > UINT64_MAX - extra ? UINT64_MAX : size + extra;
++}
++
++static inline uint64_t rh_reuse_max(uint64_t size) {
++    uint64_t half = size / 2;
++    return size > UINT64_MAX - half ? UINT64_MAX : size + half;
++}
++
++static inline int rh_should_pool_entry(const rh_policy *p, uint64_t size) {
++    if (!p || p->cap_bytes == 0 || size == 0 || size > p->cap_bytes) return 0;
++    if (p->max_entry_bytes > 0 && size > p->max_entry_bytes) return 0;
++    return 1;
++}
++
++static inline int rh_needs_evict(uint64_t total_bytes, uint64_t now, uint64_t oldest_t, const rh_policy *p) {
++    if (!p) return 0;
++    return total_bytes > p->cap_bytes || rh_entry_expired(now, oldest_t, p->idle_ns);
++}
++
++#endif
+diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
+index 1bac186..b739260 100644
+--- a/dm/gfx/tests/Makefile
++++ b/dm/gfx/tests/Makefile
+@@ -544,6 +544,8 @@ t_image_alias: t_image_alias.m $(MTL_T_DEP)
+ check_t_image_alias: t_image_alias
+ 	DM_NVN_ENC_THREAD=0 MTL_DEBUG_LAYER=1 ./t_image_alias
+ 	DM_NVN_ENC_THREAD=1 MTL_DEBUG_LAYER=1 ./t_image_alias
++t_rt_recycle_policy: t_rt_recycle_policy.c ../nvn/nvn_rt_recycle.h
++	clang -O1 -Wall -Wextra -Werror -o $@ t_rt_recycle_policy.c
+ t_rt_recycle: t_rt_recycle.m $(MTL_T_DEP)
+ 	clang $(CFLAGS) -fobjc-arc -o $@ t_rt_recycle.m $(MTL_T_SRC) $(FW)
+ .PHONY: check_t_rt_recycle
+diff --git a/dm/gfx/tests/t_rt_recycle.m b/dm/gfx/tests/t_rt_recycle.m
+index 4e627da..fc67a4c 100644
+--- a/dm/gfx/tests/t_rt_recycle.m
++++ b/dm/gfx/tests/t_rt_recycle.m
+@@ -105,6 +105,93 @@ int main(void) { @autoreleasepool {
+         settle();
+         CHECK(waiting() == 1, "its heap waits once the snapshot is freed");
+     }
++    {   // iOS adaptive policy: drain on <768 MiB, exact allocation, max_entry rejection, >64 batch drain, and pressure trim
++        rh_test_set(1, 1, 512ull << 20, 0);
++        rh_trim();
++        CHECK(waiting() == 0 && g_rh_bytes == 0, "switching to <768 MiB on iOS drains waiting heaps at once");
++
++        rh_test_set(1, 1, 2048ull << 20, 0);
++        tex_t ios_a = target(&pool, 95100, 0, 640, 360); mtl_tex_init(&ios_a);
++        id<MTLTexture> tia = tex_mtl(&ios_a);
++        MTLSizeAndAlign need_a = [g_dev heapTextureSizeAndAlignWithDescriptor:tex_desc(&ios_a, 0)];
++        CHECK(tia && tia.heap && tia.heap.size >= need_a.size && tia.heap.size < need_a.size + need_a.size / 8, "iOS allocates exact placement heap without +12.5 percent headroom");
++        id<MTLHeap> ios_heap = tia.heap;
++        tia = nil; mtl_tex_release(&ios_a); mtl_alias_drop_pool(&pool); settle();
++        CHECK(waiting() == 1, "iOS heap within budget pools after release");
++
++        tex_t ios_b = target(&pool, 95101, 8 << 20, 632, 356); mtl_tex_init(&ios_b);
++        id<MTLTexture> tib = tex_mtl(&ios_b);
++        CHECK(tib && tib.heap == ios_heap && waiting() == 0, "smaller iOS target reuses the pooled exact heap");
++        tib = nil; mtl_tex_release(&ios_b); mtl_alias_drop_pool(&pool); settle();
++        rh_test_set(1, 1, 512ull << 20, 0);
++        rh_trim();
++        CHECK(waiting() == 0, "pooled iOS heap drains before entry-cap test");
++
++        // Single-entry cap rejection under [768 MiB, 1024 MiB) where max_entry_bytes is 8 MiB
++        rh_test_set(1, 1, 800ull << 20, 0);
++        tex_t big = target(&pool, 95102, 0, 2048, 1024); mtl_tex_init(&big);
++        id<MTLTexture> tbig = tex_mtl(&big);
++        __weak id<MTLHeap> big_heap = tbig.heap;
++        CHECK(tbig && big_heap && resident(big_heap), "oversized iOS target gets a live placement heap");
++        tbig = nil; mtl_tex_release(&big); mtl_alias_drop_pool(&pool); settle();
++        CHECK(waiting() == 0 && g_rh_bytes == 0, "heap exceeding iOS max_entry_bytes bypasses the pool");
++        CHECK(!big_heap || !resident(big_heap), "bypassed oversized heap leaves residency at once");
++
++        // >64 heaps drained to 0 via rh_wait when avail drops below 768 MiB
++        rh_test_set(1, 1, 2048ull << 20, 0);
++        __weak id<MTLHeap> batch_heaps[72];
++        tex_t batch[72];
++        for (unsigned i = 0; i < 72; i++) {
++            batch[i] = target(&pool, 95200 + i, (uint64_t)i * (256ull << 10), 128, 128);
++            mtl_tex_init(&batch[i]);
++            batch_heaps[i] = tex_mtl(&batch[i]).heap;
++        }
++        for (unsigned i = 0; i < 72; i++) mtl_tex_release(&batch[i]);
++        mtl_alias_drop_pool(&pool); settle();
++        CHECK(waiting() == 72, "72 small iOS heaps pool under the 96 MiB high-memory budget");
++
++        MTLHeapDescriptor *thd = [MTLHeapDescriptor new];
++        thd.type = MTLHeapTypePlacement; thd.size = 256 << 10; thd.storageMode = MTLStorageModePrivate;
++        id<MTLHeap> trig_h = [g_dev newHeapWithDescriptor:thd];
++        res_add(trig_h);
++        rh_test_set(1, 1, 512ull << 20, 0);
++        uint64_t trimmed_before = g_rh_trimmed;
++        rh_wait(trig_h);
++        int all_unres = !resident(trig_h);
++        trig_h = nil;
++        for (unsigned i = 0; i < 72; i++) {
++            if (batch_heaps[i] && resident(batch_heaps[i])) { all_unres = 0; break; }
++        }
++        CHECK(waiting() == 0 && g_rh_bytes == 0 && g_rh_trimmed == trimmed_before + 72, "rh_wait drains all 72 heaps across batches when iOS avail drops below 768 MiB");
++        CHECK(all_unres, "all 72 drained heaps leave the residency set outside g_rh_lk");
++
++        // >64 heaps drained to 0 under pressure != 0 via rh_trim
++        rh_test_set(1, 1, 2048ull << 20, 0);
++        for (unsigned i = 0; i < 70; i++) {
++            batch[i] = target(&pool, 95300 + i, (uint64_t)i * (256ull << 10), 128, 128);
++            mtl_tex_init(&batch[i]);
++            (void)tex_mtl(&batch[i]);
++        }
++        for (unsigned i = 0; i < 70; i++) mtl_tex_release(&batch[i]);
++        mtl_alias_drop_pool(&pool); settle();
++        CHECK(waiting() == 70, "70 small iOS heaps pool before memory pressure signal");
++        rh_test_set(1, 1, 2048ull << 20, 1);
++        rh_trim();
++        CHECK(waiting() == 0 && g_rh_bytes == 0, "iOS memory pressure drains all 70 heaps via rh_trim");
++
++        // macOS keeps +12.5 percent headroom and 256 MiB budget even if avail is low and pressure is set
++        rh_test_set(1, 0, 512ull << 20, 1);
++        tex_t mac_t = target(&pool, 95400, 0, 640, 360); mtl_tex_init(&mac_t);
++        id<MTLTexture> tmac = tex_mtl(&mac_t);
++        MTLSizeAndAlign need_m = [g_dev heapTextureSizeAndAlignWithDescriptor:tex_desc(&mac_t, 0)];
++        CHECK(tmac && tmac.heap && tmac.heap.size >= need_m.size + need_m.size / 8, "macOS keeps +12.5 percent headroom unchanged");
++        tmac = nil; mtl_tex_release(&mac_t); mtl_alias_drop_pool(&pool); settle();
++        CHECK(waiting() == 1, "macOS keeps pooling regardless of low avail or pressure");
++        os_unfair_lock_lock(&g_rh_lk); for (unsigned i = 0; i < g_rh_n; i++) g_rh[i].t -= RH_IDLE_NS; os_unfair_lock_unlock(&g_rh_lk);
++        rh_trim();
++        CHECK(waiting() == 0, "aged macOS heap drains cleanly");
++        rh_test_set(0, 0, 0, 0);
++    }
+     {
+         tex_t g = target(&pool, 95009, 0, 640, 360); mtl_tex_init(&g);
+         id<MTLTexture> tg = tex_mtl(&g);
+@@ -117,6 +204,8 @@ int main(void) { @autoreleasepool {
+     mtl_sub_commit(); mtl_drain();
+     dm_gfx_teardown();
+     CHECK(waiting() == 0 && g_rh == NULL && g_rh_bytes == 0, "dm_gfx_teardown frees waiting and live recycled heaps");
++    CHECK(g_rh_mode == -1 && atomic_load(&g_rh_made) == 0 && atomic_load(&g_rh_reused) == 0 && atomic_load(&g_rh_trimmed) == 0, "dm_gfx_teardown resets g_rh_mode and recycled heap counters");
++    CHECK(atomic_load(&g_rh_pressure) == 0 && atomic_load(&g_rh_test_override) == 0, "dm_gfx_teardown resets pressure and test override state");
+     free(mem);
+     printf("t_rt_recycle: %d checks, %d failed\n", checks, failed); return failed != 0;
+ } }
+diff --git a/dm/gfx/tests/t_rt_recycle_policy.c b/dm/gfx/tests/t_rt_recycle_policy.c
+new file mode 100644
+index 0000000..29ea626
+--- /dev/null
++++ b/dm/gfx/tests/t_rt_recycle_policy.c
+@@ -0,0 +1,169 @@
++// Pure-C CPU-only tests for recycled render-target heap policy (nvn_rt_recycle.h).
++#include "../nvn/nvn_rt_recycle.h"
++#include <inttypes.h>
++#include <stdio.h>
++
++static int checks, failed;
++#define CHECK(c, label) do { checks++; if (!(c)) { failed++; fprintf(stderr, "FAIL: %s (line %d)\n", label, __LINE__); } } while (0)
++
++typedef struct {
++    uint64_t size;
++    uint64_t t;
++} sim_ent;
++
++static unsigned sim_drain(sim_ent *pool, unsigned *n, uint64_t *bytes, uint64_t now, const rh_policy *p, unsigned *batches) {
++    unsigned evicted = 0;
++    *batches = 0;
++    for (;;) {
++        unsigned nd = 0;
++        while (*n && nd < 64) {
++            unsigned old = 0;
++            for (unsigned i = 1; i < *n; i++) {
++                if (pool[i].t < pool[old].t) old = i;
++            }
++            if (!rh_needs_evict(*bytes, now, pool[old].t, p)) break;
++            *bytes -= pool[old].size;
++            pool[old] = pool[--(*n)];
++            nd++;
++            evicted++;
++        }
++        if (!nd) break;
++        (*batches)++;
++        if (nd < 64 || *n == 0) break;
++    }
++    return evicted;
++}
++
++int main(void) {
++    // macOS defaults remain unchanged regardless of available memory or pressure
++    for (int pressure = 0; pressure <= 1; pressure++) {
++        uint64_t avails[3] = {0, 512ull << 20, 4096ull << 20};
++        for (int i = 0; i < 3; i++) {
++            rh_policy p = rh_policy_for_platform(0, avails[i], pressure);
++            CHECK(p.cap_bytes == (256ull << 20), "macOS cap_bytes is 256 MiB");
++            CHECK(p.max_entry_bytes == (256ull << 20), "macOS max_entry_bytes is 256 MiB");
++            CHECK(p.idle_ns == 3000000000ull, "macOS idle_ns is 3s");
++            CHECK(p.exact_alloc == 0, "macOS keeps +12.5 percent headroom");
++        }
++    }
++
++    // iOS tier 0: pressure != 0 or avail < 768 MiB -> immediate bypass and full drain
++    {
++        rh_policy p0 = rh_policy_for_platform(1, 0, 0);
++        rh_policy p1 = rh_policy_for_platform(1, (768ull << 20) - 1, 0);
++        rh_policy p2 = rh_policy_for_platform(1, 4096ull << 20, 1);
++        CHECK(p0.cap_bytes == 0 && p0.max_entry_bytes == 0 && p0.idle_ns == 0 && p0.exact_alloc == 1, "iOS 0 avail enters critical bypass tier");
++        CHECK(p1.cap_bytes == 0 && p1.max_entry_bytes == 0 && p1.idle_ns == 0 && p1.exact_alloc == 1, "iOS <768 MiB enters critical bypass tier");
++        CHECK(p2.cap_bytes == 0 && p2.max_entry_bytes == 0 && p2.idle_ns == 0 && p2.exact_alloc == 1, "iOS pressure overrides high avail into critical tier");
++    }
++
++    // iOS tier 1: [768 MiB, 1024 MiB) -> 16 MiB cap, 8 MiB entry, 500ms idle
++    {
++        rh_policy lo = rh_policy_for_platform(1, 768ull << 20, 0);
++        rh_policy hi = rh_policy_for_platform(1, (1024ull << 20) - 1, 0);
++        CHECK(lo.cap_bytes == (16ull << 20) && lo.max_entry_bytes == (8ull << 20) && lo.idle_ns == 500000000ull && lo.exact_alloc == 1, "iOS 768 MiB lower bound");
++        CHECK(hi.cap_bytes == (16ull << 20) && hi.max_entry_bytes == (8ull << 20) && hi.idle_ns == 500000000ull && hi.exact_alloc == 1, "iOS <1024 MiB upper bound");
++    }
++
++    // iOS tier 2: [1024 MiB, 1536 MiB) -> 48 MiB cap, 16 MiB entry, 1.5s idle
++    {
++        rh_policy lo = rh_policy_for_platform(1, 1024ull << 20, 0);
++        rh_policy hi = rh_policy_for_platform(1, (1536ull << 20) - 1, 0);
++        CHECK(lo.cap_bytes == (48ull << 20) && lo.max_entry_bytes == (16ull << 20) && lo.idle_ns == 1500000000ull && lo.exact_alloc == 1, "iOS 1024 MiB lower bound");
++        CHECK(hi.cap_bytes == (48ull << 20) && hi.max_entry_bytes == (16ull << 20) && hi.idle_ns == 1500000000ull && hi.exact_alloc == 1, "iOS <1536 MiB upper bound");
++    }
++
++    // iOS tier 3: >= 1536 MiB -> 96 MiB cap, 32 MiB entry, 2s idle
++    {
++        rh_policy lo = rh_policy_for_platform(1, 1536ull << 20, 0);
++        rh_policy hi = rh_policy_for_platform(1, 4096ull << 20, 0);
++        CHECK(lo.cap_bytes == (96ull << 20) && lo.max_entry_bytes == (32ull << 20) && lo.idle_ns == 2000000000ull && lo.exact_alloc == 1, "iOS 1536 MiB lower bound");
++        CHECK(hi.cap_bytes == (96ull << 20) && hi.max_entry_bytes == (32ull << 20) && hi.idle_ns == 2000000000ull && hi.exact_alloc == 1, "iOS high memory tier");
++    }
++
++    // Single-entry cap rejection
++    {
++        rh_policy crit = rh_policy_for_platform(1, 512ull << 20, 0);
++        rh_policy low = rh_policy_for_platform(1, 800ull << 20, 0);
++        rh_policy cap_only = {10ull << 20, 0, 1000ull, 1};
++        CHECK(!rh_should_pool_entry(NULL, 4096), "null policy rejects entry");
++        CHECK(!rh_should_pool_entry(&low, 0), "zero-size entry is rejected");
++        CHECK(!rh_should_pool_entry(&crit, 4096), "zero-cap policy rejects any entry");
++        CHECK(rh_should_pool_entry(&low, 8ull << 20), "entry equal to max_entry_bytes is accepted");
++        CHECK(!rh_should_pool_entry(&low, (8ull << 20) + 1), "entry above max_entry_bytes is rejected");
++        CHECK(rh_should_pool_entry(&cap_only, 10ull << 20), "entry equal to cap_bytes when max_entry_bytes is 0 is accepted");
++        CHECK(!rh_should_pool_entry(&cap_only, (10ull << 20) + 1), "entry above cap_bytes is rejected");
++    }
++
++    // Underflow protection when now < entry_t
++    {
++        CHECK(!rh_entry_expired(100, 200, 500000000ull), "now < entry_t does not underflow or expire when idle_ns > 0");
++        CHECK(rh_entry_expired(100, 200, 0), "idle_ns == 0 expires immediately even when now < entry_t");
++        CHECK(!rh_entry_expired(1000, 500, 501), "entry before idle_ns boundary is not expired");
++        CHECK(rh_entry_expired(1000, 500, 500), "entry at idle_ns boundary is expired");
++    }
++
++    // Overflow-safe headroom and reuse sizing
++    {
++        CHECK(rh_alloc_size(800, 0) == 900, "macOS alloc adds +12.5 percent headroom");
++        CHECK(rh_alloc_size(800, 1) == 800, "iOS alloc keeps exact size");
++        CHECK(rh_alloc_size(UINT64_MAX, 0) == UINT64_MAX, "alloc headroom clamps UINT64_MAX safely");
++        CHECK(rh_alloc_size(UINT64_MAX - 10, 0) == UINT64_MAX, "alloc headroom clamps near UINT64_MAX without wrap");
++        CHECK(rh_alloc_size(UINT64_MAX, 1) == UINT64_MAX, "exact alloc preserves UINT64_MAX");
++        CHECK(rh_reuse_max(800) == 1200, "reuse max adds +50 percent");
++        CHECK(rh_reuse_max(UINT64_MAX) == UINT64_MAX, "reuse max clamps UINT64_MAX safely");
++        CHECK(rh_reuse_max(UINT64_MAX - 10) == UINT64_MAX, "reuse max clamps near UINT64_MAX without wrap");
++    }
++
++    // Batch-drain (>64 entries) simulation: full drain on critical drop
++    {
++        sim_ent pool[150];
++        unsigned n = 150;
++        uint64_t bytes = 0;
++        for (unsigned i = 0; i < n; i++) {
++            pool[i].size = 512ull << 10;
++            pool[i].t = 1000000000ull + (uint64_t)i * 1000ull;
++            bytes += pool[i].size;
++        }
++        rh_policy crit = rh_policy_for_platform(1, 500ull << 20, 0);
++        unsigned batches = 0;
++        unsigned evicted = sim_drain(pool, &n, &bytes, 1000000000ull, &crit, &batches);
++        CHECK(evicted == 150 && n == 0 && bytes == 0 && batches == 3, "critical tier drains >64 heaps completely across 3 batches");
++    }
++
++    // Batch-drain (>64 entries) simulation: partial convergence to 16 MiB cap
++    {
++        sim_ent pool[150];
++        unsigned n = 150;
++        uint64_t bytes = 0;
++        for (unsigned i = 0; i < n; i++) {
++            pool[i].size = 512ull << 10;
++            pool[i].t = 2000000000ull + (uint64_t)i * 1000ull;
++            bytes += pool[i].size;
++        }
++        rh_policy low = rh_policy_for_platform(1, 800ull << 20, 0);
++        unsigned batches = 0;
++        unsigned evicted = sim_drain(pool, &n, &bytes, 2000200000ull, &low, &batches);
++        CHECK(evicted == 118 && n == 32 && bytes == (16ull << 20) && batches == 2, "low tier trims oldest >64 entries down to exact 16 MiB cap");
++    }
++
++    // Batch-drain (>64 entries) simulation: mixed expired entries and future timestamps (underflow guard)
++    {
++        sim_ent pool[150];
++        unsigned n = 150;
++        uint64_t bytes = 0;
++        uint64_t now = 5000000000ull;
++        for (unsigned i = 0; i < n; i++) {
++            pool[i].size = 64ull << 10;
++            pool[i].t = i < 80 ? (now - 3000000000ull + i) : (now + 1000000ull + i);
++            bytes += pool[i].size;
++        }
++        rh_policy high = rh_policy_for_platform(1, 2048ull << 20, 0);
++        unsigned batches = 0;
++        unsigned evicted = sim_drain(pool, &n, &bytes, now, &high, &batches);
++        CHECK(evicted == 80 && n == 70 && batches == 2, "batch drain evicts 80 expired heaps and keeps 70 newer heaps without underflow");
++    }
++
++    printf("t_rt_recycle_policy: %d checks, %d failed\n", checks, failed);
++    return failed != 0;
++}
