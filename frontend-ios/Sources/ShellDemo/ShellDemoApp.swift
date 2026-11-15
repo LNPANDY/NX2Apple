@@ -1,6 +1,9 @@
 import SwiftUI
 import ShellUI
 import ShellControllers
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @main struct ShellDemoApp: App {
     /// `--host`, or always when built with `-D HOST_DEFAULT` (a build to install, where no launch arguments can be passed).
@@ -201,6 +204,12 @@ struct DemoScreen: View {
                      onButtonTest: { open in
             gamepads.onSnapshot = open ? { padSnapshot = $0 } : nil
             if !open { padSnapshot = nil }
+        }, onCopyShortcutURL: { id in
+            let shortcut = "nx2apple://launch?id=\(id)"
+            #if canImport(UIKit)
+            UIPasteboard.general.string = shortcut
+            #endif
+            notice = demoText("Copied shortcut URL: \(shortcut)")
         })
     }
 }

@@ -994,7 +994,12 @@ public struct ShellHostConfig: Sendable {
         await looseClaimTask?.value
         guard deepLinkGeneration == generation, !Task.isCancelled else { return }
 
-        guard let matched = DeepLinkRouter.matchEntry(target: request.target, in: entries) else {
+        var resolvedEntry = DeepLinkRouter.matchEntry(target: request.target, in: entries)
+        if resolvedEntry == nil {
+            reload()
+            resolvedEntry = DeepLinkRouter.matchEntry(target: request.target, in: entries)
+        }
+        guard let matched = resolvedEntry else {
             failDeepLink(request, message: hostText("Game \"\(request.target)\" was not found."))
             return
         }
@@ -1103,11 +1108,24 @@ public struct ShellHostConfig: Sendable {
         }
     }
 
+    private func clearDeepLinkStateForManualPlay() {
+        deepLinkGeneration &+= 1
+        activeDeepLinkTask?.cancel()
+        activeDeepLinkTask = nil
+        pendingDeepLinkSuccessURL = nil
+        pendingDeepLinkErrorURL = nil
+        queuedDeepLinkRequest = nil
+        deepLinkCloudPending = false
+        isDeepLinkLaunching = false
+    }
+
     public func play(_ id: String) {
+        clearDeepLinkStateForManualPlay()
         Task { await playNow(id) }
     }
 
     func playNow(_ id: String) async {
+        clearDeepLinkStateForManualPlay()
         _ = await playInternal(id, suppressErrorNotice: false)
     }
 

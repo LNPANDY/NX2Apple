@@ -353,6 +353,35 @@ private struct DeepLinkLaunchError: LocalizedError {
         #expect(harness.openedURLs == [try #require(URL(string: "shortcuts://game-b"))])
     }
 
+    @Test func hotAddedFrameworkLaunchesWithoutPriorReloadAndManualPlayClearsDeepLinkState() async throws {
+        let box = try FrameworkBox()
+        let hotRoot = box.documents.appendingPathComponent("Frameworks", isDirectory: true)
+        try FileManager.default.createDirectory(at: hotRoot, withIntermediateDirectories: true)
+
+        let harness = DeepLinkHarness()
+        let launcher = DeepLinkRecordingLauncher()
+        let model = makeModel(box: box, hotRoot: hotRoot, harness: harness, launcher: launcher)
+        #expect(model.details.isEmpty)
+
+        // Add a hot framework after model construction without calling reload().
+        _ = try makePlayableFramework(
+            in: hotRoot, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Hot Orbit", bundleID: "org.nxnative.hotorbit", box: box
+        )
+        try seedAppData(box: box, titleID: Fixtures.orbit)
+
+        let hotURL = try #require(URL(string: "nx2apple://launch?id=org.nxnative.hotorbit&x-success=shortcuts://hot"))
+        #expect(await model.handleDeepLinkNow(hotURL))
+        #expect(model.isDeepLinkLaunching == false)
+        #expect(launcher.launched.map(\.titleID) == [Fixtures.orbit])
+
+        // Manual play clears pending deep link state so returning later does not trigger stale x-success.
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.count == 2)
+        NotificationCenter.default.post(name: ShellHostModel.didReturnToLibraryNotification, object: nil)
+        #expect(harness.openedURLs.isEmpty)
+    }
+
     @Test func copyShortcutURLActionCopiesCanonicalURL() throws {
         let box = try FrameworkBox()
         _ = try makePlayableFramework(
