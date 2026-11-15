@@ -36,7 +36,7 @@ Issue: LNPANDY/NX2Apple#1063
  3 files changed, 33 insertions(+), 8 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index bbf2c47..ec38a40 100644
+index d93c4f91..67c1e185 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -1602,7 +1602,7 @@ HLE_FORCE("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_1
@@ -94,7 +94,7 @@ index bbf2c47..ec38a40 100644
  // Games can cache handles once at startup, before GameController routes the pad's haptics (Unicorn Overlord kept an empty answer and sent every value to handle 0).
  // On Horizon handles are computed from npad id and style (libnx _hidGetVibrationDeviceHandles); vib_send checks for an output at each send. With rumble off they are handed out too,
  // as on a Switch whose vibration setting is off (IsVibrationPermitted answers false and nothing is felt), so turning it on while the game runs works in a game that asked only once.
-@@ -1821,8 +1832,10 @@ HLE_FORCE("_ZN2nn3hid32SetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHan
+@@ -1835,8 +1846,10 @@ HLE_FORCE("_ZN2nn3hid32SetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHan
  HLE_FORCE("_ZN2nn3hid34ResetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHandleE", "six-axis sensor fusion parameters; ignored by the host", void, h_hid_FusionReset, const uint32_t *h) { (void)h; }
  HLE_FORCE("_ZN2nn3hid41IsFirmwareUpdateAvailableForSixAxisSensorERKNS0_19SixAxisSensorHandleE", "six-axis sensor firmware update: none", unsigned, h_hid_SixFw, const uint32_t *h) { (void)h; return 0; }
  // GetActual returns the sanitized guest value accepted by the host, before output-device adaptation.
@@ -107,10 +107,10 @@ index bbf2c47..ec38a40 100644
  // The SDK's own call reaches the hid service (a null read in hid::detail::IsVibrationDeviceMounted; Super Mario Odyssey asks for each handle of a controller).
  // On Horizon a device is mounted when the npad's connected controller has that style and an actuator on that side: here, when the channel has an output, as GetVibrationDeviceInfo reports it
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 4bb7d0e..ecb3502 100644
+index 4ca140d5..9468bb67 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
-@@ -354,9 +354,14 @@ static void t_vibration(void) {
+@@ -362,9 +362,14 @@ static void t_vibration(void) {
      dm_vibration v = {0.25, 160, 0.5, 320}, got;
      g_mode = 1; ids((uint32_t[]){0, 1, NPAD_HANDHELD}, 3); dm_pad_players(3);
      CHECK(!h_hid_VibPermit() && !h_hid_VibHandles(h, 2, &id, STYLE_FULLKEY), "no sink: no vibration devices");
@@ -125,7 +125,7 @@ index 4bb7d0e..ecb3502 100644
      CHECK(!h_hid_VibMounted(&h[0]), "no routed output: device not mounted");
      h_hid_SendVib(&h[0], &v);
      CHECK(dm_haptics_actual(0, 0).amplitude_low == 0, "a value before routing is not retained");
-@@ -400,6 +405,10 @@ static void t_vibration(void) {
+@@ -408,6 +413,10 @@ static void t_vibration(void) {
      CHECK(!h_hid_VibPermit() && h_hid_VibHandles(h, 2, &id, STYLE_HANDHELD) == 2, "rumble disabled: not permitted, but the handles exist, as on a Switch");
      dm_haptics_set_enabled(1);
      CHECK(h_hid_VibPermit(), "rumble turned on while the game runs: the handles it took work");
@@ -137,7 +137,7 @@ index 4bb7d0e..ecb3502 100644
  
  static void *vibration_sender(void *arg) {
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index cf4c5de..ae682c7 100644
+index cf4c5de9..ae682c71 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -625,7 +625,7 @@ static void read_pad(GCExtendedGamepad *g) {

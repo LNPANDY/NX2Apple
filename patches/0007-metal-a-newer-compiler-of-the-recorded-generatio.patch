@@ -15,7 +15,7 @@ Issue: seedds/nxnative#717
  2 files changed, 68 insertions(+), 6 deletions(-)
 
 diff --git a/dm/gfx/tools/own_compilers.py b/dm/gfx/tools/own_compilers.py
-index d0e967d..415bdd1 100644
+index d0e967d4..415bdd1b 100644
 --- a/dm/gfx/tools/own_compilers.py
 +++ b/dm/gfx/tools/own_compilers.py
 @@ -2,6 +2,8 @@
@@ -82,7 +82,7 @@ index d0e967d..415bdd1 100644
  
  if __name__ == '__main__':
 diff --git a/dm/tools/tests/test_own_compilers.py b/dm/tools/tests/test_own_compilers.py
-index e836b30..f20a2c9 100644
+index e836b308..f20a2c90 100644
 --- a/dm/tools/tests/test_own_compilers.py
 +++ b/dm/tools/tests/test_own_compilers.py
 @@ -25,6 +25,8 @@ nsp = importlib.util.module_from_spec(spec); spec.loader.exec_module(nsp)

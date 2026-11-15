@@ -433,11 +433,15 @@ class SharedShellParityTests(unittest.TestCase):
 
             def checked_se_run(cmd, *a, **kw):
                 cmd_list = [str(c) for c in cmd]
-                if any(c.endswith('make_ext_font.py') for c in cmd_list):
+                if any('make_shared_fonts' in c for c in cmd_list):
                     ext_font_calls.append(cmd_list)
-                    if len(cmd_list) < 4 or Path(cmd_list[3]) != letter_font:
-                        return subprocess.CompletedProcess(cmd_list, 1, '', f'bad letter font: {cmd_list}')
-                    Path(cmd_list[2]).write_bytes(b'EXT_TTF_BYTES')
+                    if len(cmd_list) < 7 or Path(cmd_list[5]) != std_font or Path(cmd_list[6]) != letter_font:
+                        return subprocess.CompletedProcess(cmd_list, 1, '', f'bad font args: {cmd_list}')
+                    out_dir = Path(cmd_list[4])
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    for fname in ('standard.ttf', 'chinese_simplified.ttf', 'chinese_simplified_ext.ttf',
+                                  'chinese_traditional.ttf', 'korean.ttf', 'nintendo_ext.ttf'):
+                        (out_dir / fname).write_bytes(b'FONT_TTF_BYTES')
                     return subprocess.CompletedProcess(cmd_list, 0, 'ok\n', '')
                 return real_se_run(cmd, *a, **kw)
 
@@ -492,8 +496,8 @@ class SharedShellParityTests(unittest.TestCase):
                 _wait_outcomes()
                 self.assertTrue(outcomes and outcomes[-1][0], f'Game 2 build failed: {outcomes}')
 
-            self.assertTrue(ext_font_calls, '_prepare_fonts must invoke make_ext_font.py')
-            self.assertEqual(Path(ext_font_calls[0][3]), letter_font)
+            self.assertTrue(ext_font_calls, '_prepare_fonts must invoke make_shared_fonts')
+            self.assertEqual(Path(ext_font_calls[0][6]), letter_font)
 
             # Verify both games' archives exist side-by-side under <shared_out>/games/<SafeName> without overwriting each other
             arch1 = shared_out / 'games' / 'Super Mario Bros. Wonder'
@@ -546,8 +550,9 @@ class SharedShellParityTests(unittest.TestCase):
                 self.assertIn('Payload/DmShell.app/DmShell', names)
                 self.assertIn(f'Payload/DmShell.app/Frameworks/DmGame{tid1}.framework/DmGame{tid1}', names)
                 self.assertIn(f'Payload/DmShell.app/Frameworks/DmGame{tid2}.framework/DmGame{tid2}', names)
-                self.assertEqual(zf.read('Payload/DmShell.app/dm/font/standard.ttf'), b'WIN_ARIAL_TTF_BYTES')
-                self.assertEqual(zf.read('Payload/DmShell.app/dm/font/nintendo_ext.ttf'), b'EXT_TTF_BYTES')
+                for fname in ('standard.ttf', 'chinese_simplified.ttf', 'chinese_simplified_ext.ttf',
+                              'chinese_traditional.ttf', 'korean.ttf', 'nintendo_ext.ttf'):
+                    self.assertEqual(zf.read(f'Payload/DmShell.app/dm/font/{fname}'), b'FONT_TTF_BYTES')
                 for exec_entry in (
                     'Payload/DmShell.app/DmShell',
                     f'Payload/DmShell.app/Frameworks/DmGame{tid1}.framework/DmGame{tid1}',
@@ -2012,12 +2017,16 @@ class ParityWindowTests(unittest.TestCase):
 
             def checked_se_run(cmd, *a, **kw):
                 cmd_list = [str(c) for c in cmd]
-                if any(c.endswith('make_ext_font.py') for c in cmd_list):
+                if any('make_shared_fonts' in c for c in cmd_list):
                     ext_font_calls.append(cmd_list)
-                    # make_ext_font.py must receive both the output path and the letter font path
-                    if len(cmd_list) < 4 or cmd_list[3] != str(letter_font):
-                        return subprocess.CompletedProcess(cmd_list, 1, '', 'missing letter font argument')
-                    Path(cmd_list[2]).write_bytes(b'EXT_TTF_BYTES')
+                    # make_shared_fonts.build must receive out_dir, std_font, and letter_font
+                    if len(cmd_list) < 7 or cmd_list[5] != str(std_font) or cmd_list[6] != str(letter_font):
+                        return subprocess.CompletedProcess(cmd_list, 1, '', 'missing font argument')
+                    out_dir = Path(cmd_list[4])
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    for fname in ('standard.ttf', 'chinese_simplified.ttf', 'chinese_simplified_ext.ttf',
+                                  'chinese_traditional.ttf', 'korean.ttf', 'nintendo_ext.ttf'):
+                        (out_dir / fname).write_bytes(b'FONT_TTF_BYTES')
                     return subprocess.CompletedProcess(cmd_list, 0, 'ok\n', '')
                 return real_se_run(cmd, *a, **kw)
 
@@ -2038,8 +2047,8 @@ class ParityWindowTests(unittest.TestCase):
                         break
                     time.sleep(0.05)
 
-            self.assertTrue(ext_font_calls, '_prepare_fonts must invoke make_ext_font.py')
-            self.assertEqual(ext_font_calls[0][3], str(letter_font))
+            self.assertTrue(ext_font_calls, '_prepare_fonts must invoke make_shared_fonts')
+            self.assertEqual(ext_font_calls[0][6], str(letter_font))
 
             build_cmds = [(c, e) for c, e in seen_cmds if '--progress' in c]
             self.assertEqual(len(build_cmds), 1)
@@ -2107,10 +2116,10 @@ class ParityWindowTests(unittest.TestCase):
                 self.assertIn('Payload/DmShell.app/DmShell', names)
                 self.assertIn(f'Payload/DmShell.app/Frameworks/DmGame{tid1}.framework/DmGame{tid1}', names)
                 self.assertIn(f'Payload/DmShell.app/Frameworks/DmGame{tid2}.framework/DmGame{tid2}', names)
-                self.assertIn('Payload/DmShell.app/dm/font/standard.ttf', names)
-                self.assertIn('Payload/DmShell.app/dm/font/nintendo_ext.ttf', names)
-                self.assertEqual(zf.read('Payload/DmShell.app/dm/font/standard.ttf'), b'STD_TTF_BYTES')
-                self.assertEqual(zf.read('Payload/DmShell.app/dm/font/nintendo_ext.ttf'), b'EXT_TTF_BYTES')
+                for fname in ('standard.ttf', 'chinese_simplified.ttf', 'chinese_simplified_ext.ttf',
+                              'chinese_traditional.ttf', 'korean.ttf', 'nintendo_ext.ttf'):
+                    self.assertIn(f'Payload/DmShell.app/dm/font/{fname}', names)
+                    self.assertEqual(zf.read(f'Payload/DmShell.app/dm/font/{fname}'), b'FONT_TTF_BYTES')
                 # Verify Unix executable permission bits (0755) on DmShell and both framework binaries
                 for exec_entry in (
                     'Payload/DmShell.app/DmShell',

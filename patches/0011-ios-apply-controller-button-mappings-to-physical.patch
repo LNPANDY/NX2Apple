@@ -11,7 +11,7 @@ Issue: LNPANDY/NX2Apple#494
  1 file changed, 6 insertions(+)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 46a33d5..3a1b524 100644
+index 46a33d5d..3a1b5245 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -29,6 +29,7 @@

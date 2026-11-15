@@ -495,41 +495,59 @@ def _dm_fork_patches(repo: Path) -> str:
     return ''
 
 
+_SHARED_FONT_FILES = (
+    'standard.ttf',
+    'chinese_simplified.ttf',
+    'chinese_simplified_ext.ttf',
+    'chinese_traditional.ttf',
+    'korean.ttf',
+    'nintendo_ext.ttf',
+)
+
+
 def _prepare_fonts(staged_app: Path, repo: Path, python_exe: str) -> None:
     font_dir = staged_app / 'dm' / 'font'
     font_dir.mkdir(parents=True, exist_ok=True)
-    std_dst = font_dir / 'standard.ttf'
-    if not std_dst.is_file():
-        std_src = tc.std_font()
-        if std_src is None and os.environ.get('STD_FONT'):
-            std_src = Path(os.environ['STD_FONT'])
-        if std_src is None and not pu.IS_WIN:
-            mac_font = Path('/System/Library/Fonts/Supplemental/Arial Unicode.ttf')
-            if mac_font.is_file():
-                std_src = mac_font
-        if std_src is None or not std_src.is_file():
-            raise RuntimeError('no standard.ttf font available (set STD_FONT or check Windows Fonts)')
-        shutil.copyfile(std_src, std_dst)
+    if all((font_dir / name).is_file() for name in _SHARED_FONT_FILES):
+        return
 
-    ext_dst = font_dir / 'nintendo_ext.ttf'
-    if not ext_dst.is_file():
-        letter = tc.letter_font()
-        if letter is None and os.environ.get('LETTER_FONT'):
-            letter = Path(os.environ['LETTER_FONT'])
-        if letter is None and not pu.IS_WIN:
-            mac_letter = Path('/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf')
-            if mac_letter.is_file():
-                letter = mac_letter
-        if letter is None or not letter.is_file():
-            raise RuntimeError('no bold TTF for the button icons (set LETTER_FONT or check Windows Fonts)')
-        make_ext = repo / 'dm' / 'tools' / 'make_ext_font.py'
-        r = subprocess.run(
-            [python_exe, str(make_ext), str(ext_dst), str(letter)],
-            capture_output=True, text=True, encoding='utf-8', errors='replace',
-            env=pu.child_env(), **pu.no_window_kwargs(),
-        )
-        if r.returncode != 0 or not ext_dst.is_file():
-            raise RuntimeError(f'make_ext_font.py failed: {r.stderr or r.stdout}')
+    std_src = tc.std_font()
+    if std_src is None and os.environ.get('STD_FONT'):
+        std_src = Path(os.environ['STD_FONT'])
+    if std_src is None and not pu.IS_WIN:
+        mac_font = Path('/System/Library/Fonts/Supplemental/Arial Unicode.ttf')
+        if mac_font.is_file():
+            std_src = mac_font
+    if std_src is None or not std_src.is_file():
+        raise RuntimeError('no standard.ttf font available (set STD_FONT or check Windows Fonts)')
+
+    letter = tc.letter_font()
+    if letter is None and os.environ.get('LETTER_FONT'):
+        letter = Path(os.environ['LETTER_FONT'])
+    if letter is None and not pu.IS_WIN:
+        mac_letter = Path('/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf')
+        if mac_letter.is_file():
+            letter = mac_letter
+    if letter is None or not letter.is_file():
+        raise RuntimeError('no bold TTF for the button icons (set LETTER_FONT or check Windows Fonts)')
+
+    r = subprocess.run(
+        [
+            python_exe, '-c',
+            'import sys; sys.path.insert(0, sys.argv[1]); '
+            'import make_shared_fonts; '
+            'make_shared_fonts.build(sys.argv[2], sys.argv[3], sys.argv[4])',
+            str(repo / 'dm' / 'tools'),
+            str(font_dir),
+            str(std_src),
+            str(letter),
+        ],
+        capture_output=True, text=True, encoding='utf-8', errors='replace',
+        env=pu.child_env(), **pu.no_window_kwargs(),
+    )
+    missing = [name for name in _SHARED_FONT_FILES if not (font_dir / name).is_file()]
+    if r.returncode != 0 or missing:
+        raise RuntimeError(f'make_shared_fonts.py failed: {r.stderr or r.stdout or missing}')
 
 
 def _update_shell_plist(staged_app: Path, bundle_id: str, repo: Path) -> None:

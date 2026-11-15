@@ -36,7 +36,7 @@ def chain_version():
 
 
 def font_python():
-    """A python that has fontTools, for make_ext_font.py (FONT_PY), or None."""
+    """A python that has fontTools, for make_shared_fonts.py (FONT_PY), or None."""
     for py in (os.environ.get('FONT_PY'), sys.executable, shutil.which('python3')):
         if py and subprocess.run([py, '-c', 'import fontTools'], capture_output=True, check=False).returncode == 0:
             return py
@@ -196,7 +196,9 @@ class ShellBuild(unittest.TestCase):
         self.assertEqual(info['UIApplicationSceneManifest']['UISceneConfigurations']['UIWindowSceneSessionRoleApplication'][0]['UISceneDelegateClassName'], 'SceneDelegate')
         self.assertTrue((app / f'Frameworks/{fw.name}/{fw.stem}').is_file())
         self.assertTrue((app / f'Frameworks/{fw.name}/game.manifest.json').is_file())
-        self.assertTrue((app / 'dm/font/standard.ttf').is_file())
+        for font_name in ('standard.ttf', 'chinese_simplified.ttf', 'chinese_simplified_ext.ttf',
+                          'chinese_traditional.ttf', 'korean.ttf', 'nintendo_ext.ttf'):
+            self.assertTrue((app / 'dm/font' / font_name).is_file(), f'missing {font_name}')
         self.assertTrue(any(p.name.endswith('ShellHost.bundle') for p in app.iterdir()), 'the ShellHost package resources')
         load = subprocess.run(['otool', '-l', str(app / 'DmShell')], capture_output=True, text=True, check=False).stdout
         self.assertIn('@executable_path/Frameworks', load)

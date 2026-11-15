@@ -4542,10 +4542,15 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 if sname == 'settings.py':
                     Path(args[3]).write_text('{"schema":1,"settings":[]}', encoding='utf-8')
                     return 'launcher.json'
-                if sname == 'make_ext_font.py':
-                    Path(args[0]).write_bytes(b'ext')
-                    return 'ok'
                 return ''
+
+            font_calls: list[tuple[Path, Path, Path, Path]] = []
+
+            def fake_shared_fonts(repo_arg: Path, out_dir: Path, font_arg: Path, letter_arg: Path) -> None:
+                font_calls.append((repo_arg, out_dir, font_arg, letter_arg))
+                for fname in ('standard.ttf', 'chinese_simplified.ttf', 'chinese_simplified_ext.ttf',
+                              'chinese_traditional.ttf', 'korean.ttf', 'nintendo_ext.ttf'):
+                    (out_dir / fname).write_bytes(b'ttf')
 
             pack_calls: list[list[str]] = []
             identity_line = (b'DMROMFSID1 title=010015100B514000 version=1.0 '
@@ -4587,15 +4592,19 @@ class WindowsBuildFixesTest(unittest.TestCase):
                     mock.patch.object(tc, 'sdk_version', return_value=('26.0', '23A344')),
                     mock.patch.object(tc, 'std_font', return_value=std_font),
                     mock.patch.object(tc, 'letter_font', return_value=letter_font),
-                    mock.patch.object(build_app, 'py', side_effect=fake_py),
-                    mock.patch.object(build_app, 'romfs_has', return_value=True),
-                    mock.patch.object(build_app, 'shader_lib_has', return_value=True),
+                    mock.patch.multiple(
+                        build_app,
+                        py=fake_py,
+                        _build_shared_fonts=fake_shared_fonts,
+                        romfs_has=lambda *_a, **_kw: True,
+                        shader_lib_has=lambda *_a, **_kw: True,
+                        host_sources=lambda *_a, **_kw: ([], []),
+                        framework_list=lambda *_a, **_kw: ['Foundation'],
+                        compat_rt_needed=lambda *_a, **_kw: False,
+                        compile_all=lambda *_a, **_kw: [],
+                        link=lambda *_a, **_kw: None,
+                    ),
                     mock.patch.object(build_app, 'build_pso_archive', return_value=pso_dir) as spy_pso,
-                    mock.patch.object(build_app, 'host_sources', return_value=([], [])),
-                    mock.patch.object(build_app, 'framework_list', return_value=['Foundation']),
-                    mock.patch.object(build_app, 'compat_rt_needed', return_value=False),
-                    mock.patch.object(build_app, 'compile_all', return_value=[]),
-                    mock.patch.object(build_app, 'link', return_value=None),
                     mock.patch.object(build_app.fix_ipa_modes, 'fix', return_value='ok'),
                     mock.patch.object(build_app.subprocess, 'run', side_effect=fake_subproc_run),
                 ):
@@ -4616,6 +4625,41 @@ class WindowsBuildFixesTest(unittest.TestCase):
                     # iOS's romfs_id_parse stops at LF, so a trailing CR makes
                     # strtoull reject the index and reports ROMFS_ID_BAD (2).
                     self.assertEqual(identity_file.read_bytes(), identity_line + b'\n')
+                self.assertTrue(font_calls)
+                self.assertEqual(font_calls[-1][2], std_font)
+                self.assertEqual(font_calls[-1][3], letter_font)
+                font_calls.clear()
+
+    def test_build_shared_fonts_passes_explicit_std_and_letter_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tools = root / 'dm/tools'
+            tools.mkdir(parents=True)
+            calls: list[tuple[str, str, str]] = []
+            (tools / 'make_shared_fonts.py').write_text(
+                'def build(out_dir, src, letters):\n'
+                '    import os\n'
+                '    os.makedirs(out_dir, exist_ok=True)\n'
+                '    _RECORD.append((out_dir, src, letters))\n',
+                encoding='utf-8',
+            )
+            out_dir = root / 'out_fonts'
+            std_font = root / 'win_std.ttf'
+            letter_font = root / 'win_letter.ttf'
+            saved = sys.modules.pop('make_shared_fonts', None)
+            try:
+                import importlib
+                sys.path.insert(0, str(tools))
+                mod = importlib.import_module('make_shared_fonts')
+                mod._RECORD = calls
+                build_app._build_shared_fonts(root, out_dir, std_font, letter_font)
+                self.assertEqual(calls, [(str(out_dir), str(std_font), str(letter_font))])
+            finally:
+                sys.modules.pop('make_shared_fonts', None)
+                if saved is not None:
+                    sys.modules['make_shared_fonts'] = saved
+                if str(tools) in sys.path:
+                    sys.path.remove(str(tools))
 
 
 class UnrealInlineShadersWinTest(unittest.TestCase):
