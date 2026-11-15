@@ -11,3 +11,7 @@ const char *dm_shell_start_game(const char *const *keys, const char *const *valu
                                 const char *game_id);
 // After a successful start: the window shows front_ios.m's game view, which starts the game.
 void dm_shell_present_game(void);
+// Title ID of the currently running game, or NULL when back in the library.
+const char *dm_shell_active_game_id(void);
+// Requests the running game framework to quit gracefully back to the library.
+void dm_shell_request_stop_game(void);

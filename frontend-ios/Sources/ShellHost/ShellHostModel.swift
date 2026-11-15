@@ -22,6 +22,9 @@ public struct ShellHostConfig: Sendable {
     public var updateURL: URL?
     public var defaults: @Sendable (String) -> UserDefaults
     public var openURL: @MainActor @Sendable (URL) -> Void
+    public var copyToPasteboard: @MainActor @Sendable (String) -> Void
+    public var activeRunningGameID: @MainActor @Sendable () -> String?
+    public var requestStopRunningGame: @MainActor @Sendable () -> Void
     /// The clock, for the last-played date and its wording.
     public var now: @Sendable () -> Date
     /// Expiration date of `embedded.mobileprovision`, or nil when absent or unreadable.
@@ -34,6 +37,9 @@ public struct ShellHostConfig: Sendable {
                 environment: HostEnvironment = HostEnvironment(), updateURL: URL? = nil,
                 defaults: @escaping @Sendable (String) -> UserDefaults = GameDefaults.suite(for:),
                 openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen,
+                copyToPasteboard: @escaping @MainActor @Sendable (String) -> Void = ShellHostConfig.systemCopyToPasteboard,
+                activeRunningGameID: @escaping @MainActor @Sendable () -> String? = { nil },
+                requestStopRunningGame: @escaping @MainActor @Sendable () -> Void = {},
                 now: @escaping @Sendable () -> Date = { Date() },
                 provisioningExpiration: @escaping @Sendable () -> Date? = { ProvisioningProfile.bundledExpiration() },
                 joinPartSize: Int64 = DataParts.partSize) {
@@ -44,6 +50,9 @@ public struct ShellHostConfig: Sendable {
         self.updateURL = updateURL
         self.defaults = defaults
         self.openURL = openURL
+        self.copyToPasteboard = copyToPasteboard
+        self.activeRunningGameID = activeRunningGameID
+        self.requestStopRunningGame = requestStopRunningGame
         self.now = now
         self.provisioningExpiration = provisioningExpiration
         self.joinPartSize = joinPartSize
@@ -53,6 +62,12 @@ public struct ShellHostConfig: Sendable {
     @MainActor public static func systemOpen(_ url: URL) {
         #if canImport(UIKit)
         UIApplication.shared.open(url)
+        #endif
+    }
+
+    @MainActor public static func systemCopyToPasteboard(_ text: String) {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = text
         #endif
     }
 
@@ -83,6 +98,8 @@ public struct ShellHostConfig: Sendable {
     public var log: LogPresentation?
     /// Play is preparing the game's resources or handing over to the engine.
     public private(set) var launchingGame = false
+    /// Pure-black transition overlay active while resolving/switching/launching a deep link.
+    public private(set) var isDeepLinkLaunching = false
     /// Cloud save conflict or unreadable-archive prompt awaiting the player's decision before launch.
     public var cloudConflict: CloudSavePrompt?
     /// Mild heads-up when the app's provisioning profile expires within 48 hours.
@@ -131,6 +148,12 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var latestBackups: [String: String] = [:]
     @ObservationIgnored private var signingCheckTask: Task<Void, Never>?
     @ObservationIgnored private var signingWarningDismissed = false
+    @ObservationIgnored private var deepLinkGeneration: UInt64 = 0
+    @ObservationIgnored private var pendingDeepLinkSuccessURL: URL?
+    @ObservationIgnored private var pendingDeepLinkErrorURL: URL?
+    @ObservationIgnored private var queuedDeepLinkRequest: DeepLinkRequest?
+    @ObservationIgnored private var activeDeepLinkTask: Task<Void, Never>?
+    @ObservationIgnored private var deepLinkCloudPending = false
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
     @ObservationIgnored nonisolated(unsafe) private var foregroundObserver: (any NSObjectProtocol)?
     @ObservationIgnored nonisolated(unsafe) private var returnObserver: (any NSObjectProtocol)?
@@ -187,13 +210,13 @@ public struct ShellHostConfig: Sendable {
         #if canImport(UIKit)
         foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, !self.launchingGame else { return }
+                guard let self, !self.launchingGame, !self.isDeepLinkLaunching else { return }
                 self.reload()
             }
         }
         #endif
         returnObserver = NotificationCenter.default.addObserver(forName: Self.didReturnToLibraryNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshSettingsAfterGameReturn() }
+            MainActor.assumeIsolated { self?.handleReturnToLibrary() }
         }
     }
 
@@ -702,7 +725,8 @@ public struct ShellHostConfig: Sendable {
             onPadMergeChange: { [weak self] on in self?.setPadMerge(on) },
             onRestoreSaveBackup: { [weak self] id in self?.restoreLatestSaveBackup(id) },
             onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) },
-            onOpenHomeButtonSettings: { [weak self] in self?.openHomeButtonSettings() })
+            onOpenHomeButtonSettings: { [weak self] in self?.openHomeButtonSettings() },
+            onCopyShortcutURL: { [weak self] id in self?.copyShortcutURL(for: id) })
     }
 
     public func change(_ id: String, setting: String, value: String) {
@@ -906,14 +930,193 @@ public struct ShellHostConfig: Sendable {
         config.openURL(url)
     }
 
+    private enum LaunchOutcome {
+        case launched
+        case promptedCloudConflict
+        case failed(String?)
+    }
+
+    public func copyShortcutURL(for id: String) {
+        guard let entry = entry(id) else { return }
+        config.copyToPasteboard(DeepLinkRouter.shortcutURLString(for: entry))
+    }
+
+    @discardableResult
+    public func handleDeepLink(_ url: URL) -> Bool {
+        guard DeepLinkRouter.isLaunchURL(url) else { return false }
+        guard let request = DeepLinkRouter.parse(url) else {
+            let message = hostText("No game was specified in the shortcut link.")
+            if let errorURL = DeepLinkRouter.extractErrorCallback(from: url) {
+                config.openURL(DeepLinkRouter.errorCallbackURL(base: errorURL, message: message))
+            } else {
+                notice = message
+            }
+            return true
+        }
+
+        deepLinkGeneration &+= 1
+        let generation = deepLinkGeneration
+        activeDeepLinkTask?.cancel()
+        deepLinkCloudPending = false
+
+        if let runningID = config.activeRunningGameID(), !runningID.isEmpty,
+           let matched = DeepLinkRouter.matchEntry(target: request.target, in: entries),
+           matched.id.caseInsensitiveCompare(runningID) == .orderedSame {
+            queuedDeepLinkRequest = nil
+            pendingDeepLinkSuccessURL = request.successURL
+            pendingDeepLinkErrorURL = request.errorURL
+            isDeepLinkLaunching = false
+            return true
+        }
+
+        isDeepLinkLaunching = true
+        activeDeepLinkTask = Task { [weak self] in
+            await self?.processDeepLinkRequest(request, generation: generation)
+        }
+        return true
+    }
+
+    @discardableResult
+    func handleDeepLinkNow(_ url: URL) async -> Bool {
+        let accepted = handleDeepLink(url)
+        if accepted {
+            await activeDeepLinkTask?.value
+        }
+        return accepted
+    }
+
+    func waitForDeepLinkTask() async {
+        await activeDeepLinkTask?.value
+    }
+
+    private func processDeepLinkRequest(_ request: DeepLinkRequest, generation: UInt64) async {
+        await startupJoinTask?.value
+        await looseClaimTask?.value
+        guard deepLinkGeneration == generation, !Task.isCancelled else { return }
+
+        guard let matched = DeepLinkRouter.matchEntry(target: request.target, in: entries) else {
+            failDeepLink(request, message: hostText("Game \"\(request.target)\" was not found."))
+            return
+        }
+
+        if let runningID = config.activeRunningGameID(), !runningID.isEmpty {
+            if matched.id.caseInsensitiveCompare(runningID) == .orderedSame {
+                queuedDeepLinkRequest = nil
+                pendingDeepLinkSuccessURL = request.successURL
+                pendingDeepLinkErrorURL = request.errorURL
+                isDeepLinkLaunching = false
+                return
+            }
+            pendingDeepLinkSuccessURL = nil
+            pendingDeepLinkErrorURL = nil
+            queuedDeepLinkRequest = request
+            isDeepLinkLaunching = true
+            config.requestStopRunningGame()
+            return
+        }
+
+        if cloudConflict != nil {
+            cancelCloudConflict(notifyDeepLink: false)
+        }
+
+        if matched.problem == nil {
+            _ = await verifiedData(for: matched)
+            guard deepLinkGeneration == generation, !Task.isCancelled else { return }
+            refresh(matched.id)
+        }
+
+        guard let latestEntry = entry(matched.id),
+              let detail = details.first(where: { $0.id == latestEntry.id }) else {
+            failDeepLink(request, message: hostText("Game \"\(request.target)\" was not found."))
+            return
+        }
+
+        guard detail.game.state == .playable else {
+            failDeepLink(request, message: unplayableDeepLinkMessage(for: detail.game.state, title: latestEntry.title))
+            return
+        }
+
+        pendingDeepLinkSuccessURL = request.successURL
+        pendingDeepLinkErrorURL = request.errorURL
+
+        let outcome = await playInternal(latestEntry.id, suppressErrorNotice: request.errorURL != nil)
+        guard deepLinkGeneration == generation else { return }
+
+        switch outcome {
+        case .launched:
+            isDeepLinkLaunching = false
+        case .promptedCloudConflict:
+            deepLinkCloudPending = true
+            isDeepLinkLaunching = false
+        case .failed(let message):
+            let fallback = hostText("\(latestEntry.title) could not be launched.")
+            failDeepLink(request, message: message ?? fallback)
+        }
+    }
+
+    @MainActor
+    func handleReturnToLibrary() {
+        refreshSettingsAfterGameReturn()
+        if let queued = queuedDeepLinkRequest {
+            queuedDeepLinkRequest = nil
+            pendingDeepLinkSuccessURL = nil
+            pendingDeepLinkErrorURL = nil
+            deepLinkCloudPending = false
+            isDeepLinkLaunching = true
+            deepLinkGeneration &+= 1
+            let generation = deepLinkGeneration
+            activeDeepLinkTask?.cancel()
+            activeDeepLinkTask = Task { [weak self] in
+                await self?.processDeepLinkRequest(queued, generation: generation)
+            }
+            return
+        }
+        let successURL = pendingDeepLinkSuccessURL
+        pendingDeepLinkSuccessURL = nil
+        pendingDeepLinkErrorURL = nil
+        deepLinkCloudPending = false
+        isDeepLinkLaunching = false
+        if let successURL {
+            config.openURL(successURL)
+        }
+    }
+
+    private func failDeepLink(_ request: DeepLinkRequest, message: String) {
+        queuedDeepLinkRequest = nil
+        pendingDeepLinkSuccessURL = nil
+        pendingDeepLinkErrorURL = nil
+        deepLinkCloudPending = false
+        isDeepLinkLaunching = false
+        if let errorURL = request.errorURL {
+            config.openURL(DeepLinkRouter.errorCallbackURL(base: errorURL, message: message))
+        } else {
+            notice = message
+        }
+    }
+
+    private func unplayableDeepLinkMessage(for state: GameState, title: String) -> String {
+        switch state {
+        case .broken(let reason, let detail, _):
+            return detail.isEmpty ? reason : detail
+        default:
+            return hostText("\(title) is not ready to launch.")
+        }
+    }
+
     public func play(_ id: String) {
         Task { await playNow(id) }
     }
 
     func playNow(_ id: String) async {
+        _ = await playInternal(id, suppressErrorNotice: false)
+    }
+
+    private func playInternal(_ id: String, suppressErrorNotice: Bool) async -> LaunchOutcome {
         guard !launchingGame, cloudConflict == nil,
               let entry = entry(id), let manifest = entry.manifest, let framework = entry.frameworkURL,
-              details.first(where: { $0.id == id })?.game.state == .playable else { return }
+              details.first(where: { $0.id == id })?.game.state == .playable else {
+            return .failed(nil)
+        }
         cloudCheckGeneration &+= 1
         let checkGeneration = cloudCheckGeneration
         pendingCloudLaunch = nil
@@ -925,13 +1128,15 @@ public struct ShellHostConfig: Sendable {
         guard cloudCheckGeneration == checkGeneration,
               let latestEntry = self.entry(id), latestEntry.manifest == manifest, let dataURL = resolved.url else {
             refresh(id)
-            return
+            let updatedState = details.first(where: { $0.id == id })?.game.state
+            return .failed(updatedState.map { unplayableDeepLinkMessage(for: $0, title: entry.title) })
         }
         let readiness = ShaderResources.readiness(entry: latestEntry, appFolder: gameAppFolder, dataURL: dataURL, romfsURL: resolved.romfsURL)
         guard case .ready(let shaderSource) = readiness,
               let profile = profile(for: latestEntry, data: resolved) else {
             refresh(id)
-            return
+            let updatedState = details.first(where: { $0.id == id })?.game.state
+            return .failed(updatedState.map { unplayableDeepLinkMessage(for: $0, title: latestEntry.title) })
         }
         var cloud: URL?
         switch cloudSaves(id) {
@@ -952,7 +1157,7 @@ public struct ShellHostConfig: Sendable {
             let report = await Task.detached(priority: .userInitiated) {
                 CloudSaveSyncCheck.inspect(cloudFolder: cloudFolder, titleID: id, appFolder: gameAppFolder)
             }.value
-            guard cloudCheckGeneration == checkGeneration, self.entry(id)?.manifest == manifest else { return }
+            guard cloudCheckGeneration == checkGeneration, self.entry(id)?.manifest == manifest else { return .failed(nil) }
             if report.outcome.requiresPrompt {
                 let rawDevice = (report.cloud?.device ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 let shownDevice = (rawDevice.isEmpty || rawDevice == "unknown") ? hostText("Another device") : rawDevice
@@ -966,14 +1171,17 @@ public struct ShellHostConfig: Sendable {
                     cloudSaved: Self.formatSaveDate(report.cloud?.saved),
                     localSaved: Self.formatSaveDate(report.local.saved)
                 )
-                return
+                return .promptedCloudConflict
             }
             for (k, v) in CloudSaveSyncCheck.nonInteractiveEnvironment() {
                 game.environment[k] = v
             }
         }
 
-        await finishLaunch(game)
+        if let failure = await finishLaunch(game, suppressNotice: suppressErrorNotice) {
+            return .failed(failure)
+        }
+        return .launched
     }
 
     public func resolveCloudConflict(_ decision: CloudSaveDecision) {
@@ -981,9 +1189,23 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func cancelCloudConflict() {
+        cancelCloudConflict(notifyDeepLink: true)
+    }
+
+    private func cancelCloudConflict(notifyDeepLink: Bool) {
         cloudCheckGeneration &+= 1
         pendingCloudLaunch = nil
         cloudConflict = nil
+        if deepLinkCloudPending {
+            let errorURL = pendingDeepLinkErrorURL
+            pendingDeepLinkSuccessURL = nil
+            pendingDeepLinkErrorURL = nil
+            deepLinkCloudPending = false
+            isDeepLinkLaunching = false
+            if notifyDeepLink, let errorURL {
+                config.openURL(DeepLinkRouter.errorCallbackURL(base: errorURL, message: hostText("Launch cancelled.")))
+            }
+        }
     }
 
     public func cancelCloudConflictIfPending() {
@@ -1029,7 +1251,19 @@ public struct ShellHostConfig: Sendable {
 
         switch choiceResult {
         case .failure(let error):
-            notice = error.localizedDescription
+            if deepLinkCloudPending {
+                let errorURL = pendingDeepLinkErrorURL
+                pendingDeepLinkSuccessURL = nil
+                pendingDeepLinkErrorURL = nil
+                deepLinkCloudPending = false
+                if let errorURL {
+                    config.openURL(DeepLinkRouter.errorCallbackURL(base: errorURL, message: error.localizedDescription))
+                } else {
+                    notice = error.localizedDescription
+                }
+            } else {
+                notice = error.localizedDescription
+            }
         case .success(let env):
             var game = pending.game
             for (k, v) in env {
@@ -1037,7 +1271,16 @@ public struct ShellHostConfig: Sendable {
             }
             startBackupScan()
             await backupScanTask?.value
-            await finishLaunch(game)
+            let wasDeepLink = deepLinkCloudPending
+            let errorURL = pendingDeepLinkErrorURL
+            deepLinkCloudPending = false
+            if let failure = await finishLaunch(game, suppressNotice: wasDeepLink && errorURL != nil), wasDeepLink {
+                pendingDeepLinkSuccessURL = nil
+                pendingDeepLinkErrorURL = nil
+                if let errorURL {
+                    config.openURL(DeepLinkRouter.errorCallbackURL(base: errorURL, message: failure))
+                }
+            }
         }
     }
 
@@ -1065,7 +1308,8 @@ public struct ShellHostConfig: Sendable {
         notice = hostText("Restored the save backup from \(restored.label). Your previous save was backed up first.")
     }
 
-    private func finishLaunch(_ baseGame: LaunchableGame) async {
+    @discardableResult
+    private func finishLaunch(_ baseGame: LaunchableGame, suppressNotice: Bool = false) async -> String? {
         var game = baseGame
         // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
         LastPlayedStore(defaults: config.defaults(game.titleID)).record(config.now())
@@ -1073,8 +1317,12 @@ public struct ShellHostConfig: Sendable {
         do {
             game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
             try await launcher.launch(game)
+            return nil
         } catch {
-            notice = error.localizedDescription
+            if !suppressNotice {
+                notice = error.localizedDescription
+            }
+            return error.localizedDescription
         }
     }
 

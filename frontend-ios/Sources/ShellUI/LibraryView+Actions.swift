@@ -35,6 +35,9 @@ extension LibraryView {
         a.onRestoreSaveBackup = { if !echo() { o.onRestoreSaveBackup($0) } }
         a.onDeleteGame = { if !echo() { o.onDeleteGame($0, $1) } }
         a.onOpenHomeButtonSettings = { if !echo() { o.onOpenHomeButtonSettings() } }
+        a.onCopyShortcutURL = o.onCopyShortcutURL.map { copy in
+            { if !echo() { copy($0) } }
+        }
         return a
     }
     /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when

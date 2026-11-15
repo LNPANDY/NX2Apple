@@ -115,6 +115,13 @@ public struct GameDetailView: View {
                 versionRow
             }
         }
+        if let onCopyShortcutURL = actions.onCopyShortcutURL {
+            if nativeSections {
+                Section { copyShortcutButton(onCopyShortcutURL) }
+            } else {
+                copyShortcutButton(onCopyShortcutURL)
+            }
+        }
         VStack(alignment: .leading, spacing: 10) {
             GameSettingsGlassButton(title: ShellStrings.text("Reset to tested defaults")) { actions.onResetDefaults(detail.id) }
                 .accessibilityIdentifier("set.reset")
@@ -138,6 +145,16 @@ public struct GameDetailView: View {
     private var versionRow: some View {
         LabeledContent(ShellStrings.text("Version"), value: detail.game.version)
             .accessibilityIdentifier("detail.version")
+    }
+
+    private func copyShortcutButton(_ action: @escaping (String) -> Void) -> some View {
+        Button {
+            action(detail.id)
+        } label: {
+            Label(ShellStrings.text("Copy Shortcut URL"), systemImage: "link")
+        }
+        .accessibilityIdentifier("set.copyShortcut")
+        .shellTarget("set.copyShortcut") { action(detail.id) }
     }
 
     private var header: some View {

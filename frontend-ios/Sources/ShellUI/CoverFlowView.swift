@@ -18,6 +18,7 @@ struct CoverFlowView: View, Equatable {
     let openSettings: () -> Void
     let openControllers: () -> Void
     let openShellSettings: () -> Void
+    var copyShortcutURL: ((String) -> Void)? = nil
     @State private var centredID: String?
     @State private var division: CGRect?
     private var divided: Bool { division != nil }
@@ -27,8 +28,6 @@ struct CoverFlowView: View, Equatable {
     @State private var userScrolling = false
     /// False while the carousel scrolls, decelerates or snaps: a tap on the centre card then does nothing.
     @State private var settled = true
-    /// A long press on the centre card opened settings: the touch that ends it must not also play.
-    @State private var longPressed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Re-render only for what is drawn: the games' tiles, the selection and the hints. Settings changes elsewhere do
@@ -190,7 +189,6 @@ struct CoverFlowView: View, Equatable {
         return Button {
             // The centred card acts like the game's primary action, once the carousel has settled. A side card only
             // comes to the middle and never starts anything.
-            if longPressed { longPressed = false; return }
             if chosen {
                 if settled { primary(detail) }
                 return
@@ -203,13 +201,20 @@ struct CoverFlowView: View, Equatable {
                 .shadow(color: .black.opacity(0.5), radius: cover * 0.05, y: cover * 0.03)
         }
         .buttonStyle(.plain)
-        // A long press on the centred card opens its settings, a shortcut for the button at the top.
-        .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-            guard chosen, settled else { return }
-            longPressed = true
-            openSettings()
-        })
-        .sensoryFeedback(.impact(weight: .medium), trigger: longPressed) { _, new in new }
+        .contextMenu {
+            Group {
+                Button(ShellStrings.text("Play"), systemImage: "play.fill") { primary(detail) }
+                    .disabled(detail.game.state != .playable)
+                Button(ShellStrings.text("Game settings"), systemImage: "slider.horizontal.3") {
+                    select(detail.id); openSettings()
+                }
+                if let copyShortcutURL {
+                    Button(ShellStrings.text("Copy Shortcut URL"), systemImage: "link") {
+                        copyShortcutURL(detail.id)
+                    }
+                }
+            }
+        }
         .shellTarget("lib.tile.\(detail.id)", radius: cover * 0.03) { primary(detail) }
         .accessibilityLabel([detail.game.title, detail.game.state.title, detail.game.subtitle].filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityAddTraits(chosen ? .isSelected : [])

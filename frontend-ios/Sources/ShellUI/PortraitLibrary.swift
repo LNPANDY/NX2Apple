@@ -39,6 +39,7 @@ struct PortraitLibrary: View, Equatable {
     let openSettings: () -> Void
     let openControllers: () -> Void
     let openShellSettings: () -> Void
+    var copyShortcutURL: ((String) -> Void)? = nil
     @Binding var position: ScrollPosition
     @Namespace private var actionGlassNamespace
     @Namespace private var poseNamespace
@@ -367,6 +368,11 @@ struct PortraitLibrary: View, Equatable {
                     .disabled(detail.game.state != .playable)
                 Button(ShellStrings.text("Game settings"), systemImage: "slider.horizontal.3") {
                     select(detail.id); openSettings()
+                }
+                if let copyShortcutURL {
+                    Button(ShellStrings.text("Copy Shortcut URL"), systemImage: "link") {
+                        copyShortcutURL(detail.id)
+                    }
                 }
             }
         }

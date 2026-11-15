@@ -1,0 +1,382 @@
+import Foundation
+import ShellUI
+import Testing
+@testable import ShellHost
+
+@MainActor
+private final class DeepLinkHarness {
+    var openedURLs: [URL] = []
+    var copiedStrings: [String] = []
+    var activeGameID: String?
+    var stopRequestCount = 0
+}
+
+private final class DeepLinkRecordingLauncher: GameLauncher, @unchecked Sendable {
+    var launched: [LaunchableGame] = []
+    var error: (any Error)?
+    var onLaunch: (@MainActor (LaunchableGame) -> Void)?
+
+    @MainActor func launch(_ game: LaunchableGame) async throws {
+        launched.append(game)
+        if let error { throw error }
+        onLaunch?(game)
+    }
+}
+
+private struct DeepLinkLaunchError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
+@MainActor @Suite(.serialized) struct DeepLinkRouterTests {
+    private let secondTitleID = "0100000000080000"
+
+    private func writePlist(_ dict: [String: Any], to url: URL) throws {
+        let data = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url)
+    }
+
+    private func makePlayableFramework(in root: URL, folder: String, titleID: String, title: String,
+                                       bundleID: String, box: FrameworkBox) throws -> URL {
+        let fw = try box.makeFramework(folder: folder, titleID: titleID, launcherAt: "dm/launcher.json")
+        let manifestURL = fw.appendingPathComponent("game.manifest.json")
+        var manifest = try String(contentsOf: manifestURL, encoding: .utf8)
+        manifest = manifest.replacingOccurrences(of: "\"Orbit Fixture\"", with: "\"\(title)\"")
+        try Data(manifest.utf8).write(to: manifestURL)
+
+        let mslFile = fw.appendingPathComponent("msl/b-3f9a2c/fixture.metallib")
+        try box.write("fixture", to: mslFile)
+
+        try writePlist([
+            "CFBundleIdentifier": bundleID,
+            "CFBundleDisplayName": title,
+            "CFBundleShortVersionString": "1.2.3",
+            "DMTitleID": titleID,
+            "CFBundleIconFile": "AppIcon.png"
+        ], to: fw.appendingPathComponent("Info.plist"))
+
+        let iconURL = fw.appendingPathComponent("AppIcon.png")
+        try FileManager.default.createDirectory(at: fw, withIntermediateDirectories: true)
+        try pngData(width: 64, height: 64).write(to: iconURL)
+        return fw
+    }
+
+    private func seedAppData(box: FrameworkBox, titleID: String) throws {
+        let romfsDir = box.documents.appendingPathComponent("games/\(titleID)/romfs", isDirectory: true)
+        try box.write("", to: romfsDir.appendingPathComponent("fixture.marker"))
+    }
+
+    private func makeModel(box: FrameworkBox, hotRoot: URL? = nil, harness: DeepLinkHarness = DeepLinkHarness(),
+                           launcher: DeepLinkRecordingLauncher = DeepLinkRecordingLauncher(),
+                           suitePrefix: String = "deeplink.tests.\(UUID().uuidString).") -> ShellHostModel {
+        let config = ShellHostConfig(
+            gamesRoot: box.frameworks,
+            appDataRoot: box.documents.appendingPathComponent("games", isDirectory: true),
+            hotFrameworksRoot: hotRoot,
+            environment: HostEnvironment(chain: "b-3f9a2c"),
+            defaults: { UserDefaults(suiteName: suitePrefix + $0)! },
+            openURL: { harness.openedURLs.append($0) },
+            copyToPasteboard: { harness.copiedStrings.append($0) },
+            activeRunningGameID: { harness.activeGameID },
+            requestStopRunningGame: { harness.stopRequestCount += 1 }
+        )
+        let shell = ShellSettingsStore(defaults: UserDefaults(suiteName: suitePrefix + "shell")!)
+        return ShellHostModel(config: config, launcher: launcher, shellSettings: shell)
+    }
+
+    @Test func parsesQueryAndShorthandFormatsWithValidatedCallbacks() throws {
+        let queryURL = try #require(URL(string: "nx2apple://launch?id=DmGame01007EF00011E000&x-success=shortcuts%3A%2F%2F&x-error=shortcuts%3A%2F%2Fx-error"))
+        let req1 = try #require(DeepLinkRouter.parse(queryURL))
+        #expect(req1.target == "DmGame01007EF00011E000")
+        #expect(req1.successURL == URL(string: "shortcuts://"))
+        #expect(req1.errorURL == URL(string: "shortcuts://x-error"))
+
+        let shortURL = try #require(URL(string: "nx2apple://launch/Orbit%20Fixture?x-success=shortcuts://callback"))
+        let req2 = try #require(DeepLinkRouter.parse(shortURL))
+        #expect(req2.target == "Orbit Fixture")
+        #expect(req2.successURL == URL(string: "shortcuts://callback"))
+        #expect(req2.errorURL == nil)
+
+        #expect(DeepLinkRouter.parse(try #require(URL(string: "nx2apple://unknown?id=foo"))) == nil)
+        #expect(DeepLinkRouter.parse(try #require(URL(string: "nx2apple://launch"))) == nil)
+        #expect(DeepLinkRouter.parse(try #require(URL(string: "nx2apple://launch/a/b"))) == nil)
+    }
+
+    @Test func rejectsDangerousAndRecursiveCallbackSchemesAndAppendsErrorMessage() throws {
+        let rejected = [
+            "javascript:alert(1)",
+            "JavaScript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "file:///etc/passwd",
+            "http://example.com/cb",
+            "https://example.com/cb",
+            "about:blank",
+            "blob:https://example.com/uuid",
+            "vbscript:msgbox(1)",
+            "nx2apple://launch?id=Orbit",
+            "NX2APPLE://launch?id=Orbit",
+            "123bad://callback",
+            "/relative/path",
+            "shortcuts://bad\ncallback"
+        ]
+        for raw in rejected {
+            #expect(DeepLinkRouter.validatedCallbackURL(raw) == nil, "Expected \(raw) to be rejected")
+        }
+
+        #expect(DeepLinkRouter.validatedCallbackURL("shortcuts://") == URL(string: "shortcuts://"))
+        #expect(DeepLinkRouter.validatedCallbackURL("shortcuts://x-callback-url/success") == URL(string: "shortcuts://x-callback-url/success"))
+        #expect(DeepLinkRouter.validatedCallbackURL("my-app+1.0://done") == URL(string: "my-app+1.0://done"))
+
+        let base = try #require(URL(string: "shortcuts://x-callback-url/error?step=1"))
+        let errURL = DeepLinkRouter.errorCallbackURL(base: base, message: "Game missing & broken")
+        let comps = try #require(URLComponents(url: errURL, resolvingAgainstBaseURL: false))
+        #expect(comps.queryItems?.first(where: { $0.name == "step" })?.value == "1")
+        #expect(comps.queryItems?.first(where: { $0.name == "errorMessage" })?.value == "Game missing & broken")
+    }
+
+    @Test func matchesFourTiersCaseInsensitivelyWithHotOverridePriority() throws {
+        let box = try FrameworkBox()
+        let hotRoot = box.root.appendingPathComponent("Documents/Frameworks", isDirectory: true)
+        let bundledFW = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Fixture", bundleID: "org.nxnative.orbit", box: box
+        )
+        let hotFW = try makePlayableFramework(
+            in: hotRoot, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Hot", bundleID: "org.nxnative.orbit.hot", box: box
+        )
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(secondTitleID).framework", titleID: secondTitleID,
+            title: "Second Game", bundleID: "org.nxnative.second", box: box
+        )
+        // Force hot override to be newer than bundled.
+        let past = Date(timeIntervalSince1970: 1_000_000)
+        try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: bundledFW.appendingPathComponent("game.manifest.json").path)
+
+        let entries = GameCatalogue.scan(root: box.frameworks, hotRoot: hotRoot, gameDataRoot: box.documents.appendingPathComponent("games"))
+        #expect(entries.count == 2)
+
+        // Tier 1: .framework name (with or without .framework suffix, case-insensitive) and hot override wins.
+        let t1a = try #require(DeepLinkRouter.matchEntry(target: "dmgame\(Fixtures.orbit.lowercased())", in: entries))
+        #expect(t1a.directory.path == hotFW.path)
+        let t1b = try #require(DeepLinkRouter.matchEntry(target: "DMGAME\(Fixtures.orbit).FRAMEWORK", in: entries))
+        #expect(t1b.directory.path == hotFW.path)
+
+        // Tier 2: CFBundleIdentifier
+        let t2 = try #require(DeepLinkRouter.matchEntry(target: "ORG.NXNATIVE.SECOND", in: entries))
+        #expect(t2.id == secondTitleID)
+
+        // Tier 3: Title ID
+        let t3 = try #require(DeepLinkRouter.matchEntry(target: secondTitleID.lowercased(), in: entries))
+        #expect(t3.id == secondTitleID)
+
+        // Tier 4: Display name / manifest name
+        let t4 = try #require(DeepLinkRouter.matchEntry(target: "second game", in: entries))
+        #expect(t4.id == secondTitleID)
+
+        #expect(DeepLinkRouter.shortcutURLString(for: t1a) == "nx2apple://launch?id=DmGame\(Fixtures.orbit)")
+    }
+
+    @Test func parsesFrameworkInfoPlistAndResolvesIconsSafely() throws {
+        let box = try FrameworkBox()
+        let fw = try box.makeFramework(folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit)
+        try writePlist([
+            "CFBundleIdentifier": "org.nxnative.custom",
+            "CFBundleDisplayName": "Custom Display Name",
+            "CFBundleShortVersionString": "2.0.1",
+            "DMTitleID": Fixtures.orbit,
+            "CFBundleIconFile": "../secret.png"
+        ], to: fw.appendingPathComponent("Info.plist"))
+        try pngData(width: 32, height: 32).write(to: fw.appendingPathComponent("AppIcon.png"))
+        try pngData(width: 16, height: 16).write(to: fw.appendingPathComponent("icon.png"))
+
+        // Corrupt manifest name fallback -> readableName falls back to Info.plist displayName, and traversal iconFile falls back to AppIcon.png.
+        try box.write("{", to: fw.appendingPathComponent("game.manifest.json"))
+        let brokenEntry = GameCatalogue.readFramework(at: fw)
+        #expect(brokenEntry.bundleInfo?.bundleIdentifier == "org.nxnative.custom")
+        #expect(brokenEntry.bundleInfo?.shortVersionString == "2.0.1")
+        #expect(brokenEntry.bundleInfo?.titleID == Fixtures.orbit)
+        #expect(brokenEntry.readableName == "Custom Display Name")
+        #expect(brokenEntry.iconURL?.lastPathComponent == "AppIcon.png")
+        #expect(brokenEntry.shortcutFrameworkIdentifier == "DmGame\(Fixtures.orbit)")
+
+        // Reject colon and slash traversal too, falling back to icon.png when AppIcon is absent.
+        try FileManager.default.removeItem(at: fw.appendingPathComponent("AppIcon.png"))
+        try writePlist([
+            "CFBundleIconFile": "sub/icon.png"
+        ], to: fw.appendingPathComponent("Info.plist"))
+        let iconFallback = GameCatalogue.readFramework(at: fw)
+        #expect(iconFallback.iconURL?.lastPathComponent == "icon.png")
+
+        // Valid single-component iconFile wins over AppIcon.png.
+        try pngData(width: 32, height: 32).write(to: fw.appendingPathComponent("AppIcon.png"))
+        try pngData(width: 32, height: 32).write(to: fw.appendingPathComponent("CustomIcon.png"))
+        try writePlist([
+            "CFBundleIconFile": "CustomIcon.png"
+        ], to: fw.appendingPathComponent("Info.plist"))
+        let customIconEntry = GameCatalogue.readFramework(at: fw)
+        #expect(customIconEntry.iconURL?.lastPathComponent == "CustomIcon.png")
+    }
+
+    @Test func coldLaunchBlackOverlayAndErrorCallbacks() async throws {
+        let box = try FrameworkBox()
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Fixture", bundleID: "org.nxnative.orbit", box: box
+        )
+        try seedAppData(box: box, titleID: Fixtures.orbit)
+
+        // Success cold launch: isDeepLinkLaunching becomes true synchronously on handleDeepLink, then clears after launch.
+        let harness1 = DeepLinkHarness()
+        let launcher1 = DeepLinkRecordingLauncher()
+        let model1 = makeModel(box: box, harness: harness1, launcher: launcher1)
+        let url1 = try #require(URL(string: "nx2apple://launch?id=DmGame\(Fixtures.orbit)&x-success=shortcuts://"))
+        #expect(model1.handleDeepLink(url1))
+        #expect(model1.isDeepLinkLaunching == true)
+        await model1.waitForDeepLinkTask()
+        #expect(launcher1.launched.map(\.titleID) == [Fixtures.orbit])
+        #expect(model1.isDeepLinkLaunching == false)
+
+        // Missing target -> exits black overlay and calls x-error with errorMessage.
+        let harness2 = DeepLinkHarness()
+        let model2 = makeModel(box: box, harness: harness2)
+        let urlMissing = try #require(URL(string: "nx2apple://launch?id=MissingGame&x-error=shortcuts://x-error"))
+        #expect(await model2.handleDeepLinkNow(urlMissing))
+        #expect(model2.isDeepLinkLaunching == false)
+        #expect(harness2.openedURLs.count == 1)
+        let missingComps = try #require(URLComponents(url: harness2.openedURLs[0], resolvingAgainstBaseURL: false))
+        #expect(missingComps.scheme == "shortcuts")
+        #expect((missingComps.queryItems?.first(where: { $0.name == "errorMessage" })?.value ?? "").isEmpty == false)
+
+        // Unplayable (needs game data) without x-error -> exits black overlay and populates model.notice.
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(secondTitleID).framework", titleID: secondTitleID,
+            title: "Quiet Fixture", bundleID: "org.nxnative.quiet", box: box
+        )
+        let harness3 = DeepLinkHarness()
+        let model3 = makeModel(box: box, harness: harness3)
+        let urlUnplayable = try #require(URL(string: "nx2apple://launch/\(secondTitleID)"))
+        #expect(await model3.handleDeepLinkNow(urlUnplayable))
+        #expect(model3.isDeepLinkLaunching == false)
+        #expect(harness3.openedURLs.isEmpty)
+        #expect(model3.notice != nil)
+
+        // Launcher failure -> exits black overlay and calls x-error with errorMessage.
+        let harness4 = DeepLinkHarness()
+        let failingLauncher = DeepLinkRecordingLauncher()
+        failingLauncher.error = DeepLinkLaunchError(message: "Signature failed")
+        let model4 = makeModel(box: box, harness: harness4, launcher: failingLauncher)
+        let urlFail = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.orbit)&x-error=shortcuts://err"))
+        #expect(await model4.handleDeepLinkNow(urlFail))
+        #expect(model4.isDeepLinkLaunching == false)
+        #expect(harness4.openedURLs.count == 1)
+        let failComps = try #require(URLComponents(url: harness4.openedURLs[0], resolvingAgainstBaseURL: false))
+        #expect(failComps.queryItems?.first(where: { $0.name == "errorMessage" })?.value == "Signature failed")
+    }
+
+    @Test func sameGameForegroundUpdatesCallbacksAndQuitTriggersXSuccess() async throws {
+        let box = try FrameworkBox()
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Fixture", bundleID: "org.nxnative.orbit", box: box
+        )
+        try seedAppData(box: box, titleID: Fixtures.orbit)
+
+        let harness = DeepLinkHarness()
+        let launcher = DeepLinkRecordingLauncher()
+        launcher.onLaunch = { game in harness.activeGameID = game.titleID }
+        let model = makeModel(box: box, harness: harness, launcher: launcher)
+
+        let firstURL = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.orbit)&x-success=shortcuts://first"))
+        #expect(await model.handleDeepLinkNow(firstURL))
+        #expect(launcher.launched.count == 1)
+        #expect(harness.activeGameID == Fixtures.orbit)
+
+        // Re-invoking for the same running game keeps foreground, does not stop or relaunch, and updates pending callback.
+        let secondURL = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.orbit)&x-success=shortcuts://second"))
+        #expect(await model.handleDeepLinkNow(secondURL))
+        #expect(model.isDeepLinkLaunching == false)
+        #expect(harness.stopRequestCount == 0)
+        #expect(launcher.launched.count == 1)
+
+        // Normal game quit via DMShellDidReturnToLibrary clears state first and opens updated shortcuts:// callback once.
+        harness.activeGameID = nil
+        NotificationCenter.default.post(name: ShellHostModel.didReturnToLibraryNotification, object: nil)
+        #expect(harness.openedURLs == [try #require(URL(string: "shortcuts://second"))])
+
+        NotificationCenter.default.post(name: ShellHostModel.didReturnToLibraryNotification, object: nil)
+        #expect(harness.openedURLs.count == 1, "Pending x-success must be cleared before calling openURL")
+    }
+
+    @Test func crossGameSwitchSuppressesOldXSuccessAndLaunchesQueuedTargetOnReturn() async throws {
+        let box = try FrameworkBox()
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Fixture", bundleID: "org.nxnative.orbit", box: box
+        )
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(secondTitleID).framework", titleID: secondTitleID,
+            title: "Second Game", bundleID: "org.nxnative.second", box: box
+        )
+        try seedAppData(box: box, titleID: Fixtures.orbit)
+        try seedAppData(box: box, titleID: secondTitleID)
+
+        let harness = DeepLinkHarness()
+        let launcher = DeepLinkRecordingLauncher()
+        launcher.onLaunch = { game in harness.activeGameID = game.titleID }
+        let model = makeModel(box: box, harness: harness, launcher: launcher)
+
+        // Launch Game A with x-success=shortcuts://game-a
+        let urlA = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.orbit)&x-success=shortcuts://game-a"))
+        #expect(await model.handleDeepLinkNow(urlA))
+        #expect(harness.activeGameID == Fixtures.orbit)
+
+        // While Game A is running, open Game B with x-success=shortcuts://game-b
+        let urlB = try #require(URL(string: "nx2apple://launch?id=\(secondTitleID)&x-success=shortcuts://game-b"))
+        #expect(await model.handleDeepLinkNow(urlB))
+        #expect(model.isDeepLinkLaunching == true)
+        #expect(harness.stopRequestCount == 1)
+        #expect(harness.openedURLs.isEmpty, "Old x-success must be cleared when switching games")
+
+        // Game A returns to library -> queued Game B starts immediately without opening shortcuts://game-a.
+        harness.activeGameID = nil
+        NotificationCenter.default.post(name: ShellHostModel.didReturnToLibraryNotification, object: nil)
+        await model.waitForDeepLinkTask()
+        #expect(harness.openedURLs.isEmpty)
+        #expect(launcher.launched.map(\.titleID) == [Fixtures.orbit, secondTitleID])
+        #expect(harness.activeGameID == secondTitleID)
+
+        // Game B quits -> opens shortcuts://game-b.
+        harness.activeGameID = nil
+        NotificationCenter.default.post(name: ShellHostModel.didReturnToLibraryNotification, object: nil)
+        #expect(harness.openedURLs == [try #require(URL(string: "shortcuts://game-b"))])
+    }
+
+    @Test func copyShortcutURLActionCopiesCanonicalURL() throws {
+        let box = try FrameworkBox()
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Fixture", bundleID: "org.nxnative.orbit", box: box
+        )
+        let harness = DeepLinkHarness()
+        let model = makeModel(box: box, harness: harness)
+        let onCopy = try #require(model.actions.onCopyShortcutURL)
+        onCopy(Fixtures.orbit)
+        #expect(harness.copiedStrings == ["nx2apple://launch?id=DmGame\(Fixtures.orbit)"])
+    }
+
+    @Test func projectShellYmlDeclaresURLSchemeAndFilesVisibility() throws {
+        let ymlURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Shell/project-shell.yml")
+        let yml = try String(contentsOf: ymlURL, encoding: .utf8)
+        #expect(yml.contains("UIFileSharingEnabled: true"))
+        #expect(yml.contains("LSSupportsOpeningDocumentsInPlace: true"))
+        #expect(yml.contains("CFBundleURLTypes:"))
+        #expect(yml.contains("CFBundleURLName: org.nxnative.shell"))
+        #expect(yml.contains("CFBundleURLRole: Editor"))
+        #expect(yml.contains("CFBundleURLSchemes:"))
+        #expect(yml.contains("- nx2apple"))
+    }
+}

@@ -435,14 +435,14 @@ public struct LibraryView: View {
         if layout.isCoverFlow {
             CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, obscured: menuPresented, screenInsets: insets,
                           select: select, primary: { primary($0) }, openSettings: openSettings, openControllers: openControllers,
-                          openShellSettings: openShellSettings)
+                          openShellSettings: openShellSettings, copyShortcutURL: guardedActions.onCopyShortcutURL)
                 .equatable()
                 .transition(.opacity)
         } else {
             PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: insets.top, bottomInset: insets.bottom, obscured: menuPresented,
                             controllers: controllers.count, select: select, primary: { primary($0) },
                             openSettings: openSettings, openControllers: openControllers, openShellSettings: openShellSettings,
-                            position: $libraryPosition)
+                            copyShortcutURL: guardedActions.onCopyShortcutURL, position: $libraryPosition)
                 .equatable()
                 .transition(.opacity)
         }

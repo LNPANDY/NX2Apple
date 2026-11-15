@@ -44,6 +44,11 @@ targets:
         UILaunchScreen: {}
         UIFileSharingEnabled: true          # Documents (log.txt, shell-log.txt, games/<id>/) visible in the Files app
         LSSupportsOpeningDocumentsInPlace: true
+        CFBundleURLTypes:
+          - CFBundleURLName: org.nxnative.shell
+            CFBundleURLRole: Editor
+            CFBundleURLSchemes:
+              - nx2apple
         UISupportedInterfaceOrientations:   # the library turns, the game view asks for landscape (front_ios.m, dm_shell_present_game)
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeRight
