@@ -16,7 +16,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: forwarded seedds/nxnative#2610
 Reason: A full drive at the end of an iOS shader build leaves the failed library image on the drive
 Issue: #1265
-
 ---
  dm/tools/shader_cache.py            |  9 +++++++--
  dm/tools/shader_lib.py              | 12 ++++++++++--
@@ -25,10 +24,10 @@ Issue: #1265
  4 files changed, 56 insertions(+), 6 deletions(-)
 
 diff --git a/dm/tools/shader_cache.py b/dm/tools/shader_cache.py
-index 8502131..3a8d05b 100644
+index 900e1092..aec1fff2 100644
 --- a/dm/tools/shader_cache.py
 +++ b/dm/tools/shader_cache.py
-@@ -67,8 +67,13 @@ class _Files:   # an entry from or to a file, by get and put
+@@ -92,8 +92,13 @@ class _Files:   # an entry from or to a file, by get and put
          data = self.get(name)
          if data is None: return False
          tmp = f'{path}.tmp-{os.getpid()}-{threading.get_ident()}'
@@ -45,7 +44,7 @@ index 8502131..3a8d05b 100644
  
  
 diff --git a/dm/tools/shader_lib.py b/dm/tools/shader_lib.py
-index 1cdc3e7..445c6ae 100644
+index 1cdc3e73..445c6ae9 100644
 --- a/dm/tools/shader_lib.py
 +++ b/dm/tools/shader_lib.py
 @@ -73,8 +73,17 @@ def _names(folder):
@@ -76,7 +75,7 @@ index 1cdc3e7..445c6ae 100644
  
  def pack(lib, say=print, leave_out=False):
 diff --git a/dm/tools/tests/test_shader_cache.py b/dm/tools/tests/test_shader_cache.py
-index c78be20..78fcbea 100644
+index e99ca2f4..e174b6e3 100644
 --- a/dm/tools/tests/test_shader_cache.py
 +++ b/dm/tools/tests/test_shader_cache.py
 @@ -1,6 +1,6 @@
@@ -114,7 +113,7 @@ index c78be20..78fcbea 100644
          self.store.put('x', b'1'); self.store.close()
          self.assertEqual(os.listdir(self.root), ['cas.db'])
 diff --git a/dm/tools/tests/test_shader_lib.py b/dm/tools/tests/test_shader_lib.py
-index 0fe8eb4..cffe7ad 100644
+index 0fe8eb4d..cffe7ad0 100644
 --- a/dm/tools/tests/test_shader_lib.py
 +++ b/dm/tools/tests/test_shader_lib.py
 @@ -1,7 +1,8 @@

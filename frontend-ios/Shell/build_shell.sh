@@ -78,8 +78,8 @@ ln -sfn "$SHELL_ROOT/App" "$S/Shell" || die "link Shell"
 cd "$S" || die "cd $S"
 rm -rf Gen && mkdir -p Gen/dm/font || die "mkdir Gen"
 : > Gen/dm.xcconfig || die "dm.xcconfig"
-cp "${STD_FONT:-/System/Library/Fonts/Supplemental/Arial Unicode.ttf}" Gen/dm/font/standard.ttf || die "copy standard font (STD_FONT=a TTF)"
-"${FONT_PY:-python3}" "$DM/tools/make_ext_font.py" Gen/dm/font/nintendo_ext.ttf > /dev/null || die "make_ext_font.py (pip install fonttools, or FONT_PY=python with fontTools)"
+"${FONT_PY:-python3}" "$DM/tools/make_shared_fonts.py" Gen/dm/font "${STD_FONT:-/System/Library/Fonts/Supplemental/Arial Unicode.ttf}" > /dev/null \
+  || die "make_shared_fonts.py (pip install fonttools, or FONT_PY=python with fontTools; STD_FONT=a TTF)"
 mkdir -p Gen/Assets.xcassets && printf '{"info":{"author":"xcode","version":1}}\n' > Gen/Assets.xcassets/Contents.json || die "asset catalog"
 # The shell asks for the Increased Memory Limit capability, as the one-game app does; a framework cannot hold entitlements
 printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \

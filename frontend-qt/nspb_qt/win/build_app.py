@@ -137,6 +137,15 @@ def die(msg: str) -> None:
     raise SystemExit(1)
 
 
+def _build_shared_fonts(repo: Path, out_dir: Path, font: Path, letter: Path) -> None:
+    """Generate the six unhinted shared-font stand-ins via `dm/tools/make_shared_fonts.py`."""
+    tools = str(repo / 'dm/tools')
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import make_shared_fonts
+    make_shared_fonts.build(str(out_dir), str(font), str(letter))
+
+
 def py(*args, env=None, capture=True) -> str:
     """Run one of the repository's own Python tools and return its stdout."""
     r = subprocess.run([sys.executable, *map(str, args)], capture_output=capture, text=True,
@@ -1150,13 +1159,12 @@ def main(argv: list[str] | None = None) -> int:
         (dmres / 'font').mkdir()
         font = tc.std_font() or die('no standard font: set STD_FONT to a TTF with broad Unicode '
                                     'coverage')
-        shutil.copy2(font, dmres / 'font/standard.ttf')
-        t(f'standard font: {font} (upstream copies macOS\'s Arial Unicode; Windows fonts have '
+        t(f'standard font: {font} (upstream cuts macOS\'s Arial Unicode; Windows fonts have '
           f'different CJK coverage)')
         letter = tc.letter_font()
         if not letter:
             die('no bold TTF for the button icons: set LETTER_FONT')
-        py(repo / 'dm/tools/make_ext_font.py', dmres / 'font/nintendo_ext.ttf', letter)
+        _build_shared_fonts(repo, dmres / 'font', font, letter)
 
     # --- the source list and the compile
     global _HOST_MAIN

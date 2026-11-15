@@ -21,13 +21,13 @@ Issue: LNPANDY/NX2Apple#711
 ---
  dm/games/01006F8002326000/README.md |  2 ++
  dm/host/Makefile                    | 11 +++++++----
- dm/tools/tests/test_host_msl.py     | 27 ++++++++++++++++++++++++++-
+ dm/tools/tests/test_host_msl.py     | 28 +++++++++++++++++++++++++++-
  docs/reference/packing.md           |  7 +++++++
- scripts/build_ipa_from_nsp.py       |  4 ++--
- 5 files changed, 44 insertions(+), 7 deletions(-)
+ scripts/build_ipa_from_nsp.py       |  6 +++---
+ 5 files changed, 46 insertions(+), 8 deletions(-)
 
 diff --git a/dm/games/01006F8002326000/README.md b/dm/games/01006F8002326000/README.md
-index ebaac81..08735cb 100644
+index 19234da0..dc446c07 100644
 --- a/dm/games/01006F8002326000/README.md
 +++ b/dm/games/01006F8002326000/README.md
 @@ -65,6 +65,8 @@ Checked on a Mac (M1, macOS 27, headless, an island save) against 16:9: the 3D v
@@ -40,7 +40,7 @@ index ebaac81..08735cb 100644
  
  - **The host's shaders compiled when the host is built** (`dm/gfx/msl`, `host_msl_lib`): the HUD's `Compiled 2 shaders … 102.70ms` in play on an iPhone 17 Pro Max came from clear-triangle libraries compiled from source when a new room first issued a scissored clear; [The host's own shaders compiled from source at run time](../../../docs/reference/shaders.md#the-hosts-own-shaders-compiled-from-source-at-run-time).
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index 6bab943..0959180 100644
+index 88be9209..e56a9fb4 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
 @@ -1,14 +1,17 @@
@@ -63,7 +63,7 @@ index 6bab943..0959180 100644
  ifeq ($(GAME_DIR),)
  $(error no game profile $(GAME) (neither in dm/games nor in DM_GAMES_DIR))
  endif
-@@ -56,7 +59,7 @@ MSL_SRC = $(sort $(wildcard ../gfx/msl/*.metal))
+@@ -59,7 +62,7 @@ MSL_SRC = $(sort $(wildcard ../gfx/msl/*.metal))
  MSL_H = gen/msl-$(MSL_SDK)/host_msl_gen.h
  # Recheck the toolchain and target on every build; the generator keeps the header unchanged when its inputs match.
  $(MSL_H): $(MSL_SRC) ../gfx/tools/host_msl.py FORCE
@@ -72,17 +72,17 @@ index 6bab943..0959180 100644
  .PHONY: host_msl
  host_msl: $(MSL_H)
  .DEFAULT_GOAL := dmhost   # The header generation rules are written first below, so the default goal must be stated explicitly (otherwise make only generates the headers and does not build the host)
-@@ -64,7 +67,7 @@ host_msl: $(MSL_H)
+@@ -67,7 +70,7 @@ host_msl: $(MSL_H)
  game_profile: $(GAME_H)
  # Regenerated on every make (FORCE): the same GAME can come from another profile folder (DM_GAMES_FIRST), whose game.tsv may be older than the header; game.py writes it only when it changes
  $(GAME_H): $(GAME_DIR)/game.tsv ../games/game.py FORCE
 -	@python3 ../games/game.py header $(GAME) $@
 +	@"$(PYTHON)" ../games/game.py header $(GAME) $@
- # Records which game the host was built for: changing GAME changes the stamp's content and rebuilds the host (otherwise make sees dmhost as newer than both headers and keeps the other game's host).
- # The game of the last build is also read when the Makefile is parsed, and a different one forces the link: make compares whole seconds, and a stamp written in the same second as
- # another game's dmhost (two builds in a row) did not count as newer, so that game's host was kept
+ .PHONY: FORCE
+ FORCE:
+ # The host: one object per source in gen/<id>/obj (dm.h includes the profile header, so every game has its own), compiled on every core, then linked into gen/<id>/dmhost with
 diff --git a/dm/tools/tests/test_host_msl.py b/dm/tools/tests/test_host_msl.py
-index 6175a81..6ce3573 100644
+index 59f4d380..bfdb78d6 100644
 --- a/dm/tools/tests/test_host_msl.py
 +++ b/dm/tools/tests/test_host_msl.py
 @@ -3,6 +3,7 @@ import importlib.util
@@ -93,7 +93,7 @@ index 6175a81..6ce3573 100644
  import shutil
  import subprocess
  import sys
-@@ -73,6 +74,22 @@ class HostMSL(unittest.TestCase):
+@@ -74,6 +75,22 @@ class HostMSL(unittest.TestCase):
          for d in dirs: (self.root / d).mkdir(parents=True, exist_ok=True)
          (self.root / 'dm/games/game.py').touch()
  
@@ -116,30 +116,31 @@ index 6175a81..6ce3573 100644
      def test_mac_and_ios_use_their_deployment_targets(self):
          self.make()
          minimum = (self.root / 'dm/mac/min_os.mk').read_text().split('MACOS_MIN := ')[1].split()[0]
-@@ -163,11 +180,13 @@ class HostMSL(unittest.TestCase):
+@@ -164,18 +181,22 @@ class HostMSL(unittest.TestCase):
          logs = self.root / 'logs'
          logs.mkdir()
          builds = []
 +        makes = []
  
          def run(cmd, log, env=None, cwd=None):
-             if cmd[0] == 'make':
++            if cmd[0] == 'make':
 +                makes.append(cmd)
+             if f'gen/{GAME}/dmhost' in cmd:   # the host itself (make gen/<id>/dmhost), which the script copies to out
+                 self.assertTrue(self.header.is_file(), 'the host build needs the header the key fingerprints')
+                 builds.append(cmd)
+                 built = self.root / f'dm/host/gen/{GAME}/dmhost'; built.parent.mkdir(parents=True, exist_ok=True); built.write_bytes(b'host executable')
+             else:
                  self.assertIn('host_msl', cmd)
 -                p = real_run(['make', '-s', f'GAME={GAME}', 'host_msl'], cwd=cwd, env=env, capture_output=True, text=True)
 +                p = real_run(['make', '-s', f'GAME={GAME}', 'host_msl', *[a for a in cmd if a.startswith('PYTHON=')]], cwd=cwd, env=env, capture_output=True, text=True)
                  self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-             else:
-                 self.assertTrue(self.header.is_file(), 'direct clang needs the header before its first compile')
-@@ -175,6 +194,7 @@ class HostMSL(unittest.TestCase):
-                 out.write_bytes(b'host executable')
  
          def command(cmd, **kw):
 +            if cmd[0] == 'make': makes.append(cmd)
-             return NS(returncode=0, stdout='clang -o dmhost main.c\n' if cmd[0] == 'make' else 'test toolchain', stderr='')
+             return NS(returncode=0, stdout=DRY if cmd[0] == 'make' else 'test toolchain', stderr='')
  
          with patch.object(nsp, 'apple_silicon', return_value=True), patch.object(nsp, 'run', side_effect=run), patch.object(nsp.subprocess, 'run', side_effect=command):
-@@ -189,6 +209,11 @@ class HostMSL(unittest.TestCase):
+@@ -190,6 +211,11 @@ class HostMSL(unittest.TestCase):
              nsp.build_mac_host(self.root, out, self.env, logs, NS(id=GAME))
              self.assertEqual(len(builds), 3)
  
@@ -152,7 +153,7 @@ index 6175a81..6ce3573 100644
          nsp = script('build_ipa_from_nsp')
          self.host_dirs(nsp.HOST_DIRS)
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index 13c7efa..67751e1 100644
+index d082f98a..30be8614 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
 @@ -84,6 +84,13 @@
@@ -170,17 +171,27 @@ index 13c7efa..67751e1 100644
  
  - **Symptom:** the first extraction stops with `nx_extract exit code 131` and `.NET location: Not found`, even though `dotnet` is on `PATH`. The shader translator can fail the same way.
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index aaf0ece..58b5b7d 100755
+index 5f66c08b..40d0e804 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1759,8 +1759,8 @@ def build_mac_host(repo, out, env, logs, g):
+@@ -1857,9 +1857,9 @@ def build_mac_host(repo, out, env, logs, g):
      and the macOS SDK) are as at the last build into out. The host runs the game's own arm64 code natively, so an Intel Mac stops here (GitHub issue #54)"""
      if not apple_silicon(): raise BuildError('this step boots the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      host = repo / 'dm/host'
 -    run(['make', '-s', f'GAME={g.id}', f'gen/{g.id}/game_profile.h', 'gen/vpx/libvpx.a', 'gen/dav1d/libdav1d.a', 'host_msl'], logs / 'mac_host_make.log', env=env, cwd=host)
--    dry = subprocess.run(['make', '-n', '-B', f'GAME={g.id}', 'dmhost'], env=env, cwd=host, capture_output=True, text=True)
 +    run(['make', '-s', f'PYTHON={sys.executable}', f'GAME={g.id}', f'gen/{g.id}/game_profile.h', 'gen/vpx/libvpx.a', 'gen/dav1d/libdav1d.a', 'host_msl'], logs / 'mac_host_make.log', env=env, cwd=host)
-+    dry = subprocess.run(['make', '-n', '-B', f'PYTHON={sys.executable}', f'GAME={g.id}', 'dmhost'], env=env, cwd=host, capture_output=True, text=True)
-     line = next((l for l in dry.stdout.splitlines() if ' -o dmhost ' in l), None)
-     if not line: raise BuildError(f'make -n gave no compile line for the Mac host: {dry.stderr.strip()[-500:]}')
-     cmd = shlex.split(line); cmd[cmd.index('-o') + 1] = out
+     built = host / f'gen/{g.id}/dmhost'
+-    dry = subprocess.run(['make', '-n', '-B', f'GAME={g.id}', f'gen/{g.id}/dmhost'], env=env, cwd=host, capture_output=True, text=True)
++    dry = subprocess.run(['make', '-n', '-B', f'PYTHON={sys.executable}', f'GAME={g.id}', f'gen/{g.id}/dmhost'], env=env, cwd=host, capture_output=True, text=True)
+     cmd = [l for l in dry.stdout.splitlines() if l.startswith('clang') and f' -o gen/{g.id}/' in l]   # the host's compiles and its link, not the libraries'
+     if not any(f' -o gen/{g.id}/dmhost ' in l for l in cmd): raise BuildError(f'make -n gave no link line for the Mac host: {dry.stderr.strip()[-500:]}')
+     kf, tp = out.with_name(out.name + '.key'), repo / 'dm/third_party'
+@@ -1874,7 +1874,7 @@ def build_mac_host(repo, out, env, logs, g):
+     decoder = fingerprint('oodle-host-v1', common, ('files', [p for p in srcs if p != chain]), chain_text)
+     if out.is_file() and reused(kf, key) is not None and decoder_host_key(out) == decoder: return out
+     rmtree(kf); out.parent.mkdir(parents=True, exist_ok=True)
+-    run(['make', '-s', f'GAME={g.id}', f'gen/{g.id}/dmhost'], logs / 'mac_host_build.log', env=env, cwd=host)
++    run(['make', '-s', f'PYTHON={sys.executable}', f'GAME={g.id}', f'gen/{g.id}/dmhost'], logs / 'mac_host_build.log', env=env, cwd=host)
+     part, dsym = out.with_name(out.name + '.partial'), Path(f'{out}.dSYM')
+     shutil.copy2(built, part); os.replace(part, out)
+     rmtree(dsym)

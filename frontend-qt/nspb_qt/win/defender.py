@@ -2,7 +2,7 @@
 
 Real-time scanning (`WdFilter.sys` / `MsMpEng.exe`) intercepts every short-lived shader
 compiler subprocess (`dmsh_xlate.exe`, `spirv-cross.exe`, `metal.exe`, `air-lld.exe`,
-`metallib.exe`) and every multi-gigabyte SQLite / RomFS image write (`sh/cache/cas.db`,
+`metallib.exe`) and every multi-gigabyte SQLite / RomFS image write (`sh/cache/cas-*.db`,
 `b-<chain>.img.part`) during the 99% shader packaging step, throttling disk I/O to a few
 MB/s and stalling at 99% for minutes.
 

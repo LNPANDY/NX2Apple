@@ -20,7 +20,7 @@ Issue: LNPANDY/NX2Apple#911
  1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 052f230..42eac55 100644
+index 052f230e..42eac55f 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1370,9 +1370,9 @@ void front_run(void (*guest)(void)) {
