@@ -3665,10 +3665,10 @@ index b1345d4..2dfbb88 100644
      uintptr_t prev = (uintptr_t)pthread_getspecific(g_keygslot);
      int k;
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 0daccbf..0e3c942 100644
+index ae682c7..3654bb0 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -239,12 +239,11 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -222,12 +222,11 @@ - (instancetype)initWithFrame:(CGRect)f {
              [_touchFeedback prepare];
          }
          _owner = [NSMapTable strongToStrongObjectsMapTable]; _faceOf = [NSMapTable strongToStrongObjectsMapTable];
@@ -3683,7 +3683,7 @@ index 0daccbf..0e3c942 100644
          _controls = [CALayer layer]; [self.layer addSublayer:_controls];
          _ring = shape(_controls); _ring.fillColor = k_ringFill.CGColor;
          _knob = shape(_controls);
-@@ -835,6 +834,15 @@ static int cp_waiting(void) {   // connected controllers that are no player yet
+@@ -796,6 +795,15 @@ static int cp_waiting(void) {   // connected controllers that are no player yet
      g_cp_done_btn.enabled = cp_can_confirm(&g_cp);
  }
  void dm_gamepad_pads_read(void);
@@ -3699,7 +3699,7 @@ index 0daccbf..0e3c942 100644
  // One step of the prompt (a button, a touch on the card, a controller joining, coming or going); returns whether it keeps the game's input
  static int cp_poll(void) {
      if (g_cp.phase == CP_IDLE) return 0;
-@@ -845,16 +853,19 @@ static int cp_poll(void) {
+@@ -806,16 +814,19 @@ static int cp_poll(void) {
      if (was == CP_OPEN && ph != CP_OPEN) {
          [g_cp_view removeFromSuperview]; g_cp_view = nil; g_cp_count = nil; g_cp_done_btn = nil;
          LOG("front end: controller prompt closed: %d players (%s)", joined, g_cp.ok ? "done" : "canceled");
@@ -3721,7 +3721,7 @@ index 0daccbf..0e3c942 100644
          [g_view reset]; dm_touch_set(NULL, 0);   // nothing the game held stays pressed while the prompt has the input
          if (g_merge) dm_pad_set(0, 0, 0, 0, 0); else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
          int a, b; cp_buttons(&a, &b);
-@@ -887,3 +898,28 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
+@@ -845,3 +856,28 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
      if (g_merge) dm_pad_set(0, 0, 0, 0, 0);
      else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
  }

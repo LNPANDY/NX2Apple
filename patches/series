@@ -38,7 +38,7 @@
 0037-mac-controller-followups.patch
 0038-bc-cpu-decode.patch
 0039-ios-game-framework.patch
-0040-ios-touch-settings-and-toggle.patch
+0040-ios-support-standalone-touch-settings-and.patch
 0041-ios-host-teardown.patch
 0044-host-haptics-drive-joycon-l-and-joycon-r-on-sepa.patch
 0046-ios-audio-add-dm-audio-mix-audio-session-mixing.patch

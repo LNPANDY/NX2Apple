@@ -572,10 +572,10 @@ index 9efa8f9..041eb69 100644
      puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, the DualSense's handles, level cutoff and the DualShock 4 route passed");
  } }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 0e3c942..508eef0 100644
+index 3654bb0..a623793 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -898,7 +898,9 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
+@@ -856,7 +856,9 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
      if (g_merge) dm_pad_set(0, 0, 0, 0, 0);
      else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
  }

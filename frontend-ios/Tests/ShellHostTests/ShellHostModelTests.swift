@@ -92,7 +92,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(lines.count == 5 && lines.allSatisfy { !$0.isEmpty } && lines[1].contains(name))
     }
 
-    /// #1129: the in-game menu's own words go to the engine with every launch, four lines in the engine's order (patch 0124).
+    /// #1129: the in-game menu's own words go to the engine with every launch, two lines in the engine's order (patch 0124).
     @Test func theInGameMenuWordsGoWithEveryLaunch() async throws {
         let box = try Sandbox()
         try box.giveAppData()
@@ -102,7 +102,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         let text = try #require(launcher.launched.last?.environment["DM_GAME_MENU_TEXT"])
         #expect(text == ShellHostModel.gameMenuText)
         let lines = text.components(separatedBy: "\n")
-        #expect(lines.count == 4 && lines.allSatisfy { !$0.isEmpty && !$0.contains(";") })
+        #expect(lines.count == 2 && lines.allSatisfy { !$0.isEmpty && !$0.contains(";") })
     }
 
     /// BUG-23: Quit returns the player to the shell library rather than force-closing the whole app.
