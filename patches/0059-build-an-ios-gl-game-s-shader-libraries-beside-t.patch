@@ -1,0 +1,136 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sendme365 <sendme365@msn.com>
+Date: Sun, 15 Nov 2026 19:45:19 +0800
+Subject: [PATCH] Build an iOS GL game's shader libraries beside the NVN chain
+ when it draws through the GL layer too
+
+Xuan Yuan Sword: Mists Beyond the Mountains classifies as NVN (own GLSL
+compiled with GLSLC) like Rayman 30th Anniversary Edition, but it also
+draws with SDL's GLES2 renderer through the EGL entry points it links.
+Classified NVN, its iOS build carried no GL shader library, and every GL
+draw was skipped: black screen with sound and input working. A static
+guess cannot tell it from Rayman, which never calls EGL, so the build
+now tries the GL chain for any own-GLSLC game that names glShaderSource
+(profile_guess.py gl_too) and skips it when the game compiles no GLSL;
+build_ipa.sh, stage_resources.sh and gen_resources.py stage the GL
+libraries beside the NVN ones in the app's msl folder.
+
+Upstream-Status: pending
+Reason: Xuan Yuan Sword draws with SDL's GLES2 renderer beside NVN; without the GL shader libraries every GL draw was skipped and the iPhone showed a black screen
+Issue: LNPANDY/NX2Apple#1284
+
+---
+ dm/games/profile_guess.py           | 7 ++++++-
+ dm/ios/tools/build_ipa.sh           | 3 ++-
+ dm/ios/tools/gen_resources.py       | 1 +
+ dm/ios/tools/stage_resources.sh     | 5 ++++-
+ dm/tools/tests/test_nro_graphics.py | 9 +++++++++
+ dm/tools/tests/test_nsp_progress.py | 1 +
+ 6 files changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/dm/games/profile_guess.py b/dm/games/profile_guess.py
+index a8e2b11..76c6775 100644
+--- a/dm/games/profile_guess.py
++++ b/dm/games/profile_guess.py
+@@ -271,13 +271,18 @@ def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_pa
+     # Edition (Digital Eclipse, SDK 20) links both paths, never calls EGL on the Mac, and compiles the GLSL in its .shader files with subsdk2's glslcCompile; taken for OpenGL, it
+     # got no GLSLC capture and drew nothing (black screen, sound and input working)
+     own_glslc = 'nvnBootstrapLoader' in imports and 'glslcCompile' in imports and bool(glsl_src) and bool(glslc_mods)
++    # A game of Rayman's class may still render through the GL names: Xuan Yuan Sword: Mists Beyond the Mountains draws with SDL's GLES2 renderer
++    # through those EGL entry points, and its every GL draw skipped without the GL shader libraries beside the NVN ones (black screen on the iPhone). A static
++    # guess cannot tell it from Rayman, which never calls EGL: the GL libraries are built beside the NVN chain, and skipped when the game compiles no GLSL
++    gl_too = own_glslc and 'eglCreateWindowSurface' in imports and bool(gl_names)
+     gl = not vulkan and not nro_nvn and 'eglCreateWindowSurface' in imports and bool(gl_names) and not own_glslc
+     nro_glslc = not vulkan and not gl and 'glslcCompile' in nro_imports and bool(glslc_mods)
+     return {'graphics': ('vulkan', (f'main imports {vk} Vulkan functions' if vk else f'the NROs the game loads reference {nro_vk} Vulkan names (a statically linked runtime)') + ' and not nvnBootstrapLoader: the host\'s Vulkan layer (dm/gfx/vk/hle_vk.m)') if vulkan else
+                         ('gl', 'main imports EGL and names glShaderSource: it renders with OpenGL and compiles GLSL, the host\'s GL layer (dm/gfx/gl/hle_gl.m)') if gl else
+                         ('nvn', 'the NROs the game loads import nvnBootstrapLoader' if nro_nvn and 'nvnBootstrapLoader' not in imports else
+-                                'main imports nvnBootstrapLoader and compiles its GLSL with GLSLC; its EGL and glShaderSource are left unused (Rayman 30th Anniversary Edition)' if own_glslc and 'eglCreateWindowSurface' in imports and gl_names else
++                                'main imports nvnBootstrapLoader and compiles its GLSL with GLSLC; it may also render through its EGL and glShaderSource (Xuan Yuan Sword: Mists Beyond the Mountains), or leaves them unused (Rayman 30th Anniversary Edition)' if own_glslc and 'eglCreateWindowSurface' in imports and gl_names else
+                                 'main imports nvnBootstrapLoader'),
++            'gl_too': (gl_too, 'main names glShaderSource and may draw through SDL\'s GLES2 renderer as well as NVN (Xuan Yuan Sword: Mists Beyond the Mountains): the GL shader libraries are built beside the NVN ones, and skipped when the game compiles no GLSL (Rayman 30th Anniversary Edition)'),
+             'vk_capture': (vulkan and not spirv, 'no SPIR-V file in the RomFS: the game generates its shaders at run time (Super Mario Galaxy), captured by booting it on the Mac'),
+             'gl_capture': (gl and not gl_src and not gl_files, 'no GLSL source in the RomFS or main: the game puts its shaders together at run time (LÖVE: Balatro), captured by booting it on the Mac'),
+             'glslc_capture': (not vulkan and not gl and bool(glsl_src or romfs_glsl) and 'glslcCompile' in imports and bool(glslc_mods) or nro_glslc,
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index a5dfff4..5bf0182 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -323,7 +323,7 @@ if [ "${DM_METAL_CAPTURE:-0}" = 1 ]; then /usr/libexec/PlistBuddy -c "Add :Metal
+ RP=; if [ -n "${PROGRAMS_TSV:-}" ]; then   # a game of several programs: each program's files, which the Xcode build phase copies under p<index> as the IPA has them (stage_resources.sh)
+   RP=Gen/resources_programs.tsv; printf '# program\tRomFS\tmarker\tiOS shaders\tshader folder (build_ipa.sh)\n' > "$RP"
+   M0=$MSLDIR; while IFS= read -r row; do prog_set "$row"; printf '%s\t%s\t%s\t%s\t%s\n' "$PN" "$ROMFS" "$MARKER" "$(lib_path "$MSL_IOS/$MSLDIR")" "$MSLDIR" >> "$RP"; done < <(prog_rows); prog_back; MSLDIR=$M0; fi
+-DM_RESOURCE_BUILD=${PKG:-} GAME=$GAME python3 tools/gen_resources.py "$IOS" "$ROMFS" "$MARKER" "$(lib_path "$MSL_IOS/$MSLDIR")" "$MSLDIR" "$AOC" "$XCODE_DD" "$DM/gfx/nvn/dmsh_chain.h" "$PSO" $RP || die "generate Xcode resource paths"
++DM_RESOURCE_BUILD=${PKG:-} GAME=$GAME DM_RESOURCE_GL=$( [ "$GFXAPI" = nvn ] && [ -d "$MSL_IOS/gl" ] && echo "$MSL_IOS/gl" || echo "" ) python3 tools/gen_resources.py "$IOS" "$ROMFS" "$MARKER" "$(lib_path "$MSL_IOS/$MSLDIR")" "$MSLDIR" "$AOC" "$XCODE_DD" "$DM/gfx/nvn/dmsh_chain.h" "$PSO" $RP || die "generate Xcode resource paths"
+ if [ "$PREPARE_XCODE" = YES ]; then
+   t "Xcode project: $IOS/DmIOS.xcodeproj"
+   t "Xcode derived data: $XCODE_DD"
+@@ -523,6 +523,7 @@ elif [ -n "$AOC" ] && [ -d "$AOC" ]; then
+ fi
+ if [ -n "${PSO:-}" ]; then MAPS+=("$P/pso=$PSO"); fi
+ MAPS+=("$P/msl/$MSLDIR=$MSL_IOS/$MSLDIR" "$P=$APP")
++if [ "$GFXAPI" = nvn ] && [ -d "$MSL_IOS/gl" ]; then MAPS+=("$P/msl/gl=$MSL_IOS/gl"); t "GL shader libraries (the game draws through the GL layer too): $MSL_IOS/gl"; fi
+   if [ -d "$(dirname "$ROMFS")/html" ]; then MAPS+=("$P/html=$(dirname "$ROMFS")/html"); t "offline HTML pages: $(dirname "$ROMFS")/html"; fi   # beside its RomFS, where the host finds them (hle_web.c)
+   if [ -d "$(dirname "$ROMFS")/jit" ]; then MAPS+=("$P/jit=$(dirname "$ROMFS")/jit"); t "nn::jit image: $(dirname "$ROMFS")/jit"; fi
+ fi
+diff --git a/dm/ios/tools/gen_resources.py b/dm/ios/tools/gen_resources.py
+index d4aedd5..861f4ca 100644
+--- a/dm/ios/tools/gen_resources.py
++++ b/dm/ios/tools/gen_resources.py
+@@ -37,6 +37,7 @@ def main():
+         'DM_RESOURCE_AOC': str(Path(aoc).resolve()) if aoc and Path(aoc).is_dir() else '',
+         'DM_RESOURCE_CHAIN_H': str(Path(chain_h).resolve()),   # dm/gfx/nvn/dmsh_chain.h, which the host is compiled with (one chain version for every game)
+         'DM_RESOURCE_PSO': str(Path(pso).resolve()) if pso and Path(pso).is_dir() else '',   # → <App>/pso, which the app hands the host as DM_PSO_BUNDLE
++        'DM_RESOURCE_GL': os.environ.get('DM_RESOURCE_GL', ''),   # a game that draws through the GL layer beside NVN (profile_guess.py gl_too): its GL libraries → <App>/msl/gl (stage_resources.sh)
+         # what the identity line of a RomFS image names (stage_resources.sh with DM_COPY_ROMFS=NO writes <App>/romfs.id): title ID, display version, package version
+         'DM_RESOURCE_TITLE': os.environ.get('GAME', ''),
+         'DM_RESOURCE_VERSION': os.environ.get('DM_APP_VERSION', ''),
+diff --git a/dm/ios/tools/stage_resources.sh b/dm/ios/tools/stage_resources.sh
+index 13a9224..fcc45e7 100644
+--- a/dm/ios/tools/stage_resources.sh
++++ b/dm/ios/tools/stage_resources.sh
+@@ -84,8 +84,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
+     fi
+ else sync_romfs "$DM_RESOURCE_ROMFS" "$APP"; fi
+ sync_libraries "$DM_RESOURCE_SHADERS" "$APP/msl" "$DM_RESOURCE_MSLDIR"
++# A game that draws through the GL layer beside NVN (profile_guess.py gl_too): its GL libraries beside the NVN ones in msl, where hle_gl.m reads them (DM_MSL_DIR/gl)
++DM_RESOURCE_GL=${DM_RESOURCE_GL:-}
++if [ -n "$DM_RESOURCE_GL" ] && [ -d "$DM_RESOURCE_GL" ]; then sync_dir "$DM_RESOURCE_GL" "$APP/msl/gl"; else rm -rf "$APP/msl/gl"; fi
+ for old in "$APP/msl/"*; do
+-    case "$old" in "$APP/msl/$DM_RESOURCE_MSLDIR"|"$APP/msl/$DM_RESOURCE_MSLDIR.img") ;; *) rm -rf "$old";; esac
++    case "$old" in "$APP/msl/$DM_RESOURCE_MSLDIR"|"$APP/msl/$DM_RESOURCE_MSLDIR.img"|"$APP/msl/gl") ;; *) rm -rf "$old";; esac
+ done
+ beside_romfs "$DM_RESOURCE_ROMFS" "$APP"
+ for old in "$APP"/p[0-9]*; do [ -d "$old" ] && rm -rf "$old"; done   # the programs of a project prepared for several
+diff --git a/dm/tools/tests/test_nro_graphics.py b/dm/tools/tests/test_nro_graphics.py
+index 8713919..02ae947 100644
+--- a/dm/tools/tests/test_nro_graphics.py
++++ b/dm/tools/tests/test_nro_graphics.py
+@@ -35,6 +35,15 @@ class NroGraphics(unittest.TestCase):
+         self.assertTrue(s['glslc_capture'][0])
+         self.assertFalse(s['gl_capture'][0])
+ 
++    def test_own_glslc_with_egl_builds_the_gl_libraries_too(self):   # Xuan Yuan Sword: Mists Beyond the Mountains draws with SDL's GLES2 renderer beside NVN; the GL libraries go beside the NVN ones
++        s = pg.shader_sources(SDL_MAIN | {'nvnBootstrapLoader', 'glslcCompile'}, 4, ['subsdk2'], 0, 0, gl_names=2)
++        self.assertTrue(s['gl_too'][0])
++        self.assertFalse(s['gl_capture'][0])   # graphics stays nvn: the NVN chain, not the GL layer, is the game's main path
++
++    def test_own_glslc_without_egl_names_needs_no_gl_libraries(self):   # a game of Rayman's class that names no GL function
++        s = pg.shader_sources({'nvnBootstrapLoader', 'glslcCompile', 'eglGetProcAddress'}, 4, ['subsdk2'], 0, 0, gl_names=0)
++        self.assertFalse(s['gl_too'][0])
++
+     def test_glslc_without_nvn_stays_gl(self):   # no nvnBootstrapLoader in main: GLSLC alone does not make it an NVN game
+         s = pg.shader_sources(SDL_MAIN | {'glslcCompile'}, 4, ['subsdk2'], 0, 0, gl_names=2)
+         self.assertEqual(s['graphics'][0], 'gl')
+diff --git a/dm/tools/tests/test_nsp_progress.py b/dm/tools/tests/test_nsp_progress.py
+index 7a7fbfe..f3bf8fb 100644
+--- a/dm/tools/tests/test_nsp_progress.py
++++ b/dm/tools/tests/test_nsp_progress.py
+@@ -487,6 +487,7 @@ class ShellFrameworkProgress(unittest.TestCase):
+             fake_pg = mock.MagicMock()
+             fake_pg.build_sources.return_value = {
+                 'graphics': ('nvn', ''),
++                'gl_too': (False, ''),
+                 'glslc_capture': (False, ''),
+                 'vk_capture': (False, ''),
+                 'gl_capture': (False, ''),
