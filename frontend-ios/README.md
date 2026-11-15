@@ -21,6 +21,26 @@ xcodebuild -project frontend-ios/Demo/ShellDemo.xcodeproj -scheme ShellDemo \
 
 The app icon of the demo app and of the shell app (`frontend-ios/Shell/project-shell.yml`) is `frontend-ios/AppIcon.icon`. It is edited in Icon Composer. `frontend-ios/Shell/` also holds `build_shell.sh` and `App/` (`ShellApp.swift`, `ShellMain.m`, `SegSnap.h` and the glue headers), which build `DmShell.app` without linking engine C code.
 
+### A shell built from the scripts alone
+
+The launchers do every step. Without one, a game takes three steps (#1327):
+
+1. `scripts/build_ipa_from_nsp.py <work> -k prod.keys --shell-framework <work>/fw` builds the game's framework. The framework holds no shaders. The build records where they are in `<work>/fw/.msl-cache/<title ID>.json`.
+2. Put the shaders on the game image with `romfs_image.py --append-msl`. Without this step the shell shows "Update game data" and the game does not start. Take the arguments from the record:
+
+   ```sh
+   python3 -I engine/dm/tools/romfs_image.py --append-msl <romfs.img> <lib_path> --gfx-api <gfx_api> \
+       [--chain <chain>] [--multi-program]
+   ```
+
+   - `lib_path`: the shader folder.
+   - `gfx_api`: `nvn`, `vulkan` or `gl`.
+   - `chain`: set only for an NVN game. Pass `--chain <chain>` when it is not empty.
+   - `multi_program`: `true` for a game of several programs. Then add `--multi-program`.
+
+   This prints the four values: `python3 -c "import json,sys; m=json.load(open(sys.argv[1])); print(m['lib_path'], m['gfx_api'], m.get('chain', ''), m.get('multi_program', False))" <work>/fw/.msl-cache/<title ID>.json`. When the image already has a shader trailer, use `--replace-msl` instead of `--append-msl`.
+3. `DM_SHELL_FRAMEWORKS=<work>/fw/DmGame<title ID>.framework frontend-ios/Shell/build_shell.sh` builds the shell. Then copy the image to `Documents/games/<title ID>/romfs.img`.
+
 ## Integrate
 
 All boundary types are in `Sources/ShellUI/ShellInputs.swift` and `ShellArtwork.swift`:
