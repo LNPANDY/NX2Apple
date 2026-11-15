@@ -56,6 +56,33 @@ import Testing
         #expect(defaults.object(forKey: ShellSettingsStore.audioMixKey) == nil)
     }
 
+    @Test
+    func showFPSPersistsInShellSettingsStoreAndProducesDMShowFPS() {
+        let suite = "dev.nx2apple.tests.ux.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let store = ShellSettingsStore(defaults: defaults)
+        #expect(store.showFPS == nil)
+        #expect(store.gameDefaults["DM_SHOW_FPS"] == nil)
+
+        store.storeShowFPS(true)
+        #expect(store.showFPS == true)
+        #expect(store.gameDefaults["DM_SHOW_FPS"] == "1")
+        #expect(ShellSettingsRows.showFPSRow(store).value == "1")
+        #expect(defaults.object(forKey: ShellSettingsStore.showFPSKey) as? Bool == true)
+
+        ShellSettingsRows.apply(ShellSettingsRows.showFPS, value: "0", to: store)
+        #expect(store.showFPS == false)
+        #expect(store.gameDefaults["DM_SHOW_FPS"] == "0")
+        #expect(defaults.object(forKey: ShellSettingsStore.showFPSKey) as? Bool == false)
+
+        let row = ShellSettingsRows.showFPSRow(store)
+        #expect(row.id == ShellSettingsRows.showFPS)
+        #expect(row.value == "0")
+    }
+
     @Test func cloudConflictAndRestoreBackupLayersIsolateControllerFocus() {
         #expect(!LibraryView.optionsOpensShellSettings(under: .restoreBackup))
         #expect(!LibraryView.optionsOpensShellSettings(under: .cloudConflict))

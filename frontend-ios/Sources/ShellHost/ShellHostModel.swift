@@ -72,6 +72,7 @@ public struct ShellHostConfig: Sendable {
 /// The host behind the views: turns the catalogue, the saved settings, the picked folders and the controllers into
 /// `GameDetail` values, and acts on `ShellActions`. `ShellUI` stays view-only, every file is read here.
 @MainActor @Observable public final class ShellHostModel {
+    public static let didReturnToLibraryNotification = Notification.Name("DMShellDidReturnToLibrary")
     public private(set) var details: [GameDetail] = []
     public private(set) var entries: [CatalogueEntry] = []
     public private(set) var controllers: [ControllerInfo] = []
@@ -132,6 +133,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var signingWarningDismissed = false
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
     @ObservationIgnored nonisolated(unsafe) private var foregroundObserver: (any NSObjectProtocol)?
+    @ObservationIgnored nonisolated(unsafe) private var returnObserver: (any NSObjectProtocol)?
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
                 shellSettings: ShellSettingsStore = .current) {
@@ -190,11 +192,15 @@ public struct ShellHostConfig: Sendable {
             }
         }
         #endif
+        returnObserver = NotificationCenter.default.addObserver(forName: Self.didReturnToLibraryNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshSettingsAfterGameReturn() }
+        }
     }
 
     deinit {
         defaultsObserver.map(NotificationCenter.default.removeObserver)
         foregroundObserver.map(NotificationCenter.default.removeObserver)
+        returnObserver.map(NotificationCenter.default.removeObserver)
     }
 
     /// Shell choices that change the displayed game defaults.
@@ -323,6 +329,17 @@ public struct ShellHostConfig: Sendable {
 
     private func defaultsDidChange() {
         if Self.choices(of: shellSettings) != shellChoices { refreshAll() }
+    }
+
+    private func refreshSettingsAfterGameReturn() {
+        shellChoices = Self.choices(of: shellSettings)
+        for entry in entries {
+            if let profile = cachedOrResolvedProfile(for: entry.id) {
+                refreshSettings(entry.id, profile: profile)
+            } else {
+                refresh(entry.id)
+            }
+        }
     }
 
     // MARK: Catalogue
@@ -1114,6 +1131,9 @@ public struct ShellHostConfig: Sendable {
         env["DM_HOME_QUIT_TEXT"] = Self.quitPromptText(gameName: entry(id)?.title ?? id)
         // The in-game menu's own words (patch 0124), as the Mac's build bakes them into a game's own app.
         env["DM_GAME_MENU_TEXT"] = Self.gameMenuText
+        if let shellMenu = ShellInGameMenu.encode(profile: profile, titleID: id, shellDefaults: shellSettings.gameDefaults) {
+            env["DM_SHELL_MENU"] = shellMenu
+        }
         // A launcher.json DM_PAD_MAP row is authoritative, including an empty value.
         if !profile.settings.contains(where: { $0.env == "DM_PAD_MAP" }) {
             env["DM_PAD_MAP"] = PadMap.merged(global: shellSettings.padMap,

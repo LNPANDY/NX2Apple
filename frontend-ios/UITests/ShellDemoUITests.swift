@@ -466,6 +466,30 @@ import XCTest
         XCTAssertEqual(reopened.value as? String, "0")
     }
 
+    func testShowFPSSwitchTogglesAndPersistsInSettings() {
+        XCUIDevice.shared.orientation = .portrait
+        launch("shell-settings")
+        let showFPS = app.switches["setting.shell.showFPS"].firstMatch
+        reveal(showFPS)
+        XCTAssertTrue(showFPS.waitForExistence(timeout: 5))
+        if (showFPS.value as? String) == "1" {
+            showFPS.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            XCTAssertEqual(showFPS.value as? String, "0")
+        }
+        XCTAssertEqual(showFPS.value as? String, "0")
+        showFPS.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(showFPS.value as? String, "1")
+
+        app.terminate()
+        launch("shell-settings")
+        let reopened = app.switches["setting.shell.showFPS"].firstMatch
+        reveal(reopened)
+        XCTAssertTrue(reopened.waitForExistence(timeout: 5))
+        XCTAssertEqual(reopened.value as? String, "1")
+        reopened.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(reopened.value as? String, "0")
+    }
+
     // Run on a standard iPhone: editing follows gameplay's landscape-only policy.
     func testPhoneEditorOpensLandscapeAndRestoresPortraitBrowsing() {
         XCUIDevice.shared.orientation = .portrait

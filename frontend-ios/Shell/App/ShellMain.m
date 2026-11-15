@@ -124,6 +124,7 @@ void dm_shell_return_to_library(void) {
                 [window.windowScene requestGeometryUpdateWithPreferences:[[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskAllButUpsideDown] errorHandler:nil];
             }
         }
+        [NSNotificationCenter.defaultCenter postNotificationName:@"DMShellDidReturnToLibrary" object:nil];
         NSString *slog = [documents() stringByAppendingPathComponent:@"shell-log.txt"];
         fflush(stderr);
         if (freopen(slog.fileSystemRepresentation, "a", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
