@@ -50,11 +50,11 @@ on:
 permissions:
   contents: write
 
-# A newer run for a pull request replaces its running build and reports instead. Every commit on main and every tag keeps its own run: each main
-# commit has its app artifact, and a release is never cancelled halfway.
+# A newer run for a pull request replaces its running build and reports instead. Pushes to refs/heads/main share <workflow>-main so superseded
+# main runs are cancelled. Release tags (v*) and workflow_dispatch keep their own run_id with cancel-in-progress: false so a release never cancels halfway.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main') || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 
 jobs:
   # The app build is the second macOS job of a pull request, so it runs on the tip of a stack only (stack_tip.py), and only when the PR
