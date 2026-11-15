@@ -81,9 +81,10 @@ extension QueueEntry {
     /// The snapshot of a library game for the build queue: the inputs and output folder the library holds for it now, and the target.
     /// The hero's "Rebuild" is `stores.queue.enqueue([QueueEntry(game: game, engineID: engine.selection.engineID)])`, "Rebuild all" the
     /// same for `library.games.filter { toolsAge.older.contains($0.id) }`.
-    init(game: LibraryGame, engineID: String, target: String? = nil, batch: UUID = UUID(), packageAfter: Bool = false) {
+    init(game: LibraryGame, engineID: String, target: String? = nil, batch: UUID = UUID(), packageAfter: Bool = false, exportFramework: Bool? = nil) {
         self.init(gameID: game.id, titleID: game.titleID, name: game.name, target: target ?? game.lastTarget,
                   inputs: game.inputs.filter { $0.key != GameLibrary.folderInput }, gameFolder: game.inputs[GameLibrary.folderInput]?.first,
-                  outputDirectory: game.outputDirectory, engineID: engineID, batch: batch, packageAfter: packageAfter)
+                  outputDirectory: game.outputDirectory, engineID: engineID, batch: batch, packageAfter: packageAfter,
+                  exportFramework: exportFramework)
     }
 }

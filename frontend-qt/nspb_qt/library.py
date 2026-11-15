@@ -319,6 +319,13 @@ def one_game_ipa_path(out_dir: str, build_key: str) -> str:
     return os.path.join(out_dir, f'{build_key}.ipa')
 
 
+def game_framework_path(out_dir: str, title_id: str) -> str:
+    """Where `ipa_kind == 'framework'` writes its bundle: `<out dir>/DmGame<title ID>.framework`."""
+    if not out_dir or not title_id:
+        return ''
+    return os.path.join(out_dir, f'DmGame{title_id.upper()}.framework')
+
+
 @lru_cache(maxsize=128)
 def _ipa_kind(path: str, signature: tuple[int, ...]) -> str:
     """Read only the ZIP directory, cached until the file's stat signature changes.
@@ -346,7 +353,23 @@ def reveal_ipa_path(*, ipa_kind: str, shell_cache: str, out_dir: str, build_key:
     record. Check the app bundle in every candidate so profile-named one-game outputs and moved
     files still work without mistaking a remembered shared IPA for a one-game output.
     """
-    if ipa_kind not in ('shared', 'oneGame'):
+    if ipa_kind not in ('shared', 'oneGame', 'framework'):
+        return ''
+    if ipa_kind == 'framework':
+        want = game_framework_path(out_dir, build_key)
+        for candidate in (want, last_ipa, library_ipa):
+            if not candidate:
+                continue
+            try:
+                path = os.path.realpath(candidate)
+                info = os.stat(path)
+            except OSError:
+                continue
+            if stat.S_ISDIR(info.st_mode) and (
+                os.path.isfile(os.path.join(path, 'Info.plist'))
+                or os.path.isfile(os.path.join(path, 'game.manifest.json'))
+            ):
+                return candidate
         return ''
     shared = shell_ipa_path(shell_cache) if shell_cache else ''
     want = shared if ipa_kind == 'shared' else one_game_ipa_path(out_dir, build_key)

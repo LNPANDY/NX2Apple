@@ -15,6 +15,7 @@ extension BuildStore {
         selectedTitleID = nil
         queuedExportIPA = nil
         queuedExportOneGame = nil
+        queuedExportFramework = nil
         runBuild()
     }
 
@@ -48,7 +49,7 @@ extension BuildStore {
         shellDeviceChecked = false
         let skipStale = skipStaleCheckForQueuedEntry
         skipStaleCheckForQueuedEntry = false
-        if target != BuildTarget.mac, !isS2ArmSelected, !exportsOneGame, !skipStale, askAboutStaleFrameworks() {
+        if target != BuildTarget.mac, !isS2ArmSelected, !exportsOneGame, !exportsFramework, !skipStale, askAboutStaleFrameworks() {
             fastRefreshExternalImgPath = nil
             return
         }   // StaleFrameworksPrompt.swift (#449)
@@ -261,7 +262,7 @@ extension BuildStore {
         }
         // The shared app's own folder is decided before the long steps too: one on a read-only volume (a saved
         // /NX2Apple-shell, a DMG chosen as Save to) failed at the last step after the whole build (#492).
-        if target != BuildTarget.mac, !exportsOneGame, let why = shellRootProblem() {
+        if target != BuildTarget.mac, !exportsOneGame, !exportsFramework, let why = shellRootProblem() {
             fail(why)
             return
         }
@@ -423,6 +424,7 @@ extension BuildStore {
                         let tid = ShellInstall.titleID(ofFramework: fw)
                         self.packArchive(workDir: self.effectiveWorkDir, titleID: tid) {
                             if self.deferShellPackaging { self.deferShellPackage(framework: fw, titleID: tid, name: name, archive: $0) }
+                            else if self.exportsFramework { self.exportFrameworkBundle(framework: fw, titleID: tid, name: name) }
                             else if self.exportsShell { self.exportShell(framework: fw, titleID: tid, name: name) }
                             else { self.installShell(framework: fw, titleID: tid, name: name, archive: $0) }
                         }

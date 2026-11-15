@@ -45,11 +45,17 @@ package struct InstallCard: View {
             }
             CardDivider()
             if devices.exportIPA {
-                // What the IPA holds: the shared app by default, one game with its data inside as the other choice (#540)
-                CardRow(loc.t("shell.ipaKind"), detail: devices.exportOneGame ? loc.t("shell.ipaOneGameNote") : loc.t("shell.ipaSharedNote")) {
-                    LauncherSegmented(options: [("shared", loc.t("shell.ipaShared")), ("one", loc.t("shell.ipaOneGame"))],
-                                      selection: devices.exportOneGame ? "one" : "shared") { pickKind($0 == "one") }
-                        .frame(width: ExportGrid.switchWidth)
+                // What the export holds: shared app (default), one game with its data inside (#540), or standalone game .framework
+                let kindSelection = devices.exportOneGame ? "one" : (devices.exportFramework ? "framework" : "shared")
+                let kindNote = devices.exportOneGame ? loc.t("shell.ipaOneGameNote")
+                    : (devices.exportFramework ? loc.t("shell.ipaFrameworkNote") : loc.t("shell.ipaSharedNote"))
+                let kindOptions = [
+                    (value: "shared", label: loc.t("shell.ipaShared")),
+                    (value: "one", label: loc.t("shell.ipaOneGame")),
+                    (value: "framework", label: loc.t("shell.ipaFramework")),
+                ]
+                CardRow(loc.t("shell.ipaKind"), detail: kindNote) {
+                    LauncherDropdown(options: kindOptions, selection: kindSelection, label: loc.t("shell.ipaKind")) { pickKind($0) }
                 }
                 CardDivider()
                 ExportSteps(build: build, devices: devices)
@@ -100,10 +106,13 @@ package struct InstallCard: View {
         }
     }
 
-    /// The other kind of IPA: the IPA of the last export is not the one this choice makes, so step 1 starts again.
-    private func pickKind(_ oneGame: Bool) {
-        guard oneGame != devices.exportOneGame else { return }
-        devices.exportOneGame = oneGame
+    /// The other kind of export: the artifact of the last export is not the one this choice makes, so step 1 starts again.
+    private func pickKind(_ kind: String) {
+        let wantOne = kind == "one"
+        let wantFramework = kind == "framework"
+        guard wantOne != devices.exportOneGame || wantFramework != devices.exportFramework else { return }
+        devices.exportOneGame = wantOne
+        devices.exportFramework = wantFramework
         build.exportedIPAPath = ""
         build.send = .idle
     }

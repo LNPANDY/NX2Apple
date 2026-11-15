@@ -531,5 +531,107 @@ class ExternalMslAndBatchDriveCopyTest(unittest.TestCase):
                 cleanup()
 
 
+class StandaloneFrameworkExportTest(unittest.TestCase):
+    """Tests for Windows framework Info.plist metadata, reveal_ipa_path, and standalone .framework export."""
+
+    def test_framework_info_plist_writes_title_id_and_app_icon_file(self) -> None:
+        tid = '01007EF00011E000'
+        plist = build_app.framework_info_plist(
+            bundle_id='com.example.nx2apple.DmGame',
+            fw_name=f'DmGame{tid}',
+            display_name='Sample Game',
+            version='1.0',
+            sdk_ver='18.0',
+            sdk_build='22A3351',
+            deployment='16.0',
+            title_id=tid,
+        )
+        self.assertEqual(plist['DMTitleID'], tid)
+        self.assertEqual(plist['CFBundleIconFile'], 'AppIcon.png')
+
+        plist_no_tid = build_app.framework_info_plist(
+            bundle_id='com.example.nx2apple.DmGame',
+            fw_name='DmGame',
+            display_name='Sample Game',
+            version='1.0',
+            sdk_ver='18.0',
+            sdk_build='22A3351',
+            deployment='16.0',
+        )
+        self.assertNotIn('DMTitleID', plist_no_tid)
+        self.assertEqual(plist_no_tid['CFBundleIconFile'], 'AppIcon.png')
+
+    def test_reveal_ipa_path_supports_framework_directory(self) -> None:
+        tid = '01007EF00011E000'
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / 'out'
+            out.mkdir()
+            fw = Path(lib.game_framework_path(str(out), tid))
+            self.assertEqual(fw.name, f'DmGame{tid}.framework')
+            self.assertEqual(
+                lib.reveal_ipa_path(
+                    ipa_kind='framework',
+                    shell_cache='',
+                    out_dir=str(out),
+                    build_key=tid,
+                ),
+                '',
+            )
+            fw.mkdir()
+            (fw / 'Info.plist').write_bytes(b'plist')
+            self.assertEqual(
+                lib.reveal_ipa_path(
+                    ipa_kind='framework',
+                    shell_cache='',
+                    out_dir=str(out),
+                    build_key=tid,
+                ),
+                str(fw),
+            )
+
+    def test_headless_model_export_standalone_framework_skips_shell_ipa(self) -> None:
+        cleanup = None
+        try:
+            from nspb_qt.model import Model
+        except ImportError:
+            if str(HERE) not in sys.path:
+                sys.path.insert(0, str(HERE))
+            from test_post_build_cleanup import _load_model_with_qt_fallback
+            model_mod, cleanup = _load_model_with_qt_fallback()
+            Model = model_mod.Model
+
+        try:
+            tid = '01007EF00011E000'
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                out_dir = root / 'out'
+                work_dir = root / 'work'
+                fw_src = work_dir / 'shell-framework' / f'DmGame{tid}.framework'
+                fw_src.mkdir(parents=True)
+                (fw_src / f'DmGame{tid}').write_bytes(b'macho')
+                (fw_src / 'Info.plist').write_bytes(b'plist')
+                (fw_src / 'game.manifest.json').write_text(
+                    f'{{"title_id": "{tid}", "name": "Sample Game"}}',
+                    encoding='utf-8',
+                )
+
+                m = Model()
+                m.ipa_kind = 'framework'
+                m.out_dir = str(out_dir)
+                m.effective_work_dir = str(work_dir)
+
+                ok, note = m._export_standalone_framework(tid, out_dir=str(out_dir), fallback_name='Sample Game')
+                self.assertTrue(ok, note)
+                dest = out_dir / f'DmGame{tid}.framework'
+                self.assertTrue(dest.is_dir())
+                self.assertTrue((dest / 'Info.plist').is_file())
+                self.assertEqual(m.ipa_path, str(dest))
+                self.assertFalse((Path(m.shell_cache_path) / 'export' / 'NX2Apple.ipa').exists())
+                self.assertFalse(m.can_export_built_games())
+        finally:
+            if cleanup is not None:
+                cleanup()
+
+
 if __name__ == '__main__':
     unittest.main()

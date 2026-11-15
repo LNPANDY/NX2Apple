@@ -1077,6 +1077,72 @@ import NXModel
         XCTAssertEqual(OneGameIPA.path(folder: "/O", titleID: "0100"), "/O/0100.ipa")
     }
 
+    @MainActor func testExportGameFrameworkWritesStandaloneFrameworkWithoutBuildingShellIPA() throws {
+        let f = try makeFixture()
+        testDefaults.set(f.root, forKey: "shellRoot")
+        testDefaults.removeObject(forKey: DeviceStore.frameworkKey)
+        let stores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = stores.build
+        XCTAssertFalse(stores.deviceStore.exportFramework, "framework export stays off by default")
+
+        stores.deviceStore.exportOneGame = true
+        stores.deviceStore.exportFramework = true
+        XCTAssertFalse(stores.deviceStore.exportOneGame, "exportFramework clears exportOneGame")
+        XCTAssertTrue(stores.deviceStore.exportFramework)
+        stores.deviceStore.exportOneGame = true
+        XCTAssertFalse(stores.deviceStore.exportFramework, "exportOneGame clears exportFramework")
+        stores.deviceStore.exportFramework = true
+
+        stores.repo.path = f.repo
+        model.target = "ios"
+        model.outDir = path("out")
+        stores.dependencies.pythonPath = "/usr/bin/python3"
+        stores.dependencies.dotnetPath = "/usr/bin/true"
+        stores.dependencies.checked = true
+        stores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+        stores.deviceStore.installDevice = ""
+        stores.deviceStore.signingTeam = ""
+        stores.deviceStore.exportIPA = true
+        XCTAssertTrue(model.exportsFramework)
+        XCTAssertFalse(model.exportsOneGame)
+
+        try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
+        for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
+        try write(f.repo + "/scripts/build_ipa_from_nsp.py", """
+        # '--work-dir'
+        import sys, json, pathlib, plistlib
+        args = sys.argv[1:]
+        open('\(state)/script.txt', 'w').write(' '.join(args))
+        sf = pathlib.Path(args[args.index('--shell-framework') + 1])
+        fw = sf / 'DmGame\(titleID).framework'
+        fw.mkdir(parents=True, exist_ok=True)
+        (fw / 'DmGame\(titleID)').write_bytes(b'macho')
+        with open(fw / 'Info.plist', 'wb') as pf:
+            plistlib.dump({'CFBundleExecutable': 'DmGame\(titleID)', 'DMTitleID': '\(titleID)'}, pf)
+        print(json.dumps(dict(ev='stage', k=1, n=1, name='framework')), flush=True)
+        print(json.dumps(dict(ev='stage_end', k=1, name='framework', ok=True, summary='', elapsed=1)), flush=True)
+        """)
+        let base = temporary.appendingPathComponent("Test [\(titleID)].nsp"), keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: base); try Data().write(to: keys)
+        model.slots[0].paths = [base.path]; model.slots[3].paths = [keys.path]
+
+        let finished = expectation(description: "FrameworkExported")
+        let token = model.$done.filter { $0 }.prefix(1).sink { _ in finished.fulfill() }
+        model.startBuild()
+        wait(for: [finished], timeout: 30)
+        withExtendedLifetime(token) {}
+
+        let script = try String(contentsOfFile: state + "/script.txt")
+        XCTAssertTrue(script.contains("--shell-framework "), script)
+        let dest = path("out", "DmGame\(titleID).framework")
+        XCTAssertEqual(model.exportedIPAPath, dest)
+        XCTAssertEqual(model.doneNote, String(format: model.t("shell.frameworkExportDone"), dest))
+        XCTAssertTrue(fm.fileExists(atPath: dest + "/Info.plist"))
+        XCTAssertTrue(fm.fileExists(atPath: dest + "/DmGame\(titleID)"))
+        XCTAssertFalse(model.running)
+        XCTAssertFalse(fm.fileExists(atPath: ShellLibrary.stateFile(root: f.root)), "the shared app is not touched")
+        XCTAssertTrue(calls.isEmpty, "no xcodebuild for a shared app and no device")
+    }
+
     /// The choice is saved and a build without it still asks for a device and a team.
     @MainActor func testTheChoiceIsSavedAndWithoutItTheDeviceIsStillNeeded() throws {
         let stores = LauncherStores(defaults: testDefaults); let model = stores.build

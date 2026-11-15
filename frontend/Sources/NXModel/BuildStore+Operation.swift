@@ -48,6 +48,14 @@ extension BuildStore {
         iosExportsShell && (queuedExportOneGame ?? devices.exportOneGame)
     }
 
+    private var iosExportsFramework: Bool {
+        iosExportsShell && !iosExportsOneGame && (queuedExportFramework ?? devices.exportFramework)
+    }
+
+    private var iosPackagesSharedApp: Bool {
+        !iosExportsOneGame && !iosExportsFramework
+    }
+
     private var iosInstallsDirectly: Bool {
         !devices.installDevice.isEmpty && !devices.signingTeam.isEmpty
     }
@@ -90,7 +98,7 @@ extension BuildStore {
                 return
             }
             let hasIOS = queueHasIOSTarget
-            if hasIOS, !iosExportsOneGame {
+            if hasIOS, iosPackagesSharedApp {
                 if let why = shellRootProblem() {
                     doneNote = why
                     done = false
@@ -105,7 +113,7 @@ extension BuildStore {
                     return
                 }
             }
-            let packageOnce = hasIOS && !iosExportsOneGame
+            let packageOnce = hasIOS && iosPackagesSharedApp
             let batchExportsIPA: Bool? = hasIOS ? iosExportsShell : nil
             let destination = (!hasIOS || iosExportsShell) ? nil : devices.deviceName(devices.installDevice)
             if hasIOS {
@@ -132,12 +140,19 @@ extension BuildStore {
         target = normalizedTarget
         if normalizedTarget != BuildTarget.mac, let entryExport = entry.exportIPA {
             queuedExportIPA = entryExport
-            queuedExportOneGame = entryExport ? !entry.packageAfter : false
+            if entry.exportFramework == true && entryExport {
+                queuedExportOneGame = false
+                queuedExportFramework = true
+            } else {
+                queuedExportOneGame = entryExport ? !entry.packageAfter : false
+                queuedExportFramework = false
+            }
         } else {
             queuedExportIPA = nil
             queuedExportOneGame = nil
+            queuedExportFramework = nil
         }
-        deferShellPackaging = entry.packageAfter && normalizedTarget != BuildTarget.mac && !exportsOneGame
+        deferShellPackaging = entry.packageAfter && normalizedTarget != BuildTarget.mac && !exportsOneGame && !exportsFramework
         if deferShellPackaging {
             deferredExportsIPA = entry.exportIPA ?? exportsShell
         }
@@ -167,6 +182,7 @@ extension BuildStore {
             if running { return nil }
             queuedExportIPA = nil
             queuedExportOneGame = nil
+            queuedExportFramework = nil
             deferShellPackaging = false
             activeQueuedGameID = nil
             return doneNote.isEmpty ? t("queue.cannotStart") : doneNote
@@ -199,6 +215,7 @@ extension BuildStore {
         fastRefreshExternalImgPath = nil
         queuedExportIPA = nil
         queuedExportOneGame = nil
+        queuedExportFramework = nil
         deferShellPackaging = false
         skipStaleCheckForQueuedEntry = false
         activeQueuedGameID = nil
