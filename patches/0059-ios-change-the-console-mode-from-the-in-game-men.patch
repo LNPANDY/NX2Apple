@@ -1,0 +1,135 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: lucaszhongsj <lucaszhongsj@foxmail.com>
+Date: Sun, 15 Nov 2026 18:17:19 +0800
+Subject: [PATCH] ios: change the console mode from the in-game menu in the
+ shell
+
+The iPhone shell starts a game with DM_LAUNCHER=0 and has no settings
+screen, so gameMenuModel is nil and the in-game menu has the controller
+layout only: the console mode could not be changed while a game ran.
+
+The menu now offers Console mode (Docked / Handheld) above the
+controller layout when there is no settings model. A pick goes through
+front_ios.m dm_setting_live, as on a Switch put in or out of its dock,
+and lasts for this run: nothing is saved to the shell's settings. Its
+three words are new lines after None in DM_GAME_MENU_TEXT.
+
+A controller connected while the picture is on the TV hides the gear
+(DmGamepad.m updateControlVisibility): two fingers there now show it
+again, and closing the menu puts it back out of the way.
+
+Checked: the Duo harness suite (38 tests), including the two-finger case
+in testMenuButtonFollowsTheGameViewAndTheController; its runtime stubs
+gain dm_switch2_teardown, which the current host links against. Swift
+build and test for frontend-ios (the launch text carries seven lines).
+
+Upstream-Status: fork-only
+Reason: The iPhone shell starts games with DM_LAUNCHER=0, so its in-game menu has no settings rows: the console mode is changed there for this run, with two fingers on the TV when a controller hides the gear
+Issue: LNPANDY/NX2Apple#1336
+---
+ dm/ios/Sources/DmGameMenu.h                |  1 +
+ dm/ios/Sources/DmGamepad.m                 | 11 ++++++++++-
+ dm/ios/Sources/GameMenu.swift              | 11 ++++++++++-
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |  1 +
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m   |  5 +++++
+ 5 files changed, 27 insertions(+), 2 deletions(-)
+
+diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
+index a7e9c692..1aab2dfc 100644
+--- a/dm/ios/Sources/DmGameMenu.h
++++ b/dm/ios/Sources/DmGameMenu.h
+@@ -7,6 +7,7 @@
+ extern "C" {
+ #endif
+ void *dm_game_menu(void);   // GameMenu.swift: a retained UIMenu, rebuilt each time it opens
++int dm_opmode(void);   // hle_oe.c: 0 = handheld (GameMenu.swift's console mode row reads it)
+ int dm_pad_layout(void);   // DmGamepad.m: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
+ bool dm_pad_layout_offered(int layout);   // Tap only in handheld mode
+ void dm_pad_layout_set(int layout);   // releases every touch first, and is saved for the next start
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 9860743a..406eddea 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -444,6 +444,12 @@ int front_web_touch(void);
+ }
+ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+     if (_padOff && !_layout.onTV) [self wakeMenu];
++    // The gear stays out of the way while a controller drives a picture on the TV (updateControlVisibility, GitHub issue #809): two fingers bring it back, so a game the
++    // shell starts (GameMenu.swift's console mode row, no settings screen) can still change the console mode.
++    if (_padOff && _layout.onTV && ts.count == 2 && _menu.hidden) {
++        [self wakeMenu];
++        LOG("front end: two-finger tap in TV play shows the menu gear");
++    }
+     BOOL game = NO;
+     for (UITouch *t in ts) {
+         if (_padOff) { game |= [self gameBegin:t]; continue; }
+@@ -830,7 +836,10 @@ static BOOL pads_slotted(GCController *gone) {
+ }
+ - (void)setMenuOpen:(BOOL)open {
+     _menuOpen = open;
+-    if (_padOff && !_layout.onTV) [self wakeMenu];
++    if (_padOff) {
++        if (!_layout.onTV) [self wakeMenu];
++        else if (!open) [self updateControlVisibility];   // closing it on the TV puts the gear back out of the way (the header above)
++    }
+ }
+ - (void)updateControlVisibility {
+     _controls.hidden = _padOff;
+diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
+index 9ee0582f..81224df3 100644
+--- a/dm/ios/Sources/GameMenu.swift
++++ b/dm/ios/Sources/GameMenu.swift
+@@ -10,11 +10,14 @@ var gameMenuModel: LauncherModel?   // the settings screen's model (Launcher.swi
+ // launcher as DM_HOME_QUIT_TEXT is for the quit prompt: the shell sets it at launch, and a game's own app gets it in its bundled dm/env.txt (the build's
+ // --env-file), where the lines are joined by a backslash and n. A line that is missing or empty stays English.
+ enum GameMenuText: Int, CaseIterable {
+-    case moreSettings, controllerLayout
++    case moreSettings, controllerLayout, consoleMode, docked, handheld
+     var english: String {
+         switch self {
+         case .moreSettings: return "More settings on the start screen"
+         case .controllerLayout: return "Controller layout"
++        case .consoleMode: return "Console mode"
++        case .docked: return "Docked"
++        case .handheld: return "Handheld"
+         }
+     }
+     static func line(_ t: GameMenuText, in text: String?) -> String {
+@@ -49,6 +52,12 @@ private func gameMenuItems() -> [UIMenuElement] {
+         }
+     }
+     if !placed { items.insert(UIMenu(options: .displayInline, children: [layout]), at: 0) }
++    if gameMenuModel == nil {   // the shell starts the game with DM_LAUNCHER=0 and has no settings screen: the console mode changes here, first in the menu, as on a Switch put in or out of its dock, for this run only
++        let docked = dm_opmode() != 0
++        let modes = [UIAction(title: GameMenuText.docked.text, state: docked ? .on : .off) { _ in dm_setting_live("DM_OPMODE", "1") },
++                     UIAction(title: GameMenuText.handheld.text, state: docked ? .off : .on) { _ in dm_setting_live("DM_OPMODE", "0") }]
++        items.insert(UIMenu(title: GameMenuText.consoleMode.text, options: .singleSelection, children: modes), at: 0)
++    }
+     items.append(Unmanaged<UIMenu>.fromOpaque(dm_quit_menu()).takeRetainedValue())   // Quit <game>, last and on its own: it opens the quit prompt (front_ios.m)
+     return items
+ }
+diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+index 643c8b50..7378ebf6 100644
+--- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
++++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+@@ -133,3 +133,4 @@ const char *front_ios_device_check(void) { return NULL; }   // a supported GPU
+ void dm_cloud_saves_env(void) {}
+ int save_sync_flush(int timeout_ms) { (void)timeout_ms; return 1; }
+ void dm_host_shutdown(const char *why) { (void)why; }
++void dm_switch2_teardown(void) {}
+diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+index 0c965c74..f188126c 100644
+--- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
++++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+@@ -1335,6 +1335,11 @@ static BOOL gDuoHarnessReduceMotionEnabled;
+         [self setHarnessControllers:@[controller] notification:GCControllerDidConnectNotification];
+         [self waitForView:menu hidden:YES];
+         XCTAssertNotEqual([pad hitTest:menu.center withEvent:nil], menu);
++        DuoFakeTouch *fingerA = [self touchAt:CGPointMake(60, 60) time:2], *fingerB = [self touchAt:CGPointMake(100, 60) time:2];
++        [self beginTouches:@[fingerA, fingerB] onPad:pad];
++        [self endTouches:@[fingerA, fingerB] onPad:pad cancelled:NO];
++        [self waitForView:menu hidden:NO];
++        XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu, @"Two fingers bring the gear back in TV play, for the console mode in a game the shell starts");
+         [self deliverSnapshotChangeFor:controller button:controller.extendedGamepad.buttonB value:1];
+         XCTAssertEqual(duo_harness_state().players[0].buttons, DM_BTN_A);
+ 
