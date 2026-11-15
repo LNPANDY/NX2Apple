@@ -697,10 +697,10 @@ index 94ef558..19a387f 100644
      return fails != 0;
  }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 508eef0..9db80b1 100644
+index a623793..9860743 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -180,6 +180,8 @@ @implementation DmGamepad {
+@@ -169,6 +169,8 @@ @implementation DmGamepad {
      CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
      CALayer *_hint; CATextLayer *_hintText; NSString *_hintWords;   // the 3D layout's right-stick hint: words only, once per launch (see "The right-stick hint")
      DmMenuButton *_menu;                           // opens the in-game menu (GameMenu.swift)
@@ -709,7 +709,7 @@ index 508eef0..9db80b1 100644
      unsigned _menuGen;                             // generation counter for the controller-idle menu fade timer
      BOOL _menuOpen;                                // the in-game menu is currently presented
      UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
-@@ -262,6 +264,14 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -245,6 +247,14 @@ - (instancetype)initWithFrame:(CGRect)f {
          __weak DmGamepad *weakSelf = self;
          [_menu addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weakSelf reset]; }] forControlEvents:UIControlEventMenuActionTriggered];   // the menu opens: release every key and touch first
          [self addSubview:_menu];
@@ -724,7 +724,7 @@ index 508eef0..9db80b1 100644
          const char *hint = getenv("DM_TOUCH_HINT");   // the shell passes the player's language; empty turns the hint off
          _hintWords = hint ? [NSString stringWithUTF8String:hint] : @"Right stick: drag here";
          _hint = [CALayer layer]; _hint.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5].CGColor; _hint.opacity = 0; _hint.hidden = YES;
-@@ -583,6 +593,8 @@ - (void)layoutSubviews {
+@@ -544,6 +554,8 @@ - (void)layoutSubviews {
      in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
      [CATransaction commit];
      [self placeHint];
@@ -733,7 +733,7 @@ index 508eef0..9db80b1 100644
      [self refresh];
  }
  
-@@ -672,7 +684,7 @@ static void read_pad(GCExtendedGamepad *g) {
+@@ -633,7 +645,7 @@ static void read_pad(GCExtendedGamepad *g) {
      dm_pad_set_player(p, m, axis(g.leftThumbstick.xAxis.value), axis(g.leftThumbstick.yAxis.value), axis(g.rightThumbstick.xAxis.value), axis(g.rightThumbstick.yAxis.value));
  }
  // Home and Capture: without this iOS takes them as system gestures (Home opens the Games overlay, Capture a screenshot); the app gives them no function
@@ -742,7 +742,7 @@ index 508eef0..9db80b1 100644
      for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled;
      c.extendedGamepad.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL down) { (void)b; (void)v; (void)down; front_ios_quit_poll(); };
  }
-@@ -732,23 +744,126 @@ static BOOL pads_slotted(GCController *gone) {
+@@ -693,23 +705,126 @@ static BOOL pads_slotted(GCController *gone) {
      dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
      return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
  }
@@ -871,7 +871,7 @@ index 508eef0..9db80b1 100644
          }];
      });
  }
-@@ -761,6 +876,7 @@ - (void)updateControlVisibility {
+@@ -722,6 +837,7 @@ - (void)updateControlVisibility {
      if (_padOff && _layout.onTV) {
          ++_menuGen; [_menu.layer removeAllAnimations];
          _menu.alpha = 1; _menu.hidden = YES;

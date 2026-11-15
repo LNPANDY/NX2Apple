@@ -1095,9 +1095,9 @@ public struct ShellHostConfig: Sendable {
     }
 
     /// DM_GAME_MENU_TEXT: the in-game menu's own words in the player's language, one per line in the engine's order (patch 0124, GameMenu.swift):
-    /// its title, Controller layout, Keys that toggle and None (#1129).
+    /// its title and Controller layout (#1129).
     static var gameMenuText: String {
-        [hostText("More settings on the start screen"), hostText("Controller layout"), hostText("Keys that toggle"), hostText("None")]
+        [hostText("More settings on the start screen"), hostText("Controller layout")]
             .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
     }
 
