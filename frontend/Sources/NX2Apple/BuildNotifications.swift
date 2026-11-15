@@ -49,19 +49,20 @@ enum BuildNotice {
     /// What has ended, read once the handler that ended a run has set its verdict (the main queue's next turn after `running` went
     /// false or `done` went true). nil while nothing has: still running, or the iPhone chain between its script and the pack and install
     /// (`running` false, every stage done, no note). A failure keeps `done` false, so it is told by its note or a failed stage, not by `done`.
-    static func ended(stopped: Bool, running: Bool, done: Bool, note: String, stages: [Stage]) -> Outcome? {
+    static func ended(stopped: Bool, running: Bool, done: Bool, note: String, stages: [Stage], t: (String) -> String = { $0 }) -> Outcome? {
         if stopped { return .stopped }
         if running { return nil }
         if done { return .finished }
         guard !note.isEmpty || stages.contains(where: { $0.state == .failed }) else { return nil }
-        return .failed(reason: failureReason(note: note, stages: stages))
+        return .failed(reason: failureReason(note: note, stages: stages, t: t))
     }
 
     /// What a failed build said last: its message, else the step that failed with its detail.
-    static func failureReason(note: String, stages: [Stage]) -> String {
+    static func failureReason(note: String, stages: [Stage], t: (String) -> String = { $0 }) -> String {
         if !note.isEmpty { return note }
         guard let s = stages.last(where: { $0.state == .failed }) else { return "" }
-        return s.detail.isEmpty ? s.name : s.name + " · " + s.detail
+        let name = s.displayName(t)
+        return s.detail.isEmpty ? name : name + " · " + s.detail
     }
 }
 
@@ -111,7 +112,7 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
 
     /// Only a game's build is announced: a send, an install or a shell setup also runs the model, with `buildingGame` false.
     @MainActor private func settle(_ m: BuildStore, library: GameLibrary, stopped: Bool) {
-        guard !announced, m.buildingGame, let outcome = BuildNotice.ended(stopped: stopped, running: m.running, done: m.done, note: m.doneNote, stages: m.stages) else { return }
+        guard !announced, m.buildingGame, let outcome = BuildNotice.ended(stopped: stopped, running: m.running, done: m.done, note: m.doneNote, stages: m.stages, t: m.t) else { return }
         announced = true
         guard BuildNotice.shouldNotify(outcome, enabled: BuildNotice.enabled, appActive: NSApp.isActive, hasBundleID: true) else { return }
         post(outcome, m: m, library: library)

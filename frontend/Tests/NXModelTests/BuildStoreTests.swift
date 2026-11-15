@@ -481,6 +481,19 @@ import XCTest
         XCTAssertTrue(store.log.text.contains("✓ extract (\(BuildProgress.duration(3))): 10 files"))
     }
 
+    func testStageEventsKeepTheirScriptNamesAcrossLanguageChanges() {
+        let store = makeStore()
+        localizer.lang = Lang("ja")
+        store.ingest("{\"ev\":\"stage\",\"k\":1,\"n\":2,\"name\":\"extract v655360\"}\n")
+        store.ingest("[1/2] extract v655360 · 50%, 5 / 10 files\n")
+        XCTAssertEqual(store.stages[0].name, "extract v655360")
+        XCTAssertEqual(store.stages[0].displayName(localizer.t), "v655360 の抽出")
+        localizer.lang = .zh
+        XCTAssertEqual(store.stages[0].displayName(localizer.t), "提取 v655360")
+        store.ingest("{\"ev\":\"stage\",\"k\":2,\"n\":2,\"name\":\"check v655360 files\"}\n")
+        XCTAssertEqual(store.stages[1].displayName(localizer.t), "检查 v655360 文件")
+    }
+
     func testPipelineArchiveStageFallsBackToWorkDirAndYieldsToNativeJSONProgress() throws {
         let fm = FileManager.default
         let macWork = temporary.appendingPathComponent("pso/mac-work")
@@ -875,7 +888,7 @@ import XCTest
         XCTAssertEqual(opened.map(\.path), [store.macAppPath])
         let last = try XCTUnwrap(store.stages.last)
         XCTAssertEqual(last.id, 8)
-        XCTAssertEqual(last.name, "Verify first start")
+        XCTAssertEqual(last.displayName(store.t), "Verify first start")
         XCTAssertEqual(last.state, .done)
         XCTAssertFalse(store.running)
         XCTAssertTrue(store.done)

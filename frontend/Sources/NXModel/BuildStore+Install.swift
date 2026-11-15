@@ -18,13 +18,24 @@ extension BuildStore {
         installer.toolPath = BuildCommands.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: python)
         installer.log = { @Sendable s in hop { self.append(s) } }
         installer.stage = { @Sendable s in hop {
+            let nameKey: String? = switch s.id {
+            case ShellInstaller.projectStageID: "shell.projectStage"
+            case ShellInstaller.signStageID: "dev.signStage"
+            case ShellInstaller.installStageID: "dev.installStage"
+            case ShellInstaller.copyStageID: "dev.copyStage"
+            case ShellInstaller.checkStageID: "shell.checkStage"
+            default: nil
+            }
+            let nameArgument = s.id == ShellInstaller.projectStageID ? nil : self.devices.deviceName(self.devices.installDevice)
             if let i = self.stages.firstIndex(where: { $0.id == s.id }) {
                 self.stages[i].name = s.name; self.stages[i].state = s.state; self.stages[i].detail = s.detail
+                self.stages[i].nameKey = nameKey; self.stages[i].nameArgument = nameKey == nil ? nil : nameArgument
                 if let percent = s.percent { self.stages[i].percent = percent }
                 if s.state == .running, self.stages[i].started == nil { self.stages[i].started = Date() }
             } else {
                 self.stages.append(Stage(id: s.id, name: s.name, state: s.state, detail: s.detail, percent: s.percent,
-                                         started: s.state == .running ? Date() : nil))
+                                         started: s.state == .running ? Date() : nil, nameKey: nameKey,
+                                         nameArgument: nameKey == nil ? nil : nameArgument))
             }
         } }
         installer.runner = runner
@@ -233,7 +244,8 @@ extension BuildStore {
         beginOperation(.installing, game: nil, titleID: nil, destination: .target)
         running = true
         runTool(id: 1004, name: String(format: t("dev.reinstallStage"), devices.deviceName(device)),
-                BuildCommands.reinstallCommand(xcrun: devices.xcrun, device: device, app: app), step: BuildProgress.installStep) { error in
+                BuildCommands.reinstallCommand(xcrun: devices.xcrun, device: device, app: app), nameKey: "dev.reinstallStage",
+                nameArgument: devices.deviceName(device), step: BuildProgress.installStep) { error in
             if let error {
                 // The app is still on the device: a failed reinstall is a note, not a failed build
                 self.running = false
@@ -304,7 +316,7 @@ extension BuildStore {
                     }
                     self.stagedResignProfiles = stagedProfiles
                     self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
-                                 command, step: BuildProgress.xcodeStep) { error in
+                                 command, nameKey: "dev.resignStage", nameArgument: name, step: BuildProgress.xcodeStep) { error in
                         if let error, !error.isEmpty {
                             stagedProfiles.rollback()
                             self.stagedResignProfiles = nil
@@ -316,7 +328,8 @@ extension BuildStore {
                         stagedProfiles.commit()
                         self.stagedResignProfiles = nil
                         self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
-                                     BuildCommands.reinstallCommand(xcrun: xcrun, device: device, app: app), step: BuildProgress.installStep) { installError in
+                                     BuildCommands.reinstallCommand(xcrun: xcrun, device: device, app: app), nameKey: "dev.installStage",
+                                     nameArgument: name, step: BuildProgress.installStep) { installError in
                             if let installError {
                                 self.doneNote = String(format: self.t("dev.installFailed"), installError)
                             } else {
@@ -355,7 +368,7 @@ extension BuildStore {
             env["DM_ENTITLEMENTS"] = ""
         }
         runTool(id: ShellInstaller.projectStageID, name: t("shell.projectStage"),
-                ShellInstall.projectCommand(package: package), environment: env, step: { _ in nil }) { projectError in
+                ShellInstall.projectCommand(package: package), environment: env, nameKey: "shell.projectStage", step: { _ in nil }) { projectError in
             if let projectError, !projectError.isEmpty {
                 self.installPhaseActive = false
                 self.running = false
@@ -400,9 +413,9 @@ extension BuildStore {
         installPhaseActive = true
         running = true
         if let i = stages.firstIndex(where: { $0.id == stageID }) {
-            stages[i] = Stage(id: stageID, name: stageName, state: .running, started: Date())
+            stages[i] = Stage(id: stageID, name: stageName, state: .running, started: Date(), nameKey: "dev.saveStage")
         } else {
-            stages.append(Stage(id: stageID, name: stageName, state: .running, started: Date()))
+            stages.append(Stage(id: stageID, name: stageName, state: .running, started: Date(), nameKey: "dev.saveStage"))
         }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -508,15 +521,16 @@ extension BuildStore {
     /// One of Xcode's tools as a stage of the build: in its own process group (Stop ends it), its output in the log,
     /// its progress in the stage. `then` gets nil on success, else the last error line.
     package func runTool(id: Int, name: String, _ command: [String], environment: [String: String]? = nil,
+                         nameKey: String? = nil, nameArgument: String? = nil,
                          step: @escaping (String) -> (detail: String, percent: Double?)?,
                          then: @escaping (String?) -> Void) {
         // A stage that runs again (the team-variant signing retry uses the same id) keeps its row:
         // a second row with that id would never see an update again — every lookup takes the first
         // match — and would spin for ever after the build moved on.
         if let i = stages.firstIndex(where: { $0.id == id }) {
-            stages[i] = Stage(id: id, name: name, state: .running, started: Date())
+            stages[i] = Stage(id: id, name: name, state: .running, started: Date(), nameKey: nameKey, nameArgument: nameArgument)
         } else {
-            stages.append(Stage(id: id, name: name, state: .running, started: Date()))
+            stages.append(Stage(id: id, name: name, state: .running, started: Date(), nameKey: nameKey, nameArgument: nameArgument))
         }
         append("[\(name)] \(command.joined(separator: " "))\n")
         let env = environment ?? ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"]

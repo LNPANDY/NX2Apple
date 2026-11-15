@@ -182,11 +182,16 @@ import XCTest
     }
 
     func testBuildsPageRowsFromTheStoreAndQueue() {
-        let stages = [Stage(id: 1, name: "Read", state: .done), Stage(id: 2, name: "Translate", state: .running, percent: 40)]
+        let stages = [Stage(id: 1, name: "extract v655360", state: .done),
+                      Stage(id: 2, name: "Install on iPhone", state: .running, percent: 40,
+                            nameKey: "dev.installStage", nameArgument: "iPhone")]
         let queue = [QueueEntry(titleID: "A", name: "Hades", target: "mac", inputs: [:], outputDirectory: "/o", engineID: "e"),
                      QueueEntry(titleID: "B", name: "Celeste", target: "mac", inputs: [:], outputDirectory: "/o", engineID: "e", status: .done)]
         let builds = LiveConsoleDriver.builds(running: true, stopping: false, title: "Building", stages: stages, queue: queue)
         XCTAssertEqual(builds.stages.map(\.progress), [nil, 0.4], "the stage's own share")
+        XCTAssertEqual(builds.stages[0].name, "extract v655360")
+        XCTAssertEqual(builds.stages[1].nameKey, "dev.installStage")
+        XCTAssertEqual(builds.stages[1].nameArgument, "iPhone")
         XCTAssertEqual(builds.queue.map(\.name), ["Hades"], "the queue's waiting games, not the earlier results")
         XCTAssertEqual(builds.queue.first?.statusKey, "queue.status.queued")
         XCTAssertEqual(LiveConsoleDriver.builds(running: false, stopping: false, title: "", stages: stages, queue: []).stages, [], "no build, no stages")
