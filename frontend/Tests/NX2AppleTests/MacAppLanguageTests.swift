@@ -295,6 +295,146 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(RomFSLanguages.options(in: try writeImage(e)), [])
     }
 
+    func testRomFSImageWithValidDMMSLTrailerSuppliesLanguagesAndRefreshesCache() throws {
+        let base = Self.makeDMROMFSImage(mask: "JPja USen CNzh\n011\n")
+        let nvn = Self.appendDMMSLTrailer(to: base, gfxAPI: 1, flags: 0, chain: "b-d0e99bd4b2fe", mslSize: 37)
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(nvn)).map { $0[0] }, ["en-US", "ja", "zh-Hans"])
+
+        let vk = Self.appendDMMSLTrailer(to: base, gfxAPI: 2, flags: 0, chain: "", mslSize: 32)
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(vk)).map { $0[0] }, ["en-US", "ja", "zh-Hans"])
+
+        let glMulti = Self.appendDMMSLTrailer(to: base, gfxAPI: 3, flags: 1, chain: "b-abcdef0123456789abcdef", mslSize: 48)
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(glMulti)).map { $0[0] }, ["en-US", "ja", "zh-Hans"])
+
+        // In-place trailer upgrade on the same path invalidates the size-keyed cache and narrows launcher.json.
+        let path = temporary.appendingPathComponent("upgrading.img")
+        try nvn.prefix(nvn.count - 1).write(to: path)
+        XCTAssertEqual(RomFSLanguages.options(in: path.path), [])
+        try nvn.write(to: path)
+        XCTAssertEqual(RomFSLanguages.options(in: path.path).map { $0[0] }, ["en-US", "ja", "zh-Hans"])
+
+        let fwLauncher = temporary.appendingPathComponent("TrailerFW.framework/dm/launcher.json")
+        try FileManager.default.createDirectory(at: fwLauncher.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let rawJSON = #"{"schema": 1, "game": "040074A01BF12000", "settings": [\#(Self.fallbackLangRow)]}"#
+        try Data(rawJSON.utf8).write(to: fwLauncher)
+        XCTAssertTrue(RomFSLanguages.applyToLauncherJSON(at: fwLauncher.path, romfs: path.path))
+        let parsed = try XCTUnwrap(LaunchList.parse(Data(contentsOf: fwLauncher)))
+        XCTAssertEqual(parsed.settings.first { $0.env == "DM_LANG" }?.options?.map { $0[0] }, ["en-US", "ja", "zh-Hans"])
+    }
+
+    func testRomFSImageRejectsCorruptOrTruncatedDMMSLTrailer() throws {
+        let base = Self.makeDMROMFSImage(mask: "USen JPja\n")
+        let valid = Self.appendDMMSLTrailer(to: base, gfxAPI: 1, flags: 0, chain: "b-1234567890ab", mslSize: 40)
+        func writeU64(_ data: inout Data, _ offset: Int, _ value: UInt64) {
+            for i in 0..<8 { data[offset + i] = UInt8((value >> (8 * UInt64(i))) & 0xff) }
+        }
+
+        // Fewer than 64 trailer bytes, truncated trailer, or extra trailing bytes before footer.
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(base + Data(repeating: 0, count: 10))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(base + Data(repeating: 0, count: 63))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(valid.prefix(valid.count - 1))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(valid.prefix(16384 + 20))), [])
+        var extraPad = valid
+        extraPad.insert(contentsOf: [UInt8](repeating: 0, count: 8), at: valid.count - 64)
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(extraPad)), [])
+
+        let foot = valid.count - 64
+        var badMagic = valid; badMagic[foot + 7] = UInt8(ascii: "0")
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(badMagic)), [])
+
+        var badVer = valid; badVer[foot + 8] = 2
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(badVer)), [])
+
+        for api: UInt8 in [0, 4, 255] {
+            var badAPI = valid; badAPI[foot + 12] = api
+            XCTAssertEqual(RomFSLanguages.options(in: try writeImage(badAPI)), [])
+        }
+
+        var badBase = valid; writeU64(&badBase, foot + 16, UInt64(base.count + 1))
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(badBase)), [])
+
+        var unalignedOff = valid; writeU64(&unalignedOff, foot + 24, UInt64(base.count))
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(unalignedOff)), [])
+
+        var tinyMSL = valid; writeU64(&tinyMSL, foot + 32, 31)
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(tinyMSL)), [])
+
+        var hugeMSL = valid; writeU64(&hugeMSL, foot + 32, UInt64.max)
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(hugeMSL)), [])
+
+        var longChain = valid; longChain[foot + 14] = 25
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(longChain)), [])
+
+        var nulInChain = valid; nulInChain[foot + 42] = 0
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(nulInChain)), [])
+
+        var dirtyChainPad = valid; dirtyChainPad[foot + 63] = UInt8(ascii: "x")
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(dirtyChainPad)), [])
+    }
+
+    func testDirectoryFindsSortedCustomNamedImageExcludingPartsAndHiddenFiles() throws {
+        let dir = temporary.appendingPathComponent("custom-folder")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let wrong = Self.makeDMROMFSImage(mask: "EUde EUit\n")
+        try wrong.write(to: dir.appendingPathComponent(".hidden.img"))
+        try wrong.write(to: dir.appendingPathComponent("._星露谷物语.img"))
+        try wrong.write(to: dir.appendingPathComponent("00_game.nxpart.img"))
+        try wrong.write(to: dir.appendingPathComponent("00_game.img.nxpart.0000.0002"))
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("01_folder.img"), withIntermediateDirectories: true)
+        try Self.makeDMROMFSImage(mask: "USen\n").write(to: dir.appendingPathComponent("02_dlc.img"))
+
+        let stardew = Self.appendDMMSLTrailer(
+            to: Self.makeDMROMFSImage(mask: "USen JPja CNzh\n"),
+            gfxAPI: 1, flags: 0, chain: "b-stardew12345", mslSize: 40
+        )
+        try stardew.write(to: dir.appendingPathComponent("a_星露谷物语.img"))
+        try Self.makeDMROMFSImage(mask: "USen EUfr\n").write(to: dir.appendingPathComponent("b_空洞骑士.img"))
+
+        XCTAssertEqual(RomFSLanguages.options(in: dir.path).map { $0[0] }, ["en-US", "ja", "zh-Hans"])
+
+        // When a standard romfs.img is present (even if corrupt), do not fall back to unrelated sibling *.img files.
+        try Data("corrupt".utf8).write(to: dir.appendingPathComponent("romfs.img"))
+        XCTAssertEqual(RomFSLanguages.options(in: dir.path), [])
+    }
+
+    private static func appendDMMSLTrailer(
+        to base: Data,
+        gfxAPI: UInt8,
+        flags: UInt8,
+        chain: String,
+        mslSize: Int
+    ) -> Data {
+        func le64(_ v: UInt64) -> [UInt8] { (0..<8).map { UInt8((v >> (8 * UInt64($0))) & 0xff) } }
+        func le32(_ v: UInt32) -> [UInt8] { (0..<4).map { UInt8((v >> (8 * UInt32($0))) & 0xff) } }
+        func le16(_ v: UInt16) -> [UInt8] { [UInt8(v & 0xff), UInt8((v >> 8) & 0xff)] }
+
+        let baseEnd = UInt64(base.count)
+        let mslOffset = (baseEnd + 16383) & ~UInt64(16383)
+        var out = base
+        out.append(contentsOf: [UInt8](repeating: 0, count: Int(mslOffset - baseEnd)))
+        var mslPayload = [UInt8]("DMROMFS1".utf8) + [UInt8](repeating: 0, count: max(0, mslSize - 8))
+        if mslPayload.count > mslSize { mslPayload = Array(mslPayload.prefix(mslSize)) }
+        out.append(contentsOf: mslPayload)
+        let rawEnd = mslOffset + UInt64(mslPayload.count)
+        let alignedEnd = (rawEnd + 7) & ~UInt64(7)
+        out.append(contentsOf: [UInt8](repeating: 0, count: Int(alignedEnd - rawEnd)))
+
+        let chainBytes = Array(chain.utf8.prefix(24))
+        let footer = [UInt8]("DMMSLTR1".utf8)
+            + le32(1)
+            + [gfxAPI, flags]
+            + le16(UInt16(chainBytes.count))
+            + le64(baseEnd)
+            + le64(mslOffset)
+            + le64(UInt64(mslPayload.count))
+            + chainBytes
+            + [UInt8](repeating: 0, count: 24 - chainBytes.count)
+        precondition(footer.count == 64)
+        out.append(contentsOf: footer)
+        return out
+    }
+
     /// DMROMFS1 image with `/System/RegionLangMask.txt` containing `mask`, laid out as `dm/tools/romfs_image.py` writes it
     /// (header, data, then 24-byte entries and one name pool, breadth-first, a directory is type 0 and a file is type 1).
     private static func makeDMROMFSImage(mask: String) -> Data {

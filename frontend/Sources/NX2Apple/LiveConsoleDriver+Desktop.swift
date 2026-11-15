@@ -7,8 +7,7 @@ import NXModel
 /// there and back: a game's mods (GameLibrary.setMod), its cheats (CheatFiles), its options back to the defaults (SavedChoices and
 /// the library), the General page's switches (the defaults Settings binds with @AppStorage), the app's update (AppUpdateStore, which
 /// waits while the desktop builds) and the way to the desktop with a game selected. The desktop's build shows in the top bar's
-/// activity chip (bindActivity). Nothing here builds or picks a
-/// folder: those stay on the desktop.
+/// activity chip (bindActivity). Choosing files and folders stays on the desktop.
 extension LiveConsoleDriver {
     // MARK: Wiring
 
@@ -58,7 +57,7 @@ extension LiveConsoleDriver {
         state.games[i].mods = mods.map { ConsoleMod(name: $0.name, usable: $0.usable, on: $0.usable && game.mods.contains($0.name)) }
         state.games[i].cheats = cheats(game)
         let settings = state.games[i].settings
-        state.games[i].canReset = !game.launchOptions.isEmpty || SavedChoices(app: game.appPath, titleID: game.titleID).hasChoices(settings)
+        state.games[i].canReset = game.hasLauncherOptions || SavedChoices(app: game.appPath, titleID: game.titleID).hasChoices(settings)
         state.games[i].save = game.isReady
             ? ConsoleCloudSaves.row(id: gameID, title: game.name, saves: GameCloudSaves(titleID: game.titleID, appPath: game.appPath)) : nil
     }

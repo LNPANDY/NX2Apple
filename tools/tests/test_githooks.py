@@ -70,7 +70,7 @@ class ChecksFor(unittest.TestCase):
         self.assertEqual(cmds['tools'], 'python3 -m unittest discover tools/tests')
         self.assertIn('python3 -m unittest discover -s frontend-qt/tests', cmds['Qt front end'])
         self.assertEqual(cmds['triage scripts'], 'python3 -m unittest discover -s .github/scripts/tests')
-        self.assertEqual(cmds['Mac launcher (slow)'], 'swift build && swift test')
+        self.assertEqual(cmds['Mac launcher (slow)'], "swift build && swift test --skip 'LauncherControlWidthTests|LauncherPerformanceTests'")
         ios = next(c for c in H.CHECKS if c.name == 'iOS shell (slow)')
         self.assertEqual((ios.command, ios.cwd, ios.sync), ('swift build && swift test', 'frontend-ios', True))
 

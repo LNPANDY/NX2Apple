@@ -253,4 +253,82 @@ final class SignatureTests: IsolatedDefaultsTestCase {
         XCTAssertTrue(fm.fileExists(atPath: app + "/_CodeSignature/CodeResources"))
         XCTAssertEqual(AppSignature.expiration(ofApp: app), newExpiry)
     }
+
+    @MainActor func testSignatureTrackerDropsOutOfOrderAndClearedGenerations() throws {
+        final class ScriptedRunner: ProcessRunner, @unchecked Sendable {
+            let xml: String
+            let onCapture: (() -> Void)?
+            init(xml: String, onCapture: (() -> Void)? = nil) {
+                self.xml = xml
+                self.onCapture = onCapture
+            }
+            func capture(_ launch: ProcessLaunch) -> ProcessResult {
+                onCapture?()
+                return ProcessResult(status: 0, out: xml)
+            }
+            func stream(_ launch: ProcessLaunch, line: @escaping (String) -> Void) -> Bool { false }
+            func streamLines(_ launch: ProcessLaunch, started: @escaping (RunningProcess) -> Void, line: @escaping (String) -> Void) -> ProcessResult { .failedToStart("unused") }
+            func start(_ launch: ProcessLaunch, onOutput: @escaping (Data) -> Void, onExit: @escaping (Int32) -> Void) throws -> RunningProcess { fatalError("unused") }
+        }
+
+        let app = FileManager.default.temporaryDirectory.appendingPathComponent("sig-gen-\(UUID().uuidString).app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: app) }
+        try Data("cms-envelope".utf8).write(to: app.appendingPathComponent("embedded.mobileprovision"))
+
+        let oldDate = Date(timeIntervalSince1970: 1_790_000_000)
+        let renewedDate = Date(timeIntervalSince1970: 1_790_604_800)
+        let oldXML = try String(decoding: profile(expires: oldDate), as: UTF8.self)
+        let renewedXML = try String(decoding: profile(expires: renewedDate), as: UTF8.self)
+
+        let enteredSlow = DispatchSemaphore(value: 0)
+        let releaseSlow = DispatchSemaphore(value: 0)
+        let slowFinished = DispatchSemaphore(value: 0)
+        let slowRunner = ScriptedRunner(xml: oldXML) {
+            enteredSlow.signal()
+            releaseSlow.wait()
+            slowFinished.signal()
+        }
+        let fastRunner = ScriptedRunner(xml: renewedXML)
+
+        let gameID = UUID()
+        var game = LibraryGame(titleID: "0100CD801CE5E000", name: "Balatro")
+        game.id = gameID
+        game.iosAppPath = app.path
+        game.installedDevice = "UDID-1"
+        try Data("{}".utf8).write(to: app.appendingPathComponent("Info.plist"))
+
+        let tracker = SignatureTracker()
+        tracker.refresh(games: [game], runner: slowRunner)
+        XCTAssertEqual(enteredSlow.wait(timeout: .now() + 5), .success)
+
+        // Newer refresh after re-sign finishes first and publishes renewedDate.
+        tracker.refresh(games: [game], runner: fastRunner)
+        let deadline = Date().addingTimeInterval(5)
+        while tracker.expiry[gameID] != renewedDate && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertEqual(tracker.expiry[gameID], renewedDate)
+
+        // Now let the older in-flight security cms read finish and verify it does not overwrite renewedDate.
+        releaseSlow.signal()
+        XCTAssertEqual(slowFinished.wait(timeout: .now() + 5), .success)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        XCTAssertEqual(tracker.expiry[gameID], renewedDate, "older signature read must not overwrite newer expiry")
+
+        // Clearing installed apps while a background read is in flight must keep expiry empty after the read finishes.
+        let enteredClearRace = DispatchSemaphore(value: 0)
+        let releaseClearRace = DispatchSemaphore(value: 0)
+        let clearRaceRunner = ScriptedRunner(xml: oldXML) {
+            enteredClearRace.signal()
+            releaseClearRace.wait()
+        }
+        tracker.refresh(games: [game], runner: clearRaceRunner)
+        XCTAssertEqual(enteredClearRace.wait(timeout: .now() + 5), .success)
+        tracker.refresh(games: [], runner: fastRunner)
+        XCTAssertEqual(tracker.expiry, [:])
+        releaseClearRace.signal()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        XCTAssertEqual(tracker.expiry, [:], "in-flight read before emptying apps must not repopulate expiry")
+    }
 }

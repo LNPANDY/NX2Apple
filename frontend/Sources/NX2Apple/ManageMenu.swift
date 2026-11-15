@@ -135,7 +135,7 @@ struct ManageButtonLabel: View {
             Image(systemName: "ellipsis.circle").font(.system(size: 27, weight: .ultraLight))
             Text(title).font(.manrope(13))
         }
-        .foregroundStyle(.white).contentShape(Rectangle())
+        .foregroundStyle(LauncherPalette.textStrong).contentShape(Rectangle())
     }
 }
 
@@ -168,7 +168,7 @@ struct ManageMenuPanel: View {
         .frame(width: Self.width)
         .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(LauncherPalette.ink(0.10)))
-        .shadow(color: .black.opacity(0.5), radius: 18, y: 6)
+        .shadow(color: LauncherPalette.dropdownShadow, radius: 18, y: 6)
         .padScope("manage", pad)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)

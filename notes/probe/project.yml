@@ -1,0 +1,59 @@
+# The dlopen probe as an Xcode project: the most reliable way to get it onto a device when the
+# sideloaders' Apple authentication is throttled (AltStore HTTP 503, 爱思助手 "wrong password"
+# behind two-factor) — Xcode signs with the user's own Apple ID and installs over USB itself.
+#   xcodegen generate -s project.yml   (or open the generated DmProbe.xcodeproj)
+# Then in Xcode: select DmProbe target → Signing & Capabilities → Team = your Apple ID → Run.
+name: DmProbe
+options:
+  bundleIdPrefix: org.nxnative.probe
+  deploymentTarget:
+    iOS: "26.0"   # same floor as the game host: Metal 4
+targets:
+  DmProbe:
+    type: application
+    platform: iOS
+    sources:
+      - path: src/probe_main.m
+    # Embed the framework into DmProbe.app/Frameworks/ — the probe's dlopen targets
+    # @executable_path/Frameworks/Probe.framework, so without this the app reports a FALSE
+    # "BLOCKED: no such file" (the framework would be built but never shipped inside the bundle).
+    dependencies:
+      - target: Probe
+        embed: true
+        codeSign: true
+    info:
+      path: probe-Info.plist
+      properties:
+        CFBundleDisplayName: DmProbe
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}                # an empty launch screen: silences the storyboard warning
+        UIFileSharingEnabled: true        # Documents/probe-log.txt visible in the Files app
+        LSSupportsOpeningDocumentsInPlace: true
+        # all four orientations: iOS 26 deprecated UIRequiresFullScreen, and a probe that writes
+        # its verdict to a file does not care how it is held
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationPortraitUpsideDown
+  Probe:
+    type: framework
+    platform: iOS
+    sources:
+      - path: src/probe.c
+    settings:
+      base:
+        # a pure-C payload dlsym'd by name needs no module map; without an umbrella header the
+        # DEFINES_MODULE default only produces a warning
+        DEFINES_MODULE: NO
+    info:
+      path: probe-framework-Info.plist
+      properties:
+        CFBundleDisplayName: Probe
+schemes:
+  DmProbe:
+    build:
+      targets:
+        DmProbe: all
+        Probe: all

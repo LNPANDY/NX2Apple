@@ -129,4 +129,33 @@ import ShellUI
         #expect(game.values()[layout.env] == "1" && game.isFromShell(layout))
         #expect(GameSettingsStore(profile: profile, defaults: defaults).values()[layout.env] == "2", "an unset shell mode preserves the game's Tap default")
     }
+
+    @Test func audioMixDefaultsOffPersistsAndClearsKeyWhenDisabled() {
+        let store = shell()
+        #expect(!store.audioMix)
+        #expect(store.defaults.object(forKey: ShellSettingsStore.audioMixKey) == nil)
+        #expect(store.gameDefaults["DM_AUDIO_MIX"] == nil)
+
+        store.storeAudioMix(true)
+        #expect(store.audioMix)
+        #expect(store.gameDefaults["DM_AUDIO_MIX"] == "1")
+        #expect(ShellSettingsStore(defaults: store.defaults).audioMix)
+
+        store.storeAudioMix(false)
+        #expect(!store.audioMix)
+        #expect(store.defaults.object(forKey: ShellSettingsStore.audioMixKey) == nil)
+        #expect(store.gameDefaults["DM_AUDIO_MIX"] == nil)
+    }
+
+    @Test func legacyTouchToggleDefaultsAreIgnoredWhileTouchSizeAndStickRemain() {
+        let store = shell()
+        store.defaults.set("b,zr", forKey: "touchToggle")
+        store.storeTouchSize("large")
+        store.storeTouchStick("inward")
+
+        #expect(store.touchLayout.isEmpty)
+        #expect(store.gameDefaults["DM_TOUCH_TOGGLE"] == nil)
+        #expect(store.gameDefaults["DM_TOUCH_SIZE"] == "large")
+        #expect(store.gameDefaults["DM_TOUCH_STICK"] == "inward")
+    }
 }

@@ -248,4 +248,41 @@ import Testing
         let p = try profile(row: some)
         #expect(!RomfsLanguages.isFallbackRow(try #require(langRow(p))))
     }
+
+    @Test func readsLanguagesFromImageWithValidTrailerAndRejectsDamagedTrailers() throws {
+        let base = Self.image(mask("JPja USen CNzh\n011\n"))
+        let withTrailer = ShellDataFolderTests.dmromfsWithTrailer(base, mslPayload: [UInt8](repeating: 0x77, count: 52), chain: "b-3f9a2c")
+        #expect(try codes(withTrailer) == ["en-US", "ja", "zh-Hans"])
+
+        // Upgrading an image in place from plain to trailer updates size|mtime cache key and preserves languages.
+        let dir = try folder(with: base)
+        let imgURL = dir.appendingPathComponent("romfs.img")
+        #expect(RomfsLanguages.options(in: dir).map { $0[0] } == ["en-US", "ja", "zh-Hans"])
+        let upgraded = ShellDataFolderTests.dmromfsWithTrailer(Self.image(mask("JPja USen EUfr\n011\n")))
+        try upgraded.write(to: imgURL)
+        #expect(RomfsLanguages.options(in: dir).map { $0[0] } == ["en-US", "ja", "fr"])
+
+        // Truncated, unaligned, or garbage trailers are rejected.
+        #expect(try codes(Data(withTrailer.dropLast(1))) == [])
+        #expect(try codes(base + Data(repeating: 0xaa, count: 64)) == [])
+        #expect(try codes(ShellDataFolderTests.dmromfsWithTrailer(base, overrideMslOffset: 64)) == [])
+    }
+
+    @Test func directoryFallbackReadsCustomNamedNonPartImage() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("romfs-custom-name-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let hidden = Self.image(mask("USen EUde\n"))
+        try hidden.write(to: dir.appendingPathComponent(".hidden.img"))
+        try hidden.write(to: dir.appendingPathComponent("00_bad.nxpart.img"))
+        try hidden.write(to: dir.appendingPathComponent("00_part.img.nxpart.0000.0002"))
+
+        let stardew = ShellDataFolderTests.dmromfsWithTrailer(Self.image(mask("USen JPja CNzh\n")))
+        let customURL = dir.appendingPathComponent("星露谷物语.img")
+        try stardew.write(to: customURL)
+
+        #expect(RomfsLanguages.options(in: dir).map { $0[0] } == ["en-US", "ja", "zh-Hans"])
+        #expect(RomfsLanguages.options(in: customURL).map { $0[0] } == ["en-US", "ja", "zh-Hans"])
+    }
 }

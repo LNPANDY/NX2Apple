@@ -42,6 +42,9 @@ def stamp_key(root: str | Path) -> str:
     for name in _series(root):
         data = (root / 'patches' / name).read_bytes()
         h.update(b'patch ' + name.encode() + b'\n' + hashlib.sha256(data).hexdigest().encode() + b'\n')
+    sw = root / 'patches' / 'fork_env_switches.tsv'
+    if sw.is_file():
+        h.update(b'switches ' + hashlib.sha256(sw.read_bytes()).hexdigest().encode() + b'\n')
     return h.hexdigest()
 
 

@@ -37,13 +37,16 @@ def npdm(program_id: int) -> bytes:
     return bytes(d)
 
 
-def nup(packages: list[tuple[int, int, int]], size_delta: int = 0, magic: bytes = b'NUP\x01') -> bytes:
+def nup(packages: list[tuple[int, int, int]], size_delta: int = 0, magic: bytes = b'NUP\x01', toc_sha: bytes | None = None) -> bytes:
     """A NUP: header, then the table of contents at 0x80 with one 0x40 entry per (title ID, version, kind)."""
+    import hashlib
     toc = 0x80
-    total = toc + 0x30 + 0x40 * len(packages)
+    toc_size = 0x30 + 0x40 * len(packages)
+    total = toc + toc_size
     d = bytearray(total)
     d[:4] = magic
     struct.pack_into('<Q', d, 0x08, toc)
+    struct.pack_into('<Q', d, 0x10, toc_size)
     struct.pack_into('<Q', d, 0x40, total + size_delta)
     struct.pack_into('<I', d, 0x48, len(packages))
     d[toc:toc + 4] = b'TOC\x01'
@@ -52,6 +55,7 @@ def nup(packages: list[tuple[int, int, int]], size_delta: int = 0, magic: bytes 
         struct.pack_into('<Q', d, o, tid)
         struct.pack_into('<I', d, o + 20, version)
         d[o + 24] = kind
+    d[0x18:0x38] = toc_sha if toc_sha is not None else hashlib.sha256(d[toc:]).digest()
     return bytes(d)
 
 
@@ -168,7 +172,7 @@ class FolderTests(unittest.TestCase):
     def test_problem_keys_exist_in_the_shared_strings(self):
         from nspb_qt import l10n
         for kind in ('missing', 'noBaseFolder', 'unreadableNPDM', 'notBaseTitle', 'packageBeside', 'dlcName', 'notDLC',
-                     'dlcRomFS', 'notNUP', 'nupPartial', 'severalNUPs'):
+                     'dlcRomFS', 'notNUP', 'nupPartial', 'nupDamaged', 'severalNUPs'):
             self.assertIn(inputs.GameFolderProblem(kind).l10n_key, l10n.CATALOGS['en'])
 
     def test_program_id(self):
@@ -206,6 +210,8 @@ class FolderTests(unittest.TestCase):
         self.problem('notNUP', ('a.nup',))
         self.make('a.nup', nup([(TID, 0, 0)], size_delta=5))
         self.problem('nupPartial', ('a.nup',))
+        self.make('a.nup', nup([(TID, 0, 0)], toc_sha=b'\xaa' * 32))
+        self.problem('nupDamaged', ('a.nup',))
         self.make('a.nup', b'short')
         self.problem('notNUP', ('a.nup',))
         self.make('a.nup', nup([(TID, 0, 0)])[:-8])

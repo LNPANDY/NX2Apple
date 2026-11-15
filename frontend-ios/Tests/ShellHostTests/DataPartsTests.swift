@@ -37,6 +37,50 @@ import ShellUI
         #expect(DataParts.parse("romfs.img.nxpart.0009.0009") == nil)
         #expect(DataParts.parse("romfs.img.nxpart.x.0009") == nil)
         #expect(DataParts.parse(".nxpart.0000.0001") == nil)
+        #expect(DataParts.parse("..nxpart.0000.0001") == nil)
+        #expect(DataParts.parse("...nxpart.0000.0001") == nil)
+        #expect(DataParts.parse("romfs.img.nxpart.+0000.0002") == nil)
+        #expect(DataParts.parse("romfs.img.nxpart.999999999999") == nil)
+        #expect(DataParts.parse("romfs.img.nxpart.999999999998.999999999999") == nil)
+        #expect(DataParts.parse("romfs.img.nxpart.\(Int.max - 1).\(Int.max)") == nil)
+    }
+
+    @Test func oversizedIndicesZeroByteAndTruncatedPartsNeverOverflowOrJoin() throws {
+        let box = try Sandbox()
+        let dir = try folder(box)
+        let hugeSingle = dir.appendingPathComponent("romfs.img.nxpart.999999999999")
+        let hugeLast = dir.appendingPathComponent("romfs.img.nxpart.999999999998.999999999999")
+        let maxLast = dir.appendingPathComponent("romfs.img.nxpart.\(Int.max - 1).\(Int.max)")
+        for url in [hugeSingle, hugeLast, maxLast] {
+            try Data("x".utf8).write(to: url)
+        }
+        // Uses the production 512 MiB partSize where Int64(first) * partSize used to trap on signed overflow.
+        #expect(DataParts.joinAll(appDataRoot: box.appData).isEmpty)
+        #expect(!fm.fileExists(atPath: dir.appendingPathComponent("romfs.img").path))
+
+        let out = dir.appendingPathComponent("overflow.img")
+        let partA = dir.appendingPathComponent("partA.bin")
+        let partB = dir.appendingPathComponent("partB.bin")
+        try Data("abcd".utf8).write(to: partA)
+        try Data("ef".utf8).write(to: partB)
+
+        // Direct arithmetic boundary checks inside DataParts.join: huge index, huge partSize, prefix+tail overflow, non-positive partSize.
+        #expect(!DataParts.join(file: out, count: 999_999_999_999, parts: [999_999_999_998: partB], partSize: DataParts.partSize, fm: fm))
+        #expect(!DataParts.join(file: out, count: Int.max, parts: [Int.max - 1: partB], partSize: DataParts.partSize, fm: fm))
+        #expect(!DataParts.join(file: out, count: 3, parts: [2: partB], partSize: Int64.max, fm: fm))
+        #expect(!DataParts.join(file: out, count: 2, parts: [1: partA], partSize: Int64.max - 2, fm: fm))
+        #expect(!DataParts.join(file: out, count: 1, parts: [0: partB], partSize: 0, fm: fm))
+        #expect(!DataParts.join(file: out, count: 1, parts: [0: partB], partSize: -4, fm: fm))
+        #expect(DataParts.joinAll(appDataRoot: box.appData, partSize: 0).isEmpty)
+
+        // Zero-byte last part and truncated intermediate part are rejected safely.
+        let empty = dir.appendingPathComponent("empty.nxpart.0000.0001")
+        try Data().write(to: empty)
+        #expect(!DataParts.join(file: out, count: 1, parts: [0: empty], partSize: size, fm: fm))
+        let truncated = dir.appendingPathComponent("trunc.nxpart.0000.0002")
+        try Data("ab".utf8).write(to: truncated)
+        #expect(!DataParts.join(file: out, count: 2, parts: [0: truncated, 1: partB], partSize: size, fm: fm))
+        #expect(!fm.fileExists(atPath: out.path))
     }
 
     @Test func aCompleteSetBecomesTheFileAndTheOldFileIsReplaced() throws {

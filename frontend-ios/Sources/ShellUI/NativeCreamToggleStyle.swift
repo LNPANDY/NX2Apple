@@ -30,6 +30,9 @@ private struct NativeCreamSwitch: UIViewRepresentable {
     func makeUIView(context: Context) -> UISwitch {
         let control = UISwitch()
         control.onTintColor = UIColor(ShellPalette.cream)
+        control.isOn = isOn
+        control.thumbTintColor = isOn ? .black : nil
+        control.isEnabled = isEnabled
         control.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .valueChanged)
         return control
     }
@@ -37,9 +40,16 @@ private struct NativeCreamSwitch: UIViewRepresentable {
     func updateUIView(_ control: UISwitch, context: Context) {
         context.coordinator.isOn = $isOn
         context.coordinator.ignoresPress = ignoresPress
-        control.setOn(isOn, animated: false)
-        control.thumbTintColor = isOn ? .black : nil
-        control.isEnabled = isEnabled
+        if control.isOn != isOn {
+            control.setOn(isOn, animated: control.window != nil && !UIAccessibility.isReduceMotionEnabled)
+        }
+        let expectedThumb: UIColor? = isOn ? .black : nil
+        if control.thumbTintColor != expectedThumb {
+            control.thumbTintColor = expectedThumb
+        }
+        if control.isEnabled != isEnabled {
+            control.isEnabled = isEnabled
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(isOn: $isOn, ignoresPress: ignoresPress) }

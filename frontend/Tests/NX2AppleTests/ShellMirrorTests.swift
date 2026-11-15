@@ -58,4 +58,52 @@ final class ShellMirrorTests: IsolatedDefaultsTestCase {
         lib.dropMissing()
         XCTAssertEqual(lib.games.map(\.titleID), ["B"])
     }
+
+    func testMirrorOverwriteFailureRemovesPartialTargetAndRestoresBackup() throws {
+        let fm = FileManager.default
+        let fw = try makeFramework()
+        try "intact".write(toFile: fw + "/inside/keep", atomically: true, encoding: .utf8)
+        try ShellInstall.mirrorFramework(framework: fw, root: tmp)
+
+        let mirror = ShellInstall.mirroredFramework(root: tmp, titleID: id)
+        try "v2".write(toFile: fw + "/inside/f", atomically: true, encoding: .utf8)
+
+        var ops = ShellInstall.MirrorFileOps.live
+        ops.moveItem = { src, dst in
+            if dst == mirror, (src as NSString).lastPathComponent.hasPrefix(ShellInstall.discardPrefix) {
+                try fm.createDirectory(atPath: dst + "/partial", withIntermediateDirectories: true)
+                try "corrupt".write(toFile: dst + "/partial/broken", atomically: true, encoding: .utf8)
+                throw CocoaError(.fileWriteOutOfSpace)
+            }
+            try fm.moveItem(atPath: src, toPath: dst)
+        }
+
+        XCTAssertThrowsError(try ShellInstall.mirrorFramework(framework: fw, root: tmp, fileOps: ops))
+        XCTAssertFalse(fm.fileExists(atPath: mirror + "/partial"))
+        XCTAssertEqual(try String(contentsOfFile: mirror + "/inside/f", encoding: .utf8), "x")
+        XCTAssertEqual(try String(contentsOfFile: mirror + "/inside/keep", encoding: .utf8), "intact")
+        let remaining = try fm.contentsOfDirectory(atPath: ShellInstall.frameworksMirror(root: tmp))
+        XCTAssertEqual(remaining, ["DmGame\(id).framework"])
+    }
+
+    func testMirrorFirstInstallFailureRemovesPartialTargetAndLeavesNothing() throws {
+        let fm = FileManager.default
+        let fw = try makeFramework()
+        let mirror = ShellInstall.mirroredFramework(root: tmp, titleID: id)
+
+        var ops = ShellInstall.MirrorFileOps.live
+        ops.moveItem = { src, dst in
+            if dst == mirror {
+                try fm.createDirectory(atPath: dst + "/half", withIntermediateDirectories: true)
+                try "partial".write(toFile: dst + "/half/file", atomically: true, encoding: .utf8)
+                throw CocoaError(.fileWriteOutOfSpace)
+            }
+            try fm.moveItem(atPath: src, toPath: dst)
+        }
+
+        XCTAssertThrowsError(try ShellInstall.mirrorFramework(framework: fw, root: tmp, fileOps: ops))
+        XCTAssertFalse(fm.fileExists(atPath: mirror))
+        let remaining = try fm.contentsOfDirectory(atPath: ShellInstall.frameworksMirror(root: tmp))
+        XCTAssertEqual(remaining, [])
+    }
 }

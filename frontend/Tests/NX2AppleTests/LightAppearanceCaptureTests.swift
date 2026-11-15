@@ -88,7 +88,7 @@ import NXModel
             try shot("builds-ios", LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false), light: light)
             try shot("settings-general", LauncherView(stores: stores, library: library, initialPage: .settings, settingsCategory: .general, performStartupChecks: false), light: light)
             try shot("game-options", LaunchOptionsView(m: stores.build, library: library, gameID: hades), light: light, size: NSSize(width: 680, height: 720))
-            try shot("supported-games", SupportedGamesSheet(games: supported, owned: { id in library.games.first { $0.titleID == id } }, cover: { _ in nil }, showInLibrary: { _ in }),
+            try shot("supported-games", SupportedGamesSheet(games: supported, owned: { id in library.games.first { $0.titleID == id } }, covers: .saved(in: URL(fileURLWithPath: "/nonexistent"), maxPixel: SupportedGamesSheet.coverPixels), showInLibrary: { _ in }),
                      light: light, size: NSSize(width: 680, height: 720))
             try shot("console", ConsoleView(driver: MockConsoleDriver(scenario: .full), lang: Lang("de")), light: light)
         }

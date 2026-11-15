@@ -37,13 +37,19 @@ extension LauncherView {
         }
     }
 
-    /// The eShop key art of the games that have none yet, in the launcher's language; the cards and the hero redraw as it arrives.
+    /// The eShop key art of the games that have none yet, in the launcher's language: the cards and the hero redraw as it arrives.
     /// A change of language picks every banner again (ArtworkStore.fetchMissing).
     func fetchArtwork() {
-        let ids = library.games.map(\.titleID), language = loc.lang.code
+        let ids = library.games.map(\.titleID), language = loc.lang.code, store = artworkStore
+        artworkFetchGeneration &+= 1
+        let generation = artworkFetchGeneration
         Task {
-            let added = await ArtworkStore.shared.fetchMissing(ids, language: language)
-            if !added.isEmpty { await MainActor.run { refreshArtwork() } }
+            let added = await store.fetchMissing(ids, language: language)
+            guard !added.isEmpty else { return }
+            await MainActor.run {
+                guard artworkFetchGeneration == generation, loc.lang.code == language else { return }
+                refreshArtwork()
+            }
         }
     }
 

@@ -119,7 +119,31 @@ import NXModel
                 s.build.slots[0].paths = [directory.appendingPathComponent("Hades [0100535012974000].nsp").path]
                 s.build.slots[1].paths = [directory.appendingPathComponent("Hades update [0100535012974800].nsp").path]
             },
-            Scenario(name: "builds for an iPhone with a device and a team", page: .builds, atLeast: 6) { s, _, directory in
+            Scenario(name: "builds for an iPhone with a device, a team and built games", page: .builds, atLeast: 8) { s, library, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                let shellRoot = directory.appendingPathComponent("shell-root").path
+                let fw = directory.appendingPathComponent("DmGame0100535012974000.framework")
+                try FileManager.default.createDirectory(at: fw, withIntermediateDirectories: true)
+                var shell = ShellLibrary()
+                shell.add(.init(titleID: "0100535012974000", name: "Hades", framework: fw.path))
+                try shell.save(root: shellRoot)
+                self.testDefaults.set(shellRoot, forKey: "shellRoot")
+                let archive = directory.appendingPathComponent("archive-0100535012974000")
+                try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
+                try Data("romfs".utf8).write(to: archive.appendingPathComponent("romfs.img"))
+                var game = LibraryGame(titleID: "0100535012974000", name: "Hades")
+                game.archivePath = archive.path
+                library.upsert(game)
+                s.build.sharedAppDataSources = { [TransferSource(titleID: "0100535012974000", name: "Hades", archive: archive.path)] }
+                s.build.target = "ios"
+                MainActor.assumeIsolated { s.deviceStore.checked = true }
+                MainActor.assumeIsolated { s.deviceStore.devices = [device] }
+                MainActor.assumeIsolated { s.deviceStore.teams = [team] }
+                s.deviceStore.installDevice = device.id
+                s.deviceStore.signingTeam = team.id
+            },
+            // The single-game FilesCard is hidden while a queue is staged, leaving the InstallCard row controls.
+            Scenario(name: "builds with a waiting queue for an iPhone", page: .builds, atLeast: 3) { s, _, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "ios"
                 MainActor.assumeIsolated { s.deviceStore.checked = true }
@@ -127,6 +151,11 @@ import NXModel
                 MainActor.assumeIsolated { s.deviceStore.teams = [team] }
                 s.deviceStore.installDevice = device.id
                 s.deviceStore.signingTeam = team.id
+                s.queue.enqueue([
+                    QueueEntry(titleID: "0100535012974000", name: "Hades", target: BuildTarget.mac,
+                               inputs: ["base": ["/g/hades.nsp"]], outputDirectory: directory.path,
+                               engineID: s.engineSync.selection.engineID)
+                ])
             },
             Scenario(name: "builds exporting an IPA, sent to a device", page: .builds, atLeast: 6) { s, _, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)

@@ -29,16 +29,55 @@ public struct GameManifest: Decodable, Equatable, Sendable {
     /// "switch2" or "switch1" as the engine's gen_manifest.py writes it from the game's profile, nil in a manifest made before it did.
     public var console: String?
     public var builtAt: String?
+    public var gfxAPI: String?
     public var bytes: Int?
 
     public static let supportedSchema = 1
+    public static let supportedGfxAPIs: Set<String> = ["nvn", "vulkan", "gl"]
 
     enum CodingKeys: String, CodingKey {
         case schema, name, modules, chain, loader, framework, profile, launcher, icon, bytes
         case titleID = "title_id", displayVersion = "display_version", packageVersion = "package_version"
         case nroCount = "nro_count", frameworkExecutable = "framework_executable", imageMarker = "image_marker"
         case shaderMap = "shader_map", romfsMarker = "romfs_marker", romfsIdentity = "romfs_identity", minOS = "min_os"
-        case builtBy = "built_by", builtAt = "built_at", console
+        case builtBy = "built_by", builtAt = "built_at", gfxAPI = "gfx_api", console
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schema = try c.decode(Int.self, forKey: .schema)
+        titleID = try c.decode(String.self, forKey: .titleID)
+        name = try c.decode(String.self, forKey: .name)
+        displayVersion = try c.decode(String.self, forKey: .displayVersion)
+        packageVersion = try c.decode(String.self, forKey: .packageVersion)
+        modules = try c.decode([String].self, forKey: .modules)
+        nroCount = try c.decode(Int.self, forKey: .nroCount)
+        chain = try c.decode(String.self, forKey: .chain)
+        loader = try c.decode(String.self, forKey: .loader)
+        framework = try c.decode(String.self, forKey: .framework)
+        frameworkExecutable = try c.decode(String.self, forKey: .frameworkExecutable)
+        imageMarker = try c.decode(String.self, forKey: .imageMarker)
+        profile = try c.decode(String.self, forKey: .profile)
+        shaderMap = try c.decode(String.self, forKey: .shaderMap)
+        launcher = try c.decode(String.self, forKey: .launcher)
+        romfsMarker = try c.decode(String.self, forKey: .romfsMarker)
+        romfsIdentity = try c.decode(String.self, forKey: .romfsIdentity)
+        minOS = try c.decode(String.self, forKey: .minOS)
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        builtBy = try c.decodeIfPresent(String.self, forKey: .builtBy)
+        console = try c.decodeIfPresent(String.self, forKey: .console)
+        builtAt = try c.decodeIfPresent(String.self, forKey: .builtAt)
+        gfxAPI = try c.decodeIfPresent(String.self, forKey: .gfxAPI)
+        bytes = try c.decodeIfPresent(Int.self, forKey: .bytes)
+        if let gfxAPI, !Self.supportedGfxAPIs.contains(gfxAPI) {
+            throw DecodingError.typeMismatch(
+                String.self,
+                DecodingError.Context(
+                    codingPath: c.codingPath + [CodingKeys.gfxAPI],
+                    debugDescription: "gfx_api \"\(gfxAPI)\" is not one of nvn, vulkan, gl"
+                )
+            )
+        }
     }
 
     /// Decodes and validates. A problem carries a readable reason for the broken state.

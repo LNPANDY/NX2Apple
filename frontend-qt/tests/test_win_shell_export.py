@@ -92,9 +92,8 @@ class RequiredDylibSymbolsTest(unittest.TestCase):
         self.assertIn('_dmgame_image_marker', build_app.REQUIRED_DYLIB_SYMBOLS)
 
     def test_the_glue_symbols_the_shell_dlsyms_are_all_required(self) -> None:
-        shell_main = _engine_ios_dir() / 'Shell' / 'ShellMain.m'
-        if not shell_main.is_file():
-            self.skipTest('engine/ is missing: run python3 tools/engine.py sync')
+        shell_main = ROOT / 'frontend-ios' / 'Shell' / 'App' / 'ShellMain.m'
+        self.assertTrue(shell_main.is_file(), f'missing shell source: {shell_main}')
         text = shell_main.read_text(encoding='utf-8', errors='replace')
         for name in ('dm_glue_version', 'dm_glue_start_game', 'dm_glue_present_game',
                      'dm_glue_focus_event'):
@@ -256,6 +255,280 @@ class RevealIpaPathTest(unittest.TestCase):
                          os.path.normcase(str(se.ipa_path(self.shell))))
         self.assertEqual(os.path.normcase(lib.one_game_ipa_path(self.out, self.tid)),
                          os.path.normcase(str(self.one)))
+
+
+class ExternalMslAndBatchDriveCopyTest(unittest.TestCase):
+    """Stripped framework packing without `external-msl.json`, named DriveCopy without `msl/` merge, stale detection, and batch preflight."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def test_stripped_framework_and_named_drive_copy_skip_external_msl_merge(self) -> None:
+        import json
+        from nspb_qt import post_build_cleanup as pbc
+        from nspb_qt.win import shell_export as se
+
+        tid = '010063301BD50000'
+        shell_root = self.root / 'shell'
+        mirror_fw = se.mirrored_framework(shell_root, tid)
+        (mirror_fw / 'msl' / 'b-chain').mkdir(parents=True)
+        (mirror_fw / f'DmGame{tid}').write_bytes(b'macho')
+        (mirror_fw / 'game.manifest.json').write_text(
+            json.dumps({'loader': 'FH', 'name': 'Test Title', 'chain': 'b-1111'}), encoding='utf-8'
+        )
+        shader_blob = b'S' * 128
+        (mirror_fw / 'msl' / 'b-chain' / 'shaders.img').write_bytes(shader_blob)
+
+        archive_dir = self.root / 'games' / 'Test Title'
+        archive_dir.mkdir(parents=True)
+        (archive_dir / 'Test Title.img').write_bytes(b'ROMFS')
+        pbc.write_title_id_marker(archive_dir, tid)
+
+        sizes, origins = lib.DriveCopy.collect_transfer_files(
+            str(archive_dir), shell_root=str(shell_root), title_id=tid, dest_folder_name='Test Title'
+        )
+        self.assertIn('Test Title.img', sizes)
+        self.assertEqual(origins.get('Test Title.img'), str(archive_dir / 'Test Title.img'))
+        self.assertFalse(any(k.startswith('msl/') for k in sizes))
+
+        drive_dest = self.root / 'usb'
+        ok, out_dir = lib.DriveCopy.copy_to_folder(
+            str(archive_dir), str(drive_dest), tid, game_name='Test Title', shell_root=str(shell_root)
+        )
+        self.assertTrue(ok, out_dir)
+        self.assertEqual(Path(out_dir), drive_dest / 'Test Title')
+        self.assertEqual((Path(out_dir) / 'Test Title.img').read_bytes(), b'ROMFS')
+        self.assertEqual(pbc.read_title_id_marker(out_dir), tid)
+        self.assertFalse((Path(out_dir) / 'msl').exists())
+
+    def test_find_stale_frameworks_and_batch_preflight(self) -> None:
+        import json
+        from unittest import mock
+        from nspb_qt.win import shell_export as se
+
+        repo = self.root / 'repo'
+        hdr = repo / 'dm' / 'gfx' / 'nvn' / 'dmsh_chain.h'
+        hdr.parent.mkdir(parents=True)
+        hdr.write_text('#define DMSH_CHAIN "b-newchain"\n', encoding='utf-8')
+
+        shell_root = self.root / 'shell'
+        tid_old = '0100000000000001'
+        tid_cur = '0100000000000002'
+        for tid, ch in ((tid_old, 'b-oldchain'), (tid_cur, 'b-newchain')):
+            fw = se.mirrored_framework(shell_root, tid)
+            fw.mkdir(parents=True)
+            (fw / 'game.manifest.json').write_text(json.dumps({'chain': ch}), encoding='utf-8')
+        slib = se.ShellLibrary(
+            games=[
+                se.ShellGame(title_id=tid_old, name='Old Game', framework=str(se.mirrored_framework(shell_root, tid_old))),
+                se.ShellGame(title_id=tid_cur, name='Current Game', framework=str(se.mirrored_framework(shell_root, tid_cur))),
+            ]
+        )
+        slib.save(shell_root)
+
+        stale = se.find_stale_frameworks(shell_root, repo)
+        self.assertEqual([g.title_id for g in stale], [tid_old])
+
+        arch1 = self.root / 'arch1'
+        arch2 = self.root / 'arch2'
+        arch1.mkdir()
+        arch2.mkdir()
+        (arch1 / 'romfs.img').write_bytes(b'A' * 100)
+        (arch2 / 'romfs.img').write_bytes(b'B' * 150)
+        dest = self.root / 'drive'
+        dest.mkdir()
+
+        needed, err = lib.DriveCopy.preflight_batch_copy(
+            [(tid_old, str(arch1)), (tid_cur, str(arch2))], str(dest)
+        )
+        self.assertEqual(needed, 250)
+        self.assertIsNone(err)
+
+        with mock.patch.object(lib.DriveCopy, 'free_space', return_value=200):
+            _needed, space_err = lib.DriveCopy.preflight_batch_copy(
+                [(tid_old, str(arch1)), (tid_cur, str(arch2))], str(dest)
+            )
+            self.assertIsNotNone(space_err)
+
+    def test_export_and_install_built_counts_format_across_languages(self) -> None:
+        from nspb_qt import l10n
+        from nspb_qt.i18n import Lang
+
+        for language in l10n.LANGUAGES:
+            lang = Lang(language.code)
+            for key in ('shell.exportBuilt', 'shell.installBuilt'):
+                label = l10n.t(key, lang, 3)
+                self.assertIn('3', label, f'{language.code} {key}: {label!r}')
+                self.assertNotIn('%d', label, f'{language.code} {key}: {label!r}')
+                self.assertNotIn(';', label, f'{language.code} {key}: {label!r}')
+
+        self.assertEqual(l10n.t('shell.exportBuilt', Lang('en'), 2), 'Export IPA (2)')
+        self.assertEqual(l10n.t('shell.exportBuilt', Lang('zh'), 2), '导出 IPA (2)')
+        self.assertEqual(l10n.t('shell.exportBuilt', Lang('ja'), 2), 'IPA を書き出し (2)')
+
+        try:
+            import os
+            from unittest import mock
+            os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+            from PySide6.QtCore import QEvent, QSettings
+            from PySide6.QtWidgets import QApplication
+            from nspb_qt import model as model_mod, ui as ui_mod
+        except ImportError:
+            from test_post_build_cleanup import _load_model_with_qt_fallback
+
+            model_mod, cleanup = _load_model_with_qt_fallback()
+            try:
+                for code, expected2, expected5 in (
+                    ('en', 'Export IPA (2)', 'Export IPA (5)'),
+                    ('zh', '导出 IPA (2)', '导出 IPA (5)'),
+                    ('ja', 'IPA を書き出し (2)', 'IPA を書き出し (5)'),
+                ):
+                    fake = type('Stub', (), {
+                        't': lambda _s, k, *a, _c=code: l10n.t(k, Lang(_c), *a),
+                        'built_shell_games': lambda _s: ['a', 'b'],
+                    })()
+                    self.assertEqual(model_mod.Model.export_built_label(fake), expected2)
+                    self.assertEqual(model_mod.Model.export_built_label(fake, 5), expected5)
+            finally:
+                cleanup()
+            return
+
+        app = QApplication.instance() or QApplication([])
+        with mock.patch.object(lib, 'default_state_dir', return_value=self.root / 'state'), \
+             mock.patch.object(
+                 model_mod,
+                 'QSettings',
+                 side_effect=lambda *a, **kw: QSettings(str(self.root / 'settings.ini'), QSettings.IniFormat),
+             ), \
+             mock.patch.object(model_mod.Model, 'check_deps', lambda _self: None):
+            m = model_mod.Model()
+            m.ipa_kind = 'shared'
+            m.target = 'ios'
+            m.built_shell_games = lambda: [
+                {'title_id': '0100000000000001', 'name': 'One', 'framework': str(self.root / 'a.framework')},
+                {'title_id': '0100000000000002', 'name': 'Two', 'framework': str(self.root / 'b.framework')},
+            ]
+            m.can_export_built_games = lambda: True
+            win = ui_mod.MainWindow(m)
+            win._init_timer.stop()
+            try:
+                for code, expected in (('en', 'Export IPA (2)'), ('zh', '导出 IPA (2)'), ('ja', 'IPA を書き出し (2)')):
+                    m.set_lang(Lang(code))
+                    win._refresh_install_card()
+                    app.processEvents()
+                    self.assertEqual(win.step1_repack_btn.text(), expected)
+            finally:
+                win.close()
+                win.deleteLater()
+                m.deleteLater()
+                app.sendPostedEvents(None, QEvent.DeferredDelete)
+                app.processEvents()
+    def test_partial_overwrite_trailer_interrupt_truncates_to_base_size(self) -> None:
+        import struct
+        import threading
+
+        def _make_base(size: int = 64) -> bytes:
+            ioff = 48
+            isz = max(16, size - ioff)
+            return b'DMROMFS1' + struct.pack('<QQQ', ioff, isz, 0) + (b'\x11' * 16) + (b'\x33' * isz)
+
+        def _with_trailer(base: bytes, payload: bytes, chain: str) -> bytes:
+            base_sz = len(base)
+            msl_off = (base_sz + 16383) & ~16383
+            out = bytearray(base) + bytearray(msl_off - base_sz) + bytearray(payload)
+            aligned_end = (len(out) + 7) & ~7
+            out.extend(bytearray(aligned_end - len(out)))
+            ch_b = chain.encode('utf-8')[:24]
+            footer = bytearray(64)
+            footer[0:8] = b'DMMSLTR1'
+            struct.pack_into('<IBBHQQQ', footer, 8, 1, 1, 0, len(ch_b), base_sz, msl_off, len(payload))
+            footer[40:40 + len(ch_b)] = ch_b
+            return bytes(out + footer)
+
+        base = _make_base()
+        src_bytes = _with_trailer(base, b'\x55' * 8192, 'b-cur999')
+        old_bytes = _with_trailer(base, b'\x22' * 128, 'b-old999')
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / 'src.img'
+            dst = root / 'dst.img'
+            peer = root / 'peer.img'
+            src.write_bytes(src_bytes)
+            dst.write_bytes(old_bytes)
+            os.link(dst, peer)
+            self.assertGreater(os.stat(dst).st_nlink, 1)
+
+            cancel = threading.Event()
+            done, aborted = lib.DriveCopy.partial_overwrite_trailer(
+                str(src), str(dst), len(base), chunk_size=4096, cancel_event=cancel,
+                on_chunk=lambda _written: cancel.set(),
+            )
+            self.assertFalse(done)
+            self.assertTrue(aborted)
+            self.assertEqual(os.stat(dst).st_nlink, 1)
+            self.assertEqual(peer.read_bytes(), old_bytes)
+            self.assertEqual(dst.read_bytes(), base)
+
+            ok, aborted2 = lib.DriveCopy.partial_overwrite_trailer(
+                str(src), str(dst), len(base), chunk_size=4096,
+            )
+            self.assertTrue(ok)
+            self.assertFalse(aborted2)
+            self.assertEqual(dst.read_bytes(), src_bytes)
+
+    def test_locate_ios_msl_source_reads_cache_chain_and_fallbacks(self) -> None:
+        cleanup = None
+        try:
+            from nspb_qt.model import Model
+        except ImportError:
+            if str(HERE) not in sys.path:
+                sys.path.insert(0, str(HERE))
+            from test_post_build_cleanup import _load_model_with_qt_fallback
+            model_mod, cleanup = _load_model_with_qt_fallback()
+            Model = model_mod.Model
+
+        try:
+            tid = '010015100B514000'
+            with tempfile.TemporaryDirectory() as tmp:
+                work = Path(tmp) / 'work'
+                cache_dir = work / 'shell-framework' / '.msl-cache'
+                cache_dir.mkdir(parents=True)
+                shader_src = work / 'shader' / 'ios' / 'b-abc123'
+                shader_src.mkdir(parents=True)
+                (cache_dir / f'{tid}.json').write_text(
+                    f'{{"schema": 1, "title_id": "{tid}", "gfx_api": "nvn", "chain": "b-abc123", '
+                    f'"lib_path": "{shader_src}", "msl_root": "{shader_src.parent}", "multi_program": false}}',
+                    encoding='utf-8',
+                )
+                found = Model._locate_ios_msl_source(str(work), tid)
+                self.assertEqual(found, (str(shader_src), 'nvn', 'b-abc123', False))
+
+                # Fallback without .msl-cache: vk / gl / b-* under shader/ios, then build/ios/dmsh_b
+                (cache_dir / f'{tid}.json').unlink()
+                self.assertEqual(Model._locate_ios_msl_source(str(work), tid), (str(shader_src), 'nvn', 'b-abc123', False))
+
+                vk_dir = work / 'shader' / 'ios' / 'vk'
+                vk_dir.mkdir()
+                (shader_src / 'dummy.metallib').write_text('x', encoding='utf-8')
+                self.assertEqual(Model._locate_ios_msl_source(str(work), tid), (str(shader_src), 'nvn', 'b-abc123', False))
+
+                # When only vk exists under shader/ios, returns vulkan fallback
+                for p in shader_src.iterdir():
+                    p.unlink()
+                shader_src.rmdir()
+                self.assertEqual(Model._locate_ios_msl_source(str(work), tid), (str(vk_dir), 'vulkan', None, False))
+
+                vk_dir.rmdir()
+                dmsh_b = work / 'build' / 'ios' / 'dmsh_b'
+                dmsh_b.mkdir(parents=True)
+                (dmsh_b / 'out.metallib').write_text('m', encoding='utf-8')
+                self.assertEqual(Model._locate_ios_msl_source(str(work), tid), (str(dmsh_b), 'nvn', None, False))
+        finally:
+            if cleanup is not None:
+                cleanup()
 
 
 if __name__ == '__main__':

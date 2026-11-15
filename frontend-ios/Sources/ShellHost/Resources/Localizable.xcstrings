@@ -961,6 +961,134 @@
         }
       }
     },
+    "A game is already running.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Spiel läuft bereits."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A game is already running."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya hay un juego en ejecución."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un jeu est déjà en cours d’exécution."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un gioco è già in esecuzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでにゲームが実行中です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미 실행 중인 게임이 있습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um jogo já está em execução."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ett spel körs redan."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有游戏正在运行。"
+          }
+        }
+      }
+    },
+    "Another device": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anderes Gerät"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another device"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro dispositivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un autre appareil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un altro dispositivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のデバイス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 기기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outro dispositivo"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En annan enhet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一台设备"
+          }
+        }
+      }
+    },
     "Can't read this game": {
       "localizations": {
         "de": {
@@ -1089,66 +1217,66 @@
         }
       }
     },
-    "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive.": {
+    "Choose the folder holding romfs.img (or the game's title ID folder) on this device, an external drive, or iCloud Drive.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wähle einen RomFS-Ordner oder eine romfs.img auf diesem Gerät, einem externen Laufwerk oder in iCloud Drive."
+            "value": "Wähle den Ordner mit romfs.img (oder den Title-ID-Ordner des Spiels) auf diesem Gerät, einem externen Laufwerk oder in iCloud Drive."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive."
+            "value": "Choose the folder holding romfs.img (or the game's title ID folder) on this device, an external drive, or iCloud Drive."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige una carpeta RomFS o romfs.img en este dispositivo, un disco externo o iCloud Drive."
+            "value": "Elige la carpeta que contiene romfs.img (o la carpeta del ID de título del juego) en este dispositivo, una unidad externa o iCloud Drive."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choisissez un dossier RomFS ou un fichier romfs.img sur cet appareil, un disque externe ou iCloud Drive."
+            "value": "Choisissez le dossier contenant romfs.img (ou le dossier d’identifiant du jeu) sur cet appareil, un disque externe ou iCloud Drive."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scegli una cartella RomFS o un file romfs.img su questo dispositivo, su un disco esterno o su iCloud Drive."
+            "value": "Scegli la cartella che contiene romfs.img (o la cartella con l’ID titolo del gioco) su questo dispositivo, un’unità esterna o iCloud Drive."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このデバイス、外付けドライブ、または iCloud Drive にある RomFS フォルダか romfs.img を選んでください。"
+            "value": "このデバイス、外部ドライブ、または iCloud Drive 上で romfs.img が入ったフォルダ（またはゲームのタイトル ID フォルダ）を選択してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 기기, 외장 드라이브 또는 iCloud Drive에서 RomFS 폴더나 romfs.img를 선택하세요."
+            "value": "이 기기, 외장 드라이브 또는 iCloud Drive에서 romfs.img가 들어 있는 폴더(또는 게임의 타이틀 ID 폴더)를 선택하세요."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escolha uma pasta RomFS ou romfs.img neste dispositivo, em um disco externo ou no iCloud Drive."
+            "value": "Escolha a pasta que contém romfs.img (ou a pasta do ID do título do jogo) neste dispositivo, em uma unidade externa ou no iCloud Drive."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Välj en RomFS-mapp eller en romfs.img på den här enheten, en extern enhet eller iCloud Drive."
+            "value": "Välj mappen som innehåller romfs.img (eller spelets titel-ID-mapp) på den här enheten, en extern enhet eller iCloud Drive."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在此设备、外置硬盘或 Mac 上选择 RomFS 文件夹或 romfs.img。iOS 启动器会记住该位置。"
+            "value": "在此设备、外置硬盘或 iCloud Drive 上选择包含 romfs.img 的文件夹（或游戏的 Title ID 文件夹）。"
           }
         }
       }
@@ -1473,6 +1601,134 @@
         }
       }
     },
+    "Game data for %@ in “%@” has not been downloaded from iCloud Drive yet. Download it in Files first, then try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Spieldaten für %@ in „%@“ wurden noch nicht aus iCloud Drive geladen. Lade sie zuerst in „Dateien“ herunter und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Game data for %@ in “%@” has not been downloaded from iCloud Drive yet. Download it in Files first, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los datos del juego de %@ en «%@» aún no se han descargado de iCloud Drive. Descárgalos primero en Archivos y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les données de jeu de %@ dans « %@ » n’ont pas encore été téléchargées depuis iCloud Drive. Téléchargez-les d’abord dans Fichiers, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I dati di gioco di %@ in «%@» non sono ancora stati scaricati da iCloud Drive. Scaricali prima nell’app File, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のゲームデータ（「%@」内）はまだ iCloud Drive からダウンロードされていません。先に「ファイル」でダウンロードしてからやり直してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 게임 데이터(‘%@’ 폴더)가 아직 iCloud Drive에서 다운로드되지 않았습니다. 먼저 ‘파일’ 앱에서 다운로드한 뒤 다시 시도하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os dados do jogo de %@ em “%@” ainda não foram baixados do iCloud Drive. Baixe-os primeiro no app Arquivos e tente novamente."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speldata för %@ i ”%@” har inte hämtats från iCloud Drive än. Hämta dem först i Filer och försök igen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 在“%@”中的游戏数据尚未从 iCloud Drive 下载。请先在“文件”中下载后再试。"
+          }
+        }
+      }
+    },
+    "Game data for %@ is inside the subfolder “%@”. Choose that inner folder directly so the game can read its files.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Spieldaten für %@ liegen im Unterordner „%@“. Wähle diesen inneren Ordner direkt aus, damit das Spiel seine Dateien lesen kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Game data for %@ is inside the subfolder “%@”. Choose that inner folder directly so the game can read its files."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los datos de juego de %@ están dentro de la subcarpeta «%@». Elige directamente esa carpeta interna para que el juego pueda leer sus archivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les données de jeu de %@ se trouvent dans le sous-dossier « %@ ». Choisissez directement ce dossier interne pour que le jeu puisse lire ses fichiers."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I dati di gioco di %@ si trovano nella sottocartella «%@». Scegli direttamente quella cartella interna così il gioco potrà leggere i suoi file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のゲームデータはサブフォルダ「%@」の中にあります。ゲームがファイルを読み取れるよう、その内側のフォルダを直接選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 게임 데이터가 하위 폴더 ‘%@’ 안에 있습니다. 게임이 파일을 읽을 수 있도록 해당 안쪽 폴더를 직접 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os dados de jogo de %@ estão dentro da subpasta “%@”. Escolha essa pasta interna diretamente para que o jogo possa ler os arquivos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speldata för %@ ligger i undermappen ”%@”. Välj den inre mappen direkt så att spelet kan läsa sina filer."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的游戏数据位于子文件夹“%@”内。请直接选择该内层文件夹，以便游戏读取文件。"
+          }
+        }
+      }
+    },
     "Game files damaged": {
       "localizations": {
         "de": {
@@ -1601,6 +1857,134 @@
         }
       }
     },
+    "Hold {-} and {+} to quit": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{-} und {+} gedrückt halten zum Beenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold {-} and {+} to quit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén {-} y {+} para salir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintenez {-} et {+} pour quitter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuti {-} e {+} per uscire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{-} と {+} の長押しで終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료하려면 {-}와 {+} 길게 누르기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segure {-} e {+} para sair"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håll in {-} och {+} för att avsluta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长按 {-} 和 {+} 退出游戏"
+          }
+        }
+      }
+    },
+    "Joining .nxpart split files in this app's folder (%@ of %@).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenfügen von .nxpart-Teildateien im Ordner dieser App (%@ von %@)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joining .nxpart split files in this app's folder (%@ of %@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uniendo archivos divididos .nxpart en la carpeta de esta app (%@ de %@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assemblage des fichiers .nxpart dans le dossier de cette app (%@ sur %@)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unione dei file divisi .nxpart nella cartella di questa app (%@ di %@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリのフォルダ内で .nxpart 分割ファイルを結合しています（%@ / %@）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱의 폴더에서 .nxpart 분할 파일을 병합 중입니다(%@ / %@)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unindo arquivos divididos .nxpart na pasta deste app (%@ de %@)."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slår ihop .nxpart-delfiler i den här appens mapp (%@ av %@)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在本应用的文件夹中合并 .nxpart 分片文件（%@ / %@）。"
+          }
+        }
+      }
+    },
     "Keep holding to quit": {
       "localizations": {
         "de": {
@@ -1665,66 +2049,66 @@
         }
       }
     },
-    "Keys that toggle": {
+    "Latest local backup: %@": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasten zum Umschalten"
+            "value": "Letztes lokales Backup: %@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keys that toggle"
+            "value": "Latest local backup: %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Botones que alternan"
+            "value": "Última copia de seguridad local: %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Touches qui basculent"
+            "value": "Dernière sauvegarde de secours locale : %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasti che alternano"
+            "value": "Ultimo backup locale: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "切り替えるキー"
+            "value": "最新のローカルバックアップ: %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전환하는 키"
+            "value": "최근 로컬 백업: %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Botões que alternam"
+            "value": "Backup local mais recente: %@"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Knappar som växlar"
+            "value": "Senaste lokala säkerhetskopia: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换式按键"
+            "value": "最近本地备份：%@"
           }
         }
       }
@@ -1921,6 +2305,70 @@
         }
       }
     },
+    "NX2Apple": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple"
+          }
+        }
+      }
+    },
     "No additional content": {
       "localizations": {
         "de": {
@@ -2109,70 +2557,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "此 App 未设置更新地址。"
-          }
-        }
-      }
-    },
-    "None": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keine"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "None"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ninguno"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucune"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nessuno"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "なし"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "없음"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nenhum"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ingen"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无"
           }
         }
       }
@@ -2689,6 +3073,70 @@
         }
       }
     },
+    "Restored the save backup from %@. Your previous save was backed up first.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Speicherdaten-Backup vom %@ wurde wiederhergestellt. Dein vorheriger Spielstand wurde zuvor gesichert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored the save backup from %@. Your previous save was backed up first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se restauró la copia de seguridad de guardado de %@. Tu partida anterior se respaldó primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sauvegarde de secours du %@ a été restaurée. Votre sauvegarde précédente a d’abord été mise de côté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup dei dati di salvataggio del %@ ripristinato. Il salvataggio precedente è stato prima copiato nei backup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のセーブバックアップを復元しました。直前のセーブデータも先にバックアップされました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 세이브 백업을 복원했습니다. 이전 세이브 데이터도 먼저 백업되었습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O backup de salvamento de %@ foi restaurado. Seu salvamento anterior foi copiado antes."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Återställde säkerhetskopian från %@. Din tidigare sparfil säkerhetskopierades först."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已恢复 %@ 的存档备份，恢复前的存档也已先行备份。"
+          }
+        }
+      }
+    },
     "Right stick: drag here": {
       "localizations": {
         "de": {
@@ -2945,66 +3393,258 @@
         }
       }
     },
-    "Shell": {
+    "Shader files (msl) for this game are incomplete or still transferring. Wait for transfer to complete or send the game data again from NX2Apple.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hinweis"
+            "value": "Die Shader-Dateien (msl) für dieses Spiel sind unvollständig oder werden noch übertragen. Warte, bis die Übertragung abgeschlossen ist, oder sende die Spieldaten erneut aus NX2Apple."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell"
+            "value": "Shader files (msl) for this game are incomplete or still transferring. Wait for transfer to complete or send the game data again from NX2Apple."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell"
+            "value": "Los archivos de shaders (msl) de este juego están incompletos o aún se están transfiriendo. Espera a que termine la transferencia o vuelve a enviar los datos del juego desde NX2Apple."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Information"
+            "value": "Les fichiers de shaders (msl) de ce jeu sont incomplets ou en cours de transfert. Attendez la fin du transfert ou renvoyez les données du jeu depuis NX2Apple."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Avviso"
+            "value": "I file shader (msl) per questo gioco sono incompleti o ancora in fase di trasferimento. Attendi il completamento del trasferimento o invia di nuovo i dati di gioco da NX2Apple."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "シェル"
+            "value": "このゲームのシェーダーファイル（msl）が不完全であるか、転送中です。転送が完了するのを待つか、NX2Apple からゲームデータをもう一度送信してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "셸"
+            "value": "이 게임의 셰이더 파일(msl)이 불완전하거나 아직 전송 중입니다. 전송이 완료될 때까지 기다리거나 NX2Apple에서 게임 데이터를 다시 보내세요."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell"
+            "value": "Os arquivos de shaders (msl) deste jogo estão incompletos ou ainda estão sendo transferidos. Aguarde a transferência terminar ou envie os dados do jogo novamente pelo NX2Apple."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Meddelande"
+            "value": "Shaderfilerna (msl) för det här spelet är ofullständiga eller överförs fortfarande. Vänta tills överföringen är klar eller skicka speldatan igen från NX2Apple."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "壳"
+            "value": "该游戏的着色器文件（msl）不完整或仍在传输。请等待传输完成，或从 NX2Apple 重新发送游戏数据。"
+          }
+        }
+      }
+    },
+    "Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Datenordner dieses Spiels fehlen die Shader-Dateien (msl). Sende oder kopiere die Spieldaten erneut aus NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faltan los archivos de shaders (msl) de este juego en su carpeta de datos. Vuelve a enviar o copiar los datos del juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers de shaders (msl) de ce jeu sont absents de son dossier de données. Renvoyez ou recopiez les données du jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nella cartella dati di questo gioco mancano i file shader (msl). Invia o copia di nuovo i dati di gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのデータフォルダにシェーダーファイル（msl）がありません。NX2Apple からゲームデータをもう一度送信またはコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임의 데이터 폴더에 셰이더 파일(msl)이 없습니다. NX2Apple에서 게임 데이터를 다시 보내거나 복사하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os arquivos de shaders (msl) deste jogo estão faltando na pasta de dados. Envie ou copie os dados do jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaderfilerna (msl) för det här spelet saknas i dess datamapp. Skicka eller kopiera speldatan igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该游戏的数据文件夹中缺少着色器文件（msl）。请从 NX2Apple 重新发送或复制游戏数据。"
+          }
+        }
+      }
+    },
+    "Shader files in this game data (%@) do not match this app's version (%@). Send or copy updated game data from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Shader-Dateien in diesen Spieldaten (%@) passen nicht zur Version dieser App (%@). Sende oder kopiere aktualisierte Spieldaten aus NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader files in this game data (%@) do not match this app's version (%@). Send or copy updated game data from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los archivos de shaders de estos datos del juego (%@) no coinciden con la versión de esta app (%@). Envía o copia datos del juego actualizados desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers de shaders de ces données de jeu (%@) ne correspondent pas à la version de cette app (%@). Envoyez ou recopiez des données de jeu mises à jour depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I file shader in questi dati di gioco (%@) non corrispondono alla versione di questa app (%@). Invia o copia dati di gioco aggiornati da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームデータのシェーダーファイル（%@）は、このアプリのバージョン（%@）と一致しません。NX2Apple から更新されたゲームデータを送信またはコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임 데이터의 셰이더 파일(%@)이 이 앱 버전(%@)과 일치하지 않습니다. NX2Apple에서 업데이트된 게임 데이터를 보내거나 복사하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os arquivos de shaders nestes dados do jogo (%@) não correspondem à versão deste app (%@). Envie ou copie dados do jogo atualizados pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaderfilerna i den här speldatan (%@) matchar inte appens version (%@). Skicka eller kopiera uppdaterad speldata från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏数据中的着色器文件（%@）与本 App 的版本（%@）不匹配。请从 NX2Apple 发送或复制更新后的游戏数据。"
+          }
+        }
+      }
+    },
+    "Shader files in this game data do not match this app's version. Send or copy updated game data from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Shader-Dateien in diesen Spieldaten passen nicht zur Version dieser App. Sende oder kopiere aktualisierte Spieldaten aus NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader files in this game data do not match this app's version. Send or copy updated game data from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los archivos de shaders de estos datos del juego no coinciden con la versión de esta app. Envía o copia datos del juego actualizados desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers de shaders de ces données de jeu ne correspondent pas à la version de cette app. Envoyez ou recopiez des données de jeu mises à jour depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I file shader in questi dati di gioco non corrispondono alla versione di questa app. Invia o copia dati di gioco aggiornati da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームデータのシェーダーファイルは、このアプリのバージョンと一致しません。NX2Apple から更新されたゲームデータを送信またはコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임 데이터의 셰이더 파일이 이 앱 버전과 일치하지 않습니다. NX2Apple에서 업데이트된 게임 데이터를 보내거나 복사하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os arquivos de shaders nestes dados do jogo não correspondem à versão deste app. Envie ou copie dados do jogo atualizados pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaderfilerna i den här speldatan matchar inte appens version. Skicka eller kopiera uppdaterad speldata från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏数据中的着色器文件与本 App 的版本不匹配。请从 NX2Apple 发送或复制更新后的游戏数据。"
           }
         }
       }
@@ -3201,6 +3841,134 @@
         }
       }
     },
+    "That folder holds game data for %@, not %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner enthält Spieldaten für %@, nicht für %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That folder holds game data for %@, not %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa carpeta contiene datos de juego de %@, no de %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce dossier contient les données de jeu de %@, pas de %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella cartella contiene i dati di gioco di %@, non di %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのフォルダに入っているのは %@ のゲームデータであり、%@ のものではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 폴더에는 %@의 게임 데이터가 들어 있으며 %@의 데이터가 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa pasta contém dados de jogo de %@, e não de %@."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den mappen innehåller speldata för %@, inte %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该文件夹包含的是 %@ 的游戏数据，而不是 %@。"
+          }
+        }
+      }
+    },
+    "That folder holds game data for another game, not %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner enthält Spieldaten für ein anderes Spiel, nicht für %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That folder holds game data for another game, not %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa carpeta contiene datos de otro juego, no de %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce dossier contient les données d’un autre jeu, pas de %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella cartella contiene i dati di un altro gioco, non di %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのフォルダには別のゲームのゲームデータが入っており、%@ のものではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 폴더에는 다른 게임의 데이터가 들어 있으며 %@의 데이터가 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa pasta contém dados de outro jogo, e não de %@."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den mappen innehåller speldata för ett annat spel, inte %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该文件夹包含的是其他游戏的数据，而不是 %@。"
+          }
+        }
+      }
+    },
     "That location could not be remembered. Try a different one.": {
       "localizations": {
         "de": {
@@ -3261,6 +4029,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法记住该位置。请换一个试试。"
+          }
+        }
+      }
+    },
+    "The cloud saves folder could not be reached on this device.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ordner für Cloud-Speicherdaten konnte auf diesem Gerät nicht erreicht werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cloud saves folder could not be reached on this device."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo acceder a la carpeta de guardados en la nube en este dispositivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier des sauvegardes cloud est inaccessible sur cet appareil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile accedere alla cartella dei salvataggi cloud su questo dispositivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスでクラウドセーブ用フォルダにアクセスできませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기에서 클라우드 세이브 폴더에 접근할 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível acessar a pasta de salvamentos na nuvem neste dispositivo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappen för molnsparfiler kunde inte nås på den här enheten."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此设备上无法访问云存档文件夹。"
           }
         }
       }
@@ -3521,6 +4353,70 @@
         }
       }
     },
+    "The game's framework executable could not be read. Install the game again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausführbare Datei des Spiel-Frameworks konnte nicht gelesen werden. Installiere das Spiel erneut über NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game's framework executable could not be read. Install the game again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el ejecutable del framework del juego. Vuelve a instalar el juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'exécutable du framework du jeu n'a pas pu être lu. Réinstallez le jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile leggere l'eseguibile del framework del gioco. Installa di nuovo il gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームのフレームワーク実行ファイルを読み取れませんでした。NX2Apple からもう一度インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 프레임워크 실행 파일을 읽을 수 없습니다. NX2Apple에서 게임을 다시 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler o executável do framework do jogo. Instale o jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets ramverksfil kunde inte läsas. Installera spelet igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取此游戏的框架可执行文件。请在 NX2Apple 中重新安装该游戏。"
+          }
+        }
+      }
+    },
     "The game's manifest": {
       "localizations": {
         "de": {
@@ -3581,6 +4477,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "游戏清单"
+          }
+        }
+      }
+    },
+    "The game's start arguments are incomplete.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Startargumente des Spiels sind unvollständig."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game's start arguments are incomplete."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los argumentos de inicio del juego están incompletos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les arguments de lancement du jeu sont incomplets."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli argomenti di avvio del gioco sono incompleti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームの起動引数が不完全です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 시작 인수가 불완전합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os argumentos de inicialização do jogo estão incompletos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets startargument är ofullständiga."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏的启动参数不完整。"
           }
         }
       }
@@ -3709,6 +4669,198 @@
           "stringUnit": {
             "state": "translated",
             "value": "清单中未列出任何模块。"
+          }
+        }
+      }
+    },
+    "The save backup could not be restored.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Speicherdaten-Backup konnte nicht wiederhergestellt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The save backup could not be restored."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo restaurar la copia de seguridad de guardado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sauvegarde de secours n’a pas pu être restaurée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile ripristinare il backup dei dati di salvataggio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーブデータのバックアップを復元できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세이브 백업을 복원할 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível restaurar o backup dos dados salvos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Säkerhetskopian kunde inte återställas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法恢复该存档备份。"
+          }
+        }
+      }
+    },
+    "The save file in iCloud Drive belongs to another game.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Speicherdatei in iCloud Drive gehört zu einem anderen Spiel."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The save file in iCloud Drive belongs to another game."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo de guardado en iCloud Drive pertenece a otro juego."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de sauvegarde dans iCloud Drive appartient à un autre jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file di salvataggio su iCloud Drive appartiene a un altro gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive 内のセーブファイルは別のゲームのものです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive의 세이브 파일이 다른 게임의 파일입니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O arquivo de salvamento no iCloud Drive pertence a outro jogo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparfilen på iCloud Drive tillhör ett annat spel."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive 中的存档文件属于另一款游戏。"
+          }
+        }
+      }
+    },
+    "The save file in iCloud Drive is damaged or incomplete.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Speicherdatei in iCloud Drive ist beschädigt oder unvollständig."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The save file in iCloud Drive is damaged or incomplete."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo de guardado en iCloud Drive está dañado o incompleto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de sauvegarde dans iCloud Drive est endommagé ou incomplet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file di salvataggio su iCloud Drive è danneggiato o incompleto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive 内のセーブファイルが破損しているか不完全です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive의 세이브 파일이 손상되었거나 불완전합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O arquivo de salvamento no iCloud Drive está danificado ou incompleto."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparfilen på iCloud Drive är skadad eller ofullständig."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive 中的存档文件已损坏或不完整。"
           }
         }
       }
@@ -4097,6 +5249,70 @@
         }
       }
     },
+    "This game was updated while the app was open. Close and reopen the app to load the new build.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Spiel wurde aktualisiert, während die App geöffnet war. Schließe die App und öffne sie erneut, um die neue Version zu laden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game was updated while the app was open. Close and reopen the app to load the new build."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este juego se actualizó mientras la app estaba abierta. Cierra y vuelve a abrir la app para cargar la nueva versión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce jeu a été mis à jour pendant que l’app était ouverte. Fermez puis rouvrez l’app pour charger la nouvelle version."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo gioco è stato aggiornato mentre l’app era aperta. Chiudi e riapri l’app per caricare la nuova versione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリを開いている間にこのゲームが更新されました。新しいビルドを読み込むには、アプリを一度閉じて開き直してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱이 열려 있는 동안 이 게임이 업데이트되었습니다. 새 빌드를 불러오려면 앱을 닫았다가 다시 여세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este jogo foi atualizado enquanto o app estava aberto. Feche e abra o app novamente para carregar a nova compilação."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det här spelet uppdaterades medan appen var öppen. Stäng och öppna appen igen för att läsa in den nya versionen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用打开期间此游戏已更新。请关闭并重新打开应用以加载新版本。"
+          }
+        }
+      }
+    },
     "This game's files are damaged. Rebuild the game in the launcher on your Mac.": {
       "localizations": {
         "de": {
@@ -4221,6 +5437,134 @@
           "stringUnit": {
             "state": "translated",
             "value": "此游戏的文件夹中没有 game.manifest.json。"
+          }
+        }
+      }
+    },
+    "This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Spiel-Framework in Documents/Frameworks ist nicht signiert. Installiere das Spiel erneut über NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El framework de este juego en Documents/Frameworks no tiene firma. Vuelve a instalar el juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le framework de ce jeu dans Documents/Frameworks n'est pas signé. Réinstallez le jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il framework di questo gioco in Documents/Frameworks non è firmato. Installa di nuovo il gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Documents/Frameworks 内のゲームフレームワークが未署名です。NX2Apple からもう一度インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Documents/Frameworks에 있는 이 게임의 프레임워크가 서명되지 않았습니다. NX2Apple에서 게임을 다시 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O framework deste jogo em Documents/Frameworks não está assinado. Instale o jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets ramverk i Documents/Frameworks saknar signatur. Installera spelet igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Documents/Frameworks 中的游戏框架未签名。请在 NX2Apple 中重新安装该游戏。"
+          }
+        }
+      }
+    },
+    "This game's framework is signed for %@, while this app is signed for team %@. Install the game again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Spiel-Framework ist für %@ signiert, diese App jedoch für Team %@. Installiere das Spiel erneut über NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's framework is signed for %@, while this app is signed for team %@. Install the game again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El framework de este juego está firmado para %@, mientras que esta app está firmada para el equipo %@. Vuelve a instalar el juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le framework de ce jeu est signé pour %@, tandis que cette app est signée pour l'équipe %@. Réinstallez le jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il framework di questo gioco è firmato per %@, mentre questa app è firmata per il team %@. Installa di nuovo il gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのフレームワークは %@ で署名されていますが、このアプリはチーム %@ で署名されています。NX2Apple からもう一度インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임의 프레임워크는 %@용으로 서명되었지만 이 앱은 팀 %@용으로 서명되었습니다. NX2Apple에서 게임을 다시 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O framework deste jogo está assinado para %@, enquanto este app está assinado para a equipe %@. Instale o jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets ramverk är signerat för %@, medan den här appen är signerad för team %@. Installera spelet igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏框架使用 %@ 签名，而当前应用使用团队 %@ 签名。请在 NX2Apple 中重新安装该游戏。"
           }
         }
       }
@@ -4545,66 +5889,66 @@
         }
       }
     },
-    "Unsaved progress will be lost. The app closes. Open it again to get back to your games.": {
+    "Unsaved progress will be lost. You will return to your games.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht gesicherter Fortschritt geht verloren. Die App wird geschlossen. Öffne sie erneut, um zu deinen Spielen zurückzukehren."
+            "value": "Ungespeicherter Fortschritt geht verloren. Du kehrst zu deinen Spielen zurück."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unsaved progress will be lost. The app closes. Open it again to get back to your games."
+            "value": "Unsaved progress will be lost. You will return to your games."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se perderá el progreso sin guardar. La app se cierra. Ábrela de nuevo para volver a tus juegos."
+            "value": "Se perderá el progreso no guardado. Volverás a tus juegos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La progression non sauvegardée sera perdue. L’app se ferme. Rouvrez-la pour revenir à vos jeux."
+            "value": "La progression non enregistrée sera perdue. Vous reviendrez à vos jeux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I progressi non salvati andranno persi. L’app si chiude. Riaprila per tornare ai tuoi giochi."
+            "value": "I progressi non salvati andranno persi. Tornerai ai tuoi giochi."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存していない進行状況は失われます。アプリが閉じます。もう一度開くとゲーム一覧に戻ります。"
+            "value": "保存されていない進行状況は失われます。ゲーム一覧に戻ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "저장하지 않은 진행 상황은 사라집니다. 앱이 닫힙니다. 게임으로 돌아가려면 다시 여세요."
+            "value": "저장하지 않은 진행 상황은 사라집니다. 게임 목록으로 돌아갑니다."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O progresso não salvo será perdido. O app fecha. Abra-o de novo para voltar aos seus jogos."
+            "value": "O progresso não salvo será perdido. Você voltará aos seus jogos."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Osparade framsteg går förlorade. Appen stängs. Öppna den igen för att komma tillbaka till dina spel."
+            "value": "Osparade framsteg går förlorade. Du återvänder till dina spel."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未保存的进度将会丢失。App 会关闭，再次打开即可回到你的游戏。"
+            "value": "未保存的进度将会丢失。你将返回游戏库。"
           }
         }
       }
@@ -4865,6 +6209,70 @@
         }
       }
     },
+    "iOS refused the code signature of this game's framework. Install the game again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS hat die Codesignatur des Frameworks dieses Spiels abgelehnt. Installiere das Spiel erneut über NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS refused the code signature of this game's framework. Install the game again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS rechazó la firma de código del framework de este juego. Vuelve a instalar el juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS a refusé la signature de code du framework de ce jeu. Réinstallez le jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS ha rifiutato la firma del codice del framework di questo gioco. Installa di nuovo il gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS がこのゲームのフレームワークのコード署名を拒否しました。NX2Apple からゲームを再インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS에서 이 게임 프레임워크의 코드 서명을 거부했습니다. NX2Apple에서 게임을 다시 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O iOS recusou a assinatura de código do framework deste jogo. Instale o jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS nekade kodsignaturen för det här spelets ramverk. Installera spelet igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 拒绝了此游戏框架的代码签名。请从 NX2Apple 重新安装该游戏。"
+          }
+        }
+      }
+    },
     "launcher.json has schema %lld, this app reads schema 1.": {
       "localizations": {
         "de": {
@@ -5117,6 +6525,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "title_id \"%@\" 不是 16 位十六进制。"
+          }
+        }
+      }
+    },
+    "“%@” holds unjoined .nxpart split files. External folders cannot read split parts directly. Copy them to games/%@ in this app's folder in Files to join automatically, or use a whole romfs.img.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ enthält nicht zusammengefügte .nxpart-Teildateien. Externe Ordner können Teildateien nicht direkt lesen. Kopiere sie in „Dateien“ nach games/%@ im Ordner dieser App, um sie automatisch zusammenzufügen, oder verwende eine vollständige romfs.img."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” holds unjoined .nxpart split files. External folders cannot read split parts directly. Copy them to games/%@ in this app's folder in Files to join automatically, or use a whole romfs.img."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» contiene archivos divididos .nxpart sin unir. Las carpetas externas no pueden leer partes divididas directamente. Cópialos en games/%@ dentro de la carpeta de esta app en Archivos para unirlos automáticamente, o usa un archivo romfs.img completo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » contient des fichiers .nxpart non assemblés. Les dossiers externes ne peuvent pas lire directement des parties découpées. Copiez-les dans games/%@ du dossier de cette app dans Fichiers pour les assembler automatiquement, ou utilisez un fichier romfs.img complet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» contiene file divisi .nxpart non uniti. Le cartelle esterne non possono leggere direttamente le parti divise. Copiali in games/%@ nella cartella di questa app in File per unirli automaticamente, oppure usa un file romfs.img intero."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」には未結合の .nxpart 分割ファイルがあります。外部フォルダからは分割ファイルを直接読み込めません。「ファイル」でこのアプリのフォルダ内の games/%@ にコピーして自動結合するか、結合済みの romfs.img を使用してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’ 폴더에 병합되지 않은 .nxpart 분할 파일이 있습니다. 외부 폴더에서는 분할 파일을 직접 읽을 수 없습니다. ‘파일’ 앱에서 이 앱 폴더의 games/%@ 경로로 복사해 자동 병합하거나 단일 romfs.img 파일을 사용하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” contém arquivos divididos .nxpart não unidos. Pastas externas não podem ler partes divididas diretamente. Copie-os para games/%@ na pasta deste app no Arquivos para unir automaticamente ou use um romfs.img completo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "”%@” innehåller oihopsatta .nxpart-delfiler. Externa mappar kan inte läsa delfiler direkt. Kopiera dem till games/%@ i den här appens mapp i Filer för att slå ihop dem automatiskt, eller använd en hel romfs.img."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”中包含未合并的 .nxpart 分片文件。外部文件夹无法直接读取分片，请在“文件”中将它们拷贝到本应用文件夹下的 games/%@ 以自动合并，或使用完整的 romfs.img。"
           }
         }
       }

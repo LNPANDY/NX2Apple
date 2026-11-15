@@ -1,5 +1,6 @@
 import AppleArchive
 import Foundation
+import ShellUI
 import System
 import Testing
 @testable import ShellHost
@@ -34,6 +35,7 @@ import Testing
         try box.write("other game shaders", to: otherCache)
         let launcher = RecordingLauncher(), model = ShellHostModel(config: box.config(), launcher: launcher)
         let framework = box.games.appendingPathComponent(Fixtures.orbit + "/DmGame.framework")
+        try? FileManager.default.removeItem(at: framework.appendingPathComponent("msl"))
         let secondShader = "b-3f9a2c/large.metallib"
         let large = String(repeating: "z", count: 4 * 1024 * 1024)
         try box.write(large, to: box.root.appendingPathComponent("shader-input/" + secondShader))
@@ -80,6 +82,7 @@ import Testing
         let box = try Sandbox(), gameFolder = try box.giveAppData()
         let launcher = RecordingLauncher(), model = ShellHostModel(config: box.config(), launcher: launcher)
         let framework = box.games.appendingPathComponent(Fixtures.orbit + "/DmGame.framework")
+        try? FileManager.default.removeItem(at: framework.appendingPathComponent("msl"))
         let packed = framework.appendingPathComponent("msl-" + UUID().uuidString + ".aar")
         try archive("ready", in: box, at: packed)
         let cache = gameFolder.appendingPathComponent(".shader-resources")
@@ -146,5 +149,179 @@ import Testing
         #expect(game.shaderResourcesURL == nil && game.environment["DM_MSL_DIR"] == custom.path)
         #expect(try msl(game, in: box) == custom.path)
         #expect(!FileManager.default.fileExists(atPath: gameFolder.appendingPathComponent(".shader-resources").path))
+    }
+
+    @Test func externalizedShadersRequireExternalMslFolderAndLaunchFromDataURL() async throws {
+        let box = try Sandbox()
+        let externalData = box.root.appendingPathComponent("external-drive/\(Fixtures.orbit)", isDirectory: true)
+        try box.write("", to: externalData.appendingPathComponent("romfs/fixture.marker"))
+        let framework = box.games.appendingPathComponent(Fixtures.orbit + "/DmGame.framework")
+        try? FileManager.default.removeItem(at: framework.appendingPathComponent("msl"))
+
+        let cfg = box.config()
+        let defaults = cfg.defaults("shell")
+        // Point the game directly at externalData via per-game folder bookmark stand-in: put data in Documents/games/<ID> first, or test external dataURL directly.
+        let appGameFolder = try box.giveAppData()
+        let launcher = RecordingLauncher(), model = ShellHostModel(config: cfg, launcher: launcher)
+
+        // Missing msl/ marks the game as needing a data update and blocks launch.
+        let detailMissing = try #require(model.details.first { $0.game.id == Fixtures.orbit })
+        #expect(detailMissing.game.state == .needsDataUpdate(staleChain: false))
+        #expect(detailMissing.dataNote.contains("msl"))
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.isEmpty)
+
+        // An unjoined .nxpart file inside msl/ still blocks launch.
+        let partialPart = appGameFolder.appendingPathComponent("msl/b-3f9a2c/shaders.img.nxpart.0000.0002")
+        try box.write("half", to: partialPart)
+        model.reload()
+        #expect(model.details.first { $0.game.id == Fixtures.orbit }?.game.state == .needsDataUpdate(staleChain: false))
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.isEmpty)
+
+        // Once the external msl/ tree is whole in dataURL (or appFolder), launch succeeds and DM_MSL_DIR points to it.
+        try FileManager.default.removeItem(at: appGameFolder.appendingPathComponent("msl"))
+        let planGame = LaunchableGame(
+            titleID: Fixtures.orbit,
+            name: "Orbit",
+            manifest: try #require(GameCatalogue.read(directory: box.games.appendingPathComponent(Fixtures.orbit)).manifest),
+            directory: box.games.appendingPathComponent(Fixtures.orbit),
+            frameworkURL: framework,
+            dataURL: externalData,
+            appFolder: appGameFolder,
+            environment: [:]
+        )
+        try box.write("external-shader", to: externalData.appendingPathComponent("msl/" + shader))
+        #expect(try msl(planGame, in: box) == externalData.appendingPathComponent("msl").path)
+
+        try box.write("app-folder-shader", to: appGameFolder.appendingPathComponent("msl/" + shader))
+        model.reload()
+        #expect(model.details.first { $0.game.id == Fixtures.orbit }?.game.state == .playable)
+        await model.playNow(Fixtures.orbit)
+        let launched = try #require(launcher.launched.first)
+        #expect(try msl(launched, in: box) == appGameFolder.appendingPathComponent("msl").path)
+        _ = defaults
+    }
+
+    private func installMatchedIdentity(for imgURL: URL, in box: Sandbox) throws {
+        let identity = try #require(RomfsIdentity.ofImage(at: imgURL))
+        let hex = String(format: "%016llx", identity.index)
+        let manifestURL = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("game.manifest.json")
+        let manifestText = try String(contentsOf: manifestURL, encoding: .utf8)
+            .replacingOccurrences(of: "\"DMROMFSID1 fixture\"",
+                                  with: "\"DMROMFSID1 title=\(Fixtures.orbit) version=1.0 build=v0 size=\(identity.size) index=\(hex)\"")
+        try Data(manifestText.utf8).write(to: manifestURL)
+    }
+
+    private func makeHotFramework(in hotRoot: URL, copyingBundledGameDir bundledDir: URL, builtAt: String) throws -> URL {
+        let fm = FileManager.default
+        let tid = Fixtures.orbit
+        let fwName = "DmGame\(tid).framework"
+        let exeName = "DmGame\(tid)"
+        let hotFW = hotRoot.appendingPathComponent(fwName, isDirectory: true)
+        try fm.createDirectory(at: hotFW.appendingPathComponent("dm", isDirectory: true), withIntermediateDirectories: true)
+        let manifestText = try String(contentsOf: bundledDir.appendingPathComponent("game.manifest.json"), encoding: .utf8)
+            .replacingOccurrences(of: "\"schema\": 1,", with: "\"schema\": 1,\n  \"built_at\": \"\(builtAt)\",")
+            .replacingOccurrences(of: "\"DmGame.framework\"", with: "\"\(fwName)\"")
+            .replacingOccurrences(of: "\"DmGame\"", with: "\"\(exeName)\"")
+        try Data(manifestText.utf8).write(to: hotFW.appendingPathComponent("game.manifest.json"))
+        try fm.copyItem(at: bundledDir.appendingPathComponent("launcher.json"), to: hotFW.appendingPathComponent("dm/launcher.json"))
+        try Data("hot-exe".utf8).write(to: hotFW.appendingPathComponent(exeName))
+        return hotFW
+    }
+
+    @Test func trailerShadersTakePriorityOverStaleDocumentsFolderAndOmitDMMSLDir() async throws {
+        let box = try Sandbox()
+        let framework = box.games.appendingPathComponent(Fixtures.orbit + "/DmGame.framework")
+        try? FileManager.default.removeItem(at: framework.appendingPathComponent("msl"))
+        try? FileManager.default.removeItem(at: box.appData.appendingPathComponent(Fixtures.orbit))
+
+        let base = ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexA)
+        let image = ShellDataFolderTests.dmromfsWithTrailer(base, gfxAPI: 1, chain: "b-3f9a2c")
+        let imgURL = box.appData.appendingPathComponent(Fixtures.orbit + "/romfs.img")
+        try FileManager.default.createDirectory(at: imgURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try image.write(to: imgURL)
+        try installMatchedIdentity(for: imgURL, in: box)
+
+        // Stale loose Documents/games/<id>/msl folder from an older chain must be ignored when romfs trailer is active.
+        try box.write("stale-documents", to: box.appData.appendingPathComponent(Fixtures.orbit + "/msl/b-old999/example.metallib"))
+
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher)
+        await model.waitForStartupTasks()
+        await model.waitForDataChecks()
+        #expect(model.details.first { $0.id == Fixtures.orbit }?.game.state == .playable)
+
+        await model.playNow(Fixtures.orbit)
+        let launched = try #require(launcher.launched.first)
+        #expect(launched.usesEmbeddedShaderTrailer)
+        #expect(launched.shaderResourcesURL == nil)
+        let plan = EngineLaunchPlan.make(game: launched, appResources: box.root,
+                                         documents: box.appData.deletingLastPathComponent(), envFileText: nil)
+        #expect(plan.environment["DM_MSL_DIR"] == nil)
+    }
+
+    @Test func staleTrailerMarksNeedsDataUpdateAndRefusesPlayNow() async throws {
+        let box = try Sandbox()
+        let framework = box.games.appendingPathComponent(Fixtures.orbit + "/DmGame.framework")
+        try? FileManager.default.removeItem(at: framework.appendingPathComponent("msl"))
+        try? FileManager.default.removeItem(at: box.appData.appendingPathComponent(Fixtures.orbit))
+
+        let base = ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexA)
+        let staleImage = ShellDataFolderTests.dmromfsWithTrailer(base, gfxAPI: 1, chain: "b-stale0")
+        let imgURL = box.appData.appendingPathComponent(Fixtures.orbit + "/romfs.img")
+        try FileManager.default.createDirectory(at: imgURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try staleImage.write(to: imgURL)
+        try installMatchedIdentity(for: imgURL, in: box)
+
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher)
+        await model.waitForStartupTasks()
+        await model.waitForDataChecks()
+
+        let detail = try #require(model.details.first { $0.id == Fixtures.orbit })
+        #expect(detail.game.state == .needsDataUpdate(staleChain: true))
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.isEmpty)
+    }
+
+    @Test func tier4FallbackBundledFrameworkServesFolderAndArchiveDuringPlayNow() async throws {
+        // Case A: Newer hot framework stripped msl/, older bundled framework keeps loose msl/ folder.
+        let boxFolder = try Sandbox()
+        _ = try boxFolder.giveAppData()
+        let bundledGameA = boxFolder.games.appendingPathComponent(Fixtures.orbit)
+        let bundledFW = bundledGameA.appendingPathComponent("DmGame.framework")
+        let hotRootA = boxFolder.root.appendingPathComponent("HotA", isDirectory: true)
+        _ = try makeHotFramework(in: hotRootA, copyingBundledGameDir: bundledGameA, builtAt: "2099-01-01T00:00:00Z")
+
+        var cfgA = boxFolder.config()
+        cfgA.hotFrameworksRoot = hotRootA
+        let launcherA = RecordingLauncher()
+        let modelA = ShellHostModel(config: cfgA, launcher: launcherA)
+        await modelA.playNow(Fixtures.orbit)
+        let launchedA = try #require(launcherA.launched.first)
+        #expect(launchedA.fallbackBundledFrameworkURL?.standardizedFileURL == bundledFW.standardizedFileURL)
+        #expect(try msl(launchedA, in: boxFolder) == bundledFW.appendingPathComponent("msl").path)
+
+        // Case B: Older bundled framework holds legacy msl-<UUID>.aar archive while hot framework stripped msl/.
+        let boxAar = try Sandbox()
+        _ = try boxAar.giveAppData()
+        let bundledGameB = boxAar.games.appendingPathComponent(Fixtures.orbit)
+        let bundledAarFW = bundledGameB.appendingPathComponent("DmGame.framework")
+        try? FileManager.default.removeItem(at: bundledAarFW.appendingPathComponent("msl"))
+        let bundledAar = bundledAarFW.appendingPathComponent("msl-" + UUID().uuidString + ".aar")
+        try archive("fallback-aar", in: boxAar, at: bundledAar)
+
+        let hotRootB = boxAar.root.appendingPathComponent("HotB", isDirectory: true)
+        _ = try makeHotFramework(in: hotRootB, copyingBundledGameDir: bundledGameB, builtAt: "2099-01-01T00:00:00Z")
+
+        var cfgB = boxAar.config()
+        cfgB.hotFrameworksRoot = hotRootB
+        let launcherB = RecordingLauncher()
+        let modelB = ShellHostModel(config: cfgB, launcher: launcherB)
+        await modelB.playNow(Fixtures.orbit)
+        let launchedB = try #require(launcherB.launched.first)
+        let unpackedPath = try msl(launchedB, in: boxAar)
+        #expect(try String(contentsOfFile: unpackedPath + "/" + shader, encoding: .utf8) == "fallback-aar")
     }
 }

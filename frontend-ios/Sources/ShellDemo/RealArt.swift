@@ -36,6 +36,8 @@ enum RealArt {
                 }
                 let state: GameState = switch entry.demoState {
                 case "missingData": .needsGameData
+                case "updateData": .needsDataUpdate(staleChain: false)
+                case "updateDataStale": .needsDataUpdate(staleChain: true)
                 case "updateRequired": .needsAppUpdate
                 case "broken": .broken(reason: demoText("Game files damaged"), detail: demoText("Some of this game's bundled files could not be verified."))
                 default: .playable

@@ -19,11 +19,11 @@ on:
 permissions:
   contents: read
 
-# A newer run for the same pull request replaces the older one, which is cancelled, and the newer one reports. Every push to main, every tag and
-# every manual run keeps its own group (run_id), so none of them is ever cancelled.
+# A newer run for the same pull request replaces the older one, which is cancelled, and the newer one reports. Pushes to refs/heads/main share
+# <workflow>-main so superseded main runs cancel in progress. Release tags (v*) and workflow_dispatch keep their own run_id with cancel-in-progress: false.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main') || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 
 env:
   GAME: 010015100B514000   # Super Mario Bros. Wonder: the profile the host and gfx tests are built for (any profile does; the tests are about code, not the game)
@@ -117,7 +117,7 @@ jobs:
               # ubuntu-latest by launcher-qt's test_localization_*.py and patch-queue's test_l10n_shell_catalogs.py / test_launcher_texts.py),
               # the synced engine (.upstream-ref, patches/, tools/engine.py, dm/, scripts/), and this file. A Windows-only (frontend-qt/) or
               # l10n-only change skips the xcode-27 runner.
-              if echo "$files" | grep -v '^frontend/l10n/' | grep -Eq '^(frontend/|dm/|scripts/|patches/|tools/engine\.py$|\.upstream-ref$|\.github/workflows/tests\.yml$)'; then
+              if echo "$files" | grep -v '^frontend/l10n/' | grep -Eq '^(frontend/|frontend-ios/Shell/|dm/|scripts/|patches/|tools/engine\.py$|\.upstream-ref$|\.github/workflows/tests\.yml$)'; then
                 launcher=true
               else
                 launcher=false
@@ -241,11 +241,66 @@ jobs:
       - name: Engine (tools/engine.py sync, issue #214; the tool tests read engine/)
         run: python tools/engine.py sync
       - name: Install ripgrep (the engine/ search test)
-        run: sudo apt-get install -y -qq ripgrep > /dev/null
+        run: |
+          if ! command -v rg > /dev/null
+          then
+            arch=$(uname -m)
+            rg_ver="15.1.0"
+            if [ "$arch" = "x86_64" ]
+            then
+              rg_target="x86_64-unknown-linux-musl"
+              rg_sha="1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599"
+            elif [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]
+            then
+              rg_target="aarch64-unknown-linux-gnu"
+              rg_sha="2b661c6ef508e902f388e9098d9c4c5aca72c87b55922d94abdba830b4dc885e"
+            else
+              rg_target=""
+              rg_sha=""
+            fi
+            installed=0
+            if [ -n "$rg_target" ]
+            then
+              rg_url="https://github.com/BurntSushi/ripgrep/releases/download/$rg_ver/ripgrep-$rg_ver-$rg_target.tar.gz"
+              rg_tmp=$(mktemp -d)
+              if curl -fsSL --retry 3 --retry-delay 3 --retry-all-errors "$rg_url" -o "$rg_tmp/rg.tar.gz"
+              then
+                if command -v sha256sum > /dev/null
+                then
+                  got_sha=$(sha256sum "$rg_tmp/rg.tar.gz" | awk '{print $1}')
+                else
+                  got_sha=$(shasum -a 256 "$rg_tmp/rg.tar.gz" | awk '{print $1}')
+                fi
+                if [ "$got_sha" != "$rg_sha" ]
+                then
+                  echo "ripgrep sha256 is $got_sha, expected $rg_sha" >&2
+                  rm -rf "$rg_tmp"
+                  exit 1
+                fi
+                tar -xzf "$rg_tmp/rg.tar.gz" -C "$rg_tmp" "ripgrep-$rg_ver-$rg_target/rg"
+                rg_bin="${RUNNER_TEMP:-/tmp}/ripgrep-bin"
+                mkdir -p "$rg_bin"
+                install -m 0755 "$rg_tmp/ripgrep-$rg_ver-$rg_target/rg" "$rg_bin/rg"
+                export PATH="$rg_bin:$PATH"
+                if [ -n "${GITHUB_PATH:-}" ]
+                then
+                  echo "$rg_bin" >> "$GITHUB_PATH"
+                fi
+                installed=1
+              fi
+              rm -rf "$rg_tmp"
+            fi
+            if [ "$installed" != "1" ]
+            then
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq ripgrep > /dev/null
+            fi
+          fi
+          rg --version
       - name: Install the signing tool's package (tools/release_manifest.py)
         run: python -m pip install -r tools/requirements-release.txt
       - name: Patch, engine and release tool tests
-        run: python -m unittest -v tools/tests/test_patches.py tools/tests/test_engine.py tools/tests/test_release_manifest.py tools/tests/test_release_notes.py tools/tests/test_app_version.py tools/tests/test_l10n_shell_catalogs.py tools/tests/test_launcher_texts.py
+        run: python -m unittest -v tools/tests/test_patches.py tools/tests/test_engine.py tools/tests/test_verify_env_switches.py tools/tests/test_release_manifest.py tools/tests/test_release_notes.py tools/tests/test_app_version.py tools/tests/test_l10n_shell_catalogs.py tools/tests/test_launcher_texts.py
       - name: Dry bump to seedds main (report only)
         run: python tools/engine.py bump --dry --to main || true
 
@@ -309,7 +364,8 @@ jobs:
     needs: [stack, changes]
     if: ${{ !cancelled() && (needs.stack.result != 'success' || needs.stack.outputs.is_tip == 'true') && (needs.changes.result != 'success' || needs.changes.outputs.launcher == 'true') }}
     runs-on: xcode-27
-    timeout-minutes: 20
+    # Pull requests build debug once and run ~1,650 XCTest cases (~14m). Pushes to main also run `swift build -c release` (~5.5m) first.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -434,7 +490,7 @@ jobs:
           make GAME="$GAME" -j3 t_perf_order
           ./t_perf_order --cpu 2>&1 | tee ../../../logs/t_perf_order.log
           make GAME="$GAME" -j3 perf-order-tsan 2>&1 | tee ../../../logs/t_perf_order-tsan.log
-          tests="t_dirty_slots t_dirty_race t_tex_layout t_pace t_fstep t_link_ticks t_cpu_tex t_hmap t_cover t_pso_skey t_refl t_rt_range_ro t_present_rescue t_gpuprof"
+          tests="t_dirty_slots t_dirty_race t_tex_layout t_pace t_fstep t_link_ticks t_cpu_tex t_hmap t_cover t_pso_skey t_refl t_rt_range_ro t_present_rescue t_gpuprof t_rt_recycle_policy"
           make GAME="$GAME" -j3 $tests 2>&1 | tee ../../../logs/gfx-build.log
           failed=0
           for t in $tests; do
@@ -460,15 +516,18 @@ jobs:
       - name: The game framework links the module sections (route C M1)
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: python3 -m unittest -v dm/ios/tests/test_framework_link.py 2>&1 | tee logs/framework-link.log
-      # Route C M2: build_shell.sh generates and builds the shell (host, frontend-ios package, a synthetic framework embedded and not
-      # linked). make_ext_font.py needs fontTools, which only this step installs
+      # Route C M2: frontend-ios/Shell/build_shell.sh generates and builds the shell (frontend-ios package, SegSnap, a synthetic framework
+      # embedded and not linked). make_ext_font.py needs fontTools, which only this step installs
       - name: The shell app embeds a game framework and builds (route C M2)
+        working-directory: .
         env:
           DM_SHELL_PACKAGE: ${{ github.workspace }}/frontend-ios
+          DM_ENGINE_DIR: ${{ github.workspace }}/engine
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
+          mkdir -p logs
           python3 -m pip install --user --break-system-packages fonttools > /dev/null
-          python3 -m unittest -v dm/ios/tests/test_shell_build.py 2>&1 | tee logs/shell-build.log
+          python3 -m unittest -v tools/tests/test_shell_build.py tools/tests/test_seg_snap.py 2>&1 | tee logs/shell-build.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:

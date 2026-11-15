@@ -91,6 +91,24 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             setattr(_signal, _sig_attr, _sig_val)
     if not hasattr(_signal, 'pthread_sigmask'):
         _signal.pthread_sigmask = lambda how, mask: set()
+    # scripts/build_ipa_from_nsp.py builds STOPS = (signal.SIGTERM, signal.SIGHUP) at module
+    # level, so a missing SIGHUP stops the import of the whole NSP script, not just its signal
+    # handling. Windows has no hangup: nothing delivers SIGHUP, and signal.signal(1, handler)
+    # raises "invalid signal value" (1 is CTRL_BREAK_EVENT there, which can be sent but not
+    # caught). Installing a handler for it is therefore a no-op returning None -- what
+    # signal.signal returns for a handler never set from Python, which is exactly how cli's
+    # finally restores it (`SIG_DFL if h is None else h`). Only calls that would otherwise
+    # raise are affected; every other signal goes to the real signal.signal unchanged.
+    if not hasattr(_signal, 'SIGHUP'):
+        _signal.SIGHUP = 1
+        _sig_signal = _signal.signal
+
+        def _win_signal(sig, handler):
+            if sig == _signal.SIGHUP:
+                return None
+            return _sig_signal(sig, handler)
+
+        _signal.signal = _win_signal
 
     def _win_execve(path, argv, env):
         r = subprocess.run([os.fspath(path)] + [os.fspath(a) for a in list(argv)[1:]], env=env)
@@ -108,6 +126,12 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
                 max_workers = _MAX_WIN_WORKERS
             super().__init__(max_workers, *a, **k)
 
+        # A worker's result is one pipe message, and Windows refuses one of 4 GiB or more
+        # (WinError 87). big_result.py sends a large result through a file instead (#858).
+        def submit(self, fn, /, *args, **kwargs):
+            import big_result as _big_result
+            return _big_result.submit(super().submit, fn, args, kwargs)
+
     _cf.ProcessPoolExecutor = _WinProcessPoolExecutor
     _mp_tls = _mp_threading.local()
     _orig_get_context = _mp.get_context
@@ -123,9 +147,39 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 
     _mp_spawn.get_preparation_data = _safe_get_prep_data
 
+    def _guarded_main_script():
+        # A spawned worker imports the main script again, which is only safe when the script
+        # starts its work behind `if __name__ == '__main__':`.
+        import ast as _ast
+        path = getattr(sys.modules.get('__main__'), '__file__', None)
+        if not path:
+            return False
+        try:
+            with open(path, encoding='utf-8') as _f:
+                body = _ast.parse(_f.read()).body
+        except (OSError, SyntaxError, ValueError):
+            return False
+        for node in body:
+            if isinstance(node, _ast.If) and isinstance(node.test, _ast.Compare):
+                sides = [node.test.left] + list(node.test.comparators)
+                if (any(isinstance(n, _ast.Name) and n.id == '__name__' for n in sides)
+                        and any(isinstance(n, _ast.Constant) and n.value == '__main__' for n in sides)):
+                    return True
+        return False
+
+    def _spawnable(fn):
+        # Whether real worker processes can run fn: this is not already a worker, a worker can
+        # find fn by its name (so not a lambda or a nested function), and it can import the script.
+        if _mp.parent_process() is not None or not isinstance(fn, _mp_types.FunctionType):
+            return False
+        if getattr(sys.modules.get(fn.__module__), fn.__qualname__, None) is not fn:
+            return False
+        return _guarded_main_script()
+
     class _WinForkPool:
         def __init__(self, processes=None, initializer=None, initargs=(), *a, **k):
             self._workers = max(1, int(processes or os.cpu_count() or 4))
+            self._initializer, self._initargs = initializer, tuple(initargs)
             self._ex = _cf.ThreadPoolExecutor(max_workers=self._workers)
 
         def __enter__(self):
@@ -145,7 +199,22 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             self._ex.shutdown(wait=False, cancel_futures=True)
 
         def map(self, fn, iterable, chunksize=1):
-            return list(self._ex.map(fn, iterable))
+            # Threads only help work that releases the GIL, as Capstone does for patch_nso.py.
+            # c1_guard.py and cb_extent.py check every shader in pure Python, which on threads
+            # is one core's work however many there are. Such a map goes to worker processes,
+            # which give the same list in the same order.
+            jobs = list(iterable)
+            chunksize = max(1, int(chunksize or 1))
+            n_procs = min(_MAX_WIN_WORKERS, self._workers, -(-len(jobs) // chunksize))
+            if n_procs >= 2 and _spawnable(fn):
+                try:
+                    pool = _orig_get_context('spawn').Pool(n_procs, self._initializer, self._initargs)
+                except OSError:
+                    pool = None   # no room for the workers: the threads still give the right list
+                if pool is not None:
+                    with pool:
+                        return pool.map(fn, jobs, chunksize)
+            return list(self._ex.map(fn, jobs))
 
         def imap_unordered(self, fn, iterable, chunksize=1):
             return self._ex.map(fn, iterable)
@@ -784,6 +853,37 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             return None
         return [str(exe)] + (x.metal_args(sdk, rest[3:]) if tool == 'metal' else rest[3:])
 
+    def _dmsh_xlate_dll(bin_path, dotnet, tc):
+        dll_next = bin_path + '.dll'
+        if os.path.isfile(dll_next) or not os.path.isfile(bin_path):
+            return dll_next
+        import hashlib, tempfile
+        from pathlib import Path
+        proj = Path(bin_path).resolve().parents[1] / 'dmsh_xlate'
+        if not (proj / 'dmsh_xlate.csproj').is_file():
+            return dll_next
+        h = hashlib.sha256(Path(bin_path).read_bytes())
+        for f in sorted([*proj.glob('*.cs'), *proj.glob('*.csproj')], key=lambda p: p.name):
+            h.update(f.name.encode('utf-8') + b'\0' + f.read_bytes() + b'\0')
+        cache_dir = tc.tools_dir() / f'dmsh_xlate-{h.hexdigest()[:16]}'
+        cached = cache_dir / 'dmsh_xlate.dll'
+        if cached.is_file():
+            return str(cached)
+        with tempfile.TemporaryDirectory(prefix='dmsh_xlate_') as td, \
+                tempfile.TemporaryDirectory(prefix='dmsh_xlate_art_') as art:
+            _run([dotnet, 'publish', str(proj), '-c', 'Release', '--self-contained', 'false',
+                  '-p:PublishAot=false', '-p:SatelliteResourceLanguages=en',
+                  *tc.csc_tool_args(),   # the SDK's csc.exe apphost cannot start on every Windows
+                  '--artifacts-path', art, '-o', td, '-v', 'quiet', '-nologo'],
+                 check=True, **tc.no_window())
+            shutil.rmtree(cache_dir, ignore_errors=True)
+            try:
+                shutil.copytree(td, cache_dir)
+            except BaseException:
+                shutil.rmtree(cache_dir, ignore_errors=True)
+                raise
+        return str(cached)
+
     def _map(args):
         if isinstance(args, (str, bytes)) or not args:
             return args
@@ -802,7 +902,24 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             import toolchain as tc
             dn = tc.dotnet_dir()
             dotnet = str(dn / 'dotnet.exe') if dn else (shutil.which('dotnet') or 'dotnet')
-            return [dotnet, args[0] + '.dll'] + args[1:]
+            return [dotnet, _dmsh_xlate_dll(args[0], dotnet, tc)] + args[1:]
+        if base in ('nx_extract', 'nx_extract.exe'):
+            # The extractor driver.build_nx_extract / find_nx_extract return is a .NET apphost,
+            # and Windows 11 build 22000's incomplete user-mode CET makes every CET-marked
+            # apphost fail fast: "Your Windows doesn't fully support CET", exit 0x80131506. The SDK's
+            # csc.exe dies that way (toolchain.csc_tool_args routes the build around it), and so
+            # does the built nx_extract.exe -- measured: the apphost prints that fatal error,
+            # `dotnet nx_extract.dll --help` prints its usage. Same program, unmarked host, as
+            # dmsh_xlate above. The dll is always beside it: the driver copies the whole build
+            # output. No dll means the committed dm/tools/nx_extract_bin/nx_extract, a Mach-O
+            # universal binary (cafebabe) that no Windows build uses; it is left to fail visibly.
+            stem = args[0][:-4] if args[0].lower().endswith('.exe') else args[0]
+            dll = stem + '.dll'
+            if os.path.isfile(dll):
+                import toolchain as tc
+                dn = tc.dotnet_dir()
+                dotnet = str(dn / 'dotnet.exe') if dn else (shutil.which('dotnet') or 'dotnet')
+                return [dotnet, dll] + args[1:]
         if base in ('python3', 'python3.exe') or base in ('python', 'python.exe'):
             py_exe = os.environ.get('NSPB_PYTHON') or sys.executable
             return [py_exe] + [a for a in args[1:] if a != '-I']
@@ -1062,6 +1179,9 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
     # so keep every core busy rather than the upstream default of 8 (capped at 61, CPython's
     # ProcessPoolExecutor _MAX_WINDOWS_WORKERS limit for WaitForMultipleObjects)
     env.setdefault('J', str(min(61, max(8, 2 * (os.cpu_count() or 4)))))
+    # dmsh_build.py spawns worker processes with multiprocessing.get_context('fork') when
+    # DMSH_PROCS != 0, which raises ValueError on Windows. 0 keeps its in-process thread pool.
+    env.setdefault('DMSH_PROCS', '0')
     return env
 
 

@@ -20,13 +20,14 @@ package struct AppleDevice: Identifiable, Equatable {
 /// Xcode, or both (#87: signing in to Xcode alone creates no certificate; `xcodebuild -allowProvisioningUpdates` makes
 /// it at the first install).
 package struct SigningTeam: Identifiable, Equatable {
-    package init(id: String, identity: String, name: String = "", personal: Bool = false) {
-    self.id = id; self.identity = identity; self.name = name; self.personal = personal
+    package init(id: String, identity: String, name: String = "", personal: Bool = false, sha1: String = "") {
+    self.id = id; self.identity = identity; self.name = name; self.personal = personal; self.sha1 = sha1
 }
     package let id: String          // the team ID: the certificate's organizational unit, not the code in its name
     package let identity: String    // "Apple Development: Name (ABCDE12345)"; empty when only an Xcode account knows the team
     package var name: String = ""   // the team's name in Xcode; empty when only a certificate knows the team
     package var personal = false    // a free Apple ID's "Personal team"
+    package var sha1 = ""           // 40-char uppercase SHA-1 fingerprint from `security find-identity` to disambiguate duplicate names
 
     package var hasCertificate: Bool { !identity.isEmpty }
 
@@ -106,7 +107,7 @@ package enum DeviceTools {
         var result: [SigningTeam] = []
         for c in certificates where !result.contains(where: { $0.id == c.id }) {
             let known = xcode.first { $0.id == c.id }
-            result.append(SigningTeam(id: c.id, identity: c.identity, name: known?.name ?? c.name, personal: known?.free ?? c.personal))
+            result.append(SigningTeam(id: c.id, identity: c.identity, name: known?.name ?? c.name, personal: known?.free ?? c.personal, sha1: c.sha1))
         }
         for x in xcode where !result.contains(where: { $0.id == x.id }) {
             result.append(SigningTeam(id: x.id, identity: "", name: x.name, personal: x.free))
@@ -149,21 +150,54 @@ package enum DeviceTools {
     package static func certificateTeams(runner: ProcessRunner = SystemProcessRunner()) -> [SigningTeam] {
         guard let list = run("/usr/bin/security", ["find-identity", "-v", "-p", "codesigning"], runner: runner) else { return [] }
         var seen = Set<String>()
-        return identities(list).compactMap { identity in
-            guard let pem = run("/usr/bin/security", ["find-certificate", "-c", identity, "-p"], runner: runner),
+        return identityRecords(list).compactMap { record in
+            guard let raw = run("/usr/bin/security", ["find-certificate", "-a", "-Z", "-c", record.identity, "-p"], runner: runner),
+                  let pem = extractCertificatePEM(from: raw, sha1: record.sha1),
                   let subject = run("/usr/bin/openssl", ["x509", "-noout", "-subject"], input: pem, runner: runner),
                   let team = team(fromSubject: subject), seen.insert(team).inserted else { return nil }
-            return SigningTeam(id: team, identity: identity)
+            return SigningTeam(id: team, identity: record.identity, sha1: record.sha1)
         }
+    }
+
+    /// Parses `(sha1, identity)` pairs from `security find-identity` lines for development signing certificates.
+    package static func identityRecords(_ text: String) -> [(sha1: String, identity: String)] {
+        text.split(separator: "\n").compactMap { line in
+            guard let open = line.firstIndex(of: "\""), let close = line.lastIndex(of: "\""), open < close else { return nil }
+            let name = String(line[line.index(after: open)..<close])
+            guard name.hasPrefix("Apple Development:") || name.hasPrefix("iPhone Developer:") else { return nil }
+            let prefix = String(line[..<open])
+            let sha1 = prefix.range(of: #"\b[0-9A-Fa-f]{40}\b"#, options: .regularExpression).map { String(prefix[$0]).uppercased() } ?? ""
+            return (sha1: sha1, identity: name)
+        }
+    }
+
+    /// Extracts the PEM certificate matching `sha1` when `security find-certificate -a -Z -p` returns multiple certificates.
+    package static func extractCertificatePEM(from output: String, sha1: String) -> String? {
+        guard !output.isEmpty else { return nil }
+        let target = sha1.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !target.isEmpty, output.contains("SHA-1 hash:") else { return output }
+        var matched = false
+        var collecting = false
+        var lines: [String] = []
+        for rawLine in output.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("SHA-1 hash:") {
+                if !lines.isEmpty { break }
+                let hash = line.dropFirst("SHA-1 hash:".count).trimmingCharacters(in: .whitespaces).uppercased()
+                matched = (hash == target)
+                continue
+            }
+            guard matched else { continue }
+            if line == "-----BEGIN CERTIFICATE-----" { collecting = true }
+            if collecting { lines.append(String(rawLine)) }
+            if collecting && line == "-----END CERTIFICATE-----" { break }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n") + "\n"
     }
 
     /// The quoted names of `security find-identity` that sign for devices (development, not distribution).
     package static func identities(_ text: String) -> [String] {
-        text.split(separator: "\n").compactMap { line in
-            guard let open = line.firstIndex(of: "\""), let close = line.lastIndex(of: "\""), open < close else { return nil }
-            let name = String(line[line.index(after: open)..<close])
-            return name.hasPrefix("Apple Development:") || name.hasPrefix("iPhone Developer:") ? name : nil
-        }
+        identityRecords(text).map(\.identity)
     }
 
     /// OU= of a certificate subject, as `openssl x509 -subject` prints it.

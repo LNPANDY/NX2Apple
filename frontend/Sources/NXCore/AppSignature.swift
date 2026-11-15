@@ -209,4 +209,44 @@ package enum AppSignature {
         if days == 0 { return String(format: t("dev.expiryToday"), day) }
         return String(format: t("dev.expiry"), day, days)
     }
+
+    /// When a free Apple ID hits the 10-App-ID rolling 7-day cap and all 10 active 7-day App IDs for `team` are cached on this
+    /// Mac, returns the formatted date on which the oldest one expires; nil when fewer than 10 distinct App IDs are present locally.
+    package static func oldestFreeAppIDExpiry(forTeam team: String, lang: Lang = .en, home: String = NSHomeDirectory(),
+                                              now: Date = Date(), runner: ProcessRunner = SystemProcessRunner()) -> String? {
+        guard !team.isEmpty else { return nil }
+        let fm = FileManager.default
+        let nowRef = now.timeIntervalSinceReferenceDate
+        var byAppID: [String: Date] = [:]
+        for dir in profileDirectories(home: home) {
+            guard let names = try? fm.contentsOfDirectory(atPath: dir) else { continue }
+            for name in names where name.hasSuffix(".mobileprovision") || name.hasSuffix(".provisionprofile") {
+                guard let dict = plist(ofProfile: dir + "/" + name, runner: runner),
+                      let teams = dict["TeamIdentifier"] as? [String], teams.contains(team),
+                      let exp = dict["ExpirationDate"] as? Date,
+                      exp.timeIntervalSinceReferenceDate > nowRef,
+                      let entitlements = dict["Entitlements"] as? [String: Any],
+                      let appID = entitlements["application-identifier"] as? String,
+                      !appID.isEmpty, !appID.hasSuffix(".*") else { continue }
+                if let created = dict["CreationDate"] as? Date {
+                    let span = exp.timeIntervalSince(created)
+                    guard span >= 3 * 86_400 && span <= 8 * 86_400 else { continue }
+                }
+                if let existing = byAppID[appID] {
+                    if exp.timeIntervalSinceReferenceDate < existing.timeIntervalSinceReferenceDate { byAppID[appID] = exp }
+                } else {
+                    byAppID[appID] = exp
+                }
+            }
+        }
+        guard byAppID.count >= 10,
+              let oldest = byAppID.values.min(by: { $0.timeIntervalSinceReferenceDate < $1.timeIntervalSinceReferenceDate }) else {
+            return nil
+        }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        formatter.locale = Locale(identifier: lang.code)
+        return formatter.string(from: oldest)
+    }
 }

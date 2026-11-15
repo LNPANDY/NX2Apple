@@ -24,7 +24,7 @@ public struct EngineLaunchPlan: Equatable, Sendable {
     /// (#557), read from `game.appFolder` when it is nil. A key in the game's file wins over the shared file, and the launch
     /// environment (the player's settings, the paths above) wins over both. The game's own `mods/` folder sets
     /// `DM_ROMFS_OVERLAY` (`GameMods`) when the game's env file does not, and it wins over the shared file. The order is: launch
-    /// environment, game env.txt, game mods folder, shared env.txt, framework dm/env.txt.
+    /// environment, game env.txt, shell defaults, game mods folder, shared env.txt, framework dm/env.txt.
     /// The framework file carries build-time defaults such as CPU BC decoding for older GPUs (#719). Automatic `DM_PSO_BUNDLE`
     /// discovery is a fallback after all env files, so an explicit archive path or `off` can override it.
     public static func make(game: LaunchableGame, appResources: URL, documents: URL, envFileText: String?, gameEnvFileText: String? = nil,
@@ -45,9 +45,75 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         env["DM_SAVE"] = save.path
         env["DM_TEMP"] = temp.path
         env["DM_NVN_SHMAP"] = fw.appendingPathComponent(manifest.shaderMap).path
+        func isUsableOverrideDirectory(_ url: URL) -> Bool {
+            guard ExternalShaders.isUsableOverride(at: url, fileManager: fm) else { return false }
+            // An empty folder is accepted as a player test override (EngineLaunchPlanTests:58).
+            let entries = (try? fm.contentsOfDirectory(atPath: url.path))?
+                .filter { !ExternalShaders.isIncompleteEntry($0) && !$0.hasPrefix(".") } ?? []
+            if entries.isEmpty { return true }
+            // If the folder is non-empty, ensure it matches the game's expected chain or graphics API.
+            let expectedChain = manifest.chain
+            let explicitAPI = manifest.gfxAPI.flatMap { $0.isEmpty ? nil : $0 }
+            let expectedAPI: String?
+            if let explicitAPI {
+                expectedAPI = explicitAPI
+            } else if expectedChain.hasPrefix("b-") {
+                expectedAPI = "nvn"
+            } else {
+                expectedAPI = nil
+            }
+            func matchesChainOrAPI(in root: URL) -> Bool {
+                switch expectedAPI {
+                case "vulkan":
+                    return ExternalShaders.hasCompleteTree(at: root.appendingPathComponent("vk", isDirectory: true), fileManager: fm)
+                case "gl":
+                    return ExternalShaders.hasCompleteTree(at: root.appendingPathComponent("gl", isDirectory: true), fileManager: fm)
+                default:
+                    if !expectedChain.isEmpty {
+                        let chainDir = root.appendingPathComponent(expectedChain, isDirectory: true)
+                        let chainImg = root.appendingPathComponent(expectedChain + ".img")
+                        if ExternalShaders.hasCompleteTree(at: chainDir, fileManager: fm) || fm.fileExists(atPath: chainImg.path) {
+                            return true
+                        }
+                        if explicitAPI == nil {
+                            if ExternalShaders.hasCompleteTree(at: root.appendingPathComponent("vk", isDirectory: true), fileManager: fm)
+                                || ExternalShaders.hasCompleteTree(at: root.appendingPathComponent("gl", isDirectory: true), fileManager: fm) {
+                                return true
+                            }
+                        }
+                        return false
+                    }
+                    return true
+                }
+            }
+            if matchesChainOrAPI(in: url) { return true }
+            for name in entries where name.count >= 2 && name.hasPrefix("p") && name.dropFirst().allSatisfy({ $0.isASCII && $0.isNumber }) {
+                let progRoot = url.appendingPathComponent(name, isDirectory: true)
+                if matchesChainOrAPI(in: progRoot) { return true }
+            }
+            return false
+        }
+
         let ownMSL = gdir.appendingPathComponent("msl", isDirectory: true)
-        let bundledMSL = game.shaderResourcesURL ?? fw.appendingPathComponent("msl", isDirectory: true)
-        env["DM_MSL_DIR"] = (isDirectory(ownMSL) ? ownMSL : bundledMSL).path
+        let dataMSL = game.dataURL.appendingPathComponent("msl", isDirectory: true)
+        let fwMSL = fw.appendingPathComponent("msl", isDirectory: true)
+        let resolvedMSL: URL?
+        if game.usesEmbeddedShaderTrailer {
+            resolvedMSL = nil
+        } else if isUsableOverrideDirectory(ownMSL) {
+            resolvedMSL = ownMSL
+        } else if isUsableOverrideDirectory(dataMSL) {
+            resolvedMSL = dataMSL
+        } else if let shaderURL = game.shaderResourcesURL {
+            resolvedMSL = shaderURL
+        } else if isDirectory(fwMSL) {
+            resolvedMSL = fwMSL
+        } else {
+            resolvedMSL = fwMSL
+        }
+        if let resolvedMSL {
+            env["DM_MSL_DIR"] = resolvedMSL.path
+        }
         let ownPSO = gdir.appendingPathComponent("pso", isDirectory: true), fwPSO = fw.appendingPathComponent("pso", isDirectory: true)
         let dataAOC = game.dataURL.appendingPathComponent("aoc", isDirectory: true), ownAOC = gdir.appendingPathComponent("aoc", isDirectory: true)
         if isDirectory(dataAOC) { env["DM_AOC_DIR"] = dataAOC.path } else if isDirectory(ownAOC) { env["DM_AOC_DIR"] = ownAOC.path }
@@ -56,7 +122,7 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         if let cloud = game.cloudSavesURL { env["DM_SAVE_SYNC"] = cloud.path }
         // The shell already showed its own settings, the per-game launcher screen stays out of the way.
         env["DM_LAUNCHER"] = "0"
-        for (key, value) in game.environment { env[key] = value }
+        for (key, value) in game.environment where !game.shellFallbackKeys.contains(key) { env[key] = value }
 
         var fromFile: [String] = []
         let ownText = gameEnvFileText ?? fm.contents(atPath: gdir.appendingPathComponent("env.txt").path).flatMap { String(data: $0, encoding: .utf8) }
@@ -67,6 +133,10 @@ public struct EngineLaunchPlan: Equatable, Sendable {
             }
         }
         apply(ownText)
+        for key in game.shellFallbackKeys where env[key] == nil {
+            if let value = game.environment[key] { env[key] = value }
+        }
+        for (key, value) in game.shellEnvironment where env[key] == nil { env[key] = value }
         if env["DM_ROMFS_OVERLAY"] == nil,
            let overlay = GameMods.overlay(in: gdir.appendingPathComponent("mods", isDirectory: true), titleID: game.titleID, fm) {
             env["DM_ROMFS_OVERLAY"] = overlay

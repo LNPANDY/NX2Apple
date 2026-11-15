@@ -42,7 +42,7 @@ class Decide(unittest.TestCase):
     def test_packaging_files_build(self):
         for f in ('.github/workflows/build-mac-app.yml', 'frontend/Package.swift', 'frontend/Package.resolved', 'frontend/Resources/a.png',
                   'frontend/tools/bundle_tools.sh', 'frontend/AppIcon.icon/icon.json', '.upstream-ref', 'patches/series',
-                  'tools/engine.py', 'frontend-ios/Package.swift'):
+                  'tools/engine.py', 'frontend-ios/Package.swift', 'frontend-ios/Shell/build_shell.sh'):
             self.assertTrue(decide(files=['README.md', f])[0], f)
 
     def test_a_patch_file_alone_does_not_build_but_the_series_does(self):

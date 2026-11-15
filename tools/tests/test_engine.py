@@ -323,6 +323,11 @@ class CheckAndBump(Fixture):
         out = self.tool('check', expect=1)
         self.assertIn('0002-index.patch', out); self.assertIn('generated', out)
 
+    def test_check_rejects_a_patch_that_carries_env_switches_tsv(self):
+        self.add_patch('0002-switches.patch', 'docs/env_switches.tsv', 'DM_X\tdebug\tdm/a.c\tx\n', 'Edit env switches', header='Upstream-Status: fork-only\nReason: r\nIssue: LNPANDY/NX2Apple#1\n')
+        out = self.tool('check', expect=1)
+        self.assertIn('0002-switches.patch', out); self.assertIn('docs/env_switches.tsv', out); self.assertIn('generated', out)
+
     def test_bump_drops_a_patch_upstream_took_and_moves_the_pin(self):
         self.tool('sync')
         up2 = self.up_commit('dm/a.c', 'line1\nline2 fork\nline3\nline4\nline5\nline6\nline7\n', 'upstream takes line 2')
@@ -472,6 +477,12 @@ class StampKey(Fixture):
         self.tool('sync')
         self.assertEqual(qt_engine.stamp_key(self.r), E.stamp_key(self.r))
         self.assertEqual(qt_engine.engine_root(str(self.r)), str(self.eng))
+        (self.r / 'patches/fork_env_switches.tsv').write_text('# name\tclass\twhere\tmeaning\nDM_TEST_SW\tdebug\tdm/a.c\ttest\n')
+        self.assertEqual(qt_engine.stamp_key(self.r), E.stamp_key(self.r))
+        self.assertTrue(qt_engine.is_stale(str(self.r)))
+        self.assertIn('patches/ changed', self.tool('stale', expect=1))
+        self.tool('sync')
+        self.assertFalse(qt_engine.is_stale(str(self.r)))
         self.add_patch('0002-b.patch', 'dm/b.c', 'b1\nb2 fork\n', 'Change b2', header=HEADER.replace('#1', '#2'))
         self.assertTrue(qt_engine.is_stale(str(self.r)))
 

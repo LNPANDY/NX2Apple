@@ -64,3 +64,21 @@ public struct GameProblem: Error, Equatable, Sendable, LocalizedError {
     /// The broken state a tile shows: the short reason, the player's sentence and the technical message.
     public var state: GameState { .broken(reason: reason, detail: cause.message, technical: detail) }
 }
+
+/// Maps known English C launch errors from `ShellMain.m` to localized `ShellHost` catalog strings.
+public func localizeEngineLaunchError(_ raw: String) -> String {
+    switch raw {
+    case "This game was updated while the app was open. Close and reopen the app to load the new build.":
+        return hostText("This game was updated while the app was open. Close and reopen the app to load the new build.")
+    case "A game is already running.":
+        return hostText("A game is already running.")
+    case "The game's start arguments are incomplete.":
+        return hostText("The game's start arguments are incomplete.")
+    case "This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple.":
+        return hostText("This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple.")
+    case "iOS refused the code signature of this game's framework. Install the game again from NX2Apple.":
+        return hostText("iOS refused the code signature of this game's framework. Install the game again from NX2Apple.")
+    default:
+        return raw
+    }
+}

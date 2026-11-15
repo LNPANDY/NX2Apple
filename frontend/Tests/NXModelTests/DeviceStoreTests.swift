@@ -70,7 +70,89 @@ import XCTest
         let none = makeStore(teams: [])
         none.signingTeam = freeTeam.id
         await none.refresh().value
-        XCTAssertEqual(none.signingTeam, "", "no team at all clears it")
+        XCTAssertEqual(none.signingTeam, freeTeam.id, "an empty keychain keeps a valid saved team ID")
+    }
+
+    func testTransientEmptyTeamsPreservesValidSavedTeamAcrossUnlockAndClearsMalformedValue() async {
+        let store = makeStore(teams: [])
+        store.signingTeam = freeTeam.id
+
+        // Keychain temporarily empty or locked: valid 10-char team ID stays both in memory and in UserDefaults.
+        await store.refresh().value
+        XCTAssertEqual(store.teams, [])
+        XCTAssertEqual(store.signingTeam, freeTeam.id)
+        XCTAssertEqual(defaults.string(forKey: DeviceStore.teamKey), freeTeam.id)
+
+        // Keychain unlocks and returns [laptopTeam, freeTeam]: player's chosen freeTeam stays instead of resetting to laptopTeam.
+        let expectedTeams = [laptopTeam, freeTeam]
+        store.readTeams = { expectedTeams }
+        await store.refresh().value
+        XCTAssertEqual(store.teams, expectedTeams)
+        XCTAssertEqual(store.signingTeam, freeTeam.id)
+        XCTAssertEqual(defaults.string(forKey: DeviceStore.teamKey), freeTeam.id)
+
+        // Malformed dirty data is cleared when teams is empty.
+        store.readTeams = { [] }
+        store.signingTeam = "dirty-invalid-team"
+        await store.refresh().value
+        XCTAssertEqual(store.signingTeam, "")
+        XCTAssertEqual(defaults.string(forKey: DeviceStore.teamKey), "")
+    }
+
+    func testConcurrentRefreshDropsStaleOlderGenerationResults() async {
+        let oldPhone = AppleDevice(id: "OLD-UDID", name: "Old Phone", model: "iPhone 15", os: "26.0", reachable: true, transport: "wired")
+        let newPhone = AppleDevice(id: "NEW-UDID", name: "New Phone", model: "iPhone 17", os: "27.0", reachable: true, transport: "wired")
+
+        final class SlowGate: @unchecked Sendable {
+            let lock = NSLock()
+            var calls = 0
+            let entered = DispatchSemaphore(value: 0)
+            let release = DispatchSemaphore(value: 0)
+            func nextCall() -> Int {
+                lock.lock()
+                defer { lock.unlock() }
+                calls += 1
+                return calls
+            }
+        }
+        let gate = SlowGate()
+        let firstTeam = laptopTeam
+        let secondTeam = freeTeam
+
+        let store = DeviceStore(
+            runner: runner,
+            xcrun: "/fake/xcrun",
+            defaults: defaults,
+            listDevices: { _ in
+                if gate.nextCall() == 1 {
+                    gate.entered.signal()
+                    gate.release.wait()
+                    return [oldPhone]
+                }
+                return [newPhone]
+            },
+            readTeams: {
+                [secondTeam, firstTeam]
+            }
+        )
+        store.signingTeam = firstTeam.id
+
+        let slowTask = store.refresh()
+        let waited = await Task.detached { gate.entered.wait(timeout: .now() + 5) }.value
+        XCTAssertEqual(waited, .success)
+
+        store.readTeams = { [secondTeam] }
+        let fastTask = store.refresh()
+        await fastTask.value
+        XCTAssertEqual(store.devices, [newPhone])
+        XCTAssertEqual(store.teams, [secondTeam])
+        XCTAssertEqual(store.signingTeam, secondTeam.id)
+
+        gate.release.signal()
+        await slowTask.value
+        XCTAssertEqual(store.devices, [newPhone], "stale refresh must not overwrite newer device list")
+        XCTAssertEqual(store.teams, [secondTeam], "stale refresh must not overwrite newer team list")
+        XCTAssertEqual(store.signingTeam, secondTeam.id)
     }
 
     func testTheChosenDeviceAndTeamAreSavedAndComeBack() {

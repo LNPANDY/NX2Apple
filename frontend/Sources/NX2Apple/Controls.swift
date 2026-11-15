@@ -41,9 +41,6 @@ final class ControlLayout: ObservableObject {
     /// change, so it stays out of `isDefault`, `changeCount` and the Controls sheet's reset.
     @Published var padMerge: Bool { didSet { defaults?.set(padMerge, forKey: Self.padMergeKey) } }
     static let padMergeKey = "padMerge"
-    /// "Split Joy-Con pair into two controllers" (launcher setting, off by default): passed at Play as DM_JOYCON_SPLIT=1 (#740).
-    @Published var joyconSplit: Bool { didSet { defaults?.set(joyconSplit, forKey: Self.joyconSplitKey) } }
-    static let joyconSplitKey = "joyconSplit"
     private let defaults: UserDefaults?
     private let persist: ((String, String?) -> Void)?
     /// A key code, -1 for no key. `mode` is nil in settings saved before the layouts, which had only the custom buttons.
@@ -53,7 +50,6 @@ final class ControlLayout: ObservableObject {
         self.defaults = defaults
         self.persist = nil
         padMerge = defaults.bool(forKey: Self.padMergeKey)
-        joyconSplit = defaults.bool(forKey: Self.joyconSplitKey)
         if let data = defaults.data(forKey: "controlLayout"), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
             keys = saved.keys.filter { k, code in Self.functions.contains { $0.id == k } && code < 128 }.mapValues { $0 < 0 ? nil : $0 }
             pad = saved.pad.filter { b, to in Self.buttons.contains(b) && (to == "none" || Self.buttons.contains(to)) }
@@ -66,7 +62,6 @@ final class ControlLayout: ObservableObject {
         defaults = nil
         self.persist = persist
         padMerge = false
-        joyconSplit = false
         load(keyMap: keyMap, padMap: padMap)
     }
 
@@ -134,7 +129,6 @@ final class ControlLayout: ObservableObject {
     var environment: [String: String] {
         var env: [String: String] = [:]
         if padMerge { env["DM_PAD_MERGE"] = "1" }
-        if joyconSplit { env["DM_JOYCON_SPLIT"] = "1" }
         let k = Self.functions.compactMap { f in keys[f.id].map { "\(f.id)=\($0.map(String.init) ?? "none")" } }
         if !k.isEmpty { env["DM_KEYMAP"] = k.joined(separator: ",") }
         let active = activePad

@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import NX2Apple
 @testable import NXCore
 
@@ -51,6 +52,52 @@ import XCTest
         XCTAssertNil(ConsoleHome.move(from: "p1", dx: 0, dy: -1, in: sections), "up from the first row leaves the rows (the top bar)")
         XCTAssertNil(ConsoleHome.move(from: "n1", dx: 0, dy: 1, in: sections), "down from the last row leaves them (the hints)")
         XCTAssertNil(ConsoleHome.move(from: "gone", dx: 1, dy: 0, in: sections))
+    }
+
+    func testPointerSelectsBeforeOpeningAndControllerActivationStillOpens() {
+        var focused = "a", opened: [String] = []
+        func tap(_ id: String) {
+            ConsoleHomePointerInput.tapTile(id, focused: focused, focus: { focused = id }, open: { opened.append(id) })
+        }
+        tap("b")
+        XCTAssertEqual(focused, "b")
+        XCTAssertTrue(opened.isEmpty)
+        tap("b")
+        XCTAssertEqual(opened, ["b"])
+        tap("c")
+        XCTAssertEqual(focused, "c")
+        XCTAssertEqual(opened, ["b"])
+    }
+
+    func testWheelAndDragMoveOneHomeRowAtATime() {
+        let sections = [ConsoleHomeSection(row: .continuePlaying, gameIDs: ["a"]),
+                        ConsoleHomeSection(row: .ready, gameIDs: ["b"]),
+                        ConsoleHomeSection(row: .attention, gameIDs: ["c"])]
+        var focused = "a", wheel = ConsoleHomePointerInput()
+        func move(_ step: Int?) {
+            if let step, let next = ConsoleHome.move(from: focused, dx: 0, dy: step, in: sections) { focused = next }
+        }
+        move(wheel.wheel(deltaY: -1, phase: .began))
+        XCTAssertEqual(focused, "a", "small trackpad deltas accumulate")
+        move(wheel.wheel(deltaY: -19, phase: .changed))
+        XCTAssertEqual(focused, "b")
+        move(wheel.wheel(deltaY: -100, phase: .changed))
+        XCTAssertEqual(focused, "b", "one trackpad gesture changes one row")
+        move(wheel.wheel(deltaY: -50, phase: .ended))
+        move(wheel.wheel(deltaY: -80, momentum: true))
+        XCTAssertEqual(focused, "b", "momentum does not move another row")
+        move(wheel.wheel(deltaY: -1))
+        XCTAssertEqual(focused, "c", "one wheel notch changes one row")
+        move(wheel.wheel(deltaY: -1))
+        XCTAssertEqual(focused, "c", "the last row stops")
+        move(ConsoleHomePointerInput.drag(CGSize(width: 2, height: 60)))
+        XCTAssertEqual(focused, "b")
+        move(ConsoleHomePointerInput.drag(CGSize(width: 0, height: 60)))
+        XCTAssertEqual(focused, "a")
+        XCTAssertNil(ConsoleHomePointerInput.drag(CGSize(width: 60, height: 5)), "horizontal row scrolling stays horizontal")
+        XCTAssertNil(ConsoleHomePointerInput.drag(CGSize(width: 1, height: 10)))
+        move(wheel.wheel(deltaY: -40, deltaX: 50))
+        XCTAssertEqual(focused, "a", "horizontal wheel input stays in the tile row")
     }
 
     // MARK: All games and a game's page

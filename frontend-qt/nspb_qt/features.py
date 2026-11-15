@@ -624,7 +624,8 @@ class Diagnostics:
         for d in deps:
             state = 'OK' if getattr(d, 'ok', False) else ('Optional' if not getattr(d, 'required', True) else 'MISSING')
             detail = Diagnostics.redact(str(getattr(d, 'detail', '')))
-            lines.append(f'- {getattr(d, "name", "")}: [{state}] {detail}')
+            name = getattr(d, 'name', None) or getattr(d, 'id', '')   # a model.Dep has an id, no name (#1183)
+            lines.append(f'- {name}: [{state}] {detail}')
 
         if last_log.strip():
             tail = last_log.strip().splitlines()[-50:]

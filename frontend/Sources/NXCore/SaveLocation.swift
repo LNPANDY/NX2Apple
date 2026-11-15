@@ -95,7 +95,7 @@ package enum SaveLocations {
     /// `DM_SAVE_SYNC` is only written when the global setup or an override decides, never over a setting the game made for itself.
     package static func environment(save: EffectiveSave, cloud: EffectiveCloud) -> [String: String] {
         var env: [String: String] = [:]
-        if [.game, .global, .fallback].contains(save.source) { env["DM_SAVE"] = save.path.path }
+        if [.game, .global, .libraryFolder, .fallback].contains(save.source) { env["DM_SAVE"] = save.path.path }
         if cloud.source == .global { env[CloudSaveSync.key] = cloud.folder ?? "0" }
         else if cloud.source == .game { env[CloudSaveSync.key] = cloud.folder ?? "0" }
         return env

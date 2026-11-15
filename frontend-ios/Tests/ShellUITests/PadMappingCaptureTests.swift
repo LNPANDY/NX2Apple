@@ -13,7 +13,10 @@ final class PadMappingCaptureTests: XCTestCase {
 
     // The language is set before a test builds its rows, so every text of a capture is in it, whatever the Mac's language is.
     override func setUp() async throws {
-        guard ProcessInfo.processInfo.environment["NX_SHELL_CAPTURE_DIR"] != nil else { throw XCTSkip("Set NX_SHELL_CAPTURE_DIR to capture the shell") }
+        guard ProcessInfo.processInfo.environment["NX_SHELL_CAPTURE_DIR"] != nil
+                || ProcessInfo.processInfo.environment["NX_V150_CONTROLLERS_AFTER_DIR"] != nil else {
+            throw XCTSkip("Set NX_SHELL_CAPTURE_DIR to capture the shell")
+        }
         if let path = ShellStrings.bundle.path(forResource: lang == "zh" ? "zh-Hans" : lang, ofType: "lproj") {
             ShellStrings.captureBundle = Bundle(path: path)
         }
@@ -120,6 +123,41 @@ final class PadMappingCaptureTests: XCTestCase {
         let held = PadSnapshot(name: "Xbox Wireless Controller", pressed: [.a, .leftBumper, .up], leftStick: CGPoint(x: 0.6, y: 0.5),
                                rightTrigger: 0.7)
         try capture("pad-test", width: 700, ButtonTestView(snapshot: held, close: {}).padding(16).background(Color.black.opacity(0.7)))
+    }
+
+    func testCaptureControllersAfterMultiLang() throws {
+        guard let dir = ProcessInfo.processInfo.environment["NX_V150_CONTROLLERS_AFTER_DIR"] else {
+            throw XCTSkip("Set NX_V150_CONTROLLERS_AFTER_DIR to capture multi-language ControllersView after screenshots")
+        }
+        let pads = [ControllerInfo(id: "1", name: "Xbox Wireless Controller", player: "Player 1", batteryPercent: 80)]
+        NSApplication.shared.setActivationPolicy(.accessory)
+        defer { ShellStrings.captureBundle = nil }
+        for code in ["en", "zh", "ja"] {
+            ShellStrings.captureBundle = nil
+            let lproj = code == "zh" ? "zh-Hans" : code
+            if let path = ShellStrings.bundle.path(forResource: lproj, ofType: "lproj") {
+                ShellStrings.captureBundle = Bundle(path: path)
+            }
+            let view = ControllersView(controllers: pads, padMap: global, canOpenHomeButtonSettings: true)
+                .frame(width: 402, height: 1180)
+                .background(ShellPalette.background)
+                .environment(\.colorScheme, .dark)
+            let host = NSHostingView(rootView: view)
+            host.frame = NSRect(origin: .zero, size: CGSize(width: 402, height: 1180))
+            let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -100_000, y: -100_000), size: host.frame.size),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            window.orderFront(nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.35))
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let file = URL(fileURLWithPath: dir).appendingPathComponent("ios-controllers-after-\(code).png")
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: file)
+            window.orderOut(nil)
+            window.contentView = nil
+        }
     }
 }
 #endif

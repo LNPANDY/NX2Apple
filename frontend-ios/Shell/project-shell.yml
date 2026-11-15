@@ -1,0 +1,104 @@
+# Route C shell project (notes/launcher-c-plan.md M2/M3): one app that hosts every game the player added, each game's
+# code, host and per-game files in its own framework (build_ipa.sh DM_FRAMEWORK_ONLY), the library and settings from the frontend-ios Swift
+# package. frontend-ios/Shell/build_shell.sh copies this template to the shell's project folder, puts the frameworks in at the FRAMEWORKS line and
+# runs xcodegen there. The one-game projects in the engine (project.yml, project-framework.yml) are untouched.
+# Because each game framework links its own dm/host and front_ios.m, DmShell itself links no engine C code and lives alongside the
+# frontend-ios Swift package (DM_SHELL_PACKAGE), independent of engine patches.
+name: DmShell
+options:
+  bundleIdPrefix: ${DM_BUNDLE_ID}
+  deploymentTarget:
+    iOS: "26.0"
+configFiles:     # build_shell.sh: the host's header paths, defines and frameworks from dm/host/Makefile (gen_build.py)
+  Release: Gen/dm.xcconfig
+  Debug: Gen/dm.xcconfig
+packages:
+  ShellUI:
+    path: ${DM_SHELL_PACKAGE}
+targets:
+  DmShell:
+    type: application
+    platform: iOS
+    sources:
+      - path: Shell           # the shell's main, its scene, the library and the real GameLauncher (frontend-ios/Shell/App)
+      - path: Gen/dm          # the host's shared files (dm/font for DM_FONT_DIR); every game's host and tables live in its framework
+        type: folder
+        buildPhase: resources
+      - path: Gen/Assets.xcassets
+      - path: ${DM_SHELL_PACKAGE}/AppIcon.icon   # the app icon, an Icon Composer document, shared with the demo app
+    dependencies:
+      - package: ShellUI
+        product: ShellUI
+      - package: ShellUI
+        product: ShellControllers
+      - package: ShellUI
+        product: ShellHost
+      # @FRAMEWORKS@ (build_shell.sh: one "- framework: <path>" entry per game, embedded and signed with the app, not linked: the shell dlopens the chosen one)
+    info:
+      path: Gen/Info.plist
+      properties:
+        CFBundleDisplayName: ${DM_SHELL_NAME}
+        CFBundleLocalizations: [en, de, es, fr, it, ja, ko, pt-BR, sv, zh-Hans]   # one per file of frontend/l10n (tools/l10n_shell_catalogs.py), iOS offers only the declared ones to the package bundles
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        UILaunchScreen: {}
+        UIFileSharingEnabled: true          # Documents (log.txt, shell-log.txt, games/<id>/) visible in the Files app
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportedInterfaceOrientations:   # the library turns, the game view asks for landscape (front_ios.m, dm_shell_present_game)
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationLandscapeLeft
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationLandscapeLeft
+        UIUserInterfaceStyle: Dark
+        LSApplicationCategoryType: public.app-category.games
+        DMShowFPS: false
+        LSSupportsGameMode: true
+        GCSupportsControllerUserInteraction: true
+        GCSupportedGameControllers:
+          - ProfileName: ExtendedGamepad
+        CADisableMinimumFrameDurationOnPhone: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: SceneDelegate
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: ${DM_BUNDLE_ID}
+      PRODUCT_NAME: DmShell
+      PRODUCT_MODULE_NAME: DmShell   # ShellMain.m imports DmShell-Swift.h
+      MARKETING_VERSION: ${DM_APP_VERSION}
+      CURRENT_PROJECT_VERSION: ${DM_APP_VERSION}
+      DEVELOPMENT_TEAM: ${DM_TEAM_ID}
+      CODE_SIGN_STYLE: Automatic
+      ENABLE_USER_SCRIPT_SANDBOXING: NO
+      # No SYMROOT / OBJROOT of its own (project.yml has them): Swift packages need Xcode's own build locations. Products go to the
+      # derived data xcodebuild is given (-derivedDataPath; build_shell.sh, the Mac launcher)
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      TARGETED_DEVICE_FAMILY: "1,2"
+      ENABLE_BITCODE: NO
+      STRIP_BITCODE_FROM_COPIED_FILES: NO   # the embed phase would run bitcode_strip on every Mach-O file in a framework, the pipeline archive's GPU binaries (pso/*.mtl4a) too, and fail
+      GCC_C_LANGUAGE_STANDARD: gnu11
+      OTHER_CFLAGS: $(inherited) -mcpu=apple-a18   # the host assembly's LSE atomics, as in project.yml
+      LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/Frameworks
+      CLANG_ENABLE_OBJC_ARC: YES
+      CLANG_ENABLE_MODULES: YES
+      SWIFT_VERSION: "5.0"
+      SWIFT_OBJC_BRIDGING_HEADER: Shell/Shell-Bridging-Header.h
+      DEBUG_INFORMATION_FORMAT: dwarf
+      GCC_WARN_INHIBIT_ALL_WARNINGS: YES
+schemes:
+  DmShell:
+    build:
+      targets:
+        DmShell: all
+    run:
+      config: Release
+    profile:
+      config: Release
+    archive:
+      config: Release

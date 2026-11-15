@@ -11,7 +11,11 @@ struct FilesCard: View {
     @ObservedObject var build: BuildStore
     @EnvironmentObject var loc: Localizer
     @Binding var extrasOpen: Bool   // the optional input rows, kept by the page so they stay as they were when it is left and back
-    @State private var keyCheck: KeyCheck.Outcome?   // prod.keys against the chosen files (KeyCheck.swift)
+    @State private var keyCheck: KeyCheck.DetailedOutcome?   // prod.keys against the chosen files (KeyCheck.swift)
+
+    private var currentKeyInputs: KeyCheck.Inputs {
+        KeyCheck.Inputs(keys: build.keysPath, files: [build.basePath, build.updatePath] + build.dlcPaths)
+    }
 
     var body: some View {
         // The report's own mistake, and a reasonable one: the output folder silently decides where
@@ -29,21 +33,49 @@ struct FilesCard: View {
             }
             .buttonStyle(.plain)
             ForEach(build.slots.filter { !$0.optional }, id: \.id) { s in
-                CardDivider(); slotRow(s)
-                if s.id == "keys", build.gameFolder == nil, let keyCheck { KeyCheckLine(outcome: keyCheck, t: loc.t) }
+                CardDivider()
+                slotRow(s)
+                if s.id == "keys", build.gameFolder == nil, let keyCheck {
+                    KeyCheckLine(outcome: keyCheck.outcome, detailed: keyCheck, t: loc.t)
+                }
             }
             CardDivider()
             CardDisclosure(loc.t("build.options"), isOpen: extrasOpen) { extrasOpen.toggle() }
             if extrasOpen {
-                ForEach(build.slots.filter(\.optional), id: \.id) { s in CardDivider(); slotRow(s) }
+                ForEach(build.slots.filter(\.optional), id: \.id) { s in
+                    CardDivider()
+                    slotRow(s)
+                }
             }
             CardDivider()
             CardRow(loc.t("build.saveTo"), detail: build.outDir.isEmpty ? loc.t("build.saveDefault") : build.shortPath(build.outDir), help: build.outDir) {
                 Button(loc.t("data.change")) { build.chooseBuildFolder() }
             }
         }
-        .task(id: KeyCheck.Inputs(keys: build.keysPath, files: [build.basePath, build.updatePath] + build.dlcPaths)) {
-            keyCheck = await KeyCheck.runDetached(KeyCheck.Inputs(keys: build.keysPath, files: [build.basePath, build.updatePath] + build.dlcPaths))
+        .task(id: currentKeyInputs) {
+            let inputs = currentKeyInputs
+            let generation = build.keyCheckGeneration
+            guard build.gameFolder == nil, !inputs.keys.isEmpty, inputs.files.first.map({ !$0.isEmpty }) == true else {
+                keyCheck = nil
+                build.keyProblem = nil
+                return
+            }
+            let checked = await KeyCheck.runDetailedDetached(inputs)
+            guard !Task.isCancelled,
+                  build.keyCheckGeneration == generation,
+                  build.gameFolder == nil,
+                  currentKeyInputs == inputs else { return }
+            keyCheck = checked
+            if let checked, KeyCheck.blocksBuild(checked) {
+                build.keyProblem = KeyCheck.detailedMessage(checked, loc.t)
+            } else {
+                build.keyProblem = nil
+            }
+        }
+        .onChange(of: loc.lang) { _ in
+            if let keyCheck, KeyCheck.blocksBuild(keyCheck) {
+                build.keyProblem = KeyCheck.detailedMessage(keyCheck, loc.t)
+            }
         }
         .disabled(build.running)
     }

@@ -22,7 +22,7 @@ enum SaveDiscovery {
     }
 
     /// The installed app that is this game, best match first: the bundle ID this launcher recorded, the launcher's own
-    /// (`org.nxnative.<title ID>`), any bundle ID with the title ID in it (a team suffix, a re-signer's prefix), then the
+    /// (`org.nxnative.<title ID>`), any bundle ID with the title ID in it (a team suffix like `org.nxnative.<title ID>.<team>`, a re-signer's prefix), then the
     /// app's display name against the game's name or its title ID. Of equal matches the first by bundle ID wins, so the
     /// answer does not change between refreshes.
     static func match(_ apps: [InstalledApp], titleID: String, name: String, recordedBundle: String?) -> InstalledApp? {

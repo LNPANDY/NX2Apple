@@ -13,7 +13,7 @@ public struct LaunchableGame: Equatable, Sendable {
     /// The folder with the game's data (romfs.img or romfs/), picked or the app's own.
     public var dataURL: URL
     /// The exact RomFS image or tree selected by the data locator.
-    var romfsURL: URL? = nil
+    public var romfsURL: URL? = nil
     /// The app's `Documents/games/<title ID>/`: save, temp, log.txt.
     public var appFolder: URL
     /// The exported framework's shaders, unpacked for this launch when the player has no override.
@@ -22,6 +22,19 @@ public struct LaunchableGame: Equatable, Sendable {
     public var environment: [String: String]
     /// The picked cloud-save folder, when cloud saves are on.
     public var cloudSavesURL: URL?
+    /// Shell-level fallback defaults applied after per-game `env.txt` and before the shared `env.txt`.
+    public var shellEnvironment: [String: String] = [:]
+    /// Keys in `environment` that came only from shell defaults because the game made no choice of its own.
+    var shellFallbackKeys: Set<String> = []
+    /// True when the engine mounts shaders directly from the `DMMSLTR1` trailer in `romfsURL`.
+    public var usesEmbeddedShaderTrailer: Bool = false
+    /// Fallback bundled same-chain framework URL for reading legacy `msl/` or unpacking `msl-*.aar`.
+    public var fallbackBundledFrameworkURL: URL? = nil
+
+    public var fallbackShaderArchiveFrameworkURL: URL? {
+        get { fallbackBundledFrameworkURL }
+        set { fallbackBundledFrameworkURL = newValue }
+    }
 }
 
 /// The seam between the shell and the engine. The shell calls `launch` when the player presses Play on a playable game.

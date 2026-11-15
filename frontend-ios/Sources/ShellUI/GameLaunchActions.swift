@@ -35,7 +35,8 @@ struct GameLaunchActions: View {
         } action: { divisionInsets = $0 }
     }
     private func buttons(in namespace: Namespace.ID) -> some View {
-        HStack(spacing: 12) {
+        let joining = game.state.isJoining
+        return HStack(spacing: 12) {
             Button(action: primary) {
                 Label(game.state.actionTitle, systemImage: game.state.actionSymbol)
                     .contentTransition(.opacity)
@@ -46,12 +47,13 @@ struct GameLaunchActions: View {
             .buttonStyle(.glassProminent)
             .tint(ShellPalette.cream)
             .controlSize(.large)
+            .disabled(joining)
             .glassEffectID("primary", in: namespace)
             .glassEffectTransition(reduceMotion ? .identity : .matchedGeometry)
             .accessibilityLabel(game.state.actionTitle + ", " + game.title)
             .accessibilityIdentifier("state.action")
-            .shellTarget(focusPrefix + "play", radius: ShellFocusTarget.capsule, action: primary)
-            if game.state == .playable, let settings {
+            .shellTarget(focusPrefix + "play", enabled: !joining, radius: ShellFocusTarget.capsule, action: primary)
+            if (game.state == .playable || joining), let settings {
                 Button(action: settings) {
                     Label(ShellStrings.text("Game settings"), systemImage: "slider.horizontal.3")
                         .labelStyle(.iconOnly)

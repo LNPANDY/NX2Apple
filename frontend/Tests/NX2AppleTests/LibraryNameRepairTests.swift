@@ -57,4 +57,29 @@ final class LibraryNameRepairTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(library.games.first { $0.titleID == "0100000000003000" }?.name, "Some Game")
         XCTAssertEqual(library.games.first { $0.titleID == "0100000000004000" }?.name, "Other Game")
     }
+
+    func testBareSwitch2AndSwitch1DumpFilenamesUseTheParentFolderName() throws {
+        XCTAssertEqual(LibraryGame.cleanedName("0400000000005000_v0_420d1c5034ab"), "0400000000005000")
+        XCTAssertEqual(LibraryGame.cleanedName("0100000000006000_v0_420d1c5034ab"), "0100000000006000")
+        XCTAssertEqual(LibraryGame.cleanedName("Mario Kart World 0400000000005000_v0_420d1c5034ab"), "Mario Kart World")
+
+        let root = directory.appendingPathComponent("switch2-games")
+        let sw2Folder = root.appendingPathComponent("Mario Kart World")
+        let sw1Folder = root.appendingPathComponent("Astral Chain")
+        try FileManager.default.createDirectory(at: sw2Folder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sw1Folder, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: sw2Folder.appendingPathComponent("0400000000005000_v0_420d1c5034ab.nsp"))
+        try Data([1, 2, 3]).write(to: sw1Folder.appendingPathComponent("0100000000006000_v0_420d1c5034ab.nsp"))
+
+        let library = GameLibrary(file: directory.appendingPathComponent("library-sw2.json"))
+        library.applicationFolders = []
+        scan(library) { library.setFolder(root) }
+
+        let sw2 = try XCTUnwrap(library.games.first { $0.titleID == "0400000000005000" })
+        XCTAssertEqual(sw2.name, "Mario Kart World")
+        XCTAssertEqual(sw2.displayName(.en), "Mario Kart World")
+        let sw1 = try XCTUnwrap(library.games.first { $0.titleID == "0100000000006000" })
+        XCTAssertEqual(sw1.name, "Astral Chain")
+        XCTAssertEqual(sw1.displayName(.en), "Astral Chain")
+    }
 }

@@ -68,13 +68,22 @@ import Testing
     @Test func aFolderThePlayerPickedIsNotTouched() async throws {
         let box = try Sandbox()
         let picked = box.root.appendingPathComponent("Picked/Orbit", isDirectory: true)
+        let cloud = box.root.appendingPathComponent("Picked/CloudSaves", isDirectory: true)
         try box.write("", to: picked.appendingPathComponent("romfs/fixture.marker"))
-        let model = ShellHostModel(config: box.config(), picker: FakePicker(url: picked))
+        try box.write("save", to: cloud.appendingPathComponent("slot0.bin"))
+        let picker = MutablePicker(picked)
+        let model = ShellHostModel(config: box.config(), picker: picker)
         await model.pickGameDataNow(Fixtures.orbit)
+        picker.url = cloud
+        await model.pickCloudSavesNow(Fixtures.orbit)
         #expect(try #require(model.details.first { $0.id == Fixtures.orbit }).game.state == .playable)
+        #expect(box.defaults(Fixtures.orbit).data(forKey: BookmarkStore.gameDataKey) != nil)
+        #expect(box.defaults(Fixtures.orbit).data(forKey: BookmarkStore.cloudSavesKey) != nil)
         model.deleteGame(Fixtures.orbit, saves: true)
         #expect(FileManager.default.fileExists(atPath: picked.appendingPathComponent("romfs/fixture.marker").path))
-        #expect(box.defaults(Fixtures.orbit).data(forKey: BookmarkStore.gameDataKey) == nil, "the pick is forgotten")
+        #expect(FileManager.default.fileExists(atPath: cloud.appendingPathComponent("slot0.bin").path))
+        #expect(box.defaults(Fixtures.orbit).data(forKey: BookmarkStore.gameDataKey) == nil, "the data pick is forgotten")
+        #expect(box.defaults(Fixtures.orbit).data(forKey: BookmarkStore.cloudSavesKey) == nil, "the cloud-saves pick is forgotten too")
         #expect(!listed(model))
     }
 

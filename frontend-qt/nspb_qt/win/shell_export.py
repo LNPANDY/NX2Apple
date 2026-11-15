@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -29,6 +30,8 @@ SCHEME = 'DmShell'
 DEFAULT_BUNDLE_ID = 'org.nxnative.shell'
 DISCARD_PREFIX = '.discarded-'
 SHELL_ENTITLEMENTS = {'com.apple.developer.kernel.increased-memory-limit': True}
+ZIP32_ENTRY_LIMIT = 0xFFFF - 2  # 65,533: reserves _CodeSignature/ and CodeResources for sideloaders
+_IGNORED_META_FILES = frozenset({'.titleid', '.packstamp'})
 
 
 @dataclass
@@ -118,6 +121,117 @@ def ipa_path(root: str | os.PathLike) -> Path:
 
 def export_stage(root: str | os.PathLike) -> Path:
     return export_folder(root) / 'stage'
+
+
+def externalized_titles(_root: str | os.PathLike) -> set[str]:
+    """Compatibility stub: shell frameworks no longer embed or externalize `msl/` ledgers."""
+    return set()
+
+
+def _is_candidate_romfs_img_name(name: str) -> bool:
+    if not name or name.startswith('.') or name in _IGNORED_META_FILES:
+        return False
+    low = name.lower()
+    if not low.endswith('.img'):
+        return False
+    if '.nxpart' in low:
+        return False
+    return True
+
+
+def primary_romfs_image(archive_dir: str | os.PathLike) -> Path | None:
+    """Locate the primary RomFS `.img` inside `archive_dir`.
+
+    Prefers `<FolderName>.img`, then `romfs.img` (case-insensitive), then a sole
+    top-level non-hidden `*.img`, ignoring `.titleid`, `.packstamp`, `*.id`, and `*.nxpart*`.
+    """
+    d = Path(archive_dir)
+    if not d.is_dir():
+        return None
+    try:
+        top_imgs = sorted(
+            (
+                p for p in d.iterdir()
+                if p.is_file() and _is_candidate_romfs_img_name(p.name)
+            ),
+            key=lambda p: p.name,
+        )
+    except OSError:
+        return None
+    if not top_imgs:
+        return None
+
+    folder_img = f'{d.name}.img'
+    for p in top_imgs:
+        if p.name == folder_img:
+            return p
+    folder_img_low = folder_img.lower()
+    for p in top_imgs:
+        if p.name.lower() == folder_img_low:
+            return p
+
+    for p in top_imgs:
+        if p.name == 'romfs.img':
+            return p
+    for p in top_imgs:
+        if p.name.lower() == 'romfs.img':
+            return p
+
+    if len(top_imgs) == 1:
+        return top_imgs[0]
+    return None
+
+
+def collect_archive_transfer_files(archive_dir: str | os.PathLike) -> dict[str, Path]:
+    """Return `{rel_posix: abs_path}` for transferable game data in `archive_dir` (primary `.img` + `aoc/**`)."""
+    d = Path(archive_dir)
+    if not d.is_dir():
+        return {}
+    out: dict[str, Path] = {}
+    img = primary_romfs_image(d)
+    if img is not None:
+        out[img.name] = img
+    aoc_dir = d / 'aoc'
+    if aoc_dir.is_dir():
+        for dirpath, dirnames, filenames in os.walk(aoc_dir):
+            dirnames[:] = sorted(
+                dn for dn in dirnames
+                if not dn.startswith('.') and dn not in _IGNORED_META_FILES
+            )
+            for fname in sorted(filenames):
+                if fname.startswith('.') or fname in _IGNORED_META_FILES:
+                    continue
+                low = fname.lower()
+                if low.endswith(('.part', '.partial')) or '.nxpart' in low:
+                    continue
+                fp = Path(dirpath) / fname
+                if fp.is_file():
+                    rel = fp.relative_to(d).as_posix()
+                    out[rel] = fp
+    return out
+
+
+def find_stale_frameworks(root: str | os.PathLike, repo: str | os.PathLike) -> list[ShellGame]:
+    """Return built games in `root` whose `game.manifest.json` chain differs from `repo`'s `DMSH_CHAIN`."""
+    expected_chain = _dm_chain(Path(repo))
+    if not expected_chain:
+        return []
+    library = ShellLibrary.load(root)
+    library.drop_missing()
+    stale: list[ShellGame] = []
+    for g in library.games:
+        mp = Path(g.framework) / 'game.manifest.json'
+        if not mp.is_file():
+            continue
+        try:
+            data = json.loads(mp.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            chain = str(data.get('chain') or '').strip()
+            if chain and chain != expected_chain:
+                stale.append(g)
+    return stale
 
 
 def frameworks_mirror(root: str | os.PathLike) -> Path:
@@ -463,61 +577,108 @@ def _cleanup_tmp_sidecars(tmp_ipa: Path) -> None:
             pass
 
 
-def export_shell(
+def _count_tree_entries(root: Path, cap: int) -> int:
+    """Count `root` plus its descendants, stopping once `cap` is exceeded."""
+    if not root.exists():
+        return 0
+    total = 1
+    if not root.is_dir():
+        return total
+    for _dirpath, dirnames, filenames in os.walk(root):
+        total += len(dirnames) + len(filenames)
+        if total > cap:
+            return total
+    return total
+
+
+def _estimate_ipa_entries(staged_app: Path, fw_paths: list[Path], limit: int) -> int:
+    """Estimate total ZIP entries for `Payload/`, `DmShell.app`, and mapped frameworks."""
+    cap = limit + 1
+    # 1 for Payload/, plus DmShell.app tree, plus Frameworks/ container when frameworks exist.
+    total = 1 + _count_tree_entries(staged_app, cap)
+    if fw_paths and not (staged_app / 'Frameworks').exists():
+        total += 1
+    for fw in fw_paths:
+        if total > cap:
+            return total
+        total += _count_tree_entries(fw, cap - total + 1)
+    return total
+
+
+def _pack_loose_shader_dirs(
+    fw_paths: list[Path],
     *,
-    root: str | os.PathLike,
-    repo: str | os.PathLike,
-    framework: str | os.PathLike,
-    title_id: str,
-    name: str,
-    python_exe: str = '',
-    banners_dir: str | os.PathLike | None = None,
-    picked_artwork: str | None = None,
-    t_func: Callable[..., str] | None = None,
-    log: Callable[[str], None] = lambda _: None,
-    stage_cb: Callable[[str, str], None] | None = None,
+    stage_dir: Path,
+    repo_p: Path,
+    py_exe: str,
+    log: Callable[[str], None],
+) -> list[Path]:
+    """Pack legacy loose `msl/**/b-*` shader folders into single `.img` files when entry count exceeds `entry_limit`."""
+    shader_lib_py = repo_p / 'dm' / 'tools' / 'shader_lib.py'
+    if not shader_lib_py.is_file():
+        return fw_paths
+    staged_fw_root = stage_dir / 'packed_frameworks'
+    out_fws: list[Path] = []
+
+    for fw_path in fw_paths:
+        msl_dir = fw_path / 'msl'
+        if not msl_dir.is_dir():
+            out_fws.append(fw_path)
+            continue
+
+        b_dirs: list[Path] = []
+        for cand in sorted(msl_dir.iterdir()):
+            if cand.is_dir() and cand.name.startswith('b-'):
+                b_dirs.append(cand)
+            elif cand.is_dir() and re.fullmatch(r'p\d+', cand.name):
+                for sub in sorted(cand.iterdir()):
+                    if sub.is_dir() and sub.name.startswith('b-'):
+                        b_dirs.append(sub)
+
+        if not b_dirs:
+            out_fws.append(fw_path)
+            continue
+
+        staged_fw = staged_fw_root / fw_path.name
+        shutil.rmtree(staged_fw, ignore_errors=True)
+        staged_fw.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(fw_path, staged_fw, symlinks=True)
+
+        for rel_b in [d.relative_to(fw_path) for d in b_dirs]:
+            target_b = staged_fw / rel_b
+            if not target_b.is_dir():
+                continue
+            r = subprocess.run(
+                [py_exe, str(shader_lib_py), 'pack', str(target_b)],
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                env=pu.child_env(),
+                **pu.no_window_kwargs(),
+            )
+            if r.returncode != 0 or not Path(f'{target_b}.img').is_file():
+                why = (r.stderr or r.stdout or f'exit {r.returncode}').strip()
+                raise RuntimeError(f'shader_lib pack failed for {fw_path.name}: {why}')
+            log(f'packed loose shader folder into {rel_b}.img for {fw_path.name}\n')
+
+        out_fws.append(staged_fw)
+
+    return out_fws
+
+
+def _stage_and_pack_shell_ipa(
+    *,
+    library: ShellLibrary,
+    root_p: Path,
+    repo_p: Path,
+    py_exe: str,
+    notes: list[str],
+    _t: Callable[..., str],
+    log: Callable[[str], None],
+    stage_cb: Callable[[str, str], None] | None,
+    entry_limit: int,
 ) -> tuple[bool, str, str, list[str]]:
-    """Mirror `framework` into `root`, update `shell.json`, and pack `<root>/export/NX2Apple.ipa`.
-
-    Returns `(ok, ipa_path, message, notes)`.
-    """
-    def _t(key: str, *args: object) -> str:
-        if t_func is not None:
-            return t_func(key, *args)
-        return f'{key}: ' + ', '.join(str(a) for a in args) if args else key
-
-    root_p = Path(root)
-    repo_p = Path(repo)
-    fw_p = Path(framework)
-    tid_norm = title_id.strip().upper() if re.fullmatch(r'[0-9A-Fa-f]{16}', title_id.strip()) else title_id.strip()
-    py_exe = _resolve_python_exe(python_exe)
-
-    if not fw_p.is_dir():
-        folder = fw_p.parent.name or 'shell-framework'
-        return False, '', _t('shell.noFramework', name, folder), []
-
-    # 1. Update shell.json and mirror frameworks into <root>/frameworks/
-    sweep_discarded(frameworks_mirror(root_p))
-    library = ShellLibrary.load(root_p)
-    library.add(ShellGame(title_id=tid_norm, name=name, framework=str(fw_p)))
-    mirror_frameworks(library, root_p, log=log)
-    library.drop_missing()
-    notes, err = leave_out_incomplete(library, root_p, tid_norm, name, _t, log=log)
-    if err is not None:
-        return False, '', _t('shell.projectFailed', err), []
-
-    for g in library.games:
-        picked = picked_artwork if g.title_id == tid_norm else None
-        banner = place_banner(g.title_id, g.framework, banners_dir=banners_dir, picked=picked)
-        if banner:
-            log(f'banner: {g.title_id} {banner}\n')
-
-    try:
-        library.save(root_p)
-    except OSError as e:
-        return False, '', _t('shell.projectFailed', str(e)), []
-
-    # 2. Stage DmShell.app from the pre-built template
     pack_stage_name = _t('shell.exportPackStage')
     if stage_cb:
         stage_cb(pack_stage_name, 'running')
@@ -538,22 +699,35 @@ def export_shell(
         _cleanup_tmp_sidecars(tmp_ipa)
         staged_app.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(tpl, staged_app, symlinks=True)
-        # Ensure template carries no stale embedded frameworks; pack_ipa maps the live ones
         shutil.rmtree(staged_app / 'Frameworks', ignore_errors=True)
 
         _prepare_fonts(staged_app, repo_p, py_exe)
         _update_shell_plist(staged_app, library.bundle_id, repo_p)
-
-        # Ad-hoc sign DmShell with the Increased Memory Limit entitlement
         macho_sign.sign(staged_app / SCHEME, library.bundle_id, SHELL_ENTITLEMENTS)
 
-        # 3. Pack Payload/DmShell.app and every game's framework into a temporary archive first,
-        # then atomically replace export/NX2Apple.ipa so an existing IPA is preserved on failure.
+        raw_fw_paths = [Path(g.framework) for g in library.games]
+        if _estimate_ipa_entries(staged_app, raw_fw_paths, entry_limit) > entry_limit:
+            effective_fw_paths = _pack_loose_shader_dirs(
+                raw_fw_paths,
+                stage_dir=stage_dir,
+                repo_p=repo_p,
+                py_exe=py_exe,
+                log=log,
+            )
+        else:
+            effective_fw_paths = raw_fw_paths
+
+        est_entries = _estimate_ipa_entries(staged_app, effective_fw_paths, entry_limit)
+        if est_entries > entry_limit:
+            raise RuntimeError(
+                f'IPA entry count exceeds the {entry_limit:,}-entry ZIP32 sideloader limit '
+                '(remove unused games from the shared app or rebuild them)'
+            )
+
         pack_py = repo_p / 'dm' / 'ios' / 'tools' / 'pack_ipa.py'
         maps: list[str] = []
         executables = [f'Payload/{APP_NAME}/{SCHEME}']
-        for g in library.games:
-            fw_path = Path(g.framework)
+        for fw_path in effective_fw_paths:
             fw_name = fw_path.name
             fw_exe = fw_path.stem
             maps.append(f'Payload/{APP_NAME}/Frameworks/{fw_name}={fw_path}')
@@ -574,9 +748,20 @@ def export_shell(
             why = (r.stderr or r.stdout or f'exit {r.returncode}').strip().splitlines()[-1]
             raise RuntimeError(why)
 
+        with zipfile.ZipFile(tmp_ipa, 'r') as zf_check:
+            actual_entries = len(zf_check.infolist())
+        if actual_entries > entry_limit:
+            raise RuntimeError(
+                f'packed IPA holds {actual_entries:,} entries, exceeding the {entry_limit:,}-entry ZIP32 limit'
+            )
+
         mode_summary = fix_ipa_modes.fix(tmp_ipa, executables)
         log(f'{mode_summary}\n')
         os.replace(tmp_ipa, out_ipa)
+        try:
+            (export_folder(root_p) / 'external-msl.json').unlink(missing_ok=True)
+        except OSError:
+            pass
     except Exception as e:
         if stage_cb:
             stage_cb(pack_stage_name, 'failed')
@@ -589,3 +774,132 @@ def export_shell(
         stage_cb(pack_stage_name, 'done')
     msg = '\n'.join([_t('shell.exportDone', str(out_ipa))] + notes)
     return True, str(out_ipa), msg, notes
+
+
+def export_shell(
+    *,
+    root: str | os.PathLike,
+    repo: str | os.PathLike,
+    framework: str | os.PathLike,
+    title_id: str,
+    name: str,
+    python_exe: str = '',
+    banners_dir: str | os.PathLike | None = None,
+    picked_artwork: str | None = None,
+    t_func: Callable[..., str] | None = None,
+    log: Callable[[str], None] = lambda _: None,
+    stage_cb: Callable[[str, str], None] | None = None,
+    entry_limit: int = ZIP32_ENTRY_LIMIT,
+) -> tuple[bool, str, str, list[str]]:
+    """Mirror `framework` into `root`, update `shell.json`, and pack `<root>/export/NX2Apple.ipa`.
+
+    Returns `(ok, ipa_path, message, notes)`.
+    """
+    def _t(key: str, *args: object) -> str:
+        if t_func is not None:
+            return t_func(key, *args)
+        return f'{key}: ' + ', '.join(str(a) for a in args) if args else key
+
+    root_p = Path(root)
+    repo_p = Path(repo)
+    fw_p = Path(framework)
+    tid_norm = title_id.strip().upper() if re.fullmatch(r'[0-9A-Fa-f]{16}', title_id.strip()) else title_id.strip()
+    py_exe = _resolve_python_exe(python_exe)
+
+    if not fw_p.is_dir():
+        folder = fw_p.parent.name or 'shell-framework'
+        return False, '', _t('shell.noFramework', name, folder), []
+
+    sweep_discarded(frameworks_mirror(root_p))
+    library = ShellLibrary.load(root_p)
+    library.add(ShellGame(title_id=tid_norm, name=name, framework=str(fw_p)))
+    mirror_frameworks(library, root_p, log=log)
+    library.drop_missing()
+    notes, err = leave_out_incomplete(library, root_p, tid_norm, name, _t, log=log)
+    if err is not None:
+        return False, '', _t('shell.projectFailed', err), []
+
+    for g in library.games:
+        picked = picked_artwork if g.title_id == tid_norm else None
+        banner = place_banner(g.title_id, g.framework, banners_dir=banners_dir, picked=picked)
+        if banner:
+            log(f'banner: {g.title_id} {banner}\n')
+
+    try:
+        library.save(root_p)
+    except OSError as e:
+        return False, '', _t('shell.projectFailed', str(e)), []
+
+    return _stage_and_pack_shell_ipa(
+        library=library,
+        root_p=root_p,
+        repo_p=repo_p,
+        py_exe=py_exe,
+        notes=notes,
+        _t=_t,
+        log=log,
+        stage_cb=stage_cb,
+        entry_limit=entry_limit,
+    )
+
+
+def repack_built_shell(
+    *,
+    root: str | os.PathLike,
+    repo: str | os.PathLike,
+    python_exe: str = '',
+    banners_dir: str | os.PathLike | None = None,
+    custom_artworks: dict[str, str] | None = None,
+    t_func: Callable[..., str] | None = None,
+    log: Callable[[str], None] = lambda _: None,
+    stage_cb: Callable[[str, str], None] | None = None,
+    entry_limit: int = ZIP32_ENTRY_LIMIT,
+) -> tuple[bool, str, str, list[str]]:
+    """Repack `<root>/export/NX2Apple.ipa` from already-built frameworks in `shell.json` without rebuilding."""
+    def _t(key: str, *args: object) -> str:
+        if t_func is not None:
+            return t_func(key, *args)
+        return f'{key}: ' + ', '.join(str(a) for a in args) if args else key
+
+    root_p = Path(root)
+    repo_p = Path(repo)
+    py_exe = _resolve_python_exe(python_exe)
+
+    sweep_discarded(frameworks_mirror(root_p))
+    library = ShellLibrary.load(root_p)
+    mirror_frameworks(library, root_p, log=log)
+    library.drop_missing()
+    if not library.games:
+        return False, '', _t('shell.exportFailed', 'no built games in shell cache'), []
+
+    last = library.games[-1]
+    notes, err = leave_out_incomplete(library, root_p, '', last.name or last.title_id, _t, log=log)
+    if err is not None:
+        return False, '', _t('shell.projectFailed', err), []
+    if not library.games:
+        why = notes[-1] if notes else 'no complete frameworks in shell cache'
+        return False, '', _t('shell.projectFailed', why), notes
+
+    art_map = custom_artworks or {}
+    for g in library.games:
+        picked = art_map.get(g.title_id.upper())
+        banner = place_banner(g.title_id, g.framework, banners_dir=banners_dir, picked=picked)
+        if banner:
+            log(f'banner: {g.title_id} {banner}\n')
+
+    try:
+        library.save(root_p)
+    except OSError as e:
+        return False, '', _t('shell.projectFailed', str(e)), notes
+
+    return _stage_and_pack_shell_ipa(
+        library=library,
+        root_p=root_p,
+        repo_p=repo_p,
+        py_exe=py_exe,
+        notes=notes,
+        _t=_t,
+        log=log,
+        stage_cb=stage_cb,
+        entry_limit=entry_limit,
+    )

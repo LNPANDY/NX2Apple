@@ -191,15 +191,18 @@ def _ensure_model_mod():
             def currentThread():
                 return None
 
+        _QUEUED = object()
+
         class Qt:
-            QueuedConnection = 1
+            QueuedConnection = _QUEUED
 
         class QMetaObject:
             @staticmethod
-            def invokeMethod(obj, name: str, *_a) -> None:
+            def invokeMethod(obj, name: str, *args) -> None:
                 fn = getattr(obj, name, None)
                 if callable(fn):
-                    fn()
+                    call_args = args[1:] if args and args[0] is Qt.QueuedConnection else args
+                    fn(*call_args)
 
         class QSettings:
             IniFormat = 1
@@ -220,7 +223,7 @@ def _ensure_model_mod():
         qt_core.QObject = QObject
         qt_core.Signal = Signal
         qt_core.Slot = Slot
-        qt_core.Q_ARG = lambda *_a: None
+        qt_core.Q_ARG = lambda _t, v: v
         qt_core.QThread = QThread
         qt_core.Qt = Qt
         qt_core.QMetaObject = QMetaObject
@@ -491,12 +494,12 @@ class SharedShellParityTests(unittest.TestCase):
             self.assertTrue(ext_font_calls, '_prepare_fonts must invoke make_ext_font.py')
             self.assertEqual(Path(ext_font_calls[0][3]), letter_font)
 
-            # Verify both games' archives exist side-by-side under <shared_out>/games/<TID> without overwriting each other
-            arch1 = shared_out / 'games' / tid1
-            arch2 = shared_out / 'games' / tid2
-            self.assertEqual((arch1 / 'romfs.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
+            # Verify both games' archives exist side-by-side under <shared_out>/games/<SafeName> without overwriting each other
+            arch1 = shared_out / 'games' / 'Super Mario Bros. Wonder'
+            arch2 = shared_out / 'games' / 'Breath of the Wild'
+            self.assertEqual((arch1 / 'Super Mario Bros. Wonder.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
             self.assertEqual((arch1 / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_ONE_1111')
-            self.assertEqual((arch2 / 'romfs.img').read_bytes(), b'ROMFS_GAME_TWO_2222')
+            self.assertEqual((arch2 / 'Breath of the Wild.img').read_bytes(), b'ROMFS_GAME_TWO_2222')
             self.assertEqual((arch2 / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_TWO_2222')
 
             # Verify library recorded both games under their verified 16-hex Title IDs
@@ -517,8 +520,8 @@ class SharedShellParityTests(unittest.TestCase):
             self.assertEqual(m.packed_title_id, tid1)
             ok_d1, dest_d1 = m.copy_archive_to_drive(str(drive_dir))
             self.assertTrue(ok_d1, dest_d1)
-            self.assertEqual((drive_dir / tid1 / 'romfs.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
-            self.assertEqual((drive_dir / tid1 / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_ONE_1111')
+            self.assertEqual((drive_dir / 'Super Mario Bros. Wonder' / 'Super Mario Bros. Wonder.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
+            self.assertEqual((drive_dir / 'Super Mario Bros. Wonder' / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_ONE_1111')
 
             # Reopen the SECOND game entry and send its game data to the same staging drive folder
             m.load_game_from_library(g2)
@@ -526,10 +529,10 @@ class SharedShellParityTests(unittest.TestCase):
             self.assertEqual(m.packed_title_id, tid2)
             ok_d2, dest_d2 = m.copy_archive_to_drive(str(drive_dir))
             self.assertTrue(ok_d2, dest_d2)
-            self.assertEqual((drive_dir / tid2 / 'romfs.img').read_bytes(), b'ROMFS_GAME_TWO_2222')
-            self.assertEqual((drive_dir / tid2 / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_TWO_2222')
+            self.assertEqual((drive_dir / 'Breath of the Wild' / 'Breath of the Wild.img').read_bytes(), b'ROMFS_GAME_TWO_2222')
+            self.assertEqual((drive_dir / 'Breath of the Wild' / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_TWO_2222')
             # First game's staged data is still untouched
-            self.assertEqual((drive_dir / tid1 / 'romfs.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
+            self.assertEqual((drive_dir / 'Super Mario Bros. Wonder' / 'Super Mario Bros. Wonder.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
 
             # 4. Verify export/NX2Apple.ipa contains both frameworks and no .tmp or .idx sidecars leaked in export/
             expected_ipa = shell_root / 'export' / 'NX2Apple.ipa'
@@ -1103,6 +1106,48 @@ class LibraryAndSpaceTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
+    def test_delete_game_removes_only_its_shared_framework_and_shell_entry(self) -> None:
+        from nspb_qt.win.shell_export import ShellGame, ShellLibrary
+
+        title_id = '010082A0205AE000'
+        other_id = '0100000000010000'
+        shell_root = self.dir / 'shell'
+        frameworks = shell_root / 'frameworks'
+        game_framework = frameworks / f'DmGame{title_id}.framework'
+        other_framework = frameworks / f'DmGame{other_id}.framework'
+        for framework in (game_framework, other_framework):
+            framework.mkdir(parents=True)
+            (framework / 'DmGame').write_bytes(b'framework')
+        shell = ShellLibrary(games=[
+            ShellGame(title_id, 'Deleted', str(game_framework)),
+            ShellGame(other_id, 'Kept', str(other_framework)),
+        ])
+        shell.save(shell_root)
+        shared_ipa = shell_root / 'export' / 'NX2Apple.ipa'
+        shared_ipa.parent.mkdir()
+        shared_ipa.write_bytes(b'previous export')
+        source = self.dir / 'original.nsp'
+        source.write_bytes(b'source')
+        game = lib.LibraryGame(title_id, 'Deleted', ipa_path=str(shared_ipa), inputs={'base': [str(source)]})
+
+        plan = lib.GameDeletionPlan.plan(game, shell_root=str(shell_root))
+        self.assertEqual([(item.kind, item.paths) for item in plan.items],
+                         [('shellFramework', [str(game_framework)])])
+        self.assertEqual(plan.run(), [])
+        self.assertFalse(game_framework.exists())
+        self.assertTrue(other_framework.is_dir())
+        self.assertEqual([item.title_id for item in ShellLibrary.load(shell_root).games], [other_id])
+        self.assertTrue(shared_ipa.exists())
+        self.assertTrue(source.exists())
+
+        self.assertEqual(lib.GameDeletionPlan.plan(game, shell_root=str(shell_root)).items, [])
+        shell.add(ShellGame(title_id, 'Deleted', str(game_framework)))
+        shell.save(shell_root)
+        missing = lib.GameDeletionPlan.plan(game, shell_root=str(shell_root))
+        self.assertEqual([(item.kind, item.paths) for item in missing.items], [('shellFramework', [])])
+        self.assertEqual(missing.run(), [])
+        self.assertEqual([item.title_id for item in ShellLibrary.load(shell_root).games], [other_id])
+
     def test_discover_games_and_free_space(self) -> None:
         games_dir = self.dir / 'games_root'
         sub = games_dir / 'Celeste'
@@ -1237,14 +1282,14 @@ class LibraryAndSpaceTests(unittest.TestCase):
         self.assertEqual(saved_g['lastTarget'], 'iPhone / iPad')
         self.assertEqual(saved_g['toolsCommit'], 'b2d46b86d03f')
 
-        # 2. Verify REQUIRED_DYLIB_SYMBOLS against real C/ObjC sources in engine/ and win/ios/Launcher.m
+        # 2. Verify REQUIRED_DYLIB_SYMBOLS against real C/ObjC sources in engine/, frontend-ios/Shell/App/ and win/ios/Launcher.m
         eng = ROOT / 'engine'
         marker_file = eng / 'dm' / 'ios' / 'framework' / 'DmGameMarker.m'
         glue_file = eng / 'dm' / 'ios' / 'framework' / 'ShellGlue.m'
-        main_file = eng / 'dm' / 'ios' / 'Shell' / 'ShellMain.m'
+        main_file = ROOT / 'frontend-ios' / 'Shell' / 'App' / 'ShellMain.m'
         boot_hdr_file = eng / 'dm' / 'ios' / 'Sources' / 'FrameworkBootstrap.h'
         for required_src in (marker_file, glue_file, main_file, boot_hdr_file):
-            self.assertTrue(required_src.is_file(), f'missing synced engine source: {required_src}')
+            self.assertTrue(required_src.is_file(), f'missing source: {required_src}')
         marker_src = marker_file.read_text(encoding='utf-8')
         glue_src = glue_file.read_text(encoding='utf-8')
         main_src = main_file.read_text(encoding='utf-8')
@@ -1345,6 +1390,48 @@ class LibraryAndSpaceTests(unittest.TestCase):
                 self.assertIn('v0', derived_g.builds())
                 self.assertEqual(derived_g.builds()['v0']['display'], '1.0.0')
 
+    def test_framework_only_game_reports_ready_for_ios_and_primary_reveal(self) -> None:
+        import json
+
+        tid = '0100535012974000'
+        state_dir = self.dir / 'fw_only_state'
+        shell_dir = self.dir / 'fw_only_shell'
+        fw_dir = shell_dir / 'frameworks' / f'DmGame{tid}.framework'
+        fw_dir.mkdir(parents=True, exist_ok=True)
+        (fw_dir / 'game.manifest.json').write_text(
+            json.dumps({'title_id': tid, 'framework_executable': f'DmGame{tid}'}),
+            encoding='utf-8',
+        )
+        (fw_dir / f'DmGame{tid}').write_bytes(b'bin')
+        (shell_dir / 'shell.json').write_text(
+            json.dumps({'games': [{'titleID': tid, 'name': 'Orbit Fixture', 'framework': str(fw_dir)}]}),
+            encoding='utf-8',
+        )
+
+        gl = lib.GameLibrary(state_dir=state_dir)
+        self.assertTrue(gl.sync_ios_shell_state(str(shell_dir)))
+        g = next(item for item in gl.games if item.title_id == tid)
+        self.assertFalse(g.has_ipa)
+        self.assertFalse(g.has_archive)
+        self.assertTrue(g.has_ios_app)
+        self.assertTrue(g.is_ready_for_ios)
+        self.assertEqual(g.primary_reveal_path, str(fw_dir))
+
+
+class DiagnosticsReportTests(unittest.TestCase):
+    def test_each_dependency_row_names_its_dependency(self) -> None:
+        """Copy diagnostics named no dependency: model.Dep has an id and no name, so every row read `- : [OK] ...` (#1183)."""
+        from types import SimpleNamespace
+        # model.Dep's fields (it imports PySide6): an id, no name, `ok` from its state
+        deps = [
+            SimpleNamespace(id='python', title_key='dep.python', ok=True, required=True, detail='C:/py/python.exe'),
+            SimpleNamespace(id='dotnet', title_key='dep.dotnet', ok=False, required=True, detail=''),
+        ]
+        report = feat.Diagnostics.format_report(app_version='1.0', repo_path='', deps=deps, last_log='')
+        self.assertIn('- python: [OK] ', report)
+        self.assertIn('- dotnet: [MISSING]', report)
+        self.assertNotIn('\n- : ', report)
+
 
 class ParityWindowTests(unittest.TestCase):
     @classmethod
@@ -1385,6 +1472,25 @@ class ParityWindowTests(unittest.TestCase):
         m.deleteLater()
         self.app.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
+
+    def test_delete_dialog_describes_shared_app_install(self) -> None:
+        from PySide6.QtWidgets import QLabel
+        from nspb_qt.model import Model
+        from nspb_qt.sheets import DeleteGameDialog
+        from nspb_qt.win.shell_export import ShellGame, ShellLibrary
+
+        model = Model()
+        shell_root = Path(self._state_tmp.name) / 'shell'
+        model.settings.setValue('shellRoot', str(shell_root))
+        title_id = '010082A0205AE000'
+        mirror = shell_root / 'frameworks' / f'DmGame{title_id}.framework'
+        ShellLibrary(games=[ShellGame(title_id, 'Deleted', str(mirror))]).save(shell_root)
+        dialog = DeleteGameDialog(model, lib.LibraryGame(title_id, 'Deleted'))
+        self.addCleanup(self._delete, model, dialog)
+
+        self.assertEqual([item.kind for item in dialog.plan.items], ['shellFramework'])
+        labels = [label.text() for label in dialog.findChildren(QLabel)]
+        self.assertIn(model.t('delete.part.shellFrameworkNote'), labels)
 
     def test_three_page_navigation_and_controls(self) -> None:
         from unittest import mock
@@ -1906,13 +2012,22 @@ class ParityWindowTests(unittest.TestCase):
             w._drive_folder = str(drive_ui)
             g1_item = next(g for g in m.library.games if g.title_id == tid1)
             g2_item = next(g for g in m.library.games if g.title_id == tid2)
+            def wait_drive_copy() -> None:
+                deadline = time.monotonic() + 5.0
+                while getattr(m, 'drive_copying', False) and time.monotonic() < deadline:
+                    self.app.processEvents()
+                    time.sleep(0.01)
+                self.app.processEvents()
+
             m.load_game_from_library(g1_item)
             w._copy_archive_to_drive()
-            self.assertEqual((drive_ui / tid1 / 'romfs.img').read_bytes(), b'DMROMFS1_game1')
+            wait_drive_copy()
+            self.assertEqual((drive_ui / 'Super Mario Bros. Wonder' / 'Super Mario Bros. Wonder.img').read_bytes(), b'DMROMFS1_game1')
             m.load_game_from_library(g2_item)
             w._copy_archive_to_drive()
-            self.assertEqual((drive_ui / tid2 / 'romfs.img').read_bytes(), b'DMROMFS1_game2')
-            self.assertEqual((drive_ui / tid1 / 'romfs.img').read_bytes(), b'DMROMFS1_game1')
+            wait_drive_copy()
+            self.assertEqual((drive_ui / 'Breath of the Wild' / 'Breath of the Wild.img').read_bytes(), b'DMROMFS1_game2')
+            self.assertEqual((drive_ui / 'Super Mario Bros. Wonder' / 'Super Mario Bros. Wonder.img').read_bytes(), b'DMROMFS1_game1')
 
             with zipfile.ZipFile(ipa2) as zf:
                 names = set(zf.namelist())
@@ -2506,6 +2621,50 @@ class ParityWindowTests(unittest.TestCase):
                             break
                         time.sleep(0.01)
                 self.assertEqual(w.defender_badge_lbl.text(), m.t('defender.status.ready'))
+
+    def test_framework_only_hero_shows_ready_for_ios_and_reveals_framework(self) -> None:
+        import json
+        from unittest import mock
+        from nspb_qt import library as lib_mod, platform_util as pu
+        from nspb_qt.model import Model
+        from nspb_qt.ui import MainWindow
+
+        tid = '0100535012974000'
+        state_dir = Path(self._state_tmp.name) / 'state'
+        shell_dir = state_dir / 'shell'
+        fw_dir = shell_dir / 'frameworks' / f'DmGame{tid}.framework'
+        fw_dir.mkdir(parents=True, exist_ok=True)
+        (fw_dir / 'game.manifest.json').write_text(
+            json.dumps({'title_id': tid, 'framework_executable': f'DmGame{tid}'}),
+            encoding='utf-8',
+        )
+        (fw_dir / f'DmGame{tid}').write_bytes(b'bin')
+        (shell_dir / 'shell.json').write_text(
+            json.dumps({'games': [{'titleID': tid, 'name': 'Orbit Fixture', 'framework': str(fw_dir)}]}),
+            encoding='utf-8',
+        )
+
+        with mock.patch.object(lib_mod.ArtworkStore, 'request_banner_async'):
+            m = Model()
+            m.settings.setValue('shellRoot', str(shell_dir))
+            w = MainWindow(m)
+            w._init_timer.stop()
+            self.addCleanup(self._delete, m, w)
+            w.resize(1080, 760)
+            w.show()
+            w._switch_page('library')
+            self.app.processEvents()
+
+            revealed: list[str] = []
+            with mock.patch.object(pu, 'reveal', side_effect=revealed.append):
+                for code in ('en', 'zh'):
+                    m.set_lang(Lang(code))
+                    self.app.processEvents()
+                    self.assertEqual(w.hero.status_lbl.text(), m.t('library.readyIOS').upper())
+                    self.assertEqual(w.hero.primary_btn.text(), m.t('install.reveal'))
+                    w.hero.primary_btn.click()
+                    self.app.processEvents()
+            self.assertEqual(revealed, [str(fw_dir), str(fw_dir)])
 
 
 if __name__ == '__main__':

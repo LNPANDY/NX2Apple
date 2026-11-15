@@ -12,6 +12,9 @@ public struct GameDetailView: View {
     /// The parent Form owns scrolling, section backgrounds and separators.
     public var nativeSections: Bool
     @Environment(\.shellAskDelete) private var askDelete
+    @Environment(\.shellAskRestoreBackup) private var askRestoreBackup
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var localRestoreBackup = false
     public init(detail: GameDetail, actions: ShellActions = ShellActions(), showsPrimaryAction: Bool = true, showsHeader: Bool = true, nativeSections: Bool = false) {
         self.detail = detail
         self.actions = actions
@@ -19,12 +22,29 @@ public struct GameDetailView: View {
         self.showsHeader = showsHeader
         self.nativeSections = nativeSections
     }
+    private var sectionRowIDs: [[String]] {
+        detail.sections.map { $0.rows.map(\.id) }
+    }
     public var body: some View {
         Group {
             if nativeSections { contents } else {
                 VStack(alignment: .leading, spacing: 30) { contents }
             }
-        }.foregroundStyle(.white)
+        }
+        .foregroundStyle(.white)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: sectionRowIDs)
+        .sheet(isPresented: $localRestoreBackup) {
+            if let backup = detail.latestSaveBackup {
+                RestoreSaveBackupView(game: detail.game, backup: backup, restore: {
+                    localRestoreBackup = false
+                    actions.onRestoreSaveBackup(detail.id)
+                }, cancel: {
+                    localRestoreBackup = false
+                })
+                .presentationDetents([.medium])
+                .presentationBackground(ShellPalette.background)
+            }
+        }
     }
     @ViewBuilder private var contents: some View {
         if showsHeader || showsPrimaryAction {
@@ -75,6 +95,16 @@ public struct GameDetailView: View {
                 if detail.cloudSaves != nil {
                     GameSettingsGlassButton(title: ShellStrings.text("Turn off")) { actions.onDisableCloudSaves(detail.id) }.accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
                         .shellTarget("set.cloud.off") { actions.onDisableCloudSaves(detail.id) }
+                }
+            }
+            if let backup = detail.latestSaveBackup, !backup.isEmpty {
+                divider
+                GameSettingsGlassButton(title: ShellStrings.text("Restore backup…")) {
+                    requestRestoreBackup(backup)
+                }
+                .accessibilityIdentifier("cloud.restoreBackup")
+                .shellTarget("set.cloud.restore") {
+                    requestRestoreBackup(backup)
                 }
             }
         }
@@ -147,6 +177,14 @@ public struct GameDetailView: View {
     @ViewBuilder private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         if nativeSections { Section { content() } header: { Text(title) } }
         else { SettingsGroup(title: title, content: content) }
+    }
+
+    private func requestRestoreBackup(_ backup: String) {
+        if let askRestoreBackup {
+            askRestoreBackup(detail.game, backup)
+        } else {
+            localRestoreBackup = true
+        }
     }
 }
 
@@ -307,41 +345,68 @@ struct NativeChoiceControl: View {
 
     var body: some View {
         if case .choice(let options) = row.kind {
+            let segmented = Self.usesSegmentedControl(
+                options: options,
+                menuOnly: menuOnly,
+                inline: inline,
+                width: width,
+                textScale: ChoicePresentation.textScale(typeSize)
+            )
             VStack(alignment: .leading, spacing: 8) {
                 if inline {
                     LabeledContent {
-                        if !menuOnly, (width ?? 0) * 0.65 >= 200, ChoicePresentation.resolve(labels: options.map(\.label),
-                            width: width.map { $0 * 0.65 }, textScale: ChoicePresentation.textScale(typeSize)) == .segmented {
-                            picker(options).pickerStyle(.segmented)
-                                .frame(minWidth: 200)
-                                .fixedSize(horizontal: true, vertical: false)
-                        } else {
-                            picker(options).pickerStyle(.menu)
-                        }
+                        choiceControl(options: options, segmented: segmented)
                     } label: {
                         ChangedSettingLabel(row: row)
                     }
                 } else {
                     Text(row.label).shellType(ShellType.settingLabel)
                         .fixedSize(horizontal: false, vertical: true)
-                    if !menuOnly, ChoicePresentation.resolve(labels: options.map(\.label), width: width,
-                                                   textScale: ChoicePresentation.textScale(typeSize)) == .segmented {
-                        picker(options).pickerStyle(.segmented)
-                    } else {
-                        picker(options).pickerStyle(.menu)
-                    }
+                    choiceControl(options: options, segmented: segmented)
                 }
                 if !row.note.isEmpty {
                     Text(row.note).shellType(ShellType.note).foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .tint(ShellPalette.cream)
             .disabled(!row.enabled)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            .accessibilityIdentifier("setting.\(row.id)")
             .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled) { advance(options) }
         }
+    }
+
+    @ViewBuilder
+    private func choiceControl(options: [SettingOption], segmented: Bool) -> some View {
+        if segmented {
+            NativeCreamSegmentedControl(
+                options: options,
+                value: row.value,
+                inline: inline,
+                accessibilityLabel: row.label,
+                accessibilityIdentifier: "setting.\(row.id)",
+                change: change
+            )
+        } else {
+            picker(options)
+                .pickerStyle(.menu)
+                .tint(ShellPalette.cream)
+                .accessibilityIdentifier("setting.\(row.id)")
+        }
+    }
+
+    /// Resolves whether to render as segmented control, keeping the first layout pass (`width == nil`) consistent with
+    /// `ChoicePresentation` so inline pickers never flash `.menu` before the geometry pass arrives.
+    nonisolated static func usesSegmentedControl(
+        options: [SettingOption],
+        menuOnly: Bool,
+        inline: Bool,
+        width: CGFloat?,
+        textScale: CGFloat
+    ) -> Bool {
+        guard !menuOnly else { return false }
+        if inline, let width, width * 0.65 < 200 { return false }
+        let availableWidth = inline ? width.map { $0 * 0.65 } : width
+        return ChoicePresentation.resolve(labels: options.map(\.label), width: availableWidth, textScale: textScale) == .segmented
     }
 
     private func picker(_ options: [SettingOption]) -> some View {

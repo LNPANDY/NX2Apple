@@ -182,6 +182,96 @@ package struct LauncherPageScroll<Content: View>: View {
     }
 }
 
+/// A scrolling column whose category selector pins beneath the top bar once the heading scrolls out of view.
+package struct LauncherStickyPageScroll<Heading: View, Bar: View, Content: View>: View {
+    let memoryKey: String?
+    @Binding var scrollRequest: String?
+    let heading: Heading
+    let bar: Bar
+    let content: Content
+    @EnvironmentObject private var padFocus: PadFocus
+    @State private var headingHeight: CGFloat = 132
+    @State private var viewportHeight: CGFloat = 720
+    @State private var pinned = false
+
+    package init(memoryKey: String? = nil, scrollRequest: Binding<String?> = .constant(nil),
+                 @ViewBuilder heading: () -> Heading, @ViewBuilder bar: () -> Bar, @ViewBuilder content: () -> Content) {
+        self.memoryKey = memoryKey
+        self._scrollRequest = scrollRequest
+        self.heading = heading()
+        self.bar = bar()
+        self.content = content()
+    }
+
+    package var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    heading
+                        .padding(.horizontal, 40).padding(.top, 40).padding(.bottom, 22)
+                        .frame(maxWidth: 900, alignment: .leading)
+                        .frame(maxWidth: .infinity)
+                        .background(GeometryReader { g in
+                            let h = g.size.height
+                            Color.clear.onAppear {
+                                if h > 0, abs(headingHeight - h) > 0.5 { DispatchQueue.main.async { headingHeight = h } }
+                            }.onChange(of: h) { newH in
+                                if newH > 0, abs(headingHeight - newH) > 0.5 { DispatchQueue.main.async { headingHeight = newH } }
+                            }
+                        })
+                    Section {
+                        VStack(alignment: .leading, spacing: 34) { content }
+                            .padding(.horizontal, 40).padding(.top, 22).padding(.bottom, 48)
+                            .frame(maxWidth: 900, alignment: .leading)
+                            .frame(maxWidth: .infinity, minHeight: max(0, viewportHeight - 62), alignment: .top)
+                    } header: {
+                        VStack(spacing: 0) {
+                            bar
+                                .padding(.horizontal, 40).padding(.vertical, 12)
+                                .frame(maxWidth: 900, alignment: .leading)
+                                .frame(maxWidth: .infinity)
+                            LauncherPalette.topBarRule.frame(height: 1).opacity(pinned ? 1 : 0)
+                        }
+                        .background {
+                            ZStack {
+                                Rectangle().fill(.ultraThinMaterial)
+                                LauncherPalette.background.opacity(pinned ? 0.94 : 0.98)
+                            }
+                        }
+                    }
+                }
+                .background {
+                    if let memoryKey {
+                        ScrollMemory(key: memoryKey, pinnedOffset: headingHeight) { isPinned in
+                            if pinned != isPinned { pinned = isPinned }
+                        }
+                    }
+                }
+                .environment(\.launcherScrollTo, { id in withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .top) } })
+            }
+            .background(GeometryReader { g in
+                let vh = g.size.height
+                Color.clear.onAppear {
+                    if vh > 0, abs(viewportHeight - vh) > 0.5 { DispatchQueue.main.async { viewportHeight = vh } }
+                }.onChange(of: vh) { newVH in
+                    if newVH > 0, abs(viewportHeight - newVH) > 0.5 { DispatchQueue.main.async { viewportHeight = newVH } }
+                }
+            })
+            .onChange(of: padFocus.focused) { id in
+                if let id, id.hasPrefix("set.") { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } }
+            }
+            .onChange(of: scrollRequest) { id in
+                guard let id else { return }
+                DispatchQueue.main.async {
+                    withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .top) }
+                    scrollRequest = nil
+                }
+            }
+        }
+        .buttonStyle(LauncherSecondaryButtonStyle())
+    }
+}
+
 package func revealInFinder(_ path: String) {
     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
 }

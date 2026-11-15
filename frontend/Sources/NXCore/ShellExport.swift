@@ -61,16 +61,21 @@ extension ShellInstall {
                 if isSymlink { try? fm.removeItem(atPath: link) }
                 try? fm.createSymbolicLink(atPath: link, withDestinationPath: pkg)
             }
+            let shellLink = proj + "/Shell", shellTarget = pkg + "/Shell/App"
+            if fm.fileExists(atPath: shellTarget) {
+                let sAttrs = try? fm.attributesOfItem(atPath: shellLink)
+                let sIsSymlink = (sAttrs?[.type] as? FileAttributeType) == .typeSymbolicLink
+                if sIsSymlink || sAttrs == nil, (try? fm.destinationOfSymbolicLink(atPath: shellLink)) != shellTarget {
+                    if sIsSymlink { try? fm.removeItem(atPath: shellLink) }
+                    try? fm.createSymbolicLink(atPath: shellLink, withDestinationPath: shellTarget)
+                }
+            }
         }
-        let engine = EngineLayout.root(repo)
-        for item in ["Sources", "Shell", "tools"] {
-            let itemLink = proj + "/" + item, target = engine + "/dm/ios/" + item
-            guard !fm.fileExists(atPath: itemLink), fm.fileExists(atPath: target) else { continue }
-            let attrs = try? fm.attributesOfItem(atPath: itemLink)
-            let isSymlink = (attrs?[.type] as? FileAttributeType) == .typeSymbolicLink
-            if isSymlink || attrs == nil {
-                if isSymlink { try? fm.removeItem(atPath: itemLink) }
-                try? fm.createSymbolicLink(atPath: itemLink, withDestinationPath: target)
+        for item in ["Sources", "tools"] {
+            let itemLink = proj + "/" + item
+            if (try? fm.attributesOfItem(atPath: itemLink))?[.type] as? FileAttributeType == .typeSymbolicLink,
+               !fm.fileExists(atPath: itemLink) {
+                try? fm.removeItem(atPath: itemLink)
             }
         }
         let pbxPath = proj + "/" + projectName + "/project.pbxproj"
@@ -150,13 +155,14 @@ extension ShellInstaller {
             restoreLibrary()
             return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", "no frontend-ios Swift package (Package.swift) in " + looked)), [])
         }
+        let engineRoot = EngineLayout.root(repo)
         var env = ShellInstall.projectEnvironment(root: root, frameworks: library.games.map(\.framework), bundleID: library.bundleID,
                                                   team: team, python: python, path: toolPath, home: NSHomeDirectory(), user: NSUserName(),
-                                                  tmp: NSTemporaryDirectory(), package: package)
+                                                  tmp: NSTemporaryDirectory(), package: package, engine: engineRoot)
         env.merge(BundledTools.environment(for: python)) { $1 }
         let projectName = t("shell.projectStage")
         begin(Self.projectStageID, projectName)
-        let project = run(ShellInstall.projectCommand(repo: repo), env: env, label: projectName, step: { _ in nil })
+        let project = run(ShellInstall.projectCommand(package: package), env: env, label: projectName, step: { _ in nil })
         if project.status != 0 {
             let why = ShellInstall.scriptFailure(project.output) ?? fmt("msg.exitCode", project.status)
             end(Self.projectStageID, projectName, ok: false, detail: why)
@@ -182,7 +188,7 @@ extension ShellInstaller {
         let buildName = t("shell.exportBuildStage")
         begin(Self.exportBuildStageID, buildName)
         let built = run(ShellInstall.exportBuildCommand(xcrun: xcrun, root: root, bundleID: library.bundleID), env: nil, label: buildName,
-                        step: BuildProgress.xcodeStep)
+                        stageID: Self.exportBuildStageID, step: BuildProgress.xcodeStep)
         if built.status != 0 {
             let why = built.lastError ?? fmt("msg.exitCode", built.status)
             end(Self.exportBuildStageID, buildName, ok: false, detail: why)
@@ -198,7 +204,8 @@ extension ShellInstaller {
     }
 
     /// Stage and zip Payload/<app>.app. Signing can add _CodeSignature/ and CodeResources, so reserve two ZIP32 entries.
-    func packExport(app: URL, library: ShellLibrary, notes: [String] = [], entryLimit: Int = Int(UInt16.max) - 2) -> Outcome {
+    func packExport(app: URL, library: ShellLibrary, notes: [String] = [], entryLimit: Int = ShellExport.entryLimit,
+                    hardLimit: Int = ShellExport.entryLimit) -> Outcome {
         let fm = FileManager.default
         let packName = t("shell.exportPackStage")
         begin(Self.exportPackStageID, packName)
@@ -209,15 +216,28 @@ extension ShellInstaller {
             try? fm.removeItem(atPath: ipa)
             try fm.createDirectory(atPath: stage + "/Payload", withIntermediateDirectories: true)
             try fm.copyItem(at: app, to: stagedApp)
-            if try Self.exceedsEntryLimit(in: stagedApp.deletingLastPathComponent(), limit: entryLimit) {
-                try packShaderLibraries(in: stagedApp, games: library.games, label: packName)
+            let payload = stagedApp.deletingLastPathComponent()
+            if try ShellExport.exceedsEntryLimit(in: payload, limit: entryLimit) {
+                let frameworks = library.games.map { URL(fileURLWithPath: $0.framework).lastPathComponent }
+                try ShellExport.packShaderLibraries(
+                    in: stagedApp,
+                    frameworkNames: frameworks,
+                    runArchive: { cmd in
+                        let r = run(cmd, env: nil, label: packName, step: { _ in nil })
+                        return (r.status, r.output, r.lastError)
+                    },
+                    exitCodeMessage: { code in fmt("msg.exitCode", code) }
+                )
+                if try ShellExport.exceedsEntryLimit(in: payload, limit: hardLimit) {
+                    throw ShellExport.entryLimitExceededError(limit: hardLimit)
+                }
             }
         } catch {
             try? fm.removeItem(atPath: stage)
             end(Self.exportPackStageID, packName, ok: false, detail: error.localizedDescription)
             return Outcome(ok: false, message: fmt("shell.exportFailed", error.localizedDescription))
         }
-        // Signing the executable also seals its bundle resources. Sign the staged app after packing the shaders.
+        // Signing the executable also seals its bundle resources. Sign the staged app before zipping.
         // Failure only costs the Increased Memory Limit request, so it does not stop the export.
         let entitlements = ShellInstall.entitlementsPath(root: root)
         if fm.fileExists(atPath: entitlements) {
@@ -235,50 +255,11 @@ extension ShellInstaller {
             end(Self.exportPackStageID, packName, ok: false, detail: why)
             return Outcome(ok: false, message: fmt("shell.exportFailed", why))
         }
+        try? fm.removeItem(atPath: ShellInstall.exportFolder(root: root) + "/external-msl.json")
         end(Self.exportPackStageID, packName, ok: true)
         var outcome = Outcome(ok: true, message: ([fmt("shell.exportDone", ipa)] + notes).joined(separator: "\n"), bundleID: library.bundleID)
         outcome.ipaPath = ipa
         return outcome
-    }
-
-    private static func exceedsEntryLimit(in payload: URL, limit: Int) throws -> Bool {
-        var failure: Error?
-        guard let entries = FileManager.default.enumerator(at: payload, includingPropertiesForKeys: [], errorHandler: { _, error in
-            failure = error
-            return false
-        }) else {
-            throw failure ?? CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: payload.path])
-        }
-        var count = 1   // ditto --keepParent writes Payload/ itself, then DmShell.app/ and its descendants.
-        while count <= limit, entries.nextObject() != nil { count += 1 }
-        if let failure { throw failure }
-        return count > limit
-    }
-
-    /// Keep a large IPA within the sideloader's 16-bit entry count. Only the games in the shell library
-    /// know how to unpack an archive. Leave other frameworks' resources in their original layout.
-    private func packShaderLibraries(in stagedApp: URL, games: [ShellLibrary.Game], label: String) throws {
-        let fm = FileManager.default
-        let frameworks = stagedApp.appendingPathComponent("Frameworks")
-        for game in games {
-            let framework = frameworks.appendingPathComponent(URL(fileURLWithPath: game.framework).lastPathComponent)
-            let shaders = framework.appendingPathComponent("msl")
-            var directory: ObjCBool = false
-            guard fm.fileExists(atPath: shaders.path, isDirectory: &directory), directory.boolValue else { continue }
-            // A re-used framework can already contain a packed copy. The loose tree supplies this export's contents.
-            for old in try fm.contentsOfDirectory(at: framework, includingPropertiesForKeys: nil) where old.pathExtension == "aar" {
-                let stem = old.deletingPathExtension().lastPathComponent
-                if stem.hasPrefix("msl-"), UUID(uuidString: String(stem.dropFirst(4))) != nil { try fm.removeItem(at: old) }
-            }
-            let archive = framework.appendingPathComponent("msl-\(UUID().uuidString).aar")
-            let result = run(["/usr/bin/aa", "archive", "-d", shaders.path, "-o", archive.path, "-a", "lzfse"],
-                             env: nil, label: label, step: { _ in nil })
-            guard result.status == 0, fm.fileExists(atPath: archive.path) else {
-                let reason = result.lastError ?? ShellInstall.scriptFailure(result.output) ?? fmt("msg.exitCode", result.status)
-                throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: reason])
-            }
-            try fm.removeItem(at: shaders)
-        }
     }
 
     /// The game data into the shared app that is installed already and signed by another tool (LNPANDY/NX2Apple#416). The app is found
@@ -326,5 +307,90 @@ extension ShellInstaller {
             outcome.failure = nil   // the install's Retry card does not fit: nothing of the install ran
         }
         return outcome
+    }
+}
+
+/// Shared IPA staging helpers used by both unsigned exports (`ShellInstaller.packExport`) and signed app exports (`BuildStore.saveIPA`).
+package enum ShellExport {
+    /// Signing can add `_CodeSignature/` and `CodeResources`, so reserve two entries below the 16-bit ZIP32 ceiling.
+    package static let entryLimit = Int(UInt16.max) - 2
+
+    package static func exceedsEntryLimit(in payload: URL, limit: Int = entryLimit) throws -> Bool {
+        var failure: Error?
+        guard let entries = FileManager.default.enumerator(at: payload, includingPropertiesForKeys: [], errorHandler: { _, error in
+            failure = error
+            return false
+        }) else {
+            throw failure ?? CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: payload.path])
+        }
+        var count = 1   // ditto --keepParent writes Payload/ itself, then DmShell.app/ and its descendants.
+        while count <= limit, entries.nextObject() != nil { count += 1 }
+        if let failure { throw failure }
+        return count > limit
+    }
+
+    package static func entryLimitExceededError(limit: Int) -> Error {
+        CocoaError(.fileWriteUnknown, userInfo: [
+            NSLocalizedDescriptionKey: "IPA bundle exceeds the \(limit)-entry ZIP32 archive limit"
+        ])
+    }
+
+    /// Names the embedded `DmGame<titleID>.framework` bundles inside `stagedApp`.
+    package static func gameFrameworkNames(forApp appPath: String, stagedApp: URL, fm: FileManager = .default) -> [String] {
+        var seen = Set<String>()
+        var names: [String] = []
+        func append(_ name: String) {
+            if !name.isEmpty, seen.insert(name).inserted {
+                names.append(name)
+            }
+        }
+        if let shell = ShellInstall.paths(ofApp: appPath) {
+            for game in ShellLibrary.load(root: shell.root).games {
+                append(URL(fileURLWithPath: game.framework).lastPathComponent)
+            }
+        }
+        let frameworksDir = stagedApp.appendingPathComponent("Frameworks")
+        for item in (try? fm.contentsOfDirectory(atPath: frameworksDir.path))?.sorted() ?? []
+            where !ShellInstall.titleID(ofFramework: item).isEmpty {
+            append(item)
+        }
+        return names
+    }
+
+    /// Packs legacy loose `<framework>/msl/` trees into `msl-<UUID>.aar` when an already-built app exceeds the ZIP32 entry limit.
+    /// Stripped frameworks without `msl/` are skipped at zero cost.
+    package static func packShaderLibraries(
+        in stagedApp: URL,
+        frameworkNames: [String],
+        runArchive: ([String]) -> (status: Int32, output: String, lastError: String?),
+        exitCodeMessage: (Int32) -> String
+    ) throws {
+        let fm = FileManager.default
+        let frameworksDir = stagedApp.appendingPathComponent("Frameworks")
+        var packedSet = Set<String>()
+        for frameworkName in frameworkNames where packedSet.insert(frameworkName).inserted {
+            let fwURL = frameworksDir.appendingPathComponent(frameworkName)
+            let mslURL = fwURL.appendingPathComponent("msl")
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: mslURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            for old in (try? fm.contentsOfDirectory(at: fwURL, includingPropertiesForKeys: nil)) ?? []
+                where old.pathExtension == "aar" {
+                let stem = old.deletingPathExtension().lastPathComponent
+                if stem.hasPrefix("msl-"), UUID(uuidString: String(stem.dropFirst(4))) != nil {
+                    try fm.removeItem(at: old)
+                }
+            }
+            let archiveURL = fwURL.appendingPathComponent("msl-\(UUID().uuidString.lowercased()).aar")
+            let packed = runArchive(["/usr/bin/aa", "archive", "-d", mslURL.path, "-o", archiveURL.path, "-a", "lzfse"])
+            guard packed.status == 0, fm.fileExists(atPath: archiveURL.path) else {
+                try? fm.removeItem(at: archiveURL)
+                let detail = packed.lastError
+                    ?? ShellInstall.scriptFailure(packed.output)
+                    ?? packed.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                let why = detail.isEmpty ? exitCodeMessage(packed.status) : detail
+                throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: why])
+            }
+            try fm.removeItem(at: mslURL)
+        }
     }
 }

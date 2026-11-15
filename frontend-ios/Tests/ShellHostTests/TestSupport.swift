@@ -18,8 +18,28 @@ final class Sandbox: @unchecked Sendable {
     let suite = "shellhost.tests.\(UUID().uuidString)."
 
     init() throws {
-        try FileManager.default.createDirectory(at: appData, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: Fixtures.gamesURL, to: games)
+        let fm = FileManager.default
+        try fm.createDirectory(at: appData, withIntermediateDirectories: true)
+        try fm.copyItem(at: Fixtures.gamesURL, to: games)
+        // Stripped-framework readiness checks require bundled msl/ in Sandbox fixtures unless a test removes it.
+        if let children = try? fm.contentsOfDirectory(at: games, includingPropertiesForKeys: nil) {
+            for gameDir in children {
+                let fw = gameDir.appendingPathComponent("DmGame.framework", isDirectory: true)
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: fw.path, isDirectory: &isDir), isDir.boolValue else { continue }
+                let mslDir = fw.appendingPathComponent("msl", isDirectory: true)
+                guard !fm.fileExists(atPath: mslDir.path) else { continue }
+                var chainDirName = "b-3f9a2c"
+                if let data = fm.contents(atPath: gameDir.appendingPathComponent("game.manifest.json").path),
+                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let chain = obj["chain"] as? String, !chain.isEmpty {
+                    chainDirName = chain
+                }
+                let chainDir = mslDir.appendingPathComponent(chainDirName, isDirectory: true)
+                try fm.createDirectory(at: chainDir, withIntermediateDirectories: true)
+                try Data("fixture".utf8).write(to: chainDir.appendingPathComponent("fixture.metallib"))
+            }
+        }
     }
     deinit {
         try? FileManager.default.removeItem(at: root)

@@ -212,7 +212,10 @@ private final class FakeFetch: CloudFileFetching, @unchecked Sendable {
         XCTAssertEqual(gate.step, .fetching(gameName: "Hades", long: false))
         gate.choose(.cloud)
         XCTAssertNotNil(gate.step, "only playing without it answers the wait")
-        try await Task.sleep(nanoseconds: 200_000_000)
+        let deadline = Date().addingTimeInterval(2.0)
+        while gate.step != .fetching(gameName: "Hades", long: true) && Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
         XCTAssertEqual(gate.step, .fetching(gameName: "Hades", long: true), "a long wait offers playing without it")
         gate.cancel()
         XCTAssertTrue(ended); XCTAssertNil(started)

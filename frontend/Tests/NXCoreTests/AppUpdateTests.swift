@@ -289,6 +289,58 @@ final class AppUpdateTests: XCTestCase {
         XCTAssertEqual(try marker(current), "old")
     }
 
+    func testInstallOverwriteFailureCleansPartialDestinationAndRestoresBackupBundle() throws {
+        let fm = FileManager.default
+        let dir = temporary.appendingPathComponent("Applications")
+        let current = try makeApp("Current", in: dir, marker: "old")
+        let staged = try makeApp("Current", in: temporary.appendingPathComponent("staged"), marker: "new")
+
+        var ops = AppUpdate.InstallFileOps.live
+        ops.moveItem = { src, dst in
+            if dst == current, src.lastPathComponent == "Current (new).app" {
+                let partial = dst.appendingPathComponent("Contents/CorruptPartial")
+                try fm.createDirectory(at: partial, withIntermediateDirectories: true)
+                try Data("broken".utf8).write(to: partial.appendingPathComponent("file"))
+                throw CocoaError(.fileWriteOutOfSpace)
+            }
+            try fm.moveItem(at: src, to: dst)
+        }
+
+        XCTAssertThrowsError(try AppUpdate.install(staged, over: current, buildRunning: false, trashOld: false, fileOps: ops)) { error in
+            guard case .failed? = error as? AppUpdate.InstallError else {
+                XCTFail("expected InstallError.failed, got \(error)")
+                return
+            }
+        }
+        XCTAssertFalse(fm.fileExists(atPath: current.appendingPathComponent("Contents/CorruptPartial").path))
+        XCTAssertEqual(try marker(current), "old")
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: dir.path), ["Current.app"])
+    }
+
+    func testInstallRenameFailureWithoutBackupCleansPartialDestinationAndKeepsCurrentApp() throws {
+        let fm = FileManager.default
+        let dir = temporary.appendingPathComponent("Applications")
+        let current = try makeApp("Current", in: dir, marker: "old")
+        let staged = try makeApp("Renamed", in: temporary.appendingPathComponent("staged"), marker: "new")
+        let target = dir.appendingPathComponent("Renamed.app")
+
+        var ops = AppUpdate.InstallFileOps.live
+        ops.moveItem = { src, dst in
+            if dst == target, src.lastPathComponent == "Renamed (new).app" {
+                let partial = dst.appendingPathComponent("Contents/CorruptPartial")
+                try fm.createDirectory(at: partial, withIntermediateDirectories: true)
+                try Data("broken".utf8).write(to: partial.appendingPathComponent("file"))
+                throw CocoaError(.fileWriteOutOfSpace)
+            }
+            try fm.moveItem(at: src, to: dst)
+        }
+
+        XCTAssertThrowsError(try AppUpdate.install(staged, over: current, buildRunning: false, trashOld: false, fileOps: ops))
+        XCTAssertFalse(fm.fileExists(atPath: target.path))
+        XCTAssertEqual(try marker(current), "old")
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: dir.path), ["Current.app"])
+    }
+
     func testEveryUpdateStringHasBothLanguages() {
         for key in ["app.staging", "app.ready", "app.restartNow", "app.waitForBuild", "app.stageNetFail", "app.noDigest",
                     "app.digestMismatch", "app.unpackFail", "app.notOurApp", "app.devBuild", "app.readOnly", "app.auto",

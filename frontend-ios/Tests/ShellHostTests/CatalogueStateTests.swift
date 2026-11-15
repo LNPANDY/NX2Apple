@@ -150,4 +150,41 @@ import ShellUI
         let r = DataLocator.locate(manifest: try manifest(), picked: .stale, appFolder: box.appData.appendingPathComponent(Fixtures.orbit))
         #expect(!r.found && r.pickedIsStale)
     }
+
+    @Test func pickedDriveRootFindsTitleSubfolderInAnyCase() throws {
+        let box = try Sandbox()
+        let hexTitle = "0100ABCDEF000000"
+        let manifestURL = Fixtures.gamesURL.appendingPathComponent(Fixtures.orbit).appendingPathComponent("game.manifest.json")
+        let manifestText = try String(contentsOf: manifestURL, encoding: .utf8).replacingOccurrences(of: Fixtures.orbit, with: hexTitle)
+        let m = try GameManifest.parse(Data(manifestText.utf8))
+        let app = box.appData.appendingPathComponent(hexTitle)
+
+        // Uppercase <Drive>/<TitleID>/romfs.img as written by Copy to drive.
+        let driveUpper = box.root.appendingPathComponent("DriveUpper", isDirectory: true)
+        let upperSub = driveUpper.appendingPathComponent(hexTitle, isDirectory: true)
+        try box.write("romfs-bytes", to: upperSub.appendingPathComponent("romfs.img"))
+        let foundUpper = DataLocator.locate(manifest: m, picked: .url(driveUpper), appFolder: app)
+        #expect(foundUpper.found && foundUpper.source == .picked)
+        #expect(foundUpper.url?.resolvingSymlinksInPath().path == upperSub.resolvingSymlinksInPath().path)
+        #expect(foundUpper.romfsURL?.lastPathComponent == "romfs.img")
+
+        // Lowercase <Drive>/<titleid>/romfs.img matched case-insensitively with its on-disk directory name preserved.
+        let driveLower = box.root.appendingPathComponent("DriveLower", isDirectory: true)
+        let lowerSub = driveLower.appendingPathComponent(hexTitle.lowercased(), isDirectory: true)
+        try box.write("romfs-bytes", to: lowerSub.appendingPathComponent("romfs.img"))
+        let foundLower = DataLocator.locate(manifest: m, picked: .url(driveLower), appFolder: app)
+        #expect(foundLower.found && foundLower.source == .picked)
+        #expect(foundLower.url?.lastPathComponent == hexTitle.lowercased())
+        #expect(foundLower.url?.resolvingSymlinksInPath().path == lowerSub.resolvingSymlinksInPath().path)
+
+        // Direct <picked>/romfs.img still takes priority over <picked>/<TitleID>/romfs.img.
+        try box.write("direct-bytes", to: driveUpper.appendingPathComponent("romfs.img"))
+        let foundDirect = DataLocator.locate(manifest: m, picked: .url(driveUpper), appFolder: app)
+        #expect(foundDirect.source == .picked && foundDirect.url?.resolvingSymlinksInPath().path == driveUpper.resolvingSymlinksInPath().path)
+
+        // Unjoined .nxpart files in <Drive>/<TitleID>/ are not complete RomFS images and fall back cleanly.
+        let drivePartsOnly = box.root.appendingPathComponent("DrivePartsOnly", isDirectory: true)
+        try box.write("part", to: drivePartsOnly.appendingPathComponent(hexTitle + "/romfs.img.nxpart.000"))
+        #expect(!DataLocator.locate(manifest: m, picked: .url(drivePartsOnly), appFolder: app).found)
+    }
 }

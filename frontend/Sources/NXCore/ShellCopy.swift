@@ -40,7 +40,8 @@ extension ShellInstaller {
         let game = ShellLibrary.load(root: root).games.first { $0.titleID == titleID }
         let manifest = game.flatMap { FileManager.default.contents(atPath: $0.framework + "/game.manifest.json") }
             .flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
-        let args = ["-I", tool, "--identity", archive + "/romfs.img", titleID,
+        let imagePath = RomFSArchive.primaryImagePath(in: archive) ?? (archive + "/romfs.img")
+        let args = ["-I", tool, "--identity", imagePath, titleID,
                     manifest?["display_version"] as? String ?? "", manifest?["package_version"] as? String ?? ""]
         let result = runner.capture(ProcessLaunch(executable: python, arguments: args))
         let line = result.out.trimmingCharacters(in: .whitespacesAndNewlines)

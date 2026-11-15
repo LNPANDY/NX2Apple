@@ -73,4 +73,34 @@ final class FocusNavigationTests: XCTestCase {
         XCTAssertEqual(activations, 1)
         XCTAssertEqual(targets.active(prefix: "lib.", toolbarIDs: ["lib.settings"]).count, 1)
     }
+
+    func testReturningToLibraryWithEmptyTileTargetsPreservesDirectionsAndActivate() {
+        let games = [
+            GameDetail(game: GameTile(id: "g1", title: "Game 1")),
+            GameDetail(game: GameTile(id: "g2", title: "Game 2")),
+            GameDetail(game: GameTile(id: "g3", title: "Game 3")),
+        ]
+        // Returning with previous tile focus must allow directional keys without stalling on missing geometry.
+        XCTAssertTrue(LibraryView.shouldDispatchWhenFocusMissing(action: .right, topLayer: nil, hadTileFocus: true, isCoverFlow: false, hasGames: true))
+        XCTAssertTrue(LibraryView.shouldDispatchWhenFocusMissing(action: .down, topLayer: nil, hadTileFocus: true, isCoverFlow: false, hasGames: true))
+        XCTAssertTrue(LibraryView.shouldDispatchWhenFocusMissing(action: .left, topLayer: nil, hadTileFocus: false, isCoverFlow: true, hasGames: true))
+        // First controller press with nil focus and not Cover Flow keeps highlighting default focus without skipping.
+        XCTAssertFalse(LibraryView.shouldDispatchWhenFocusMissing(action: .right, topLayer: nil, hadTileFocus: false, isCoverFlow: false, hasGames: true))
+        // When a sheet is open on top, missing focus must not step the underlying library.
+        XCTAssertFalse(LibraryView.shouldDispatchWhenFocusMissing(action: .down, topLayer: .settings, hadTileFocus: true, isCoverFlow: false, hasGames: true))
+        XCTAssertNil(LibraryView.fallbackSteppedGameID(games: games, selectedID: "g2", focusID: "lib.tile.g2", action: .right, isCoverFlow: true, topLayer: .settings, hasTileTargets: false))
+
+        // Stepping across games when tile targets have not re-reported yet.
+        XCTAssertEqual(LibraryView.fallbackSteppedGameID(games: games, selectedID: "g1", focusID: "lib.tile.g1", action: .right, isCoverFlow: false, topLayer: nil, hasTileTargets: false), "g2")
+        XCTAssertEqual(LibraryView.fallbackSteppedGameID(games: games, selectedID: "g2", focusID: "lib.tile.g2", action: .up, isCoverFlow: false, topLayer: nil, hasTileTargets: false), "g1")
+        // Once real tile targets exist in non-CoverFlow mode, defer to FocusNavigation geometry.
+        XCTAssertNil(LibraryView.fallbackSteppedGameID(games: games, selectedID: "g1", focusID: "lib.tile.g1", action: .right, isCoverFlow: false, topLayer: nil, hasTileTargets: true))
+        // In Cover Flow, toolbar focus is not hijacked when stepping.
+        XCTAssertNil(LibraryView.fallbackSteppedGameID(games: games, selectedID: "g1", focusID: "lib.controllers", action: .right, isCoverFlow: true, topLayer: nil, hasTileTargets: true))
+
+        // Activate fallback resolves tile focus back to the matching game and ignores toolbar focus IDs.
+        XCTAssertEqual(LibraryView.fallbackActivatedGame(games: games, selected: games[0], focusID: "lib.tile.g2")?.id, "g2")
+        XCTAssertEqual(LibraryView.fallbackActivatedGame(games: games, selected: games[1], focusID: nil)?.id, "g2")
+        XCTAssertNil(LibraryView.fallbackActivatedGame(games: games, selected: games[0], focusID: "lib.controllers"))
+    }
 }

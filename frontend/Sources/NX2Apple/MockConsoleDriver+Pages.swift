@@ -31,6 +31,10 @@ extension MockConsoleDriver {
     }
     func typeSupported(_ text: String) { state.typeSupported(text) }
     func deleteSupported() { state.deleteSupported() }
+    /// The demo's covers: none, unless a capture or a test hands its own (`supportedCoverSource`).
+    func supportedCovers(maxPixel: Int) -> SupportedCovers {
+        supportedCoverSource?(maxPixel) ?? .saved(in: FileManager.default.temporaryDirectory.appendingPathComponent("console-demo-no-banners"), maxPixel: maxPixel)
+    }
     func typeSearch(_ text: String) {
         guard state.presentedSheet == .search else { return }
         state.searchText += text

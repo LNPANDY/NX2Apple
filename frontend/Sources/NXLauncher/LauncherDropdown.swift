@@ -91,11 +91,11 @@ extension View {
 }
 
 extension View {
-    /// The list's own surface: the app's dark card with its border, radius and shadow.
+    /// The list's own surface: the app's card with its border, radius and shadow.
     package func launcherDropdownSurface() -> some View {
         background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(LauncherPalette.ink(0.10)))
-            .shadow(color: .black.opacity(0.5), radius: 18, y: 6)
+            .shadow(color: LauncherPalette.dropdownShadow, radius: 18, y: 6)
     }
 }
 

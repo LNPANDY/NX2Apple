@@ -11,7 +11,7 @@
   "kind": "translator",
   "source": "scripts/build_ipa_from_nsp.py",
   "fragment": "the shader translator does not run (",
-  "text": "[RED] the shader translator does not run (You must install .NET to run this application.): it needs the .NET 10 runtime for this Mac's architecture (brew install --cask dotnet-sdk); unset DOTNET_ROOT if it names another one"
+  "text": "[RED] the shader translator does not run (exit code 137): dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate is the committed native executable; check out the repository again if it is missing or damaged"
  },
  {
   "id": "translator.start",
@@ -61,6 +61,13 @@
   "source": "dm/tools/nx_extract/Program.cs",
   "fragment": "files fail the NCA's hash check",
   "text": "[RED] hash check failed: ExeFS/main\n[RED] the NSP is damaged: 1 files fail the NCA's hash check (an incomplete copy or a broken download); copy or download it again, or pass --allow-damaged to write them as read\n[RED] nx_extract exit code 3 (full output: /w/logs/extract.log)"
+ },
+ {
+  "id": "nup.damaged",
+  "kind": "damagedNSP",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "Pack again from a good copy of the game (--allow-damaged packs these files as they are)",
+  "text": "[RED] v131072: 3 file(s) whose bytes do not start as their names promise (a .zs file that is not a zstd stream), so the game files are damaged:\n  Tex/CmnTex_Map_Soil_FairyFountain_Floor_D_Nrm.bntx.zs (216,015 bytes, starts 00000000)\nPack again from a good copy of the game (--allow-damaged packs these files as they are)"
  },
  {
   "id": "arm32.program",

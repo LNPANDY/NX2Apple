@@ -52,7 +52,8 @@ package enum EngineLayout {
 
     static func hex(_ d: SHA256.Digest) -> String { d.map { String(format: "%02x", $0) }.joined() }
 
-    /// tools/engine.py's stamp_key: sha256 of "pin <sha>\n", then "patch <name>\n<sha256 of the file>\n" for each patch in order.
+    /// tools/engine.py's stamp_key: sha256 of "pin <sha>\n", "patch <name>\n<sha256 of the file>\n" for each patch in order,
+    /// and "switches <sha256>\n" when patches/fork_env_switches.tsv is present.
     package static func stampKey(_ repo: String) -> String? {
         guard let pin = try? String(contentsOfFile: repo + "/.upstream-ref", encoding: .utf8), let names = series(repo) else { return nil }
         var h = SHA256()
@@ -60,6 +61,9 @@ package enum EngineLayout {
         for name in names {
             guard let data = FileManager.default.contents(atPath: repo + "/patches/" + name) else { return nil }
             h.update(data: Data(("patch " + name + "\n" + hex(SHA256.hash(data: data)) + "\n").utf8))
+        }
+        if let sw = FileManager.default.contents(atPath: repo + "/patches/fork_env_switches.tsv") {
+            h.update(data: Data(("switches " + hex(SHA256.hash(data: sw)) + "\n").utf8))
         }
         return hex(h.finalize())
     }

@@ -28,6 +28,14 @@ final class LauncherHeroActionTests: IsolatedDefaultsTestCase {
         }
     }
 
+    func testConsoleBuildFitsOnOneLineInEveryLanguage() throws {
+        for lang in languages {
+            let text = L10n.string("console.build", lang)
+            XCTAssertNotEqual(text, "console.build")
+            XCTAssertLessThanOrEqual(try width(text), LauncherHeroAction.labelWidth, "\(lang): \(text)")
+        }
+    }
+
     func testOpenOnDeviceFitsAfterShrinkingForADeviceName() throws {
         for lang in languages {
             let text = String(format: L10n.string("dev.open", lang), "iPhone")

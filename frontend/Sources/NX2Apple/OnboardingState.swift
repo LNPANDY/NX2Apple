@@ -78,6 +78,11 @@ struct OnboardingGame: Identifiable, Equatable {
     var needsKeys = true
 }
 
+struct OnboardingTransferProgress: Equatable {
+    var fraction: Double?
+    var detail: String
+}
+
 struct OnboardingState: Equatable {
     enum Welcome: Equatable {
         case requirements(freeGB: Int, neededGB: Int)
@@ -126,6 +131,8 @@ struct OnboardingState: Equatable {
     var xcode: Xcode = .checking
     var setup: [OnboardingSetupTask: OnboardingTaskState] = [:]
     var background: [OnboardingBackgroundTask: OnboardingTaskState] = [:]
+    var backgroundDetails: [OnboardingBackgroundTask: String] = [:]
+    var engineTransfer: OnboardingTransferProgress? = nil
     var keys: Keys = .empty
     var games: Games = .empty
     var done: Done = .celebrating

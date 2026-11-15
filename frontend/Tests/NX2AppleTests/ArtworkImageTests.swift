@@ -82,6 +82,10 @@ final class ArtworkImageTests: XCTestCase {
         let url = try jpeg("big.jpg", width: 1600, height: 900)
         let image = try XCTUnwrap(ArtworkImages().image(at: url, maxPixel: 640))
         XCTAssertEqual(image.size, NSSize(width: 640, height: 360))
+        let rep = try XCTUnwrap(image.representations.first)
+        XCTAssertTrue(rep is NSBitmapImageRep)
+        XCTAssertEqual(rep.pixelsWide, 640)
+        XCTAssertEqual(rep.pixelsHigh, 360)
     }
 
     func testDecodeNeverEnlargesASmallImage() throws {

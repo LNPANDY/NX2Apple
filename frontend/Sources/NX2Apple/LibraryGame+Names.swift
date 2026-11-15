@@ -34,15 +34,22 @@ extension LibraryGame {
             || trimmed.range(of: "^[0-9A-Fa-f]{16}$", options: .regularExpression) != nil
     }
 
-    /// A package's or folder's name without what dump tools add to it: [title ID], [v0], [NSP] and a size such as (0.01 GB).
+    /// A package's or folder's name without what dump tools add to it: [title ID], bare 01/04 title ID tokens, [v0], [NSP] and a size such as (0.01 GB).
     static func cleanedName(_ raw: String) -> String {
         let name = raw
             .replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
             .replacingOccurrences(of: "\\(\\s*[0-9]+([.,][0-9]+)?\\s*(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)\\s*\\)", with: "",
                                   options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(
+                of: "(?:^|[\\s_\\-]+)0[14][0-9A-Fa-f]{14}(?![0-9A-Fa-f])(?:[_ ]v\\d+)?(?:_[0-9A-Fa-f]{8,64})?(?:\\s*[\\-_]\\s*)?",
+                with: " ",
+                options: .regularExpression
+            )
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? raw : name
+        if !name.isEmpty { return name }
+        if let tid = TitleID.parse(raw) { return String(format: "%016llX", tid) }
+        return raw
     }
 }
 
@@ -59,6 +66,21 @@ extension GameLibrary {
         guard var game = games.first(where: { $0.id == id }), game.titleNames.isEmpty else { return }
         game.titleNames = names
         upsert(game)
+    }
+
+    /// Names (when still empty) and source package version read off-thread by `TitleNameLookup`.
+    func setPackageMetadata(names: [String: String]?, sourceVersion: String?, for id: UUID) {
+        guard var game = games.first(where: { $0.id == id }) else { return }
+        var changed = false
+        if let names, !names.isEmpty, game.titleNames.isEmpty {
+            game.titleNames = names
+            changed = true
+        }
+        if let sourceVersion, game.sourceVersion != sourceVersion {
+            game.sourceVersion = sourceVersion
+            changed = true
+        }
+        if changed { upsert(game) }
     }
 
     /// A ready entry the folder scan finds again learns the names of its app: one from before the names were kept, or rebuilt since.

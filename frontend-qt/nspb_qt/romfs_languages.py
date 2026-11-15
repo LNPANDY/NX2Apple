@@ -56,6 +56,8 @@ REGION_TAGS: dict[str, str] = {
 _KNOWN_CODES: frozenset[str] = frozenset(code for code, _ in TABLE)
 _CACHE_LOCK = threading.Lock()
 _IMAGE_CACHE: dict[str, list[list[str]]] = {}
+_UINT64_MAX = (1 << 64) - 1
+_PAGE_MASK = 16383
 
 
 def options_for_tags(tags: Iterable[str]) -> list[list[str]]:
@@ -64,10 +66,21 @@ def options_for_tags(tags: Iterable[str]) -> list[list[str]]:
     return [[code, label] for code, label in TABLE if code in codes]
 
 
+def _standard_image_candidates(path: str | Path) -> list[Path]:
+    p = Path(path)
+    return [
+        p / 'Contents' / 'Resources' / 'romfs.img',
+        p / 'Contents' / 'Resources' / 'RomFS.img',
+        p / 'romfs.img',
+        p / 'RomFS.img',
+    ]
+
+
 def _candidates(path: str | Path) -> list[Path]:
     p = Path(path)
     return [
         p / 'Contents' / 'Resources' / 'romfs.img',
+        p / 'Contents' / 'Resources' / 'RomFS.img',
         p / 'Contents' / 'Resources' / 'romfs',
         p / 'romfs.img',
         p / 'RomFS.img',
@@ -75,6 +88,31 @@ def _candidates(path: str | Path) -> list[Path]:
         p / 'RomFS',
         p,
     ]
+
+
+def _direct_custom_images(dir_path: Path) -> list[Path]:
+    for std in _standard_image_candidates(dir_path):
+        try:
+            if std.is_file():
+                return []
+        except OSError:
+            continue
+    try:
+        names = sorted(os.listdir(dir_path))
+    except OSError:
+        return []
+    out: list[Path] = []
+    for name in names:
+        lower = name.lower()
+        if name.startswith('.') or len(name) <= 4 or not lower.endswith('.img') or '.nxpart' in lower:
+            continue
+        full = dir_path / name
+        try:
+            if full.is_file():
+                out.append(full)
+        except OSError:
+            continue
+    return out
 
 
 def _tags_from_mask(text: str) -> list[str]:
@@ -115,8 +153,45 @@ def _from_directory(dir_path: Path) -> list[list[str]]:
     return []
 
 
+def _has_valid_msl_trailer(f, file_size: int, base_end: int) -> bool:
+    """Validates the fixed 64-byte DMMSLTR1 footer at EOF when file_size > base_end."""
+    if file_size - base_end < 64:
+        return False
+    footer_pos = file_size - 64
+    f.seek(footer_pos)
+    foot = f.read(64)
+    if len(foot) != 64 or foot[:8] != b'DMMSLTR1':
+        return False
+    version, gfx_api, _flags, chain_len, base_romfs_size, msl_offset, msl_size = struct.unpack_from(
+        '<IBBHQQQ', foot, 8
+    )
+    chain_raw = foot[40:64]
+    if (
+        version != 1
+        or gfx_api not in (1, 2, 3)
+        or chain_len > 24
+        or b'\x00' in chain_raw[:chain_len]
+        or any(b != 0 for b in chain_raw[chain_len:])
+        or base_romfs_size != base_end
+        or base_end > _UINT64_MAX - _PAGE_MASK
+    ):
+        return False
+    expected_msl_off = (base_end + _PAGE_MASK) & ~_PAGE_MASK
+    if (
+        msl_offset != expected_msl_off
+        or msl_size < 32
+        or msl_offset > footer_pos
+        or msl_size > footer_pos - msl_offset
+    ):
+        return False
+    raw_end = msl_offset + msl_size
+    if raw_end > _UINT64_MAX - 7 or ((raw_end + 7) & ~7) != footer_pos:
+        return False
+    return True
+
+
 def _from_image(img_path: Path) -> list[list[str]]:
-    """Reads System/RegionLangMask.txt or Mals/ from a DMROMFS1 image by seeking to the index at the end of the file."""
+    """Reads System/RegionLangMask.txt or Mals/ from a DMROMFS1 image (with or without a DMMSLTR1 trailer)."""
     try:
         file_size = img_path.stat().st_size
         if file_size < 32:
@@ -126,14 +201,12 @@ def _from_image(img_path: Path) -> list[list[str]]:
             if len(head) != 32 or head[:8] != b'DMROMFS1':
                 return []
             idx_off, idx_size, count = struct.unpack_from('<QQQ', head, 8)
-            if (
-                idx_off < 32
-                or idx_off > file_size
-                or idx_size != file_size - idx_off
-                or idx_size > 64 * 1024 * 1024
-                or count < 1
-                or count > idx_size // 24
-            ):
+            if idx_off < 32 or idx_off > file_size or idx_size > file_size - idx_off:
+                return []
+            base_end = idx_off + idx_size
+            if file_size > base_end and not _has_valid_msl_trailer(f, file_size, base_end):
+                return []
+            if idx_size > 64 * 1024 * 1024 or count < 1 or count > idx_size // 24:
                 return []
             f.seek(idx_off)
             idx = f.read(idx_size)
@@ -243,6 +316,16 @@ def options_in(path: str | Path) -> list[list[str]]:
             continue
         if len(found) > 1:
             return found
+    p = Path(path)
+    try:
+        is_dir = p.is_dir()
+    except OSError:
+        is_dir = False
+    if is_dir:
+        for img in _direct_custom_images(p):
+            found = _cached_from_image(img)
+            if len(found) > 1:
+                return found
     return []
 
 

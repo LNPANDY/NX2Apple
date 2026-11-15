@@ -20,4 +20,31 @@ final class BuildSpaceTests: XCTestCase {
     func testAvailableLooksAtTheNearestExistingParent() {
         XCTAssertNotNil(BuildSpace.available(at: NSTemporaryDirectory() + "not-yet/made"))
     }
+
+    /// #1155: macOS answers 0 (or nil) for `volumeAvailableCapacityForImportantUsage` on exFAT external drives,
+    /// while `statfs` (`DriveCopy.volume`) reports the drive's real free space.
+    func testAvailableFallsBackToStatfsWhenImportantUsageReportsZeroOrNil() {
+        let probe = NSTemporaryDirectory() + "not-yet/made"
+        XCTAssertEqual(
+            BuildSpace.available(at: probe, importantCapacity: { _ in 0 }, fallbackCapacity: { _, _ in 120_000_000_000 }),
+            120_000_000_000
+        )
+        XCTAssertEqual(
+            BuildSpace.available(at: probe, importantCapacity: { _ in nil }, fallbackCapacity: { _, _ in 120_000_000_000 }),
+            120_000_000_000
+        )
+        // Truly full volume: both report 0, so 0 is preserved and blocks the build.
+        XCTAssertEqual(
+            BuildSpace.available(at: probe, importantCapacity: { _ in 0 }, fallbackCapacity: { _, _ in 0 }),
+            0
+        )
+        // Positive important-usage capacity (e.g. APFS with purgeable space) wins without calling fallback.
+        XCTAssertEqual(
+            BuildSpace.available(at: probe, importantCapacity: { _ in 80_000_000_000 }, fallbackCapacity: { _, _ in 40_000_000_000 }),
+            80_000_000_000
+        )
+        // Unreadable volume on both paths returns nil so preflight skips rather than false-blocking.
+        XCTAssertNil(BuildSpace.available(at: probe, importantCapacity: { _ in nil }, fallbackCapacity: { _, _ in nil }))
+        XCTAssertNil(BuildSpace.available(at: ""))
+    }
 }

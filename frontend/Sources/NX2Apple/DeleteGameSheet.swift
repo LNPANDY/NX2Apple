@@ -90,8 +90,9 @@ struct DeleteGameSheet: View {
         .onAppear { if plan == nil { measure() } }
     }
 
-    static let red = Color(red: 1, green: 0.42, blue: 0.40)
-    static let fill = Color(red: 0.86, green: 0.25, blue: 0.24)
+    static let red = LauncherPalette.danger
+    static let fill = LauncherPalette.dynamic(dark: NSColor(srgbRed: 0.86, green: 0.25, blue: 0.24, alpha: 1),
+                                              light: NSColor(srgbRed: 0xB4 / 255.0, green: 0x23 / 255.0, blue: 0x28 / 255.0, alpha: 1))
 
     private func title(_ kind: GameDeletion.Item.Kind) -> String {
         switch kind {

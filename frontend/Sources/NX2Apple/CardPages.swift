@@ -41,14 +41,16 @@ struct CardPages: View {
     @EnvironmentObject var loc: Localizer
 
     var body: some View {
-        LauncherPageScroll(memoryKey: settings ? "settings." + settingsCategory.rawValue : "builds") {
+        Group {
             if settings {
                 SettingsPage(build: build, updates: updates, repo: repo, engine: engine, dependencies: dependencies, library: library, players: players, sticks: sticks, saveSettings: saveSettings,
                              diagnostics: diagnostics, onChooseLibraryFolder: onChooseLibraryFolder, onOpenControls: onOpenControls,
                              onOpenControllers: onOpenControllers, onRunSetup: onRunSetup, controlChanges: controlChanges, padMerge: padMerge, buildFiles: buildFiles, buildingID: buildingID, onBuildFileDetails: onBuildFileDetails, category: $settingsCategory)
             } else {
-                BuildPage(build: build, running: build.running, repo: repo, dependencies: dependencies, devices: devices, queue: queue, transfers: transfers, onSelectGames: onSelectGames, extrasOpen: $extrasOpen, logOpen: $logOpen,
-                          onViewGame: onViewGame, onOpenSettings: onOpenSettings)
+                LauncherPageScroll(memoryKey: "builds") {
+                    BuildPage(build: build, running: build.running, repo: repo, dependencies: dependencies, devices: devices, queue: queue, transfers: transfers, onSelectGames: onSelectGames, extrasOpen: $extrasOpen, logOpen: $logOpen,
+                              onViewGame: onViewGame, onOpenSettings: onOpenSettings)
+                }
             }
         }
         .modifier(GameFilesDrop(enabled: !settings && !build.running, label: loc.t("drop.hint")) { build.take(dropped: $0) })   // DropFiles.swift

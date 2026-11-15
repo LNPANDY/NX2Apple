@@ -577,6 +577,134 @@
         }
       }
     },
+    "Add NX2Apple under Home Button Override.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple unter „Home-Taste überschreiben“ hinzufügen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add NX2Apple under Home Button Override."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade NX2Apple en Anulación del botón de inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez NX2Apple dans Remplacement du bouton d’accueil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi NX2Apple in Sostituzione tasto Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ホームボタンの優先設定」に NX2Apple を追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘홈 버튼 재정의’에 NX2Apple을 추가합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicione o NX2Apple em Substituição do Botão de Início."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lägg till NX2Apple under Åsidosätt hemknapp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“主屏幕按钮覆盖”中添加 NX2Apple。"
+          }
+        }
+      }
+    },
+    "All controllers are player 1": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Controller sind Spieler 1"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All controllers are player 1"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos los mandos son el jugador 1"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les manettes sont le joueur 1"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutti i controller sono il giocatore 1"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのコントローラーをプレイヤー 1 にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 컨트롤러를 플레이어 1로"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos os controles são o jogador 1"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alla handkontroller är spelare 1"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有手柄均为玩家 1"
+          }
+        }
+      }
+    },
     "All games": {
       "localizations": {
         "de": {
@@ -637,6 +765,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "所有游戏"
+          }
+        }
+      }
+    },
+    "Allow other apps to keep playing audio alongside games.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubt anderen Apps, während des Spiels weiter Ton abzuspielen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow other apps to keep playing audio alongside games."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que otras apps sigan reproduciendo audio mientras juegas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorise d’autres apps à continuer la lecture audio pendant le jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consente ad altre app di continuare a riprodurre audio durante il gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームのプレイ中も、ほかのアプリで音声を再生し続けられるようにします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임을 플레이하는 동안 다른 앱이 오디오를 계속 재생할 수 있도록 합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que outros apps continuem reproduzindo áudio durante os jogos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillåt andra appar att fortsätta spela upp ljud samtidigt som du spelar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许其他 App 在游玩时继续播放音频。"
           }
         }
       }
@@ -765,6 +957,198 @@
           "stringUnit": {
             "state": "translated",
             "value": "美式英语"
+          }
+        }
+      }
+    },
+    "App signature expires in %lld hr": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Signatur läuft in %lld Std. ab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App signature expires in %lld hr"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La firma de la app vence en %lld h"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La signature de l’app expire dans %lld h"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La firma dell’app scade tra %lld h"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリの署名はあと %lld 時間で期限切れになります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 서명이 %lld시간 후 만료됩니다"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A assinatura do app expira em %lld h"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens signatur går ut om %lld tim"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用签名将在 %lld 小时后到期"
+          }
+        }
+      }
+    },
+    "App signature expires in less than an hour": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Signatur läuft in weniger als einer Stunde ab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App signature expires in less than an hour"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La firma de la app vence en menos de una hora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La signature de l’app expire dans moins d’une heure"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La firma dell’app scade tra meno di un’ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリの署名は 1 時間以内に期限切れになります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 서명이 1시간 이내에 만료됩니다"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A assinatura do app expira em menos de uma hora"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens signatur går ut om mindre än en timme"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用签名将在不到 1 小时内到期"
+          }
+        }
+      }
+    },
+    "App signature has expired": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Signatur ist abgelaufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App signature has expired"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La firma de la app ha vencido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La signature de l’app a expiré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La firma dell’app è scaduta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリの署名の有効期限が切れています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 서명이 만료되었습니다"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A assinatura do app expirou"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens signatur har gått ut"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用签名已到期"
           }
         }
       }
@@ -1281,6 +1665,70 @@
         }
       }
     },
+    "Both the cloud save and this device's save for %@ changed since they were last in sync. The save you do not pick is backed up in save-backups.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sowohl der Cloud-Spielstand als auch der Spielstand auf diesem Gerät für %@ wurden seit der letzten Synchronisierung geändert. Der nicht gewählte Spielstand wird in save-backups gesichert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Both the cloud save and this device's save for %@ changed since they were last in sync. The save you do not pick is backed up in save-backups."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tanto el guardado en la nube como el de este dispositivo para %@ cambiaron desde la última sincronización. La partida que no elijas se guardará en save-backups."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sauvegarde cloud et celle de cet appareil pour %@ ont toutes deux changé depuis la dernière synchronisation. Celle que vous ne choisissez pas est conservée dans save-backups."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sia il salvataggio cloud sia quello su questo dispositivo per %@ sono cambiati dall’ultima sincronizzazione. Il salvataggio non scelto viene conservato in save-backups."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のクラウドセーブとこのデバイスのセーブデータの両方が前回の同期以降に変更されています。選ばなかった方のセーブデータは save-backups にバックアップされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 동기화 이후 %@의 클라우드 세이브와 이 기기의 세이브가 모두 변경되었습니다. 선택하지 않은 세이브는 save-backups에 백업됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tanto o salvamento na nuvem quanto o deste dispositivo para %@ mudaram desde a última sincronização. O salvamento não escolhido será guardado em save-backups."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Både molnsparfilen och enhetens sparfil för %@ har ändrats sedan senaste synkroniseringen. Den sparfil du inte väljer sparas i save-backups."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的云存档与本机存档自上次同步后都有修改。未被选中的那份存档会自动备份到 save-backups。"
+          }
+        }
+      }
+    },
     "Bottom button": {
       "localizations": {
         "de": {
@@ -1729,70 +2177,6 @@
         }
       }
     },
-    "Button mode": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tastenmodus"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Button mode"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modo del botón"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mode du bouton"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modalità tasto"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ボタンのモード"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "버튼 모드"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modo do botão"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Knappläge"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按键模式"
-          }
-        }
-      }
-    },
     "Button test": {
       "localizations": {
         "de": {
@@ -1917,6 +2301,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "按键"
+          }
+        }
+      }
+    },
+    "By default on iOS, holding the controller Home button opens the Apple Games app. To let NX2Apple use it, go to Settings > General > Game Controller > Home Button Override, then add NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmäßig öffnet langes Drücken der Home-Taste am Controller unter iOS die Apple-Spiele-App. Um sie in NX2Apple zu nutzen, wähle „Einstellungen > Allgemein > Gamecontroller > Home-Taste überschreiben“ und füge NX2Apple hinzu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By default on iOS, holding the controller Home button opens the Apple Games app. To let NX2Apple use it, go to Settings > General > Game Controller > Home Button Override, then add NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De forma predeterminada en iOS, mantener pulsado el botón de inicio del mando abre la app Juegos de Apple. Para usarlo en NX2Apple, ve a Ajustes > General > Mando de videojuegos > Anulación del botón de inicio y añade NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par défaut sur iOS, maintenir le bouton d’accueil de la manette ouvre l’app Jeux d’Apple. Pour l’utiliser dans NX2Apple, accédez à Réglages > Général > Manette de jeu > Remplacement du bouton d’accueil, puis ajoutez NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per impostazione predefinita su iOS, tenere premuto il tasto Home del controller apre l’app Giochi di Apple. Per usarlo in NX2Apple, vai in Impostazioni > Generali > Controller di gioco > Sostituzione tasto Home e aggiungi NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS の標準設定では、コントローラーのホームボタン長押しで純正「ゲーム」アプリが開きます。NX2Apple で使うには、「設定 > 一般 > ゲームコントローラ > ホームボタンの優先設定」でアプリを追加し NX2Apple を選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 기본 설정에서는 컨트롤러 홈 버튼을 길게 누르면 기본 ‘게임’ 앱이 열립니다. NX2Apple에서 사용하려면 ‘설정 > 일반 > 게임 컨트롤러 > 홈 버튼 재정의’에서 앱을 추가하고 NX2Apple을 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por padrão no iOS, segurar o botão de Início do controle abre o app Jogos da Apple. Para usá-lo no NX2Apple, acesse Ajustes > Geral > Controle de Videogame > Substituição do Botão de Início e adicione o NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Som standard i iOS öppnas Apples Spel-app när du håller in handkontrollens hemknapp. För att låta NX2Apple använda den går du till Inställningar > Allmänt > Spelkontroll > Åsidosätt hemknapp och lägger till NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 默认会将长按手柄主屏幕按钮用于打开系统自带的“游戏”App。若要用于返回启动器，请前往“设置 > 通用 > 手柄控制器”，在“主屏幕按钮”下方的“主屏幕按钮覆盖”中添加并选择 NX2Apple。"
           }
         }
       }
@@ -2881,6 +3329,70 @@
         }
       }
     },
+    "Cloud save unavailable": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Spielstand nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud save unavailable"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardado en la nube no disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sauvegarde cloud indisponible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvataggio cloud non disponibile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドセーブを利用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 세이브를 사용할 수 없음"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvamento na nuvem indisponível"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Molnsparfil är inte tillgänglig"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云存档暂不可用"
+          }
+        }
+      }
+    },
     "Cloud saves": {
       "localizations": {
         "de": {
@@ -3777,6 +4289,70 @@
         }
       }
     },
+    "Data update needed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daten-Update nötig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data update needed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hace falta actualizar los datos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise à jour des données requise"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serve un aggiornamento dei dati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データのアップデートが必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데이터 업데이트 필요"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "É preciso atualizar os dados"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data behöver uppdateras"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要更新数据"
+          }
+        }
+      }
+    },
     "Decrease": {
       "localizations": {
         "de": {
@@ -4669,6 +5245,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "轻点两下以选择"
+          }
+        }
+      }
+    },
+    "Doubles Bluetooth controller polling and lowers audio latency in fullscreen. Leave off if frame rate drops after a few minutes on your Mac (macOS may hold the GPU at a low clock).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdoppelt im Vollbild die Bluetooth-Abtastrate für Controller und senkt die Audiolatenz. Ausgeschaltet lassen, wenn die Bildrate nach einigen Minuten einbricht (macOS kann die GPU auf niedrigem Takt halten)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doubles Bluetooth controller polling and lowers audio latency in fullscreen. Leave off if frame rate drops after a few minutes on your Mac (macOS may hold the GPU at a low clock)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplica el muestreo Bluetooth de los mandos y reduce la latencia de audio en pantalla completa. Déjalo desactivado si los fotogramas caen tras unos minutos en tu Mac (macOS puede mantener la GPU a baja frecuencia)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double la fréquence Bluetooth des manettes et réduit la latence audio en plein écran. Laissez désactivé si la fréquence d’images chute après quelques minutes sur votre Mac (macOS peut maintenir le GPU à basse fréquence)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raddoppia il campionamento Bluetooth dei controller e riduce la latenza audio a schermo intero. Lascia disattivato se il frame rate cala dopo alcuni minuti sul tuo Mac (macOS può mantenere la GPU a bassa frequenza)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルスクリーン時に Bluetooth コントローラのポーリングを倍増しオーディオ遅延を抑えます。数分後にフレームレートが落ちる Mac ではオフのままにしてください（macOS が GPU を低クロックに固定することがあります）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 화면에서 Bluetooth 컨트롤러 폴링 속도를 높이고 오디오 지연 시간을 줄입니다. 몇 분 뒤 프레임이 떨어지는 Mac에서는 꺼 두세요 (macOS가 GPU를 낮은 클럭으로 고정할 수 있습니다)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dobra a taxa Bluetooth dos controles e reduz a latência de áudio em tela cheia. Deixe desativado se a taxa de quadros cair após alguns minutos no seu Mac (o macOS pode manter a GPU em clock baixo)."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fördubblar Bluetooth-uppdateringen för handkontroller och sänker ljudfördröjningen i helskärm. Lämna av om bildfrekvensen sjunker efter några minuter på din Mac (macOS kan hålla GPU:n på låg klockfrekvens)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏游玩时提高蓝牙手柄采样率并降低音频延迟。如果在你的 Mac 上游玩几分钟后出现掉帧，请保持关闭（macOS 可能会将 GPU 锁定在低频）。"
           }
         }
       }
@@ -6209,6 +6849,70 @@
         }
       }
     },
+    "From %@ · %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von %@ · %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From %@ · %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De %@ · %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depuis %@ · %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da %@ · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ より · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 저장 · %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De %@ · %@"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Från %@ · %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 %@ · %@"
+          }
+        }
+      }
+    },
     "From Settings": {
       "localizations": {
         "de": {
@@ -7233,66 +7937,66 @@
         }
       }
     },
-    "Hold": {
+    "Hold - and + (View + Menu) together for 2 seconds to quit to the launcher": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Halten"
+            "value": "- und + (View + Menu) gleichzeitig 2 Sekunden gedrückt halten, um zum Launcher zurückzukehren"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hold"
+            "value": "Hold - and + (View + Menu) together for 2 seconds to quit to the launcher"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantener"
+            "value": "Mantén pulsados - y + (View + Menu) a la vez durante 2 segundos para volver al lanzador"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Maintenir"
+            "value": "Maintenir - et + (View + Menu) ensemble pendant 2 secondes pour revenir au lanceur"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tieni"
+            "value": "Tieni premuti - e + (View + Menu) insieme per 2 secondi per tornare al launcher"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "長押し"
+            "value": "- と +（View + Menu）を同時に 2 秒間長押ししてランチャーに戻る"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "누르고 있기"
+            "value": "- 와 +(View + Menu)를 동시에 2초 동안 길게 눌러 런처로 돌아가기"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Segurar"
+            "value": "Segure - e + (View + Menu) juntos por 2 segundos para voltar ao inicializador"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Håll"
+            "value": "Håll in - och + (View + Menu) samtidigt i 2 sekunder för att återgå till startprogrammet"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按住"
+            "value": "同时按住 - + +（View + Menu）2 秒返回启动器"
           }
         }
       }
@@ -7357,6 +8061,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "按住 B 关闭"
+          }
+        }
+      }
+    },
+    "Hold Home for 2 seconds to quit (requires Home button override)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home-Taste 2 Sekunden gedrückt halten zum Beenden (erfordert Home-Tasten-Überschreibung)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Home for 2 seconds to quit (requires Home button override)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén pulsado el botón de inicio 2 segundos para salir (requiere anulación del botón de inicio)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintenir le bouton d’accueil 2 secondes pour quitter (remplacement du bouton d’accueil requis)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuto il tasto Home per 2 secondi per uscire (richiede sostituzione tasto Home)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームボタンを 2 秒間長押しして終了（ホームボタンの優先設定が必要）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 버튼을 2초 동안 길게 눌러 종료(홈 버튼 재정의 필요)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segure o botão de Início por 2 segundos para sair (requer substituição do botão de Início)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håll in hemknappen i 2 sekunder för att avsluta (kräver åsidosättning av hemknappen)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住主屏幕按钮 2 秒退出（需开启主屏幕按钮覆盖）"
           }
         }
       }
@@ -7549,6 +8317,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "如何更新"
+          }
+        }
+      }
+    },
+    "In a game": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Spiel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a game"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En un juego"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En jeu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In gioco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲーム中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 중"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No jogo"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I ett spel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在游戏中"
           }
         }
       }
@@ -8001,6 +8833,198 @@
         }
       }
     },
+    "Joining Data": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daten zusammenfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joining Data"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uniendo datos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assemblage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unione dati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データ結合中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데이터 병합 중"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unindo dados"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slår ihop data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在合并数据"
+          }
+        }
+      }
+    },
+    "Joining game data (%@)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spieldaten werden zusammengefügt (%@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joining game data (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uniendo datos del juego (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assemblage des données du jeu (%@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unione dei dati di gioco (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームデータを結合中（%@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 데이터 병합 중(%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unindo dados do jogo (%@)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slår ihop speldata (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在合并游戏数据（%@）"
+          }
+        }
+      }
+    },
+    "Joining split data files on this device (%@ of %@). Play unlocks automatically when finished.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geteilte Datendateien werden auf diesem Gerät zusammengefügt (%@ von %@). Nach Abschluss wird Spielen automatisch freigeschaltet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joining split data files on this device (%@ of %@). Play unlocks automatically when finished."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uniendo archivos de datos divididos en este dispositivo (%@ de %@). Jugar se activará automáticamente al terminar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assemblage des fichiers de données découpés sur cet appareil (%@ sur %@). Jouer se déverrouillera automatiquement une fois terminé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unione dei file di dati divisi su questo dispositivo (%@ di %@). Gioca si sbloccherà automaticamente al termine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイス上で分割データファイルを結合しています（%@ / %@）。完了すると自動的にプレイできるようになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기에서 분할 데이터 파일을 병합하고 있습니다(%@ / %@). 완료되면 플레이가 자동으로 활성화됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unindo arquivos de dados divididos neste dispositivo (%@ de %@). O botão Jogar será liberado automaticamente ao concluir."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slår ihop delade datafiler på den här enheten (%@ av %@). Spela låses upp automatiskt när det är klart."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在此设备上合并分片数据文件（%@ / %@）。完成后将自动解锁开始游戏。"
+          }
+        }
+      }
+    },
     "Keep editing": {
       "localizations": {
         "de": {
@@ -8189,70 +9213,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "保留管线存档，占用更多内存。"
-          }
-        }
-      }
-    },
-    "Keys that toggle: %@": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tasten zum Umschalten: %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keys that toggle: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Botones que alternan: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Touches qui basculent : %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tasti che alternano: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切り替えるキー：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전환하는 키: %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Botões que alternam: %@"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Knappar som växlar: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换式按键：%@"
           }
         }
       }
@@ -9025,6 +9985,70 @@
         }
       }
     },
+    "Lets every connected controller and touch controls drive player 1 together.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lässt alle verbundenen Controller und die Touch-Steuerung gemeinsam Spieler 1 steuern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets every connected controller and touch controls drive player 1 together."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que todos los mandos conectados y los controles táctiles manejen juntos al jugador 1."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permet à toutes les manettes connectées et aux commandes tactiles de contrôler ensemble le joueur 1."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consente a tutti i controller connessi e ai comandi touch di controllare insieme il giocatore 1."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のすべてのコントローラーとタッチ操作で一緒にプレイヤー 1 を操作できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결된 모든 컨트롤러와 터치 조작으로 플레이어 1을 함께 조작합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que todos os controles conectados e os controles na tela comandem juntos o jogador 1."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Låter alla anslutna handkontroller och pekskärmskontroller styra spelare 1 tillsammans."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让所有已连接的手柄与触控同时控制玩家 1。"
+          }
+        }
+      }
+    },
     "Lets the game lower its resolution under load. Turn off to keep full resolution for the selected console mode.": {
       "localizations": {
         "de": {
@@ -9597,6 +10621,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "缺少数据"
+          }
+        }
+      }
+    },
+    "Mix with other audio": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit anderem Ton mischen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mix with other audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mezclar con otro audio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mixer avec d’autres sons"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mixa con altro audio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかの音声とミックス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 오디오와 믹싱"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mixar com outro áudio"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blanda med annat ljud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与其他音频混音"
           }
         }
       }
@@ -10369,6 +11457,70 @@
         }
       }
     },
+    "Needs updated data": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Braucht aktualisierte Daten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs updated data"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesita datos actualizados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Données mises à jour requises"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servono dati aggiornati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新されたデータが必要"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트된 데이터 필요"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Precisa de dados atualizados"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uppdaterad data behövs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要更新数据"
+          }
+        }
+      }
+    },
     "No additional content": {
       "localizations": {
         "de": {
@@ -11133,6 +12285,134 @@
           "stringUnit": {
             "state": "translated",
             "value": "在手柄上"
+          }
+        }
+      }
+    },
+    "On this device · %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Gerät · %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On this device · %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En este dispositivo · %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur cet appareil · %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su questo dispositivo · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイス · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기에 저장 · %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neste dispositivo · %@"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På den här enheten · %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存在本机 · %@"
+          }
+        }
+      }
+    },
+    "Open Game Controller Settings": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gamecontroller-Einstellungen öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Game Controller Settings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir ajustes del mando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les réglages de la manette"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri impostazioni controller"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームコントローラ設定を開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 컨트롤러 설정 열기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes do Controle"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öppna spelkontrollinställningar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开手柄控制器设置"
           }
         }
       }
@@ -11905,6 +13185,134 @@
         }
       }
     },
+    "Play with device save": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Gerätespielstand spielen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play with device save"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jugar con guardado local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jouer avec la sauvegarde locale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gioca con salvataggio locale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスのセーブでプレイ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 세이브로 플레이"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jogar com salvamento local"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spela med lokal sparfil"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用本机存档游玩"
+          }
+        }
+      }
+    },
+    "Play with other audio": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit anderem Ton wiedergeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play with other audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproducir con otro audio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lire avec d’autres sons"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riproduci con altro audio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかの音声と同時に再生"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 오디오와 함께 재생"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduzir com outro áudio"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spela upp med annat ljud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与其他音频同时播放"
+          }
+        }
+      }
+    },
     "Played %@": {
       "localizations": {
         "de": {
@@ -12157,6 +13565,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "通过蓝牙使用 Joy-Con 2 和 Pro Controller 2：游戏中按住手柄上的同步键即可配对。macOS 会请求一次蓝牙访问权限。"
+          }
+        }
+      }
+    },
+    "Plays game audio alongside other apps instead of stopping them.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielt den Spielton zusammen mit anderen Apps ab, statt sie zu stoppen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plays game audio alongside other apps instead of stopping them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduce el audio del juego junto con otras apps en lugar de detenerlas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lit le son du jeu en même temps que d’autres apps au lieu de les interrompre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riproduce l’audio del gioco insieme ad altre app invece di interromperle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかのアプリを停止せず、ゲームの音声を同時に再生します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 앱을 멈추지 않고 게임 오디오를 함께 재생합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduz o áudio do jogo junto com outros apps em vez de interrompê-los."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelar upp spelljud tillsammans med andra appar i stället för att stoppa dem."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让游戏声音与其他 App 的音频同时播放，而不是中断它们。"
           }
         }
       }
@@ -12929,6 +14401,70 @@
         }
       }
     },
+    "Refresh this app on your computer or signing tool soon. Your saves and game data stay safe.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneuere die Signatur dieser App bald am Computer oder mit deinem Signier-Tool. Deine Spielstände und Spieldaten bleiben erhalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh this app on your computer or signing tool soon. Your saves and game data stay safe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renueva pronto esta app en tu ordenador o herramienta de firma. Tus partidas guardadas y datos del juego se conservarán."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renouvelez bientôt cette app sur votre ordinateur ou votre outil de signature. Vos sauvegardes et données de jeu restent intactes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rinnova presto questa app dal computer o dallo strumento di firma. I salvataggi e i dati di gioco restano al sicuro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "早めにパソコンや署名ツールでこのアプリを再署名してください。セーブデータとゲームデータはそのまま保持されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터나 서명 도구에서 앱을 미리 갱신하세요. 세이브 데이터와 게임 데이터는 안전하게 유지됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renove este app em breve no computador ou na ferramenta de assinatura. Seus dados salvos e dados do jogo continuam seguros."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Förnya appen snart på datorn eller i ditt signeringsverktyg. Dina sparfiler och speldata ligger kvar säkert."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请尽快在电脑或续签工具上刷新签名。你的存档和游戏数据不会丢失。"
+          }
+        }
+      }
+    },
     "Remove": {
       "localizations": {
         "de": {
@@ -13117,6 +14653,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "渲染的像素约多四分之一：稍慢，发热稍多。"
+          }
+        }
+      }
+    },
+    "Replaces this device's current save with the backup from %@. Your current save is backed up first.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ersetzt den aktuellen Spielstand auf diesem Gerät durch das Backup vom %@. Dein aktueller Spielstand wird zuvor gesichert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replaces this device's current save with the backup from %@. Your current save is backed up first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplaza la partida actual de este dispositivo con la copia de %@. Primero se respaldará tu partida actual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplace la sauvegarde actuelle de cet appareil par la copie du %@. Votre sauvegarde actuelle est d’abord sauvegardée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sostituisce il salvataggio attuale su questo dispositivo con il backup del %@. Il salvataggio attuale viene prima copiato nei backup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスの現在のセーブデータを %@ のバックアップに置き換えます。現在のセーブデータは先にバックアップされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 현재 세이브를 %@ 백업으로 바꿉니다. 현재 세이브는 먼저 백업됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substitui o salvamento atual deste dispositivo pelo backup de %@. Seu salvamento atual será copiado antes."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ersätter enhetens nuvarande sparfil med säkerhetskopian från %@. Din nuvarande sparfil säkerhetskopieras först."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将用 %@ 的备份替换本机当前存档。替换前会先自动备份当前存档。"
           }
         }
       }
@@ -13373,6 +14973,198 @@
           "stringUnit": {
             "state": "translated",
             "value": "恢复测试默认值"
+          }
+        }
+      }
+    },
+    "Restore backup": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup wiederherstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore backup"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar copia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer la copie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina backup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックアップを復元"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "백업 복원"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar backup"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Återställ kopia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复备份"
+          }
+        }
+      }
+    },
+    "Restore backup…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup wiederherstellen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore backup…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar copia…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer une copie…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina backup…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックアップを復元…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "백업 복원…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar backup…"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Återställ kopia…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复备份…"
+          }
+        }
+      }
+    },
+    "Restore save backup for “%@”?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speicherdaten-Backup für „%@“ wiederherstellen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore save backup for “%@”?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Restaurar la copia de guardado de «%@»?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer la copie de sauvegarde de « %@ » ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristinare il backup dei salvataggi di «%@»?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」のセーブバックアップを復元しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’의 세이브 백업을 복원하시겠습니까?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar o backup de salvamento de “%@”?"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Återställa säkerhetskopian för ”%@”?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要恢复“%@”的存档备份吗？"
           }
         }
       }
@@ -14913,6 +16705,70 @@
         }
       }
     },
+    "Sound": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ton"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sound"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サウンド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사운드"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Som"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ljud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "声音"
+          }
+        }
+      }
+    },
     "Spanish": {
       "localizations": {
         "de": {
@@ -15553,6 +17409,70 @@
         }
       }
     },
+    "The cloud save for %@ could not be read right now. You can play with this device's save without overwriting the cloud file.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Cloud-Spielstand für %@ konnte gerade nicht gelesen werden. Du kannst mit dem Spielstand dieses Geräts spielen, ohne die Cloud-Datei zu überschreiben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cloud save for %@ could not be read right now. You can play with this device's save without overwriting the cloud file."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el guardado en la nube de %@ en este momento. Puedes jugar con la partida de este dispositivo sin sobrescribir el archivo de la nube."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sauvegarde cloud de %@ n’a pas pu être lue pour le moment. Vous pouvez jouer avec la sauvegarde de cet appareil sans écraser le fichier cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile leggere ora il salvataggio cloud di %@. Puoi giocare con il salvataggio di questo dispositivo senza sovrascrivere il file nel cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在 %@ のクラウドセーブを読み取れませんでした。クラウド上のファイルを上書きせずに、このデバイスのセーブデータでプレイできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금은 %@의 클라우드 세이브를 읽을 수 없습니다. 클라우드 파일을 덮어쓰지 않고 이 기기의 세이브로 플레이할 수 있습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler o salvamento na nuvem de %@ agora. Você pode jogar com o salvamento deste dispositivo sem substituir o arquivo na nuvem."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Molnsparfilen för %@ kunde inte läsas just nu. Du kan spela med den här enhetens sparfil utan att skriva över molnfilen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂时无法读取 %@ 的云存档。你可以先使用本机存档游玩，不会覆盖云端文件。"
+          }
+        }
+      }
+    },
     "The first start waits a few minutes for it, once.": {
       "localizations": {
         "de": {
@@ -15869,70 +17789,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Title ID %@"
-          }
-        }
-      }
-    },
-    "Toggle": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Umschalten"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Basculer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alterna"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切り替え"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전환"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Växla"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换"
           }
         }
       }
@@ -16641,6 +18497,134 @@
         }
       }
     },
+    "Update": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uppdatera"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        }
+      }
+    },
+    "Update Data": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daten aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Data"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar datos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour les données"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna dati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データをアップデート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데이터 업데이트"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar dados"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uppdatera data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新数据"
+          }
+        }
+      }
+    },
     "Update Required": {
       "localizations": {
         "de": {
@@ -16765,6 +18749,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新 App"
+          }
+        }
+      }
+    },
+    "Update game data…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spieldaten aktualisieren …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update game data…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar datos del juego…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour les données du jeu…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna dati di gioco…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームデータをアップデート…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 데이터 업데이트…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar dados do jogo…"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uppdatera speldata…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新游戏数据…"
           }
         }
       }
@@ -16957,6 +19005,134 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用应用数据"
+          }
+        }
+      }
+    },
+    "Use cloud save": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Spielstand verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use cloud save"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar guardado de la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser la sauvegarde cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa salvataggio cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドのセーブを使う"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 세이브 사용"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar salvamento da nuvem"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Använd molnsparfil"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用云存档"
+          }
+        }
+      }
+    },
+    "Use this device's save": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielstand dieses Geräts verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use this device's save"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar guardado de este dispositivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser la sauvegarde de cet appareil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa salvataggio di questo dispositivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスのセーブを使う"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 세이브 사용"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar salvamento deste dispositivo"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Använd den här enhetens sparfil"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用本机存档"
           }
         }
       }
@@ -17345,6 +19521,70 @@
         }
       }
     },
+    "Which save do you want to use?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welchen Spielstand möchtest du verwenden?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Which save do you want to use?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Qué partida guardada quieres usar?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelle sauvegarde voulez-vous utiliser ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quale salvataggio vuoi usare?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どちらのセーブデータを使用しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "어느 세이브 데이터를 사용하시겠습니까?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qual salvamento você quer usar?"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vilken sparfil vill du använda?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你想使用哪一份存档？"
+          }
+        }
+      }
+    },
     "Window": {
       "localizations": {
         "de": {
@@ -17725,6 +19965,134 @@
           "stringUnit": {
             "state": "translated",
             "value": "iPhone Duo 屏幕（1.43:1）"
+          }
+        }
+      }
+    },
+    "macOS Game Mode": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS-Spielmodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS Game Mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo Juego de macOS"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode Jeu de macOS"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità Gioco di macOS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS ゲームモード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 게임 모드"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo Jogo do macOS"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS Spelläge"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 游戏模式"
+          }
+        }
+      }
+    },
+    "unknown time": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unbekannte Zeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown time"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hora desconocida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "heure inconnue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ora sconosciuta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日時不明"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시간 알 수 없음"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "horário desconhecido"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "okänd tid"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间未知"
           }
         }
       }

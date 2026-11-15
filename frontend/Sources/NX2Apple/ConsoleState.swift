@@ -248,7 +248,6 @@ struct ConsoleState {
     var controllers: [ConsoleController] = []
     var isPreview = false
     var padMerge = false
-    var joyconSplit = false
     var padLayout = ConsolePadLayout()
     /// The button whose choices the mapping sheet shows, nil for the list of buttons.
     var mappingRow: String?
@@ -471,6 +470,7 @@ struct ConsoleState {
     func askResetOptions(_ gameID: String)
     func resetOptions(_ gameID: String)
     func openOnDesktop(_ gameID: String)
+    func buildGame(_ gameID: String, queueOnly: Bool)
     /// A launcher switch (on the Library, Controllers or Settings page), and the app's update (checked, or asked about and then installed or restarted into).
     func setPref(_ pref: ConsolePref, on: Bool)
     func appUpdateAction()
@@ -496,7 +496,6 @@ struct ConsoleState {
     func disconnect(controllerID: String)
     func requestAssignment(controllerID: String)
     func setPadMerge(_ enabled: Bool)
-    func setJoyconSplit(_ enabled: Bool)
     func dismissToast()
     func requestPlayer(_ player: Int)
     func assignPlayer(controllerID: String, player: Int)
@@ -526,6 +525,8 @@ struct ConsoleState {
     func openSupportedGames()
     func typeSupported(_ text: String)
     func deleteSupported()
+    /// The supported games' covers (SupportedCovers), decoded at `maxPixel`. A driver without a library shows none.
+    func supportedCovers(maxPixel: Int) -> SupportedCovers
     func openBuilds()
     func askStopBuild()
     func stopBuild()
@@ -537,7 +538,6 @@ struct ConsoleState {
 }
 
 extension ConsoleDriver {
-    func setJoyconSplit(_ enabled: Bool) {}
     func setPadMode(_ mode: PadMode) {}
     func setPadSends(button: String, to output: String) {}
     func resetPadMapping() {}
@@ -557,6 +557,7 @@ extension ConsoleDriver {
     func askResetOptions(_ gameID: String) {}
     func resetOptions(_ gameID: String) {}
     func openOnDesktop(_ gameID: String) { exitToDesktop() }
+    func buildGame(_ gameID: String, queueOnly: Bool) {}
     func setPref(_ pref: ConsolePref, on: Bool) {}
     func appUpdateAction() {}
     func confirmAppUpdate() {}
@@ -577,6 +578,9 @@ extension ConsoleDriver {
     func openSupportedGames() {}
     func typeSupported(_ text: String) {}
     func deleteSupported() {}
+    func supportedCovers(maxPixel: Int) -> SupportedCovers {
+        .saved(in: FileManager.default.temporaryDirectory.appendingPathComponent("console-demo-no-banners"), maxPixel: maxPixel)
+    }
     func openBuilds() {}
     func askStopBuild() {}
     func stopBuild() {}

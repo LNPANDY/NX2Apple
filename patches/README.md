@@ -157,10 +157,12 @@ belong to the fork and are edited directly. The engine is only what `sync` build
 
 ## Generated files inside the engine
 
-`docs/agents/game-patches.md` and `docs/agents/symptoms.md` are written by upstream's own tools (`dm/tools/docs_patches.py`,
-`dm/tools/docs_symptoms.py`) from the tree, and upstream's `test_docs.py` requires them to equal that output. With the series in,
-the tree differs from upstream's (a profile key, a patched host table), so upstream's copy would fail the test, and a patch that
-carried the file would conflict on every bump. `sync` therefore runs both tools on the patched tree and commits the result in
-`engine/`, and a patch that touches either file is rejected by `check` (`export` leaves them out). Nothing to do by hand: `sync` writes
-them. The badge data of the README is `.github/badges/*.json` in this repository (it was a patch of `fork-docs` before step 2 of #214).
+`docs/agents/game-patches.md`, `docs/agents/symptoms.md` and `docs/env_switches.tsv` are written by upstream's own tools
+(`dm/tools/docs_patches.py`, `dm/tools/docs_symptoms.py`, `dm/tools/env_switches.py`) from the tree, and upstream's tests require them
+to equal that output. With the series in, the tree differs from upstream's (a profile key, a patched host table, or a fork switch), so
+upstream's copy would fail the tests, and a patch that carried any of those files would conflict on every bump. `sync` therefore runs
+those tools on the patched tree, fills in class and meaning rows for fork-added switches from `patches/fork_env_switches.tsv`, verifies
+`dm/tools/env_switches.py --check`, and commits the result in `engine/`. `export` syncs new switch rows back into
+`patches/fork_env_switches.tsv` and leaves the generated files out, and `check` rejects any patch that touches them.
+The badge data of the README is `.github/badges/*.json` in this repository (it was a patch of `fork-docs` before step 2 of #214).
 The games gallery of `GAMES.md` is kept by hand: upstream retired `dm/tools/docs_gallery.py` (seedds/nxnative 6cbb87c9). Its links to nxnative follow the pinned commit (`relink`).

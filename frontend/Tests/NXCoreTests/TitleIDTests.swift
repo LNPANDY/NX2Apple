@@ -66,4 +66,28 @@ final class TitleIDTests: XCTestCase {
         XCTAssertNotEqual(owner(UInt64(0x01007EF00011E000)), app, "another game")
         XCTAssertNotEqual(owner(UInt64(0x01007EF00011E800)), app, "another game's update")
     }
+
+    func testBareSwitch2IDInAFullPathIsFoundAndClassified() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bare-sw2-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let baseFile = dir.appendingPathComponent("0400486024dec000_v0_420d1c5034ab.nsp")
+        let updateFile = dir.appendingPathComponent("0400486024DEC800_v131072_aaaa.nsp")
+        let dlcFile = dir.appendingPathComponent("0400486024DED001_bbbb.nsp")
+        try Data([1, 2, 3, 4]).write(to: baseFile)
+        try Data([1, 2]).write(to: updateFile)
+        try Data([1]).write(to: dlcFile)
+
+        XCTAssertEqual(TitleID.parse(baseFile.path), 0x0400486024DEC000)
+        XCTAssertEqual(TitleID.buildKey(baseFile.path), "0400486024DEC000")
+        XCTAssertEqual(TitleID.parse(updateFile.path), 0x0400486024DEC800)
+        XCTAssertEqual(TitleID.parse(dlcFile.path), 0x0400486024DED001)
+
+        let classified = GameInputs.classify([baseFile.path, updateFile.path, dlcFile.path])
+        XCTAssertEqual(classified.base, baseFile.path)
+        XCTAssertEqual(classified.update, updateFile.path)
+        XCTAssertEqual(classified.updateVersion, 131072)
+        XCTAssertEqual(classified.dlc, [dlcFile.path])
+    }
 }

@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+import threading
+import weakref
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QTimer, QUrl, Qt
@@ -10,6 +13,7 @@ from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QFont, 
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -34,16 +38,25 @@ from . import features as feat
 from . import inputs
 from . import library as lib
 from . import platform_util as pu
+from . import refresh_flow as rf
 from . import style
 from .app_update import APP_VERSION
 from .build_notes import TEXT, TITLE, stale_reason
 from .i18n import Lang
 from .model import Dep, DepState, Model
-from .sheets import CheatsDialog, DefenderPromptDialog, DeleteGameDialog, FreeSpaceDialog, OnboardingDialog
+from .sheets import (
+    CheatsDialog,
+    DefenderPromptDialog,
+    DeleteGameDialog,
+    DriveSelectDialog,
+    FreeSpaceDialog,
+    OnboardingDialog,
+)
 from .widgets import (
     CardGroup,
     CardPageHeading,
     DropOverlayWidget,
+    ElidedLabel,
     GameCardWidget,
     HeroBannerWidget,
     HorizontalStripViewport,
@@ -130,6 +143,34 @@ class TopBarFrame(QFrame):
         super().mouseDoubleClickEvent(event)
 
 
+def _notify_win_queue_changed(win_ref: weakref.ReferenceType[MainWindow]) -> None:
+    w = win_ref()
+    if w is not None and not getattr(w, '_window_closed', False):
+        try:
+            w._on_refresh_queue_changed()
+        except RuntimeError:
+            pass
+
+
+def _cleanup_destroyed_window(
+    win_ref: weakref.ReferenceType[MainWindow],
+    bridge_ref: weakref.ReferenceType[rf._MainThreadBridge],
+    queue_ref: weakref.ReferenceType[rf.RefreshQueueManager],
+) -> None:
+    w = win_ref()
+    if w is not None:
+        w._window_closed = True
+        w._img_probing = False
+        w._assess_gen += 1
+        w._img_probe_gen += 1
+    b = bridge_ref()
+    if b is not None:
+        b.mark_dead()
+    q = queue_ref()
+    if q is not None:
+        q.unbind()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, model: Model) -> None:
         super().__init__()
@@ -159,12 +200,30 @@ class MainWindow(QMainWindow):
         self._library_filter = 'owned'  # 'owned' or 'built'
         self._search_query = ''
         self._drive_folder = ''
+        self._drive_status: tuple[str, str, str] | None = None
         self._options_expanded = True
         self._deps_expanded = True
         self._deps_sig: tuple | None = None
         self._dep_row_widgets: dict[str, dict] = {}
         self._onboarding_checked = False
         self._onboarding_dialog: OnboardingDialog | None = None
+        self._window_closed = False
+        self._assess_gen = 0
+        self._assess_sig: tuple | None = None
+        self._assessments: dict[str, rf.GameRefreshAssessment] = {}
+        self._img_probe_gen = 0
+        self._img_probing = False
+        self._assess_bridge = rf._MainThreadBridge(self)
+        win_ref = weakref.ref(self)
+        self.refresh_queue = rf.RefreshQueueManager(
+            self.m,
+            on_state_changed=lambda: _notify_win_queue_changed(win_ref),
+        )
+        bridge_ref = weakref.ref(self._assess_bridge)
+        queue_ref = weakref.ref(self.refresh_queue)
+        self.destroyed.connect(
+            lambda *_args: _cleanup_destroyed_window(win_ref, bridge_ref, queue_ref)
+        )
 
         root = QWidget()
         root.setObjectName('root')
@@ -221,6 +280,12 @@ class MainWindow(QMainWindow):
         self.m.appUpdateFound.connect(self._on_app_update)
         self.m.appRelaunching.connect(QApplication.quit)
         self.m.libraryChanged.connect(self._refresh_library)
+        if hasattr(self.m, 'driveCopyStateChanged'):
+            self.m.driveCopyStateChanged.connect(self._refresh_install_card)
+        if hasattr(self.m, 'driveCopyProgress'):
+            self.m.driveCopyProgress.connect(self._on_drive_copy_progress)
+        if hasattr(self.m, 'driveCopyFinished'):
+            self.m.driveCopyFinished.connect(self._on_drive_copy_finished)
 
         if self.m.log_path:
             self._append_log(self.m.t('log.at', str(self.m.log_path)) + '\n\n')
@@ -475,6 +540,8 @@ class MainWindow(QMainWindow):
         self.hero = HeroBannerWidget()
         self.hero.primaryClicked.connect(self._on_hero_primary)
         self.hero.manageClicked.connect(self._show_manage_menu)
+        self.hero.refreshClicked.connect(self._on_hero_refresh_clicked)
+        self.hero.batchRefreshClicked.connect(self._on_hero_batch_refresh_clicked)
         pcol.addWidget(self.hero, 1)
 
         # Collection section below Hero
@@ -500,6 +567,13 @@ class MainWindow(QMainWindow):
         self.coll_count_lbl.setObjectName('muted')
         chead.addWidget(self.coll_count_lbl)
         chead.addStretch(1)
+
+        self.coll_batch_refresh_btn = QPushButton(self.m.t('library.refresh.batchBtnIdle'))
+        self.coll_batch_refresh_btn.setObjectName('ghost')
+        self.coll_batch_refresh_btn.setCursor(Qt.PointingHandCursor)
+        self.coll_batch_refresh_btn.clicked.connect(self._on_hero_batch_refresh_clicked)
+        self.coll_batch_refresh_btn.hide()
+        chead.addWidget(self.coll_batch_refresh_btn)
 
         self.rescan_lib_btn = QPushButton(self.m.t('library.rescan'))
         self.rescan_lib_btn.setObjectName('ghost')
@@ -529,7 +603,79 @@ class MainWindow(QMainWindow):
         self.lib_stack.addWidget(pop)
 
         lay.addWidget(self.lib_stack, 1)
+
+        self.skipped_wrap = QWidget()
+        sw_lay = QVBoxLayout(self.skipped_wrap)
+        sw_lay.setContentsMargins(36, 0, 36, 14)
+        sw_lay.setSpacing(0)
+        self.skipped_banner = QFrame()
+        self.skipped_banner.setObjectName('skippedBanner')
+        self.skipped_banner.setStyleSheet(
+            'QFrame#skippedBanner {'
+            ' background: rgba(255, 189, 56, 0.08);'
+            ' border: 1px solid rgba(255, 189, 56, 0.25);'
+            ' border-radius: 12px;'
+            '}'
+        )
+        sb_lay = QHBoxLayout(self.skipped_banner)
+        sb_lay.setContentsMargins(14, 9, 14, 9)
+        sb_lay.setSpacing(10)
+        self.skipped_dot = _dot(style.AMBER)
+        sb_lay.addWidget(self.skipped_dot)
+        self.skipped_lbl = QLabel('')
+        self.skipped_lbl.setWordWrap(True)
+        self.skipped_lbl.setStyleSheet(f'color: {style.TEXT}; font-size: 12.5px;')
+        sb_lay.addWidget(self.skipped_lbl, 1)
+        self.skipped_btn = QPushButton(self.m.t('library.skippedDetails'))
+        self.skipped_btn.setCursor(Qt.PointingHandCursor)
+        self.skipped_btn.clicked.connect(self._show_skipped_files_dialog)
+        sb_lay.addWidget(self.skipped_btn)
+        self.skipped_dismiss_btn = QPushButton('✕')
+        self.skipped_dismiss_btn.setObjectName('skippedDismissBtn')
+        self.skipped_dismiss_btn.setFixedSize(26, 26)
+        self.skipped_dismiss_btn.setCursor(Qt.PointingHandCursor)
+        self.skipped_dismiss_btn.setToolTip(self.m.t('library.dismissSkipped'))
+        self.skipped_dismiss_btn.setAccessibleName(self.m.t('library.dismissSkipped'))
+        self.skipped_dismiss_btn.setStyleSheet(
+            'QPushButton#skippedDismissBtn {'
+            f' background: rgba(255, 255, 255, 0.06); color: {style.MUTED};'
+            f' border: 1px solid {style.BORDER}; border-radius: 13px;'
+            ' font-size: 11px; font-weight: 600; padding: 0;'
+            '}'
+            'QPushButton#skippedDismissBtn:hover {'
+            f' background: rgba(255, 255, 255, 0.12); color: {style.TEXT};'
+            '}'
+        )
+        self.skipped_dismiss_btn.clicked.connect(self._dismiss_skipped_banner)
+        sb_lay.addWidget(self.skipped_dismiss_btn)
+        sw_lay.addWidget(self.skipped_banner)
+        self.skipped_wrap.hide()
+        lay.addWidget(self.skipped_wrap)
         return page
+
+    def _dismiss_skipped_banner(self) -> None:
+        dismiss_fn = getattr(self.m.library, 'dismiss_skipped_banner', None)
+        if callable(dismiss_fn):
+            dismiss_fn()
+        self._refresh_library()
+
+    def _show_skipped_files_dialog(self) -> None:
+        skipped = list(getattr(self.m.library, 'skipped_files', []))
+        if not skipped:
+            return
+        lines: list[str] = []
+        for item in skipped:
+            if item.kind == 'orphan':
+                lines.append('• ' + self.m.t('library.skippedOrphan', item.name))
+            else:
+                lines.append('• ' + self.m.t('library.skippedArchive', item.name))
+        box = QMessageBox(
+            QMessageBox.Icon.Information,
+            self.m.t('library.skippedTitle'),
+            '\n'.join(lines),
+            parent=self,
+        )
+        box.exec()
 
     def _filtered_games(self) -> list[lib.LibraryGame]:
         games = list(self.m.library.games)
@@ -553,7 +699,23 @@ class MainWindow(QMainWindow):
         )
         self.rescan_lib_btn.setText(self.m.t('library.rescan'))
 
+        skipped = list(getattr(self.m.library, 'skipped_files', []))
+        show_skipped = (
+            self.m.library.shows_skipped_banner
+            if hasattr(self.m.library, 'shows_skipped_banner')
+            else bool(skipped)
+        )
+        if skipped and show_skipped:
+            self.skipped_lbl.setText(self.m.t('library.skippedBanner', len(skipped)))
+            self.skipped_btn.setText(self.m.t('library.skippedDetails'))
+            self.skipped_dismiss_btn.setToolTip(self.m.t('library.dismissSkipped'))
+            self.skipped_dismiss_btn.setAccessibleName(self.m.t('library.dismissSkipped'))
+            self.skipped_wrap.show()
+        else:
+            self.skipped_wrap.hide()
+
         if not self.m.library.games:
+            self.coll_batch_refresh_btn.hide()
             self.lib_stack.setCurrentIndex(0)
             return
 
@@ -567,12 +729,23 @@ class MainWindow(QMainWindow):
             self.m.library.select(sel.title_id)
 
         if sel:
-            if self.m.running and self.m.build_key.upper() == sel.title_id.upper():
+            is_sel_building = bool(self.m.running and self.m.build_key.upper() == sel.title_id.upper())
+            if is_sel_building:
                 st_text = self.m.t('library.building')
                 st_color = style.AMBER
                 p_label = self.m.t('library.viewBuild')
                 p_en = True
-            elif sel.has_ipa or sel.has_archive:
+            elif sel.has_app and sel.is_ready_for_ios:
+                st_text = self.m.t('library.readyMacAndIOS')
+                st_color = style.GREEN
+                p_label = self.m.t('library.play' if not pu.IS_WIN else 'install.reveal')
+                p_en = True
+            elif sel.has_app:
+                st_text = self.m.t('library.ready')
+                st_color = style.GREEN
+                p_label = self.m.t('library.play' if not pu.IS_WIN else 'install.reveal')
+                p_en = True
+            elif sel.is_ready_for_ios:
                 st_text = self.m.t('library.readyIOS')
                 st_color = style.GREEN
                 p_label = self.m.t('install.reveal')
@@ -584,10 +757,19 @@ class MainWindow(QMainWindow):
                 p_en = not self.m.running
 
             sub_parts = [sel.title_id]
-            if sel.has_ipa:
+            if sel.has_app:
+                sub_parts.append(sel.app_path)
+            elif sel.has_ipa:
                 sub_parts.append(sel.ipa_path)
+            elif sel.has_ios_app:
+                sub_parts.append(sel.ios_app_path)
             elif sel.inputs.get('base'):
                 sub_parts.append(sel.inputs['base'][0])
+
+            badge_txt, ref_lbl, batch_lbl, ref_note, ref_en = self._compute_hero_refresh_strings(
+                sel,
+                is_building=is_sel_building,
+            )
 
             art = self.m.artwork.image_path(sel.title_id, self.m.engine_path)
             self.hero.set_data(
@@ -602,7 +784,16 @@ class MainWindow(QMainWindow):
                 image_path=art,
                 is_switch2=sel.is_switch2(self.m.engine_path),
                 switch2_label=self.m.t('switch2.badge'),
+                update_badge_text=badge_txt,
+                refresh_label=ref_lbl,
+                batch_refresh_label=batch_lbl,
+                refresh_note=ref_note,
+                refresh_enabled=ref_en,
+                batch_refresh_enabled=True,
             )
+
+        self._update_coll_batch_refresh_btn()
+        self._schedule_refresh_assessments()
 
         # Rebuild horizontal strip
         while self.coll_strip_layout.count():
@@ -662,13 +853,344 @@ class MainWindow(QMainWindow):
         if self.m.running and self.m.build_key.upper() == g.title_id.upper():
             self._switch_page('builds')
             return
-        if g.has_ipa:
-            pu.reveal(g.ipa_path)
-        elif g.has_archive:
-            pu.reveal(g.archive_path)
+        if g.has_app and not pu.IS_WIN:
+            try:
+                subprocess.Popen(['open', g.app_path])
+            except OSError:
+                pu.reveal(g.app_path)
+            return
+        rev = g.primary_reveal_path or (g.app_path if g.has_app else '')
+        if rev:
+            pu.reveal(rev)
         else:
             self.m.load_game_from_library(g)
             self._switch_page('builds')
+
+    def _update_coll_batch_refresh_btn(self) -> None:
+        if not self.m.library.games:
+            self.coll_batch_refresh_btn.hide()
+            return
+        cnt = sum(
+            1 for g in self.m.library.games
+            if (a := self._assessments.get(g.title_id.upper())) is not None and not a.is_up_to_date
+        )
+        if cnt > 0:
+            self.coll_batch_refresh_btn.setText(self.m.t('library.refresh.batchBtn', cnt))
+            self.coll_batch_refresh_btn.setStyleSheet(
+                'color: #ffbd38; border: 1px solid rgba(255, 189, 56, 0.45); border-radius: 9px; padding: 5px 12px; font-weight: 600;'
+            )
+        else:
+            self.coll_batch_refresh_btn.setText(self.m.t('library.refresh.batchBtnIdle'))
+            self.coll_batch_refresh_btn.setStyleSheet('')
+        self.coll_batch_refresh_btn.setToolTip(self.m.t('batchRefresh.title'))
+        self.coll_batch_refresh_btn.show()
+
+    def _compute_hero_refresh_strings(
+        self,
+        sel: lib.LibraryGame,
+        *,
+        is_building: bool,
+    ) -> tuple[str, str, str, str, bool]:
+        sel_a = self._assessments.get(sel.title_id.upper())
+        if is_building or sel_a is None or sel_a.is_up_to_date:
+            return ('', '', '', '', True)
+
+        if sel_a.state in ('specific_fast', 'specific_full'):
+            badge_txt = self.m.t('library.refresh.badgeVersion', sel_a.version_label)
+        else:
+            badge_txt = self.m.t('library.refresh.badgeGeneral')
+
+        has_mac = bool(sel.has_app)
+        has_ios = bool(sel.is_ready_for_ios)
+        if not has_mac and not has_ios:
+            has_mac = True
+        is_fast = (has_mac and sel_a.can_fast_mac) or (has_ios and (sel_a.can_fast_ios or sel_a.needs_img_guide_ios))
+        if has_mac and has_ios:
+            btn_key = 'library.refresh.singleFastBoth' if is_fast else 'library.refresh.singleRebuildBoth'
+        elif has_mac:
+            btn_key = 'library.refresh.singleFastMac' if is_fast else 'library.refresh.singleRebuildMac'
+        else:
+            btn_key = 'library.refresh.singleFastIOS' if is_fast else 'library.refresh.singleRebuildIOS'
+        ver_txt = sel_a.version_label or rf.release_base_version(APP_VERSION)
+        ref_lbl = f'{self.m.t(btn_key)} {ver_txt}'.strip()
+
+        if not sel_a.has_usable_seed and sel_a.missing_original_package:
+            ref_note = self.m.t('library.refresh.noteNeedRomOnce')
+        elif sel_a.state == 'specific_fast':
+            ref_note = self.m.t('library.refresh.noteSpecificFast', sel.name or sel.title_id, sel_a.version_label)
+        elif sel_a.state == 'specific_full' or (not sel_a.can_fast_any and not sel_a.has_usable_seed):
+            ref_note = self.m.t('library.refresh.noteSpecificFull')
+        else:
+            ref_note = self.m.t('library.refresh.noteGeneral')
+
+        ref_en = bool(sel_a.can_fast_any or sel_a.needs_img_guide_ios or not sel_a.missing_original_package)
+        return (badge_txt, ref_lbl, '', ref_note, ref_en)
+
+    def _schedule_refresh_assessments(self) -> None:
+        if self._window_closed:
+            return
+        built_games = [g for g in self.m.library.games if g.has_any_build]
+        eng_path = self.m.engine_path
+        if not built_games or not eng_path or not os.path.isdir(eng_path):
+            self._assess_sig = None
+            if self._assessments:
+                self._assessments = {}
+            return
+
+        sig = (
+            eng_path,
+            self.m.shell_cache_path,
+            self.m.out_dir,
+            self.m.keys_path,
+            tuple(
+                (
+                    g.title_id,
+                    g.name,
+                    g.app_path,
+                    g.ipa_path,
+                    g.archive_path,
+                    g.ios_app_path,
+                    g.output_dir,
+                    g.built_chain_tag,
+                    g.last_built_at,
+                )
+                for g in built_games
+            ),
+        )
+        if sig == self._assess_sig:
+            return
+        self._assess_sig = sig
+        self._assess_gen += 1
+        gen = self._assess_gen
+        bridge = self._assess_bridge
+        shell_cache = self.m.shell_cache_path
+        def_out = self.m.out_dir
+        def_keys = self.m.keys_path
+        snapshot = list(built_games)
+
+        def worker() -> None:
+            computed: dict[str, rf.GameRefreshAssessment] = {}
+            for g in snapshot:
+                if self._window_closed or gen != self._assess_gen or bridge.is_dead:
+                    return
+                try:
+                    computed[g.title_id.upper()] = rf.assess_library_game(
+                        g,
+                        engine_path=eng_path,
+                        shell_cache_path=shell_cache,
+                        default_out_dir=def_out,
+                        default_keys_path=def_keys,
+                    )
+                except Exception:
+                    continue
+
+            if self._window_closed or gen != self._assess_gen or bridge.is_dead:
+                return
+
+            def apply() -> None:
+                if self._window_closed or gen != self._assess_gen or bridge.is_dead:
+                    return
+                try:
+                    self._assessments = computed
+                    sel = self.m.library.selected
+                    if sel is not None:
+                        is_bld = bool(self.m.running and self.m.build_key.upper() == sel.title_id.upper())
+                        badge_txt, ref_lbl, batch_lbl, ref_note, ref_en = self._compute_hero_refresh_strings(
+                            sel,
+                            is_building=is_bld,
+                        )
+                        self.hero.update_badge.setText(badge_txt)
+                        self.hero.update_badge.setVisible(bool(badge_txt))
+                        self.hero.refresh_btn.setText(ref_lbl)
+                        self.hero.refresh_btn.setEnabled(ref_en)
+                        self.hero.refresh_btn.setVisible(bool(ref_lbl))
+                        self.hero.batch_refresh_btn.setText(batch_lbl)
+                        self.hero.batch_refresh_btn.setVisible(bool(batch_lbl))
+                        self.hero.refresh_note_lbl.setText(ref_note)
+                        self.hero.refresh_note_lbl.setVisible(bool(ref_note))
+                    self._update_coll_batch_refresh_btn()
+                except RuntimeError:
+                    return
+
+            try:
+                bridge.safe_emit(apply)
+            except RuntimeError:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _build_queue_items_for_game(
+        self,
+        game: lib.LibraryGame,
+        assessment: rf.GameRefreshAssessment,
+        *,
+        external_img_path: str | None = None,
+        force_full_ios: bool = False,
+    ) -> list[rf.RefreshQueueItem]:
+        out_d = rf._resolve_game_out_dir(game, self.m.out_dir)
+        base_in = (game.inputs.get('base') or [''])[0]
+        upd_in = (game.inputs.get('update') or [''])[0]
+        dlc_in = tuple(game.inputs.get('dlc') or ())
+        keys_in = (game.inputs.get('keys') or [''])[0] or self.m.keys_path
+
+        items: list[rf.RefreshQueueItem] = []
+        if game.has_app:
+            can_fast_m = assessment.can_fast_mac
+            if can_fast_m or not assessment.missing_original_package:
+                items.append(rf.RefreshQueueItem(
+                    title_id=game.title_id,
+                    target='mac-app',
+                    fast_refresh=can_fast_m,
+                    game_name=game.name,
+                    out_dir=out_d,
+                    existing_app_path=game.app_path,
+                    base_path=base_in,
+                    update_path=upd_in,
+                    dlc_paths=dlc_in,
+                    keys_path=keys_in,
+                ))
+        if game.is_ready_for_ios:
+            can_fast_i = False if force_full_ios else (assessment.can_fast_ios or bool(external_img_path))
+            if can_fast_i or not assessment.missing_original_package:
+                items.append(rf.RefreshQueueItem(
+                    title_id=game.title_id,
+                    target='ios',
+                    fast_refresh=can_fast_i,
+                    game_name=game.name,
+                    out_dir=out_d,
+                    external_img_path=external_img_path,
+                    base_path=base_in,
+                    update_path=upd_in,
+                    dlc_paths=dlc_in,
+                    keys_path=keys_in,
+                ))
+        return items
+
+    def _enqueue_and_open_builds(self, items: list[rf.RefreshQueueItem]) -> None:
+        if not items:
+            return
+        self._failed = False
+        self._stale_shaders_shown = False
+        self.footer.setText('')
+        self.refresh_queue.enqueue_many(items)
+        self._switch_page('builds')
+        self.refresh_queue.start_if_idle()
+
+    def _on_hero_refresh_clicked(self) -> None:
+        if self.m.running:
+            self._switch_page('builds')
+            return
+        if self._img_probing:
+            return
+        sel = self.m.library.selected
+        if sel is None:
+            return
+        assessment = self._assessments.get(sel.title_id.upper())
+        if assessment is None or assessment.is_up_to_date:
+            return
+
+        if sel.is_ready_for_ios and assessment.needs_img_guide_ios:
+            drive_dir = self._drive_folder
+            if drive_dir and os.path.isdir(drive_dir):
+                self._img_probing = True
+                self._img_probe_gen += 1
+                gen = self._img_probe_gen
+                bridge = self._assess_bridge
+                self.hero.refresh_btn.setEnabled(False)
+                tid = sel.title_id.upper()
+                exp_id = assessment.expected_romfs_identity
+
+                def probe_worker() -> None:
+                    hit = rf.scan_drive_for_matching_img(drive_dir, tid, exp_id)
+                    if self._window_closed or bridge.is_dead:
+                        return
+
+                    def apply_probe() -> None:
+                        if gen == self._img_probe_gen:
+                            self._img_probing = False
+                        if self._window_closed or gen != self._img_probe_gen or bridge.is_dead:
+                            return
+                        try:
+                            cur_sel = self.m.library.selected
+                            if cur_sel is not None and cur_sel.title_id.upper() == tid:
+                                self.hero.refresh_btn.setEnabled(True)
+                            if self.m.running or cur_sel is None or cur_sel.title_id.upper() != tid:
+                                return
+                            if hit:
+                                q_items = self._build_queue_items_for_game(cur_sel, assessment, external_img_path=hit)
+                                self._enqueue_and_open_builds(q_items)
+                            else:
+                                self._open_missing_img_dialog(cur_sel, assessment)
+                        except RuntimeError:
+                            return
+
+                    try:
+                        bridge.safe_emit(apply_probe)
+                    except RuntimeError:
+                        pass
+
+                threading.Thread(target=probe_worker, daemon=True).start()
+                return
+
+            self._open_missing_img_dialog(sel, assessment)
+            return
+
+        q_items = self._build_queue_items_for_game(sel, assessment)
+        self._enqueue_and_open_builds(q_items)
+
+    def _open_missing_img_dialog(
+        self,
+        game: lib.LibraryGame,
+        assessment: rf.GameRefreshAssessment,
+    ) -> None:
+        dlg = rf.MissingImgGuideDialog(
+            self.m,
+            game,
+            assessment,
+            drive_folder=self._drive_folder,
+            parent=self,
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        if dlg.chosen_action == 'fast_with_img' and dlg.selected_img_path:
+            q_items = self._build_queue_items_for_game(
+                game,
+                assessment,
+                external_img_path=dlg.selected_img_path,
+            )
+            self._enqueue_and_open_builds(q_items)
+        elif dlg.chosen_action == 'full_rebuild':
+            q_items = self._build_queue_items_for_game(
+                game,
+                assessment,
+                force_full_ios=True,
+            )
+            self._enqueue_and_open_builds(q_items)
+
+    def _on_hero_batch_refresh_clicked(self) -> None:
+        entries: list[rf.BatchRefreshEntry] = []
+        for g in self.m.library.games:
+            a = self._assessments.get(g.title_id.upper())
+            if a is not None and not a.is_up_to_date:
+                entries.append(rf.BatchRefreshEntry(
+                    game=g,
+                    assessment=a,
+                    out_dir=rf._resolve_game_out_dir(g, self.m.out_dir),
+                ))
+        dlg = rf.BatchRefreshDialog(self.m, entries, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        chosen = dlg.chosen_items()
+        if chosen:
+            self._enqueue_and_open_builds(chosen)
+
+    def _on_refresh_queue_changed(self) -> None:
+        self._refresh_activity_bar()
+
+    def _cancel_active_and_queued_builds(self) -> None:
+        self.refresh_queue.cancel_all()
+        if self.m.running:
+            self.m.cancel_build()
 
     def _show_manage_menu(self, anchor: QWidget) -> None:
         g = self.m.library.selected
@@ -695,7 +1217,7 @@ class MainWindow(QMainWindow):
             act_reset_art = menu.addAction(self.m.t('library.resetArtwork'))
             act_reset_art.triggered.connect(lambda: (self.m.artwork.clear_custom(g.title_id), self._refresh_library()))
 
-        target_reveal = g.ipa_path if g.has_ipa else (g.archive_path if g.has_archive else ((g.inputs.get('base') or [''])[0]))
+        target_reveal = g.primary_reveal_path or ((g.inputs.get('base') or [''])[0])
         if target_reveal and os.path.exists(target_reveal):
             act_reveal = menu.addAction(self.m.t('install.reveal'))
             act_reveal.triggered.connect(lambda: pu.reveal(target_reveal))
@@ -769,6 +1291,9 @@ class MainWindow(QMainWindow):
         if not self.m.library.games_folder:
             self._pick_library_folder()
             return
+        reset_fn = getattr(self.m.library, 'reset_skipped_banner_dismissal', None)
+        if callable(reset_fn):
+            reset_fn()
         self.m.library.rescan_games_folder(repo_path=self.m.engine_path, default_keys=self.m.keys_path)
         for g in self.m.library.games:
             self.m.artwork.request_banner_async(g.title_id)
@@ -1096,6 +1621,14 @@ class MainWindow(QMainWindow):
         s1_col.addWidget(self.step1_sub)
         rs1_lay.addLayout(s1_col, 1)
 
+        self.step1_repack_btn = QPushButton(
+            self.m.export_built_label(0) if hasattr(self.m, 'export_built_label') else self.m.t('shell.exportBuilt', 0)
+        )
+        self.step1_repack_btn.setToolTip(self.m.t('shell.exportBuiltNote'))
+        self.step1_repack_btn.clicked.connect(self._repack_built_shell_ipa)
+        self.step1_repack_btn.hide()
+        rs1_lay.addWidget(self.step1_repack_btn)
+
         self.step1_reveal_btn = QPushButton(self.m.t('shell.showInFinder'))
         self.step1_reveal_btn.clicked.connect(lambda: pu.reveal(self._effective_ipa_path()))
         self.step1_reveal_btn.hide()
@@ -1139,9 +1672,15 @@ class MainWindow(QMainWindow):
         self.step3_sub = QLabel(self.m.t('shell.copyExternalNote'))
         self.step3_sub.setObjectName('muted')
         self.step3_sub.setWordWrap(True)
+        self.drive_progress_bar = QProgressBar()
+        self.drive_progress_bar.setRange(0, 100)
+        self.drive_progress_bar.setValue(0)
+        self.drive_progress_bar.setTextVisible(False)
+        self.drive_progress_bar.hide()
         s3_col.addWidget(self.step3_title)
         s3_col.addWidget(self.drive_path_lbl)
         s3_col.addWidget(self.step3_sub)
+        s3_col.addWidget(self.drive_progress_bar)
         rs3_lay.addLayout(s3_col, 1)
 
         self.step3_open_romfs_btn = QPushButton(self.m.t('shell.showInFinder'))
@@ -1157,6 +1696,12 @@ class MainWindow(QMainWindow):
         self.drive_copy_btn.setObjectName('creamPill')
         self.drive_copy_btn.clicked.connect(self._copy_archive_to_drive)
         rs3_lay.addWidget(self.drive_copy_btn)
+
+        self.drive_select_btn = QPushButton(self.m.t('shell.selectGamesButton'))
+        self.drive_select_btn.setToolTip(self.m.t('shell.selectGamesDriveNote'))
+        self.drive_select_btn.clicked.connect(self._select_games_for_drive)
+        self.drive_select_btn.hide()
+        rs3_lay.addWidget(self.drive_select_btn)
         s3_outer.addWidget(r_s3)
         grp.add_row(self.step3_container)
 
@@ -1166,8 +1711,15 @@ class MainWindow(QMainWindow):
         """The shared app's only output, whatever mode ran last."""
         return lib.shell_ipa_path(self.m.shell_cache_path)
 
+    def _effective_out_dir(self) -> str:
+        if self.m.out_dir:
+            return self.m.out_dir
+        if self.m.game_folder is not None:
+            return self.m.game_folder.folder
+        return str(Path(self.m.base_path).parent) if self.m.base_path else ''
+
     def _one_game_ipa_path(self) -> str:
-        return lib.one_game_ipa_path(self.m.out_dir, self.m.build_key)
+        return lib.one_game_ipa_path(self._effective_out_dir(), self.m.build_key)
 
     def _effective_ipa_path(self) -> str:
         # The two kinds write different files, so the reveal button answers for the kind that is
@@ -1176,7 +1728,7 @@ class MainWindow(QMainWindow):
         return lib.reveal_ipa_path(
             ipa_kind=self.m.ipa_kind,
             shell_cache=self.m.shell_cache_path,
-            out_dir=self.m.out_dir,
+            out_dir=self._effective_out_dir(),
             build_key=self.m.build_key,
             last_ipa=self.m.ipa_path,
             library_ipa=sel.ipa_path if (sel and sel.has_ipa) else '',
@@ -1211,6 +1763,26 @@ class MainWindow(QMainWindow):
         self.step1_sub.setText(self.m.t('shell.oneGameSub' if one else 'shell.step1Sub'))
         ipa_p = self._effective_ipa_path()
         has_ipa = bool(ipa_p and os.path.exists(ipa_p))
+        built_games = (
+            self.m.built_shell_games()
+            if not one and hasattr(self.m, 'built_shell_games')
+            else []
+        )
+        built_count = len(built_games)
+        has_built_shell = built_count > 0
+        can_repack = (
+            not one
+            and hasattr(self.m, 'can_export_built_games')
+            and bool(self.m.can_export_built_games())
+        )
+        self.step1_repack_btn.setText(
+            self.m.export_built_label(built_count)
+            if hasattr(self.m, 'export_built_label')
+            else self.m.t('shell.exportBuilt', built_count)
+        )
+        self.step1_repack_btn.setToolTip(self.m.t('shell.exportBuiltNote'))
+        self.step1_repack_btn.setVisible(has_built_shell)
+        self.step1_repack_btn.setEnabled(can_repack)
         self.step1_reveal_btn.setText(self.m.t('shell.showInFinder'))
         self.step1_reveal_btn.setToolTip(self.m.t('msg.ipaAt', ipa_p) if has_ipa else '')
         self.step1_reveal_btn.setVisible(has_ipa)
@@ -1220,22 +1792,103 @@ class MainWindow(QMainWindow):
         self.drive_path_lbl.setText(self._drive_folder or self.m.t('shell.driveNone'))
         self.step3_open_romfs_btn.setText(self.m.t('shell.showInFinder'))
         self.drive_choose_btn.setText(self.m.t('shell.driveChoose'))
-        self.drive_copy_btn.setText(self.m.t('shell.driveCopy'))
+        self.drive_select_btn.setText(self.m.t('shell.selectGamesButton'))
+        self.drive_select_btn.setToolTip(self.m.t('shell.selectGamesDriveNote'))
         self.step3_container.setVisible(not one)
         arch_p = self._effective_archive_path()
         has_arch = bool(arch_p and os.path.isdir(arch_p))
+        sources = (
+            self.m.shared_app_data_sources()
+            if hasattr(self.m, 'shared_app_data_sources')
+            else []
+        )
         self.step3_open_romfs_btn.setToolTip(self.m.t('msg.archiveAt', arch_p) if has_arch else '')
         self.step3_open_romfs_btn.setVisible(has_arch)
-        self.drive_copy_btn.setEnabled(has_arch)
+
+        copying = bool(getattr(self.m, 'drive_copying', False))
+        cancelling = bool(getattr(self.m, 'drive_copy_cancelling', False))
+        self.drive_choose_btn.setEnabled(not copying)
+        self.drive_select_btn.setVisible(not copying and bool(sources))
+        self.drive_select_btn.setEnabled(not copying and not self.m.running and bool(sources))
+        if copying:
+            self.drive_copy_btn.setText(
+                self.m.t('transfer.cancelling' if cancelling else 'transfer.cancel')
+            )
+            btn_obj = 'danger'
+            self.drive_copy_btn.setEnabled(not cancelling)
+            self._update_drive_progress_widgets(
+                int(getattr(self.m, 'drive_copy_done', 0) or 0),
+                int(getattr(self.m, 'drive_copy_total', 0) or 0),
+            )
+        else:
+            self.drive_copy_btn.setText(self.m.t('shell.driveCopy'))
+            btn_obj = 'creamPill'
+            self.drive_copy_btn.setEnabled(has_arch)
+            self.drive_progress_bar.hide()
+            curr_tid = (getattr(self.m, 'packed_title_id', '') or '').upper()
+            if self._drive_status is not None and (
+                self._drive_status[0] == curr_tid or self._drive_status[0] == '*'
+            ):
+                _tid, kind, info = self._drive_status
+                if kind == 'done':
+                    self.step3_sub.setText(
+                        self.m.t('shell.driveDone', info, self.m.t('ios.ui.gameData'))
+                    )
+                elif kind == 'cancelled':
+                    self.step3_sub.setText(self.m.t('msg.stopped'))
+                else:
+                    self.step3_sub.setText(self.m.t('shell.driveFailed', info))
+            else:
+                self.step3_sub.setText(self.m.t('shell.copyExternalNote'))
+        if self.drive_copy_btn.objectName() != btn_obj:
+            self.drive_copy_btn.setObjectName(btn_obj)
+            self.drive_copy_btn.style().unpolish(self.drive_copy_btn)
+            self.drive_copy_btn.style().polish(self.drive_copy_btn)
+
+    def _update_drive_progress_widgets(self, done: int, total: int) -> None:
+        pct = int(min(100, (done * 100) // total)) if total > 0 else 0
+        game = getattr(self.m, 'drive_copy_game', '') or getattr(self.m, 'packed_title_id', '')
+        label = f'{game} ({pct}%)' if game else f'{pct}%'
+        self.step3_sub.setText(
+            self.m.t('shell.driveProgress', label, lib.format_bytes(done), lib.format_bytes(total))
+        )
+        self.drive_progress_bar.setValue(pct)
+        self.drive_progress_bar.show()
+
+    def _on_drive_copy_progress(self, done: int, total: int) -> None:
+        if not getattr(self.m, 'drive_copying', False):
+            return
+        self._update_drive_progress_widgets(int(done), int(total))
+
+    def _on_drive_copy_finished(self, ok: bool, cancelled: bool, info: str) -> None:
+        fin_tid = (
+            getattr(self.m, 'drive_copy_tid', '')
+            or getattr(self.m, 'packed_title_id', '')
+            or ''
+        ).upper()
+        if ok:
+            self._drive_status = (fin_tid, 'done', info)
+        elif cancelled:
+            self._drive_status = (fin_tid, 'cancelled', '')
+        else:
+            self._drive_status = (fin_tid, 'failed', info)
+        self._refresh_install_card()
 
     def _pick_drive_folder(self) -> None:
+        if getattr(self.m, 'drive_copying', False):
+            return
         d = QFileDialog.getExistingDirectory(self, self.m.t('shell.driveChoose'), self._drive_folder or str(Path.home()))
         if d:
             self._drive_folder = d
+            self.m.drive_folder = d
+            self._drive_status = None
             self.drive_path_lbl.setText(d)
             self._refresh_install_card()
 
     def _copy_archive_to_drive(self) -> None:
+        if getattr(self.m, 'drive_copying', False):
+            self.m.cancel_drive_copy()
+            return
         arch_p = self._effective_archive_path()
         if not arch_p or not os.path.isdir(arch_p):
             return
@@ -1244,12 +1897,63 @@ class MainWindow(QMainWindow):
             if not d:
                 return
             self._drive_folder = d
+            self.m.drive_folder = d
             self.drive_path_lbl.setText(d)
-        ok, info = self.m.copy_archive_to_drive(self._drive_folder)
-        if ok:
-            self.step3_sub.setText(self.m.t('shell.driveDone', info, self.m.t('ios.ui.gameData')))
+        self._drive_status = None
+        if hasattr(self.m, 'start_drive_copy'):
+            self.m.start_drive_copy(self._drive_folder, archive_dir=arch_p)
         else:
-            self.step3_sub.setText(self.m.t('shell.driveFailed', info))
+            ok, info = self.m.copy_archive_to_drive(self._drive_folder)
+            self._on_drive_copy_finished(ok, False, info)
+
+    def _repack_built_shell_ipa(self) -> None:
+        if not hasattr(self.m, 'can_export_built_games') or not self.m.can_export_built_games():
+            return
+        stale = (
+            self.m.stale_shell_frameworks()
+            if hasattr(self.m, 'stale_shell_frameworks')
+            else []
+        )
+        if stale:
+            names = ', '.join(g.name or g.title_id for g in stale)
+            box = QMessageBox(self)
+            box.setWindowTitle(self.m.t('stale.title'))
+            box.setText(self.m.t('stale.message', names))
+            go_btn = box.addButton(self.m.t('stale.go'), QMessageBox.AcceptRole)
+            box.addButton(self.m.t('stale.stop'), QMessageBox.RejectRole)
+            box.exec()
+            if box.clickedButton() is not go_btn:
+                return
+        self._failed = False
+        self.footer.setText('')
+        self.m.start_repack_shell_ipa()
+        self._refresh_install_card()
+
+    def _select_games_for_drive(self) -> None:
+        if getattr(self.m, 'drive_copying', False) or self.m.running:
+            return
+        sources = (
+            self.m.shared_app_data_sources()
+            if hasattr(self.m, 'shared_app_data_sources')
+            else []
+        )
+        if not sources:
+            return
+        if not self._drive_folder:
+            d = QFileDialog.getExistingDirectory(self, self.m.t('shell.driveChoose'), str(Path.home()))
+            if not d:
+                return
+            self._drive_folder = d
+            self.m.drive_folder = d
+            self.drive_path_lbl.setText(d)
+        dlg = DriveSelectDialog(self.m, self._drive_folder, sources, parent=self)
+        if dlg.exec() != DriveSelectDialog.Accepted:
+            return
+        chosen = dlg.chosen_items()
+        if not chosen:
+            return
+        self._drive_status = None
+        self.m.start_batch_drive_copy(self._drive_folder, chosen)
 
     def _build_action_card(self) -> CardGroup:
         grp = CardGroup()
@@ -1895,9 +2599,10 @@ class MainWindow(QMainWindow):
 
         self.act_title = QLabel(self.m.t('library.localNote'))
         self.act_title.setStyleSheet('font-size: 12px; font-weight: 600;')
+        self.act_title.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         row.addWidget(self.act_title)
 
-        self.act_detail = QLabel('')
+        self.act_detail = ElidedLabel('', elide_mode=Qt.ElideMiddle)
         self.act_detail.setObjectName('muted')
         row.addWidget(self.act_detail, 1)
 
@@ -1916,7 +2621,7 @@ class MainWindow(QMainWindow):
 
         self.act_stop_btn = QPushButton(self.m.t('btn.stop'))
         self.act_stop_btn.setObjectName('danger')
-        self.act_stop_btn.clicked.connect(self.m.cancel_build)
+        self.act_stop_btn.clicked.connect(self._cancel_active_and_queued_builds)
         self.act_stop_btn.hide()
         row.addWidget(self.act_stop_btn)
 
@@ -1939,7 +2644,12 @@ class MainWindow(QMainWindow):
             self.act_stop_btn.setText(self.m.t('btn.stop'))
             self.act_stop_btn.show()
         else:
-            self.act_dot.set_color(style.GREEN if self.m.can_build else style.NEUTRAL_DOT)
+            has_block = bool(
+                self.m.repo_ok and self.m.deps_checked and self.m.all_deps_ok and self.m.prebuild_block_reason()
+            )
+            self.act_dot.set_color(
+                style.GREEN if self.m.can_build else (style.AMBER if has_block else style.NEUTRAL_DOT)
+            )
             self.act_title.setText(self.m.t('library.localNote'))
             self.act_detail.setText(self.footer.text())
             self.act_progress.hide()
@@ -2413,8 +3123,10 @@ class MainWindow(QMainWindow):
     def _refresh_stages(self) -> None:
         while self.stages_col.count():
             item = self.stages_col.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            w_old = item.widget()
+            if w_old:
+                w_old.hide()
+                w_old.deleteLater()
         self._refresh_progress_visibility()
         for st in self.m.stages:
             r = QHBoxLayout()
@@ -2426,14 +3138,19 @@ class MainWindow(QMainWindow):
             }.get(st.state, style.NEUTRAL_DOT)
             r.addWidget(_dot(color))
             name = QLabel(st.name)
+            name.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
             if st.state == 'running':
                 name.setStyleSheet('font-weight: 700;')
             elif st.state != 'done':
                 name.setObjectName('muted')
             r.addWidget(name)
-            detail = QLabel(st.detail if st.state == 'running' else '')
+            detail = ElidedLabel(
+                st.detail if st.state == 'running' else '',
+                elide_mode=Qt.ElideMiddle,
+                alignment=Qt.AlignRight | Qt.AlignVCenter,
+            )
             detail.setObjectName('mono')
-            r.addWidget(detail, 1, Qt.AlignRight)
+            r.addWidget(detail, 1)
             w = QWidget()
             w.setLayout(r)
             self.stages_col.addWidget(w)
@@ -2471,6 +3188,7 @@ class MainWindow(QMainWindow):
             self.build_btn.setObjectName('primary')
             self.build_btn.setEnabled(self.m.can_build)
             if not self.m.can_build and not self._failed:
+                is_prebuild_block = False
                 if not self.m.repo_ok:
                     why = t('status.chooseRepo')
                 elif not self.m.deps_checked:
@@ -2480,10 +3198,15 @@ class MainWindow(QMainWindow):
                 elif self.m.game_folder_problem:
                     # the real reason the folder was refused, not a generic line and never "the base game and keys are missing" (#696)
                     why = self.m.game_folder_problem
+                elif (block_why := self.m.prebuild_block_reason()):
+                    why = block_why
+                    is_prebuild_block = True
                 else:
                     why = t('status.needInputs')
+                self.footer.setStyleSheet(f'color: {style.AMBER}; font-size: 12.5px;' if is_prebuild_block else '')
                 self.footer.setText(why)
             elif self.m.can_build and not self.m.ipa_path and not self.m.mac_app_path and self.m.failure is None and not self._failed:
+                self.footer.setStyleSheet('')
                 self.footer.setText('')
 
         if not self.m.running:
@@ -2743,7 +3466,7 @@ class MainWindow(QMainWindow):
     def _build_clicked(self, *, title_id: str | None = None, skip_defender_prompt: bool = False) -> None:
         if self.m.running:
             if title_id is None:
-                self.m.cancel_build()
+                self._cancel_active_and_queued_builds()
             return
         should_prompt_fn = getattr(self.m, 'should_prompt_defender_before_build', None)
         if not skip_defender_prompt and callable(should_prompt_fn) and should_prompt_fn(title_id=title_id):
@@ -2769,6 +3492,15 @@ class MainWindow(QMainWindow):
         self.m.start_build(title_id=title_id)
 
     # ================================================================ Full-Window Drag & Drop
+
+    def closeEvent(self, event) -> None:
+        self._window_closed = True
+        self._img_probing = False
+        self._assess_gen += 1
+        self._img_probe_gen += 1
+        if hasattr(self, '_assess_bridge'):
+            self._assess_bridge.mark_dead()
+        super().closeEvent(event)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

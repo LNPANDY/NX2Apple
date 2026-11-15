@@ -47,6 +47,9 @@ import NXCore
     /// The interpreter the build runs under, set by the check.
     @Published package var pythonPath = ""
     @Published package var dotnetPath = ""
+    /// Live fraction (0...1) and status line while a dependency row installs.
+    @Published package var installProgress: [String: Double] = [:]
+    @Published package var installDetail: [String: String] = [:]
 
     private let localizer: Localizer
     private let runner: ProcessRunner
@@ -160,23 +163,42 @@ import NXCore
         }
         guard let i = deps.firstIndex(where: { $0.id == dep.id }) else { return Task {} }
         deps[i].installing = true
-        let runner = self.runner, log = self.log, base = pythonPath
-        let cmd = dep.installCmd, isPython = dep.id == "python"
+        let depID = dep.id
+        installProgress.removeValue(forKey: depID)
+        installDetail.removeValue(forKey: depID)
+        let runner = self.runner
+        let log = self.log
+        let base = pythonPath
+        let cmd = dep.installCmd
+        let isPython = depID == "python"
         return Task {
-            let outcome = await Task.detached { () -> (ok: Bool, failure: (error: String, fix: String)?, output: String?) in
+            let outcome = await Task.detached { [weak self] () -> (ok: Bool, failure: (error: String, fix: String)?, output: String?) in
                 if isPython {
-                    // A venv of our own rather than pip --user: Homebrew's Python is externally
-                    // managed (PEP 668) and refuses --user, which used to fail silently.
-                    let r = Toolchain.makeVenv(base: base, runner: runner)
+                    let r = Toolchain.makeVenv(base: base, runner: runner) { fraction, detail in
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            if let fraction { self.installProgress[depID] = fraction }
+                            if !detail.isEmpty { self.installDetail[depID] = detail }
+                        }
+                    }
                     return (r.ok, nil, r.log)
                 }
                 let collected = Lines()
                 let ok = runner.runCaptured(DependencyCheck.shellCommand(cmd), env: DependencyCheck.installEnvironment()) { line in
                     collected.append(line)
-                    DispatchQueue.main.async { log(line + "\n") }
+                    let pct = Toolchain.parsePercent(in: line)
+                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    Task { @MainActor [weak self] in
+                        log(line + "\n")
+                        guard let self else { return }
+                        if let pct { self.installProgress[depID] = max(self.installProgress[depID] ?? 0, pct) }
+                        if !trimmed.isEmpty { self.installDetail[depID] = String(trimmed.prefix(80)) }
+                    }
                 }
                 return (ok, BuildProgress.failureInfo(collected.lines), nil)
             }.value
+            installProgress.removeValue(forKey: depID)
+            installDetail.removeValue(forKey: depID)
             if let output = outcome.output { log("\n--- 安装输出 ---\n" + output) }
             if let j = deps.firstIndex(where: { $0.id == dep.id }) {
                 if let failure = outcome.failure {

@@ -2,7 +2,7 @@ import Foundation
 
 // Route C: one app on the iPhone or iPad that holds several games. The build script makes only each game's framework
 // (`--shell-framework`), and this file does the rest: the shell's library file (shell.json), the shell's Xcode project
-// (dm/ios/tools/build_shell.sh), signing, the install, and the game data. Everything pure (the file, the commands, the listing
+// (frontend-ios/Shell/build_shell.sh), signing, the install, and the game data. Everything pure (the file, the commands, the listing
 // parser, the diff) is a static function with its own tests. `ShellInstaller` strings them together, blocking, so the same code
 // runs under the build model (on a background queue) and from the terminal (`NSPortBuilder --install-shell`).
 
@@ -32,39 +32,6 @@ package enum ShellInstall {
     package static func frameworksMirror(root: String) -> String { root + "/frameworks" }
     package static func mirroredFramework(root: String, titleID: String) -> String {
         frameworksMirror(root: root) + "/DmGame\(titleID).framework"
-    }
-
-    /// Mirrors a framework into the shell folder as a copy. On APFS the copy is a clone: it costs no space, and a later write to
-    /// the build folder does not reach it. On another volume it is a real copy. It replaces the previous mirror, so a rebuilt
-    /// game's mirror follows. The copy goes to a hidden folder first and is renamed into place when it is whole, so a failed or
-    /// interrupted copy never leaves a half mirror where shell.json points (ShellFrameworks.swift).
-    /// With `keepPrevious`, the previous mirror is renamed aside instead of deleted, and its hidden path is returned (nil when there
-    /// was none): the caller puts it back when the new framework is refused, or discards it. A launcher quit in between leaves it to
-    /// `sweepDiscarded`, like any discarded folder.
-    @discardableResult
-    package static func mirrorFramework(framework: String, root: String, titleID: String? = nil, keepPrevious: Bool = false) throws -> String? {
-        let fm = FileManager.default
-        let mirror = mirroredFramework(root: root, titleID: titleID ?? Self.titleID(ofFramework: framework))
-        let folder = (mirror as NSString).deletingLastPathComponent
-        try fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let copy = folder + "/" + discardPrefix + UUID().uuidString
-        var previous: String? = nil
-        do {
-            try fm.copyItem(atPath: framework, toPath: copy)
-            if keepPrevious, fm.fileExists(atPath: mirror) {
-                let aside = folder + "/" + discardPrefix + UUID().uuidString
-                try fm.moveItem(atPath: mirror, toPath: aside)
-                previous = aside
-            } else {
-                guard discard(mirror) else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: mirror]) }
-            }
-            try fm.moveItem(atPath: copy, toPath: mirror)
-        } catch {
-            try? fm.removeItem(atPath: copy)
-            if let previous { try? fm.moveItem(atPath: previous, toPath: mirror) }
-            throw error
-        }
-        return previous
     }
 
     /// The title ID a framework path carries (`DmGame0100…framework`, the build script's name).
@@ -99,13 +66,13 @@ package enum ShellInstall {
 
     // ---- 4: the project ----
 
-    package static func projectCommand(repo: String) -> [String] {
-        ["/bin/bash", repo + "/dm/ios/tools/build_shell.sh", "--prepare-xcode"]
+    package static func projectCommand(package: String) -> [String] {
+        ["/bin/bash", package + "/Shell/build_shell.sh", "--prepare-xcode"]
     }
 
-    /// The `frontend-ios` Swift package the shell project links (build_shell.sh's DM_SHELL_PACKAGE). The script defaults to
-    /// `frontend-ios` beside `dm/`, which is the engine root, and an engine tree has none since #214. So: the release app's
-    /// Contents/Resources/frontend-ios, else the source checkout's `frontend-ios` (`repo`). nil when neither has a Package.swift.
+    /// The `frontend-ios` Swift package the shell project links (build_shell.sh's DM_SHELL_PACKAGE), which also holds
+    /// `Shell/build_shell.sh`, `Shell/project-shell.yml` and `Shell/App/`. In a release app this is Contents/Resources/frontend-ios,
+    /// else the source checkout's `frontend-ios` (`repo`). nil when neither has a Package.swift.
     package static func shellPackage(resources: String?, repo: String, fm: FileManager = .default) -> String? {
         ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }
             .first { fm.fileExists(atPath: $0 + "/Package.swift") }
@@ -113,7 +80,8 @@ package enum ShellInstall {
 
     /// What build_shell.sh reads. `path` is the build's own tool PATH (xcodegen must be found on it).
     package static func projectEnvironment(root: String, frameworks: [String], bundleID: String, team: String, python: String,
-                                   path: String, home: String, user: String, tmp: String? = nil, package: String? = nil) -> [String: String] {
+                                   path: String, home: String, user: String, tmp: String? = nil, package: String? = nil,
+                                   engine: String? = nil) -> [String: String] {
         var env = ["SHELL_DIR": projectFolder(root: root),
                    "DM_SHELL_FRAMEWORKS": frameworks.joined(separator: "\n"),
                    "DM_BUNDLE_ID": bundleID,
@@ -123,6 +91,7 @@ package enum ShellInstall {
                    "PATH": path, "HOME": home, "USER": user, "LANG": "en_US.UTF-8"]
         if let tmp { env["TMPDIR"] = tmp }
         if let package { env["DM_SHELL_PACKAGE"] = package }
+        if let engine { env["DM_ENGINE_DIR"] = engine }
         return env
     }
 
@@ -169,6 +138,7 @@ package enum ShellInstall {
     /// "No profiles for" that identifier, and must still be retried under team B's. The variant itself is never retried.
     package static func retryUnderTeamVariant(_ output: String, attempted: String, variant: String) -> Bool {
         attempted != variant
+            && !BuildFailureClassifier.appIDLimitReached(output)
             && (output.contains("cannot be registered to your development team") || output.contains("No profiles for '\(attempted)'"))
     }
 
@@ -219,19 +189,33 @@ package enum ShellInstall {
         return found
     }
 
-    /// The archive folder's files (relative path → size), without dot files (.packstamp) and without folders.
-    package static func localFiles(in archive: String) -> [String: Int64] {
-        let fm = FileManager.default
+    /// The archive folder's files (relative path → size), without dot files (.titleid, .packstamp), sidecars (.img.id), or folders.
+    package static func localFiles(in archive: String, fm: FileManager = .default) -> [String: Int64] {
         var found: [String: Int64] = [:]
         guard let enumerator = fm.enumerator(atPath: archive) else { return found }   // a folder that is not there holds nothing
         for case let path as String in enumerator {
             if path.split(separator: "/").contains(where: { $0.hasPrefix(".") }) { continue }
+            let lower = path.lowercased()
+            if lower.hasSuffix(".img.id") || lower.hasSuffix(".img.inputs.json") || lower.hasSuffix(".img.formats") { continue }
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: archive + "/" + path, isDirectory: &isDirectory), !isDirectory.boolValue,
                   let size = (try? fm.attributesOfItem(atPath: archive + "/" + path))?[.size] as? NSNumber else { continue }
             found[path] = size.int64Value
         }
         return found
+    }
+
+    /// Collects the game data files from `archive` (primary `<GameName>.img` or `romfs.img` plus `aoc/**`), filtering hidden dot-files.
+    package static func transferSources(
+        archive: String,
+        shellRoot: String? = nil,
+        titleID: String = "",
+        includeExternalMSL: Bool = false,
+        fm: FileManager = .default
+    ) -> (sizes: [String: Int64], origins: [String: String]) {
+        let sizes = localFiles(in: archive, fm: fm)
+        let origins = Dictionary(uniqueKeysWithValues: sizes.keys.map { ($0, archive + "/" + $0) })
+        return (sizes, origins)
     }
 
     /// The local files to copy: missing on the device, or of another size. Sorted, so the copies run in a stable order.
@@ -344,6 +328,11 @@ package struct ShellInstaller {
     /// (`ShellDataParts`). A test makes them small.
     package var partSize: Int64 = ShellDataParts.partSize
     package var singleCopyLimit: Int64 = ShellDataParts.singleCopyLimit()
+    package var signingIdentity: (String, ProcessRunner) -> String? = ShellHotInstall.defaultSigningIdentity
+    package var codesignPath = "/usr/bin/codesign"
+    /// Enabled by default; set `NX_DISABLE_HOT_INSTALL=1` to force full `xcodebuild` reinstalls.
+    package var allowHotInstall = ProcessInfo.processInfo.environment["NX_DISABLE_HOT_INSTALL"] != "1"
+    package var now: () -> Date = { Date() }
 
     package init(xcrun: String = "/usr/bin/xcrun", repo: String, python: String, root: String, device: String, team: String) {
         self.xcrun = xcrun; self.repo = repo; self.python = python; self.root = root; self.device = device; self.team = team
@@ -423,14 +412,33 @@ package struct ShellInstaller {
     }
 
     package func install(framework: String, titleID: String, name: String, archive: String) -> Outcome {
+        let signed = signAndInstallApp(framework: framework, titleID: titleID, name: name)
+        guard signed.outcome.ok else { return signed.outcome }
+        if archive.isEmpty {
+            var res = signed.outcome
+            if !signed.notes.isEmpty { res.message = ([res.message] + signed.notes).joined(separator: "\n") }
+            return res
+        }
+        // 7: the game data, only what the device does not have yet
+        var result = copyGameData(titleID: titleID, archive: archive, app: signed.outcome.appPath,
+                                  bundleID: signed.outcome.bundleID, outcome: signed.outcome, appJoinsParts: true)
+        if result.ok, !signed.notes.isEmpty { result.message = ([result.message] + signed.notes).joined(separator: "\n") }
+        return result
+    }
+
+    /// Steps 3 to 6: prepare the shared app's library and project, sign it, and install the app bundle on the device.
+    func signAndInstallApp(framework: String, titleID: String, name: String) -> (outcome: Outcome, notes: [String]) {
         guard FileManager.default.fileExists(atPath: framework) else {
-            return missingFramework(framework, name: name)
+            return (missingFramework(framework, name: name), [])
+        }
+        if let hot = tryHotInstall(games: [HotGame(framework: framework, titleID: titleID, name: name, pickedArtwork: pickedArtwork)]) {
+            return hot
         }
         // A device this Mac never paired is found out now, not after the signing: nothing is built for it
-        if let refused = pairingRefusal() { return refused }
+        if let refused = pairingRefusal() { return (refused, []) }
         // 3 and 4: the library and the project
         let prepared = prepareShell(framework: framework, titleID: titleID, name: name)
-        guard var library = prepared.library, let env = prepared.env else { return prepared.failure! }
+        guard var library = prepared.library, let env = prepared.env else { return (prepared.failure!, []) }
         let projectName = t("shell.projectStage")
 
         // 5: sign and build, with one retry under this team's own identifier
@@ -438,7 +446,7 @@ package struct ShellInstaller {
         func sign(_ bundleID: String) -> ToolResult {
             begin(Self.signStageID, signName)
             return run(ShellInstall.buildCommand(xcrun: xcrun, root: root, device: device, team: team, bundleID: bundleID),
-                       env: nil, label: signName, step: BuildProgress.xcodeStep)
+                       env: nil, label: signName, stageID: Self.signStageID, step: BuildProgress.xcodeStep)
         }
         var bundleID = library.bundleID
         var built = sign(bundleID)
@@ -456,7 +464,8 @@ package struct ShellInstaller {
         if built.status != 0, ShellInstall.memoryCapabilityMissing(built.output) {
             log("signing: the team's provisioning profile cannot carry the Increased Memory Limit capability; signing without it (a large game may run out of memory)\n")
             var plain = env; plain["DM_ENTITLEMENTS"] = ""
-            let again = run(ShellInstall.projectCommand(repo: repo), env: plain, label: projectName, step: { _ in nil })
+            let package = plain["DM_SHELL_PACKAGE"] ?? (repo + "/frontend-ios")
+            let again = run(ShellInstall.projectCommand(package: package), env: plain, label: projectName, step: { _ in nil })
             if again.status == 0 {
                 ShellInstall.refreshProjectLinks(root: root, resources: resources, repo: repo)
                 noMemoryCapability = true
@@ -464,6 +473,17 @@ package struct ShellInstaller {
             }
         }
         if built.status != 0 {
+            if BuildFailureClassifier.appIDLimitReached(built.output) {
+                let line = built.output.split(whereSeparator: \.isNewline)
+                    .map(String.init)
+                    .last { BuildFailureClassifier.appIDLimitReached($0) }
+                let why = line ?? built.lastError ?? fmt("msg.exitCode", built.status)
+                end(Self.signStageID, signName, ok: false, detail: why)
+                var out = Outcome(ok: false, message: fmt("dev.signFailed", why), step: .sign, failure: .appIDLimit)
+                out.detail = BuildFailureClassifier.appIDLimitReset(in: built.output)
+                    ?? AppSignature.oldestFreeAppIDExpiry(forTeam: team, lang: lang) ?? ""
+                return (out, [])
+            }
             // Xcode follows a destination failure with reasons other destinations are ineligible.
             // Those entries can contain "error:" even though they do not describe the requested device.
             let destinationUnavailable = built.output.split(whereSeparator: \.isNewline).contains {
@@ -472,7 +492,7 @@ package struct ShellInstaller {
             let why = destinationUnavailable ? t("shell.destinationUnavailable") : built.lastError ?? fmt("msg.exitCode", built.status)
             end(Self.signStageID, signName, ok: false, detail: why)
             let message = destinationUnavailable ? t("shell.destinationUnavailableNext") : fmt("dev.signFailed", why)
-            return Outcome(ok: false, message: message, step: .sign)
+            return (Outcome(ok: false, message: message, step: .sign), [])
         }
         end(Self.signStageID, signName, ok: true)
         // The identifier that signed is the one the device's app gets: stored once the signing passed, also when the sign without the
@@ -485,25 +505,23 @@ package struct ShellInstaller {
         // 6: install over the existing app, which keeps its Documents
         let app = ShellInstall.appPath(root: root)
         guard FileManager.default.fileExists(atPath: app) else {
-            return Outcome(ok: false, message: fmt("dev.noProject", app), step: .install)
+            return (Outcome(ok: false, message: fmt("dev.noProject", app), step: .install), [])
         }
         let installName = fmt("dev.installStage", deviceName)
         begin(Self.installStageID, installName)
-        let installed = run(ShellInstall.installCommand(xcrun: xcrun, device: device, app: app), env: nil, label: installName, step: BuildProgress.installStep)
+        let installed = run(ShellInstall.installCommand(xcrun: xcrun, device: device, app: app), env: nil, label: installName,
+                            stageID: Self.installStageID, step: BuildProgress.installStep)
         if installed.status != 0 {
             let why = installed.lastError ?? fmt("msg.exitCode", installed.status)
             end(Self.installStageID, installName, ok: false, detail: why)
-            return Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install)
+            return (Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install), [])
         }
         ShellLibrary.recordInstalled(root: root)
         end(Self.installStageID, installName, ok: true)
 
-        // 7: the game data, only what the device does not have yet
         var outcome = Outcome(ok: true, message: fmt("dev.installed", deviceName), appPath: app, bundleID: bundleID)
         outcome.noMemoryCapability = noMemoryCapability
-        var result = copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID, outcome: outcome, appJoinsParts: true)
-        if result.ok, !prepared.notes.isEmpty { result.message = ([result.message] + prepared.notes).joined(separator: "\n") }
-        return result
+        return (outcome, prepared.notes)
     }
 
     /// Step 7 on its own, for a Retry after a copy that failed midway: the listing, the diff and the copy, nothing else. The app
@@ -522,15 +540,71 @@ package struct ShellInstaller {
         return Outcome(ok: false, message: fmt("shell.notPaired", deviceName), failure: .devicePairing)
     }
 
-    private func connection() -> ShellInstall.Connection {
+    func connection() -> ShellInstall.Connection {
         ShellInstall.connection(of: device, in: DeviceTools.devices(xcrun: xcrun, timeout: 20, runner: runner))
+    }
+
+    struct PreparedDeviceDiff {
+        var local: [String: Int64]
+        var origins: [String: String]
+        var comparable: [String: Int64]
+        var primaryImage: String?
+        var receipt: String
+        var partsReceipt: String
+        var previous: String?
+        var identity: String?
+    }
+
+    /// Normalizes the primary `<GameName>.img` or `romfs.img` onto canonical `"romfs.img"` inside the device sandbox so `devicectl`
+    /// overwrites legacy copies in place, drops stale receipts, and evaluates partial transfers safely.
+    func prepareDeviceDiff(titleID: String, archive: String, bundleID: String, onDevice: [String: Int64]) -> PreparedDeviceDiff {
+        let transfer = ShellInstall.transferSources(archive: archive, shellRoot: root, titleID: titleID)
+        var local = transfer.sizes, origins = transfer.origins
+        let primaryImage: String?
+        if let srcPrimary = RomFSArchive.primaryImageName(inFiles: local.keys, folderName: (archive as NSString).lastPathComponent),
+           let primarySize = local[srcPrimary] {
+            let srcPath = origins[srcPrimary] ?? (archive + "/" + srcPrimary)
+            for key in local.keys where !key.contains("/") && !key.contains("\\") {
+                let lower = key.lowercased()
+                if lower.hasSuffix(".img") && !lower.contains(".nxpart") {
+                    local.removeValue(forKey: key); origins.removeValue(forKey: key)
+                }
+            }
+            local["romfs.img"] = primarySize; origins["romfs.img"] = srcPath
+            primaryImage = "romfs.img"
+        } else { primaryImage = nil }
+        let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)", partsReceipt = receipt + "/parts"
+        let previous = defaults.string(forKey: receipt)
+        let identity: String? = primaryImage.flatMap { key in
+            guard let srcPath = origins[key], let base = imageIdentity(archive: archive, titleID: titleID) else { return nil }
+            return DriveCopy.trailerFingerprint(atPath: srcPath).map { base + " " + $0 } ?? base
+        }
+        var comparable = onDevice
+        let hasStaleParts = onDevice.keys.contains { key in
+            guard !key.contains("/"), let range = key.lowercased().range(of: ".img.nxpart.") else { return false }
+            let base = String(key[..<range.lowerBound]) + ".img"
+            return base != primaryImage && ShellDataParts.isPart(key, of: base)
+        }
+        if hasStaleParts, defaults.string(forKey: partsReceipt) != identity { defaults.removeObject(forKey: partsReceipt) }
+        if identity != previous {
+            if let primaryImage {
+                comparable.removeValue(forKey: primaryImage)
+                if identity == nil || defaults.string(forKey: partsReceipt) != identity {
+                    comparable = comparable.filter { !ShellDataParts.isPart($0.key, of: primaryImage) }
+                    defaults.removeObject(forKey: partsReceipt)
+                }
+            } else { defaults.removeObject(forKey: partsReceipt) }
+        }
+        return PreparedDeviceDiff(local: local, origins: origins, comparable: comparable, primaryImage: primaryImage,
+                                  receipt: receipt, partsReceipt: partsReceipt, previous: previous, identity: identity)
     }
 
     /// The game data the device lacks, into the app's `Documents/games/<title ID>/`. `appJoinsParts` says whether the app on the
     /// device joins parts (`ShellDataParts`): true for the shared app this launcher just built, nil to ask the app (its
     /// `shell-features.txt`). A file larger than one part goes as parts to an app that joins them; to any other app only a file
     /// devicectl cannot copy whole (`singleCopyLimit`) does, since the whole copy would stall anyway.
-    func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome, appJoinsParts: Bool? = nil) -> Outcome {
+    func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome,
+                      appJoinsParts: Bool? = nil, includeExternalMSL: Bool = false) -> Outcome {
         var outcome = start
         let checkName = fmt("shell.checkStage", deviceName)
         begin(Self.checkStageID, checkName)
@@ -540,21 +614,9 @@ package struct ShellInstaller {
         _ = run(ShellInstall.listCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID, json: listing),
                 env: nil, label: checkName, step: { _ in nil })
         let onDevice = ShellInstall.parseListing(FileManager.default.contents(atPath: listing))
-        let local = ShellInstall.localFiles(in: archive)
-        // The listing still catches missing and interrupted copies. Two releases can also have the same image size.
-        let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)"
-        let previous = defaults.string(forKey: receipt)
-        let identity = local["romfs.img"] == nil ? nil : imageIdentity(archive: archive, titleID: titleID)
-        // The image's parts on the device count only when they are parts of this image: a send of it that stopped halfway records
-        // the image it was sending (`partsReceipt`), and its parts then need not go again.
-        let partsReceipt = receipt + "/parts"
-        var comparable = onDevice
-        if identity != previous {
-            comparable.removeValue(forKey: "romfs.img")
-            if identity == nil || defaults.string(forKey: partsReceipt) != identity {
-                comparable = comparable.filter { !ShellDataParts.isPart($0.key, of: "romfs.img") }
-            }
-        }
+        let diff = prepareDeviceDiff(titleID: titleID, archive: archive, bundleID: bundleID, onDevice: onDevice)
+        let local = diff.local, comparable = diff.comparable, primaryImage = diff.primaryImage
+        let receipt = diff.receipt, partsReceipt = diff.partsReceipt, previous = diff.previous, identity = diff.identity
         var splitAbove = partSize
         if local.values.contains(where: { $0 > partSize }), !(appJoinsParts ?? appSaysItJoinsParts(bundleID: bundleID, label: checkName)) {
             splitAbove = max(partSize, singleCopyLimit)
@@ -609,17 +671,23 @@ package struct ShellInstaller {
         begin(Self.copyStageID, copyName)
         var copiedBytes: Int64 = 0
         for (i, item) in missing.enumerated() {
+            if waitCancelled() {
+                end(Self.copyStageID, copyName, ok: false, detail: "")
+                outcome.copySkipped = true
+                outcome.message = fmt("dev.copySkipped", deviceName)
+                return outcome
+            }
             copyProgress(copiedBytes, needed)
             // devicectl reports per file, not per byte. Before the first file is whole there is nothing true to show, and a single
             // 17 GB image would read 0% for its whole run. So the bar stays indeterminate until bytes are done (LNPANDY/NX2Apple#967).
             stage(ShellStage(id: Self.copyStageID, name: copyName, state: .running, detail: "\(i + 1)/\(missing.count)",
                              percent: copiedBytes > 0 && needed > 0 ? Double(copiedBytes) / Double(needed) * 100 : nil))
             // Once an overwrite begins, the old receipt cannot vouch for what a failed copy leaves behind.
-            if item.file == "romfs.img", previous != nil { defaults.removeObject(forKey: receipt) }
-            var source = archive + "/" + item.file, destination = item.file, staged: String?
+            if let primaryImage, item.file == primaryImage, previous != nil { defaults.removeObject(forKey: receipt) }
+            var source = diff.origins[item.file] ?? (archive + "/" + item.file), destination = item.file, staged: String?
             if case .part(let file, let index, let count) = item {
                 // The part is cut into a file of its own, which devicectl reads whole, and removed after the copy
-                if file == "romfs.img", let identity { defaults.set(identity, forKey: partsReceipt) }
+                if file == primaryImage, let identity { defaults.set(identity, forKey: partsReceipt) }
                 let path = NSTemporaryDirectory() + "nspb-part-\(UUID().uuidString.prefix(8))"
                 do {
                     try ShellDataParts.writePart(source: source, index: index, size: local[file] ?? 0, partSize: partSize, to: path)
@@ -634,9 +702,20 @@ package struct ShellInstaller {
                 }
                 staged = path; source = path; destination = ShellDataParts.name(of: file, index: index, count: count)
             }
+            let finishedBytes = copiedBytes
+            let itemBytes = ShellDataParts.bytes(of: item, local: local, partSize: partSize)
+            let itemDetail = "\(i + 1)/\(missing.count)"
             let r = run(ShellInstall.copyCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID,
                                                  source: source, relativePath: destination),
-                        env: nil, label: copyName, step: BuildProgress.installStep)
+                        env: nil, label: copyName, stageID: Self.copyStageID) { line in
+                guard let parsed = BuildProgress.installStep(line), let raw = parsed.percent else { return nil }
+                let clamped = min(max(raw, 0), 100)
+                guard needed > 0 else { return (itemDetail, clamped > 0 ? clamped : nil) }
+                let doneBytes = Double(finishedBytes) + Double(itemBytes) * clamped / 100.0
+                copyProgress(min(Int64(doneBytes.rounded()), needed), needed)
+                let weighted = min(doneBytes / Double(needed) * 100.0, 100.0)
+                return (itemDetail, weighted > 0 ? weighted : nil)
+            }
             if let staged { try? FileManager.default.removeItem(atPath: staged) }
             if r.status != 0 {
                 let why = r.lastError ?? fmt("msg.exitCode", r.status)
@@ -649,9 +728,9 @@ package struct ShellInstaller {
                 return incomplete
             }
             outcome.copied = i + 1
-            copiedBytes += ShellDataParts.bytes(of: item, local: local, partSize: partSize)
+            copiedBytes += itemBytes
         }
-        if let identity, missing.contains(where: { $0.file == "romfs.img" }) {
+        if let primaryImage, let identity, missing.contains(where: { $0.file == primaryImage }) {
             defaults.set(identity, forKey: receipt)
             defaults.removeObject(forKey: partsReceipt)
         }
@@ -660,7 +739,7 @@ package struct ShellInstaller {
         return outcome
     }
 
-    private func copyPlan(files: Int, bytes: Int64, connection: ShellInstall.Connection) -> ShellCopyPlan {
+    func copyPlan(files: Int, bytes: Int64, connection: ShellInstall.Connection) -> ShellCopyPlan {
         let connectionText: String
         switch connection {
         case .network:
@@ -680,20 +759,28 @@ package struct ShellInstaller {
         stage(ShellStage(id: id, name: name, state: ok ? .done : .failed, detail: detail, percent: ok ? 100 : nil))
     }
 
-    /// One tool, blocking: its output lines go to `log`, the last error line is kept. `env` nil is the plain tool environment of the
-    /// per-game install (xcodebuild, devicectl).
-    func run(_ command: [String], env: [String: String]?, label: String,
-                     step: (String) -> (detail: String, percent: Double?)?) -> ToolResult {
+    /// One tool, blocking: its output lines go to `log`, the last error line is kept, and parsed step progress updates `stage`.
+    /// `env` nil is the plain tool environment of the per-game install (xcodebuild, devicectl).
+    func run(_ command: [String], env: [String: String]?, label: String, stageID: Int? = nil,
+             step: (String) -> (detail: String, percent: Double?)?) -> ToolResult {
         log("[\(label)] \(command.joined(separator: " "))\n")
         var output = "", lastError: String?
         let launch = ProcessLaunch(
             executable: command[0], arguments: Array(command.dropFirst()),
             environment: env ?? ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"],
             groupPython: ownGroup ? python : nil)
-        let result = runner.streamLines(launch, started: processStarted) { line in
-            log(line + "\n")
-            output += line + "\n"
-            if line.contains("error:") || line.hasPrefix("ERROR:") { lastError = line.trimmingCharacters(in: .whitespaces) }
+        let result = withoutActuallyEscaping(step) { escapingStep in
+            runner.streamLines(launch, started: processStarted) { line in
+                log(line + "\n")
+                output += line + "\n"
+                for segment in line.split(separator: "\r", omittingEmptySubsequences: true) {
+                    let text = String(segment)
+                    if text.contains("error:") || text.hasPrefix("ERROR:") { lastError = text.trimmingCharacters(in: .whitespaces) }
+                    if let stageID, let s = escapingStep(text) {
+                        stage(ShellStage(id: stageID, name: label, state: .running, detail: s.detail, percent: s.percent))
+                    }
+                }
+            }
         }
         guard result.started else { return ToolResult(status: 127, output: result.out, lastError: result.out) }
         return ToolResult(status: result.status, output: output, lastError: lastError)

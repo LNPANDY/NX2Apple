@@ -13,6 +13,190 @@ final class BuildProgressTests: XCTestCase {
         XCTAssertEqual(BuildProgress.progressDetail(["step": "booting the game"]), "booting the game")
     }
 
+    func testStrippingNotCachedRemovesRedundantMissesAcrossFormatsWhileKeepingCacheHitsAndErrors() throws {
+        // Exact variants: thousands commas, plain integers, non-breaking spaces/dots, parentheses, mixed cached + not cached.
+        XCTAssertEqual(BuildProgress.strippingNotCached("11,201 not cached"), "")
+        XCTAssertEqual(BuildProgress.strippingNotCached("4 not cached"), "")
+        XCTAssertEqual(BuildProgress.strippingNotCached("1,234,567 not cached"), "")
+        XCTAssertEqual(BuildProgress.strippingNotCached("11\u{202F}201 not cached"), "")
+        XCTAssertEqual(BuildProgress.strippingNotCached("11\u{00A0}201 not cached"), "")
+        XCTAssertEqual(BuildProgress.strippingNotCached("11.201 not cached"), "")
+        XCTAssertEqual(BuildProgress.strippingNotCached("(11,201 not cached)"), "")
+        XCTAssertEqual(BuildProgress.strippingNotCached("compiling · 679 / 11,201 shaders · 11,201 not cached"),
+                       "compiling · 679 / 11,201 shaders")
+        XCTAssertEqual(BuildProgress.strippingNotCached("679/11,201 shaders, 11,201 not cached, 0:50 · ETA 12:54"),
+                       "679/11,201 shaders, 0:50 · ETA 12:54")
+        XCTAssertEqual(BuildProgress.strippingNotCached("679/11,201 shaders, 4 not cached, 0:12"),
+                       "679/11,201 shaders, 0:12")
+        XCTAssertEqual(BuildProgress.strippingNotCached("6,000 cached, 5,201 not cached"), "6,000 cached")
+        XCTAssertEqual(BuildProgress.strippingNotCached("5,201 not cached, 6,000 cached"), "6,000 cached")
+        XCTAssertEqual(BuildProgress.strippingNotCached("(5,201 not cached, 6,000 cached)"), "(6,000 cached)")
+        XCTAssertEqual(BuildProgress.strippingNotCached("(6,000 cached, 5,201 not cached)"), "(6,000 cached)")
+
+        // Must preserve cache hit notes, stage_end summaries, and error messages without a leading count.
+        XCTAssertEqual(BuildProgress.strippingNotCached("2,410 cached"), "2,410 cached")
+        XCTAssertEqual(BuildProgress.strippingNotCached("11,201 of 11,201 shaders ready (0 from the cache)"),
+                       "11,201 of 11,201 shaders ready (0 from the cache)")
+        XCTAssertEqual(BuildProgress.strippingNotCached("a failed key was not cached as zero"),
+                       "a failed key was not cached as zero")
+
+        // Generated from engine/dm/gfx/tools/dmsh_build.py + engine/scripts/build_ipa_from_nsp.py (ShaderWatch + Progress):
+        //   payload = {"step": "compiling", "done": 679, "total": 11201, "cached": 0, "misses": 11201}
+        let expectedDetail = "compiling · "
+            + NumberFormatter.localizedString(from: 679, number: .decimal) + " / "
+            + NumberFormatter.localizedString(from: 11201, number: .decimal) + " shaders"
+        XCTAssertEqual(
+            BuildProgress.progressDetail([
+                "step": "compiling",
+                "done": 679,
+                "total": 11201,
+                "unit": "shaders",
+                "est": false,
+                "note": "11,201 not cached",
+                "frac": 679.0 / 11201.0,
+                "eta": 774.0,
+            ]),
+            expectedDetail
+        )
+        let cacheCheckDetail = "cache check · "
+            + NumberFormatter.localizedString(from: 2410, number: .decimal) + " / "
+            + NumberFormatter.localizedString(from: 11201, number: .decimal) + " shaders · 2,410 cached"
+        XCTAssertEqual(
+            BuildProgress.progressDetail([
+                "step": "cache check",
+                "done": 2410,
+                "total": 11201,
+                "unit": "shaders",
+                "note": "2,410 cached",
+            ]),
+            cacheCheckDetail
+        )
+
+        let parsedLine = try XCTUnwrap(
+            BuildProgress.parseStageWithTotal("[12:00:50] [6/8] Mac shaders · compiling: 6%, 679/11,201 shaders, 11,201 not cached, 0:50 · ETA 12:54")
+        )
+        XCTAssertEqual(parsedLine.k, 6)
+        XCTAssertEqual(parsedLine.n, 8)
+        XCTAssertEqual(parsedLine.name, "Mac shaders")
+        XCTAssertEqual(parsedLine.state, .running)
+        XCTAssertEqual(parsedLine.percent, 6)
+        XCTAssertEqual(parsedLine.detail, "679/11,201 shaders, 0:50 · ETA 12:54")
+
+        // When the synced engine tree is present, execute the real `Progress` + `ShaderWatch` classes in
+        // `engine/scripts/build_ipa_from_nsp.py` to verify the fixture above matches the live emitter byte-for-byte.
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let scriptPath = repoRoot.appendingPathComponent("engine/scripts/build_ipa_from_nsp.py").path
+        if FileManager.default.fileExists(atPath: scriptPath) {
+            let py = """
+            import ast, collections, io, json, os, pathlib, shutil, sys, tempfile, threading, time, types
+            src = open(sys.argv[1], encoding="utf-8").read()
+            mod = ast.parse(src, filename=sys.argv[1])
+            wanted = {"BEAT", "clock", "hms", "size_unit", "amount", "Progress", "ShaderWatch"}
+            nodes = [
+                n for n in mod.body
+                if (isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in wanted)
+                or (isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id in wanted for t in n.targets))
+            ]
+            ns = {
+                "collections": collections,
+                "json": json,
+                "shutil": shutil,
+                "sys": sys,
+                "threading": threading,
+                "time": time,
+                "types": types,
+                "in_ipython": lambda: False,
+            }
+            exec(compile(ast.Module(body=nodes, type_ignores=[]), sys.argv[1], "exec"), ns)
+            ProgressCls = ns["Progress"]
+            ShaderWatchCls = ns["ShaderWatch"]
+            clock_fn = ns["clock"]
+            payload = {"step": "compiling", "done": 679, "total": 11201, "cached": 0, "misses": 11201}
+            with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as tf:
+                json.dump(payload, tf)
+                p = tf.name
+            try:
+                polled = ShaderWatchCls(pathlib.Path(p))()
+                buf = io.StringIO()
+                orig_stdout = sys.stdout
+                sys.stdout = buf
+                prog_j = ProgressCls("json")
+                try:
+                    prog_j.plan(8)
+                    prog_j.k = 5
+                    prog_j.stage("Mac shaders", step="compiling")
+                    if prog_j.tstop:
+                        prog_j.tstop.set()
+                    with prog_j.lock:
+                        prog_j.cur.t0 -= 50.0
+                        now = time.time()
+                        prog_j.cur.hist.append((now - 50.0, 0))
+                        prog_j.cur.jlast = 0.0
+                    prog_j.set(**polled)
+                finally:
+                    prog_j.close()
+                    sys.stdout = orig_stdout
+                json_lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+
+                text_lines = []
+                prog_l = ProgressCls("lines")
+                prog_l._out = text_lines.append
+                try:
+                    prog_l.plan(8)
+                    prog_l.k = 5
+                    prog_l.stage("Mac shaders", step="compiling")
+                    if prog_l.tstop:
+                        prog_l.tstop.set()
+                    prog_l.set(**polled)
+                    with prog_l.lock:
+                        st = prog_l.cur
+                        st.t0 -= 50.0
+                        st.hist.clear()
+                        now = time.time()
+                        st.hist.append((now - 50.0, 0))
+                        st.hist.append((now, 679))
+                        head, frac, count, note, times = prog_l._fields(st)
+                        prog_l._out(
+                            f"[{clock_fn()}] {head}: "
+                            + ", ".join(x for x in (f"{frac * 100:.0f}%" if frac is not None else "", count, note, times) if x)
+                        )
+                finally:
+                    prog_l.close()
+            finally:
+                os.unlink(p)
+            print(json.dumps({"json": json_lines, "lines": text_lines}))
+            """
+            let res = SystemProcessRunner().capture(ProcessLaunch(
+                executable: "/usr/bin/python3",
+                arguments: ["-c", py, scriptPath],
+                mergesErrors: true
+            ))
+            XCTAssertEqual(res.status, 0, "python emitter check failed: \(res.out)")
+            let root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(res.out.utf8)) as? [String: [String]])
+            let jsonLines = try XCTUnwrap(root["json"])
+            let progressEvents = jsonLines.compactMap { line in
+                (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            }.filter { $0["ev"] as? String == "progress" }
+            let event = try XCTUnwrap(progressEvents.last)
+            XCTAssertEqual(event["ev"] as? String, "progress")
+            XCTAssertEqual(event["note"] as? String, "11,201 not cached")
+            XCTAssertEqual(BuildProgress.progressDetail(event), expectedDetail)
+            XCTAssertNotNil((event["eta"] as? NSNumber)?.doubleValue)
+
+            let textLines = try XCTUnwrap(root["lines"])
+            let progressLine = try XCTUnwrap(textLines.first(where: { $0.contains("6%") }))
+            let liveParsed = try XCTUnwrap(BuildProgress.parseStageWithTotal(progressLine))
+            XCTAssertEqual(liveParsed.percent, 6)
+            XCTAssertFalse(liveParsed.detail.contains("not cached"), "live line detail still contained not cached: \(liveParsed.detail)")
+            XCTAssertTrue(liveParsed.detail.contains("679/11,201 shaders"))
+            XCTAssertTrue(liveParsed.detail.contains("ETA "))
+        }
+    }
+
     /// The stage's clock runs on while the count stands still, and a defensible estimate counts down from when it came, then goes.
     func testStageClockCountsOnAndTheEstimateRunsOut() {
         let t0 = Date()
@@ -151,5 +335,76 @@ final class BuildProgressTests: XCTestCase {
         try Data(logContent.utf8).write(to: logsDir.appendingPathComponent("pso_offline_mac.log"))
         XCTAssertEqual(BuildProgress.psoArchiveProgress(workDir: tmp.path),
                        PSOArchiveProgress(done: 2, total: 5, merging: false))
+    }
+
+    /// Issue #1131: Xcode 27.2 SDK emits `static Foundation.Date.>=(_:_:)` (`_$s10Foundation4DateV2geoiySbAC_ACtFZ`) as a
+    /// weak-imported symbol under `-O`, and early macOS 27.2 betas pass the version check while binding the symbol to NULL (`pc = 0`).
+    /// Compiling the affected sources under `-O` must never emit any weak-imported `Foundation.Date` symbol, while preserving `>=`
+    /// boundary timestamps at `rootMtime - 2`.
+    func testOptimizedDateComparisonsEmitNoWeakImportedFoundationDateSymbols() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent("pso-date-weak-" + UUID().uuidString)
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        // Verify exact `cutoff = rootMtime - 2` inclusive boundary in psoArchiveProgress.
+        let rootDate = Date(timeIntervalSince1970: 1_700_000_100)
+        let exactCutoff = rootDate.addingTimeInterval(-2)
+        let staleDate = rootDate.addingTimeInterval(-3)
+        let iosWork = tmp.appendingPathComponent("ipa/build/ios/pso/work")
+        let arch = "applegpu_g14g"
+        let b1 = iosWork.appendingPathComponent("batches.\(arch)/00001")
+        let b2 = iosWork.appendingPathComponent("batches.\(arch)/00002")
+        try fm.createDirectory(at: b1, withIntermediateDirectories: true)
+        try fm.createDirectory(at: b2, withIntermediateDirectories: true)
+        let entry = #"{"vertex_function_descriptor":"v"}"#
+        let jsText = "{\"pipelines\":[" + Array(repeating: entry, count: 1500).joined(separator: ",") + "]}\n"
+        let rootJS = iosWork.appendingPathComponent("bases.mtl4-json")
+        try Data(jsText.utf8).write(to: rootJS)
+        try fm.setAttributes([.modificationDate: rootDate], ofItemAtPath: rootJS.path)
+        for (dir, date) in [(b1, exactCutoff), (b2, staleDate)] {
+            let bjs = dir.appendingPathComponent("bases.mtl4-json")
+            try Data("{}".utf8).write(to: bjs)
+            try fm.setAttributes([.modificationDate: date], ofItemAtPath: bjs.path)
+            try Data("archive".utf8).write(to: dir.appendingPathComponent("\(arch).mtl4a"))
+            try Data("k\n".utf8).write(to: dir.appendingPathComponent("key.\(arch)"))
+        }
+        XCTAssertEqual(BuildProgress.psoArchiveProgress(workDir: tmp.path),
+                       PSOArchiveProgress(done: 1, total: 2, merging: false))
+
+        let frontend = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let stub = tmp.appendingPathComponent("ConsoleGlyphsStub.swift")
+        try Data("enum ConsoleGlyphs { struct Glyph: Equatable {} }\n".utf8).write(to: stub)
+
+        let units: [(name: String, sources: [String])] = [
+            ("BuildProgressCheck", [frontend.appendingPathComponent("Sources/NXCore/BuildProgress.swift").path]),
+            ("PlaySessionsCheck", [frontend.appendingPathComponent("Sources/NXCore/PlaySessions.swift").path]),
+            ("ConsoleNoticesCheck", [
+                frontend.appendingPathComponent("Sources/NX2Apple/ConsoleNotices.swift").path,
+                stub.path,
+            ]),
+        ]
+
+        let runner = SystemProcessRunner()
+        for unit in units {
+            let obj = tmp.appendingPathComponent(unit.name + ".o").path
+            let compile = runner.capture(ProcessLaunch(
+                executable: "/usr/bin/xcrun",
+                arguments: ["swiftc", "-O", "-wmo", "-parse-as-library", "-module-name", unit.name, "-package-name", "frontend", "-c"]
+                    + unit.sources + ["-o", obj],
+                mergesErrors: true
+            ))
+            XCTAssertEqual(compile.status, 0, "swiftc failed for \(unit.name): \(compile.out)")
+            let symbols = runner.capture(ProcessLaunch(executable: "/usr/bin/xcrun", arguments: ["nm", "-m", obj], mergesErrors: true))
+            XCTAssertEqual(symbols.status, 0, "nm failed for \(unit.name): \(symbols.out)")
+            let weakDateSymbols: [String] = symbols.out
+                .split(separator: "\n")
+                .map(String.init)
+                .filter { $0.contains("(undefined) weak") && $0.contains("Foundation4DateV") }
+            XCTAssertEqual(weakDateSymbols, [String](), "\(unit.name) emitted weak-imported Foundation.Date symbol(s)")
+        }
     }
 }

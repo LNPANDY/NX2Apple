@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NXCore
 import NXLauncher
@@ -165,7 +166,18 @@ struct ConsoleTileFramesKey: PreferenceKey {
         .fixedSize(horizontal: false, vertical: true)   // each row at its own height: the area clips the next one, it never squeezes a tile
         .frame(height: height, alignment: .top)
         .clipped()
+        .background(ConsoleHomeWheelView { step in moveRow(step) })
+        .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { gesture in
+            if let step = ConsoleHomePointerInput.drag(gesture.translation) { moveRow(step) }
+        })
         .animation(.easeOut(duration: reduceMotion ? 0 : 0.18), value: focusedIndex)
+    }
+
+    private func moveRow(_ step: Int) {
+        guard let id = state.focusedGame?.id,
+              let next = ConsoleHome.move(from: id, dx: 0, dy: step, in: state.homeSections) else { return }
+        driver.focus(next)
+        pad.focused = "console.game." + next
     }
 
     /// A caption shows only while its tile is fully inside the row, so a clipped tile never leaves a fragment of text at the margin.
@@ -206,8 +218,12 @@ struct ConsoleTileFramesKey: PreferenceKey {
     private func tile(_ game: ConsoleGame, rowWidth: CGFloat, space: String) -> some View {
         let selected = state.focusedGame?.id == game.id
         let paused = game.id == state.pausedGameID
-        let open = { driver.focus(game.id); paused ? driver.resume(game.id) : driver.openGamePage(game.id) }
-        return Button(action: open) {
+        let open = { paused ? driver.resume(game.id) : driver.openGamePage(game.id) }
+        return Button {
+            ConsoleHomePointerInput.tapTile(game.id, focused: state.focusedGame?.id, focus: {
+                driver.focus(game.id); pad.focused = "console.game." + game.id
+            }, open: open)
+        } label: {
             ConsoleGameTile(game: game, selected: selected, compact: compact, lang: lang, captionVisible: tileVisible(game.id, rowWidth: rowWidth), paused: paused)
                 .frame(width: tileWidth)
                 .contentShape(RoundedRectangle(cornerRadius: 16))
@@ -276,6 +292,71 @@ struct ConsoleTileFramesKey: PreferenceKey {
             ConsolePrimaryButton(label: t("console.desktop"), id: "console.empty.desktop", scope: "console") { driver.exitToDesktop() }.frame(maxWidth: 340)
         }
         .multilineTextAlignment(.center).padding(24)
+    }
+}
+
+/// Pointer input on the clipped home rows. Trackpad phases form one gesture, while a wheel notch is one step.
+struct ConsoleHomePointerInput {
+    private var accumulated: CGFloat = 0
+    private var moved = false
+
+    static func tapTile(_ id: String, focused: String?, focus: () -> Void, open: () -> Void) {
+        if id == focused { open() } else { focus() }
+    }
+
+    static func drag(_ translation: CGSize) -> Int? {
+        guard abs(translation.height) >= 24, abs(translation.height) > abs(translation.width) else { return nil }
+        return translation.height < 0 ? 1 : -1
+    }
+
+    mutating func wheel(deltaY: CGFloat, deltaX: CGFloat = 0, phase: NSEvent.Phase = [], momentum: Bool = false) -> Int? {
+        if phase.contains(.began) || phase.contains(.mayBegin) { accumulated = 0; moved = false }
+        defer {
+            if phase.contains(.ended) || phase.contains(.cancelled) { accumulated = 0; moved = false }
+        }
+        guard !momentum, abs(deltaY) > abs(deltaX), deltaY != 0 else { return nil }
+        if phase == [] { return deltaY > 0 ? -1 : 1 }
+        guard !moved else { return nil }
+        accumulated += deltaY
+        guard abs(accumulated) >= 18 else { return nil }
+        moved = true
+        return accumulated > 0 ? -1 : 1
+    }
+}
+
+/// Observes scrolls within the row window without covering tiles or consuming horizontal row scrolling.
+private struct ConsoleHomeWheelView: NSViewRepresentable {
+    let move: (Int) -> Void
+
+    func makeNSView(context: Context) -> WheelView { WheelView() }
+    func updateNSView(_ view: WheelView, context: Context) { view.move = move }
+
+    final class WheelView: NSView {
+        var move: ((Int) -> Void)?
+        private var monitor: Any?
+        private var input = ConsoleHomePointerInput()
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            super.viewWillMove(toWindow: newWindow)
+            guard newWindow != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                let windowNumber = event.windowNumber, location = event.locationInWindow
+                let deltaY = event.scrollingDeltaY, deltaX = event.scrollingDeltaX
+                let phase = event.phase, momentum = event.momentumPhase != []
+                let handled = MainActor.assumeIsolated { [weak self] in
+                    guard let self, self.window?.windowNumber == windowNumber,
+                          self.bounds.contains(self.convert(location, from: nil)),
+                          abs(deltaY) > abs(deltaX) else { return false }
+                    if let step = self.input.wheel(deltaY: deltaY, deltaX: deltaX, phase: phase, momentum: momentum) { self.move?(step) }
+                    return true
+                }
+                return handled ? nil : event
+            }
+        }
+
+        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 }
 

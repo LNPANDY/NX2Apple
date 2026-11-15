@@ -8,14 +8,24 @@ public struct ControllersView: View {
     /// The ID the shell's own button mapping goes by where a game's ID would.
     public static let mappingID = "global-pad"
     public var padMap: PadMap
+    public var padMerge: Bool
+    public var onPadMergeChange: (Bool) -> Void
     @Environment(\.shellFocus) private var focus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public var controllers: [ControllerInfo]
     public var onBack: () -> Void
-    public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}, padMap: PadMap = PadMap()) {
+    public var canOpenHomeButtonSettings: Bool
+    public var onOpenHomeButtonSettings: () -> Void
+    public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}, padMap: PadMap = PadMap(),
+                padMerge: Bool = false, onPadMergeChange: @escaping (Bool) -> Void = { _ in },
+                canOpenHomeButtonSettings: Bool = false, onOpenHomeButtonSettings: @escaping () -> Void = {}) {
         self.padMap = padMap
+        self.padMerge = padMerge
+        self.onPadMergeChange = onPadMergeChange
         self.controllers = controllers
         self.onBack = onBack
+        self.canOpenHomeButtonSettings = canOpenHomeButtonSettings
+        self.onOpenHomeButtonSettings = onOpenHomeButtonSettings
     }
     public var body: some View {
         ScrollViewReader { proxy in
@@ -47,6 +57,18 @@ public struct ControllersView: View {
                     }
                 }
                 .id("ctl.top")
+
+                Section {
+                    Toggle(isOn: Binding(get: { padMerge }, set: { onPadMergeChange($0) })) {
+                        Label(ShellStrings.text("All controllers are player 1"), systemImage: "arrow.triangle.merge")
+                            .labelStyle(SettingsRowLabelStyle())
+                    }
+                    .toggleStyle(NativeCreamToggleStyle())
+                    .accessibilityIdentifier("controllers.padMerge")
+                    .shellTarget("ctl.merge") { onPadMergeChange(!padMerge) }
+                } footer: {
+                    Text(ShellStrings.text("Lets every connected controller and touch controls drive player 1 together."))
+                }
 
                 Section {
                     Button { openMapping?(Self.mappingID) } label: {
@@ -82,6 +104,30 @@ public struct ControllersView: View {
                 } header: {
                     Text(ShellStrings.text("On a controller"))
                 }
+
+                Section {
+                    VStack(alignment: .leading, spacing: 14) {
+                        hint(Image(systemName: "plusminus"),
+                             ShellStrings.text("Hold - and + (View + Menu) together for 2 seconds to quit to the launcher"))
+                        hint(Image(systemName: "house"),
+                             ShellStrings.text("Hold Home for 2 seconds to quit (requires Home button override)"))
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    if canOpenHomeButtonSettings {
+                        Button(action: onOpenHomeButtonSettings) {
+                            actionLabel(ShellStrings.text("Open Game Controller Settings"),
+                                        note: ShellStrings.text("Add NX2Apple under Home Button Override."),
+                                        symbol: "gearshape")
+                        }
+                        .accessibilityIdentifier("controllers.homeSettings")
+                        .shellTarget("ctl.homeSettings", action: onOpenHomeButtonSettings)
+                    }
+                } header: {
+                    Text(ShellStrings.text("In a game"))
+                } footer: {
+                    Text(ShellStrings.text("By default on iOS, holding the controller Home button opens the Apple Games app. To let NX2Apple use it, go to Settings > General > Game Controller > Home Button Override, then add NX2Apple."))
+                }
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
@@ -102,8 +148,11 @@ public struct ControllersView: View {
         HStack {
             Label {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
+                    Text(title).lineLimit(nil).multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(note).font(.subheadline).foregroundStyle(.secondary)
+                        .lineLimit(nil).multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } icon: {
                 Image(systemName: symbol)
@@ -118,9 +167,10 @@ public struct ControllersView: View {
     }
 
     private func hint(_ icon: some View, _ label: String) -> some View {
-        HStack(spacing: 14) {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
             icon.frame(width: 22).foregroundStyle(.white.opacity(0.75))
             Text(label).shellText(14.5).foregroundStyle(.white.opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
         }.accessibilityElement(children: .combine)
     }
 }

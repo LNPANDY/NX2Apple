@@ -39,15 +39,15 @@ struct StickVisualizer: View {
         let out = StickDeadzoneSettings.output(x: Double(input.x), y: Double(input.y), percent: percent)
         Canvas { context, size in
             let c = CGPoint(x: size.width / 2, y: size.height / 2), r = size.width / 2 - 6
-            context.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)), with: .color(.white.opacity(0.28)), lineWidth: 1.5)
+            context.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)), with: .color(LauncherPalette.ink(0.28)), lineWidth: 1.5)
             if percent > 0 {
                 let d = r * CGFloat(percent) / 100
-                context.stroke(Path(ellipseIn: CGRect(x: c.x - d, y: c.y - d, width: d * 2, height: d * 2)), with: .color(.white.opacity(0.35)),
+                context.stroke(Path(ellipseIn: CGRect(x: c.x - d, y: c.y - d, width: d * 2, height: d * 2)), with: .color(LauncherPalette.ink(0.35)),
                                style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
             }
             func point(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: c.x + CGFloat(x) * r, y: c.y - CGFloat(y) * r) }
             let i = point(Double(input.x), Double(input.y)), o = point(out.x, out.y)
-            context.stroke(Path(ellipseIn: CGRect(x: i.x - 6, y: i.y - 6, width: 12, height: 12)), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
+            context.stroke(Path(ellipseIn: CGRect(x: i.x - 6, y: i.y - 6, width: 12, height: 12)), with: .color(LauncherPalette.ink(0.85)), lineWidth: 1.5)
             context.fill(Path(ellipseIn: CGRect(x: o.x - 4, y: o.y - 4, width: 8, height: 8)), with: .color(LauncherPalette.cream))
         }
         .frame(width: Self.size, height: Self.size)

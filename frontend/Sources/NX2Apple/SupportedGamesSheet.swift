@@ -4,14 +4,15 @@ import NXModel
 import NXLauncher
 
 /// Library > Supported games… (LNPANDY/NX2Apple#301): every game the shipped engine has a profile for, searchable, apart from what the
-/// player owns. Only the profile's own words: the version it was brought up on, its notes. No download or buy action, no artwork fetch
-/// (a cover shows only when the library already cached it), no status the profile does not state.
+/// player owns. Only the profile's own words: the version it was brought up on, its notes. No download or buy action, no status the
+/// profile does not state. Each row shows the game's cover, the library's own (SupportedCovers), fetched while the row is on screen.
 struct SupportedGamesSheet: View {
     let games: [SupportedGame]
     /// The library's game for a title ID, else nil: the row says whether the player has it, and offers to show it.
     let owned: (String) -> LibraryGame?
-    let cover: (String) -> NSImage?
+    @StateObject private var covers: SupportedCovers
     let showInLibrary: (UUID) -> Void
+    let appVersion: String
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var focus: PadFocus
     @Environment(\.dismiss) private var dismiss
@@ -19,23 +20,52 @@ struct SupportedGamesSheet: View {
     @State private var selected: String?
     @FocusState private var searchFocused: Bool
 
+    /// The cover slot: 112 x 63 pt, decoded at 2x.
+    static let coverPixels = 224
+
+    init(games: [SupportedGame], owned: @escaping (String) -> LibraryGame?, covers: @escaping @autoclosure () -> SupportedCovers,
+         showInLibrary: @escaping (UUID) -> Void, appVersion: String = AppUpdateStore.appVersion) {
+        self.games = games
+        self.owned = owned
+        _covers = StateObject(wrappedValue: covers())
+        self.showInLibrary = showInLibrary
+        self.appVersion = appVersion
+    }
+
     /// At most 720 tall and 80 shorter than the screen.
     static func height(screen: CGFloat) -> CGFloat { LauncherSheet.maxHeight(screen: screen) }
 
+    static func isUpdatedInCurrentRelease(titleID: String, appVersion: String = AppUpdateStore.appVersion) -> Bool {
+        GameUpdateCatalog.catalogVersion(for: titleID) == GameUpdateCatalog.releaseBaseVersion(appVersion)
+    }
+
+    static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String) -> Bool {
+        let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        let updated = GameUpdateCatalog.catalogVersion(for: game.titleID) ?? ""
+        return [game.name, game.titleID, ownedName, updated].contains {
+            $0.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+    }
+
+    static func detailText(for game: SupportedGame, t: (String) -> String) -> String {
+        var parts: [String] = []
+        if game.edition == .switch2 { parts.append(t("switch2.badge")) }
+        parts.append(game.version.map { String(format: t("supported.version"), $0) } ?? t("supported.noVersion"))
+        if let updated = GameUpdateCatalog.catalogVersion(for: game.titleID) {
+            parts.append(String(format: t("supported.lastUpdated"), updated))
+        }
+        return parts.joined(separator: " · ")
+    }
+
     var shown: [SupportedGame] {
-        let needle = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return needle.isEmpty ? games : games.filter { game in
-            [game.name, game.titleID, owned(game.titleID)?.displayName(loc.lang) ?? ""].contains {
-                $0.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-            }
+        games.filter { game in
+            Self.matchesSearch(game, needle: search, ownedName: owned(game.titleID)?.displayName(loc.lang) ?? "")
         }
     }
 
     func detail(_ game: SupportedGame) -> String {
-        var parts: [String] = []
-        if game.edition == .switch2 { parts.append(loc.t("switch2.badge")) }
-        parts.append(game.version.map { String(format: loc.t("supported.version"), $0) } ?? loc.t("supported.noVersion"))
-        return parts.joined(separator: " · ")
+        Self.detailText(for: game, t: { loc.t($0) })
     }
 
     var body: some View {
@@ -60,10 +90,14 @@ struct SupportedGamesSheet: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(shown) { game in
-                            SupportedGameRow(game: game, detail: detail(game), owned: owned(game.titleID), cover: cover(game.titleID),
+                            SupportedGameRow(game: game, detail: detail(game),
+                                             isCurrentUpdate: Self.isUpdatedInCurrentRelease(titleID: game.titleID, appVersion: appVersion),
+                                             owned: owned(game.titleID), cover: covers.image(game.titleID),
                                              expanded: selected == game.titleID,
                                              toggle: { selected = selected == game.titleID ? nil : game.titleID },
                                              show: { id in showInLibrary(id); dismiss() })
+                                .onAppear { covers.appear(game.titleID) }
+                                .onDisappear { covers.disappear(game.titleID) }
                             Divider().opacity(0.25).padding(.leading, 30)
                         }
                     }
@@ -89,6 +123,7 @@ struct SupportedGamesSheet: View {
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .onAppear { searchFocused = true }
+        .onDisappear { covers.stop() }
     }
 }
 
@@ -96,6 +131,7 @@ struct SupportedGamesSheet: View {
 private struct SupportedGameRow: View {
     let game: SupportedGame
     let detail: String
+    let isCurrentUpdate: Bool
     let owned: LibraryGame?
     let cover: NSImage?
     let expanded: Bool
@@ -107,15 +143,30 @@ private struct SupportedGameRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: toggle) {
-                HStack(spacing: 14) {
+                HStack(spacing: 16) {
                     ZStack {
                         LauncherPalette.surface
                         if let cover { Image(nsImage: cover).resizable().scaledToFill() }
-                        else { Image(systemName: "gamecontroller").font(.system(size: 14, weight: .light)).foregroundStyle(LauncherPalette.secondaryText) }
+                        else { Image(systemName: "gamecontroller").font(.system(size: 18, weight: .light)).foregroundStyle(LauncherPalette.secondaryText) }
                     }
-                    .frame(width: 64, height: 36).clipShape(RoundedRectangle(cornerRadius: 4)).accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(game.name).font(.manrope(14, .medium)).lineLimit(2).multilineTextAlignment(.leading)
+                    .frame(width: 112, height: 63)
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(LauncherPalette.cardBorder))
+                    .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .center, spacing: 8) {
+                            Text(game.name).font(.manrope(14.5, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                            if isCurrentUpdate {
+                                Text(loc.t("supported.updatedCurrent"))
+                                    .font(.manrope(10.5, .semibold))
+                                    .foregroundStyle(LauncherPalette.accent)
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(LauncherPalette.accent.opacity(0.14), in: Capsule())
+                            }
+                        }
                         Text(detail).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2).multilineTextAlignment(.leading)
                     }
                     Spacer(minLength: 12)
@@ -125,7 +176,7 @@ private struct SupportedGameRow: View {
                     Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
                         .rotationEffect(.degrees(expanded ? 90 : 0)).accessibilityHidden(true)
                 }
-                .padding(.horizontal, 30).padding(.vertical, 10).frame(minHeight: 64)
+                .padding(.horizontal, 30).padding(.vertical, 14).frame(minHeight: 91)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain).launcherHover()
@@ -141,7 +192,7 @@ private struct SupportedGameRow: View {
                             .padTarget("supported.show." + game.titleID, scope: "supported") { show(owned.id) }
                     }
                 }
-                .padding(.leading, 108).padding(.trailing, 30).padding(.bottom, 14)
+                .padding(.leading, 158).padding(.trailing, 30).padding(.bottom, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(reduceMotion ? .identity : .opacity)
             }

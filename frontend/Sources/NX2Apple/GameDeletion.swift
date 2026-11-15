@@ -32,12 +32,39 @@ struct GameDeletion: Equatable {
         func exists(_ path: String) -> Bool { !path.isEmpty && fm.fileExists(atPath: path) }
         var items: [Item] = []
         if exists(game.appPath) { items.append(Item(kind: .macApp, paths: [game.appPath])) }
-        if game.hasIPA { items.append(Item(kind: .ipa, paths: [game.ipaPath])) }
+        if exists(game.ipaPath) && (game.ipaPath as NSString).lastPathComponent.lowercased() != "nx2apple.ipa" {
+            items.append(Item(kind: .ipa, paths: [game.ipaPath]))
+        }
         // An app of its own (an older iPhone build). The shared app holds other games too and is never deleted here.
         if game.hasIOSApp && ShellInstall.paths(ofApp: game.iosAppPath) == nil { items.append(Item(kind: .iosApp, paths: [game.iosAppPath])) }
-        // The game data the shared app's install sends: <output folder>/games/<title ID>, nothing above it.
-        if exists(game.archivePath) && (game.archivePath as NSString).lastPathComponent == game.titleID {
-            items.append(Item(kind: .archive, paths: [game.archivePath]))
+        // The game data the shared app's install sends: <output folder>/games/<title ID> or <output folder>/games/<SafeName>
+        if exists(game.archivePath) {
+            let archClean = (game.archivePath as NSString).standardizingPath
+            let archBN = (archClean as NSString).lastPathComponent
+            let parent = (archClean as NSString).deletingLastPathComponent
+            let archParentBN = (parent as NSString).lastPathComponent
+            let tidUpper = game.titleID.uppercased()
+            let titleIDFile = archClean + "/.titleid"
+            let claimed = (try? String(contentsOfFile: titleIDFile, encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+
+            var shouldDelete = false
+            if archBN.uppercased() == tidUpper {
+                shouldDelete = true
+            } else if let claimed, claimed == tidUpper {
+                shouldDelete = true
+            } else if archParentBN == "games" && (claimed == nil || claimed!.isEmpty) && RomFSArchive.primaryImagePath(in: archClean) != nil {
+                shouldDelete = true
+            }
+            if shouldDelete {
+                var paths = [game.archivePath]
+                if archParentBN == "games" {
+                    for dir in RomFSArchive.archiveDirectories(forTitleID: game.titleID, gamesRoot: parent, fm: fm) {
+                        if !paths.contains(dir) { paths.append(dir) }
+                    }
+                }
+                items.append(Item(kind: .archive, paths: paths))
+            }
         }
         var root: String?
         if !shellRoot.isEmpty, ShellLibrary.load(root: shellRoot).games.contains(where: { $0.titleID == game.titleID }) {

@@ -17,7 +17,10 @@ public struct ShellHostView: View {
     public var body: some View {
         LibraryView(games: model.details, controllers: model.controllers, actions: model.actions, input: model.input,
                     initialSelection: initialSelection, initialDetailOpen: initialDetailOpen, globalPadMap: model.globalPadMap,
-                    padSnapshot: model.padSnapshot)
+                    padMerge: model.padMerge, padSnapshot: model.padSnapshot,
+                    signingWarning: model.signingWarning,
+                    onDismissSigningWarning: { model.dismissSigningWarning() },
+                    canOpenHomeButtonSettings: model.canOpenHomeButtonSettings)
             .disabled(model.launchingGame)
             .overlay {
                 if model.launchingGame {
@@ -30,8 +33,19 @@ public struct ShellHostView: View {
                     }
                 }
             }
+            .sheet(item: $model.cloudConflict, onDismiss: {
+                model.cancelCloudConflictIfPending()
+            }) { prompt in
+                ScrollView {
+                    CloudSaveConflictView(prompt: prompt) { decision in
+                        model.resolveCloudConflict(decision)
+                    }
+                }
+                .presentationDetents([.medium, .large])
+                .presentationBackground(ShellPalette.background)
+            }
             .sheet(item: $model.log) { LogView(log: $0) }
-            .alert(Text(verbatim: hostText("Shell")), isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
+            .alert(Text(verbatim: hostText("NX2Apple")), isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
                 Button(hostText("OK")) { model.notice = nil }
             } message: { Text(model.notice ?? "") }
             .onAppear { model.startControllers() }

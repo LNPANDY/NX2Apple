@@ -225,4 +225,64 @@ final class ArtworkLanguageTests: XCTestCase {
         let again = await store.fetchMissing([cleanOne], language: "it")
         XCTAssertEqual(again, [], "once")
     }
+
+    func testConcurrentLanguageSwitchDropsStaleCatalogueFetchAndKeepsLatestLanguage() async throws {
+        let italianClean = try jpeg("race-clean-it.jpg", width: 30).absoluteString
+        let englishClean = try jpeg("race-clean-en.jpg", width: 31).absoluteString
+        let us = try list("US.en.json", [(game, jpeg("us.jpg", width: 10)), (cleanOne, jpeg("us-promo.jpg", width: 12))])
+        let it = try list("IT.it.json", [(game, jpeg("it.jpg", width: 20)), (cleanOne, jpeg("it-promo.jpg", width: 22))])
+
+        actor Gate {
+            private var startedContinuation: CheckedContinuation<Void, Never>?
+            private var releaseContinuation: CheckedContinuation<Void, Never>?
+            private var started = false
+            private var released = false
+
+            func notifyStartedAndWait() async {
+                started = true
+                startedContinuation?.resume()
+                startedContinuation = nil
+                if !released {
+                    await withCheckedContinuation { releaseContinuation = $0 }
+                }
+            }
+
+            func waitUntilStarted() async {
+                if !started {
+                    await withCheckedContinuation { startedContinuation = $0 }
+                }
+            }
+
+            func release() {
+                released = true
+                releaseContinuation?.resume()
+                releaseContinuation = nil
+            }
+        }
+
+        let gate = Gate()
+        let store = ArtworkStore(directory: folder, titleList: us, allowsFileURLs: true, regional: ["it": it]) { lang, ids in
+            if lang == "en" {
+                await gate.notifyStartedAndWait()
+                return [self.cleanOne: englishClean].filter { ids.contains($0.key) }
+            }
+            return [self.cleanOne: italianClean].filter { ids.contains($0.key) }
+        }
+
+        async let staleEnglish = store.fetchMissing([cleanOne, game], language: "en")
+        await gate.waitUntilStarted()
+        let italianTask = Task { await store.fetchMissing([cleanOne, game], language: "it") }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        await gate.release()
+
+        let englishAdded = await staleEnglish
+        let italianAdded = await italianTask.value
+        XCTAssertEqual(englishAdded, [], "stale English fetch must abort once Italian incremented the language generation")
+        XCTAssertEqual(Set(italianAdded), [cleanOne, game])
+        XCTAssertEqual(width(cleanOne, in: folder), 30, "Italian clean art must stay on disk without being overwritten by stale English fetch")
+        XCTAssertEqual(width(game, in: folder), 20, "Italian regional list banner must stay on disk")
+        let sourcesData = try Data(contentsOf: folder.appendingPathComponent("sources.json"))
+        let sources = try JSONDecoder().decode([String: String].self, from: sourcesData)
+        XCTAssertEqual(sources[ArtworkStore.languageKey], "it")
+    }
 }

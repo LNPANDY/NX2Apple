@@ -15,7 +15,8 @@ What gets replaced, and why:
 ========================  ==========================================================
 `check_prereqs`           Xcode/xcodegen/make are absent; the Windows toolchain is checked
                           instead, with the same "what is missing and how to get it" shape.
-`build_nx_extract`        use the packaged extractor, or build the Windows executable from source
+`find_nx_extract` /       use the packaged extractor, or build the Windows executable from source
+`build_nx_extract`        with NativeAOT disabled (`-p:PublishAot=false`)
 `can_clone`               no APFS: plain copies (`nx_extract` spends the disk, not the build)
 `apple_silicon`           no `sysctl`
 `heap_check`              boots the game in the Mac host; replaced by an estimate
@@ -30,17 +31,28 @@ What gets replaced, and why:
 `capture_jit` /           reuses `jit/jit.img` or packs existing `jit_capture/` dumps via
 `capture_nro`             `jit_capture.py`, and refuses missing runtime JIT or NRO captures
 `mac_app` / `mac_run`     Mac platforms: refused
+`proc_group.Group`        upstream's `selectors.DefaultSelector` on a pipe fd raises WinError 10038
+                          and `os.killpg` / `SIGSTOP` are POSIX-only, replaced by `_WinProcGroup`
 `build_ipa.sh`            replaced by `build_app.py` (through the shim, which also has to cover
                           the child processes the pipeline starts)
 ========================  ==========================================================
 """
 from __future__ import annotations
 
+import codecs
+import ctypes
 import importlib.util
+import io
+import locale
 import os
+import queue
 import re
 import shutil
+import signal
+import subprocess
 import sys
+import tempfile
+import threading
 import time
 from pathlib import Path
 from types import ModuleType
@@ -55,6 +67,7 @@ else:                                       # pragma: no cover - script mode
 _UPSTREAM_RUN = None
 
 #: Options that exist upstream but cannot work on Windows, with the reason shown to the user.
+#: Fast-refresh seed options (--from-seed, --seed-cache-dir, --prefill-msl) are supported on Windows and never refused.
 REFUSED_OPTIONS = {
     '--prepare-xcode': 'generates an Xcode project, which needs Xcode and xcodegen (macOS only)',
     '--platform': 'only "--platform ios" builds on Windows: the mac platforms run the game in '
@@ -85,12 +98,16 @@ def load_upstream(repo: Path) -> ModuleType:
     and the only use is recovering HOME when the environment lacks one. The stand-in is
     installed by the shim's `sitecustomize`, so importing this module after `shim.install` has
     run is enough; when that did not happen, a minimal stub is registered here so the loader
-    never fails on an import the rest of the file does not need.
+    never fails on an import the rest of the file does not need. `fcntl` and `signal.SIGHUP`
+    are the same case: named at module level (tree_tar's locking, and STOPS), so without a
+    stand-in the import of the whole script fails rather than one unused feature.
     """
     if 'pwd' not in sys.modules:
         _install_pwd_stub()
     if 'fcntl' not in sys.modules:
         _install_fcntl_stub()
+    if not hasattr(signal, 'SIGHUP'):
+        _install_sighup_stub()
     if not hasattr(os, 'getuid'):
         os.getuid = lambda: 0  # type: ignore[attr-defined]
     path = repo / 'scripts' / 'build_ipa_from_nsp.py'
@@ -174,6 +191,251 @@ def _install_fcntl_stub() -> None:
     sys.modules['fcntl'] = fcntl
 
 
+def _install_sighup_stub() -> None:
+    """The SIGHUP half of the shim's POSIX signal adapter, for a load without the shim.
+
+    `scripts/build_ipa_from_nsp.py` names signal.SIGHUP at module level (STOPS), so Windows
+    fails the whole import, not just the signal handling. See the shim's sitecustomize for
+    why registering it is a no-op that returns None.
+    """
+    if hasattr(signal, 'SIGHUP'):
+        return
+    signal.SIGHUP = 1
+    real = signal.signal
+
+    def _no_hup(sig, handler):
+        if sig == signal.SIGHUP:
+            return None
+        return real(sig, handler)
+
+    signal.signal = _no_hup
+
+
+_k32 = ctypes.windll.kernel32 if sys.platform == 'win32' and hasattr(ctypes, 'windll') else None
+if _k32 is not None:
+    _k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+    _k32.CreateJobObjectW.restype = ctypes.c_void_p
+    _k32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    _k32.AssignProcessToJobObject.restype = ctypes.c_int
+    _k32.QueryInformationJobObject.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32),
+    ]
+    _k32.QueryInformationJobObject.restype = ctypes.c_int
+    _k32.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    _k32.TerminateJobObject.restype = ctypes.c_int
+    _k32.CloseHandle.argtypes = [ctypes.c_void_p]
+    _k32.CloseHandle.restype = ctypes.c_int
+
+
+class _JobAccountingInfo(ctypes.Structure):
+    _fields_ = [
+        ('TotalUserTime', ctypes.c_int64),
+        ('TotalKernelTime', ctypes.c_int64),
+        ('ThisPeriodTotalUserTime', ctypes.c_int64),
+        ('ThisPeriodTotalKernelTime', ctypes.c_int64),
+        ('TotalPageFaultCount', ctypes.c_uint32),
+        ('TotalProcesses', ctypes.c_uint32),
+        ('ActiveProcesses', ctypes.c_uint32),
+        ('TotalTerminatedProcesses', ctypes.c_uint32),
+    ]
+
+
+class _WinProcGroup:
+    """Windows stand-in for `dm/tools/proc_group.Group` (`0b124486`).
+
+    Upstream's `proc_group.Group` registers a pipe fd with `selectors.DefaultSelector` (which raises
+    `WinError 10038` on Windows because Winsock `select` only accepts sockets) and stops process
+    groups with `os.killpg` / `SIGSTOP` / `SIGCONT`. Here a daemon reader thread streams the pipe
+    through a queue so `drain` timeouts still catch descendants holding stdout open, and a Win32 Job
+    Object tracks and terminates the whole child tree cleanly (falling back to process groups on
+    POSIX so unit tests exercise the exact class on macOS and Linux).
+    """
+
+    GRACE = 5.0
+    DRAIN = 5.0
+    REAP = 0.5
+    TICK = 0.02
+
+    def __init__(self, cmd, grace=None, drain=None, **popen):
+        self.grace = self.GRACE if grace is None else grace
+        self.drain = self.DRAIN if drain is None else drain
+        self.paused = False
+        self.stragglers: list[tuple[int | None, str]] = []
+        self.done = False
+        self._job: int | None = None
+        args = [str(c) for c in cmd]
+        if sys.platform == 'win32':
+            flags = (
+                popen.pop('creationflags', 0)
+                | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+                | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            )
+            self.p = subprocess.Popen(args, creationflags=flags, **popen)
+            if _k32 is not None:
+                job = _k32.CreateJobObjectW(None, None)
+                if job:
+                    proc_handle = int(getattr(self.p, '_handle', 0) or 0)
+                    if proc_handle and _k32.AssignProcessToJobObject(job, proc_handle):
+                        self._job = job
+                    else:
+                        _k32.CloseHandle(job)
+        else:
+            self.p = subprocess.Popen(args, start_new_session=True, **popen)
+        self.pgid = self.p.pid
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, kind, exc, tb):
+        try:
+            if kind is not None:
+                self.stop()
+            elif not self.done:
+                self.finish()
+        finally:
+            if self.p.stdout:
+                try:
+                    self.p.stdout.close()
+                except OSError:
+                    pass
+            self._close_job()
+        return False
+
+    def _close_job(self) -> None:
+        if self._job is not None and _k32 is not None:
+            _k32.CloseHandle(self._job)
+            self._job = None
+
+    def pause(self) -> None:
+        self.paused = True
+
+    def resume(self) -> None:
+        self.paused = False
+
+    def _has_live_members(self) -> bool:
+        self.p.poll()
+        if self._job is not None and _k32 is not None:
+            info = _JobAccountingInfo()
+            if _k32.QueryInformationJobObject(self._job, 1, ctypes.byref(info), ctypes.sizeof(info), None):
+                return info.ActiveProcesses > 0
+        if sys.platform != 'win32':
+            try:
+                os.killpg(self.pgid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return self.p.returncode is None
+        return self.p.returncode is None
+
+    def _gone(self, secs: float) -> bool:
+        end = time.monotonic() + secs
+        while True:
+            if not self._has_live_members():
+                return True
+            if time.monotonic() >= end:
+                return False
+            time.sleep(self.TICK)
+
+    def stop(self, sig=None) -> None:
+        self.done = True
+        self.resume()
+        if self._job is not None and _k32 is not None:
+            _k32.TerminateJobObject(self._job, 1)
+        elif sys.platform == 'win32':
+            try:
+                subprocess.run(
+                    ['taskkill', '/T', '/F', '/PID', str(self.pgid)],
+                    capture_output=True, timeout=10, **tc.no_window(),
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
+        else:
+            try:
+                os.killpg(self.pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+        if self.p.poll() is None:
+            try:
+                self.p.kill()
+            except OSError:
+                pass
+        self.p.wait()
+        self._gone(self.REAP)
+
+    def finish(self) -> int:
+        self.p.wait()
+        self.done = True
+        if not self._gone(self.drain):
+            if not self.stragglers:
+                self.stragglers.append((None, 'a background process'))
+            self.stop()
+        return self.p.returncode
+
+    def lines(self):
+        out = self.p.stdout
+        assert out is not None, 'lines() reads a group started with stdout=PIPE'
+        q: queue.Queue[bytes | None] = queue.Queue()
+        read_chunk = getattr(out, 'read1', None)
+
+        def _reader() -> None:
+            try:
+                while True:
+                    data = read_chunk(65536) if read_chunk is not None else os.read(out.fileno(), 65536)
+                    if not data:
+                        break
+                    q.put(data)
+            except (OSError, ValueError):
+                pass
+            finally:
+                q.put(None)
+
+        threading.Thread(target=_reader, daemon=True).start()
+        dec = io.IncrementalNewlineDecoder(
+            codecs.getincrementaldecoder(locale.getpreferredencoding(False))(errors='replace'),
+            translate=True,
+        )
+        buf = ''
+        end: float | None = None
+        eof = False
+        while not eof:
+            wait = 0.05 if end is None else max(0.0, min(0.05, end - time.monotonic()))
+            try:
+                item = q.get(timeout=wait)
+                if item is None:
+                    eof = True
+                    break
+                buf += dec.decode(item)
+                *done_lines, buf = buf.split('\n')
+                for line in done_lines:
+                    yield line + '\n'
+                continue
+            except queue.Empty:
+                pass
+            if end is None and self.p.poll() is not None:
+                end = time.monotonic() + self.drain
+            if end is not None and time.monotonic() >= end:
+                while True:
+                    try:
+                        item = q.get_nowait()
+                    except queue.Empty:
+                        break
+                    if item is None:
+                        eof = True
+                        break
+                    buf += dec.decode(item)
+                    *done_lines, buf = buf.split('\n')
+                    for line in done_lines:
+                        yield line + '\n'
+                if not eof:
+                    self.stragglers.append((None, 'a background process holding its output'))
+                    self.stop()
+                break
+        buf += dec.decode(b'', final=True)
+        if buf:
+            yield buf
+
+
 def _option_value(argv: list[str], name: str) -> str | None:
     for i, a in enumerate(argv):
         if a == name and i + 1 < len(argv):
@@ -207,6 +469,10 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     if _UPSTREAM_RUN is None:
         _UPSTREAM_RUN = mod.run
 
+    os.environ.setdefault('DMSH_PROCS', '0')
+    if hasattr(mod, 'proc_group'):
+        mod.proc_group.Group = _WinProcGroup
+
     # ---------------------------------------------------------------- prereqs
     def check_prereqs(env, xlate, mac=False, *a, **kw):
         if mac:
@@ -224,30 +490,119 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     mod.check_prereqs = check_prereqs
 
     # ---------------------------------------------------------------- nx_extract
+    def _nx_extract_source_sha(repo_p: Path) -> str:
+        proj = repo_p / 'dm/tools/nx_extract'
+        if hasattr(mod, 'nx_extract_source_sha') and (proj / 'Program.cs').is_file() and (proj / 'nx_extract.csproj').is_file():
+            return mod.nx_extract_source_sha(repo_p)
+        import hashlib
+        h = hashlib.sha256()
+        if proj.is_dir():
+            for f in sorted([*proj.glob('*.cs'), *proj.glob('*.csproj')], key=lambda p: p.name):
+                h.update(f.name.encode('utf-8') + b'\0' + f.read_bytes() + b'\0')
+        return h.hexdigest()[:16]
+
+    def _verify_nx_extract(exe: Path, want: str, env) -> None:
+        if not want:
+            return
+        try:
+            r = subprocess.run([str(exe), '--source-sha'], capture_output=True, text=True,
+                               env=env if env is not None else os.environ, timeout=60,
+                               errors='replace', **tc.no_window())
+        except OSError as e:
+            raise BuildError(f'nx_extract failed to start ({exe}): {e}') from e
+        got = (r.stdout or '').strip()
+        if r.returncode or not got:
+            raise BuildError(f'nx_extract does not run ({exe}, exit {r.returncode}): '
+                             f'{(r.stderr or r.stdout or "").strip()}')
+        if got != want:
+            raise BuildError(f'nx_extract was not built from the in-repo source '
+                             f'(embedded {got} / in repo {want})')
+
     def build_nx_extract(repo_: Path, work: Path, logs: Path, env, *a, **kw):
         """Use the executable shipped with this engine, or build it for a source checkout."""
-        bundled = repo_ / 'dm/tools/nx_extract_bin/nx_extract.exe'
+        repo_p = Path(repo_)
+        proj = repo_p / 'dm/tools/nx_extract'
+        has_src = (proj / 'Program.cs').is_file() and (proj / 'nx_extract.csproj').is_file()
+        want = _nx_extract_source_sha(repo_p) if has_src else ''
+        bundled = repo_p / 'dm/tools/nx_extract_bin/nx_extract.exe'
         if bundled.is_file():
+            _verify_nx_extract(bundled, want, env)
             return bundled
 
         import tempfile
-        nx = work / 'tools/nx_extract/nx_extract'
+        nx = Path(work) / 'tools/nx_extract/nx_extract'
+        nx_exe = nx.parent / 'nx_extract.exe'
+        if nx_exe.is_file():
+            try:
+                _verify_nx_extract(nx_exe, want, env)
+                return nx
+            except BuildError:
+                mod.rmtree(nx.parent)
+
         # An absolute path: `dotnet` by name relies on PATH, and a toolchain this app downloaded
         # lives in its own folder (the shim's PATH has it, but not every caller goes through it).
         dn = tc.dotnet_dir()
         dotnet = str(dn / 'dotnet.exe') if dn else 'dotnet'
-        with tempfile.TemporaryDirectory(prefix='nx_extract_') as td:
-            mod.run([dotnet, 'build', repo_ / 'dm/tools/nx_extract', '-c', 'Release',
+        with tempfile.TemporaryDirectory(prefix='nx_extract_') as td, \
+                tempfile.TemporaryDirectory(prefix='nx_extract_art_') as art:
+            mod.run([dotnet, 'build', proj, '-c', 'Release',
+                     '-p:PublishAot=false', *tc.csc_tool_args(), '--artifacts-path', art,
                      '-o', td, '-v', 'quiet', '-nologo'],
-                    logs / 'nx_extract_build.log', env=env)
+                    Path(logs) / 'nx_extract_build.log', env=env)
             exe = Path(td) / 'nx_extract.exe'
             if not exe.exists():
                 raise BuildError(f'nx_extract built without nx_extract.exe (see '
-                                 f'{logs / "nx_extract_build.log"})')
+                                 f'{Path(logs) / "nx_extract_build.log"})')
             mod.rmtree(nx.parent)
-            shutil.copytree(td, nx.parent)
+            try:
+                shutil.copytree(td, nx.parent)
+            except BaseException:
+                mod.rmtree(nx.parent)
+                raise
+        _verify_nx_extract(nx_exe, want, env)
         return nx
+
+    def find_nx_extract(repo_: Path, env=None, *a, **kw):
+        """Return the Windows extractor executable: bundled in dm/tools/nx_extract_bin/, or built into tools_dir()."""
+        repo_p = Path(repo_)
+        proj = repo_p / 'dm/tools/nx_extract'
+        has_src = (proj / 'Program.cs').is_file() and (proj / 'nx_extract.csproj').is_file()
+        want = _nx_extract_source_sha(repo_p) if has_src else ''
+        bundled = repo_p / 'dm/tools/nx_extract_bin/nx_extract.exe'
+        if bundled.is_file():
+            _verify_nx_extract(bundled, want, env)
+            return bundled
+        sha = want or _nx_extract_source_sha(repo_p)
+        cache_dir = tc.tools_dir() / f'nx_extract-{sha}'
+        cached = cache_dir / 'nx_extract.exe'
+        if cached.is_file():
+            _verify_nx_extract(cached, want, env)
+            return cached
+        import tempfile
+        dn = tc.dotnet_dir()
+        dotnet = str(dn / 'dotnet.exe') if dn else 'dotnet'
+        log = tc.tools_dir() / 'nx_extract_build.log'
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='nx_extract_') as td, \
+                tempfile.TemporaryDirectory(prefix='nx_extract_art_') as art:
+            mod.run([dotnet, 'build', proj, '-c', 'Release', '-p:PublishAot=false',
+                     *tc.csc_tool_args(), '--artifacts-path', art, '-o', td, '-v', 'quiet',
+                     '-nologo'],
+                    log, env=env if env is not None else os.environ)
+            exe = Path(td) / 'nx_extract.exe'
+            if not exe.exists():
+                raise BuildError(f'nx_extract built without nx_extract.exe (see {log})')
+            mod.rmtree(cache_dir)
+            try:
+                shutil.copytree(td, cache_dir)
+            except BaseException:
+                mod.rmtree(cache_dir)
+                raise
+        _verify_nx_extract(cached, want, env)
+        return cached
+
     mod.build_nx_extract = build_nx_extract
+    mod.find_nx_extract = find_nx_extract
 
     # ---------------------------------------------------------------- APFS clones
     mod.can_clone = lambda *a, **kw: False
@@ -902,21 +1257,29 @@ def main(argv: list[str] | None = None) -> int:
 
     from . import shim
     env = shim.build_env(python_exe=sys.executable)
-    os.environ.clear()
-    os.environ.update(env)
-    sdir = str(shim.shim_dir())
-    if sdir not in sys.path:
-        sys.path.insert(0, sdir)
-    if 'sitecustomize' not in sys.modules:
-        try:
-            import sitecustomize  # noqa: F401
-        except Exception:
-            pass
+    owned_spool: str | None = None
+    if not env.get('NSPB_SPOOL_DIR', '').strip():
+        owned_spool = tempfile.mkdtemp(prefix='nspb-spool-')
+        env['NSPB_SPOOL_DIR'] = owned_spool
+    try:
+        os.environ.clear()
+        os.environ.update(env)
+        sdir = str(shim.shim_dir())
+        if sdir not in sys.path:
+            sys.path.insert(0, sdir)
+        if 'sitecustomize' not in sys.modules:
+            try:
+                import sitecustomize  # noqa: F401
+            except Exception:
+                pass
 
-    mod = load_upstream(repo)
-    patch(mod, repo)
-    sys.argv[0] = str(repo / 'scripts' / 'build_ipa_from_nsp.py')
-    return mod.cli(argv)
+        mod = load_upstream(repo)
+        patch(mod, repo)
+        sys.argv[0] = str(repo / 'scripts' / 'build_ipa_from_nsp.py')
+        return mod.cli(argv)
+    finally:
+        if owned_spool:
+            shutil.rmtree(owned_spool, ignore_errors=True)
 
 
 if __name__ == '__main__':

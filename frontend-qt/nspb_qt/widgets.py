@@ -52,6 +52,54 @@ class StatusDot(QWidget):
         p.drawEllipse(QRectF(off, off, self._size, self._size))
 
 
+class ElidedLabel(QLabel):
+    """Single-line QLabel that shrinks cleanly and elides in the middle so trailing ETA stays visible."""
+
+    def __init__(
+        self,
+        text: str = '',
+        elide_mode: Qt.TextElideMode = Qt.ElideMiddle,
+        alignment: Qt.AlignmentFlag = Qt.AlignLeft | Qt.AlignVCenter,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(text, parent)
+        self._elide_mode = elide_mode
+        self.setAlignment(alignment)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, super().minimumSizeHint().height())
+
+    def displayed_text(self, width: int | None = None) -> str:
+        raw = self.text()
+        if not raw:
+            return ''
+        avail = max(0, self.contentsRect().width() if width is None else width)
+        return self.fontMetrics().elidedText(raw, self._elide_mode, avail)
+
+    def paintEvent(self, event) -> None:
+        QFrame.paintEvent(self, event)
+        raw = self.text()
+        if not raw:
+            return
+        rect = self.contentsRect()
+        if rect.width() <= 0:
+            return
+        elided = self.displayed_text(rect.width())
+        p = QPainter(self)
+        p.setFont(self.font())
+        self.style().drawItemText(
+            p,
+            rect,
+            int(self.alignment()),
+            self.palette(),
+            self.isEnabled(),
+            elided,
+            self.foregroundRole(),
+        )
+
+
 class LauncherSwitch(QWidget):
     """Pill toggle switch matching SwiftUI's LauncherSwitchStyle (40x24, cream track when on)."""
 
@@ -319,6 +367,8 @@ class HeroBannerWidget(QWidget):
 
     primaryClicked = Signal()
     manageClicked = Signal(QWidget)
+    refreshClicked = Signal()
+    batchRefreshClicked = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -338,7 +388,7 @@ class HeroBannerWidget(QWidget):
         lay.setSpacing(10)
         lay.addStretch(1)
 
-        # Status + Switch 2 badge row
+        # Status + Switch 2 + Refresh badges/actions row
         status_row = QHBoxLayout()
         status_row.setSpacing(8)
         self.dot = StatusDot(style.GREEN, size=8)
@@ -351,9 +401,28 @@ class HeroBannerWidget(QWidget):
             f'padding: 2px 9px; font-size: 11px; font-weight: 700;'
         )
         self.sw2_badge.hide()
+
+        self.update_badge = QLabel('')
+        self.update_badge.setObjectName('mono')
+        self.update_badge.hide()
+
+        self.refresh_btn = QPushButton('')
+        self.refresh_btn.setObjectName('creamPill')
+        self.refresh_btn.setFixedHeight(42)
+        self.refresh_btn.setCursor(Qt.PointingHandCursor)
+        self.refresh_btn.clicked.connect(self.refreshClicked.emit)
+        self.refresh_btn.hide()
+
+        self.batch_refresh_btn = QPushButton('')
+        self.batch_refresh_btn.setObjectName('heroSecondary')
+        self.batch_refresh_btn.setCursor(Qt.PointingHandCursor)
+        self.batch_refresh_btn.clicked.connect(self.batchRefreshClicked.emit)
+        self.batch_refresh_btn.hide()
+
         status_row.addWidget(self.dot)
         status_row.addWidget(self.status_lbl)
         status_row.addWidget(self.sw2_badge)
+        status_row.addWidget(self.update_badge)
         status_row.addStretch(1)
         lay.addLayout(status_row)
 
@@ -368,6 +437,13 @@ class HeroBannerWidget(QWidget):
         self.sub_lbl.setObjectName('mono')
         self.sub_lbl.setStyleSheet('font-size: 12px; color: rgba(255,255,255,0.58);')
         lay.addWidget(self.sub_lbl)
+
+        self.refresh_note_lbl = QLabel('')
+        self.refresh_note_lbl.setObjectName('muted')
+        self.refresh_note_lbl.setWordWrap(True)
+        self.refresh_note_lbl.hide()
+        lay.addWidget(self.refresh_note_lbl)
+
         lay.addSpacing(6)
 
         # Action bar: primary capsule CTA + Manage button
@@ -387,6 +463,7 @@ class HeroBannerWidget(QWidget):
         self.manage_btn.clicked.connect(lambda: self.manageClicked.emit(self.manage_btn))
 
         act_row.addWidget(self.primary_btn)
+        act_row.addWidget(self.refresh_btn)
         act_row.addWidget(self.manage_btn)
         act_row.addStretch(1)
         lay.addLayout(act_row)
@@ -404,6 +481,13 @@ class HeroBannerWidget(QWidget):
         image_path: str | None,
         is_switch2: bool = False,
         switch2_label: str = 'Switch 2',
+        *,
+        update_badge_text: str = '',
+        refresh_label: str = '',
+        batch_refresh_label: str = '',
+        refresh_note: str = '',
+        refresh_enabled: bool = True,
+        batch_refresh_enabled: bool = True,
     ) -> None:
         self._title_id = title_id
         self._title_text = title
@@ -416,6 +500,20 @@ class HeroBannerWidget(QWidget):
         self.manage_btn.setText(f'⋯  {manage_label}')
         self.sw2_badge.setText(switch2_label)
         self.sw2_badge.setVisible(is_switch2)
+
+        self.update_badge.setText(update_badge_text)
+        self.update_badge.setVisible(bool(update_badge_text))
+
+        self.refresh_btn.setText(refresh_label)
+        self.refresh_btn.setEnabled(refresh_enabled)
+        self.refresh_btn.setVisible(bool(refresh_label))
+
+        self.batch_refresh_btn.setText(batch_refresh_label)
+        self.batch_refresh_btn.setEnabled(batch_refresh_enabled)
+        self.batch_refresh_btn.setVisible(bool(batch_refresh_label))
+
+        self.refresh_note_lbl.setText(refresh_note)
+        self.refresh_note_lbl.setVisible(bool(refresh_note))
 
         new_img = image_path or ''
         if new_img != self._image_path:

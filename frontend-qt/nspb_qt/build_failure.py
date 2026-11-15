@@ -31,6 +31,10 @@ PSO_DISK_FULL = 'psoDiskFull'
 CLOUD_FOLDER = 'cloudFolder'
 VOLUME_FORMAT = 'volumeFormat'
 STALE_PROFILE = 'staleProfile'
+METAL_TOOLCHAIN = 'metalToolchain'
+PROFILE_UPDATE_MISMATCH = 'profileUpdateMismatch'
+APP_ID_LIMIT = 'appIDLimit'
+FREE_APPLE_ID_LIMIT = 'freeAppleIdLimit'
 UNKNOWN = 'unknown'
 
 # (id, kind, regular expression searched in the log)
@@ -44,6 +48,7 @@ TABLE: list[tuple[str, str, str]] = [
     ('metal.other', OTHER_METAL, r'Metal compiler is not the one the shaders were tested with'),
     ('shaders.regression', SHADER_REGRESSION, r'a change to the translation chain broke them'),
     ('nsp.damaged', DAMAGED_NSP, r"files fail the NCA's hash check"),
+    ('nup.damaged', DAMAGED_NSP, r'Pack again from a good copy of the game'),
     ('arm32.program', A32_PROGRAM, r'is a 32-bit ARM program'),
     ('keys.missing', KEYS, r'(?m)^\[RED\] no such file: '),
     ('keys.old', KEYS_OLD, r'the keys are older than the game'),
@@ -68,6 +73,48 @@ OVERRIDE_FLAGS = {
 
 KINDS = [ROSETTA, TRANSLATOR, ZBIC, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_REGRESSION, DAMAGED_NSP, A32_PROGRAM,
          KEYS, SEVERAL_GAMES, NO_TITLE_ID, KEYS_OLD, DISK_FULL, PSO_DISK_FULL, CLOUD_FOLDER, VOLUME_FORMAT, STALE_PROFILE]
+
+# Additional Qt failure classifications for high-frequency Xcode MetalToolchain, update/profile mismatch, and free Apple ID signing limits.
+APP_ID_LIMIT_PATTERN = (
+    r'(?i)(?:maximum App ID limit|(?:create|register) (?:up to|more than) 10 App IDs'
+    r'|10 App IDs[^\n]{0,30}7[- ]day|Reached the maximum number of[^\n]{0,40}App IDs|MaximumAppIDLimitReached'
+    r'|(?:DVTPortal\w*|IDEProvisioning\w*|DVTProvisioning\w*|resultCode)\b[^\n]{0,80}(?<!\d)9120(?!\d)'
+    r'|(?:App ID|bundle identifier|provisioning|development team|Communication with Apple|Apple Developer|register bundle)'
+    r'[^\n]{0,160}(?:\(\s*9120\s*\)|(?:\bcode\b|\berror\b|resultCode)\s*[=:]?\s*9120(?!\d))'
+    r'|(?:\(\s*9120\s*\)|(?:\bcode\b|\berror\b|resultCode)\s*[=:]?\s*9120(?!\d))'
+    r'[^\n]{0,160}(?:App ID|bundle identifier|provisioning|development team|Communication with Apple|Apple))'
+)
+_APP_ID_RESET = re.compile(
+    r'(?i)(?:expires?|frees? up|available(?: again)?|resets?|try again|until)\s+(?:on|after|at)?\s*'
+    r'(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\s*(?:UTC|GMT|Z|[+-]\d{2}:?\d{2}))?)?'
+    r'|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?'
+    r'|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}'
+    r'(?:\s+(?:at\s+)?\d{1,2}:\d{2}(?:\s*[AP]M)?(?:\s*(?:UTC|GMT))?)?)'
+)
+
+EXTRA_KINDS = [METAL_TOOLCHAIN, PROFILE_UPDATE_MISMATCH, APP_ID_LIMIT, FREE_APPLE_ID_LIMIT]
+EXTRA_TABLE: list[tuple[str, str, str]] = [
+    (
+        'metal.toolchain',
+        METAL_TOOLCHAIN,
+        r'(?:downloadComponent MetalToolchain|missing Metal Toolchain|cannot execute tool [\'"]?metal[\'"]?|the Metal compiler does not run)',
+    ),
+    (
+        'profile.updateMismatch',
+        PROFILE_UPDATE_MISMATCH,
+        r'(?:no NSP for update [^\n]+the game profile needs these versions:|not the versions the profile registers|game profile [^\n]+(?:registers [^\n]+with its update in the folder|has no build for v\d+)|the version to pack \(-p / PACKAGE\) is not in the folder|requested version v?\d+ is not in the input folder)',
+    ),
+    (
+        'signing.appIDLimit',
+        APP_ID_LIMIT,
+        APP_ID_LIMIT_PATTERN,
+    ),
+    (
+        'appleid.freeLimit',
+        FREE_APPLE_ID_LIMIT,
+        r'(?i)(?:maximum number of (?:provisioned iOS devices|installed apps|provisioning profiles|apps for free development profiles)|free developer account[^\n]*3 apps|code -36607)',
+    ),
+]
 # The Swift app has four more rows that no log line sets (a drive that is gone, a signing team, a device transfer):
 # they belong to the Mac launcher's install on a device and to /Volumes, which this front end does not have.
 # cloudFolder is a row of the table, so it is here, but the check that stops a build before it starts is the Mac launcher's.
@@ -111,7 +158,18 @@ def _detail(kind: str, log: str) -> str | None:
     if kind == NO_TITLE_ID:   # "no game package with a readable content meta in /path" (engines before c78d7375: "no NSP with a readable title ID in /path")
         m = re.search(r'(?m)no (?:NSP|game package) with a readable (?:title ID|content meta) in (.+)$', log)
         return m.group(1).strip() if m else None
+    if kind == APP_ID_LIMIT:
+        return app_id_limit_reset(log)
     return None
+
+
+def app_id_limit_reset(log: str) -> str | None:
+    """Extracts the date when the oldest App ID slot frees up, when the signing log names it."""
+    m = _APP_ID_RESET.search(log)
+    if not m:
+        return None
+    val = m.group(1).strip(' \t\r\n.')
+    return val or None
 
 
 def _selectable_titles(log: str) -> tuple[str, ...]:
@@ -131,7 +189,7 @@ def classify(log: str, keys_readable: bool | None = None) -> Failure:
 
     keys_readable: what the window knows of the keys file (False = gone or unreadable). The script's own line for a missing
     file is a row of the table, and nx_extract says nothing of its own about a file it cannot read."""
-    for _id, kind, pattern in TABLE:
+    for _id, kind, pattern in (*TABLE, *EXTRA_TABLE):
         if re.search(pattern, log):
             if kind == SEVERAL_GAMES:
                 return Failure(kind, title_ids=_selectable_titles(log))

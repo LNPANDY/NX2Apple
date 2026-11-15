@@ -27,6 +27,36 @@ enum KeyCheck {
         case cannotCheck(file: String)
     }
 
+    struct DetailedOutcome: Equatable, Sendable {
+        var outcome: Outcome
+        var file: String?
+        var hasCheckableContainer: Bool = false
+    }
+
+    /// True when the keys check proves a checkable package will fail (missing or wrong keys), false when keys fit or no checkable PFS0 container is present.
+    static func blocksBuild(_ detailed: DetailedOutcome) -> Bool {
+        switch detailed.outcome {
+        case .fits, .cannotCheck:
+            return false
+        case .wrongHeaderKey, .tooOld:
+            return true
+        case .unreadableKeys, .noHeaderKey:
+            return detailed.hasCheckableContainer
+        }
+    }
+
+    static func masterKeyName(generation: Int) -> String {
+        String(format: "master_key_%02x", max(0, generation - 1))
+    }
+
+    static func missingKeyDisplay(missing: String, generation: Int) -> String {
+        let master = masterKeyName(generation: generation)
+        if missing.hasPrefix("master_key_") || missing == master {
+            return missing
+        }
+        return "\(missing) (\(master))"
+    }
+
     /// What the check depends on: it runs again whenever one of these changes.
     struct Inputs: Hashable, Sendable {
         var keys: String
@@ -154,8 +184,13 @@ enum KeyCheck {
         case unsupported
     }
 
-    /// The NCA headers of an NSP or NSZ (a PFS0); anything else, an XCI among them, is `unsupported`.
+    /// The NCA headers of an NSP or NSZ (a PFS0) or of an XCI or XCZ secure HFS0 partition, else `unsupported`.
     static func readContainer(_ path: String) -> Container {
+        let ext = (path as NSString).pathExtension.lowercased()
+        if ext == "xci" || ext == "xcz" {
+            guard let headers = PackageTitleID.readXCIContainer(path), !headers.isEmpty else { return .unsupported }
+            return .pfs0(headers)
+        }
         guard let f = FileHandle(forReadingAtPath: path) else { return .unsupported }
         defer { try? f.close() }
         func read(_ offset: UInt64, _ count: Int) -> [UInt8]? {
@@ -175,7 +210,10 @@ enum KeyCheck {
             guard nameAt < table.count else { continue }
             let name = String(decoding: table[nameAt...].prefix { $0 != 0 }, as: UTF8.self).lowercased()
             let ncz = name.hasSuffix(".ncz")
-            guard name.hasSuffix(".nca") || ncz, size >= UInt64(headerBytes), let h = read(dataStart + offset, headerBytes) else { continue }
+            guard name.hasSuffix(".nca") || ncz,
+                  size >= UInt64(headerBytes),
+                  let ncaOffset = PackageTitleID.checkedAdd(dataStart, offset),
+                  let h = read(ncaOffset, headerBytes) else { continue }
             headers.append((h, ncz))
         }
         return .pfs0(headers)
@@ -185,44 +223,79 @@ enum KeyCheck {
 
     /// The check for the Builds page, off the main thread; nil (no line) until both the base game and prod.keys are chosen.
     static func runDetached(_ inputs: Inputs) async -> Outcome? {
+        await runDetailedDetached(inputs)?.outcome
+    }
+
+    static func runDetailedDetached(_ inputs: Inputs) async -> DetailedOutcome? {
         guard !inputs.keys.isEmpty, inputs.files.first.map({ !$0.isEmpty }) == true else { return nil }
-        return await Task.detached(priority: .userInitiated) { run(inputs) }.value
+        return await Task.detached(priority: .userInitiated) { runDetailed(inputs) }.value
     }
 
     /// Every chosen file against the keys; the worst finding wins (a key that opens nothing, then the newest missing
     /// generation, then a file that cannot be checked). Reads a few kilobytes per file, so it is quick, but it reads
     /// files: run it off the main thread.
     static func run(_ inputs: Inputs) -> Outcome {
-        guard let data = FileManager.default.contents(atPath: inputs.keys),
-              let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else { return .unreadableKeys }
+        runDetailed(inputs).outcome
+    }
+
+    static func runDetailed(_ inputs: Inputs) -> DetailedOutcome {
         let parts: [Part] = [.base, .update] + Array(repeating: .dlc, count: max(0, inputs.files.count - 2))
         let files = zip(parts, inputs.files).filter { !$0.1.isEmpty }.map { (part: $0.0, path: $0.1, container: readContainer($0.1)) }
-        return check(keys: parseKeys(text), files: files.map { ($0.part, ($0.path as NSString).lastPathComponent, $0.container) })
+        let hasCheckable = files.contains {
+            if case let .pfs0(ncas) = $0.container { return !ncas.isEmpty }
+            return false
+        }
+        guard let data = FileManager.default.contents(atPath: inputs.keys),
+              let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+            return DetailedOutcome(outcome: .unreadableKeys, file: nil, hasCheckableContainer: hasCheckable)
+        }
+        return checkDetailed(keys: parseKeys(text), files: files.map { ($0.part, ($0.path as NSString).lastPathComponent, $0.container) })
     }
 
     static func check(keys: [String: [UInt8]], files: [(part: Part, name: String, container: Container)]) -> Outcome {
-        guard let headerKey = keys["header_key"] else { return .noHeaderKey }
-        var tooOld: (part: Part, revision: Int, key: String)?
+        checkDetailed(keys: keys, files: files).outcome
+    }
+
+    static func checkDetailed(keys: [String: [UInt8]], files: [(part: Part, name: String, container: Container)]) -> DetailedOutcome {
+        let hasCheckable = files.contains {
+            if case let .pfs0(ncas) = $0.container { return !ncas.isEmpty }
+            return false
+        }
+        guard let headerKey = keys["header_key"] else {
+            return DetailedOutcome(outcome: .noHeaderKey, file: nil, hasCheckableContainer: hasCheckable)
+        }
+        var tooOld: (part: Part, name: String, revision: Int, key: String)?
         var unchecked: String?
         for file in files {
-            guard case let .pfs0(ncas) = file.container, !ncas.isEmpty else { unchecked = unchecked ?? file.name; continue }
+            guard case let .pfs0(ncas) = file.container, !ncas.isEmpty else {
+                unchecked = unchecked ?? file.name
+                continue
+            }
             // A damaged NCA among good ones is the file's problem, not the keys': only a key that opens none is wrong.
             let opened = ncas.compactMap { nca -> (revision: Int, key: String)? in
                 guard headerKey.count == 32, let plain = xts(nca.header, key: headerKey, encrypt: false) else { return nil }
                 return needs(header: plain)
             }
             if opened.isEmpty {
-                // An NCZ's header is expected to be the NCA's own, still encrypted; if it is not, that is not the key's fault.
-                if ncas.allSatisfy(\.ncz) { unchecked = unchecked ?? file.name; continue }
-                return .wrongHeaderKey(file: file.name)
+                if ncas.allSatisfy(\.ncz) {
+                    unchecked = unchecked ?? file.name
+                    continue
+                }
+                return DetailedOutcome(outcome: .wrongHeaderKey(file: file.name), file: file.name, hasCheckableContainer: true)
             }
             for need in opened where !has(need.key, in: keys) && need.revision > (tooOld?.revision ?? -1) {
-                tooOld = (file.part, need.revision, need.key)
+                tooOld = (file.part, file.name, need.revision, need.key)
             }
         }
-        if let tooOld { return .tooOld(part: tooOld.part, generation: tooOld.revision + 1, missing: tooOld.key) }
-        if let unchecked { return .cannotCheck(file: unchecked) }
-        return .fits
+        if let tooOld {
+            return DetailedOutcome(
+                outcome: .tooOld(part: tooOld.part, generation: tooOld.revision + 1, missing: tooOld.key),
+                file: tooOld.name,
+                hasCheckableContainer: true
+            )
+        }
+        if let unchecked { return DetailedOutcome(outcome: .cannotCheck(file: unchecked), file: unchecked, hasCheckableContainer: hasCheckable) }
+        return DetailedOutcome(outcome: .fits, file: nil, hasCheckableContainer: hasCheckable)
     }
 
     /// The line under the prod.keys row.
@@ -234,16 +307,29 @@ enum KeyCheck {
         case .wrongHeaderKey(let file): return String(format: t("keycheck.wrongHeaderKey"), file)
         case .cannotCheck(let file): return String(format: t("keycheck.cannotCheck"), file)
         case let .tooOld(part, generation, missing):
-            var s = String(format: t("keycheck.tooOld"), t("keycheck.part." + part.rawValue), missing)   // the key's name carries the generation, in hex
+            let keyLabel = missingKeyDisplay(missing: missing, generation: generation)
+            var s = String(format: t("keycheck.tooOld"), t("keycheck.part." + part.rawValue), keyLabel)
             if generation - 1 < firmware.count { s += " " + String(format: t("keycheck.firmware"), firmware[generation - 1]) }
             return s
         }
+    }
+
+    /// Detailed message that also names the specific package file when a supplement requires a newer master key.
+    static func detailedMessage(_ d: DetailedOutcome, _ t: (String) -> String) -> String {
+        if case let .tooOld(part, generation, missing) = d.outcome, let file = d.file, !file.isEmpty {
+            let keyLabel = missingKeyDisplay(missing: missing, generation: generation)
+            var s = String(format: t("keycheck.tooOldNamed"), t("keycheck.part." + part.rawValue), file, keyLabel)
+            if generation - 1 < firmware.count { s += " " + String(format: t("keycheck.firmware"), firmware[generation - 1]) }
+            return s
+        }
+        return message(d.outcome, t)
     }
 }
 
 /// The key check's result, set in under the prod.keys row it is about.
 struct KeyCheckLine: View {
     let outcome: KeyCheck.Outcome
+    var detailed: KeyCheck.DetailedOutcome? = nil
     let t: (String) -> String
 
     var body: some View {
@@ -254,9 +340,10 @@ struct KeyCheckLine: View {
             default: return ("exclamationmark.triangle.fill", LauncherPalette.building)
             }
         }()
+        let lineText = detailed.map { KeyCheck.detailedMessage($0, t) } ?? KeyCheck.message(outcome, t)
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(color)
-            Text(KeyCheck.message(outcome, t)).font(.manrope(12.5)).foregroundStyle(outcome == .fits ? Color.secondary : color)
+            Text(lineText).font(.manrope(12.5)).foregroundStyle(outcome == .fits ? Color.secondary : color)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }

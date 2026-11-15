@@ -58,7 +58,8 @@ package struct UpdateSheet: View {
             .frame(maxHeight: 340)
 
             if let blocked = Self.note(blocked: updates.blocked, buildRunning: build.running, waitForBuild: loc.t("app.waitForBuild")) {
-                Text(blocked).font(.manrope(12.5)).foregroundStyle(.orange)
+                Text(blocked).font(.manrope(12.5))
+                    .foregroundStyle(updates.blocked != nil ? LauncherPalette.building : LauncherPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 28).padding(.bottom, 12)
             }
@@ -100,31 +101,41 @@ package struct UpdateSheet: View {
         let baseTitle = loc.t(updates.staged != nil ? "app.restartNow" : "update.now")
         if let progress = updates.downloadProgress {
             let clamped = min(max(progress, 0), 1)
-            let pct = Int((clamped * 100).rounded())
-            ZStack {
-                Text(baseTitle)
-                    .font(.manrope(13.5, .bold))
-                    .opacity(0)
-                Text("\(pct)%")
-                    .font(.manrope(13.5, .bold)).monospacedDigit()
-                    .foregroundStyle(.white)
+            let pct = "\(Int((clamped * 100).rounded()))%"
+            let sizing = ZStack {
+                Text(baseTitle).font(.manrope(13.5, .bold))
+                Text("100%").font(.manrope(13.5, .bold)).monospacedDigit()
             }
+            .opacity(0)
             .padding(.horizontal, 20).padding(.vertical, 9)
-            .background {
-                Canvas { canvas, size in
-                    let rect = CGRect(origin: .zero, size: size)
-                    let capsule = Capsule().path(in: rect)
-                    canvas.fill(capsule, with: .color(LauncherPalette.ink(0.10)))
-                    if clamped > 0 {
-                        var inner = canvas
-                        inner.clip(to: capsule)
-                        let fillRect = CGRect(x: 0, y: 0, width: size.width * clamped, height: size.height)
-                        inner.fill(Path(fillRect), with: .color(LauncherPalette.building.opacity(0.85)))
+
+            sizing
+                .overlay {
+                    GeometryReader { geo in
+                        let filledWidth = geo.size.width * clamped
+                        ZStack {
+                            Capsule().fill(LauncherPalette.ink(0.08))
+                            Text(pct)
+                                .font(.manrope(13.5, .bold)).monospacedDigit()
+                                .foregroundStyle(LauncherPalette.text)
+                            ZStack {
+                                Capsule().fill(LauncherPalette.cream)
+                                Text(pct)
+                                    .font(.manrope(13.5, .bold)).monospacedDigit()
+                                    .foregroundStyle(LauncherPalette.onCream)
+                            }
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .mask {
+                                HStack(spacing: 0) {
+                                    Rectangle().frame(width: filledWidth)
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(width: geo.size.width, height: geo.size.height)
+                            }
+                        }
+                        .clipShape(Capsule())
                     }
-                    let inset = rect.insetBy(dx: 0.5, dy: 0.5)
-                    canvas.stroke(Capsule().path(in: inset), with: .color(LauncherPalette.building.opacity(0.65)), lineWidth: 1)
                 }
-            }
         } else {
             Text(baseTitle)
                 .font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)

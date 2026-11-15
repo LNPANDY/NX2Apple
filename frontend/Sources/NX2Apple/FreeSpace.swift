@@ -5,11 +5,11 @@ import NXModel
 import NXLauncher
 
 /// The parts of a game's build folder (<output folder>/<title ID>_build) that the next build makes again
-/// (LNPANDY/NX2Apple#67, after seedds/nxnative#264). The layout is scripts/build_ipa_from_nsp.py's: extract/ (the extracted
-/// game files), shader/ and pso/ (the shader package, caches and libraries), xcode/, xcode-derived-data/ and ipa/ (the app
-/// build), and the smaller caches beside them. What the script keeps for its own sake stays: logs/, profile/ (a provisional
-/// or derived profile, which someone may have edited), run/ (the Mac development build's save) and nsp/ (NSZ files
-/// converted to NSP, which are game files).
+/// (LNPANDY/NX2Apple#67, after seedds/nxnative#264). The layout is scripts/build_ipa_from_nsp.py's: extract/ and nsp/ (the
+/// extracted and decompressed game files), shader/ and pso/ (the shader package, caches and libraries), xcode/,
+/// xcode-derived-data/, ipa/ and shell-framework/ (the app build), and the smaller caches beside them. What the script keeps
+/// for its own sake stays: logs/, profile/ (a provisional or derived profile, which someone may have edited) and run/ (the
+/// Mac development build's save).
 enum BuildFolderPart: String, CaseIterable, Identifiable {
     case extracted, shaders, oldShaders, xcode, caches
     var id: String { rawValue }
@@ -22,9 +22,9 @@ enum BuildFolderPart: String, CaseIterable, Identifiable {
         var base = name
         for suffix in [".key", ".partial"] where base.hasSuffix(suffix) { base = String(base.dropLast(suffix.count)) }
         switch base {
-        case "extract", "exefs": return .extracted
+        case "extract", "exefs", "nsp": return .extracted
         case "shader", "pso": return .shaders
-        case "xcode", "xcode-derived-data", "ipa": return .xcode
+        case "xcode", "xcode-derived-data", "ipa", "shell-framework": return .xcode
         case "tools", "tmp", "aoc", "font": return .caches
         default:   // the rewritten modules and the NROs collected for them, one folder per packed version
             return base.hasPrefix("patched_") || base.hasPrefix("nro_") ? .caches : nil
@@ -36,7 +36,7 @@ enum BuildFolderPart: String, CaseIterable, Identifiable {
 struct BuildFolderSurvey: Equatable {
     var folder: String
     var sizes: [BuildFolderPart: Int64] = [:]
-    /// Everything that stays: logs, the profile, converted NSPs, saves, and anything the game still needs that lies inside.
+    /// Everything that stays: logs, the profile, saves, and anything the game still needs that lies inside.
     var kept: Int64 = 0
     /// The shader libraries of other chain versions (b-<old> in shader/cache and shader/ios, with their keys), one entry per
     /// chain version, already counted in `sizes[.shaders]`. Empty when the current chain is not known.
@@ -79,15 +79,38 @@ enum BuildFolder {
     }
 
     /// What this sheet never removes, wherever it lies: the finished Mac app, the IPA, the app installed on a device (its
-    /// build is in xcode-derived-data), the game data archive (games/<title ID>/ with romfs.img), and the NSPs and keys.
+    /// build is in xcode-derived-data), the game data archive (`games/<FolderName>/` and legacy `games/<title ID>/` with their
+    /// primary `.img`), and the NSPs and keys.
     nonisolated static func protectedPaths(for game: LibraryGame) -> [String] {
         let out = game.outputDirectory.isEmpty
             ? game.inputs["base", default: []].first.map { ($0 as NSString).deletingLastPathComponent } ?? "" : game.outputDirectory
         var paths = [game.appPath, game.ipaPath, game.iosAppPath, game.archivePath]
-        if !game.archivePath.isEmpty { paths.append(game.archivePath + "/romfs.img") }
-        if !out.isEmpty { paths.append(out + "/games/" + game.titleID) }
+        if !game.archivePath.isEmpty, let img = RomFSArchive.primaryImagePath(in: game.archivePath) {
+            paths.append(img)
+        }
+        if !out.isEmpty {
+            let gamesRoot = out + "/games"
+            let legacyDir = gamesRoot + "/" + game.titleID
+            let folderName = RomFSArchive.archiveDirectoryName(gameName: game.name, titleID: game.titleID, gamesRoot: gamesRoot)
+            let namedDir = gamesRoot + "/" + folderName
+            for dir in [legacyDir, namedDir] + RomFSArchive.archiveDirectories(forTitleID: game.titleID, gamesRoot: gamesRoot) {
+                paths.append(dir)
+                if let img = RomFSArchive.primaryImagePath(in: dir) {
+                    paths.append(img)
+                }
+            }
+            if game.fallbackName != game.name {
+                let fallbackFolder = RomFSArchive.archiveDirectoryName(gameName: game.fallbackName, titleID: game.titleID, gamesRoot: gamesRoot)
+                let fallbackDir = gamesRoot + "/" + fallbackFolder
+                paths.append(fallbackDir)
+                if let img = RomFSArchive.primaryImagePath(in: fallbackDir) {
+                    paths.append(img)
+                }
+            }
+        }
         paths += game.inputs.values.flatMap { $0 }
-        return paths.filter { !$0.isEmpty }.map(resolved)
+        var seen = Set<String>()
+        return paths.filter { !$0.isEmpty }.map(resolved).filter { seen.insert($0).inserted }
     }
 
     nonisolated static func resolved(_ path: String) -> String {
@@ -187,12 +210,16 @@ enum BuildFolder {
         return inside.filter { p in !inside.contains { p.hasPrefix($0 + "/") } }.reduce(0) { $0 + size($1) }
     }
 
-    /// Allocated bytes of a file or folder, symbolic links not followed.
+    /// Allocated bytes of a file or folder, symbolic links not followed and hard links within the tree counted once.
     nonisolated static func size(_ path: String) -> Int64 {
         let url = URL(fileURLWithPath: path)
-        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .isSymbolicLinkKey, .isDirectoryKey]
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .isSymbolicLinkKey, .isDirectoryKey, .fileResourceIdentifierKey]
+        var seen = Set<AnyHashable>()
         func bytes(_ u: URL) -> Int64 {
             guard let v = try? u.resourceValues(forKeys: Set(keys)) else { return 0 }
+            if v.isDirectory != true, v.isSymbolicLink != true, let id = v.fileResourceIdentifier as? AnyHashable, !seen.insert(id).inserted {
+                return 0
+            }
             return Int64(v.totalFileAllocatedSize ?? v.fileAllocatedSize ?? 0)
         }
         guard let top = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return 0 }
