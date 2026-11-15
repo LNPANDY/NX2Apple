@@ -7813,5 +7813,302 @@ class RomfsTrailerAndManifestArgsTests(unittest.TestCase):
             self.assertEqual(Path(msl_cache.get('lib_path', '')), w / 'build' / 'ios' / 'dmsh_b' / 'vk')
 
 
+class WindowsMissingPrereqAndStrippedDefenderTest(unittest.TestCase):
+    """Stripped-Windows Defender module fallback, VC++ Redistributable probe, NTSTATUS diagnostics, and shader failure attribution."""
+
+    def test_defender_scripts_handle_missing_module_and_stripped_windows(self) -> None:
+        from nspb_qt.win import defender
+
+        elev = defender.build_inner_elevation_script(r'C:\Temp\payload.json')
+        self.assertIn('Ensure-DefenderModule', elev)
+        self.assertIn(r'System32\WindowsPowerShell\v1.0\Modules\Defender', elev)
+        self.assertIn("if ($null -eq (Get-Command -Name 'Add-MpPreference'", elev)
+        self.assertIn("error_code = 'service_inactive'", elev)
+        self.assertIn('if ($null -eq $svc -and $null -eq $st)', elev)
+        self.assertIn('CommandNotFoundException', elev)
+
+        rem = defender.build_inner_removal_script(r'C:\Temp\payload.json')
+        self.assertIn('Ensure-DefenderModule', rem)
+        self.assertIn("if ($null -eq (Get-Command -Name 'Remove-MpPreference'", rem)
+        self.assertIn('Write-AtomicJson $resultPath @{ ok = $true', rem)
+
+    def test_model_apply_defender_service_inactive_dismisses_prompt(self) -> None:
+        import ast
+        import threading
+        from nspb_qt.i18n import Lang
+        from nspb_qt.l10n import t as l10n_t
+        from nspb_qt.win import defender
+
+        src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+        tree = ast.parse(src)
+        cls_node = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Model')
+        wanted = {
+            '_defender_failure_message',
+            'defender_info',
+            'should_prompt_defender_before_build',
+            'apply_defender_exclusions',
+            '_invoke_defender_done',
+        }
+        methods = [n for n in cls_node.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
+        mod_node = ast.fix_missing_locations(ast.Module(body=methods, type_ignores=[]))
+
+        pending_workers: list[object] = []
+
+        class _ImmediateThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+
+            def start(self):
+                if self._target:
+                    pending_workers.append(self._target)
+
+        class _Sig:
+            def emit(self, *a):
+                pass
+
+        class _DummyQThread:
+            @staticmethod
+            def currentThread():
+                return 'main'
+
+        ns: dict = {
+            'Callable': object,
+            'Slot': lambda *a, **k: (lambda fn: fn),
+            'Q_ARG': lambda *_a: None,
+            'QThread': _DummyQThread,
+            'QMetaObject': type('QM', (), {'invokeMethod': staticmethod(lambda obj, name, *_a: getattr(obj, name)())}),
+            'Qt': type('Qt', (), {'QueuedConnection': 1}),
+            'threading': type('T', (), {'Thread': _ImmediateThread}),
+            '__package__': 'nspb_qt',
+        }
+        exec(compile(mod_node, str(QT / 'nspb_qt' / 'model.py'), 'exec'), ns)
+
+        class _Harness:
+            apply_defender_exclusions = ns['apply_defender_exclusions']
+            _defender_failure_message = ns['_defender_failure_message']
+            _invoke_defender_done = ns['_invoke_defender_done']
+            should_prompt_defender_before_build = ns['should_prompt_defender_before_build']
+            defender_info = ns['defender_info']
+
+            def __init__(self):
+                self.show_defender_ui = True
+                self.defender_busy = False
+                self.defender_status_ok = False
+                self.defender_status_msg = ''
+                self.lang = Lang('zh')
+                self.repo_path = ''
+                self.repo_ok = False
+                self.out_dir = ''
+                self.shell_cache_path = ''
+                self.base_path = ''
+                self._defender_gen = 0
+                self._defender_lock = threading.RLock()
+                self._defender_callbacks = {}
+                self.repoChanged = _Sig()
+                self.depsChanged = _Sig()
+                self._settings: dict[str, bool] = {}
+
+            def _current_build_dirs(self, *, title_id=None):
+                return r'D:\games\botw', r'D:\build\01007EF00011E000_build'
+
+            def _emit_repo_changed(self):
+                pass
+
+            def _emit_deps_changed(self):
+                pass
+
+            def thread(self):
+                return 'main'
+
+            def log(self, _msg):
+                pass
+
+            def t(self, key: str, *args: object) -> str:
+                return l10n_t(key, self.lang, *args)
+
+            def settings_value(self, k: str, default=False):
+                return self._settings.get(k, default)
+
+            def settings_set(self, k: str, val: bool):
+                self._settings[k] = val
+
+        h = _Harness()
+        with tempfile.TemporaryDirectory() as td:
+            fake_tools = Path(td) / 'NS Port Builder' / 'tools'
+            fake_tools.mkdir(parents=True)
+            with mock.patch.object(tc, 'tools_dir', return_value=fake_tools):
+                self.assertTrue(h.should_prompt_defender_before_build())
+                h.apply_defender_exclusions()
+                w = pending_workers.pop(0)
+                with mock.patch.object(
+                    defender,
+                    'apply_exclusions',
+                    return_value=defender.DefenderResult(ok=False, error='no module', error_code='service_inactive'),
+                ):
+                    w()
+                self.assertEqual(h.defender_status_msg, h.t('defender.msg.inactive'))
+                self.assertTrue(h.settings_value('defenderPromptDismissed', False))
+                self.assertFalse(h.should_prompt_defender_before_build())
+
+    def test_vcredist_probe_and_ntstatus_exit_explanation(self) -> None:
+        if os.name != 'nt':
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop(tc.ENV_SYSTEM32, None)
+                self.assertIsNone(tc.probe_vcredist())
+
+        with tempfile.TemporaryDirectory() as td:
+            sys32 = Path(td)
+            (sys32 / 'VCRUNTIME140.dll').write_bytes(b'MZ')
+            with mock.patch.dict(os.environ, {tc.ENV_SYSTEM32: str(sys32)}, clear=False):
+                probe = tc.probe_vcredist()
+                self.assertIsNotNone(probe)
+                assert probe is not None
+                self.assertEqual(probe.state, 'missing')
+                self.assertIn('vcruntime140_1.dll, msvcp140.dll', probe.detail)
+                self.assertIn(tc.VCREDIST_URL, probe.hint)
+                all_ids = {p.id: p for p in tc.check_all(deep=False)}
+                self.assertIn('vcredist', all_ids)
+                self.assertEqual(all_ids['vcredist'].state, 'missing')
+
+                hint_135 = tc.explain_process_exit(-1073741515, Path('metal.exe'))
+                self.assertIn('0xC0000135', hint_135)
+                self.assertIn('vcruntime140_1.dll, msvcp140.dll', hint_135)
+
+                hint_07b = tc.explain_process_exit(0xC000007B, Path('metal.exe'))
+                self.assertIn('0xC000007B', hint_07b)
+                self.assertIn('32-bit/64-bit DLL mismatch', hint_07b)
+
+                (sys32 / 'vcruntime140_1.dll').write_bytes(b'MZ')
+                (sys32 / 'msvcp140.dll').write_bytes(b'MZ')
+                ok_probe = tc.probe_vcredist()
+                self.assertIsNotNone(ok_probe)
+                assert ok_probe is not None
+                self.assertEqual(ok_probe.state, 'ok')
+
+    def test_probe_metal_passes_relaxed_math_and_flags_old_metal_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            sdk = make_fake_sdk(root, '26.0')
+            seen_cmds: list[list[str]] = []
+
+            def fake_ok(cmd, *a, **kw):
+                seen_cmds.append([str(c) for c in cmd])
+                if '-o' in cmd:
+                    Path(cmd[cmd.index('-o') + 1]).write_bytes(b'MTLB')
+                return subprocess.CompletedProcess(cmd, 0, '', '')
+
+            with (
+                mock.patch.object(tc, 'metal_tool', side_effect=lambda name, *a: Path(f'C:/metal/{name}.exe')),
+                mock.patch.object(tc.subprocess, 'run', side_effect=fake_ok),
+            ):
+                ok, detail = tc.probe_metal(sdk)
+            self.assertTrue(ok, detail)
+            self.assertIn('-fmetal-math-mode=relaxed', seen_cmds[0])
+            self.assertIn('-fpreserve-invariance', seen_cmds[0])
+            self.assertIn('-fwrapv', seen_cmds[0])
+
+            def fake_old(cmd, *a, **kw):
+                return subprocess.CompletedProcess(cmd, 1, '', "metal.exe: error: unknown argument: '-fmetal-math-mode=relaxed'\n")
+
+            with (
+                mock.patch.object(tc, 'metal_tool', side_effect=lambda name, *a: Path(f'C:/metal/{name}.exe')),
+                mock.patch.object(tc.subprocess, 'run', side_effect=fake_old),
+            ):
+                ok, detail = tc.probe_metal(sdk)
+            self.assertFalse(ok)
+            self.assertIn('installed Metal Developer Tools for Windows is too old', detail)
+
+            def fake_135(cmd, *a, **kw):
+                return subprocess.CompletedProcess(cmd, -1073741515, '', '')
+
+            sys32 = root / 'sys32'
+            sys32.mkdir()
+            with (
+                mock.patch.dict(os.environ, {tc.ENV_SYSTEM32: str(sys32)}, clear=False),
+                mock.patch.object(tc, 'metal_tool', side_effect=lambda name, *a: Path(f'C:/metal/{name}.exe')),
+                mock.patch.object(tc.subprocess, 'run', side_effect=fake_135),
+            ):
+                ok, detail = tc.probe_metal(sdk)
+            self.assertFalse(ok)
+            self.assertIn('0xC0000135', detail)
+            self.assertIn('vcruntime140.dll', detail)
+
+    def test_driver_diagnoses_empty_ios_shader_log_and_missing_spirv_cross(self) -> None:
+        from types import SimpleNamespace
+        from nspb_qt.win import driver
+
+        with tempfile.TemporaryDirectory() as td:
+            sys32 = Path(td) / 'sys32'
+            sys32.mkdir()
+            (sys32 / 'vcruntime140.dll').write_bytes(b'MZ')
+            with mock.patch.dict(os.environ, {tc.ENV_SYSTEM32: str(sys32)}, clear=False):
+                msg_135 = driver.diagnose_empty_shader_log('metal.exe failed with exit code -1073741515 (0xc0000135)')
+                self.assertIn('0xC0000135', msg_135)
+                self.assertIn('vcruntime140_1.dll, msvcp140.dll', msg_135)
+
+            self.assertIn(
+                'Metal Developer Tools for Windows (metal.exe / metallib.exe) is missing',
+                driver.diagnose_empty_shader_log("no Windows tool for `xcrun -sdk iphoneos metal`"),
+            )
+            self.assertIn(
+                'installed Metal Developer Tools for Windows is too old',
+                driver.diagnose_empty_shader_log("metal.exe: error: unknown argument: '-fmetal-math-mode=relaxed'"),
+            )
+            self.assertIn(
+                'all 24 shader compiles failed: unexpected AIR opcode',
+                driver.diagnose_empty_shader_log('  [fail] unexpected AIR opcode\nshaders 24: ok 0, fail 24\n'),
+            )
+
+            # Verify driver.patch wraps build_shaders to surface dmsh_build.log root cause and missing spirv-cross
+            class FakeBuildError(Exception):
+                pass
+
+            logs = Path(td) / 'logs'
+            logs.mkdir()
+            (logs / 'dmsh_build.log').write_text(
+                "error: unknown argument: '-fmetal-math-mode=relaxed'\nshaders 12: ok 0, fail 12\n",
+                encoding='utf-8',
+            )
+            sh = Path(td) / 'shader'
+            sh.mkdir()
+            repo = Path(td) / 'repo'
+            repo.mkdir()
+            (repo / 'dm/gfx/tools/spirv_cross_bin').mkdir(parents=True)
+
+            def failing_build_shaders(py, repo_, sh_, xlate, env, logs_, g, *a, **kw):
+                raise FakeBuildError(rf'no iOS shader libraries in {sh_}\ios\b-0123456789ab')
+
+            mod = SimpleNamespace(
+                BuildError=FakeBuildError,
+                say=lambda *_a, **_k: None,
+                run=lambda *_a, **_k: 0,
+                PROG=SimpleNamespace(stage=lambda *a, **k: None, end=lambda *a, **k: None),
+                chain_of=lambda *_a: '0123456789ab',
+                build_shaders=failing_build_shaders,
+                glslc_done=lambda *_a: set(),
+                capture_wanted=lambda *_a: 0,
+            )
+            with mock.patch.object(tc, 'llvm_dir', return_value=None), \
+                 mock.patch.object(tc, 'find_exe', return_value=None), \
+                 mock.patch.object(tc, 'dotnet_dir', return_value=None):
+                driver.patch(mod, repo)
+
+            with (
+                mock.patch.object(tc, 'find_exe', return_value=None),
+                mock.patch.object(driver.shutil, 'which', return_value=None),
+            ):
+                with self.assertRaises(FakeBuildError) as ctx_sc:
+                    mod.build_shaders(sys.executable, repo, sh, repo / 'xlate', {}, logs, None)
+                self.assertIn('missing on this PC', str(ctx_sc.exception))
+                self.assertIn('spirv-cross', str(ctx_sc.exception))
+
+            fake_sc = Path(td) / 'spirv-cross.exe'
+            fake_sc.write_bytes(b'MZ')
+            with self.assertRaises(FakeBuildError) as ctx_log:
+                mod.build_shaders(sys.executable, repo, sh, repo / 'xlate', {'SPIRV_CROSS': str(fake_sc)}, logs, None)
+            self.assertIn('no iOS shader libraries in', str(ctx_log.exception))
+            self.assertIn('installed Metal Developer Tools for Windows is too old', str(ctx_log.exception))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -2877,7 +2877,7 @@ class MainWindow(QMainWindow):
                     d.id,
                     bool(d.ok or (getattr(d, 'installing', False) and getattr(d, 'install_detail', ''))),
                     bool(d.install and (not d.ok or d.id == 'ios_sdk')),
-                    bool(not d.ok and d.id == 'xcode'),
+                    bool(not d.ok and d.id in ('xcode', 'vcredist')),
                     bool(d.pick_key),
                     bool(not d.ok and d.id in ('ios_sdk', 'metal')),
                     bool(not d.ok and (getattr(d, 'last_error', '') or getattr(d, 'fix_hint', ''))),
@@ -2969,6 +2969,11 @@ class MainWindow(QMainWindow):
             b = QPushButton(t('dep.openAppStore'))
             b.clicked.connect(lambda: QDesktopServices.openUrl(
                 QUrl('macappstore://apps.apple.com/app/id497799835')))
+            r.addWidget(b)
+        elif not d.ok and d.id == 'vcredist':
+            b = QPushButton(t('dep.vcredist.download'))
+            b.clicked.connect(lambda: QDesktopServices.openUrl(
+                QUrl('https://aka.ms/vs/17/release/vc_redist.x64.exe')))
             r.addWidget(b)
         pick_btn = None
         if d.pick_key:
@@ -3294,6 +3299,7 @@ class MainWindow(QMainWindow):
             bf.TRANSLATOR: 'fail.translator.button',
             bf.ZBIC: 'fail.zbic.button',
             bf.IOS_SDK: 'fail.iosSDK.button',
+            bf.WIN_PREREQ: 'fail.winPrereq.button',
         }.get(f.kind)
         if fix_key and (f.kind != bf.IOS_SDK or not pu.IS_WIN):
             self.failure_fix_btn.setText(t(fix_key))
@@ -3318,6 +3324,8 @@ class MainWindow(QMainWindow):
             self._pick_input('keys', False)
         elif f.kind == bf.CLOUD_FOLDER:
             self._pick_out_dir()
+        elif f.kind == bf.WIN_PREREQ:
+            self._switch_page('settings')
         else:
             self.m.fix_failure(f)
 
