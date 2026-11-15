@@ -632,6 +632,27 @@ class StandaloneFrameworkExportTest(unittest.TestCase):
             if cleanup is not None:
                 cleanup()
 
+    def test_reveal_selects_framework_bundle_itself(self) -> None:
+        from unittest import mock
+        from nspb_qt import platform_util as pu
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fw = Path(tmp) / 'DmGame01007EF00011E000.framework'
+            fw.mkdir()
+            (fw / 'Info.plist').write_bytes(b'plist')
+
+            with mock.patch.object(pu, 'IS_WIN', False), \
+                 mock.patch.object(pu, 'IS_MAC', True), \
+                 mock.patch.object(pu.subprocess, 'Popen') as popen:
+                self.assertTrue(pu.reveal(str(fw)))
+                popen.assert_called_once_with(['/usr/bin/open', '-R', str(fw.resolve())])
+
+            with mock.patch.object(pu, 'IS_WIN', True), \
+                 mock.patch.object(pu, 'IS_MAC', False), \
+                 mock.patch.object(pu.subprocess, 'Popen') as popen:
+                self.assertTrue(pu.reveal(str(fw)))
+                popen.assert_called_once_with(['explorer.exe', f'/select,{os.path.normpath(str(fw.resolve()))}'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -573,14 +573,14 @@ def reveal(path: str | Path | None) -> bool:
             return False
     if p.is_dir() and (p / 'romfs.img').is_file():
         target = (p / 'romfs.img').resolve()
-        is_file = True
+        select_item = True
     else:
         target = p.resolve()
-        is_file = target.is_file()
+        select_item = target.is_file() or target.suffix.lower() in ('.framework', '.app')
 
     if IS_WIN:
         norm = os.path.normpath(str(target))
-        if is_file:
+        if select_item:
             try:
                 import ctypes
                 shell32 = ctypes.windll.shell32
@@ -608,7 +608,7 @@ def reveal(path: str | Path | None) -> bool:
                 return True
             except OSError:
                 pass
-        folder_norm = os.path.normpath(str(target.parent if is_file else target))
+        folder_norm = os.path.normpath(str(target.parent if select_item else target))
         if hasattr(os, 'startfile'):
             try:
                 os.startfile(folder_norm)  # type: ignore[attr-defined]
@@ -617,7 +617,7 @@ def reveal(path: str | Path | None) -> bool:
                 pass
     elif IS_MAC:
         try:
-            cmd = ['/usr/bin/open', '-R', str(target)] if is_file else ['/usr/bin/open', str(target)]
+            cmd = ['/usr/bin/open', '-R', str(target)] if select_item else ['/usr/bin/open', str(target)]
             subprocess.Popen(cmd)
             return True
         except OSError:
@@ -626,7 +626,7 @@ def reveal(path: str | Path | None) -> bool:
     try:
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
-        open_dir = target.parent if is_file else target
+        open_dir = target.parent if select_item else target
         return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(str(open_dir))))
     except Exception:
         return False

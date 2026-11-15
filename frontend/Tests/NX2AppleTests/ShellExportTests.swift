@@ -1141,6 +1141,19 @@ import NXModel
         XCTAssertFalse(model.running)
         XCTAssertFalse(fm.fileExists(atPath: ShellLibrary.stateFile(root: f.root)), "the shared app is not touched")
         XCTAssertTrue(calls.isEmpty, "no xcodebuild for a shared app and no device")
+
+        let libGame = LibraryGame(titleID: titleID, name: "Test", inputs: ["base": [base.path]], outputDirectory: path("out"))
+        let entry = RefreshQueueBuilder.makeEntry(
+            game: libGame,
+            target: BuildTarget.ios,
+            fastRefresh: true,
+            batch: UUID(),
+            stores: stores,
+            libraryFolder: path("out")
+        )
+        XCTAssertFalse(entry.packageAfter)
+        XCTAssertEqual(entry.exportIPA, true)
+        XCTAssertEqual(entry.exportFramework, true)
     }
 
     /// The choice is saved and a build without it still asks for a device and a team.

@@ -350,7 +350,7 @@ struct LauncherView: View {
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
         .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)
         .sheet(isPresented: $selectingGames) {
-            BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !m.exportsOneGame && !m.exportsFramework) { selectingGames = false }
+            BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !m.exportsOneGame && !m.exportsFramework, exportsFramework: m.exportsFramework) { selectingGames = false }
                 .environmentObject(loc)
         }
         .refreshSheetsWiring(batchOpen: $batchRefreshOpen, imgGuide: $missingImgGuideFor, stores: stores, library: library, toolsAge: toolsAge, page: $page, pad: padFocus, scope: { currentPadScope })
