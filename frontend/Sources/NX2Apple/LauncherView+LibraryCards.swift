@@ -10,8 +10,9 @@ extension LauncherView {
     @ViewBuilder func collectionCard(_ game: LibraryGame, width: CGFloat, selected: Bool, in list: [LibraryGame], columns: Int?,
                                      choose: (() -> Void)? = nil) -> some View {
         let activate = { if let choose { if libraryInputAvailable { choose() } } else { activateLibraryCard(game) } }
-        let building = m.running && activeBuildID == game.id
-        let state = library.artworkState(for: game, building: building)
+        let building = isBuildingGame(game)
+        let queued = isQueuedGame(game)
+        let state = library.artworkState(for: game, building: building, queued: queued)
         let card = LibraryGameCard(title: game.displayName(loc.lang), image: artwork[game.id],
                                    focus: displayed(game).artwork.focus(for: .thumbnail),
                                    state: state,
@@ -55,27 +56,16 @@ extension LauncherView {
         return true
     }
     func activateLibraryCard(_ game: LibraryGame) {
-        guard libraryInputAvailable, !launching, !m.running || game.isReady else { return }
+        let descriptor = heroPrimaryDescriptor(for: game)
+        guard libraryInputAvailable, descriptor.enabled else { return }
         library.selectedID = game.id
         primaryAction(game)
     }
 
     private func cardContextItems(_ game: LibraryGame, ready: Bool) -> [ManageItem] {
-        let canAct = !launching && (!m.running || ready)
-        let primaryTitle: String
-        let primarySymbol: String
-        if ready {
-            primaryTitle = loc.t("library.play")
-            primarySymbol = "play.fill"
-        } else if game.onDevice {
-            primaryTitle = String(format: loc.t("dev.open"), devices.deviceName(game.installedDevice))
-            primarySymbol = "iphone"
-        } else {
-            primaryTitle = loc.t("library.setUpBuild")
-            primarySymbol = "hammer.fill"
-        }
+        let descriptor = heroPrimaryDescriptor(for: game)
         var items = [
-            ManageItem(id: "ctx.primary", symbol: primarySymbol, title: primaryTitle, enabled: canAct) {
+            ManageItem(id: "ctx.primary", symbol: descriptor.symbol, title: descriptor.title, enabled: descriptor.enabled) {
                 activateLibraryCard(game)
             }
         ]

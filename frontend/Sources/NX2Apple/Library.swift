@@ -62,6 +62,13 @@ struct LibraryGame: Codable, Identifiable, Equatable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// Whether the library holds a base package or game folder path to build or queue from.
+    var hasQueueableSources: Bool {
+        let hasBase = inputs["base"]?.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
+        let hasFolder = inputs[GameLibrary.folderInput]?.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
+        return hasBase || hasFolder
+    }
+
     /// What the hero's primary button does: play the Mac app, open the installed iPhone app, else build (an IPA alone is not a reason to show anything else).
     enum Primary: Equatable { case play, openOnDevice, build }
     var primary: Primary { isReady ? .play : (onDevice ? .openOnDevice : .build) }
@@ -199,12 +206,12 @@ final class GameLibrary: ObservableObject {
         if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
     }
 
-    func artworkState(for game: LibraryGame, building: Bool = false) -> LibraryArtworkState {
-        artworkStateCache.state(for: game, building: building, onConnectedDevice: connectedDeviceFramework(for: game.titleID) != nil)
+    func artworkState(for game: LibraryGame, building: Bool = false, queued: Bool = false) -> LibraryArtworkState {
+        artworkStateCache.state(for: game, building: building, queued: queued, onConnectedDevice: connectedDeviceFramework(for: game.titleID) != nil)
     }
 
-    func cachedArtworkStates(buildingID: UUID? = nil) -> [UUID: LibraryArtworkState] {
-        artworkStateCache.states(for: games, buildingID: buildingID, connectedTitleIDs: Set(connectedDeviceFrameworks.keys))
+    func cachedArtworkStates(buildingID: UUID? = nil, queuedTitleIDs: Set<String> = []) -> [UUID: LibraryArtworkState] {
+        artworkStateCache.states(for: games, buildingID: buildingID, queuedTitleIDs: queuedTitleIDs, connectedTitleIDs: Set(connectedDeviceFrameworks.keys))
     }
 
     func invalidateArtworkStates(for id: UUID? = nil) { artworkStateCache.invalidate(id: id) }

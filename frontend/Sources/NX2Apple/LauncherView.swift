@@ -12,7 +12,7 @@ struct LauncherView: View {
     @ObservedObject var updates: AppUpdateStore   // the app's self-update: the update icon, the sheet, the uninstall dialog
     @ObservedObject private var repo: RepoStore   // the repository: the activity line, and the checks that follow a change of it
     @ObservedObject private var buildDependencies: DependencyStore
-    @ObservedObject private var buildQueue: BuildQueueStore
+    @ObservedObject var buildQueue: BuildQueueStore
     @ObservedObject private var engine: EngineSyncStore   // the engine: the sync banner, and the checks that follow a sync
     @ObservedObject var playSessions: PlaySessionStore
     @ObservedObject var librarySelection: LibrarySelectionStore
@@ -159,7 +159,7 @@ struct LauncherView: View {
         guard filter != libraryFilter else { return }
         withAnimation(.easeInOut(duration: 0.2)) { libraryFilter = filter }
         filter.saveDesktop(stores.defaults)
-        let states = library.cachedArtworkStates(buildingID: activeBuildID)
+        let states = library.cachedArtworkStates(buildingID: activeBuildID, queuedTitleIDs: queuedLibraryTitleIDs)
         let after = filter.reconcile(
             games: library.games,
             selectedID: library.selectedID,
@@ -176,7 +176,7 @@ struct LauncherView: View {
     }
 
     var filteredGames: [LibraryGame] {
-        let states = library.cachedArtworkStates(buildingID: activeBuildID)
+        let states = library.cachedArtworkStates(buildingID: activeBuildID, queuedTitleIDs: queuedLibraryTitleIDs)
         return libraryFilter.visibleGames(
             library.games,
             matching: search,

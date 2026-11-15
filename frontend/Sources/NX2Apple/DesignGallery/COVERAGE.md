@@ -313,7 +313,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `hero.switch2` | `librarySwitch2` |
 | `library.skippedBanner` | `libraryNoticeWarning` |
 
-## States: 282 of 282 in a scene
+## States: 283 of 283 in a scene
 
 | State | Scenes |
 |---|---|
@@ -338,6 +338,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `LibraryArtworkState.Attention.missingData` | `desktop-cardEveryState`, `libraryGames` |
 | `LibraryArtworkState.Attention.fixFiles` | `desktop-cardEveryState` |
 | `LibraryArtworkState.Attention.building` | `desktop-cardEveryState` |
+| `LibraryArtworkState.Attention.queued` | `desktop-cardEveryState` |
 | `HeroRefreshState.upToDate` | `desktop-heroPlay` |
 | `HeroRefreshState.specificFast` | `desktop-heroRefreshFast` |
 | `HeroRefreshState.specificFull` | `desktop-heroRefreshFull` |
