@@ -120,15 +120,20 @@ import NXModel
             guard !running else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let build, let queue, !build.running, queue.running != nil else { return }
-                    self?.settleFinishedBuild()
-                    let outcome = build.queueOutcome
-                    build.activeQueuedGameID = nil
-                    queue.buildEnded(succeeded: outcome.succeeded, reason: outcome.reason, stopped: outcome.stopped)
-                    if queue.running == nil {
-                        build.deferShellPackaging = false
-                        build.queuedExportIPA = nil
-                        build.queuedExportOneGame = nil
+                    guard let build, let queue, !build.running else { return }
+                    if queue.running != nil {
+                        self?.settleFinishedBuild()
+                        let outcome = build.queueOutcome
+                        build.activeQueuedGameID = nil
+                        queue.buildEnded(succeeded: outcome.succeeded, reason: outcome.reason, stopped: outcome.stopped)
+                        if queue.running == nil {
+                            build.deferShellPackaging = false
+                            build.queuedExportIPA = nil
+                            build.queuedExportOneGame = nil
+                        }
+                    } else {
+                        if queue.hasWaiting { self?.settleFinishedBuild() }
+                        queue.processNext()
                     }
                 }
             }
