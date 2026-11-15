@@ -52,3 +52,5 @@
 0054-mac-host-join-the-default-preferences-domain-at.patch
 0055-gfx-adaptive-ios-memory-pressure-convergence-for.patch
 0056-tools-shader-lib-a-failed-write-removes-its-part.patch
+0057-motion-a-controller-is-a-source-once-its-rotatio.patch
+0058-test-native-controller-motion-primes-the-adapter.patch
