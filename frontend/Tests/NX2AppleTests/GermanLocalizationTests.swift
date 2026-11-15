@@ -15,7 +15,7 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
         "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "library.ok", "build.ios", "data.update", "data.keys", "delete.part.ipa",
         "dep.iossdk", "dep.tool.xcodegen", "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator",
         "dep.glslang", "dep.xcode", "dep.metal", "dep.brew", "dep.xcodegen", "dep.zstd", "dep.spirv.win",
-        "dep.zstd.win", "dep.spirv", "dep.dotnet", "dep.phase.download", "dep.python.hint",
+        "dep.zstd.win", "dep.spirv", "dep.dotnet", "dep.vcredist", "dep.phase.download", "dep.python.hint",
         "controls.fn.A", "controls.fn.B", "controls.fn.X", "controls.fn.Y", "controls.fn.L", "controls.fn.R",
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods", "artwork.screenshot",
         "update.pill", "launch.opt.DM_OPMODE.0", "launch.opt.DM_PRESENT_UPSCALE.off",
