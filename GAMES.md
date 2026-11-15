@@ -269,6 +269,7 @@ The engine runs Switch 2 games as ordinary profiles. There is no Switch 2 switch
 | Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | Reaches the first field on the Mac (update v196608), from a NUP. No IPA built | Not tried |
 | Mario Kart World | `0400C3F00006E000` | Reaches a race on the Mac (v0), 60 fps. No IPA built | Not tried |
 | Mario Tennis Fever | `0400D4201C6EA000` | Plays on the Mac (update v327680), 60 fps. No IPA built | Not tried |
+| The Legend of Zelda: Ocarina of Time | `0400486024DEC000` | Plays on the Mac through the title, the opening and Kokiri Forest (update v131072), about 59 fps. Mac only so far | Built from the command line and played on a Mac up to inside Ganon's Castle: 462,601 frames in 2 h 41 min, frame time p50 16.66 ms, no crash. Host `92aa1222`, 240 commits behind `main`, so what comes after that point is not covered |
 
 The folder layout the engine reads (`updates` and `dlc` are optional):
 
@@ -429,6 +430,7 @@ update layers over it). "无（v0）" = the base game alone is enough.
 | Xenoblade Chronicles: Definitive Edition | `0100FF500E34A000` | 1.1.2 (v196608) | Profile present, not verified on a phone |
 | Splatoon Raiders (Switch 2) | `0400380020056000` | v65536 | Profile present, not verified on a phone |
 | Hyrule Warriors: Age of Imprisonment (Switch 2) | `04003F40232DE000` | v196608 | Profile present, not verified on a phone |
+| The Legend of Zelda: Ocarina of Time (Switch 2) | `0400486024DEC000` | v131072 | **Verified here** — plays on a Mac, up to inside Ganon's Castle (462,601 frames in 2 h 41 min) |
 | Donkey Kong Bananza (Switch 2) | `040074A01BF12000` | v458752 | **Verified here** — builds, installs and runs on an iPhone |
 | Fire Emblem Fortune's Weave (Switch 2) | `04007EF01F8AE000` | v131072 | **Verified** — plays on an iPhone 18 Pro Max at 60 fps (#1143) |
 | Pokémon Pokopia (Switch 2) | `0400A3A01EE4C000` | v655360 | Profile present, not verified on a phone |
