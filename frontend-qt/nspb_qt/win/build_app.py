@@ -146,6 +146,29 @@ def _build_shared_fonts(repo: Path, out_dir: Path, font: Path, letter: Path) -> 
     make_shared_fonts.build(str(out_dir), str(font), str(letter))
 
 
+def copy_profile_tables(gd: Path, dmres: Path, gfx: str) -> None:
+    """The game profile's tables the host reads at run time, as build_ipa.sh's program_tables copies them. shader_map.tsv is
+    needed, and c1_full.tsv for the NVN chain. pso_manifest.tsv is optional: a profile may have no recorded prewarm seeds yet
+    (Pokopia, Kirby Air Riders; LNPANDY/NX2Apple#1335), and the host also reads the device's own list."""
+    for f in ['shader_map.tsv'] + ([] if gfx in ('vulkan', 'gl') else ['c1_full.tsv']):
+        src = gd / f
+        if not src.exists():
+            die(f'no {src} in the game profile (the shader step must run first)')
+        shutil.copy2(src, dmres)
+    if (gd / 'pso_manifest.tsv').exists():
+        shutil.copy2(gd / 'pso_manifest.tsv', dmres)
+    else:
+        t(f'no {gd / "pso_manifest.tsv"}: no bundled prewarm seed list')
+    if gfx == 'nvn':
+        if (gd / 'cb_extent.tsv').exists():
+            shutil.copy2(gd / 'cb_extent.tsv', dmres)
+        else:
+            t(f'no {gd}/cb_extent.tsv: the host copies whole uniform bindings')
+    for f in ('shader_pairs.tsv', 'pso_pairs.tsv'):
+        if (gd / f).exists():
+            shutil.copy2(gd / f, dmres)
+
+
 def py(*args, env=None, capture=True) -> str:
     """Run one of the repository's own Python tools and return its stdout."""
     r = subprocess.run([sys.executable, *map(str, args)], capture_output=capture, text=True,
@@ -1118,22 +1141,7 @@ def main(argv: list[str] | None = None) -> int:
             shutil.copy2(f, dmres)
     if (patched / 'nro.tsv').exists():
         shutil.copy2(patched / 'nro.tsv', dmres)
-    # the tables the host reads at run time; c1_full is only for the NVN chain
-    tables = ['shader_map.tsv', 'pso_manifest.tsv'] + ([] if gfx in ('vulkan', 'gl')
-                                                     else ['c1_full.tsv'])
-    for f in tables:
-        src = gd / f
-        if not src.exists():
-            die(f'no {src} in the game profile (the shader step must run first)')
-        shutil.copy2(src, dmres)
-    if gfx == 'nvn':
-        if (gd / 'cb_extent.tsv').exists():
-            shutil.copy2(gd / 'cb_extent.tsv', dmres)
-        else:
-            t(f'no {gd}/cb_extent.tsv: the host copies whole uniform bindings')
-    for f in ('shader_pairs.tsv', 'pso_pairs.tsv'):
-        if (gd / f).exists():
-            shutil.copy2(gd / f, dmres)
+    copy_profile_tables(gd, dmres, gfx)
 
     launcher = py(repo / 'dm/games/settings.py', gd, patched, nacp,
                   gen / 'launcher.json', env=dict(env, GFXAPI=gfx))

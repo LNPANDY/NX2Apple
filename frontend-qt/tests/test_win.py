@@ -19,6 +19,8 @@ attempted with the right arguments.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -8152,6 +8154,54 @@ class WindowsMissingPrereqAndStrippedDefenderTest(unittest.TestCase):
                 mod.build_shaders(sys.executable, repo, sh, repo / 'xlate', {'SPIRV_CROSS': str(fake_sc)}, logs, None)
             self.assertIn('no iOS shader libraries in', str(ctx_log.exception))
             self.assertIn('installed Metal Developer Tools for Windows is too old', str(ctx_log.exception))
+
+
+class ProfileTablesTest(unittest.TestCase):
+    """build_app.copy_profile_tables copies the game profile's tables as build_ipa.sh does. A profile with no
+    pso_manifest.tsv (no recorded prewarm seeds yet) still builds (LNPANDY/NX2Apple#1335)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.gd, self.dmres = root / 'profile', root / 'dm'
+        self.gd.mkdir()
+        self.dmres.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, *names):
+        for name in names:
+            (self.gd / name).write_text('# header\n', encoding='utf-8')
+
+    def copy(self, gfx):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            build_app.copy_profile_tables(self.gd, self.dmres, gfx)
+        return out.getvalue()
+
+    def test_no_pso_manifest_still_builds(self):
+        self.write('shader_map.tsv', 'c1_full.tsv', 'cb_extent.tsv')
+        said = self.copy('nvn')
+        self.assertEqual(sorted(p.name for p in self.dmres.iterdir()), ['c1_full.tsv', 'cb_extent.tsv', 'shader_map.tsv'])
+        self.assertIn('pso_manifest.tsv: no bundled prewarm seed list', said)
+        self.assertNotIn('FAIL', said)
+
+    def test_pso_manifest_is_copied_when_there(self):
+        self.write('shader_map.tsv', 'pso_manifest.tsv', 'shader_pairs.tsv')
+        said = self.copy('vulkan')   # a Vulkan or GL game needs no c1_full.tsv
+        self.assertEqual(sorted(p.name for p in self.dmres.iterdir()), ['pso_manifest.tsv', 'shader_map.tsv', 'shader_pairs.tsv'])
+        self.assertNotIn('prewarm', said)
+
+    def test_shader_map_and_nvn_chain_are_still_required(self):
+        self.write('pso_manifest.tsv', 'c1_full.tsv')
+        with self.assertRaises(SystemExit):   # no shader_map.tsv
+            self.copy('nvn')
+        self.write('shader_map.tsv')
+        (self.gd / 'c1_full.tsv').unlink()
+        with self.assertRaises(SystemExit):   # an NVN game needs c1_full.tsv
+            self.copy('nvn')
+        self.copy('gl')   # a GL game does not
 
 
 if __name__ == '__main__':
