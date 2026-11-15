@@ -35,6 +35,8 @@ METAL_TOOLCHAIN = 'metalToolchain'
 PROFILE_UPDATE_MISMATCH = 'profileUpdateMismatch'
 APP_ID_LIMIT = 'appIDLimit'
 FREE_APPLE_ID_LIMIT = 'freeAppleIdLimit'
+WIN_PREREQ = 'winPrereq'
+NO_IOS_SHADERS = 'noIOSShaders'
 UNKNOWN = 'unknown'
 
 # (id, kind, regular expression searched in the log)
@@ -92,8 +94,15 @@ _APP_ID_RESET = re.compile(
     r'(?:\s+(?:at\s+)?\d{1,2}:\d{2}(?:\s*[AP]M)?(?:\s*(?:UTC|GMT))?)?)'
 )
 
-EXTRA_KINDS = [METAL_TOOLCHAIN, PROFILE_UPDATE_MISMATCH, APP_ID_LIMIT, FREE_APPLE_ID_LIMIT]
+EXTRA_KINDS = [
+    WIN_PREREQ, METAL_TOOLCHAIN, PROFILE_UPDATE_MISMATCH, APP_ID_LIMIT, FREE_APPLE_ID_LIMIT, NO_IOS_SHADERS
+]
 EXTRA_TABLE: list[tuple[str, str, str]] = [
+    (
+        'win.prereq',
+        WIN_PREREQ,
+        r'(?:missing on this PC:|0x[Cc]0000135|STATUS_DLL_NOT_FOUND|(?:vcruntime140(?:_1)?|msvcp140)\.dll|Visual C\+\+ 2015-2022 Redistributable|0x[Cc]000007[Bb]|32-bit/64-bit DLL mismatch|Metal Developer Tools for Windows is too old|no Windows tool for `xcrun -sdk iphoneos (?:metal|metallib)`|spirv-cross(?:\.exe)? is missing|spirv-cross: lock [0-9a-f]+ / actual missing)',
+    ),
     (
         'metal.toolchain',
         METAL_TOOLCHAIN,
@@ -113,6 +122,11 @@ EXTRA_TABLE: list[tuple[str, str, str]] = [
         'appleid.freeLimit',
         FREE_APPLE_ID_LIMIT,
         r'(?i)(?:maximum number of (?:provisioned iOS devices|installed apps|provisioning profiles|apps for free development profiles)|free developer account[^\n]*3 apps|code -36607)',
+    ),
+    (
+        'shaders.noIOS',
+        NO_IOS_SHADERS,
+        r'(?:no (?:iOS|Mac) shader libraries in |no stamped Mac shader outputs in [^\n]+: dmsh_build\.py did not finish a full build)',
     ),
 ]
 # The Swift app has four more rows that no log line sets (a drive that is gone, a signing team, a device transfer):
@@ -145,6 +159,40 @@ class Failure:
         return OVERRIDE_FLAGS.get(self.kind)
 
 
+def _win_prereq_detail(log: str) -> str | None:
+    if re.search(r'0x[Cc]000007[Bb]|32-bit/64-bit DLL mismatch', log):
+        return 'Microsoft Visual C++ 2015-2022 Redistributable (x64, 0xC000007B)'
+    if m := re.search(
+        r'missing ((?:vcruntime140(?:_1)?|msvcp140)\.dll(?:,\s*(?:vcruntime140(?:_1)?|msvcp140)\.dll)*)',
+        log,
+        re.I,
+    ):
+        return f'Microsoft Visual C++ 2015-2022 Redistributable (x64) ({m.group(1)})'
+    if re.search(
+        r'0x[Cc]0000135|STATUS_DLL_NOT_FOUND|(?:vcruntime140(?:_1)?|msvcp140)\.dll|Visual C\+\+ 2015-2022 Redistributable',
+        log,
+    ):
+        return 'Microsoft Visual C++ 2015-2022 Redistributable (x64)'
+    if 'Metal Developer Tools for Windows is too old' in log:
+        return 'Metal Developer Tools 6.2 for Windows'
+    if 'no Windows tool for `xcrun -sdk iphoneos' in log:
+        return 'Metal Developer Tools for Windows (metal.exe / metallib.exe)'
+    if re.search(r'spirv-cross(?:\.exe)? is missing|spirv-cross: lock [0-9a-f]+ / actual missing', log):
+        return 'spirv-cross.exe'
+    if m := re.search(r'missing on this PC:\s*\n((?:[ \t]+[^\n]+\n?)+)', log):
+        names: list[str] = []
+        for raw in m.group(1).splitlines():
+            line = re.sub(r'^[ \t•\-]+', '', raw).strip()
+            if not line or line.startswith('('):
+                continue
+            name = line.split(':', 1)[0].strip()
+            if name and name not in names:
+                names.append(name)
+        if names:
+            return ', '.join(names)
+    return None
+
+
 def _detail(kind: str, log: str) -> str | None:
     if kind == DISK_FULL:   # "less than 40 GB free on the volume of /Volumes/X/..."
         m = re.search(r'less than ([0-9]+) GB free', log)
@@ -160,6 +208,14 @@ def _detail(kind: str, log: str) -> str | None:
         return m.group(1).strip() if m else None
     if kind == APP_ID_LIMIT:
         return app_id_limit_reset(log)
+    if kind == WIN_PREREQ:
+        return _win_prereq_detail(log)
+    if kind == NO_IOS_SHADERS:
+        m = re.search(
+            r'(?:no (?:iOS|Mac) shader libraries in [^\n]+?|dmsh_build\.py did not finish a full build)\s+—\s+([^\n]+)',
+            log,
+        )
+        return m.group(1).strip() if m else None
     return None
 
 

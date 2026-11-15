@@ -75,6 +75,50 @@ REFUSED_OPTIONS = {
 }
 
 
+def diagnose_empty_shader_log(log_text: str) -> str:
+    """Return a concise root-cause string from a `dmsh_build.log` that yielded zero metallibs."""
+    if not log_text:
+        return ''
+    if re.search(r'(?:0x[Cc]0000135|3221225781|-1073741515|STATUS_DLL_NOT_FOUND|(?:vcruntime140(?:_1)?|msvcp140)\.dll)', log_text):
+        missing = tc.missing_vc_runtime_dlls()
+        if missing:
+            return (
+                f'missing {", ".join(missing)} (0xC0000135) — '
+                f'install Microsoft Visual C++ 2015-2022 Redistributable (x64) ({tc.VCREDIST_URL})'
+            )
+        return (
+            'a shader tool failed with 0xC0000135 (DLL not found) — '
+            f'install Microsoft Visual C++ 2015-2022 Redistributable (x64) ({tc.VCREDIST_URL})'
+        )
+    if re.search(r'(?:0x[Cc]000007[Bb]|3221225595|-1073741701)', log_text):
+        return (
+            '32-bit/64-bit DLL mismatch (0xC000007B) — '
+            f'repair Microsoft Visual C++ 2015-2022 Redistributable (x64) ({tc.VCREDIST_URL})'
+        )
+    if re.search(r'no Windows tool for `xcrun -sdk iphoneos (?:metal|metallib)`', log_text):
+        return 'Metal Developer Tools for Windows (metal.exe / metallib.exe) is missing or incomplete'
+    if re.search(r'(?i)(?:metal(?:\.exe)?[^\n]*(?:unknown argument|unsupported option)|unknown argument:\s*[\'"]?-fmetal-math-mode)', log_text):
+        return (
+            'installed Metal Developer Tools for Windows is too old (missing -fmetal-math-mode=relaxed support) — '
+            f'install Metal Developer Tools {tc.METAL_TOOLS_VERSION} ({tc.METAL_TOOLS_URL})'
+        )
+    if re.search(r'(?i)spirv-cross(?:\.exe)?[^\n]*(?:not found|cannot find|No such file|actual missing|0xc0000135)', log_text):
+        return 'spirv-cross.exe is missing or cannot start (re-extract the Windows release archive or install Vulkan SDK)'
+    if re.search(r'(?i)(?:dmsh_xlate[^\n]*(?:does not start|does not run)|dotnet[^\n]*(?:not found|You must install or update \.NET))', log_text):
+        return '.NET 10 runtime / shader translator (dmsh_xlate) could not run'
+    first_err = ''
+    if m := re.search(r'(?m)^(?:\s*\[fail\]\s*|(?:fatal )?error:\s*|LLVM ERROR:\s*|xcrun_shim:\s*)(.+)$', log_text):
+        first_err = m.group(1).strip()[:200]
+    counts = re.search(r'shaders (\d+): ok 0, fail (\d+)', log_text)
+    if counts and first_err:
+        return f'all {counts.group(1)} shader compiles failed: {first_err}'
+    if counts:
+        return f'all {counts.group(1)} shader compiles failed (see dmsh_build.log)'
+    if first_err:
+        return first_err
+    return ''
+
+
 def repo_dir() -> Path:
     """The engine's folder: NSPB_REPO when set, else the checkout's or bundled engine/."""
     if env_repo := os.environ.get('NSPB_REPO'):
@@ -1184,6 +1228,63 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
                                        provisional, oodle, *a, **kw)
 
         mod.split_shaders = split_shaders
+
+    # ---------------------------------------------------------------- Windows shader diagnostics
+    if not hasattr(mod, '_nspb_orig_build_shaders') and hasattr(mod, 'build_shaders'):
+        mod._nspb_orig_build_shaders = mod.build_shaders
+
+    if hasattr(mod, '_nspb_orig_build_shaders'):
+        _orig_build_shaders = mod._nspb_orig_build_shaders
+
+        def _has_spirv_cross(repo_p, env_d: dict | None) -> bool:
+            env_d = env_d or {}
+            for key in ('SPIRV_CROSS', 'NSPB_SPIRV_CROSS'):
+                val = str(env_d.get(key) or '').strip()
+                if val:
+                    p = Path(val)
+                    if p.is_file() or p.with_suffix('.exe').is_file():
+                        return True
+                    return bool(shutil.which(val, path=env_d.get('PATH')))
+            if tc.find_exe('spirv-cross'):
+                return True
+            sc_dir = Path(repo_p) / 'dm' / 'gfx' / 'tools' / 'spirv_cross_bin'
+            if (sc_dir / 'spirv-cross.exe').is_file() or (sc_dir / 'spirv-cross').is_file():
+                return True
+            return bool(shutil.which('spirv-cross', path=env_d.get('PATH')))
+
+        def build_shaders(py, repo_, sh, xlate, env, logs, g, *a, **kw):
+            mac = bool(kw.get('mac', a[1] if len(a) > 1 else False))
+            chain = mod.chain_of(repo_) if hasattr(mod, 'chain_of') else ''
+            has_key = bool(chain and (Path(sh) / 'ios' / f'b-{chain}.key').is_file())
+            if not mac and not has_key and not _has_spirv_cross(repo_, env):
+                raise BuildError(
+                    'missing on this PC:\n'
+                    '  spirv-cross: spirv-cross.exe is missing '
+                    '(re-extract the Windows release archive or install Vulkan SDK)'
+                )
+            try:
+                return _orig_build_shaders(py, repo_, sh, xlate, env, logs, g, *a, **kw)
+            except BuildError as exc:
+                msg = str(exc)
+                if 'shader libraries in ' not in msg and 'did not finish a full build' not in msg:
+                    raise
+                why = ''
+                log_file = (Path(logs) / 'dmsh_build.log') if logs is not None else None
+                if log_file is not None and log_file.is_file():
+                    why = diagnose_empty_shader_log(log_file.read_text(encoding='utf-8', errors='replace'))
+                if not why and not mac and not _has_spirv_cross(repo_, env):
+                    why = 'spirv-cross.exe is missing (re-extract the Windows release archive or install Vulkan SDK)'
+                if not why:
+                    if missing := tc.missing_vc_runtime_dlls():
+                        why = (
+                            f'missing {", ".join(missing)} — '
+                            f'install Microsoft Visual C++ 2015-2022 Redistributable (x64) ({tc.VCREDIST_URL})'
+                        )
+                if why:
+                    raise BuildError(f'{msg} — {why}') from exc
+                raise
+
+        mod.build_shaders = build_shaders
 
     # ---------------------------------------------------------------- Mac outputs
     def mac_app(*a, **k):

@@ -39,6 +39,10 @@ ENV_TOOLCHAIN = 'NSPB_TOOLCHAIN_JSON'
 ENV_LLVM = 'NSPB_LLVM_DIR'
 ENV_SDK = 'NSPB_IOS_SDK'
 ENV_METAL = 'NSPB_METAL_DIR'
+ENV_SYSTEM32 = 'NSPB_SYSTEM32_DIR'
+
+VCREDIST_DLLS = ('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')
+VCREDIST_URL = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
 
 # ---------------------------------------------------------------- pinned versions
 
@@ -444,6 +448,81 @@ def _lld_has_macho(exe: Path) -> bool:
     return b'MachO' in data and b'ld64.lld' in data
 
 
+def win_system32_dir() -> Path | None:
+    """Return the Windows 64-bit System32 directory when running on Windows or overridden."""
+    if override := os.environ.get(ENV_SYSTEM32):
+        return Path(override)
+    if os.name != 'nt':
+        return None
+    windir = Path(os.environ.get('SystemRoot') or os.environ.get('WINDIR') or r'C:\Windows')
+    sysnative = windir / 'Sysnative'
+    if sysnative.is_dir():
+        return sysnative
+    return windir / 'System32'
+
+
+def missing_vc_runtime_dlls(sys32: Path | None = None) -> list[str]:
+    """Return the missing Microsoft Visual C++ 2015-2022 (x64) runtime DLLs."""
+    target = sys32 if sys32 is not None else win_system32_dir()
+    if target is None or not target.is_dir():
+        return []
+    try:
+        present = {p.name.lower() for p in target.iterdir()}
+        return [dll for dll in VCREDIST_DLLS if dll.lower() not in present]
+    except OSError:
+        return [dll for dll in VCREDIST_DLLS if not (target / dll).is_file()]
+
+
+def probe_vcredist() -> Probe | None:
+    """Check whether Visual C++ 2015-2022 Redistributable (x64) runtime DLLs exist."""
+    sys32 = win_system32_dir()
+    if sys32 is None:
+        return None
+    missing = missing_vc_runtime_dlls(sys32)
+    if not missing:
+        return Probe(
+            'vcredist',
+            'Visual C++ Redistributable (x64)',
+            'ok',
+            str(sys32),
+            path=str(sys32),
+            pinned='2015-2022 x64',
+        )
+    return Probe(
+        'vcredist',
+        'Visual C++ Redistributable (x64)',
+        'missing',
+        f'missing {", ".join(missing)} in {sys32} — install Microsoft Visual C++ 2015-2022 Redistributable (x64): {VCREDIST_URL}',
+        hint=VCREDIST_URL,
+        pinned='2015-2022 x64',
+    )
+
+
+def explain_process_exit(returncode: int, exe: Path | str = '') -> str:
+    """Translate common Windows NTSTATUS process exit codes into actionable root-cause hints."""
+    u32 = returncode & 0xFFFFFFFF
+    tool = Path(exe).name if exe else 'tool'
+    if u32 == 0xC0000135:
+        missing = missing_vc_runtime_dlls()
+        if missing:
+            return (
+                f'{tool} exited with 0xC0000135 (DLL not found): missing {", ".join(missing)} — '
+                f'install Microsoft Visual C++ 2015-2022 Redistributable (x64) ({VCREDIST_URL})'
+            )
+        return (
+            f'{tool} exited with 0xC0000135 (a required DLL is missing; '
+            f'install Microsoft Visual C++ 2015-2022 Redistributable x64: {VCREDIST_URL})'
+        )
+    if u32 == 0xC000007B:
+        return (
+            f'{tool} exited with 0xC000007B (32-bit/64-bit DLL mismatch; '
+            f'repair Microsoft Visual C++ 2015-2022 Redistributable x64: {VCREDIST_URL})'
+        )
+    if u32 == 0xC0000142:
+        return f'{tool} exited with 0xC0000142 (DLL initialization failed)'
+    return ''
+
+
 def llvm_version(clang: Path) -> tuple[str, str]:
     """clang's version line and, when it could not be read, why — (version, diagnostics).
 
@@ -459,8 +538,10 @@ def llvm_version(clang: Path) -> tuple[str, str]:
     except (OSError, subprocess.SubprocessError) as e:
         return '', f'--version cannot start: {e}'
     if r.returncode != 0:
-        return '', (f'--version exit {r.returncode} (0x{r.returncode & 0xFFFFFFFF:08x}), '
-                    f'output: {(r.stderr or r.stdout or "(empty)")[:200]}')
+        hint = explain_process_exit(r.returncode, clang)
+        base = (f'--version exit {r.returncode} (0x{r.returncode & 0xFFFFFFFF:08x}), '
+                f'output: {(r.stderr or r.stdout or "(empty)")[:200]}')
+        return '', f'{hint} ({base})' if hint else base
     # `r.stdout` is None when capture came back empty — `text=True` with no output, or a
     # redirected stdout on Windows. `re.search` then raises TypeError, which used to take the
     # whole dependency check down (the report: "dependency check failed: TypeError: expected
@@ -493,6 +574,9 @@ def clang_compiles(clang: Path) -> tuple[bool, str]:
         except OSError as e:
             return False, f'cannot run {clang}: {e}'
         if r.returncode != 0:
+            hint = explain_process_exit(r.returncode, clang)
+            if hint:
+                return False, hint
             tail = ((r.stderr or r.stdout or '').strip().splitlines() or ['(no output)'])[-1]
             return False, f'compile exit {r.returncode} (0x{r.returncode & 0xFFFFFFFF:08x}): {tail[:200]}'
         try:
@@ -1211,8 +1295,11 @@ def probe_compile(sdk: Path, clang: Path | None = None) -> tuple[bool, str]:
         except OSError as e:
             return False, f'cannot run {clang}: {e}'
         if r.returncode != 0:
+            hint = explain_process_exit(r.returncode, clang)
+            if hint:
+                return False, hint
             tail = ((r.stderr or r.stdout or '').strip().splitlines() or ['no output'])[-1]
-            return False, f'clang refused the probe: {tail[:300]}'
+            return False, f'clang refused the probe (exit {r.returncode}, 0x{r.returncode & 0xFFFFFFFF:08x}): {tail[:300]}'
         try:
             head = o.read_bytes()[:32]
         except OSError as e:
@@ -1296,8 +1383,10 @@ def probe_metal(sdk: Path) -> tuple[bool, str]:
         dep_maj = int(IOS_DEPLOYMENT.split('.')[0])
         maj = min(sdk_major(sdk_version(sdk)[0]) or dep_maj, dep_maj)
         tgt = f'air64-apple-ios{maj}.0'
-        for cmd, what in (([str(metal), '-target', tgt, '-c', str(m), '-o', str(a)], 'metal'),
-                          ([str(metallib), str(a), '-o', str(lib)], 'metallib')):
+        for cmd, what in (
+            ([str(metal), '-target', tgt, '-fmetal-math-mode=relaxed', '-fpreserve-invariance', '-fwrapv', '-c', str(m), '-o', str(a)], 'metal'),
+            ([str(metallib), str(a), '-o', str(lib)], 'metallib'),
+        ):
             try:
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=180,
                                    cwd=td, **no_window())
@@ -1306,8 +1395,17 @@ def probe_metal(sdk: Path) -> tuple[bool, str]:
             except OSError as e:
                 return False, f'cannot run {cmd[0]}: {e}'
             if r.returncode != 0:
-                tail = ((r.stderr or r.stdout or '').strip().splitlines() or ['no output'])[-1]
-                return False, f'{what} failed: {tail[:300]}'
+                if hint := explain_process_exit(r.returncode, cmd[0]):
+                    return False, f'{what} failed: {hint}'
+                out_text = (r.stderr or '') + '\n' + (r.stdout or '')
+                tail = (out_text.strip().splitlines() or ['no output'])[-1]
+                if re.search(r'unknown argument|unsupported option|invalid value .* in .*-target', out_text, re.I):
+                    return (
+                        False,
+                        f'{what} failed ({tail[:220]}): installed Metal Developer Tools for Windows is too old — '
+                        f'install Metal Developer Tools {METAL_TOOLS_VERSION} ({METAL_TOOLS_URL})',
+                    )
+                return False, f'{what} failed (exit {r.returncode}, 0x{r.returncode & 0xFFFFFFFF:08x}): {tail[:260]}'
         if not lib.is_file() or lib.stat().st_size == 0:
             return False, 'metallib wrote no output (empty library)'
         return True, f'{lib.stat().st_size} byte metallib for {tgt}'
@@ -1480,6 +1578,8 @@ def check_all(deep: bool = False, t=None) -> list[Probe]:
 
     # ---- .NET (the extractor and the shader translator both target net10.0)
     out.append(probe_dotnet())
+    if vc := probe_vcredist():
+        out.append(vc)
 
     # ---- LLVM. The verdict is the compile probe (clang_compiles), not --version: the report's
     # machine compiles fine and its --version exits non-zero silently, so a version-only check

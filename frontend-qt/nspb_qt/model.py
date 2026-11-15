@@ -840,6 +840,11 @@ class Model(QObject):
             else:
                 self.dotnet_path, self.dotnet_ok = 'dotnet', False
 
+        p = by_id.get('vcredist')
+        if p:
+            out.append(Dep('vcredist', 'dep.vcredist', 'dep.vcredist.hint', state(p),
+                           (p.path or 'ok') if p.ok else (p.detail or '')))
+
         # LLVM (+ the Mach-O linker, which comes from the same folder)
         p = by_id.get('llvm')
         if p:
@@ -1375,6 +1380,8 @@ class Model(QObject):
                     msg = self.t('defender.msg.cancelled')
                 else:
                     self.defender_status_ok = False
+                    if getattr(res, 'error_code', '') == 'service_inactive':
+                        self.settings_set('defenderPromptDismissed', True)
                     msg = self._defender_failure_message(res)
                 self.defender_status_msg = msg
             self.log(msg + '\n')
@@ -3265,6 +3272,10 @@ class Model(QObject):
             return self.t('fail.psoDiskFull.whatNeeds', f.detail)
         if f.kind == bf.APP_ID_LIMIT and f.detail:
             return self.t('fail.appIDLimit.whatUntil', f.detail)
+        if f.kind == bf.WIN_PREREQ and f.detail:
+            return self.t('fail.winPrereq.whatNamed', f.detail)
+        if f.kind == bf.NO_IOS_SHADERS and f.detail:
+            return self.t('fail.noIOSShaders.whatDetail', f.detail)
         return self.t(f.what_key)
 
     def _keys_readable(self) -> bool | None:
