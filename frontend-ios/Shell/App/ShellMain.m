@@ -113,6 +113,7 @@ void dm_shell_return_to_library(void) {
         g_present = NULL;
         g_boot_ok = 0;
         if (fbase) restore_framework_data(fbase);
+        [ShellLibrary gameDidEnd];
         UIWindow *window = nil;
         for (UIScene *s in UIApplication.sharedApplication.connectedScenes)
             if ([s isKindOfClass:UIWindowScene.class]) for (UIWindow *w in ((UIWindowScene *)s).windows) if (w.isKeyWindow || !window) window = w;
@@ -380,10 +381,10 @@ static UIInterfaceOrientationMask shell_orientations(UITraitCollection *traits) 
     [self.window makeKeyAndVisible];
 }
 // Forwarded to the running game framework's front_ios.m once a game has started
-- (void)sceneWillResignActive:(UIScene *)s { (void)s; if (g_focus) g_focus(0); }
-- (void)sceneDidEnterBackground:(UIScene *)s { (void)s; if (g_focus) g_focus(1); }
+- (void)sceneWillResignActive:(UIScene *)s { (void)s; if (g_boot_ok) [ShellLibrary gameWillPause]; if (g_focus) g_focus(0); }
+- (void)sceneDidEnterBackground:(UIScene *)s { (void)s; if (g_boot_ok) [ShellLibrary gameDidCheckpoint]; if (g_focus) g_focus(1); }
 - (void)sceneWillEnterForeground:(UIScene *)s { (void)s; if (g_focus) g_focus(2); }
-- (void)sceneDidBecomeActive:(UIScene *)s { (void)s; if (g_focus) g_focus(3); }
+- (void)sceneDidBecomeActive:(UIScene *)s { (void)s; if (g_boot_ok) [ShellLibrary gameDidResume]; if (g_focus) g_focus(3); }
 @end
 
 // The performance HUD (the per-game setting DM_METAL_HUD) needs MTL_HUD_ENABLED in the environment before Metal starts in this

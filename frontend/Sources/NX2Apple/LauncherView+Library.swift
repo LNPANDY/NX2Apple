@@ -72,6 +72,12 @@ extension LauncherView {
                 Label(loc.t("supported.menu"), systemImage: "list.bullet.rectangle")
                     .font(.manrope(14)).foregroundStyle(.secondary)
             }.buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
+            if playSessions.sessions.gamesPlayedCount > 0 {
+                Button(action: openActivityLog) {
+                    Label(loc.t("activity.button"), systemImage: "chart.bar.xaxis")
+                        .font(.manrope(14)).foregroundStyle(.secondary)
+                }.buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
+            }
             if hasSkipped {
                 LibrarySkippedBanner(
                     items: library.skippedItems,
@@ -240,8 +246,8 @@ extension LauncherView {
         .padTarget("library.supported", scope: "main", radius: 9, activate: openSupportedGames)
     }
 
-    /// The window width from which the Supported games button shows its name.
-    static let supportedLabelWidth: CGFloat = 1100
+    /// The window width from which the Supported games and Activity Log buttons show their names.
+    static let supportedLabelWidth: CGFloat = 1220
 
     func collection(width: CGFloat) -> some View {
         let cardWidth = min(300, max(190, (width - 124) / 5))
@@ -256,6 +262,7 @@ extension LauncherView {
                 if !library.games.isEmpty {
                     collectionBatchRefreshButton(compact: compactHeader)
                 }
+                activityLogButton(compact: compactHeader)
                 supportedGamesButton(compact: compactHeader)
                 HStack(spacing: 8) {
                     // a narrow window keeps the menu without the word before it (the menu's accessible label says Sort)
