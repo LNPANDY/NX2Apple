@@ -35,7 +35,13 @@ struct BuildPage: View {
                 .onDisappear { showRunningSetup = false }
         }
         if !running || showRunningSetup {
-            SetupHintCard(repo: repo, dependencies: dependencies, onOpenSettings: onOpenSettings)
+            EngineSwitcherCard(build: build)
+            SetupHintCard(
+                repo: repo,
+                dependencies: dependencies,
+                usesExternalUpstream: build.usesExternalUpstreamRepo,
+                onOpenSettings: onOpenSettings
+            )
             if stagingQueue {
                 BuildQueueCard(queue: queue, onSelectGames: onSelectGames)
             } else if !queue.hasWaiting {

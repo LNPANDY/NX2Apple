@@ -1,7 +1,7 @@
 import Foundation
 
 package enum S2ArmBuilder {
-    package static var featureEnabled = ProcessInfo.processInfo.environment["NX2APPLE_MULTI_UPSTREAM"] == "1"
+    package static var featureEnabled = ProcessInfo.processInfo.environment["NX2APPLE_MULTI_UPSTREAM"] != "0"
 
     package struct ResultSummary: Equatable, Sendable {
         package let ok: Bool

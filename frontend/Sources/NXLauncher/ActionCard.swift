@@ -56,7 +56,7 @@ package struct ActionCard: View {
             Text(loc.t("status.checkingDeps")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
         } else if !dependencies.allPresent {
             Text(loc.t("status.installFirst")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
-        } else if !repo.isRepo {
+        } else if !repo.isRepo && !build.usesExternalUpstreamRepo {
             Text(loc.t("status.chooseRepo")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
         } else if build.hasQueuedBuilds {
             if build.queueNeedsDevice {
