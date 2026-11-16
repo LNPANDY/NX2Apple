@@ -7,7 +7,7 @@ import XCTest
 
 /// The artwork panel drawn in the launcher, for visual QA. Opt-in (`NX_LAUNCHER_CAPTURE_DIR`), like testRenderLauncherForVisualQA:
 /// the images are generated, the library and the artwork folder are temporary, and nothing reaches the network.
-final class ArtworkPanelTests: XCTestCase {
+final class ArtworkPanelTests: IsolatedDefaultsTestCase {
     private var fixture: ArtworkFixture!
 
     override func tearDown() async throws { await MainActor.run { fixture?.cleanup() } }
@@ -31,7 +31,7 @@ final class ArtworkPanelTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
         let lang = CaptureLanguage.current(.en)
-        let stores = LauncherStores()
+        let stores = LauncherStores(defaults: testDefaults)
         stores.localizer.lang = lang
 
         fixture = try ArtworkFixture(others: [("01007EF00011E000", "The Legend of Zelda: Breath of the Wild"), ("0100000000010000", "Super Mario Odyssey"),

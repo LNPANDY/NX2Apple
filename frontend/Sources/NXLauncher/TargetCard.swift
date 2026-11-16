@@ -52,7 +52,9 @@ package struct TargetCard: View {
     }
 
     private func targetCard(_ value: String, symbol: String, title: String, note: String) -> some View {
-        let selected = build.target == value
+        let macOnlyBlocked = value == BuildTarget.ios && build.isMacNativeGamesSelected
+        let selected = build.target == value && !macOnlyBlocked
+        let displayNote = macOnlyBlocked ? "upstream.mngMacOnly" : note
         return Button { build.target = value } label: {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
@@ -64,7 +66,7 @@ package struct TargetCard: View {
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(loc.t(title)).font(.manrope(16, .semibold))
-                    Text(loc.t(note)).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                    Text(loc.t(displayNote)).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(20).frame(maxWidth: .infinity, alignment: .leading)
@@ -72,7 +74,8 @@ package struct TargetCard: View {
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.selectedBorder : LauncherPalette.selectableBorder, lineWidth: selected ? 1.5 : 1))
             .contentShape(RoundedRectangle(cornerRadius: 14))
         }
-        .buttonStyle(.plain).disabled(build.running)
+        .buttonStyle(.plain).disabled(build.running || macOnlyBlocked)
+        .opacity(macOnlyBlocked ? 0.5 : 1)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

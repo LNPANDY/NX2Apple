@@ -213,12 +213,22 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         didSet { defaults.set(buildUpstream.rawValue, forKey: Self.buildUpstreamKey) }
     }
     @Published package var macNativeGamesPath: String {
-        didSet { defaults.set(macNativeGamesPath, forKey: Self.macNativeGamesPathKey) }
+        didSet {
+            defaults.set(macNativeGamesPath, forKey: Self.macNativeGamesPathKey)
+            macNativeGamesInstalled = MacNativeGamesBuilder.isUsableTree(macNativeGamesPath)
+        }
     }
+    @Published package internal(set) var macNativeGamesInstalled = false
     package var mngRun = false
     @Published package var s2armPath: String {
-        didSet { defaults.set(s2armPath, forKey: Self.s2armPathKey) }
+        didSet {
+            defaults.set(s2armPath, forKey: Self.s2armPathKey)
+            s2armInstalled = S2ArmBuilder.isUsableTree(s2armPath)
+        }
     }
+    @Published package internal(set) var s2armInstalled = false
+    @Published package internal(set) var upstreamDownloads: [EngineUpstreamKind: UpstreamInstallState] = [:]
+    package var upstreamTransport: EngineTransport = URLSessionEngineTransport()
     package var s2armRun = false
     package var s2armEventsPath = ""
     @Published package var archivePath = ""  // the romfs folder the pack wrote
@@ -382,15 +392,25 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         experimentalBuilder = ExperimentalBuilder.featureEnabled && defaults.bool(forKey: Self.experimentalBuilderKey)
         experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
         savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
-        if (MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled),
-           let rawUpstream = defaults.string(forKey: Self.buildUpstreamKey),
+        let savedMNGPath = defaults.string(forKey: Self.macNativeGamesPathKey) ?? ""
+        let savedS2ArmPath = defaults.string(forKey: Self.s2armPathKey) ?? ""
+        macNativeGamesPath = savedMNGPath
+        s2armPath = savedS2ArmPath
+        macNativeGamesInstalled = MacNativeGamesBuilder.isUsableTree(savedMNGPath)
+        s2armInstalled = S2ArmBuilder.isUsableTree(savedS2ArmPath)
+        if let rawUpstream = defaults.string(forKey: Self.buildUpstreamKey),
            let parsedUpstream = EngineUpstreamKind(rawValue: rawUpstream) {
-            buildUpstream = parsedUpstream
+            switch parsedUpstream {
+            case .nxnative:
+                buildUpstream = .nxnative
+            case .macNativeGames:
+                buildUpstream = MacNativeGamesBuilder.featureEnabled ? .macNativeGames : .nxnative
+            case .s2arm:
+                buildUpstream = S2ArmBuilder.featureEnabled ? .s2arm : .nxnative
+            }
         } else {
             buildUpstream = .nxnative
         }
-        macNativeGamesPath = defaults.string(forKey: Self.macNativeGamesPathKey) ?? ""
-        s2armPath = defaults.string(forKey: Self.s2armPathKey) ?? ""
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.

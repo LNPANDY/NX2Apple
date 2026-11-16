@@ -16,7 +16,7 @@ from . import engine
 
 def feature_enabled(env: Mapping[str, str] | None = None) -> bool:
     """Return whether the multi-upstream feature toggle is enabled."""
-    return (env if env is not None else os.environ).get('NX2APPLE_MULTI_UPSTREAM') == '1'
+    return (env if env is not None else os.environ).get('NX2APPLE_MULTI_UPSTREAM') != '0'
 
 
 def is_usable_tree(path: str, *, is_windows: bool | None = None) -> bool:

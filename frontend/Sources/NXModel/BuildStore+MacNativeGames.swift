@@ -7,7 +7,7 @@ extension BuildStore {
     }
 
     package var usesExternalUpstreamRepo: Bool {
-        (isMacNativeGamesSelected && target == BuildTarget.mac && MacNativeGamesBuilder.isUsableTree(macNativeGamesPath)) || (isS2ArmSelected && S2ArmBuilder.isUsableTree(s2armPath))
+        (isMacNativeGamesSelected && target == BuildTarget.mac && macNativeGamesInstalled) || (isS2ArmSelected && s2armInstalled)
     }
 
     func macNativeGamesProblem() -> String? {

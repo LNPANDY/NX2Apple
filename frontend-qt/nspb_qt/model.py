@@ -29,6 +29,7 @@ from . import platform_util as pu
 from . import post_build_cleanup as pbc
 from . import romfs_languages
 from . import s2arm_builder
+from . import upstream_store
 from .i18n import Lang
 from .l10n import t
 
@@ -236,6 +237,7 @@ class Model(QObject):
     driveCopyStateChanged = Signal()
     driveCopyProgress = Signal(object, object)   # done_bytes, total_bytes
     driveCopyFinished = Signal(bool, bool, str)  # ok, cancelled, info
+    upstreamStateChanged = Signal()
 
     #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
     #: path, or '' when the user cancelled. `pick_dep_folder` calls it, so the model stays UI-free.
@@ -283,8 +285,17 @@ class Model(QObject):
         self.dlc_paths: list[str] = []
         self.keys_path = ''
         saved_upstream = self.settings.value('buildUpstream', 'nxnative', type=str)
-        self.build_upstream = saved_upstream if s2arm_builder.feature_enabled() and saved_upstream in ('nxnative', 's2arm') else 'nxnative'
         self.s2arm_path = self.settings.value('s2armPath', '', type=str)
+        if not s2arm_builder.is_usable_tree(self.s2arm_path):
+            managed = upstream_store.usable_managed_path('s2arm')
+            if managed:
+                self.s2arm_path = managed
+        self.upstream_states: dict[str, tuple[str, float | None, str]] = {}
+        self._upstream_lock = threading.Lock()
+        if s2arm_builder.feature_enabled() and saved_upstream == 's2arm' and s2arm_builder.is_usable_tree(self.s2arm_path):
+            self.build_upstream = 's2arm'
+        else:
+            self.build_upstream = 'nxnative'
         self.game_folder: inputs.GameFolderContents | None = None   # a game chosen as a folder of files or a NUP (no keys needed)
         self.game_folder_problem = ''   # why a chosen game folder cannot be built, shown on the base row
         self.out_dir = ''
@@ -2494,8 +2505,99 @@ class Model(QObject):
         return s2arm_builder.feature_enabled() and getattr(self, 'build_upstream', 'nxnative') == 's2arm'
 
     @property
+    def uses_external_upstream_repo(self) -> bool:
+        return self.is_s2arm_selected and s2arm_builder.is_usable_tree(getattr(self, 's2arm_path', ''))
+
+    def is_upstream_installed(self, kind: str) -> bool:
+        if kind == 'nxnative':
+            return True
+        if kind == 's2arm':
+            return s2arm_builder.is_usable_tree(getattr(self, 's2arm_path', ''))
+        return False
+
+    def upstream_state(self, kind: str) -> tuple[str, float | None, str]:
+        if kind == 'nxnative':
+            return ('builtin', None, '')
+        with self._upstream_lock:
+            active = self.upstream_states.get(kind)
+        if active is not None:
+            if active[0] == 'failed' and self.is_upstream_installed(kind):
+                return ('installed', None, '')
+            return active
+        return ('installed', None, '') if self.is_upstream_installed(kind) else ('not_installed', None, '')
+
+    def select_upstream(self, kind: str) -> bool:
+        if self.running:
+            return False
+        if kind == 'nxnative':
+            self.build_upstream = 'nxnative'
+            self.settings.setValue('buildUpstream', 'nxnative')
+            self.upstreamStateChanged.emit()
+            return True
+        if kind == 's2arm' and s2arm_builder.feature_enabled() and self.is_upstream_installed('s2arm'):
+            state_kind = self.upstream_state('s2arm')[0]
+            if state_kind in ('downloading', 'extracting'):
+                return False
+            self.build_upstream = 's2arm'
+            self.settings.setValue('buildUpstream', 's2arm')
+            self.upstreamStateChanged.emit()
+            return True
+        return False
+
+    def download_upstream(self, kind: str) -> None:
+        if kind != 's2arm' or self.running or not s2arm_builder.feature_enabled():
+            return
+        with self._upstream_lock:
+            cur = self.upstream_states.get(kind)
+            if cur is not None and cur[0] in ('downloading', 'extracting'):
+                return
+            self.upstream_states[kind] = ('downloading', None, '')
+        self.upstreamStateChanged.emit()
+
+        def _worker() -> None:
+            def _on_prog(written: int, expected: int | None) -> None:
+                frac, txt = upstream_store.format_download_progress(written, expected)
+                with self._upstream_lock:
+                    cur_s = self.upstream_states.get(kind)
+                    if cur_s is None or cur_s[0] != 'downloading':
+                        return
+                    self.upstream_states[kind] = ('downloading', frac, txt)
+                self.upstreamStateChanged.emit()
+
+            def _on_ext() -> None:
+                with self._upstream_lock:
+                    self.upstream_states[kind] = ('extracting', None, '')
+                self.upstreamStateChanged.emit()
+
+            try:
+                installed_dir = upstream_store.download_and_install_upstream(
+                    kind,
+                    on_progress=_on_prog,
+                    on_extracting=_on_ext,
+                )
+            except upstream_store.UpstreamInstallError as exc:
+                err_kind = 'download' if exc.kind == 'download' else 'extract'
+                with self._upstream_lock:
+                    self.upstream_states[kind] = ('failed', None, err_kind)
+                self.upstreamStateChanged.emit()
+                return
+            except Exception:
+                with self._upstream_lock:
+                    self.upstream_states[kind] = ('failed', None, 'extract')
+                self.upstreamStateChanged.emit()
+                return
+
+            self.s2arm_path = str(installed_dir)
+            self.settings.setValue('s2armPath', self.s2arm_path)
+            with self._upstream_lock:
+                self.upstream_states.pop(kind, None)
+            self.upstreamStateChanged.emit()
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    @property
     def can_build(self) -> bool:
-        upstream_repo_ok = self.is_s2arm_selected and s2arm_builder.is_usable_tree(getattr(self, 's2arm_path', ''))
+        upstream_repo_ok = self.uses_external_upstream_repo
         if getattr(self, '_is_fast_refresh', False):
             return (self.repo_ok or upstream_repo_ok) and self.all_deps_ok and not self.running
         # a game folder needs no keys, a refused one cannot build

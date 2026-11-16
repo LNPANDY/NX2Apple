@@ -73,7 +73,7 @@ extension BuildStore {
     package var canStartBuildOrQueue: Bool {
         guard !running else { return false }
         if hasQueuedBuilds {
-            return repo.isRepo && deps.allPresent && !queueNeedsDevice
+            return (usesExternalUpstreamRepo || repo.isRepo) && deps.allPresent && !queueNeedsDevice
         }
         return canBuild && keyProblem == nil
     }
@@ -83,7 +83,7 @@ extension BuildStore {
     package func startBuildOrQueue() {
         guard !running else { return }
         if hasQueuedBuilds, let queue {
-            guard repo.isRepo, deps.allPresent else { return }
+            guard usesExternalUpstreamRepo || repo.isRepo, deps.allPresent else { return }
             if queueNeedsDevice {
                 doneNote = t("shell.needsDevice")
                 done = false

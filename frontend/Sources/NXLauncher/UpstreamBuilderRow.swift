@@ -11,23 +11,36 @@ package struct UpstreamBuilderRow: View {
         self.build = build
     }
 
+    private var availableOptions: [(value: String, label: String)] {
+        var opts: [(value: String, label: String)] = [
+            (EngineUpstreamKind.nxnative.rawValue, "nxnative")
+        ]
+        if MacNativeGamesBuilder.featureEnabled && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames) {
+            opts.append((EngineUpstreamKind.macNativeGames.rawValue, "MacNativeGames"))
+        }
+        if S2ArmBuilder.featureEnabled && (build.s2armInstalled || build.buildUpstream == .s2arm) {
+            opts.append((EngineUpstreamKind.s2arm.rawValue, "S2Arm"))
+        }
+        return opts
+    }
+
     package var body: some View {
         CardRow(loc.t("upstream.title"), detail: loc.t("upstream.note")) {
-            Picker(loc.t("upstream.title"), selection: $build.buildUpstream) {
-                Text("nxnative").tag(EngineUpstreamKind.nxnative)
-                if MacNativeGamesBuilder.featureEnabled {
-                    Text("MacNativeGames").tag(EngineUpstreamKind.macNativeGames)
-                }
-                if S2ArmBuilder.featureEnabled {
-                    Text("S2Arm").tag(EngineUpstreamKind.s2arm)
+            LauncherDropdown(
+                options: availableOptions,
+                selection: build.buildUpstream.rawValue,
+                label: loc.t("upstream.title"),
+                style: .button
+            ) { raw in
+                if let kind = EngineUpstreamKind(rawValue: raw) {
+                    build.selectUpstream(kind)
                 }
             }
-            .labelsHidden()
             .disabled(build.running)
         }
-        if build.buildUpstream == .macNativeGames {
+        if MacNativeGamesBuilder.featureEnabled && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames) {
             CardDivider()
-            let usable = MacNativeGamesBuilder.isUsableTree(build.macNativeGamesPath)
+            let usable = build.macNativeGamesInstalled
             let detailText: String = {
                 if build.macNativeGamesPath.isEmpty {
                     return loc.t("upstream.notSelected")
@@ -48,9 +61,10 @@ package struct UpstreamBuilderRow: View {
                 }
                 .disabled(build.running)
             }
-        } else if build.buildUpstream == .s2arm {
+        }
+        if S2ArmBuilder.featureEnabled && (build.s2armInstalled || build.buildUpstream == .s2arm) {
             CardDivider()
-            let usable = S2ArmBuilder.isUsableTree(build.s2armPath)
+            let usable = build.s2armInstalled
             let detailText: String = {
                 if build.s2armPath.isEmpty {
                     return loc.t("upstream.notSelected")

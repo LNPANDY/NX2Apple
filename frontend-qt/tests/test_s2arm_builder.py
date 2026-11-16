@@ -33,7 +33,7 @@ class S2ArmBuilderTests(unittest.TestCase):
         return tree
 
     def test_feature_enabled(self):
-        self.assertFalse(s2arm_builder.feature_enabled({}))
+        self.assertTrue(s2arm_builder.feature_enabled({}))
         self.assertFalse(s2arm_builder.feature_enabled({'NX2APPLE_MULTI_UPSTREAM': '0'}))
         self.assertTrue(s2arm_builder.feature_enabled({'NX2APPLE_MULTI_UPSTREAM': '1'}))
 
