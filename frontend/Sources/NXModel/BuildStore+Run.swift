@@ -35,7 +35,7 @@ extension BuildStore {
             return
         }
         // The shared app needs a device this Mac knows. Found out here, before an hour of building, not after it.
-        if target != BuildTarget.mac, !shellDeviceChecked, !exportsShell {
+        if target != BuildTarget.mac, !isS2ArmSelected, !shellDeviceChecked, !exportsShell {
             guard installsDirectly else {
                 fastRefreshExternalImgPath = nil
                 doneNote = t("shell.needsDevice")
@@ -48,7 +48,7 @@ extension BuildStore {
         shellDeviceChecked = false
         let skipStale = skipStaleCheckForQueuedEntry
         skipStaleCheckForQueuedEntry = false
-        if target != BuildTarget.mac, !exportsOneGame, !skipStale, askAboutStaleFrameworks() {
+        if target != BuildTarget.mac, !isS2ArmSelected, !exportsOneGame, !skipStale, askAboutStaleFrameworks() {
             fastRefreshExternalImgPath = nil
             return
         }   // StaleFrameworksPrompt.swift (#449)
@@ -78,6 +78,8 @@ extension BuildStore {
         exportedIPAPath = ""
         send = .idle
         mngRun = false
+        s2armRun = false
+        s2armEventsPath = ""
         nxbRun = false
         if isMacNativeGamesSelected {
             if let why = macNativeGamesProblem() {
@@ -121,6 +123,67 @@ extension BuildStore {
                 return
             }
             startBuildProcess(launch: launch, envCleanup: nil, macOutput: macOutput)
+            return
+        }
+        if isS2ArmSelected {
+            if let why = s2armProblem() {
+                fail(why)
+                return
+            }
+            s2armRun = true
+            let py = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
+            let baseDir = inputFolder
+            let tidHex = buildKey
+            let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+            if cloudFolderCheck(workDir) {
+                failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
+                fail(failureWhat(failure!))
+                return
+            }
+            let folder = gameFolder
+            let allPaths = folder != nil ? [] : [basePath, updatePath] + dlcPaths
+            let dirs = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).deletingLastPathComponent })
+            let picked = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).lastPathComponent })
+            let unpicked = folder != nil ? [] : ((try? FileManager.default.contentsOfDirectory(atPath: baseDir)) ?? []).filter {
+                ["nsp", "xci", "nsz", "xcz"].contains(($0 as NSString).pathExtension.lowercased()) && !picked.contains($0)
+            }
+            var staged = allPaths
+            if folder == nil, let base = selectedTitleID.flatMap({ UInt64($0, radix: 16) }) ?? TitleID.parse(basePath) {
+                let app = base & ~0xFFF
+                for f in unpicked {
+                    guard let tid = TitleID.parse(f) else { continue }
+                    let low = tid & 0xFFF
+                    let owner = low == 0 ? tid : (low == 0x800 ? tid & ~0xFFF : (tid & ~0xFFF) - 0x1000)
+                    guard owner == app else { continue }
+                    if low == 0x800 && !updatePath.isEmpty { continue }
+                    if low != 0 && low != 0x800 && tid <= app { continue }
+                    staged.append(baseDir + "/" + f)
+                }
+            }
+            var sourceInput = folder?.scriptInput ?? baseDir
+            if folder == nil && (dirs.count > 1 || !unpicked.isEmpty || staged.contains(where: InputStaging.needsLowercaseName)) {
+                let tmp = InputStaging.folder(workDir: workDir)
+                let linked = InputStaging.sync(files: staged, into: tmp)
+                if linked == 0 {
+                    fail(t("msg.stagingFailed"))
+                    return
+                }
+                staging = tmp
+                sourceInput = tmp
+                if !unpicked.isEmpty {
+                    say(String(format: t("msg.stagedFromSharedFolder"), (basePath as NSString).lastPathComponent))
+                }
+            } else {
+                staging = nil
+            }
+            try? FileManager.default.createDirectory(atPath: workDir, withIntermediateDirectories: true)
+            s2armEventsPath = workDir + "/s2a-events.jsonl"
+            effectiveWorkDir = workDir
+            oneGameIPAPath = ""
+            macAppPath = ""
+            let denv = toolEnvironment(python: py)
+            let launch = s2armLaunch(python: py, sourceInput: sourceInput, workDir: workDir, eventsFile: s2armEventsPath, environment: denv)
+            startBuildProcess(launch: launch, envCleanup: nil, macOutput: nil)
             return
         }
         guard repo.isRepo else {
@@ -339,6 +402,11 @@ extension BuildStore {
                     self.cleanupStaging()
                     return
                 }
+                if status == 0, self.s2armRun {
+                    self.fastRefreshExternalImgPath = nil
+                    self.finishS2ArmBuild()
+                    return
+                }
                 if status == 0 {
                     self.markAllDone()
                     if !self.oneGameIPAPath.isEmpty {
@@ -361,7 +429,15 @@ extension BuildStore {
                     }
                 } else {
                     self.fastRefreshExternalImgPath = nil
-                    if self.mngRun {
+                    if self.s2armRun {
+                        let note = self.s2armFailureNote(status: status)
+                        if let i = self.stages.lastIndex(where: { $0.state == .running }) {
+                            self.stages[i].state = .failed
+                            self.stages[i].detail = String(format: self.t("msg.exitCode"), status)
+                        }
+                        self.doneNote = note
+                        self.say("✗ " + note)
+                    } else if self.mngRun {
                         let note = self.macNativeGamesFailureNote(status: status)
                         if let i = self.stages.lastIndex(where: { $0.state == .running }) {
                             self.stages[i].state = .failed
