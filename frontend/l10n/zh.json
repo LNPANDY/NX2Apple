@@ -1937,6 +1937,7 @@
   "queue.building": "构建队列…",
   "queue.cancel": "取消队列",
   "queue.cancelConfirm": "要从队列中移除全部 %d 个等待中的构建吗？正在运行的构建和已有结果会保留。",
+  "queue.cannotPackage": "无法打包共享应用。请重试受影响的游戏。",
   "queue.cannotStart": "构建无法开始。原因见日志。",
   "queue.clear": "清空记录",
   "queue.close": "关闭",

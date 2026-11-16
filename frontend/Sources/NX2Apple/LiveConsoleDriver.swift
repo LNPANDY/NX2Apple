@@ -88,7 +88,6 @@ struct ConsolePadSnapshot: Equatable {
     var cloudWatch: AnyCancellable?
     var timeoutTask: Task<Void, Never>?
     private var launchGeneration: UInt64 = 0
-    var cancelOpenedGame: (Int32) -> Void = { NSRunningApplication(processIdentifier: $0)?.terminate() }
     private var pendingLaunch: Task<Void, Never>?
     private let launchGracePeriod: TimeInterval
     private var toastTask: Task<Void, Never>?
@@ -310,13 +309,8 @@ struct ConsolePadSnapshot: Equatable {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    guard self.launchGeneration == generation else {
-                        if let pid, pid != self.launchedPID, self.state.startingGameID != gameID,
-                           NSRunningApplication(processIdentifier: pid)?.bundleURL?.standardizedFileURL == URL(fileURLWithPath: game.appPath).standardizedFileURL {
-                            self.cancelOpenedGame(pid)
-                        }
-                        return
-                    }
+                    // LaunchServices may return an app started elsewhere. A stale callback does not own that process.
+                    guard self.launchGeneration == generation else { return }
                     guard self.state.startingGameID == gameID else { return }
                     if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription, kind: "error"); return }
                     self.launchedPID = pid

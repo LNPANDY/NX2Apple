@@ -19,6 +19,14 @@ final class LocalizationFilesTests: XCTestCase {
         try text.write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
     }
 
+    func testEveryShippedLocaleKeepsTheCompleteEnglishKeySet() throws {
+        let loaded = LocalizationFiles.load()
+        let english = try XCTUnwrap(loaded["en"])
+        for (code, texts) in loaded {
+            XCTAssertEqual(Set(texts.keys), Set(english.keys), "\(code) must not fall back to English for missing UI text")
+        }
+    }
+
     func testTheCheckoutHasAllFiveLanguagesWithTheSameKeysInEnglishAndChinese() throws {
         let loaded = LocalizationFiles.load()
         for code in ["en", "zh", "sv", "de", "fr"] { XCTAssertFalse(loaded[code]?.isEmpty ?? true, "\(code).json was not read") }

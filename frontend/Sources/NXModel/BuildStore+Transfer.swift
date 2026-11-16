@@ -91,9 +91,9 @@ extension BuildStore {
 
     /// The batch ended: the shared app is exported or signed and installed once from the games that were built. A game that failed is not in it.
     package func packageDeferred() {
+        guard !running, let last = deferredShell.last else { return }
         let games = deferredShell
         deferredShell = []
-        guard let last = games.last, !running else { return }
         target = BuildTarget.ios
         failure = nil; stoppedByPlayer = false; done = false; doneNote = ""
         if deferredExportsIPA {

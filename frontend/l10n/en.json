@@ -1936,6 +1936,7 @@
   "queue.building": "Build queue…",
   "queue.cancel": "Cancel queue",
   "queue.cancelConfirm": "Remove all %d waiting builds from the queue? The running build and the results stay.",
+  "queue.cannotPackage": "The shared app could not be packaged. Retry the affected games.",
   "queue.cannotStart": "The build could not start. See the log for the reason.",
   "queue.clear": "Clear finished",
   "queue.close": "Close",

@@ -157,9 +157,9 @@ struct LauncherView: View {
 
     /// The hero's game: the selection, unless the filter hides it, then the first game the filter shows.
     var heroGame: LibraryGame? {
-        guard libraryFilter != .owned else { return library.selected }
-        if let selected = library.selected, libraryFilter.includes(selected) { return selected }
-        return libraryFilter.visibleGames(library.games, lang: loc.lang, sort: librarySort).first
+        let visible = filteredGames
+        if let selected = library.selected, visible.contains(where: { $0.id == selected.id }) { return selected }
+        return visible.first
     }
 
     var libraryInputAvailable: Bool {

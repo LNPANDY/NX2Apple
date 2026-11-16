@@ -6,6 +6,26 @@ import XCTest
 
 @MainActor final class OnboardingNavigationTests: IsolatedDefaultsTestCase {
     private func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.2)) }
+    func testBlockedSetupCanBeDeferredWithoutMarkingItComplete() throws {
+        for scenario in 0..<3 {
+            let step: OnboardingStep = scenario == 0 ? .xcode : .games
+            var state = MockOnboardingDriver.sampleState
+            state.step = step; state.xcode = .missing; state.games = .empty
+            if scenario == 2 { state.keys = .skipped; state.games = .found([.init(id: "needs-keys", title: "Game", version: "1")]) }
+            let driver = MockOnboardingDriver(state: state, animated: false)
+            let focus = PadFocus(), pad = LauncherGamepad(observeSystem: false, appIsActive: { true })
+            let window = OffscreenWindow(size: .init(width: 900, height: 680))
+            window.contentView = NSHostingView(rootView: OnboardingView(driver: driver, lang: .en, gamepad: pad, padFocus: focus))
+            window.orderFront(nil)
+            defer { pad.deactivate(); window.contentView = nil; window.orderOut(nil); window.close() }
+            settle()
+            XCTAssertFalse(focus.frames["onboarding", default: []].contains { $0.id == "onboarding.primary" })
+            let later = try XCTUnwrap(focus.frames["onboarding", default: []].first { $0.id == "onboarding.later" })
+            focus.show(default: later.id); pad.perform(.a); settle()
+            XCTAssertEqual(driver.state.exit, .later)
+            XCTAssertEqual(driver.state.step, step)
+        }
+    }
     func testEverySetupStepHasReachableActionsAndKeyboardReturn() throws {
         for dark in [false, true] {
             for step in OnboardingStep.allCases {
@@ -82,7 +102,7 @@ import XCTest
                         defer { pad.deactivate(); window.contentView = nil; window.orderOut(nil); window.close() }
                         settle()
                         let targets = focus.frames["onboarding", default: []]
-                        XCTAssertFalse(targets.contains { $0.id == "onboarding.later" })
+                        XCTAssertTrue(targets.contains { $0.id == "onboarding.later" })
                         XCTAssertFalse(targets.contains { $0.id == "onboarding.back" })
                         if hasSpace {
                             let primary = try XCTUnwrap(targets.first { $0.id == "onboarding.primary" })

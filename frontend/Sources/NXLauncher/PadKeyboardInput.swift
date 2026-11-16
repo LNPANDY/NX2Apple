@@ -34,6 +34,7 @@ package struct PadKeyboardInput: NSViewRepresentable {
     }
     package static func handle(_ key: UInt16, shift: Bool = false, focus: PadFocus, back: () -> Void) -> Bool {
         guard [123, 124, 125, 126, 36, 76, 49, 53, 48].contains(key) else { return false }
+        if [36, 76].contains(key) { return false }
         focus.show(default: nil)
         switch key {
         case 123: focus.horizontal(-1)

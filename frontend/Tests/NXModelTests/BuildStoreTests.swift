@@ -71,6 +71,14 @@ import XCTest
                    defaults: defaults, targetChanged: targetChanged)
     }
 
+    func testBusyPackagingAttemptDoesNotConsumeDeferredGames() {
+        let store = makeStore()
+        store.deferredShell = [.init(framework: "/framework", titleID: "A", name: "A", archive: "/archive")]
+        store.running = true
+        store.packageDeferred()
+        XCTAssertEqual(store.deferredShell.map(\.titleID), ["A"])
+    }
+
     private func file(_ name: String) throws -> String {
         let url = temporary.appendingPathComponent(name)
         try Data([0]).write(to: url)

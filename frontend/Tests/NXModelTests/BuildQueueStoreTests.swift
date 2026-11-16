@@ -421,8 +421,8 @@ import NXCore
         busy = false; q.buildEnded(succeeded: true)
         busy = false; q.buildEnded(succeeded: true)
         let restored = store()
-        XCTAssertEqual(restored.entries.map(\.status), [.done, .failed])
-        XCTAssertTrue(restored.games[0].retryable)
+        XCTAssertEqual(restored.entries.map(\.status), [.done, .queued])
+        XCTAssertTrue(restored.awaitingResume)
         XCTAssertTrue(restored.packaging.isEmpty)
     }
 
@@ -454,15 +454,56 @@ import NXCore
         XCTAssertEqual(q.running?.target, BuildTarget.ios)
     }
 
-    func testStoppingTheFinalJobDoesNotStartDeferredPackaging() {
+    func testStoppingTheFinalJobPackagesSuccessfulGamesAndKeepsTheirResults() {
         let batch = UUID(), q = store()
         q.enqueue([entry("A", target: BuildTarget.ios, batch: batch), entry("B", batch: batch)])
         q.start(packageAfter: true, exportIPA: true)
         busy = false; q.buildEnded(succeeded: true)
         busy = false; q.buildEnded(succeeded: false, reason: "Stopped", stopped: true)
-        XCTAssertTrue(packaged.isEmpty)
-        XCTAssertEqual(q.entries.map(\.status), [.failed, .stopped])
+        XCTAssertEqual(packaged, [["A"]])
+        XCTAssertEqual(q.entries.map(\.status), [.done, .stopped])
+        XCTAssertEqual(q.packaging.map(\.titleID), ["A"])
+        busy = false; q.packageEnded(succeeded: true)
+        XCTAssertEqual(q.entries.map(\.status), [.done, .stopped])
         XCTAssertTrue(q.entries.allSatisfy { $0.packagePending == nil })
+    }
+
+    func testStoppingMidBatchPackagesOnlySuccessfulGamesAndResumeDoesNotReuseThem() {
+        let batch = UUID(), q = store()
+        q.enqueue(["A", "B", "C", "D"].map { entry($0, target: BuildTarget.ios, batch: batch) })
+        q.start(packageAfter: true, exportIPA: true)
+        busy = false; q.buildEnded(succeeded: true)
+        busy = false; q.buildEnded(succeeded: true)
+        busy = false; q.buildEnded(succeeded: false, stopped: true)
+        XCTAssertEqual(packaged, [["A", "B"]])
+        XCTAssertTrue(q.paused)
+        busy = false; q.packageEnded(succeeded: true)
+        XCTAssertEqual(q.entries.map(\.status), [.done, .done, .stopped, .queued])
+        q.resume()
+        busy = false; q.buildEnded(succeeded: true)
+        XCTAssertEqual(packaged, [["A", "B"], ["D"]])
+    }
+
+    func testBuiltButUnpackagedGamesRecoverAsWaitingAfterRestart() {
+        let batch = UUID(), q = store()
+        q.enqueue(["A", "B"].map { entry($0, target: BuildTarget.ios, batch: batch) })
+        q.start(packageAfter: true, exportIPA: true)
+        busy = false; q.buildEnded(succeeded: true)
+        XCTAssertEqual(q.entries[0].packagePending, false)
+        busy = false
+        let restored = store()
+        XCTAssertEqual(restored.entries.map(\.status), [.queued, .queued])
+        XCTAssertTrue(restored.awaitingResume)
+    }
+
+    func testMissingDeferredPayloadKeepsAnExplicitPackagingFailureReason() {
+        let q = BuildQueueStore(file: nil, engineID: { "release-1" }, busy: { false }, start: { _ in nil },
+            packageBatch: { _ in false }, packageFailureReason: { "No deferred game payload" })
+        q.enqueue([entry("A", target: BuildTarget.ios, package: true)])
+        q.start(); q.buildEnded(succeeded: true)
+        XCTAssertEqual(q.entries[0].status, .failed)
+        XCTAssertEqual(q.entries[0].reason, "No deferred game payload")
+        XCTAssertTrue(q.games[0].retryable)
     }
 
     func testInputSummaryNamesTheRowsThatHaveFiles() {

@@ -177,6 +177,7 @@ struct MissingImgGuideSheet: View {
                     .padding(.vertical, 9)
                 }
                 .buttonStyle(LauncherActionButtonStyle())
+                .keyboardShortcut(.defaultAction)
                 .disabled(isBusy)
                 .opacity(isBusy ? 0.55 : 1)
                 .padTarget("imgGuide.choose", scope: "imgGuide", enabled: !isBusy) { pickExistingImg() }

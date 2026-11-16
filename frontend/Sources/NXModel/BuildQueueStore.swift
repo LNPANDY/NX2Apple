@@ -37,26 +37,31 @@ import NXCore
     /// A build or another operation is running, so nothing starts.
     private let busy: () -> Bool
     private let engineChangedReason: () -> String
+    private let packageFailureReason: () -> String
 
     package init(file: URL?, engineID: @escaping () -> String, busy: @escaping () -> Bool,
                  start: @escaping (QueueEntry) -> String?, packageBatch: @escaping ([QueueEntry]) -> Bool = { _ in false },
-                 engineChangedReason: @escaping () -> String = { "The engine changed since this game was queued" }) {
+                 engineChangedReason: @escaping () -> String = { "The engine changed since this game was queued" },
+                 packageFailureReason: @escaping () -> String = { L10n.string("queue.cannotPackage", .en) }) {
         self.file = file; self.engineID = engineID; self.busy = busy; self.start = start; self.packageBatch = packageBatch
         self.engineChangedReason = engineChangedReason
+        self.packageFailureReason = packageFailureReason
         let stored = file.map(BuildQueueFile.load) ?? (entries: [QueueEntry](), paused: false)
         var loaded = stored.entries
         for index in loaded.indices { loaded[index].target = BuildTarget.normalized(loaded[index].target) }
         let wasRunning = loaded.contains { $0.status == .running }
+        let wasPackaging = loaded.contains { $0.packagePending != nil }
         for index in loaded.indices where loaded[index].packagePending != nil {
             loaded[index].packagePending = nil
-            loaded[index].status = .failed
+            loaded[index].status = .queued
+            loaded[index].reason = nil
         }
         // A build that was running when the app quit goes first again. Its folder keeps the finished stages.
         for index in loaded.indices where loaded[index].status == .running { loaded[index].status = .queued }
         let waiting = loaded.contains { $0.status == .queued }
         entries = loaded
         paused = stored.paused && waiting
-        awaitingResume = !stored.paused && wasRunning
+        awaitingResume = !stored.paused && (wasRunning || wasPackaging)
     }
 
     package var games: [QueueGame] { QueueGame.grouped(entries) }
@@ -259,12 +264,9 @@ import NXCore
         if stopped && !succeeded {
             paused = hasWaiting
             active = false
-            for index in entries.indices where entries[index].batch == batch && entries[index].packagePending == false {
-                entries[index].packagePending = nil; entries[index].status = .failed; entries[index].reason = reason
-            }
         }
         persist()
-        if !stopped && !entries.contains(where: { $0.batch == batch && ($0.status == .queued || $0.status == .running) }) { batchEnded(batch) }
+        if stopped || !entries.contains(where: { $0.batch == batch && ($0.status == .queued || $0.status == .running) }) { batchEnded(batch) }
         processNext(preferredTitleID: titleID)
         if running == nil && !hasWaiting && packaging.isEmpty { active = false }
     }
@@ -315,7 +317,7 @@ import NXCore
         for index in entries.indices where entries[index].packagePending == true {
             entries[index].packagePending = nil
             entries[index].status = succeeded ? .done : (stopped ? .stopped : .failed)
-            entries[index].reason = succeeded || stopped ? nil : reason
+            entries[index].reason = succeeded || stopped ? nil : (reason ?? packageFailureReason())
         }
         if stopped { paused = hasWaiting; active = false }
         persist()

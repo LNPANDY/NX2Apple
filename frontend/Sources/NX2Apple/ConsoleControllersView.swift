@@ -141,7 +141,7 @@ struct ConsoleBattery: View {
     }
 }
 
-/// The controller entry keeps its size as devices arrive, with their status in its help and panel.
+/// The controller entry keeps its size, with player and battery chips below it and full details in its panel.
 struct ConsoleControllerButton: View {
     let controllers: [ConsoleController]
     let merged: Bool
@@ -165,6 +165,26 @@ struct ConsoleControllerButton: View {
     var body: some View {
         ConsoleHeaderButton(symbol: "gamecontroller.fill", id: "console.chip.controllers", label: t("console.controllers"), compact: compact, showsLabel: true, action: openControllers)
             .accessibilityValue(summary).help(summary)
+            .overlay(alignment: .topTrailing) {
+                if !controllers.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(controllers) { controller in
+                                HStack(spacing: 6) {
+                                    Image(systemName: controller.kind.symbol)
+                                    Text((merged ? 1 : controller.player).map { String(format: t("console.playerShort"), $0) } ?? "—")
+                                    ConsoleBattery(controller: controller, lang: lang, compact: true)
+                                }
+                                .font(.manrope(12, .semibold)).padding(.horizontal, 10).frame(height: 28)
+                                .background(LauncherPalette.surface, in: Capsule())
+                                .overlay(Capsule().strokeBorder(LauncherPalette.cream, lineWidth: 1))
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    .frame(width: compact ? 260 : 400, height: 32).offset(y: compact ? 48 : 56)
+                    .accessibilityHidden(true)
+                }
+            }
     }
 }
 
@@ -256,7 +276,7 @@ struct ConsoleToastView: View {
     /// A launcher switch about controllers (ConsolePref.onControllers: start in console mode, offer it when a controller connects), as
     /// a shared switch. Console mode only: the desktop's Controls card has the same switches.
     private func prefToggle(_ pref: ConsolePref) -> some View {
-        ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), isOn: state.prefs[pref], compact: compact) { driver.setPref(pref, on: !state.prefs[pref]) }
+        ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), note: t(pref.noteKey), isOn: state.prefs[pref], compact: compact) { driver.setPref(pref, on: !state.prefs[pref]) }
             .accessibilityHint(t(pref.noteKey))
     }
 
@@ -267,7 +287,7 @@ struct ConsoleToastView: View {
     }
 
     private var menuSwapToggle: some View {
-        ConsoleSwitchRow(id: "console.controller.menuSwap", scope: scope, title: t("console.mapping.menuSwap"), isOn: state.menuSwapAB, compact: compact) { driver.setMenuSwapAB(!state.menuSwapAB) }
+        ConsoleSwitchRow(id: "console.controller.menuSwap", scope: scope, title: t("console.mapping.menuSwap"), note: t("console.mapping.menuSwapNote"), isOn: state.menuSwapAB, compact: compact) { driver.setMenuSwapAB(!state.menuSwapAB) }
             .accessibilityHint(t("console.mapping.menuSwapNote"))
     }
 

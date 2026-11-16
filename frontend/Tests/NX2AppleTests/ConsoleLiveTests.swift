@@ -141,7 +141,7 @@ import NXModel
         XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses, with the console's fullscreen and Home menu")
     }
 
-    func testBackDuringLaunchGracePreventsLaunchAndRetryLaunchesOnce() throws {
+    func testBackDuringLaunchGracePreventsLaunchAndRetryLaunchesOnce() async throws {
         var launches: [Launch] = []
         let (driver, _, _) = try makeDriver(grace: 0.08) { launches.append($0) }
         let id = try XCTUnwrap(driver.state.games.first?.id)
@@ -150,10 +150,10 @@ import NXModel
         XCTAssertTrue(launches.isEmpty)
         driver.back()
         XCTAssertNil(driver.state.startingGameID)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        try await Task.sleep(nanoseconds: 150_000_000)
         XCTAssertTrue(launches.isEmpty)
         driver.play(id); driver.play(id)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        for _ in 0..<50 where driver.state.starting != .opening { try await Task.sleep(nanoseconds: 20_000_000) }
         XCTAssertEqual(launches.count, 1)
         XCTAssertFalse(driver.state.launchCancellable)
         driver.back()

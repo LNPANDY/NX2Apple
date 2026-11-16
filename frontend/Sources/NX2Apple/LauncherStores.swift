@@ -92,7 +92,8 @@ import NXModel
             ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("NX2Apple/build-queue.json") : nil
         let queue = BuildQueueStore(
             file: queueFile, engineID: { engineSync.selection.engineID }, busy: { build.running },
-            start: { build.startQueued($0) }, packageBatch: { _ in build.packageDeferred(); return build.running }, engineChangedReason: { localizer.t("queue.engineChanged") })
+            start: { build.startQueued($0) }, packageBatch: { _ in build.packageDeferred(); return build.running }, engineChangedReason: { localizer.t("queue.engineChanged") },
+            packageFailureReason: { localizer.t("queue.cannotPackage") })
         self.queue = queue
         build.queue = queue
         let transferFile = queueFile?.deletingLastPathComponent().appendingPathComponent("transfer-queue.json")

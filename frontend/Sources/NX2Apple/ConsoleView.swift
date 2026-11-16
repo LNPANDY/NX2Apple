@@ -78,7 +78,7 @@ enum ConsoleInput: Equatable {
               row.outcome == .failure || state.builds.queue.allSatisfy({ $0.outcome != nil }) else { return nil }
         return state.builds.indicatorRow == nil ? nil : "complete"
     }
-    private var scope: String { state.startingGameID != nil && !state.launchMinimized ? "console.launch" : (state.presentedSheet?.scope ?? "console") }
+    private var scope: String { state.startingGameID != nil ? "console.launch" : (state.presentedSheet?.scope ?? "console") }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
 
     var body: some View {
@@ -95,7 +95,7 @@ enum ConsoleInput: Equatable {
                     .animation(.easeOut(duration: state.presentedSheet == nil ? 0.08 : reduceMotion ? 0.1 : 0.18), value: state.presentedSheet != nil)
                 if state.exited {
                     exitPreview(compact: compact)
-                } else if let game = state.startingGame, !state.launchMinimized {
+                } else if let game = state.startingGame {
                     starting(game, compact: compact).transition(.identity)
                 } else {
                     ConsoleHomeScreen(driver: driver, lang: lang, glyphs: glyphs, size: geometry.size, compact: compact, launchNamespace: reduceMotion ? nil : launchArtwork, floatingPanelChrome: floatingChrome)
@@ -220,7 +220,7 @@ enum ConsoleInput: Equatable {
     }
 
     private func backdrop(size: CGSize) -> some View {
-        ConsoleBackdrop(game: state.launchMinimized ? state.focusedGame : (state.startingGame ?? state.focusedGame), starting: state.startingGame != nil && !state.launchMinimized, size: size)
+        ConsoleBackdrop(game: state.startingGame ?? state.focusedGame, starting: state.startingGame != nil, size: size)
     }
 
     @ViewBuilder private func sheetContent(_ sheet: ConsoleSheet, compact: Bool, floatingTitle: Bool) -> some View {
@@ -650,7 +650,7 @@ enum ConsoleInput: Equatable {
         sheetDepth = depth
         pad.scope = scope
         pad.show(default: nil)
-        if state.startingGameID != nil, !state.launchMinimized { pad.focused = "console.launch.back"; return }
+        if state.startingGameID != nil { pad.focused = "console.launch.back"; return }
         if let restored, !state.exited { pad.focused = restored; return }   // a target gone by now falls back at the next press (PadFocus.show)
         switch state.presentedSheet {
         case let .options(id):
@@ -701,7 +701,7 @@ enum ConsoleInput: Equatable {
             if input == .deleteBackward { driver.deleteSupported(); return }
         }
         if input == .back { driver.back(); return }
-        if state.startingGameID != nil, !state.launchMinimized {
+        if state.startingGameID != nil {
             pad.show(default: "console.launch.back")
             switch input {
             case .activate: pad.activate()
@@ -714,7 +714,7 @@ enum ConsoleInput: Equatable {
             return
         }
         if state.exited { if input == .activate { driver.returnFromGame() }; return }
-        guard state.startingGameID == nil || state.launchMinimized else { return }
+        guard state.startingGameID == nil else { return }
         pad.show(default: pad.focused)
         let home = state.presentedSheet == nil
         let onTile = home && pad.focused?.hasPrefix("console.game.") == true

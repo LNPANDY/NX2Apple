@@ -533,6 +533,11 @@ import NXLauncher
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
+                if state.step != .done {
+                    Button(t("onboarding.later"), action: driver.skipForLater)
+                        .buttonStyle(LauncherSecondaryButtonStyle(height: LauncherHeroAction.height))
+                        .padTarget("onboarding.later", scope: "onboarding", activate: driver.skipForLater)
+                }
                 if state.step == .keys {
                     Button(t("onboarding.keys.later"), action: skipKeys)
                         .buttonStyle(LauncherSecondaryButtonStyle(height: LauncherHeroAction.height)).disabled(!state.canSkipKeys)

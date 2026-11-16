@@ -28,6 +28,35 @@ final class PadFocusTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(g.focused, "tab.a")
     }
 
+    func testScrolledTargetKeepsFocusUntilItsLazyFrameArrives() {
+        let f = grid()
+        var activations = 0
+        f.register("card.next", .init(activate: { activations += 1 }))
+        f.focusAfterScroll("card.next")
+        f.show(default: "tab.a"); f.move(dx: 0, dy: 1); f.activate()
+        XCTAssertEqual(f.focused, "card.next")
+        XCTAssertEqual(activations, 0)
+        f.setFrames([.init(id: "card.next", frame: CGRect(x: 0, y: 300, width: 200, height: 120))], scope: "main")
+        f.activate(); XCTAssertEqual(activations, 1)
+        f.focusAfterScroll("card.unmounted")
+        f.scope = "sheet"
+        f.setFrames([.init(id: "close", frame: .init(x: 0, y: 0, width: 44, height: 44))], scope: "sheet")
+        f.show(default: "close"); XCTAssertEqual(f.focused, "close")
+    }
+
+    func testReturnBelongsToTheNativeDefaultActionAndSpaceTogglesRows() {
+        let f = grid()
+        var toggles = 0
+        f.register("tab.a", .init(activate: { toggles += 1 }))
+        XCTAssertFalse(PadKeyboardInput.handle(36, focus: f, back: {}))
+        XCTAssertFalse(PadKeyboardInput.handle(76, focus: f, back: {}))
+        XCTAssertEqual(toggles, 0)
+        f.show(default: "tab.a")
+        XCTAssertFalse(PadKeyboardInput.handle(36, focus: f, back: {}))
+        XCTAssertTrue(PadKeyboardInput.handle(49, focus: f, back: {}))
+        XCTAssertEqual(toggles, 1)
+    }
+
     func testMovesStayInTheRowAndFindTheNearestAboveOrBelow() {
         let f = grid()
         f.show(default: "card.1")

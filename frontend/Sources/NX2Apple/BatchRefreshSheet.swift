@@ -515,6 +515,7 @@ struct BatchRefreshSheet: View {
                     .padding(.vertical, 9)
             }
             .buttonStyle(LauncherActionButtonStyle())
+            .keyboardShortcut(.defaultAction)
             .disabled(totalSelectedCount == 0)
             .opacity(totalSelectedCount == 0 ? 0.45 : 1)
             .padTarget("batchRefresh.confirm", scope: "batchRefresh", enabled: totalSelectedCount > 0) {

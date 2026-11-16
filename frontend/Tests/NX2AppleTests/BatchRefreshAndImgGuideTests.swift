@@ -263,10 +263,10 @@ import XCTest
         XCTAssertTrue(batchTargets.contains("batchRefresh.cancel"))
         XCTAssertFalse(batchTargets.contains("batchRefresh.onlyFast"), "Fast-only selection has one meaningful refresh action")
         pad.focused = "batchRefresh.game.\(dualGame.id.uuidString)"
-        XCTAssertTrue(PadKeyboardInput.handle(36, focus: pad, back: {}))
+        XCTAssertTrue(PadKeyboardInput.handle(49, focus: pad, back: {}))
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        XCTAssertNil(pad.frame(of: "batchRefresh.confirm"), "Return toggles the row instead of submitting the sheet")
-        _ = PadKeyboardInput.handle(36, focus: pad, back: {})
+        XCTAssertNil(pad.frame(of: "batchRefresh.confirm"), "Space toggles the row instead of submitting the sheet")
+        _ = PadKeyboardInput.handle(49, focus: pad, back: {})
         var missingImage = assessFast
         missingImage.canFastRefreshIOS = false; missingImage.needsMissingImgGuideIOS = true; missingImage.hasUsableSeed = true
         let recoveringAge = ToolsAge(older: [dualGame.id], assessments: [dualGame.id: missingImage])

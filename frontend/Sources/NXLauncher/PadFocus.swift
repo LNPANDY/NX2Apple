@@ -26,6 +26,7 @@ package final class PadFocus: ObservableObject {
     package var scope = "main" {
         didSet {
             if scope != oldValue {
+                awaitingFrame = nil
                 if let index = parents.lastIndex(where: { $0.scope == scope }) {
                     focused = parents[index].focus.flatMap { id in frames[scope, default: []].contains { $0.id == id } ? id : nil }
                     parents.removeSubrange(index...)
@@ -37,16 +38,23 @@ package final class PadFocus: ObservableObject {
         }
     }
     private var parents: [(scope: String, focus: String?)] = []
+    private var awaitingFrame: String?
     private(set) var frames: [String: [Target]] = [:]
     private var handlers: [String: Handlers] = [:]   // refreshed on every render of the target, so the closures see current state
 
-    package func setFrames(_ targets: [Target], scope: String) { frames[scope] = targets }
+    package func setFrames(_ targets: [Target], scope: String) {
+        frames[scope] = targets
+        if scope == self.scope, targets.contains(where: { $0.id == awaitingFrame }) { awaitingFrame = nil }
+    }
+    /// A lazy grid can scroll to its next tile before that tile reports its frame.
+    package func focusAfterScroll(_ id: String) { focused = id; awaitingFrame = id }
     package func frame(of id: String) -> CGRect? { frames[scope]?.first { $0.id == id }?.frame }
     package func register(_ id: String, _ h: Handlers) { handlers[id] = h }
 
     /// Focus a target (a default when nothing is focused yet) and show the ring.
     package func show(default id: String?) {
         visible = true
+        if focused != nil, focused == awaitingFrame { return }
         if focused == nil || !(frames[scope] ?? []).contains(where: { $0.id == focused }) {
             focused = id.flatMap { want in (frames[scope] ?? []).first { $0.id == want }?.id } ?? topLeft()
         }
@@ -79,7 +87,10 @@ package final class PadFocus: ObservableObject {
     package func move(dx: CGFloat, dy: CGFloat) {
         if dy != 0, let id = focused, onScreen(id), handlers[id]?.vertical?(dy < 0 ? -1 : 1) == true { return }
         let all = frames[scope] ?? []
-        guard let current = all.first(where: { $0.id == focused })?.frame else { focused = topLeft(); return }
+        guard let current = all.first(where: { $0.id == focused })?.frame else {
+            if focused == nil || focused != awaitingFrame { focused = topLeft() }
+            return
+        }
         let from = CGPoint(x: current.midX, y: current.midY)
         let ahead = all.filter { $0.id != focused }.compactMap { t -> (target: Target, score: CGFloat)? in
             let to = CGPoint(x: t.frame.midX, y: t.frame.midY)

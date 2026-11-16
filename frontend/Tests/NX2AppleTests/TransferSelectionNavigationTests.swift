@@ -6,6 +6,29 @@ import XCTest
 @testable import NX2Apple
 
 @MainActor final class TransferSelectionNavigationTests: IsolatedDefaultsTestCase {
+    func testReturnConfirmsSendSelectionEvenWhenARowHasDirectionalFocus() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        let transfers = TransferQueueStore(file: nil, perform: { _, _, _ in })
+        stores.build.transfers = transfers
+        stores.build.sharedAppDataSources = { [.init(titleID: "0100000000000000", name: "Game", archive: "/unused")] }
+        stores.deviceStore.installDevice = "fixture-device"
+        let pad = PadFocus()
+        var closed = false
+        let window = OffscreenWindow(size: .init(width: 700, height: 500))
+        window.contentView = NSHostingView(rootView: SendSelectedSheet(mode: .device, build: stores.build) { closed = true }
+            .environmentObject(stores.localizer).environmentObject(pad))
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.orderOut(nil); window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        pad.show(default: "sendSelected.game.0100000000000000")
+        XCTAssertFalse(PadKeyboardInput.handle(36, focus: pad, back: {}))
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertTrue(closed)
+        withExtendedLifetime(transfers) {}
+    }
+
     func testSelectedTransferSheetOwnsFocusTogglesAndRestoresItsParent() {
         let stores = LauncherStores(defaults: testDefaults)
         stores.build.sharedAppDataSources = {
@@ -24,7 +47,7 @@ import XCTest
         XCTAssertEqual(pad.scope, "sendSelected")
         XCTAssertNotNil(pad.frame(of: "sendSelected.game.0100000000000000"))
         XCTAssertNotNil(pad.frame(of: "sendSelected.confirm"))
-        pad.show(default: nil); XCTAssertTrue(PadKeyboardInput.handle(36, focus: pad, back: {})); settle()
+        pad.show(default: nil); XCTAssertTrue(PadKeyboardInput.handle(49, focus: pad, back: {})); settle()
         XCTAssertNil(pad.frame(of: "sendSelected.confirm"), "unchecking the only game disables sending")
         pad.focused = "sendSelected.all"; pad.activate(); settle()
         XCTAssertNotNil(pad.frame(of: "sendSelected.confirm"))
@@ -66,7 +89,7 @@ import XCTest
         XCTAssertEqual(pad.focused, "confirm")
         _ = PadKeyboardInput.handle(48, shift: true, focus: pad, back: {})
         XCTAssertEqual(pad.focused, "row")
-        _ = PadKeyboardInput.handle(36, focus: pad, back: {})
+        _ = PadKeyboardInput.handle(49, focus: pad, back: {})
         XCTAssertTrue(toggled)
         _ = PadKeyboardInput.handle(53, focus: pad, back: { cancelled = true })
         XCTAssertTrue(cancelled)

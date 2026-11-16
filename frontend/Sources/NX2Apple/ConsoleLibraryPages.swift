@@ -77,7 +77,7 @@ import NXLauncher
                                             guard next >= 0 else { return false }
                                             let id = "console.lib." + games[next].id
                                             proxy.scrollTo(id, anchor: .center)
-                                            pad.focused = id
+                                            pad.focusAfterScroll(id)
                                             return true
                                         })
                                             .padding(8)

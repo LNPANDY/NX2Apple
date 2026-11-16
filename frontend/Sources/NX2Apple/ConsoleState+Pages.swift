@@ -178,7 +178,7 @@ extension ConsoleState {
         return searchResults.compactMap { byID[$0] }
     }
 
-    private var canOpen: Bool { !exited && (startingGameID == nil || launchMinimized) }
+    private var canOpen: Bool { !exited && startingGameID == nil }
 
     /// A game's page, on its Overview.
     mutating func openGamePage(_ id: String) {

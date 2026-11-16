@@ -15,18 +15,28 @@ import XCTest
 
     private func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
 
-    private func host(_ games: [LibraryGame], scheme: ColorScheme = .dark, height: CGFloat = 974) throws -> (GameLibrary, PadFocus, LauncherStores, OffscreenWindow) {
+    private func host(_ games: [LibraryGame], scheme: ColorScheme = .dark, height: CGFloat = 974, search: String? = nil) throws -> (GameLibrary, PadFocus, LauncherStores, OffscreenWindow) {
         let root = try directory(), file = root.appendingPathComponent("library.json")
         try JSONEncoder().encode(games).write(to: file)
         let library = GameLibrary(file: file), stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
         let window = OffscreenWindow(size: NSSize(width: 1257, height: height))
         window.appearance = NSAppearance(named: scheme == .light ? .aqua : .darkAqua)
         window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library,
-            performStartupChecks: false, padFocus: pad).preferredColorScheme(scheme))
+            performStartupChecks: false, search: search, padFocus: pad).preferredColorScheme(scheme))
         window.orderFront(nil)
         addTeardownBlock { MainActor.assumeIsolated { window.orderOut(nil); window.contentView = nil; window.close() } }
         settle()
         return (library, pad, stores, window)
+    }
+
+    func testNoMatchSearchHasNoHiddenHeroActionAndKeepsSupportedGamesReachable() throws {
+        let game = LibraryGame(titleID: "0100000000000000", name: "Example", inputs: ["base": ["/tmp/game.nsp"]])
+        let (library, pad, stores, _) = try host([game], search: "no-such-game")
+        let view = LauncherView(stores: stores, library: library, performStartupChecks: false, search: "no-such-game")
+        XCTAssertNil(view.heroGame)
+        XCTAssertTrue(view.filteredGames.isEmpty)
+        XCTAssertFalse(pad.frames["main", default: []].contains { $0.id == "hero.play" || $0.id.hasPrefix("card.") })
+        XCTAssertNotNil(pad.frame(of: "library.supported"))
     }
 
     func testEmptyPlatformFiltersKeepHeroAndCarouselGeometryAndRecover() throws {

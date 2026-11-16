@@ -163,6 +163,11 @@ extension LauncherView {
                                 .animation(LibraryHeroTransition.metadata(reduceMotion: reduceMotion), value: game.id)
                             }
                             heroActions(game, lightHero: lightHero, compact: width < 760)
+                            if game.onDevice, let expiry = signatureExpiry[game.id], AppSignature.isUrgent(expiry) {
+                                Label(AppSignature.describe(expiry, loc.t), systemImage: "exclamationmark.triangle.fill")
+                                    .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.building)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                             if isLaunchingMacGame(game) && showGatekeeperHint {
                                 HStack(spacing: 8) {
                                     Image(systemName: "checkmark.shield").font(.system(size: 12, weight: .semibold))
@@ -231,6 +236,9 @@ extension LauncherView {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(loc.t("library.yourLibrary")).font(.manrope(28, .bold)).tracking(-0.6).fixedSize()
                     Text("(" + String(format: loc.t("library.gameCount"), games.count) + ")").font(.manrope(12)).foregroundStyle(.secondary)
+                    Button(loc.t("supported.title"), action: openSupportedGames)
+                        .buttonStyle(LauncherSecondaryButtonStyle())
+                        .padTarget("library.supported", scope: "main", activate: openSupportedGames)
                 }
                 HStack(spacing: 12) {
                 Spacer(minLength: 0)
@@ -264,6 +272,11 @@ extension LauncherView {
                     dismiss: { library.dismissSkippedBanner() }
                 )
             }
+            if games.isEmpty && !library.games.isEmpty {
+                Text(loc.t(search.isEmpty ? "console.allGames.empty" : "library.noResults"))
+                    .font(.manrope(17)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 24)
+            } else {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: LibraryCardLayout.gridSpacing, alignment: .top), count: columns),
                       alignment: .leading, spacing: 18) {
                 if games.isEmpty {
@@ -275,6 +288,7 @@ extension LauncherView {
                     }
                 }
             }.padding(.top, 8)
+            }
         }
         .padding(.horizontal, 34).padding(.top, 8).padding(.bottom, 22)
     }

@@ -94,9 +94,15 @@ import Combine
             driver.openAllGames(); settle(0.3)
             let last = try XCTUnwrap(driver.state.libraryGames.last)
             focus.focused = "console.lib." + driver.state.libraryGames[0].id; settle()
-            for _ in 0..<64 {
+            var previousIndex = 0
+            for _ in 0..<(driver.state.libraryGames.count * 2) {
                 if focus.focused == "console.lib." + last.id { settle(0.3); break }
                 pad.perform(.down); settle(0.08)
+                for _ in 0..<50 where focus.focused.flatMap({ focus.frame(of: $0) }) == nil { settle(0.02) }
+                if let index = driver.state.libraryGames.firstIndex(where: { "console.lib." + $0.id == focus.focused }) {
+                    XCTAssertGreaterThanOrEqual(index, previousIndex, "Scrolling must never reset focus to the top")
+                    previousIndex = index
+                }
             }
             let focused = try XCTUnwrap(focus.focused)
             let frame = try XCTUnwrap(focus.frames[focus.scope]?.first { $0.id == "console.lib." + last.id }?.frame)

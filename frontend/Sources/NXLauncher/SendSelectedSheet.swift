@@ -150,6 +150,7 @@ package struct SendSelectedSheet: View {
                         .padding(.vertical, 10)
                 }
                 .buttonStyle(LauncherActionButtonStyle())
+                .keyboardShortcut(.defaultAction)
                 .disabled(!canConfirm)
                 .opacity(canConfirm ? 1 : 0.4)
                 .padTarget("sendSelected.confirm", scope: Self.scope, focusColor: LauncherPalette.onCream, enabled: canConfirm, activate: confirm)

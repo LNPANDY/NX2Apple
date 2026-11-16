@@ -322,7 +322,7 @@ struct ConsoleSwitchRow: View {
             ConsoleMenuRow(id: "console.settings.language", scope: scope, symbol: "globe", title: t("console.language.title"),
                            note: "", value: languageName, compact: compact) { driver.openLanguage() }
             ForEach(ConsolePref.onSettings, id: \.self) { pref in
-                ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), isOn: prefs[pref], compact: compact) { driver.setPref(pref, on: !prefs[pref]) }
+                ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), note: t(pref.noteKey), isOn: prefs[pref], compact: compact) { driver.setPref(pref, on: !prefs[pref]) }
                     .accessibilityHint(t(pref.noteKey))
             }
             ConsoleSectionHeading(title: t("console.settings.updates"), compact: compact).padding(.top, 14)
