@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: janpagu <janpagu@alumni.uv.es>
+Date: Mon, 16 Nov 2026 19:40:48 +0100
+Subject: [PATCH] NX2Apple: define uniform buffer binding limit
+
+Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
+
+Upstream-Status: pending
+Reason: Preserve the existing uniform-buffer binding limit query on the pinned base; the Factorio-era OpenGL source references this shared constant.
+Issue: none
+
+---
+ dm/gfx/gl/hle_gl.m | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
+index 65b7ed7..c83a057 100644
+--- a/dm/gfx/gl/hle_gl.m
++++ b/dm/gfx/gl/hle_gl.m
+@@ -415,6 +415,7 @@ static int sp_check(GLuint n, int prog, const char *fn) {
+ // units: as many as GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS says (LÖVE binds a texture of each type to every one at start); fb / read_fb: the draw and read framebuffers;
+ // va: each attribute's current value (glVertexAttrib4f), what a vertex input reads when its array is disabled: LÖVE's VertexColor and ConstantColor
+ #define NUNITS 96
++#define NUBO 72
+ static struct {
+     GLuint array_buf, uniform_buf, rb, fb, read_fb, prog, vao; int unit;
+     struct { GLuint t2d, tcube, t3d, t2da; } units[NUNITS];

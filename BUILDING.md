@@ -16,6 +16,18 @@ python3 -m venv .venv                             # Homebrew's Python refuses gl
 source .venv/bin/activate                         # so that python3 below is the venv's (in each new terminal)
 ```
 
+The checked-in `.upstream-ref` remains the NX2Apple compatibility base. Factorio support is
+carried by the repository's final OpenGL patches in `patches/series`, which port the required
+changes from nxnative PR #2888 without replacing the base revision or the existing patch queue.
+`python3 tools/engine.py sync` fetches the pinned base and applies those patches before the
+launcher builds the app. No local nxnative checkout or unmerged PR is required for the source
+integration; `NX2APPLE_ENGINE_URL` is only an optional mirror/local-clone override for fetching
+the pinned base:
+
+```bash
+NX2APPLE_ENGINE_URL=/path/to/nxnative python3 tools/engine.py sync
+```
+
 ## What you need on disk
 
 Three things, none of which ship with the repository:

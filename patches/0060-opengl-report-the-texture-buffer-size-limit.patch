@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: seedds <seedds@gmail.com>
+Date: Mon, 16 Nov 2026 18:20:50 +0100
+Subject: [PATCH] opengl: report the texture buffer size limit
+
+Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
+
+Upstream-Status: pending
+Reason: Factorio queries this OpenGL limit while setting up texture-buffer-backed rendering.
+Issue: none
+
+---
+ dm/gfx/gl/hle_gl.m          | 7 +++++++
+ dm/gfx/tests/t_gl_imports.m | 1 +
+ 2 files changed, 8 insertions(+)
+
+diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
+index fe0c43b..65b7ed7 100644
+--- a/dm/gfx/gl/hle_gl.m
++++ b/dm/gfx/gl/hle_gl.m
+@@ -95,6 +95,7 @@ enum {
+     GL_TEXTURE_MAX_ANISOTROPY = 0x84fe, GL_MAX_TEXTURE_MAX_ANISOTROPY, GL_TEXTURE_LOD_BIAS = 0x8501,
+     GL_INCR_WRAP = 0x8507, GL_DECR_WRAP, GL_TEXTURE_CUBE_MAP = 0x8513, GL_TEXTURE_CUBE_MAP_POSITIVE_X = 0x8515, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z = 0x851a,
+     GL_MAX_VERTEX_ATTRIBS = 0x8869, GL_MAX_TEXTURE_IMAGE_UNITS = 0x8872, GL_RGBA32F = 0x8814, GL_RGB32F, GL_RGBA16F = 0x881a, GL_RGB16F,
++    GL_MAX_TEXTURE_BUFFER_SIZE = 0x8c2b,
+     GL_TEXTURE_COMPARE_MODE = 0x884c, GL_TEXTURE_COMPARE_FUNC,
+     GL_ARRAY_BUFFER = 0x8892, GL_ELEMENT_ARRAY_BUFFER, GL_DEPTH24_STENCIL8 = 0x88f0, GL_UNIFORM_BUFFER = 0x8a11,
+     GL_FRAGMENT_SHADER = 0x8b30, GL_VERTEX_SHADER, GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS = 0x8b4d, GL_SHADER_TYPE = 0x8b4f, GL_DELETE_STATUS = 0x8b80, GL_COMPILE_STATUS,
+@@ -1334,6 +1335,12 @@ GL(glGetIntegerv, void, GLenum p, GLint *v) {
+         case GL_MAX_VERTEX_ATTRIBS: case 0x82da: *v = 16; return;   // and MAX_VERTEX_ATTRIB_BINDINGS (vao_t)
+         case 0x82d9: *v = 2047; return;   // MAX_VERTEX_ATTRIB_RELATIVE_OFFSET, GL's minimum
+         case GL_MAX_TEXTURE_IMAGE_UNITS: *v = 32; return;
++        case GL_MAX_TEXTURE_BUFFER_SIZE: *v = 65536; return;
++        case 0x8b4c: *v = 16; return;   // MAX_VERTEX_TEXTURE_IMAGE_UNITS: the slots a translated shader's table can name (gl_shaders.py)
++        case 0x8871: *v = 8; return;   // MAX_TEXTURE_COORDS: the compatibility profile's texture coordinate sets
++        case 0x8a2f: *v = NUBO; return;   // MAX_UNIFORM_BUFFER_BINDINGS
++        case 0x8a30: *v = 65536; return;   // MAX_UNIFORM_BLOCK_SIZE
++        case 0x8a34: *v = 256; return;   // UNIFORM_BUFFER_OFFSET_ALIGNMENT, as NVIDIA's driver reports it
+         case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS: *v = NUNITS; return;
+         case GL_MAX_VERTEX_UNIFORM_VECTORS: case GL_MAX_FRAGMENT_UNIFORM_VECTORS: *v = 1024; return;
+         case GL_MAX_VARYING_VECTORS: *v = 31; return;
+diff --git a/dm/gfx/tests/t_gl_imports.m b/dm/gfx/tests/t_gl_imports.m
+index ef78c7a..2cd4615 100644
+--- a/dm/gfx/tests/t_gl_imports.m
++++ b/dm/gfx/tests/t_gl_imports.m
+@@ -113,6 +113,7 @@ static void test_vertex_binding(void) {
+     attr_ptr(16, 2, GL_FLOAT, 0, 0, NULL); assert(geterr() == GL_INVALID_VALUE);
+     attr_div(16, 1); vb_div(16, 1); assert(geterr() == GL_INVALID_VALUE); assert(geterr() == GL_NO_ERROR);
+     GLint lim = 0; h_glGetIntegerv(0x82da, &lim); assert(lim == 16); h_glGetIntegerv(0x82d9, &lim); assert(lim == 2047);   // MAX_VERTEX_ATTRIB_BINDINGS, _RELATIVE_OFFSET
++    h_glGetIntegerv(0x8c2b, &lim); assert(lim == 65536);   // MAX_TEXTURE_BUFFER_SIZE
+     del_buf(1, &b[0]); FETCH(8, 0, 0, 16, 0); FETCH(2, b[1], 0, 16, 255);
+     bind_vao(0); del_buf(1, &b[1]);
+ }

@@ -55,3 +55,6 @@
 0057-motion-a-controller-is-a-source-once-its-rotatio.patch
 0058-test-native-controller-motion-primes-the-adapter.patch
 0059-gfx-keep-argument-block-and-ub-padded-arena-gpu.patch
+0060-opengl-report-the-texture-buffer-size-limit.patch
+0061-nx2apple-define-uniform-buffer-binding-limit.patch
+0062-nx2apple-port-factorio-opengl-paths.patch
