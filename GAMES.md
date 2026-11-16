@@ -265,11 +265,11 @@ The engine runs Switch 2 games as ordinary profiles. There is no Switch 2 switch
 | Donkey Kong Bananza | `040074A01BF12000` | Plays on the Mac (update v458752), tested through the first level's opening areas | Built and played through the launcher on a Mac, an iPhone and an iPad, with no problems on the Mac and the iPhone and almost none on the iPad. Before that, played once on an iPhone 17 Pro Max with iOS 27.0.1, built from the command line (#445) |
 | Splatoon Raiders | `0400380020056000` | Plays on the Mac (update v65536). No IPA built: its memory layout is over iOS's limit for now | Not tried |
 | Fire Emblem Fortune's Weave | `04007EF01F8AE000` | Plays on the Mac (v131072), 60 fps. No IPA built | Verified on an iPhone 18 Pro Max at 60 fps (v131072, single-game app with increased-memory-limit, #1143). CPU 1.51 W, 2.1 GB resident memory, 0 dropped frames |
-| Pokémon Pokopia | `0400A3A01EE4C000` | Plays on the Mac (update v655360). No IPA built | Not tried |
+| Pokémon Pokopia | `0400A3A01EE4C000` | Plays on the Mac (update v655360). No IPA built | Full screen (wide aspect ratios on v327680) |
 | Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | Reaches the first field on the Mac (update v196608), from a NUP. No IPA built | Not tried |
 | Mario Kart World | `0400C3F00006E000` | Reaches a race on the Mac (v0), 60 fps. No IPA built | Not tried |
 | Mario Tennis Fever | `0400D4201C6EA000` | Plays on the Mac (update v327680), 60 fps. No IPA built | Not tried |
-| The Legend of Zelda: Ocarina of Time | `0400486024DEC000` | Plays on the Mac through the title, the opening and Kokiri Forest (update v131072), about 59 fps. Mac only so far | Built from the command line and played on a Mac up to inside Ganon's Castle: 462,601 frames in 2 h 41 min, frame time p50 16.66 ms, no crash. Host `92aa1222`, 240 commits behind `main`, so what comes after that point is not covered |
+| The Legend of Zelda: Ocarina of Time | `0400486024DEC000` | Plays on the Mac through the title, the opening and Kokiri Forest (update v131072), about 59 fps. Mac only so far | Built from the command line and played on a Mac up to inside Ganon's Castle: 462,601 frames in 2 h 41 min, frame time p50 16.66 ms, no crash, full screen (wide aspect ratios). Host `92aa1222`, 240 commits behind `main`, so what comes after that point is not covered |
 
 The folder layout the engine reads (`updates` and `dlc` are optional):
 
@@ -358,7 +358,7 @@ update layers over it). "无（v0）" = the base game alone is enough.
 | The Legend of Zelda: Link's Awakening | `01006BB00C6F0000` | 1.1.0 (v131072) | Playable on an iPhone (upstream) |
 | DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition | `01006C300E9F0000` | 1.0.4 (v262144) | Profile present, not verified on a phone |
 | Mario & Luigi: Brothership | `01006D0017F7A000` | None (v0) | Profile present, not verified on a phone |
-| Animal Crossing: New Horizons | `01006F8002326000` | 3.0.3 (v2228224) | **Verified here** — builds, installs and runs smoothly on an iPhone |
+| Animal Crossing: New Horizons | `01006F8002326000` | 3.0.3 (v2228224) | **Verified here** — builds, installs and runs smoothly on an iPhone, full screen |
 | Mario Party Superstars | `01006FE013472000` | 1.1.1 (v131072) | Profile present, not verified on a phone |
 | AI: THE SOMNIUM FILES - nirvanA Initiative | `0100713016CCC000` | 1.0.2 (v131072) | Playable on an iPhone (upstream) |
 | ASTRAL CHAIN | `01007300020FA000` | 1.0.1 (v65536) | Playable on an iPhone (upstream) |
@@ -368,7 +368,7 @@ update layers over it). "无（v0）" = the base game alone is enough.
 | Princess Peach: Showtime! | `01007A3009184000` | None (v0) | Profile present, not verified on a phone |
 | Portal | `01007BB017812000` | 1.0.3 (v196608) | Playable on an iPhone (upstream) |
 | Kirby Star Allies | `01007E3006DDA000` | 4.0.0a (v393216) | Profile present, not verified on a phone |
-| The Legend of Zelda: Breath of the Wild | `01007EF00011E000` | 1.9.0 (v1114112) | Playable on an iPhone (upstream) |
+| The Legend of Zelda: Breath of the Wild | `01007EF00011E000` | 1.9.0 (v1114112) | Playable on an iPhone (upstream), full screen |
 | BALL x PIT | `010086A022444000` | 1.293 (v393216) | Playable on an iPhone (upstream) |
 | AI: THE SOMNIUM FILES | `010089B00D09C000` | 1.0.1 (v65536) | Playable on an iPhone (upstream) |
 | SteamWorld Heist II | `010089C01E9CA000` | 1.5.1 (v262144) | Profile present, not verified on a phone |
@@ -430,10 +430,10 @@ update layers over it). "无（v0）" = the base game alone is enough.
 | Xenoblade Chronicles: Definitive Edition | `0100FF500E34A000` | 1.1.2 (v196608) | Profile present, not verified on a phone |
 | Splatoon Raiders (Switch 2) | `0400380020056000` | v65536 | Profile present, not verified on a phone |
 | Hyrule Warriors: Age of Imprisonment (Switch 2) | `04003F40232DE000` | v196608 | Profile present, not verified on a phone |
-| The Legend of Zelda: Ocarina of Time (Switch 2) | `0400486024DEC000` | v131072 | **Verified here** — plays on a Mac, up to inside Ganon's Castle (462,601 frames in 2 h 41 min) |
+| The Legend of Zelda: Ocarina of Time (Switch 2) | `0400486024DEC000` | v131072 | **Verified here** — plays on a Mac, up to inside Ganon's Castle (462,601 frames in 2 h 41 min), full screen (wide aspect ratios) |
 | Donkey Kong Bananza (Switch 2) | `040074A01BF12000` | v458752 | **Verified here** — builds, installs and runs on an iPhone |
 | Fire Emblem Fortune's Weave (Switch 2) | `04007EF01F8AE000` | v131072 | **Verified** — plays on an iPhone 18 Pro Max at 60 fps (#1143) |
-| Pokémon Pokopia (Switch 2) | `0400A3A01EE4C000` | v655360 | Profile present, not verified on a phone |
+| Pokémon Pokopia (Switch 2) | `0400A3A01EE4C000` | v655360 | Profile present, not verified on a phone, full screen (wide aspect ratios on v327680) |
 | Mario Kart World (Switch 2) | `0400C3F00006E000` | None (v0) | Profile present, not verified on a phone |
 | Mario Tennis Fever (Switch 2) | `0400D4201C6EA000` | v327680 | Profile present, not verified on a phone |
 
