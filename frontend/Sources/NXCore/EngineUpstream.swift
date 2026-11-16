@@ -71,15 +71,20 @@ package enum EngineUpstream {
 
     package static let macNativeGamesBundleTitleIDs: [String: String] = [
         "org.macnativegames.totk": "0100F2C0115B6000",
+        "org.macnativegames.totk-native": "0100F2C0115B6000",
         "org.macnativegames.botw": "01007EF00011E000",
         "org.macnativegames.pokopia": "0400A3A01EE4C000",
+        "org.macnativegames.pkp": "0400A3A01EE4C000",
         "org.macnativegames.bananza": "040074A01BF12000",
         "org.macnativegames.dkb": "040074A01BF12000",
         "org.macnativegames.oot": "0400486024DEC000",
+        "org.macnativegames.oot-native": "0400486024DEC000",
         "org.macnativegames.dread": "010093801237C000",
         "org.macnativegames.ss": "01002DA013484000",
         "org.macnativegames.worldend": "010048900CF64000",
+        "org.macnativegames.alc": "01007300020FA000",
         "org.macnativegames.aoc": "01002B00111A2000",
+        "org.macnativegames.by3": "01004A4010FEA000",
         "org.macnativegames.jamboree": "0100965017338000",
         "org.macnativegames.la": "01006BB00C6F0000",
         "org.macnativegames.mk8d": "0100152000022000",
@@ -88,6 +93,7 @@ package enum EngineUpstream {
         "org.macnativegames.ori": "010061D00DB74000",
         "org.macnativegames.ssbu": "01006A800016E000",
         "org.macnativegames.tomodachi": "010051F0207B2000",
+        "org.macnativegames.unicorn": "010054B01AD92000",
         "org.macnativegames.wonder": "010015100B514000"
     ]
 }

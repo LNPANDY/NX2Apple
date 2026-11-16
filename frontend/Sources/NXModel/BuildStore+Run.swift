@@ -28,6 +28,12 @@ extension BuildStore {
             fastRefreshExternalImgPath = nil
             return
         }
+        if isMacNativeGamesSelected, target != BuildTarget.mac {
+            fastRefreshExternalImgPath = nil
+            doneNote = t("upstream.mngMacOnly")
+            done = false
+            return
+        }
         // The shared app needs a device this Mac knows. Found out here, before an hour of building, not after it.
         if target != BuildTarget.mac, !shellDeviceChecked, !exportsShell {
             guard installsDirectly else {
@@ -71,6 +77,52 @@ extension BuildStore {
         installedAppPath = ""
         exportedIPAPath = ""
         send = .idle
+        mngRun = false
+        nxbRun = false
+        if isMacNativeGamesSelected {
+            if let why = macNativeGamesProblem() {
+                fail(why)
+                return
+            }
+            mngRun = true
+            let py = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
+            let baseDir = inputFolder
+            let tidHex = buildKey
+            let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+            if cloudFolderCheck(workDir) {
+                failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
+                fail(failureWhat(failure!))
+                return
+            }
+            let compressed = ([basePath, updatePath] + dlcPaths).contains {
+                let e = ($0 as NSString).pathExtension.lowercased()
+                return e == "nsz" || e == "xcz"
+            }
+            if compressed, !Toolchain.runOK(py, ["-c", "import nsz"]) {
+                say(t("msg.installingNsz"))
+                let r = runner.runCaptured([py, "-m", "pip", "install", "nsz"],
+                                         env: ["PATH": BuildCommands.toolPath(python: py),
+                                               "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: py)) { $1 }) { @Sendable line in
+                    hop { self.append(line + "\n") }
+                }
+                if !r {
+                    fail(String(format: t("msg.nszFailed"), py))
+                    return
+                }
+            }
+            try? FileManager.default.createDirectory(atPath: workDir, withIntermediateDirectories: true)
+            let macOutput = MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, preferred: macAppPath)
+            oneGameIPAPath = ""
+            macAppPath = ""
+            effectiveWorkDir = workDir
+            let denv = toolEnvironment(python: py)
+            guard let launch = macNativeGamesLaunch(python: py, workDir: workDir, outputAppPath: macOutput.builderURL.path, environment: denv) else {
+                fail(String(format: t("upstream.mngUnsupportedGame"), gameTitleID ?? ""))
+                return
+            }
+            startBuildProcess(launch: launch, envCleanup: nil, macOutput: macOutput)
+            return
+        }
         guard repo.isRepo else {
             fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))
             return
@@ -261,7 +313,10 @@ extension BuildStore {
         let launch = nxbRun
             ? experimentalLaunch(nxb: experimentalBuilderBinary ?? "", scriptArguments: args, engine: engine, environment: denv, python: py)   // BuildStore+Builder.swift (#749)
             : ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
-        let envCleanup = tempEnvURL
+        startBuildProcess(launch: launch, envCleanup: tempEnvURL, macOutput: macOutput)
+    }
+
+    private func startBuildProcess(launch: ProcessLaunch, envCleanup: URL?, macOutput: MacAppOutput?) {
         let utf8 = UTF8StreamDecoder.Locked()
         let onExit: @Sendable (Int32) -> Void = { [weak self] status in
             if let envCleanup { try? FileManager.default.removeItem(at: envCleanup) }
@@ -306,7 +361,15 @@ extension BuildStore {
                     }
                 } else {
                     self.fastRefreshExternalImgPath = nil
-                    if self.nxbRun {
+                    if self.mngRun {
+                        let note = self.macNativeGamesFailureNote(status: status)
+                        if let i = self.stages.lastIndex(where: { $0.state == .running }) {
+                            self.stages[i].state = .failed
+                            self.stages[i].detail = String(format: self.t("msg.exitCode"), status)
+                        }
+                        self.doneNote = note
+                        self.say("✗ " + note)
+                    } else if self.nxbRun {
                         // nxb's own exit code and message, as they are: there is no script to run instead (#749)
                         let note = self.experimentalFailureNote(status: status)
                         if let i = self.stages.lastIndex(where: { $0.state == .running }) {
@@ -351,13 +414,16 @@ extension BuildStore {
     @discardableResult
     func finishMacApp(_ output: MacAppOutput) -> Task<Void, Never> {
         let workDir = effectiveWorkDir.isEmpty ? output.workDirectoryURL.path : effectiveWorkDir
+        let preserveExternalWork = mngRun
         archiveGeneration &+= 1
         let generation = archiveGeneration
         return Task {
             do {
                 let app = try await Task.detached {
                     let placed = try output.finish()
-                    PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: true, removeShellFramework: true)
+                    if !preserveExternalWork {
+                        PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: true, removeShellFramework: true)
+                    }
                     return placed
                 }.value
                 guard archiveGeneration == generation, !stopping else { return }
