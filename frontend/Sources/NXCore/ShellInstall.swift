@@ -516,7 +516,7 @@ package struct ShellInstaller {
             end(Self.installStageID, installName, ok: false, detail: why)
             return (Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install), [])
         }
-        ShellLibrary.recordInstalled(root: root)
+        ShellLibrary.recordInstalled(root: root, device: device)
         end(Self.installStageID, installName, ok: true)
 
         var outcome = Outcome(ok: true, message: fmt("dev.installed", deviceName), appPath: app, bundleID: bundleID)

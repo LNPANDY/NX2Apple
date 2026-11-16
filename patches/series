@@ -56,3 +56,4 @@
 0058-test-native-controller-motion-primes-the-adapter.patch
 0059-gfx-keep-argument-block-and-ub-padded-arena-gpu.patch
 0060-host-games-support-full-screen-and-wide-aspect-r.patch
+0061-build-seed-infer-and-self-heal-gl-and-vulkan-gfx.patch
