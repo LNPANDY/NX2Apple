@@ -108,7 +108,7 @@ extension LiveConsoleDriver {
         tracking.saveFolder = environment["DM_SAVE"].map { URL(fileURLWithPath: $0) } ?? SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
         tracking.pausedSince = nil
         tracking.pausedSeconds = 0
-        sessions.started(titleID: game.titleID)
+        sessions.started(titleID: game.titleID, title: game.displayName(lang()))
         observe(pid)
         guard tracking.runsChildLookup ?? tracking.observesSystem else { return }
         let generation = tracking.lookupGeneration

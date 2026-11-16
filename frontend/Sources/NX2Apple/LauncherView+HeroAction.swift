@@ -28,8 +28,8 @@ extension LauncherView {
         .disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
         .keyboardShortcut(.return, modifiers: [])
         .padTarget("hero.play", scope: "main", radius: 30) { if !launching { primaryAction(game) } }
-        if let version = game.playVersion ?? game.unbuiltVersion {
-            let label = Text(String(format: loc.t("console.version"), version))
+        if let meta = heroMetaText(for: game) {
+            let label = Text(meta)
                 .font(.manrope(13)).foregroundStyle(.secondary).lineLimit(1)
             if compact {
                 VStack(alignment: .leading, spacing: 6) {
@@ -142,7 +142,12 @@ extension LauncherView {
                                 return
                             }
                             library.recordPlayed(currentGame.id)
-                            if let pid { GameReturnWatcher.shared.didStart(pid: pid) }
+                            let startedTitleID = currentGame.titleID
+                            playSessions.started(titleID: startedTitleID, title: currentGame.displayName(loc.lang))
+                            if let pid {
+                                let sessionStore = playSessions
+                                GameReturnWatcher.shared.didStart(pid: pid) { sessionStore.ended(titleID: startedTitleID) }
+                            }
                             if let app, !app.isFinishedLaunching, !app.isTerminated {
                                 Task { @MainActor in
                                     let deadline = Date().addingTimeInterval(5.0)

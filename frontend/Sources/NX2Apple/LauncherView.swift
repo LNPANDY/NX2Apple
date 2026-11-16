@@ -12,6 +12,7 @@ struct LauncherView: View {
     @ObservedObject private var updates: AppUpdateStore   // the app's self-update: the update icon, the sheet, the uninstall dialog
     @ObservedObject private var repo: RepoStore   // the repository: the activity line, and the checks that follow a change of it
     @ObservedObject private var engine: EngineSyncStore   // the engine: the sync banner, and the checks that follow a sync
+    @ObservedObject var playSessions: PlaySessionStore
     @StateObject var library: GameLibrary
     @State var page: LauncherPage = .library
     @State var settingsCategory: SettingsCategory = .general   // the part of Settings shown
@@ -39,6 +40,7 @@ struct LauncherView: View {
     @State var missingImgGuideFor: MissingImgGuideContext?
     @State private var deleting: LibraryGame?   // the game whose Delete sheet is open (DeleteGameSheet.swift)
     @State var supportedGames: [SupportedGame]?   // the Supported games sheet is open when this is set (SupportedGamesSheet.swift)
+    @State var activityLogOpen = false
     @State var skippedItemsOpen = false
     @State private var renaming: LibraryGame?   // the game whose Rename sheet is open (RenameGameSheet.swift)
     @State var optionsFor: UUID?
@@ -76,11 +78,12 @@ struct LauncherView: View {
     init(stores: LauncherStores? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library, settingsCategory: SettingsCategory = .general,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [], toolsAssessments: [UUID: GameRefreshAssessment] = [:],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
-         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, recorder: BuildRecorder? = nil, qaPrompt: Bool = false, qaLaunching: Bool = false, qaSkippedOpen: Bool = false,
+         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, recorder: BuildRecorder? = nil, qaPrompt: Bool = false, qaLaunching: Bool = false, qaSkippedOpen: Bool = false, qaActivityLogOpen: Bool = false,
          gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared) {
         _padFocus = StateObject(wrappedValue: padFocus ?? PadFocus())
         _consolePrompt = State(initialValue: qaPrompt)   // visual QA: the connect prompt open at launch
         _skippedItemsOpen = State(initialValue: qaSkippedOpen)
+        _activityLogOpen = State(initialValue: qaActivityLogOpen)
         _launching = State(initialValue: qaLaunching)
         _showGatekeeperHint = State(initialValue: qaLaunching)
         self.onRunSetup = onRunSetup
@@ -101,7 +104,7 @@ struct LauncherView: View {
         let stores = stores ?? LauncherStores(); self.stores = stores
         _m = StateObject(wrappedValue: stores.build); _loc = ObservedObject(wrappedValue: stores.localizer)
         _updates = ObservedObject(wrappedValue: stores.appUpdates); _devices = ObservedObject(wrappedValue: stores.deviceStore)
-        _repo = ObservedObject(wrappedValue: stores.repo); _engine = ObservedObject(wrappedValue: stores.engineSync)
+        _repo = ObservedObject(wrappedValue: stores.repo); _engine = ObservedObject(wrappedValue: stores.engineSync); _playSessions = ObservedObject(wrappedValue: stores.playSessions)
         let library = library ?? GameLibrary()
         _library = StateObject(wrappedValue: library)
         _recorder = StateObject(wrappedValue: recorder ?? BuildRecorder(stores: stores, library: library, activeBuildID: activeBuildID))
@@ -361,6 +364,7 @@ struct LauncherView: View {
                 .environmentObject(padFocus)
         }
         .onChange(of: supportedGames == nil) { closed in padFocus.scope = closed ? currentPadScope : "supported" }
+        .activityLogSheet(isPresented: $activityLogOpen, store: playSessions, library: library, artwork: artwork, loc: loc, pad: padFocus, scope: { currentPadScope }, showInLibrary: showInLibrary)
         .renameGameSheet($renaming, library: library, pad: padFocus, scope: { currentPadScope })
         .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates, build: m) }
         .confirmationDialog(loc.t("uninstall.title"), isPresented: Binding(
@@ -675,7 +679,7 @@ struct LauncherView: View {
             }
             return
         }
-        let sheetOpen = controllerSheet || batchRefreshOpen || missingImgGuideFor != nil || supportedGames != nil || skippedItemsOpen || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || stores.buildFiles.confirming != nil || deleting != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive
+        let sheetOpen = controllerSheet || batchRefreshOpen || missingImgGuideFor != nil || supportedGames != nil || activityLogOpen || skippedItemsOpen || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || stores.buildFiles.confirming != nil || deleting != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -696,6 +700,7 @@ struct LauncherView: View {
         if freeSpaceFor != nil && [.b, .x, .l, .r].contains(action) { if action == .b { freeSpaceFor = nil }; return }
         if deleting != nil && [.b, .x, .l, .r].contains(action) { if action == .b { deleting = nil }; return }
         if supportedGames != nil && [.b, .x, .l, .r].contains(action) { if action == .b { supportedGames = nil }; return }
+        if activityLogOpen && [.b, .x, .l, .r].contains(action) { if action == .b { activityLogOpen = false }; return }
         if skippedItemsOpen && [.b, .x, .l, .r].contains(action) {
             if action == .b { skippedItemsOpen = false }
             return
@@ -756,7 +761,7 @@ struct LauncherView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        cloudGate.isActive ? "cloudsave" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : batchRefreshOpen ? "batchRefresh" : missingImgGuideFor != nil ? "imgGuide" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : stores.buildFiles.confirming != nil ? "buildfiles" : deleting != nil ? "delete" : skippedItemsOpen ? "skipped" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        cloudGate.isActive ? "cloudsave" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : batchRefreshOpen ? "batchRefresh" : missingImgGuideFor != nil ? "imgGuide" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : stores.buildFiles.confirming != nil ? "buildfiles" : deleting != nil ? "delete" : skippedItemsOpen ? "skipped" : activityLogOpen ? "activity" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).

@@ -54,6 +54,24 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
 
 /// The library's root controller, for ShellMain.m's scene delegate.
 @objc(ShellLibrary) final class ShellLibrary: NSObject {
+    @MainActor private static weak var activeModel: ShellHostModel?
+
+    @MainActor @objc static func gameWillPause() {
+        activeModel?.pauseActiveSession()
+    }
+
+    @MainActor @objc static func gameDidCheckpoint() {
+        activeModel?.checkpointActiveSession()
+    }
+
+    @MainActor @objc static func gameDidResume() {
+        activeModel?.resumeActiveSession()
+    }
+
+    @MainActor @objc static func gameDidEnd() {
+        activeModel?.endActiveSession()
+    }
+
     @MainActor @objc static func makeController() -> UIViewController {
         let info = Bundle.main.infoDictionary ?? [:]
         // The shader chain the host was compiled with (build_shell.sh writes DMChain): a framework built for another one needs an app update
@@ -69,6 +87,7 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
                                      environment: HostEnvironment(chain: chain),
                                      updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"))
         let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker())
+        activeModel = model
         model.startControllers()
         for entry in model.entries {
             fputs("shell: game \(entry.id) \(entry.title) at \(entry.frameworkURL?.lastPathComponent ?? "-")\(entry.problem.map { ", broken: \($0.reason), \($0.detail)" } ?? "")\n", stderr)

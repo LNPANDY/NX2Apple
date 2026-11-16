@@ -74,6 +74,7 @@ public struct ShellHostConfig: Sendable {
 @MainActor @Observable public final class ShellHostModel {
     public private(set) var details: [GameDetail] = []
     public private(set) var entries: [CatalogueEntry] = []
+    public internal(set) var activityLog: ActivityLogSnapshot = .empty
     public private(set) var controllers: [ControllerInfo] = []
     public private(set) var input = ShellInputLog()
     /// A short message the host view shows as an alert.
@@ -98,7 +99,7 @@ public struct ShellHostConfig: Sendable {
         var report: CloudSaveSyncCheck.Report
     }
 
-    @ObservationIgnored private let config: ShellHostConfig
+    @ObservationIgnored let config: ShellHostConfig
     @ObservationIgnored private let launcher: any GameLauncher
     @ObservationIgnored private let picker: any FolderPicker
     @ObservationIgnored private let adapter = GamepadAdapter()
@@ -108,6 +109,8 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var resolvedProfiles: [String: LauncherProfile] = [:]
     /// The shell-level settings every game falls back to (game > shell > built-in).
     @ObservationIgnored public let shellSettings: ShellSettingsStore
+    /// Persistent per-title play history stored outside per-game data directories (#1161).
+    @ObservationIgnored public let playHistory: PlayHistoryStore
     @ObservationIgnored private let shellData: BookmarkStore
     @ObservationIgnored private let shellCloud: BookmarkStore
     @ObservationIgnored private var shellChoices: [String]
@@ -134,11 +137,13 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored nonisolated(unsafe) private var foregroundObserver: (any NSObjectProtocol)?
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
-                shellSettings: ShellSettingsStore = .current) {
+                shellSettings: ShellSettingsStore = .current, playHistory: PlayHistoryStore? = nil) {
         self.config = config
         self.launcher = launcher
         self.picker = picker
         self.shellSettings = shellSettings
+        self.playHistory = playHistory ?? PlayHistoryStore(fileURL: PlayHistoryStore.defaultFileURL(appDataRoot: config.appDataRoot))
+        self.playHistory.recoverStaleSessionIfNeeded()
         shellData = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.dataFolderKey)
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
         shellChoices = Self.choices(of: shellSettings)
@@ -209,6 +214,7 @@ public struct ShellHostConfig: Sendable {
         shellChoices = Self.choices(of: shellSettings)
         startShellScan()
         details = entries.map(detail(for:))
+        rebuildActivityLog()
     }
 
     public func setPadMerge(_ on: Bool) {
@@ -307,7 +313,10 @@ public struct ShellHostConfig: Sendable {
             guard let self, !Task.isCancelled, self.scannedShellFolder == folder.path else { return }
             self.shellScan = nil
             self.shellMatches = found
-            if !found.isEmpty { self.details = self.entries.map(self.detail(for:)) }
+            if !found.isEmpty {
+                self.details = self.entries.map(self.detail(for:))
+                self.rebuildActivityLog()
+            }
         }
     }
 
@@ -342,10 +351,11 @@ public struct ShellHostConfig: Sendable {
         let scanned = GameCatalogue.scan(root: config.gamesRoot, hotRoot: config.hotFrameworksRoot, gameDataRoot: config.appDataRoot).filter { !isDeleted($0) }
         let built = scanned.map(detail(for:))
         let order = LibraryOrder.ids(of: built.map(\.game), lastPlayed: Dictionary(uniqueKeysWithValues: scanned.compactMap { e in
-            lastPlayed(e.id).map { (e.id, $0) } }))
+            effectiveLastPlayed(e.id).map { (e.id, $0) } }))
         let position = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
         entries = scanned.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
         details = built.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
+        rebuildActivityLog()
         startShellScan(force: true)
         startBackupScan()
         if !afterClaim && !launchingGame {
@@ -382,9 +392,15 @@ public struct ShellHostConfig: Sendable {
 
     private func lastPlayed(_ id: String) -> Date? { LastPlayedStore(defaults: config.defaults(id)).date }
 
+    func refreshHostGame(_ id: String) {
+        refresh(id)
+    }
+
     private func refresh(_ id: String) {
-        guard let e = entries.firstIndex(where: { $0.id == id }), let d = details.firstIndex(where: { $0.id == id }) else { return }
-        details[d] = detail(for: entries[e])
+        if let e = entries.firstIndex(where: { $0.id == id }), let d = details.firstIndex(where: { $0.id == id }) {
+            details[d] = detail(for: entries[e])
+        }
+        rebuildActivityLog()
     }
 
     private func settingsSnapshot(for id: String, profile: LauncherProfile) -> (sections: [SettingSection], hasModifiedSettings: Bool) {
@@ -554,14 +570,30 @@ public struct ShellHostConfig: Sendable {
             let totalSize = Self.formatByteSize(progress.totalBytes)
             state = .joiningGameData(percent: percent, doneSize: doneSize, totalSize: totalSize)
         }
-        let played = lastPlayed(entry.id)
+        let locale = activeHostLocale
+        let historyRecord = playHistory[entry.id]
+        let played = effectiveLastPlayed(entry.id)
+        let playTime = (historyRecord?.seconds ?? 0) >= 60
+            ? ShellFormat.duration(historyRecord?.seconds ?? 0, locale: locale)
+            : nil
+        let playedLabel = played.map { ShellFormat.played($0, now: config.now(), locale: locale) }
+        let recentlyPlayedLabel: String? = {
+            let joined = ShellFormat.metaLine(playTime, playedLabel)
+            return joined.isEmpty ? nil : joined
+        }()
+        let playSummary: String? = {
+            guard let historyRecord, historyRecord.sessions > 0 else { return nil }
+            let durationText = playTime ?? ShellFormat.underOneMinute()
+            return ShellFormat.playSummary(duration: durationText, sessions: historyRecord.sessions)
+        }()
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
-                            recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
+                            recentlyPlayed: recentlyPlayedLabel, version: entry.manifest?.displayVersion ?? "",
                             isSwitch2: entry.manifest?.console == "switch2")
         guard let profile = profile(for: entry, data: data) else {
             resolvedProfiles.removeValue(forKey: entry.id)
-            return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false, readiness: readiness))
+            return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false, readiness: readiness),
+                              playSummary: playSummary)
         }
         resolvedProfiles[entry.id] = profile
         var cloud: String?
@@ -586,7 +618,7 @@ public struct ShellHostConfig: Sendable {
             cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: snapshot.hasModifiedSettings,
             dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
             cloudCanUseShell: shellFolder && !cloudFromShell,
-            latestSaveBackup: latestBackup)
+            latestSaveBackup: latestBackup, playSummary: playSummary)
     }
 
     private func dataSource(_ data: DataResolution) -> String {
@@ -1056,6 +1088,7 @@ public struct ShellHostConfig: Sendable {
         do {
             game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
             try await launcher.launch(game)
+            recordSessionDidStart(for: game)
         } catch {
             notice = error.localizedDescription
         }

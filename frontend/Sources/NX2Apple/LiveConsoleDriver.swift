@@ -105,8 +105,9 @@ struct ConsolePadSnapshot: Equatable {
          player: @escaping () -> PlayerProfile? = { nil },
          saves: @escaping (String) -> (global: SaveGlobalSettings, game: SaveGameOverride)? = { _ in nil },
          sticks: @escaping () -> StickDeadzoneSettings? = { nil },
-         shellRoot: @escaping () -> String = { "" }) {
-        sessions = PlaySessionStore(file: observeSystem ? PlaySessionStore.defaultFile : nil)   // a test keeps its history in memory
+         shellRoot: @escaping () -> String = { "" },
+         sessions: PlaySessionStore? = nil) {
+        self.sessions = sessions ?? PlaySessionStore(file: observeSystem ? PlaySessionStore.defaultFile : nil)   // a test keeps its history in memory
         tracking.observesSystem = observeSystem
         self.saves = saves
         self.sticks = sticks
@@ -124,6 +125,7 @@ struct ConsolePadSnapshot: Equatable {
         if pads == nil { self.devicePads = true }
         state.padMerge = controls.padMerge
         library.objectWillChange.sink { [weak self] _ in self?.queueRefresh() }.store(in: &cancellables)
+        self.sessions.$sessions.dropFirst().sink { [weak self] _ in self?.queueRefresh() }.store(in: &cancellables)
         controls.$padMerge.sink { [weak self] merged in self?.state.padMerge = merged }.store(in: &cancellables)
         // A @Published sink runs before the value is stored: the layout is read on the next turn of the run loop.
         controls.$pad.combineLatest(controls.$padMode).dropFirst().receive(on: DispatchQueue.main)

@@ -57,6 +57,7 @@ struct ShellSettingsView: View {
     @Environment(\.shellNativeBars) private var nativeBars
     var store: ShellSettingsStore = .current
     var actions: ShellActions
+    var onOpenActivityLog: (() -> Void)? = nil
     var onClose: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.shellFocus) private var focus
@@ -75,6 +76,25 @@ struct ShellSettingsView: View {
                                 .shellTarget("shs.close", action: onClose)
                         }
                     }.id("shs.top")
+                }
+
+                if let onOpenActivityLog {
+                    Section {
+                        Button(action: onOpenActivityLog) {
+                            LabeledContent {
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            } label: {
+                                Label(ShellStrings.text("Activity log"), systemImage: "chart.bar.xaxis")
+                                    .labelStyle(SettingsRowLabelStyle())
+                            }
+                        }
+                        .accessibilityIdentifier("shellSettings.activityLog")
+                        .shellTarget("shs.activityLog", action: onOpenActivityLog)
+                    } footer: {
+                        Text(ShellStrings.text("See play time, sessions and active days across your games."))
+                    }
                 }
 
                 Section {

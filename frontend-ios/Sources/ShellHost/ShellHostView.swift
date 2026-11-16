@@ -7,11 +7,13 @@ public struct ShellHostView: View {
     @Bindable private var model: ShellHostModel
     private let initialSelection: String?
     private let initialDetailOpen: Bool
+    private let initialActivityLogOpen: Bool
 
-    public init(model: ShellHostModel, initialSelection: String? = nil, initialDetailOpen: Bool = false) {
+    public init(model: ShellHostModel, initialSelection: String? = nil, initialDetailOpen: Bool = false, initialActivityLogOpen: Bool = false) {
         self.model = model
         self.initialSelection = initialSelection
         self.initialDetailOpen = initialDetailOpen
+        self.initialActivityLogOpen = initialActivityLogOpen
     }
 
     public var body: some View {
@@ -20,7 +22,9 @@ public struct ShellHostView: View {
                     padMerge: model.padMerge, padSnapshot: model.padSnapshot,
                     signingWarning: model.signingWarning,
                     onDismissSigningWarning: { model.dismissSigningWarning() },
-                    canOpenHomeButtonSettings: model.canOpenHomeButtonSettings)
+                    canOpenHomeButtonSettings: model.canOpenHomeButtonSettings,
+                    activityLog: model.activityLog,
+                    initialActivityLogOpen: initialActivityLogOpen)
             .disabled(model.launchingGame)
             .overlay {
                 if model.launchingGame {

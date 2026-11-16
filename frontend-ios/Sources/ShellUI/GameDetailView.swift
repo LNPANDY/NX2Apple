@@ -108,11 +108,15 @@ public struct GameDetailView: View {
                 }
             }
         }
-        if !detail.game.version.isEmpty {
+        if !detail.game.version.isEmpty || !(detail.playSummary ?? "").isEmpty {
             if nativeSections {
-                Section { versionRow }
+                Section {
+                    if !detail.game.version.isEmpty { versionRow }
+                    if let summary = detail.playSummary, !summary.isEmpty { playHistoryRow(summary) }
+                }
             } else {
-                versionRow
+                if !detail.game.version.isEmpty { versionRow }
+                if let summary = detail.playSummary, !summary.isEmpty { playHistoryRow(summary) }
             }
         }
         VStack(alignment: .leading, spacing: 10) {
@@ -138,6 +142,11 @@ public struct GameDetailView: View {
     private var versionRow: some View {
         LabeledContent(ShellStrings.text("Version"), value: detail.game.version)
             .accessibilityIdentifier("detail.version")
+    }
+
+    private func playHistoryRow(_ summary: String) -> some View {
+        LabeledContent(ShellStrings.text("Play history"), value: summary)
+            .accessibilityIdentifier("detail.playHistory")
     }
 
     private var header: some View {
@@ -206,7 +215,7 @@ struct SettingsGroup<Content: View>: View {
     }
 }
 
-private struct GameSettingsGlassButton: View {
+struct GameSettingsGlassButton: View {
     let title: String
     var destructive = false
     let action: () -> Void
