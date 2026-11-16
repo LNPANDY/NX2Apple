@@ -1,0 +1,518 @@
+From fa35e32cce99edda8c4edb383a8d02c624fdbd3c Mon Sep 17 00:00:00 2001
+From: odonnellmatt <odonnellmatt@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 20:53:20 +0800
+Subject: [PATCH] ios/tests: walk the layout editor step by step on the
+ Simulator
+
+The harness had stopped linking on this base: hle_lifecycle.c calls
+dm_switch2_teardown on the way back to a shell, and the harness does not
+build pad_switch2_apple.m. DuoRuntimeStubs.m gets a no-op for it, beside
+the harness's other shell stubs.
+
+DuoEditorShotTests runs the editor in the harness app's own window, so
+with the device's real size and safe area (a sensor housing, a home
+indicator), sideways and then upright: it opens the editor in 3D, chooses
+each of the six groups, toggles Each side on its own and Both sides
+together on A B X Y, drags the left shoulders down a third of the safe
+area, presses the stick's + three times, shows a phone's rest (All
+controls, Save for, Reset to default), and opens the editor again in
+German and in French (the longest words of the ten languages the NX2Apple
+shell passes) for the choice and the rest. After each step it checks the
+panel: a phone's bar inside the safe area and off the group just chosen,
+Cancel and Done shown and inside it, every control on it at least 44
+points, the choice's titles whole; an iPad's card inside the view with
+Cancel and Done in it. It then draws the window into
+<device>-<orientation>-<NN>-<step>.png in DM_SHOTS (xcodebuild's
+TEST_RUNNER_DM_SHOTS) or the app's tmp/editor-shots, with the measures in
+<device>-metrics.txt; with DM_SHOTS_SCREEN=1 it waits for a script to take
+the Simulator's own screenshot of the step (<name>.req, <name>.done).
+Nothing is saved: every editor closes with Cancel. A second test tries the
+phone's bar on any device (DM_PAD_EDIT_COMPACT=1) on an iPhone-sized
+gamepad outside the window: the bar starts on an edge, goes to the top for
+the stick and to the bottom for the shoulders, back to the top when the
+shoulders are dragged under it, keeps Cancel, Done and Reset to default
+with the rest shown, and folds the rest when a group is chosen.
+
+To turn an iPhone upright for that test the harness app answers the
+orientations it takes from duo_harness_orientations (its app and scene
+delegates): by default its Info.plist's (an iPhone sideways, an iPad any
+way, as test_orientation_policy.py keeps them), upright too while the test
+asks.
+
+Checked here (Linux, no Apple SDK): DuoEditorShotTests.m through clang
+-fsyntax-only against declaration stubs of the UIKit and XCTest names it
+uses; test_orientation_policy.py.
+
+Run on a Mac, on the author's own tree (this series' feature code on
+another base): xcodebuild build-for-testing of the harness for the
+Simulator, then DuoEditorShotTests (every step and its pictures) and the
+editor's seven testLayoutEditor cases of DuoHarnessTests passed on
+Simulators of an iPhone SE (3rd generation), an iPhone 17, an iPhone 17 Pro
+Max and an 11-inch iPad, held sideways and upright, in English, German and
+French. Not run: this exact tree on a Mac, a real iPhone. The harness is
+not part of CI.
+
+Upstream-Status: pending [builds on 0020 and 0040: the seedds/nxnative pull request follows once they are upstream]
+Reason: walks the layout editor step by step on iPhone and iPad Simulators in the Duo harness, with a picture of each step
+Issue: LNPANDY/NX2Apple#ISSUE (the feature issue, to be opened before the pull request)
+---
+ dm/ios/tests/duo/README.md                   |  11 +
+ dm/ios/tests/duo/Sources/DuoHarnessApp.m     |  15 +
+ dm/ios/tests/duo/Sources/DuoHarnessRuntime.h |   4 +
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m   |   1 +
+ dm/ios/tests/duo/Tests/DuoEditorShotTests.m  | 351 +++++++++++++++++++
+ 5 files changed, 382 insertions(+)
+ create mode 100644 dm/ios/tests/duo/Tests/DuoEditorShotTests.m
+
+diff --git a/dm/ios/tests/duo/README.md b/dm/ios/tests/duo/README.md
+index 782fd74c..0dd1627e 100644
+--- a/dm/ios/tests/duo/README.md
++++ b/dm/ios/tests/duo/README.md
+@@ -6,6 +6,8 @@ The Simulator unit tests cover portrait and landscape layout, safe areas, valid
+ 
+ The harness uses synthetic host state and does not validate an installed game, physical hinge sensors or device motion.
+ 
++`DuoEditorShotTests` runs the layout editor (Adjust Gamepad Layout) in the harness app's own window, so on the Simulator's real screen size and safe area: sideways and upright (the harness turns an iPhone upright only for this test), it opens the editor, chooses each group, toggles Both sides together | Each side on its own, drags and resizes a group, shows the rest of a phone's bar, and repeats the choice in German and French. After each step it checks the panel (an iPhone's bar inside the safe area, off the group just chosen, Cancel and Done in reach, every control at least 44 points, the choice's titles whole) and writes a PNG of the window to `DM_SHOTS` (pass `TEST_RUNNER_DM_SHOTS=<folder>` to `xcodebuild`), or to the app's `tmp/editor-shots`. With `TEST_RUNNER_DM_SHOTS_SCREEN=1` it also waits at each step for a script to take the Simulator's own screenshot (`<name>.req`, then `<name>.done`). Its other test tries the phone's bar on any device (`DM_PAD_EDIT_COMPACT=1`).
++
+ From the repository root:
+ 
+ ```sh
+@@ -16,6 +18,15 @@ xcodebuild test -project DuoHarness.xcodeproj -scheme DuoHarness \
+   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+ ```
+ 
++The editor's steps alone, with the PNGs in a folder:
++
++```sh
++TEST_RUNNER_DM_SHOTS="$PWD/shots" TEST_RUNNER_DM_SHOTS_DEVICE=iPhone-17 \
++xcodebuild test -project DuoHarness.xcodeproj -scheme DuoHarness \
++  -destination 'platform=iOS Simulator,id=<simulator-udid>' \
++  -only-testing:DuoHarnessTests/DuoEditorShotTests CODE_SIGNING_ALLOWED=NO
++```
++
+ To build and install the harness app for a simulator:
+ 
+ ```sh
+diff --git a/dm/ios/tests/duo/Sources/DuoHarnessApp.m b/dm/ios/tests/duo/Sources/DuoHarnessApp.m
+index e9b168d2..1b05c4d6 100644
+--- a/dm/ios/tests/duo/Sources/DuoHarnessApp.m
++++ b/dm/ios/tests/duo/Sources/DuoHarnessApp.m
+@@ -21,6 +21,13 @@ static NSArray<NSArray<NSNumber *> *> *DuoHarnessTouchArray(DuoHarnessInput inpu
+     return touches;
+ }
+ 
++static NSUInteger g_duo_orientations;   // duo_harness_set_orientations; 0: an iPhone sideways, an iPad any way (Info.plist's)
++void duo_harness_set_orientations(NSUInteger mask) { g_duo_orientations = mask; }
++NSUInteger duo_harness_orientations(void) {
++    if (g_duo_orientations) return g_duo_orientations;
++    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone ? UIInterfaceOrientationMaskLandscape : UIInterfaceOrientationMaskAll;
++}
++
+ @interface DuoHarnessDiagnosticsOverlay : UIView
+ @property (nonatomic, copy) void (^didLayout)(void);
+ @end
+@@ -55,6 +62,10 @@ static NSArray<NSArray<NSNumber *> *> *DuoHarnessTouchArray(DuoHarnessInput inpu
+     setenv("DM_TOUCH_HAPTICS", "0", 1);
+     return YES;
+ }
++- (UIInterfaceOrientationMask)application:(UIApplication *)application supportedInterfaceOrientationsForWindow:(UIWindow *)window {
++    (void)application; (void)window;
++    return (UIInterfaceOrientationMask)duo_harness_orientations();
++}
+ - (UISceneConfiguration *)application:(UIApplication *)application
+     configurationForConnectingSceneSession:(UISceneSession *)session
+     options:(UISceneConnectionOptions *)options {
+@@ -64,6 +75,10 @@ static NSArray<NSArray<NSNumber *> *> *DuoHarnessTouchArray(DuoHarnessInput inpu
+ @end
+ 
+ @implementation DuoHarnessSceneDelegate
++- (UIInterfaceOrientationMask)supportedInterfaceOrientationsForWindowScene:(UIWindowScene *)windowScene {   // iOS 27 and later (as the shell's)
++    (void)windowScene;
++    return (UIInterfaceOrientationMask)duo_harness_orientations();
++}
+ - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)options {
+     (void)session; (void)options;
+     if (![scene isKindOfClass:UIWindowScene.class]) return;
+diff --git a/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h b/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
+index 9d0d779c..82b0ec91 100644
+--- a/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
++++ b/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
+@@ -37,5 +37,9 @@ void dm_set_opmode(int mode);
+ int dm_opmode(void);
+ DuoHarnessState duo_harness_state(void);
+ void duo_harness_clear(void);
++// The orientations the harness app takes (a UIInterfaceOrientationMask); 0, the default, is its Info.plist's: an iPhone sideways, an iPad any way.
++// The editor's screenshot test turns an iPhone upright with it.
++void duo_harness_set_orientations(NSUInteger mask);
++NSUInteger duo_harness_orientations(void);
+ 
+ FOUNDATION_EXPORT NSString * const DuoHarnessInputDidChangeNotification;
+diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+index 643c8b50..d6753435 100644
+--- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
++++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+@@ -109,6 +109,7 @@ void dm_haptics_apple_controller_locality(int player, GCController *controller,
+ int front_web_touch(void) { return 0; }   // no offline web page above the synthetic game
+ void front_web_close(void) {}
+ void dm_host_teardown_for_shell(void) {}
++void dm_switch2_teardown(void) {}   // hle_lifecycle.c calls it on the way back to a shell (pad_switch2_apple.m, not built here)
+ int dm_locate_game_data(void) { return 1; }
+ const struct dm_profile *dm_profile(void) {
+     static const struct dm_profile profile = {.name = "DuoHarness", .pad_layout = DM_GAME_PAD_LAYOUT};
+diff --git a/dm/ios/tests/duo/Tests/DuoEditorShotTests.m b/dm/ios/tests/duo/Tests/DuoEditorShotTests.m
+new file mode 100644
+index 00000000..0c1a82a2
+--- /dev/null
++++ b/dm/ios/tests/duo/Tests/DuoEditorShotTests.m
+@@ -0,0 +1,351 @@
++// The layout editor ("Adjust Gamepad Layout", DmGamepad.m and DmPadEditor.m) on the device the harness runs on, in the harness app's own window (its
++// real size and safe area: a sensor housing, a home indicator), sideways and upright: the editor opened, each group chosen, the two-way choice
++// toggled, a group dragged and resized, the rest of the panel shown, and the choice and the rest again with the German and French words. After each
++// step the panel is checked (a phone's compact bar: inside the safe area, off the group just chosen, Cancel and Done in reach, every control at least
++// 44 points, the choice's titles not cut short; an iPad's card: inside the view, Cancel and Done in reach) and the window is captured to a PNG.
++//   Where the PNGs go: DM_SHOTS (xcodebuild passes TEST_RUNNER_DM_SHOTS as DM_SHOTS), else the app's tmp/editor-shots; named
++// <device>-<orientation>-<NN>-<step>.png, <device> from DM_SHOTS_DEVICE (else the device's model name). With DM_SHOTS_SCREEN=1 each step also leaves
++// <name>.req and waits up to 6 s for <name>.done, so a script outside (sim-run.sh) can take the Simulator's own screenshot of that step with
++// `xcrun simctl io <device> screenshot` (the sensor housing drawn). Measures go to <device>-metrics.txt. Nothing is saved: every editor closes with Cancel.
++#import <XCTest/XCTest.h>
++#import <UIKit/UIKit.h>
++#import "DmLayout.h"
++#import "DmPadEditing.h"
++#import "DmPadEditor.h"
++#import "DuoHarnessRuntime.h"
++#include <stdlib.h>
++
++// DmGamepad.m's methods the editor's touches and its panel call (as DuoHarnessTests.m declares them).
++@interface UIView (DuoShotEditor)
++- (void)beginEditing;
++- (void)finishEditing:(BOOL)save;
++- (BOOL)editing;
++- (int)padLayout;
++- (void)setPadLayout:(int)layout;
++@end
++
++// A finger: where it is, when it came down, and the view it landed on (nil: the gamepad), as the gamepad's touch handlers read a UITouch.
++@interface DuoShotTouch : NSObject
++@property (nonatomic) CGPoint point;
++@property (nonatomic) NSTimeInterval timestamp;
++@property (nonatomic, weak) UIView *view;
++- (CGPoint)locationInView:(UIView *)view;
++@end
++@implementation DuoShotTouch
++- (CGPoint)locationInView:(UIView *)view { (void)view; return self.point; }
++@end
++
++// The editor's 27 lines in German and French, as the NX2Apple shell passes them (DM_PAD_EDIT_TEXT, DmPadEditing.h's order): the longest words of
++// the 10 languages for the two-way choice and the buttons.
++static NSString *const k_german[] = {
++    @"Gamepad-Layout anpassen", @"Ziehe eine Gruppe, um sie zu verschieben. Ändere ihre Größe mit zwei Fingern oder mit dem Regler.",
++    @"Tippe auf eine Gruppe, um sie zu wählen", @"Alle Tasten", @"Linke und rechte Gruppen bewegen", @"Sichern für", @"Alle Spiele", @"Dieses Spiel",
++    @"Zurücksetzen", @"Abbrechen", @"Fertig", @"Dort ist kein Platz", @"Linker Stick", @"Steuerkreuz", @"Kleiner", @"Größer", @"Nach oben",
++    @"Nach unten", @"Nach links", @"Nach rechts", @"Kein Platz mehr zum Vergrößern", @"Gespiegelt ist dort kein Platz", @"Eingebautes Layout",
++    @"Wie alle Spiele", @"Beide Seiten zusammen", @"Jede Seite für sich", @"Diese Gruppe hat kein Gegenstück auf der anderen Seite.",
++};
++static NSString *const k_french[] = {
++    @"Ajuster la disposition de la manette", @"Faites glisser un groupe pour le déplacer. Pincez-le ou utilisez le curseur pour le redimensionner.",
++    @"Touchez un groupe pour le choisir", @"Toutes les commandes", @"Déplacer les groupes gauche et droit", @"Enregistrer pour", @"Tous les jeux",
++    @"Ce jeu", @"Réinitialiser", @"Annuler", @"OK", @"Pas de place ici", @"Stick gauche", @"Croix directionnelle", @"Plus petit", @"Plus grand",
++    @"Vers le haut", @"Vers le bas", @"Vers la gauche", @"Vers la droite", @"Plus de place pour l’agrandir", @"Pas de place ici en symétrie",
++    @"Disposition d’origine", @"Comme tous les jeux", @"Les deux côtés ensemble", @"Chaque côté seul", @"Ce groupe n’a pas d’équivalent de l’autre côté.",
++};
++
++@interface DuoEditorShotTests : XCTestCase
++@end
++
++@implementation DuoEditorShotTests {
++    UIWindow *_window;
++    UIView *_pad;
++    NSString *_dir, *_device, *_orientation;
++    BOOL _screen;
++    int _step;
++    NSMutableString *_metrics;
++    NSTimeInterval _clock;
++}
++
++- (void)setUp {
++    [super setUp];
++    for (UIScene *s in UIApplication.sharedApplication.connectedScenes)
++        if ([s isKindOfClass:UIWindowScene.class]) for (UIWindow *w in ((UIWindowScene *)s).windows) if (w.isKeyWindow || !_window) _window = w;
++    XCTAssertNotNil(_window, @"the harness app's window");
++    _pad = [_window.rootViewController valueForKey:@"pad"];
++    XCTAssertNotNil(_pad, @"the production gamepad in the harness app's window");
++    NSDictionary<NSString *, NSString *> *env = NSProcessInfo.processInfo.environment;
++    _device = env[@"DM_SHOTS_DEVICE"].length ? env[@"DM_SHOTS_DEVICE"] : [UIDevice.currentDevice.model stringByReplacingOccurrencesOfString:@" " withString:@"-"];
++    _screen = [env[@"DM_SHOTS_SCREEN"] isEqualToString:@"1"];
++    _dir = env[@"DM_SHOTS"];
++    if (!_dir.length || ![NSFileManager.defaultManager createDirectoryAtPath:_dir withIntermediateDirectories:YES attributes:nil error:nil]
++        || ![NSFileManager.defaultManager isWritableFileAtPath:_dir]) {
++        _dir = [NSTemporaryDirectory() stringByAppendingPathComponent:@"editor-shots"];   // sim-run.sh also collects these from the app's container
++        [NSFileManager.defaultManager createDirectoryAtPath:_dir withIntermediateDirectories:YES attributes:nil error:nil];
++        _screen = NO;
++    }
++    _metrics = [NSMutableString string];
++    [NSUserDefaults.standardUserDefaults removeObjectForKey:@"launcher.DM_TOUCH_GROUPS"];
++    unsetenv("DM_TOUCH_GROUPS"); unsetenv("DM_TOUCH_GROUPS_OWN"); unsetenv("DM_PAD_EDIT_TEXT"); unsetenv("DM_PAD_EDIT_COMPACT");
++}
++
++- (void)tearDown {
++    if ([_pad editing]) [_pad finishEditing:NO];
++    unsetenv("DM_PAD_EDIT_TEXT");
++    duo_harness_set_orientations(0);
++    [self turn:YES];   // back to the harness's own: sideways
++    if (_metrics.length) {
++        NSString *file = [_dir stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-metrics.txt", _device]];
++        [_metrics writeToFile:file atomically:YES encoding:NSUTF8StringEncoding error:nil];
++    }
++    NSLog(@"editor shots: %@ (%d steps)", _dir, _step);
++    [super tearDown];
++}
++
++// ---- The device ----
++- (void)settle:(NSTimeInterval)seconds { [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]]; }
++// Turns the window sideways (or upright) and waits for its bounds to follow: NO when they did not within 5 s.
++- (BOOL)turn:(BOOL)landscape {
++    UIWindowScene *scene = _window.windowScene;
++    UIInterfaceOrientationMask mask = landscape ? UIInterfaceOrientationMaskLandscapeRight : UIInterfaceOrientationMaskPortrait;
++    duo_harness_set_orientations(landscape ? 0 : (UIInterfaceOrientationMaskLandscape | UIInterfaceOrientationMaskPortrait));
++    [_window.rootViewController setNeedsUpdateOfSupportedInterfaceOrientations];
++    __block NSError *failed = nil;
++    [scene requestGeometryUpdateWithPreferences:[[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:mask]
++                                   errorHandler:^(NSError *error) { failed = error; }];
++    for (int i = 0; i < 100; i++) {
++        CGSize s = _window.bounds.size;
++        if (landscape ? s.width > s.height : s.height > s.width) { [self settle:0.4]; [_pad setNeedsLayout]; [_pad layoutIfNeeded]; return YES; }
++        [self settle:0.05];
++    }
++    [_metrics appendFormat:@"%@: not reached (%@)\n", landscape ? @"landscape" : @"portrait", failed.localizedDescription ?: @"the bounds did not turn"];
++    return NO;
++}
++
++// ---- The editor ----
++- (DmPadEditPanel *)panel { return [_pad valueForKey:@"panel"]; }
++- (DmPadGeo)geo {   // the geometry the gamepad draws now: its bounds, safe area, split, layout and the editor's draft (the options' environment is unset here)
++    DmLayout layout; [(NSValue *)[_pad valueForKey:@"layout"] getValue:&layout size:sizeof layout];
++    DmPadGroups draft; [(NSValue *)[_pad valueForKey:@"draft"] getValue:&draft size:sizeof draft];
++    DmPadOptions o; memset(&o, 0, sizeof o);
++    o.scale = dm_pad_size_scale(getenv("DM_TOUCH_SIZE")); o.stick = dm_pad_stick_place(getenv("DM_TOUCH_STICK")); o.groups = &draft;
++    return dm_pad_geo(_pad.bounds, _pad.safeAreaInsets, layout, [_pad padLayout] == 1, o);
++}
++// A point on group k a finger takes it at: one of its controls.
++- (CGPoint)pointOn:(int)k {
++    DmPadGeo g = [self geo];
++    switch (k) {
++    case DM_PAD_G_LEFT: return g.drop[DM_PAD_ZL];
++    case DM_PAD_G_RIGHT: return g.drop[DM_PAD_ZR];
++    case DM_PAD_G_STICK: return g.stick;
++    case DM_PAD_G_DPAD: return g.dpad;
++    case DM_PAD_G_FACE: return g.faceKey[0];
++    default: return CGPointMake(CGRectGetMidX(g.pill[DM_PAD_MINUS]), CGRectGetMidY(g.pill[DM_PAD_MINUS]));
++    }
++}
++- (CGRect)rectOf:(int)k {   // group k and its mirror image while they move together, as the bar keeps clear of them
++    DmPadGeo g = [self geo];
++    BOOL full = [_pad padLayout] == 1;
++    CGRect r = dm_pad_group_box(&g, full, k, NULL);
++    int m = dm_pad_group_mirror(k);
++    if ([self panel].mirrorSegment == 0 && m >= 0 && dm_pad_group_drawn(m, full)) r = CGRectUnion(r, dm_pad_group_box(&g, full, m, NULL));
++    return r;
++}
++- (DuoShotTouch *)down:(CGPoint)p {
++    DuoShotTouch *t = [DuoShotTouch new];
++    t.point = p; t.timestamp = (_clock += 1);
++    [_pad touchesBegan:(NSSet<UITouch *> *)[NSSet setWithObject:t] withEvent:nil];
++    return t;
++}
++- (void)move:(DuoShotTouch *)t to:(CGPoint)p { t.point = p; [_pad touchesMoved:(NSSet<UITouch *> *)[NSSet setWithObject:t] withEvent:nil]; }
++- (void)up:(DuoShotTouch *)t { [_pad touchesEnded:(NSSet<UITouch *> *)[NSSet setWithObject:t] withEvent:nil]; }
++- (void)tapGroup:(int)k { [self up:[self down:[self pointOn:k]]]; [self layout]; }
++- (void)layout { [_pad setNeedsLayout]; [_pad layoutIfNeeded]; }
++- (void)open:(NSString *const *)words {
++    if ([_pad editing]) [_pad finishEditing:NO];
++    if (words) {
++        NSMutableArray<NSString *> *lines = [NSMutableArray array];
++        for (int i = 0; i < DM_PAD_TEXT_N; i++) [lines addObject:words[i]];
++        setenv("DM_PAD_EDIT_TEXT", [lines componentsJoinedByString:@"\n"].UTF8String, 1);
++    } else unsetenv("DM_PAD_EDIT_TEXT");
++    [_pad setPadLayout:1];   // 3D: every group drawn
++    [self layout];
++    [_pad beginEditing];
++    XCTAssertTrue([_pad editing], @"the editor opens");
++    [self layout];
++}
++- (NSArray<UIControl *> *)controlsIn:(UIView *)v {
++    NSMutableArray<UIControl *> *out = [NSMutableArray array];
++    for (UIView *s in v.subviews) {
++        if (s.hidden || s.alpha < 0.01) continue;
++        if ([s isKindOfClass:UIControl.class]) [out addObject:(UIControl *)s];
++        else [out addObjectsFromArray:[self controlsIn:s]];
++    }
++    return out;
++}
++- (UIButton *)buttonTitled:(NSString *)title in:(UIView *)v {
++    for (UIControl *c in [self controlsIn:v])
++        if ([c isKindOfClass:UIButton.class] && [((UIButton *)c).configuration.title isEqualToString:title]) return (UIButton *)c;
++    return nil;
++}
++- (UISegmentedControl *)choiceIn:(UIView *)v {
++    for (UIControl *c in [self controlsIn:v]) if ([c isKindOfClass:UISegmentedControl.class] && ((UISegmentedControl *)c).numberOfSegments == 2
++                                                  && [((UISegmentedControl *)c).accessibilityLabel isEqualToString:[self word:4]]) return (UISegmentedControl *)c;
++    return nil;
++}
++- (NSString *)word:(int)i { char t[256]; dm_pad_text(getenv("DM_PAD_EDIT_TEXT"), i, t, sizeof t); return @(t); }
++
++// ---- The checks after each step, and the picture ----
++// chosen: the group just chosen (with its mirror image), which the bar must not cover (CGRectNull: none).
++- (void)check:(NSString *)step chosen:(CGRect)chosen {
++    DmPadEditPanel *panel = [self panel];
++    XCTAssertNotNil(panel, @"%@: the panel", step);
++    if (!panel) return;
++    CGRect safe = UIEdgeInsetsInsetRect(_pad.bounds, _pad.safeAreaInsets), f = panel.frame;
++    CGRect within = panel.compact ? safe : _pad.bounds;
++    XCTAssertTrue(CGRectContainsRect(CGRectInset(within, -0.5, -0.5), f), @"%@: the panel %@ leaves %@", step, NSStringFromCGRect(f), NSStringFromCGRect(within));
++    UIButton *cancel = [self buttonTitled:[self word:DM_PAD_TEXT_CANCEL] in:panel], *done = [self buttonTitled:[self word:DM_PAD_TEXT_DONE] in:panel];
++    XCTAssertNotNil(cancel, @"%@: Cancel shows", step); XCTAssertNotNil(done, @"%@: Done shows", step);
++    for (UIButton *b in @[cancel ?: (id)NSNull.null, done ?: (id)NSNull.null]) {
++        if (![b isKindOfClass:UIButton.class]) continue;
++        CGRect r = [b convertRect:b.bounds toView:_pad];
++        XCTAssertTrue(CGRectContainsRect(CGRectInset(within, -0.5, -0.5), r) && CGRectContainsRect(CGRectInset(f, -0.5, -0.5), r), @"%@: %@ out of reach at %@", step, b.configuration.title, NSStringFromCGRect(r));
++    }
++    CGFloat smallest = CGFLOAT_MAX;
++    for (UIControl *c in [self controlsIn:panel]) {
++        CGRect r = [c convertRect:c.bounds toView:_pad];
++        if (CGRectIsEmpty(CGRectIntersection(r, f))) continue;   // not laid out in the panel
++        smallest = fmin(smallest, fmin(r.size.width, r.size.height));
++        if (panel.compact) XCTAssertTrue(r.size.width >= 43.5 && r.size.height >= 43.5, @"%@: %@ (%@) is %@, under 44 points", step, NSStringFromClass(c.class), c.accessibilityLabel, NSStringFromCGSize(r.size));
++    }
++    UISegmentedControl *choice = [self choiceIn:panel];
++    CGFloat slack = choice ? choice.bounds.size.width - choice.intrinsicContentSize.width : 0;
++    if (choice) XCTAssertGreaterThanOrEqual(slack, -0.5, @"%@: the choice's titles (%@ | %@) are cut short", step, [choice titleForSegmentAtIndex:0], [choice titleForSegmentAtIndex:1]);
++    if (panel.compact && !CGRectIsNull(chosen)) XCTAssertFalse(CGRectIntersectsRect(f, chosen), @"%@: the bar %@ covers the chosen group %@", step, NSStringFromCGRect(f), NSStringFromCGRect(chosen));
++    [_metrics appendFormat:@"%@ %@: panel %@ %@, edge %@, rows %d, safe %@, smallest control %.1f, choice slack %.1f%@\n", _orientation, step,
++        panel.compact ? @"bar" : @"card", NSStringFromCGRect(f), panel.dockEdge == 1 ? @"bottom" : panel.dockEdge == 0 ? @"top" : @"-", panel.compactRows,
++        NSStringFromCGRect(safe), smallest, slack, panel.expanded ? @", expanded" : @""];
++    [self shot:step];
++}
++- (void)shot:(NSString *)step {
++    [self settle:0.35];   // the bar's move to the other edge is animated (0.2 s)
++    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithBounds:_window.bounds format:[UIGraphicsImageRendererFormat preferredFormat]];
++    NSData *png = [r PNGDataWithActions:^(UIGraphicsImageRendererContext *ctx) { (void)ctx; [self->_window drawViewHierarchyInRect:self->_window.bounds afterScreenUpdates:YES]; }];
++    NSString *name = [NSString stringWithFormat:@"%@-%@-%02d-%@", _device, _orientation, ++_step, step];
++    XCTAssertTrue([png writeToFile:[_dir stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"png"]] atomically:YES], @"%@: the PNG", name);
++    if (!_screen) return;
++    NSString *req = [_dir stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"req"]], *done = [_dir stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"done"]];
++    [NSData.data writeToFile:req atomically:YES];
++    for (int i = 0; i < 120 && ![NSFileManager.defaultManager fileExistsAtPath:done]; i++) [self settle:0.05];
++    [NSFileManager.defaultManager removeItemAtPath:done error:nil];
++    [NSFileManager.defaultManager removeItemAtPath:req error:nil];
++}
++
++// ---- The run ----
++- (void)runSteps {
++    static const char *const names[DM_PAD_G_N] = {"lshoulder", "rshoulder", "stick", "dpad", "face", "center"};
++    [self open:NULL];
++    [self check:@"open" chosen:CGRectNull];
++    for (int k = 0; k < DM_PAD_G_N; k++) {
++        [self tapGroup:k];
++        [self check:[NSString stringWithFormat:@"choose-%s", names[k]] chosen:[self rectOf:k]];
++    }
++    // The two-way choice, on A B X Y (chosen last but one; − + has no mirror image).
++    [self tapGroup:DM_PAD_G_FACE];
++    XCTAssertTrue([[self panel] tapMirrorSegment:1], @"Each side on its own takes the tap");
++    [self layout];
++    [self check:@"choice-each-side" chosen:[self rectOf:DM_PAD_G_FACE]];
++    XCTAssertTrue([[self panel] tapMirrorSegment:0], @"Both sides together takes the tap");
++    [self layout];
++    [self check:@"choice-both-sides" chosen:[self rectOf:DM_PAD_G_FACE]];
++    // A drag: the shoulders down by a third of the safe area's height in ten steps (the bar goes to the other edge when they come under it).
++    CGRect safe = UIEdgeInsetsInsetRect(_pad.bounds, _pad.safeAreaInsets);
++    CGPoint p = [self pointOn:DM_PAD_G_LEFT];
++    DuoShotTouch *t = [self down:p];
++    for (int i = 1; i <= 10; i++) {
++        [self move:t to:CGPointMake(p.x, p.y + safe.size.height / 3 * i / 10)];
++        [self layout];
++        if (i == 5) [self check:@"drag-halfway" chosen:CGRectNull];
++    }
++    [self up:t];
++    [self layout];
++    [self check:@"drag-done" chosen:[self rectOf:DM_PAD_G_LEFT]];
++    // A size: the stick chosen, + three times on the panel.
++    [self tapGroup:DM_PAD_G_STICK];
++    NSString *larger = [NSString stringWithFormat:@"%@, %@", [self word:DM_PAD_TEXT_STICK], [self word:DM_PAD_TEXT_LARGER]];
++    UIButton *plus = nil;
++    for (UIControl *c in [self controlsIn:[self panel]]) if ([c.accessibilityLabel isEqualToString:larger]) plus = (UIButton *)c;
++    XCTAssertNotNil(plus, @"the panel's + for the stick");
++    for (int i = 0; i < 3; i++) { [plus sendActionsForControlEvents:UIControlEventTouchUpInside]; [self layout]; }
++    [self check:@"resize-stick" chosen:[self rectOf:DM_PAD_G_STICK]];
++    // The rest of the panel (a phone's bar: All controls, Save for, Reset to default).
++    if ([self panel].compact) {
++        [self panel].expanded = YES;
++        [self layout];
++        [self check:@"more" chosen:CGRectNull];
++        [self panel].expanded = NO;
++        [self layout];
++    }
++    [_pad finishEditing:NO];
++    // The longest words: the choice and the rest in German and French.
++    for (int l = 0; l < 2; l++) {
++        [self open:l ? k_french : k_german];
++        [self tapGroup:DM_PAD_G_FACE];
++        [self check:[NSString stringWithFormat:@"%@-choice", l ? @"fr" : @"de"] chosen:[self rectOf:DM_PAD_G_FACE]];
++        if ([self panel].compact) {
++            [self panel].expanded = YES;
++            [self layout];
++            [self check:[NSString stringWithFormat:@"%@-more", l ? @"fr" : @"de"] chosen:CGRectNull];
++        }
++        [_pad finishEditing:NO];
++    }
++    unsetenv("DM_PAD_EDIT_TEXT");
++}
++
++// The phone's bar on any device (DM_PAD_EDIT_COMPACT=1), on a gamepad the size of an iPhone 17 held sideways, outside the window: it starts on the
++// edge that covers the fewest groups, goes to the edge away from a group chosen, to the other edge when the chosen group is dragged under it, and keeps
++// Cancel and Done in the bar with the rest shown.
++- (void)testCompactBarDocksAwayFromTheChosenGroup {
++    setenv("DM_PAD_EDIT_COMPACT", "1", 1);
++    CGRect bounds = CGRectMake(0, 0, 874, 402);
++    UIView *pad = dm_gamepad_view(bounds);
++    dm_gamepad_arrange(pad, dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9));
++    UIView *saved = _pad; _pad = pad;
++    [self open:NULL];
++    DmPadEditPanel *panel = [self panel];
++    XCTAssertTrue(panel.compact, @"DM_PAD_EDIT_COMPACT=1: the bar");
++    XCTAssertTrue(panel.compactRows >= 1 && panel.compactRows <= 2, @"sideways: one or two rows, not %d", panel.compactRows);
++    [self tapGroup:DM_PAD_G_STICK];
++    XCTAssertEqual(panel.dockEdge, 0, @"the stick chosen: the bar at the top");
++    XCTAssertFalse(CGRectIntersectsRect(panel.frame, [self rectOf:DM_PAD_G_STICK]));
++    [self tapGroup:DM_PAD_G_LEFT];
++    XCTAssertEqual(panel.dockEdge, 1, @"the shoulders chosen: the bar at the bottom");
++    CGPoint p = [self pointOn:DM_PAD_G_LEFT];
++    DuoShotTouch *t = [self down:p];
++    for (int i = 1; i <= 20 && panel.dockEdge == 1; i++) { [self move:t to:CGPointMake(p.x, p.y + 15 * i)]; [self layout]; }
++    XCTAssertEqual(panel.dockEdge, 0, @"the shoulders dragged down under the bar: it goes to the top");
++    [self up:t];
++    [self layout];
++    XCTAssertFalse(CGRectIntersectsRect(panel.frame, [self rectOf:DM_PAD_G_LEFT]), @"and stays off them");
++    panel.expanded = YES;
++    [self layout];
++    UIButton *cancel = [self buttonTitled:@"Cancel" in:panel], *done = [self buttonTitled:@"Done" in:panel], *reset = [self buttonTitled:@"Reset to default" in:panel];
++    XCTAssertNotNil(cancel); XCTAssertNotNil(done); XCTAssertNotNil(reset, @"the rest shows Reset to default");
++    XCTAssertTrue(CGRectContainsRect(CGRectInset(bounds, -0.5, -0.5), panel.frame), @"the bar %@ with the rest stays on the screen", NSStringFromCGRect(panel.frame));
++    [self tapGroup:DM_PAD_G_FACE];
++    XCTAssertFalse(panel.expanded, @"a group chosen folds the rest away");
++    [pad finishEditing:NO];
++    _pad = saved;
++    unsetenv("DM_PAD_EDIT_COMPACT");
++}
++
++- (void)testEditorStepsSidewaysAndUpright {
++    for (int landscape = 1; landscape >= 0; landscape--) {
++        _orientation = landscape ? @"landscape" : @"portrait";
++        if (![self turn:landscape]) {
++            NSLog(@"editor shots: %@ not reached on this device", _orientation);
++            continue;   // noted in the metrics: the harness may not turn an iPhone upright
++        }
++        [self runSteps];
++    }
++    XCTAssertGreaterThan(_step, 0, @"no step ran");
++}
++@end
