@@ -50,6 +50,9 @@ extension BuildStore {
             }
             return nil
         }
+        if isS2ArmSelected {
+            return nil
+        }
         let engine = EngineLayout.root(repo.path)
         guard !engine.isEmpty, FileManager.default.fileExists(atPath: engine + "/dm") else { return nil }
         if contents.nup != nil ? !GameFolder.engineBuildsNUPs(engine) : !GameFolder.engineBuildsFolders(engine) {

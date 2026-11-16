@@ -97,8 +97,8 @@ struct SettingsPage: View {
         ToolsCard(repo: repo, engine: engine, dependencies: dependencies, buildRunning: build.running,
                   shellCache: { ShellCacheRow(build: build) }, builder: {
             if ExperimentalBuilder.featureEnabled { ExperimentalBuilderRow(build: build) }
-            if ExperimentalBuilder.featureEnabled && MacNativeGamesBuilder.featureEnabled { CardDivider() }
-            if MacNativeGamesBuilder.featureEnabled { UpstreamBuilderRow(build: build) }
+            if ExperimentalBuilder.featureEnabled && (MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled) { CardDivider() }
+            if MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled { UpstreamBuilderRow(build: build) }
         }) {
             DiagnosticsButton(report: diagnostics, game: library.selected)
         }

@@ -90,6 +90,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let savedKeysKey = "savedKeysPath"
     nonisolated package static let buildUpstreamKey = "buildUpstream"
     nonisolated package static let macNativeGamesPathKey = "macNativeGamesPath"
+    nonisolated package static let s2armPathKey = "s2armPath"
 
     @Published package var gameDir = ""
     @Published package var slots: [Slot] = [
@@ -215,6 +216,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         didSet { defaults.set(macNativeGamesPath, forKey: Self.macNativeGamesPathKey) }
     }
     package var mngRun = false
+    @Published package var s2armPath: String {
+        didSet { defaults.set(s2armPath, forKey: Self.s2armPathKey) }
+    }
+    package var s2armRun = false
+    package var s2armEventsPath = ""
     @Published package var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
@@ -376,7 +382,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         experimentalBuilder = ExperimentalBuilder.featureEnabled && defaults.bool(forKey: Self.experimentalBuilderKey)
         experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
         savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
-        if MacNativeGamesBuilder.featureEnabled,
+        if (MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled),
            let rawUpstream = defaults.string(forKey: Self.buildUpstreamKey),
            let parsedUpstream = EngineUpstreamKind(rawValue: rawUpstream) {
             buildUpstream = parsedUpstream
@@ -384,6 +390,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             buildUpstream = .nxnative
         }
         macNativeGamesPath = defaults.string(forKey: Self.macNativeGamesPathKey) ?? ""
+        s2armPath = defaults.string(forKey: Self.s2armPathKey) ?? ""
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.
