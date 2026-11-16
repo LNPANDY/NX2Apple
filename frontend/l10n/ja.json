@@ -1383,6 +1383,7 @@
   "ios.ui.touchEditorPortrait": "縦向き",
   "ios.ui.touchEditorSplitPositions": "配置は縦向きとテーブルトップのコントロール用に保存されます。",
   "ios.ui.touchEditorTip": "ここでコントロールを編集します。終わったら保存してください。",
+  "ios.ui.touchGroupsNote": "ゲーム内で移動・サイズ変更したグループ（ゲームパッドの配置を調整）がここに表示されます。変更はゲーム内で行います。",
   "ios.ui.touchHeld": "十字キーで動かします。A か B で配置を確定します。",
   "ios.ui.touchInPlace": "元の位置",
   "ios.ui.touchLarge": "大",

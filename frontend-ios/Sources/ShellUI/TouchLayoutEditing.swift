@@ -3,7 +3,9 @@ import Foundation
 
 /// The layout editor's rules, pure so the tests drive them (#414): one layout of the player's arrangement on one screen. A move is
 /// kept only when the engine places the control there (`PadGeo`, the copy of `DmPadGeometry.h`) and every other control stays where it
-/// was, so what the editor shows is what the game draws, and a rejected spot leaves the layout as it was.
+/// was, so what the editor shows is what the game draws, and a rejected spot leaves the layout as it was. The groups a game's layout
+/// editor placed and sized (`TouchGroups`) are drawn as the game draws them and kept as they are: a single move goes along with its
+/// group, and one that would send a group back to its built-in place or change its size is refused.
 struct TouchLayoutEditing: Equatable {
     typealias Control = TouchLayout.Control
     typealias Offset = TouchLayout.Offset
@@ -16,8 +18,10 @@ struct TouchLayoutEditing: Equatable {
     var stick = "corner"
     /// A B X Y move as one diamond. Off, each key moves on its own (the engine keeps the diamond for a key that does not fit).
     var together = true
+    /// Every game's groups (DM_TOUCH_GROUPS), which the game's own editor sets: shown and kept, reset with the layout.
+    var groups = TouchGroups()
 
-    func geometry(_ l: TouchLayout) -> PadGeo { PadGeo.make(screen, full: kind.full, size: size, stick: stick, layout: l) }
+    func geometry(_ l: TouchLayout) -> PadGeo { PadGeo.make(screen, full: kind.full, size: size, stick: stick, layout: l, groups: groups) }
     var geo: PadGeo { geometry(layout) }
 
     /// The control a touch on `c` moves: the whole diamond while its keys move together.
@@ -35,8 +39,9 @@ struct TouchLayoutEditing: Equatable {
         l[kind, c] = o
         let before = geo, after = geometry(l)
         if !o.isZero && !after.moved.contains(c) { return nil }
-        // No other control may lose its place, a key of the diamond included.
+        // No other control may lose its place, a key of the diamond included, and no group its place or its size.
         if !after.dropped.subtracting(before.dropped).isEmpty { return nil }
+        if !after.groupDropped.subtracting(before.groupDropped).isEmpty || after.gs != before.gs { return nil }
         for other in Control.allCases where other.drawn(full: kind.full) && !follows(other, c) {
             if !Self.same(before.anchor(other), after.anchor(other)) { return nil }
         }
@@ -49,7 +54,7 @@ struct TouchLayoutEditing: Equatable {
     private func normalized(_ l: TouchLayout, _ c: Control) -> TouchLayout {
         let g = geometry(l), o = l[kind, c]
         var zero = l; zero[kind, c] = .zero
-        let base = geometry(zero).anchor(c), at = g.anchor(c), step = g.step
+        let base = geometry(zero).anchor(c), at = g.anchor(c), step = g.screenStep(c)
         func axis(_ want: Int, _ b: CGFloat, _ a: CGFloat) -> Int {
             let target = b + CGFloat(want) * step
             if abs(target - a) < 0.01 { return want }
@@ -64,9 +69,10 @@ struct TouchLayoutEditing: Equatable {
         return Control.allCases.allSatisfy { Self.same(mg.anchor($0), g.anchor($0)) } && mg.dropped == g.dropped ? m : l
     }
 
-    /// The offset a drag by `translation` (in the screen's points) from `start` asks for, snapped to whole steps.
-    func dragged(from start: Offset, by translation: CGSize) -> Offset {
-        let step = geo.step
+    /// The offset a drag of `c` by `translation` (in the screen's points) from `start` asks for, snapped to whole steps (a step of a
+    /// control in a resized group is as much larger or smaller on the screen).
+    func dragged(_ c: Control, from start: Offset, by translation: CGSize) -> Offset {
+        let step = geo.screenStep(mover(c))
         return Offset(dx: start.dx + Int((translation.width / step).rounded()), dy: start.dy + Int((translation.height / step).rounded()))
     }
 
@@ -98,8 +104,8 @@ struct TouchLayoutEditing: Equatable {
         if m == .face { for k in Control.allCases where k.isFaceKey { layout[kind, k] = .zero } }
         prune()
     }
-    /// Every control of this layout back to its built-in place.
-    mutating func reset() { layout.reset(kind) }
+    /// Every control of this layout back to its built-in place, its groups too (as the game editor's Reset to default does).
+    mutating func reset() { layout.reset(kind); groups.reset(kind) }
 
     /// Forgets the offsets of controls the engine keeps at their place on this screen.
     mutating func prune() {

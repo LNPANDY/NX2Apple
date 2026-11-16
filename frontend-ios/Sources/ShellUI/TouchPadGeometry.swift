@@ -34,10 +34,10 @@ public struct PadScreen: Equatable, Sendable {
                                              division: CGRect(x: 0, y: 455.5, width: 669, height: 40), topSafeOnly: true)
 }
 
-/// The touch controls' geometry, a Swift copy of the engine's `DmPadGeometry.h` (patches 0065 to 0067 and the arrangement of
-/// DM_TOUCH_LAYOUT): `dm_layout`, `dm_pad_geo_at`, the fit test, the size and stick fallbacks and `dm_pad_arrange`, line by line, so the
-/// layout editor shows and accepts exactly what the engine will draw. `TouchPadGeometryTests` pins it to points the engine's own
-/// test program computes. The engine stays the truth on the device.
+/// The touch controls' geometry, a Swift copy of the engine's `DmPadGeometry.h` (patches 0065 to 0067, the arrangement of
+/// DM_TOUCH_LAYOUT and the groups of DM_TOUCH_GROUPS): `dm_layout`, `dm_pad_geo_at`, the fit test, the size and stick fallbacks,
+/// `dm_pad_arrange` and `dm_pad_place_groups`, line by line, so the layout editor shows and accepts exactly what the engine will draw.
+/// `TouchLayoutTests` pins it to points the engine's own geometry computes. The engine stays the truth on the device.
 struct PadGeo: Equatable {
     // dm_layout: the overlay layout, or the split one with the controls below the picture.
     struct Region: Equatable { var game: CGRect, controls: CGRect, separated: Bool, topSafeOnly: Bool }
@@ -65,7 +65,7 @@ struct PadGeo: Equatable {
     var stick: CGPoint = .zero, stickR: CGFloat = 0, knobR: CGFloat = 0
     var dpad: CGPoint = .zero, dpadR: CGFloat = 0, armW: CGFloat = 0, armIn: CGFloat = 0
     var drop: [CGPoint] = Array(repeating: .zero, count: 4), dropR: [CGFloat] = Array(repeating: 0, count: 4)   // ZL, L, ZR, R
-    var click: [CGPoint] = [.zero, .zero], clickR: CGFloat = 0                                                   // L3, R3
+    var click: [CGPoint] = [.zero, .zero], clickR: [CGFloat] = [0, 0]                                            // L3, R3 (each grows with its side's shoulders)
     var pill: [CGRect] = [.zero, .zero]                                                                          // −, +
     var swap: CGPoint = .zero, swapR: CGFloat = 0
     var faceKey: [CGPoint] = Array(repeating: .zero, count: 4)                                                  // A, B, X, Y
@@ -73,9 +73,20 @@ struct PadGeo: Equatable {
     var moved: Set<TouchLayout.Control> = [], dropped: Set<TouchLayout.Control> = []
     var full = false
     var region = Region(game: .zero, controls: .zero, separated: false, topSafeOnly: false)
+    // DM_TOUCH_GROUPS, indexed by `TouchGroups.Group.index`: each group's size (1: built in), its box where it is built in (before any move)
+    // and the rectangle its controls stay inside, where the centre of that box is now, how close each two groups come where they are built in
+    // (up to `clearCap`), the groups placed, and the ones asked for that kept their built-in place.
+    var gs: [CGFloat] = Array(repeating: 1, count: 6)
+    var home: [CGRect] = Array(repeating: .null, count: 6), area: [CGRect] = Array(repeating: .null, count: 6)
+    var groupAt: [CGPoint] = Array(repeating: .zero, count: 6)
+    var clear0: [[CGFloat]] = Array(repeating: Array(repeating: PadGeo.clearCap, count: 6), count: 6)
+    var groupMoved: Set<TouchGroups.Group> = [], groupDropped: Set<TouchGroups.Group> = []
 
-    /// A quarter of a face key's width: one step of the arrangement.
-    var step: CGFloat { faceR / 2 }
+    /// A quarter of a face key's width at the size the arrangement uses: one step of DM_TOUCH_LAYOUT. A control of a resized group moves
+    /// `screenStep` points per step on the screen.
+    var step: CGFloat = 0
+    /// One step of control `c`'s offset on the screen: the step, times the size of its group.
+    func screenStep(_ c: TouchLayout.Control) -> CGFloat { step * gs[TouchGroups.Group.of(c).index] }
 
     // MARK: DmLayout.h
 
@@ -153,7 +164,7 @@ struct PadGeo: Equatable {
             g.dropR[i] = (z ? 26 : 24) * u
         }
         for i in 0..<2 { g.click[i] = side(s, right: i == 1, max(102 * u, edge), s.minY + max(40 * u, edge)) }
-        g.clickR = 17 * u
+        g.clickR = [17 * u, 17 * u]
         let top = s.minY + max(22 * u, sep ? 14 : 0), w = 50 * u, h = 28 * u
         for i in 0..<2 {
             let x = s.midX + (i == 1 ? 52 : -52) * u
@@ -161,6 +172,7 @@ struct PadGeo: Equatable {
         }
         g.swap = CGPoint(x: s.midX, y: top); g.swapR = 15 * u
         for i in 0..<4 { g.faceKey[i] = diamondKey(g.face, g.faceGap, i) }
+        g.step = g.faceR / 2
         return g
     }
 
@@ -178,7 +190,7 @@ struct PadGeo: Equatable {
             out.append(Shape(c: drop[i], r: dropR[i], within: customBounds ?? safe, id: Self.shapeDrop + i))
             out.append(Shape(c: dropTip(i), r: 0, within: customBounds ?? safe, id: Self.shapeTip + i))
         }
-        if full { for i in 0..<2 { out.append(Shape(c: click[i], r: clickR, within: customBounds ?? safe, id: Self.shapeClick + i)) } }
+        if full { for i in 0..<2 { out.append(Shape(c: click[i], r: clickR[i], within: customBounds ?? safe, id: Self.shapeClick + i)) } }
         for i in 0..<2 { out.append(Shape(rect: pill[i], isRect: true, within: customBounds ?? safe, id: Self.shapePill + i)) }
         out.append(Shape(c: swap, r: swapR, within: customBounds ?? safe, id: Self.shapeSwap))
         return out
@@ -222,9 +234,13 @@ struct PadGeo: Equatable {
 
     /// The geometry before the arrangement: the size, moved toward medium until it fits, and the left stick's place.
     static func placed(_ screen: PadScreen, full: Bool, size: String, stick place: String) -> PadGeo {
+        placed(screen, full: full, scale: Self.scale(size), stick: place)
+    }
+    /// The same for a scale: DM_TOUCH_SIZE's, times all controls' size of DM_TOUCH_GROUPS.
+    static func placed(_ screen: PadScreen, full: Bool, scale wanted: CGFloat, stick place: String) -> PadGeo {
         let region = region(screen)
         let u0 = baseUnit(screen, region)
-        var scale = Self.scale(size)
+        var scale = wanted > 0 ? wanted : 1
         var g = at(screen, region, full: full, u: u0 * scale)
         while scale != 1 && !g.fits {
             scale = scale > 1 ? max(1, scale - 0.05) : min(1, scale + 0.05)
@@ -343,15 +359,235 @@ struct PadGeo: Equatable {
         }
     }
 
-    /// What the engine draws for this layout: `dm_pad_geo` with the player's options.
-    static func make(_ screen: PadScreen, full: Bool, size: String = "medium", stick: String = "corner", layout: TouchLayout = TouchLayout()) -> PadGeo {
-        var g = placed(screen, full: full, size: size, stick: stick)
+    /// What the engine draws for this layout: `dm_pad_geo` with the player's options. All controls' size of the groups scales the
+    /// base unit as DM_TOUCH_SIZE does, then come the arrangement's single moves, then the groups.
+    static func make(_ screen: PadScreen, full: Bool, size: String = "medium", stick: String = "corner", layout: TouchLayout = TouchLayout(),
+                     groups: TouchGroups = TouchGroups()) -> PadGeo {
+        let kind = TouchLayout.Kind.of(full: full, split: region(screen).separated)
+        var scale = Self.scale(size)
+        var all = groups.all(kind)
+        // dm_pad_all_drawn: never below the size that keeps every touch target 44 points across.
+        if all < 100 { all = max(all, placed(screen, full: full, scale: scale, stick: stick).allFloor) }
+        if all != 100 { scale = scale * CGFloat(all) / 100.0 }
+        var g = placed(screen, full: full, scale: scale, stick: stick)
         if screen.customControlsFullBounds && screen.size.width > screen.size.height && !g.region.separated {
             g.customBounds = CGRect(origin: .zero, size: screen.size)
         }
-        let kind = TouchLayout.Kind.of(full: full, split: g.region.separated)
+        g.groupHomes()
         if !layout.isEmpty(kind) { g.arrange(layout.moved(kind)) }
+        g.placeGroups(groups, kind: kind)
         return g
+    }
+
+    // MARK: dm_pad_place_groups
+
+    /// The group a drawn shape belongs to: a teardrop's tip with its teardrop, the menu button with − and +.
+    static func shapeGroup(_ id: Int) -> TouchGroups.Group {
+        if id < shapeStick { return .face }
+        if id == shapeStick { return .stick }
+        if id == shapeDpad { return .dpad }
+        if id >= shapeDrop && id < shapeClick { return (id - shapeDrop) % 4 < 2 ? .lshoulder : .rshoulder }
+        if id == shapeClick { return .lshoulder }
+        if id == shapeClick + 1 { return .rshoulder }
+        return .center
+    }
+    /// The box of a group's drawn shapes and the rectangle they stay inside, nil for a group that is not drawn.
+    func groupBox(_ k: TouchGroups.Group) -> (box: CGRect, within: CGRect)? {
+        var x0 = CGFloat.greatestFiniteMagnitude, y0 = x0, x1 = -x0, y1 = -x0, within: CGRect?
+        for s in shapes where Self.shapeGroup(s.id) == k {
+            let b = s.box; within = s.within
+            x0 = min(x0, b.minX); y0 = min(y0, b.minY); x1 = max(x1, b.maxX); y1 = max(y1, b.maxY)
+        }
+        guard let within else { return nil }
+        return (CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0), within)
+    }
+    /// The largest clearance, up to `clearCap`, at which neither of two shapes is near the other.
+    static let clearCap: CGFloat = 64
+    static func shapesClear(_ a: Shape, _ b: Shape) -> CGFloat {
+        let ba = a.box.insetBy(dx: -clearCap, dy: -clearCap), bb = b.box
+        if bb.minX > ba.maxX || bb.maxX < ba.minX || bb.minY > ba.maxY || bb.maxY < ba.minY { return clearCap }
+        if !near(a, b, clearCap) && !near(b, a, clearCap) { return clearCap }
+        if near(a, b, 0) || near(b, a, 0) { return 0 }
+        var lo: CGFloat = 0, hi = clearCap
+        for _ in 0..<16 {
+            let m = (lo + hi) / 2
+            if near(a, b, m) || near(b, a, m) { hi = m } else { lo = m }
+        }
+        return lo
+    }
+    /// Each group's home: its box and area where it is built in, before any move, and how close it comes to each other group there.
+    mutating func groupHomes() {
+        for k in TouchGroups.Group.allCases {
+            let b = groupBox(k)
+            home[k.index] = b?.box ?? .null
+            area[k.index] = b?.within ?? .null
+            groupAt[k.index] = b.map { CGPoint(x: $0.box.midX, y: $0.box.midY) } ?? .zero
+        }
+        clear0 = Array(repeating: Array(repeating: Self.clearCap, count: 6), count: 6)
+        let s = shapes
+        for i in s.indices {
+            for j in s.indices where j > i {
+                let a = Self.shapeGroup(s[i].id).index, b = Self.shapeGroup(s[j].id).index
+                if a == b { continue }
+                let c = Self.shapesClear(s[i], s[j])
+                if c < clear0[a][b] { clear0[a][b] = c; clear0[b][a] = c }
+            }
+        }
+    }
+    /// Along one axis of an area lo...hi: the centre of a box w wide at anchor a (0 to 1) of the free range, and back. A box wider than the
+    /// area is centred.
+    static func anchorPos(_ lo: CGFloat, _ hi: CGFloat, _ w: CGFloat, _ a: CGFloat) -> CGFloat {
+        hi - lo <= w ? (lo + hi) / 2 : lo + w / 2 + a * (hi - lo - w)
+    }
+    static func anchorOf(_ lo: CGFloat, _ hi: CGFloat, _ w: CGFloat, _ c: CGFloat) -> CGFloat {
+        hi - lo <= w ? 0.5 : min(max((c - lo - w / 2) / (hi - lo - w), 0), 1)
+    }
+    /// Group k's controls through the similarity that takes `from` to `to`, scaled by s (a key's size, the stick's travel and every hit
+    /// radius go along).
+    mutating func groupMap(_ k: TouchGroups.Group, from: CGPoint, to: CGPoint, _ s: CGFloat) {
+        func xf(_ p: CGPoint) -> CGPoint { CGPoint(x: to.x + s * (p.x - from.x), y: to.y + s * (p.y - from.y)) }
+        switch k {
+        case .lshoulder, .rshoulder:
+            let i = k == .lshoulder ? 0 : 2, c = k == .lshoulder ? 0 : 1
+            for j in i..<(i + 2) { drop[j] = xf(drop[j]); dropR[j] *= s }
+            click[c] = xf(click[c]); clickR[c] *= s
+        case .stick:
+            stick = xf(stick); stickR *= s; knobR *= s
+        case .dpad:
+            dpad = xf(dpad); dpadR *= s; armW *= s; armIn *= s
+        case .face:
+            face = xf(face)
+            for i in 0..<4 { faceKey[i] = xf(faceKey[i]) }
+            faceGap *= s; faceR *= s; faceHitR = max(faceR * 1.25, region.separated ? 22 : 0)
+        case .center:
+            for i in 0..<2 {
+                let o = xf(pill[i].origin)
+                pill[i] = CGRect(x: o.x, y: o.y, width: pill[i].size.width * s, height: pill[i].size.height * s)
+            }
+            swap = xf(swap); swapR *= s
+        }
+        groupAt[k.index] = xf(groupAt[k.index])
+    }
+    /// Group k, still at its home, at size s and anchor ax, ay (0 to 1): what the value asks, without the fit test. A single move that took a
+    /// control of the group out of its home box can take it past the area: the whole group then moves back inside.
+    mutating func groupApply(_ k: TouchGroups.Group, _ s: CGFloat, _ ax: CGFloat, _ ay: CGFloat) {
+        let h = home[k.index], a = area[k.index]
+        if h.isNull || a.isNull { return }
+        let to = CGPoint(x: Self.anchorPos(a.minX, a.maxX, s * h.size.width, ax), y: Self.anchorPos(a.minY, a.maxY, s * h.size.height, ay))
+        groupMap(k, from: groupAt[k.index], to: to, s)
+        if let b = groupBox(k)?.box {
+            let dx = Self.clamp1(b.minX, b.maxX, a.minX, a.maxX), dy = Self.clamp1(b.minY, b.maxY, a.minY, a.maxY)
+            if dx != 0 || dy != 0 { groupMap(k, from: .zero, to: CGPoint(x: dx, y: dy), 1) }
+        }
+        keepOffSides(k)
+        gs[k.index] = s
+    }
+    /// dm_pad_group_keep_off_sides: the bottom corners' groups (the stick, the D-pad, A B X Y) reach halfway into the side insets only in their
+    /// bottom band. On a phone held sideways the sensor housing sits in the middle of a side inset, so a shape of such a group that reaches above
+    /// its home box's top (moved up, or grown) keeps out of the side insets: the group moves inward to the safe area's side. Over the picture only.
+    mutating func keepOffSides(_ k: TouchGroups.Group) {
+        guard !region.separated, k == .stick || k == .dpad || k == .face else { return }
+        let h = home[k.index]
+        if safe.isNull || h.isNull || safe.width <= 0 { return }
+        var right: CGFloat = 0, left: CGFloat = 0
+        for sh in shapes where Self.shapeGroup(sh.id) == k {
+            let b = sh.box
+            if b.minY >= h.minY - 0.5 { continue }
+            right = max(right, safe.minX - b.minX)
+            left = max(left, b.maxX - safe.maxX)
+        }
+        let dx: CGFloat = right > 0 && left > 0 ? (right - left) / 2 : right > 0 ? right : left > 0 ? -left : 0
+        if dx != 0 { groupMap(k, from: .zero, to: CGPoint(x: dx, y: 0), 1) }
+    }
+    /// How far a shape's touch target reaches past its drawn edge: a locked key's and the menu button's; 0 for the rest.
+    func shapeReach(_ s: Shape) -> CGFloat {
+        let sep = region.separated, id = s.id
+        if (id >= Self.shapeDrop && id < Self.shapeTip) || (id >= Self.shapeClick && id < Self.shapePill) { return max(s.r * 1.35, sep ? 22 : 0) - s.r }
+        if id >= Self.shapePill && id < Self.shapeSwap {
+            let inset = 8 * u * gs[TouchGroups.Group.center.index]
+            return sep ? max(inset, (28 - min(s.rect.size.width, s.rect.size.height)) / 2) : inset
+        }
+        if id == Self.shapeSwap { return max(swapR * 1.6, 22) - s.r }
+        return 0
+    }
+    /// Group k where it is: every shape of it inside its rectangle, no two of its shapes overlapping, and every shape clear of every other
+    /// group's shapes by the gap and by either shape's reach, measured from both sides, or by as much as the two groups are apart where they
+    /// are built in, when that is less.
+    func groupFits(_ k: TouchGroups.Group) -> Bool {
+        let s = shapes, gap = max(10 * u, 10)
+        for i in s.indices where Self.shapeGroup(s[i].id) == k {
+            if !Self.inside(s[i]) { return false }
+            for j in s.indices where j != i {
+                let other = Self.shapeGroup(s[j].id)
+                if other == k {
+                    if j > i && !Self.sameControl(s[i], s[j]) && Self.overlap(s[i], s[j]) { return false }
+                    continue
+                }
+                let clear = min(max(gap, max(shapeReach(s[i]), shapeReach(s[j]))), clear0[k.index][other.index])
+                if Self.near(s[i], s[j], clear) || Self.near(s[j], s[i], clear) { return false }
+            }
+        }
+        return true
+    }
+    /// The smallest size group k may have (a fraction of its built-in size, at most 1): no touch target of it less than 44 points across,
+    /// unless the built-in one is. The group is at its home.
+    func groupFloor(_ k: TouchGroups.Group) -> CGFloat {
+        let sep = region.separated
+        var r: CGFloat
+        switch k {
+        case .lshoulder, .rshoulder:
+            let i = k == .lshoulder ? 0 : 2, c = k == .lshoulder ? 0 : 1
+            r = min(max(dropR[i] * 1.35, sep ? 22 : 0), max(dropR[i + 1] * 1.35, sep ? 22 : 0))
+            if full { r = min(r, max(clickR[c] * 1.35, sep ? 22 : 0)) }
+        case .stick: r = stickR
+        case .dpad: r = dpadR
+        case .face: r = faceHitR
+        case .center:
+            r = min(pill[0].size.height, pill[1].size.height) / 2 + 8 * u
+            if sep { r = max(r, 14) }
+            r = min(r, max(swapR * 1.6, 22))
+        }
+        return r > 0 ? min(1, 22 / r) : 1
+    }
+    /// The smallest all controls' size, in percent (50 to 100), that leaves no group a touch target under 44 points across
+    /// (`dm_pad_all_floor`): the largest of the groups' floors at 100 %, so a layout whose − and + are already under 44 points there keeps
+    /// 100. The geometry is at 100 %, every group at its home.
+    var allFloor: Int {
+        var f = CGFloat(TouchGroups.allSizes.lowerBound) / 100.0
+        for k in TouchGroups.Group.allCases where k.drawn(full: full) { f = max(f, groupFloor(k)) }
+        let p = Int((f * 100 - 1e-6).rounded(.up))
+        return min(100, max(TouchGroups.allSizes.lowerBound, p))
+    }
+    /// The size group k is drawn at for a saved percent: within the engine's range and not below its floor. The group is at its home.
+    func groupScaled(_ k: TouchGroups.Group, percent: Int) -> CGFloat {
+        let lo = max(CGFloat(TouchGroups.sizes.lowerBound) / 100.0, groupFloor(k)), hi = CGFloat(TouchGroups.sizes.upperBound) / 100.0
+        return min(max(CGFloat(percent) / 100.0, lo), hi)
+    }
+    /// The groups of one layout, on top of the size, the stick's place and the single moves: in order, each one that fits as soon as it does;
+    /// then one larger than built in that still does not fit tries sizes toward the built-in one; one that never fits keeps its home.
+    mutating func placeGroups(_ groups: TouchGroups, kind: TouchLayout.Kind) {
+        var todo = TouchGroups.Group.allCases.filter { groups[kind, $0] != nil && $0.drawn(full: full) }
+        for phase in 0..<2 where !todo.isEmpty {
+            var progress = true
+            while !todo.isEmpty && progress {
+                progress = false
+                for k in TouchGroups.Group.allCases where todo.contains(k) {
+                    guard let p = groups[kind, k] else { continue }
+                    var s = groupScaled(k, percent: p.size)
+                    while true {
+                        var t = self
+                        t.groupApply(k, s, CGFloat(p.x) / CGFloat(TouchGroups.anchorMax), CGFloat(p.y) / CGFloat(TouchGroups.anchorMax))
+                        if t.groupFits(k) {
+                            self = t; groupMoved.insert(k); todo.removeAll { $0 == k }; progress = true
+                            break
+                        }
+                        if phase == 0 || s <= 1 { break }   // the first phase asks for the saved size, the second lets a larger one come down
+                        s = max(1, s - 0.05)
+                    }
+                }
+            }
+        }
+        groupDropped = Set(todo)
     }
 
     // MARK: Where a control is, for the editor

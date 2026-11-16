@@ -1384,6 +1384,7 @@
   "ios.ui.touchEditorPortrait": "세로",
   "ios.ui.touchEditorSplitPositions": "위치는 세로 및 탁상 모드 컨트롤용으로 저장됩니다.",
   "ios.ui.touchEditorTip": "여기서 컨트롤을 편집하세요. 끝나면 저장하세요.",
+  "ios.ui.touchGroupsNote": "게임 안에서 옮기거나 크기를 바꾼 그룹(게임패드 배치 조정)이 여기에 표시됩니다. 변경은 게임 안에서 하세요.",
   "ios.ui.touchHeld": "방향키로 옮기세요. A나 B로 내려놓습니다.",
   "ios.ui.touchInPlace": "제자리",
   "ios.ui.touchLarge": "크게",

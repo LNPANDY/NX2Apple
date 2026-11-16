@@ -15,6 +15,8 @@ import UIKit
     let sideways: PadScreen
     let upright: PadScreen?
     private let initialLayout: TouchLayout
+    /// Every game's groups as the game's layout editor saved them: shown, kept, and stored again only when Reset all changed them.
+    private let initialGroups: TouchGroups
     private let initialSize: String
     private let initialStick: String
     private let initialFull: Bool
@@ -37,6 +39,8 @@ import UIKit
     init(store: ShellSettingsStore = .current, sideways: PadScreen = .proMax, upright: PadScreen? = nil, kind: TouchLayout.Kind? = nil) {
         self.store = store
         initialLayout = store.touchLayout
+        let groups = store.touchGroups
+        initialGroups = groups
         initialSize = store.touchSize
         initialStick = store.touchStick
         self.sideways = sideways
@@ -45,11 +49,12 @@ import UIKit
         initialFull = kind.full
         let k = upright == nil && kind.split ? TouchLayout.Kind.of(full: kind.full, split: false) : kind
         editing = TouchLayoutEditing(layout: store.touchLayout, kind: k, screen: k.split ? (upright ?? sideways) : sideways,
-                                     size: store.touchSize, stick: store.touchStick)
+                                     size: store.touchSize, stick: store.touchStick, groups: groups)
     }
 
     var hasChanges: Bool {
-        editing.layout != initialLayout || editing.size != initialSize || editing.stick != initialStick || editing.kind.full != initialFull
+        editing.layout != initialLayout || editing.groups != initialGroups || editing.size != initialSize || editing.stick != initialStick
+            || editing.kind.full != initialFull
     }
     func requestExit() -> Bool {
         confirmingExit = hasChanges
@@ -59,7 +64,9 @@ import UIKit
     var kind: TouchLayout.Kind { editing.kind }
     var geo: PadGeo { editing.geo }
     var together: Bool { editing.together }
-    var layoutIsBuiltIn: Bool { editing.layout.isEmpty(editing.kind) }
+    var layoutIsBuiltIn: Bool { editing.layout.isEmpty(editing.kind) && editing.groups.isEmpty(editing.kind) }
+    /// The shown layout has groups a game's layout editor placed or sized: the options say where they are changed.
+    var hasGroups: Bool { !editing.groups.isEmpty(editing.kind) }
 
     /// The live game surface supplied by the in-context editor. The legacy sideways/upright pair remains the initial fallback for
     /// settings previews and captures; once a live surface arrives it owns the active geometry and split-layout choice.
@@ -155,7 +162,7 @@ import UIKit
     /// A drag: the offset of the control it holds, as asked so far. Kept spots are drawn at once and held in the draft.
     func dragOffset(_ c: Control) -> TouchLayout.Offset { editing.offset(editing.mover(c)) }
     func dragTo(_ c: Control, from start: TouchLayout.Offset, by translation: CGSize) -> (offset: TouchLayout.Offset, kept: Bool) {
-        let o = editing.dragged(from: start, by: translation)
+        let o = editing.dragged(c, from: start, by: translation)
         let before = editing.offset(editing.mover(c))
         let kept = editing.place(c, o)
         invalidPlacement = !kept
@@ -185,11 +192,13 @@ import UIKit
         confirmingReset = false
     }
 
-    /// Save presets and custom positions together; untouched layout variants remain in the draft.
+    /// Save presets and custom positions together; untouched layout variants remain in the draft. The groups are stored only when they
+    /// changed here, so a value the game saved meanwhile is not overwritten with the one this editor opened on.
     func commit() {
         store.storeTouchSize(editing.size)
         store.storeTouchStick(editing.stick)
         store.storeTouchLayout(editing.layout)
+        if editing.groups != initialGroups { store.storeTouchGroups(editing.groups) }
         if editing.kind.full != initialFull { store.storeTouchMode(editing.kind.full ? "3d" : "2d") }
     }
 }

@@ -1384,6 +1384,7 @@
   "ios.ui.touchEditorPortrait": "Stående",
   "ios.ui.touchEditorSplitPositions": "Positionerna sparas för stående kontroller och bordsläge.",
   "ios.ui.touchEditorTip": "Redigera kontroller här. Spara när du är klar.",
+  "ios.ui.touchGroupsNote": "Grupper som flyttats eller ändrat storlek i ett spel (Justera kontrollerlayout) visas här. Ändra dem i spelet.",
   "ios.ui.touchHeld": "Flytta den med styrkorset. A eller B släpper den.",
   "ios.ui.touchInPlace": "På sin plats",
   "ios.ui.touchLarge": "Stor",

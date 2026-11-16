@@ -21,8 +21,8 @@ struct TouchPadPreviewGeometry: Equatable {
 
     let geo: PadGeo
     var u: CGFloat { geo.u }
-    init(size: String, stick: String = "corner", layout: TouchLayout = TouchLayout()) {
-        geo = PadGeo.make(.proMax, full: true, size: size, stick: stick, layout: layout)
+    init(size: String, stick: String = "corner", layout: TouchLayout = TouchLayout(), groups: TouchGroups = TouchGroups()) {
+        geo = PadGeo.make(.proMax, full: true, size: size, stick: stick, layout: layout, groups: groups)
     }
 
     var stick: CGPoint { geo.stick }
@@ -38,7 +38,7 @@ struct TouchPadPreviewGeometry: Equatable {
         out.append(.ring(g.stick, g.stickR, knob: g.knobR))
         if g.full { out.append(.dpad(g.dpad, g.dpadR)) }
         for (i, name) in ["ZL", "L", "ZR", "R"].enumerated() { out.append(.drop(g.drop[i], g.dropR[i], tipRight: i >= 2, label: name)) }
-        if g.full { for (i, name) in ["L3", "R3"].enumerated() { out.append(.circle(g.click[i], g.clickR, label: name)) } }
+        if g.full { for (i, name) in ["L3", "R3"].enumerated() { out.append(.circle(g.click[i], g.clickR[i], label: name)) } }
         for (i, name) in ["−", "+"].enumerated() { out.append(.pill(g.pill[i], label: name)) }
         out.append(.circle(g.swap, g.swapR, label: nil))
         return out
@@ -68,9 +68,10 @@ struct TouchControlsPreview: View {
     var size: String
     var stick = "corner"
     var layout = TouchLayout()
+    var groups = TouchGroups()
 
     var body: some View {
-        let geometry = TouchPadPreviewGeometry(size: size, stick: stick, layout: layout)
+        let geometry = TouchPadPreviewGeometry(size: size, stick: stick, layout: layout, groups: groups)
         let home = TouchPadPreviewGeometry(size: size).stick
         Canvas { context, canvas in
             let k = canvas.width / TouchPadPreviewGeometry.screen.width
@@ -87,7 +88,7 @@ struct TouchControlsPreview: View {
         .background(PadDrawing.backdrop)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(.white.opacity(0.14), lineWidth: 3))
-        .animation(.smooth(duration: 0.2), value: size + stick + layout.encoded)
+        .animation(.smooth(duration: 0.2), value: size + stick + layout.encoded + groups.encoded)
         .accessibilityElement()
         .accessibilityLabel(ShellStrings.text("Preview of the touch controls"))
         .accessibilityIdentifier("touch.preview")

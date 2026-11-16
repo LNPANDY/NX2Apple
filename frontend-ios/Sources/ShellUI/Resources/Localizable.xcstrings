@@ -7809,6 +7809,70 @@
         }
       }
     },
+    "Groups moved or resized in a game (Adjust Gamepad Layout) show here. Change them in the game.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In einem Spiel verschobene oder in der Größe geänderte Gruppen (Gamepad-Layout anpassen) erscheinen hier. Ändern kannst du sie im Spiel."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groups moved or resized in a game (Adjust Gamepad Layout) show here. Change them in the game."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aquí se ven los grupos movidos o redimensionados en un juego (Ajustar disposición del mando). Cámbialos en el juego."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les groupes déplacés ou redimensionnés dans un jeu (Ajuster la disposition de la manette) apparaissent ici. Modifiez-les dans le jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qui compaiono i gruppi spostati o ridimensionati in un gioco (Regola il layout del controller). Si modificano nel gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲーム内で移動・サイズ変更したグループ（ゲームパッドの配置を調整）がここに表示されます。変更はゲーム内で行います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 안에서 옮기거나 크기를 바꾼 그룹(게임패드 배치 조정)이 여기에 표시됩니다. 변경은 게임 안에서 하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupos movidos ou redimensionados em um jogo (Ajustar layout do controle) aparecem aqui. Altere-os no jogo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupper som flyttats eller ändrat storlek i ett spel (Justera kontrollerlayout) visas här. Ändra dem i spelet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在游戏中移动或调整大小的按键组（调整手柄布局）会显示在这里。请在游戏中更改。"
+          }
+        }
+      }
+    },
     "Handheld": {
       "localizations": {
         "de": {

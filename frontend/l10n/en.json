@@ -1383,6 +1383,7 @@
   "ios.ui.touchEditorPortrait": "Portrait",
   "ios.ui.touchEditorSplitPositions": "Positions are saved for portrait and tabletop controls.",
   "ios.ui.touchEditorTip": "Edit controls here. Save when finished.",
+  "ios.ui.touchGroupsNote": "Groups moved or resized in a game (Adjust Gamepad Layout) show here. Change them in the game.",
   "ios.ui.touchHeld": "Move it with the D-pad. A or B puts it down.",
   "ios.ui.touchInPlace": "In its place",
   "ios.ui.touchLarge": "Large",

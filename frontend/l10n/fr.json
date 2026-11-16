@@ -1384,6 +1384,7 @@
   "ios.ui.touchEditorPortrait": "Portrait",
   "ios.ui.touchEditorSplitPositions": "Les positions sont enregistrées pour les commandes en portrait et en mode posé.",
   "ios.ui.touchEditorTip": "Modifiez les commandes ici, puis enregistrez.",
+  "ios.ui.touchGroupsNote": "Les groupes déplacés ou redimensionnés dans un jeu (Ajuster la disposition de la manette) apparaissent ici. Modifiez-les dans le jeu.",
   "ios.ui.touchHeld": "Déplacez-la avec la croix. A ou B la pose.",
   "ios.ui.touchInPlace": "À sa place",
   "ios.ui.touchLarge": "Grande",

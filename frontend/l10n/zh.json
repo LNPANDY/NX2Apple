@@ -1384,6 +1384,7 @@
   "ios.ui.touchEditorPortrait": "竖屏",
   "ios.ui.touchEditorSplitPositions": "位置将保存用于竖屏和桌面模式的触控。",
   "ios.ui.touchEditorTip": "在此编辑控件，完成后保存。",
+  "ios.ui.touchGroupsNote": "在游戏中移动或调整大小的按键组（调整手柄布局）会显示在这里。请在游戏中更改。",
   "ios.ui.touchHeld": "用十字键移动它。按 A 或 B 放下。",
   "ios.ui.touchInPlace": "在原位",
   "ios.ui.touchLarge": "大",

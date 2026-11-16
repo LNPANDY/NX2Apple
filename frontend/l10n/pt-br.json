@@ -1384,6 +1384,7 @@
   "ios.ui.touchEditorPortrait": "Vertical",
   "ios.ui.touchEditorSplitPositions": "As posições são salvas para os controles vertical e de mesa.",
   "ios.ui.touchEditorTip": "Edite os controles aqui. Salve ao terminar.",
+  "ios.ui.touchGroupsNote": "Grupos movidos ou redimensionados em um jogo (Ajustar layout do controle) aparecem aqui. Altere-os no jogo.",
   "ios.ui.touchHeld": "Mova-o com o direcional. A ou B o solta.",
   "ios.ui.touchInPlace": "No lugar",
   "ios.ui.touchLarge": "Grande",
