@@ -469,6 +469,7 @@ import XCTest
     func testShowFPSSwitchTogglesAndPersistsInSettings() {
         XCUIDevice.shared.orientation = .portrait
         launch("shell-settings")
+        app.swipeUp()
         let showFPS = app.switches["setting.shell.showFPS"].firstMatch
         reveal(showFPS)
         XCTAssertTrue(showFPS.waitForExistence(timeout: 5))
@@ -482,6 +483,7 @@ import XCTest
 
         app.terminate()
         launch("shell-settings")
+        app.swipeUp()
         let reopened = app.switches["setting.shell.showFPS"].firstMatch
         reveal(reopened)
         XCTAssertTrue(reopened.waitForExistence(timeout: 5))
