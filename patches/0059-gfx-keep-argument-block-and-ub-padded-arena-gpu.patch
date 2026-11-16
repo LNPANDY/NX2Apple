@@ -1,0 +1,184 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Mon, 16 Nov 2026 21:50:05 +0800
+Subject: [PATCH] gfx: keep argument block and ub_padded arena GPU addresses
+ across rollover
+
+In encode_args_ (reusable && args_cbuf_only(sh)) and ub_padded, nested
+allocations (cbsize_table, cbuf_slot -> ub_padded, and ubp_get) can roll
+g_cur_arena over to a new 4 MB NvArena after the outer block was allocated.
+Reading g_cur_arena->gpu + off afterward paired the new arena's base address
+with the old arena's tail offset, causing GPU page faults in Breath of the
+Wild and Tears of the Kingdom.
+
+Save g_cur_arena->gpu + off immediately after each outer arena_alloc and
+cover both rollover paths in dm/gfx/tests/t_args_gen.m.
+
+Upstream-Status: forwarded seedds/nxnative#2847
+Reason: Keep the arena GPU address saved before subsequent arena_alloc calls in args_cbuf_only patching and ub_padded
+Issue: seedds/nxnative#2671
+
+---
+ dm/gfx/nvn/nvn_mtl.m         |  9 ++--
+ dm/gfx/tests/t_args_gen.m    | 88 ++++++++++++++++++++++++++++++++++--
+ docs/reference/frame-rate.md |  1 +
+ 3 files changed, 91 insertions(+), 7 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 636fe79..7212a46 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -12217,7 +12217,7 @@ static void cbs_report(const cbs_list *l, const char *where, uint64_t nth) {   /
+ static inline uint64_t ub_bound(uint64_t size) { return (size + 255) & ~UINT64_C(255); }
+ static uint64_t g_ub_short;
+ static uint64_t ub_padded(NvShader *sh, int st, int reg, const p_bind_buf *u, uint64_t live, uint32_t need, const uint8_t *mem, __strong id<MTLBuffer> *buf) {
+-    size_t off = arena_alloc(need, buf); uint8_t *d = (uint8_t *)g_cur_arena->cpu + off; uint64_t lo = u->addr, hi = lo + u->size, g; const uint8_t *c;
++    size_t off = arena_alloc(need, buf); uint64_t gpu = g_cur_arena->gpu + off; uint8_t *d = (uint8_t *)g_cur_arena->cpu + off; uint64_t lo = u->addr, hi = lo + u->size, g; const uint8_t *c;
+     if (!mem) mem = (const uint8_t *)(uintptr_t)lo;
+     if (g_nubd && ubd_hits(lo, hi) && ubd_covers(lo, hi)) {   // as ubd_shadow_: the updates in order
+         for (int i = 0; i < g_nubd; i++) { const ubd_ent *e = &g_ubd[i]; uint64_t a = e->lo > lo ? e->lo : lo, b = e->hi < hi ? e->hi : hi;
+@@ -12227,7 +12227,7 @@ static uint64_t ub_padded(NvShader *sh, int st, int reg, const p_bind_buf *u, ui
+     memset(d + live, 0, need - (size_t)live);
+     uint64_t n = ++g_ub_short;
+     if (!(sh->logged & 16)) { sh->logged |= 16; static int nlog; if (nlog++ < 16) MLOG("uniform slot %d of shader %s (stage %d) is bound with %llu bytes (%llu readable, a multiple of 256) and read up to byte %u at fixed offsets: it is encoded with zeros past those (%llu such encodes so far)", reg, sh->key, st, (unsigned long long)u->size, (unsigned long long)live, need, (unsigned long long)n); }
+-    return g_cur_arena->gpu + off;
++    return gpu;
+ }
+ // A CBUF slot's GPU address, and in *use the buffer it points into: the bound uniform buffer; the shadow of inline updates deferred in this pass; an arena copy padded with zeros
+ // when the binding is shorter than the shader reads it at fixed offsets (ub_padded); or the all-zero bank when nothing usable is bound. The full encode and the patch take it from here
+@@ -12343,6 +12343,7 @@ static int encode_args_(id<MTLCommandEncoder> en, NvShader *sh, int nvn_stage, i
+     NSUInteger arg_len = sh->arg_len ? sh->arg_len : sh->ae.encodedLength;
+     if (reusable && args_cbuf_only(sh)) {   // only what the uniform bindings point at changed since this shader's block: copy it and write its uniform slots and their size table again
+         id<MTLBuffer> ab; size_t off = arena_alloc(arg_len, &ab);
++        uint64_t ab_gpu = g_cur_arena->gpu + off;   // save before cbuf_slot / cbsize_table allocate and may roll g_cur_arena over to a new block
+         uint64_t *p = (uint64_t *)(void *)(g_cur_arena->cpu + off);
+         memcpy(p, (const uint8_t *)sh->ab_buf.contents + sh->ab_off, arg_len);
+         for (int i = 0; i < sh->rf.nb; i++) { const nvn_rbind *b = &sh->rf.b[i]; id<MTLBuffer> use;
+@@ -12350,8 +12351,8 @@ static int encode_args_(id<MTLCommandEncoder> en, NvShader *sh, int nvn_stage, i
+             else if (b->kind == NVN_RB_CBSIZE) p[b->aid] = cbsize_table(nvn_stage, &use);
+             else continue;
+             za_check(p[b->aid], "argument block address slot", b->aid); }
+-        bind_args(en, nvn_stage, metal_vertex, ab, g_cur_arena->gpu + off, off, sh->rf.abi);
+-        sh->ab_buf = ab; sh->ab_gpu = g_cur_arena->gpu + off; sh->ab_off = off; sh->ab_ugen = g_args_ugen[nvn_stage]; g_args_wrote[nvn_stage] = g_args_seq;   // pass, base instance, pool and binding generations are the ones the copied block was encoded for
++        bind_args(en, nvn_stage, metal_vertex, ab, ab_gpu, off, sh->rf.abi);
++        sh->ab_buf = ab; sh->ab_gpu = ab_gpu; sh->ab_off = off; sh->ab_ugen = g_args_ugen[nvn_stage]; g_args_wrote[nvn_stage] = g_args_seq;   // pass, base instance, pool and binding generations are the ones the copied block was encoded for
+         g_stat_args_patch++;
+         return 1;
+     }
+diff --git a/dm/gfx/tests/t_args_gen.m b/dm/gfx/tests/t_args_gen.m
+index 51ca377..0bcb1ad 100644
+--- a/dm/gfx/tests/t_args_gen.m
++++ b/dm/gfx/tests/t_args_gen.m
+@@ -53,9 +53,9 @@ int main(void) { @autoreleasepool {
+         "kernel void vb(constant Args &a [[buffer(0)]]) { a.p[1] = 0xb; }\n" options:nil error:&error];
+     CHECK(lib != nil, "synthetic shaders compile"); if (!lib) return 1;
+     NvShader *a = shader(lib, @"va"), *b = shader(lib, @"vb");
+-    uint8_t *data; if (posix_memalign((void **)&data, getpagesize(), 16384)) return 1;
+-    memset(data, 0, 16384); mtl_pool_add(data, 16384);
+-    uint32_t *x = (uint32_t *)data, *y = (uint32_t *)(data + 4096), *u1 = (uint32_t *)(data + 8192), *u2 = (uint32_t *)(data + 12288);
++    uint8_t *data; if (posix_memalign((void **)&data, getpagesize(), 32768)) return 1;
++    memset(data, 0, 32768); mtl_pool_add(data, 32768);
++    uint32_t *x = (uint32_t *)data, *y = (uint32_t *)(data + 4096), *u1 = (uint32_t *)(data + 8192), *u2 = (uint32_t *)(data + 12288), *u3 = (uint32_t *)(data + 16384);
+     u1[0] = 1; u2[0] = 16;
+     NSError *e = nil;
+     id<MTLComputePipelineState> pa = [g_dev newComputePipelineStateWithFunction:a->fn error:&e], pb = [g_dev newComputePipelineStateWithFunction:b->fn error:&e];
+@@ -94,5 +94,87 @@ int main(void) { @autoreleasepool {
+     CHECK(x[0] == 2, "the first two dispatches wrote the first storage binding");
+     CHECK(y[0] == 34 && y[1] == 0xb, "after the change every dispatch wrote the new binding, with the uniform buffer bound at the time");
+     composite_slots();
++    // args_cbuf_only patch across an arena rollover: allocate the patched block at the end of the current arena,
++    // then let cbsize_table inside the patch loop roll g_cur_arena over to a new arena.
++    {
++        id<MTLLibrary> lib2 = [g_dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;\n"
++            "struct Args2 { device uint *p [[id(0)]]; constant uint *c [[id(1)]]; constant uint *sz [[id(2)]]; };\n"
++            "kernel void vc(constant Args2 &a [[buffer(0)]]) { a.p[0] += a.c[0] + (a.sz[0] > 0 ? 1u : 0u); }\n" options:nil error:&error];
++        CHECK(lib2 != nil, "synthetic cbsize shader compiles");
++        NvShader *vc = [NvShader new]; vc->stage = 2; vc->fn = [lib2 newFunctionWithName:@"vc"]; vc->rf.nb = 3;
++        snprintf(vc->key, sizeof vc->key, "72000000000000ff_c");
++        vc->ae = [vc->fn newArgumentEncoderWithBufferIndex:0]; vc->arg_len = vc->ae.encodedLength;
++        vc->rf.b[0] = (nvn_rbind){.kind = NVN_RB_SBUFP, .rw = 1, .reg = 0, .aid = 0};
++        vc->rf.b[1] = (nvn_rbind){.kind = NVN_RB_CBUF, .reg = 0, .aid = 1};
++        vc->rf.b[2] = (nvn_rbind){.kind = NVN_RB_CBSIZE, .reg = 0, .aid = 2};
++        id<MTLComputePipelineState> pvc = [g_dev newComputePipelineStateWithFunction:vc->fn error:&e];
++        CHECK(pvc != nil, "cbsize pipeline");
++
++        x[0] = 0;
++        mtl_sub_begin(); state_reset();
++        id<MTL4ComputeCommandEncoder> en2 = enc_c_begin(NULL); args_dirty_all();
++        bind_ssbo(x); bind_ubo(u1);
++        #define RUN2(sh, ps) do { CHECK(encode_args((id<MTLCommandEncoder>)en2, sh, 2, 0), #sh " encoded"); enc_c_pso(en2, ps); enc_c_dispatch(en2, MTLSizeMake(1,1,1), MTLSizeMake(1,1,1)); \
++                                  [en2 barrierAfterEncoderStages:MTLStageDispatch beforeEncoderStages:MTLStageDispatch visibilityOptions:MTL4VisibilityOptionDevice]; } while (0)
++        RUN2(vc, pvc);   // full encode: x[0] += u1[0] + 1 (= 2)
++
++        bind_ubo(u2);
++        size_t arg_step = (vc->arg_len + 255) & ~(size_t)255;
++        if (!g_cur_arena || g_cur_arena->used + arg_step > g_cur_arena->len) {
++            id<MTLBuffer> tmp; arena_alloc(arg_step, &tmp);
++        }
++        g_cur_arena->used = g_cur_arena->len - arg_step;
++        NvArena *old_arena = g_cur_arena;
++        size_t expected_off = old_arena->used;
++        uint64_t expected_gpu = old_arena->gpu + expected_off;
++
++        uint64_t p_before = patch_n();
++        RUN2(vc, pvc);   // patched encode across arena rollover: x[0] += u2[0] + 1 (= 17 -> total 19)
++        CHECK(patch_n() == p_before + 1, "cbsize shader used args_cbuf_only patch path");
++        CHECK(g_cur_arena != old_arena, "cbsize_table inside patch rolled over to a new arena");
++        CHECK(vc->ab_buf == old_arena->buf && vc->ab_off == expected_off, "patched block stayed in the old arena at the expected offset");
++        CHECK(vc->ab_gpu == expected_gpu, "patched block GPU address matches its own arena, not the rolled-over arena");
++        enc_c_end(en2);
++        CHECK(mtl_wait(mtl_sub_commit(), 5000000000ull), "rollover submission completed"); mtl_drain();
++        CHECK(x[0] == 19, "GPU read the patched argument block from the old arena");
++        #undef RUN2
++    }
++    // ub_padded across an arena rollover: short UBO + partial deferred update (ubp_get) after ub_padded takes the last slot of g_cur_arena.
++    {
++        id<MTLLibrary> lib3 = [g_dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;\n"
++            "struct Args3 { device uint *p [[id(0)]]; constant uint *c [[id(1)]]; };\n"
++            "kernel void vd(constant Args3 &a [[buffer(0)]]) { a.p[0] = a.c[0] + a.c[1] + a.c[79]; }\n" options:nil error:&error];
++        CHECK(lib3 != nil, "synthetic ub_padded shader compiles");
++        NvShader *vd = [NvShader new]; vd->stage = 2; vd->fn = [lib3 newFunctionWithName:@"vd"]; vd->rf.nb = 2;
++        snprintf(vd->key, sizeof vd->key, "72000000000000fe_d");
++        vd->ae = [vd->fn newArgumentEncoderWithBufferIndex:0]; vd->arg_len = vd->ae.encodedLength;
++        vd->rf.b[0] = (nvn_rbind){.kind = NVN_RB_SBUFP, .rw = 1, .reg = 0, .aid = 0};
++        vd->rf.b[1] = (nvn_rbind){.kind = NVN_RB_CBUF, .reg = 0, .aid = 1, .fixw = 80};
++        id<MTLComputePipelineState> pvd = [g_dev newComputePipelineStateWithFunction:vd->fn error:&e];
++        CHECK(pvd != nil, "ub_padded pipeline");
++
++        x[0] = 0; u3[0] = 7; u3[1] = 0;
++        mtl_sub_begin(); state_reset();
++        id<MTL4ComputeCommandEncoder> en3 = enc_c_begin(NULL); args_dirty_all();
++        bind_ssbo(x);
++        p_bind_buf b3 = {.stage = 2, .index = 0, .addr = (uint64_t)u3, .size = 16};
++        state_op(OP_BIND_UBO, &b3);
++        uint32_t patch_val = 42;
++        mtl_sub_update(&patch_val, (uint64_t)u3 + 4, 4);   // partial deferred update inside [u3, u3+16) -> ub_padded calls ubp_get
++
++        size_t pad_step = (4u * 80u + 255u) & ~(size_t)255u;   // 512 bytes
++        if (!g_cur_arena || g_cur_arena->used + pad_step > g_cur_arena->len) {
++            id<MTLBuffer> tmp; arena_alloc(pad_step, &tmp);
++        }
++        g_cur_arena->used = g_cur_arena->len - pad_step;
++        NvArena *old_arena = g_cur_arena;
++
++        CHECK(encode_args((id<MTLCommandEncoder>)en3, vd, 2, 0), "vd encoded");
++        CHECK(g_cur_arena != old_arena, "ubp_get inside ub_padded rolled over to a new arena");
++        enc_c_pso(en3, pvd); enc_c_dispatch(en3, MTLSizeMake(1,1,1), MTLSizeMake(1,1,1));
++        enc_c_end(en3);
++        CHECK(mtl_wait(mtl_sub_commit(), 5000000000ull), "ub_padded rollover submission completed"); mtl_drain();
++        CHECK(x[0] == 49, "GPU read the zero-padded UBO copy from the old arena");
++    }
+     printf("t_args_gen: %d checks, %d failed\n", checks, failed); return failed != 0;
+ } }
+diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
+index 1ca7e34..44386a4 100644
+--- a/docs/reference/frame-rate.md
++++ b/docs/reference/frame-rate.md
+@@ -688,6 +688,7 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+ - **Cause:** binding a uniform buffer marked the stage's arguments dirty (`g_args_dirty`), and a dirty stage encodes its whole block again: every texture, sampler, image and storage slot, though only the CBUF slots moved. A game that binds a new uniform buffer between most draws paid for a full encode at nearly every draw. An inline update deferred inside a pass that overlaps a bound uniform buffer (`ubd_dirty`: the draws after it read a shadow) did the same.
+ - **Fix:** in `nvn_mtl.m`, for every NVN game. A change of what a stage's uniform slots point at, a binding (`OP_BIND_UBO`) or a deferred update over one (`ubd_dirty`), takes a uniform generation of its own (`g_args_ugen`, beside `g_args_gen` for any binding: [argument blocks valid by generation](rendering.md#an-argument-block-reused-after-another-shader-of-its-stage-encoded)). When only that generation moved since the block was written, the block of the same pass is still reusable, and the shader reads its uniform buffers only as uniforms (`args_cbuf_only`: an allow-list of binding kinds, decided once per shader; handles or addresses read out of a uniform buffer keep the full encode), the old block is copied to a new arena slot and only its uniform slots and their size table are written again. Both paths take a slot from `cbuf_slot` (the binding, a deferred update's shadow, a [zero-padded copy of a short binding](shaders.md#reads-past-a-uniform-bindings-size), or the zero bank) and the table from `cbsize_table`, so a patched block is the one a full encode would write. The resource check, a pass dump and stage 5 keep the full encode. `@args_patch` counts patched blocks.
+ - **Found on:** [Donkey Kong Bananza](../../dm/games/040074A01BF12000/README.md#found-on-this-game), in the first form (binding changes only, no size table; [PR #1611](https://github.com/seedds/nxnative/pull/1611)): 7,094 full encodes a frame fell to 1,489 (5,645 patched); submit-thread instructions per draw 14.4k to 13.6k, 60 fps on both (M3 Pro, `scripts/bench.py`, 3 runs each, an early-game route the submit thread does not limit). The reuse was measured first in [issue #1290](https://github.com/seedds/nxnative/issues/1290). **Open:** the form here, with the size table and the deferred updates, is not measured on Bananza; the deferred updates matter most in Breath of the Wild (221 small updates of a uniform block a frame).
++- **Arena rollover fix:** both the `args_cbuf_only` patch path and `ub_padded` allocate from `g_cur_arena` and then call helpers that can allocate from `g_cur_arena` as well (`cbuf_slot` / `cbsize_table` inside the patch loop, and `ubp_get` inside `ub_padded` on partial deferred updates). When an allocation landed at the end of a 4 MB arena and the nested allocation rolled `g_cur_arena` over to a new block, reading `g_cur_arena->gpu + off` afterward paired the new arena's base address with the old arena's offset (a GPU page fault in [issue #2671](https://github.com/seedds/nxnative/issues/2671), [issue #2592](https://github.com/seedds/nxnative/issues/2592), [issue #2700](https://github.com/seedds/nxnative/issues/2700)). Saving `g_cur_arena->gpu + off` right after each block's `arena_alloc` keeps `bind_args`, `sh->ab_gpu`, and `ub_padded`'s return address on the block's own arena (`make -C dm/gfx/tests GAME=01007EF00011E000 check_t_args_gen`).
+ 
+ ### Main guest thread keeps inherited default QoS
+ 
