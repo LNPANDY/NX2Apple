@@ -1154,6 +1154,10 @@ import NXModel
         XCTAssertFalse(entry.packageAfter)
         XCTAssertEqual(entry.exportIPA, true)
         XCTAssertEqual(entry.exportFramework, true)
+
+        let exportedGame = LibraryGame(titleID: titleID, name: "Test", ipaPath: dest)
+        XCTAssertTrue(exportedGame.hasIOSBuild)
+        XCTAssertFalse(exportedGame.isOlderIOSBuild, "standalone .framework export must not be labelled legacy olderIOS")
     }
 
     /// The choice is saved and a build without it still asks for a device and a team.

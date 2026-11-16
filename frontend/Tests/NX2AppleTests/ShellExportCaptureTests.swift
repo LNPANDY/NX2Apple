@@ -15,16 +15,17 @@ final class ShellExportCaptureTests: IsolatedDefaultsTestCase {
         let output = URL(fileURLWithPath: directory)
         let fm = FileManager.default
         try fm.createDirectory(at: output, withIntermediateDirectories: true)
-        let lang = ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang.find($0) } ?? .en
-        let shellFolder = fm.temporaryDirectory.appendingPathComponent("NX2Apple-capture-\(UUID().uuidString)")
-        try fm.createDirectory(at: shellFolder, withIntermediateDirectories: true)
-        let ipa = shellFolder.appendingPathComponent("NX2Apple.ipa")   // the name an export writes
-        fm.createFile(atPath: ipa.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: ipa)
-        try handle.truncate(atOffset: 184_000_000)   // a sparse file of the size the card shows
-        try handle.close()
-        defer { try? fm.removeItem(at: shellFolder) }
+        let rawLangs = ProcessInfo.processInfo.environment["NX_CAPTURE_LANGS"]
+            ?? ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"]
+            ?? "en"
+        let langs = rawLangs.split(separator: ",").compactMap { Lang.find(String($0)) }
+        for lang in (langs.isEmpty ? [Lang.en] : langs) {
+            try captureExportStates(for: lang, output: output, ipa: ipa, shellFolder: shellFolder)
+        }
+    }
 
+    @MainActor private func captureExportStates(for lang: Lang, output: URL, ipa: URL, shellFolder: URL) throws {
+        let fm = FileManager.default
         let stores = LauncherStores(defaults: testDefaults); let model = stores.build
         stores.localizer.lang = lang
         model.target = "ios"
@@ -34,6 +35,7 @@ final class ShellExportCaptureTests: IsolatedDefaultsTestCase {
         stores.deviceStore.installDevice = "DEV-1"
         stores.deviceStore.sendWhere = SendWhere.device
         stores.deviceStore.exportOneGame = false
+        stores.deviceStore.exportFramework = false
         func shot<V: View>(_ name: String, _ view: V) throws {
             let framed = view.environmentObject(stores.localizer).padding(24).frame(width: 760).background(Color(white: 0.09)).environment(\.colorScheme, .dark)
             NSApplication.shared.setActivationPolicy(.accessory)
@@ -102,5 +104,18 @@ final class ShellExportCaptureTests: IsolatedDefaultsTestCase {
         try big.close()
         model.exportedIPAPath = oneGame.path
         try shot("13-one-game-exported", card())
+        // Standalone .framework export: step 1 + step 2 add-to-Files instructions + step 3 drive copy
+        model.exportedIPAPath = ""
+        stores.deviceStore.exportFramework = true
+        try shot("14-framework-ready", card())
+        let fwBundle = shellFolder.appendingPathComponent("DmGame0100000000010000.framework", isDirectory: true)
+        try fm.createDirectory(at: fwBundle, withIntermediateDirectories: true)
+        let fwBin = fwBundle.appendingPathComponent("DmGame0100000000010000")
+        fm.createFile(atPath: fwBin.path, contents: nil)
+        let fwHandle = try FileHandle(forWritingTo: fwBin)
+        try fwHandle.truncate(atOffset: 42_000_000)
+        try fwHandle.close()
+        model.exportedIPAPath = fwBundle.path
+        try shot("15-framework-exported", card())
     }
 }

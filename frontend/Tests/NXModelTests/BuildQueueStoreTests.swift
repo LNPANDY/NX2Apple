@@ -407,4 +407,53 @@ import NXCore
         XCTAssertEqual(packagedEntries[0].map(\.titleID), ["A", "B"])
         XCTAssertTrue(packagedEntries[0].allSatisfy { $0.target == BuildTarget.ios })
     }
+
+    func testStartAppliesAndClearsExportFrameworkAcrossQueuedEntries() {
+        var started: [QueueEntry] = []
+        let q = BuildQueueStore(
+            file: nil,
+            engineID: { "release-1" },
+            busy: { false },
+            start: { entry in
+                started.append(entry)
+                return nil
+            }
+        )
+        let batch = UUID()
+        let plainEntry = QueueEntry(
+            titleID: "0100000000010000",
+            name: "Game A",
+            target: BuildTarget.ios,
+            inputs: [:],
+            outputDirectory: "/out",
+            engineID: "release-1",
+            batch: batch,
+            packageAfter: true
+        )
+        q.enqueue([plainEntry])
+        q.start(target: BuildTarget.ios, packageAfter: false, exportIPA: true, exportFramework: true)
+        XCTAssertEqual(started.count, 1)
+        XCTAssertEqual(started[0].exportFramework, true)
+        XCTAssertEqual(started[0].exportIPA, true)
+        XCTAssertFalse(started[0].packageAfter)
+
+        q.buildEnded(succeeded: true)
+        let fwEntry = QueueEntry(
+            titleID: "0100000000020000",
+            name: "Game B",
+            target: BuildTarget.ios,
+            inputs: [:],
+            outputDirectory: "/out",
+            engineID: "release-1",
+            batch: UUID(),
+            packageAfter: false,
+            exportIPA: true,
+            exportFramework: true
+        )
+        q.enqueue([fwEntry])
+        q.start(target: BuildTarget.ios, packageAfter: true, exportIPA: true, exportFramework: false)
+        XCTAssertEqual(started.count, 2)
+        XCTAssertEqual(started[1].exportFramework, false)
+        XCTAssertTrue(started[1].packageAfter)
+    }
 }

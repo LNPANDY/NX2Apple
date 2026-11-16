@@ -152,6 +152,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var pendingDeepLinkSuccessURL: URL?
     @ObservationIgnored private var pendingDeepLinkErrorURL: URL?
     @ObservationIgnored private var queuedDeepLinkRequest: DeepLinkRequest?
+    @ObservationIgnored private var stoppingRunningGame = false
     @ObservationIgnored private var activeDeepLinkTask: Task<Void, Never>?
     @ObservationIgnored private var deepLinkCloudPending = false
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
@@ -959,7 +960,8 @@ public struct ShellHostConfig: Sendable {
         activeDeepLinkTask?.cancel()
         deepLinkCloudPending = false
 
-        if let runningID = config.activeRunningGameID(), !runningID.isEmpty,
+        if !stoppingRunningGame,
+           let runningID = config.activeRunningGameID(), !runningID.isEmpty,
            let matched = DeepLinkRouter.matchEntry(target: request.target, in: entries),
            matched.id.caseInsensitiveCompare(runningID) == .orderedSame {
             queuedDeepLinkRequest = nil
@@ -994,18 +996,20 @@ public struct ShellHostConfig: Sendable {
         await looseClaimTask?.value
         guard deepLinkGeneration == generation, !Task.isCancelled else { return }
 
+        let preserveRunningSession = stoppingRunningGame || !(config.activeRunningGameID() ?? "").isEmpty
+
         var resolvedEntry = DeepLinkRouter.matchEntry(target: request.target, in: entries)
         if resolvedEntry == nil {
             reload()
             resolvedEntry = DeepLinkRouter.matchEntry(target: request.target, in: entries)
         }
         guard let matched = resolvedEntry else {
-            failDeepLink(request, message: hostText("Game \"\(request.target)\" was not found."))
+            failDeepLink(request, message: hostText("Game \"\(request.target)\" was not found."), preserveRunningSession: preserveRunningSession)
             return
         }
 
         if let runningID = config.activeRunningGameID(), !runningID.isEmpty {
-            if matched.id.caseInsensitiveCompare(runningID) == .orderedSame {
+            if !stoppingRunningGame, matched.id.caseInsensitiveCompare(runningID) == .orderedSame {
                 queuedDeepLinkRequest = nil
                 pendingDeepLinkSuccessURL = request.successURL
                 pendingDeepLinkErrorURL = request.errorURL
@@ -1016,7 +1020,10 @@ public struct ShellHostConfig: Sendable {
             pendingDeepLinkErrorURL = nil
             queuedDeepLinkRequest = request
             isDeepLinkLaunching = true
-            config.requestStopRunningGame()
+            if !stoppingRunningGame {
+                stoppingRunningGame = true
+                config.requestStopRunningGame()
+            }
             return
         }
 
@@ -1032,12 +1039,12 @@ public struct ShellHostConfig: Sendable {
 
         guard let latestEntry = entry(matched.id),
               let detail = details.first(where: { $0.id == latestEntry.id }) else {
-            failDeepLink(request, message: hostText("Game \"\(request.target)\" was not found."))
+            failDeepLink(request, message: hostText("Game \"\(request.target)\" was not found."), preserveRunningSession: preserveRunningSession)
             return
         }
 
         guard detail.game.state == .playable else {
-            failDeepLink(request, message: unplayableDeepLinkMessage(for: detail.game.state, title: latestEntry.title))
+            failDeepLink(request, message: unplayableDeepLinkMessage(for: detail.game.state, title: latestEntry.title), preserveRunningSession: preserveRunningSession)
             return
         }
 
@@ -1061,6 +1068,7 @@ public struct ShellHostConfig: Sendable {
 
     @MainActor
     func handleReturnToLibrary() {
+        stoppingRunningGame = false
         refreshSettingsAfterGameReturn()
         if let queued = queuedDeepLinkRequest {
             queuedDeepLinkRequest = nil
@@ -1086,12 +1094,16 @@ public struct ShellHostConfig: Sendable {
         }
     }
 
-    private func failDeepLink(_ request: DeepLinkRequest, message: String) {
-        queuedDeepLinkRequest = nil
-        pendingDeepLinkSuccessURL = nil
-        pendingDeepLinkErrorURL = nil
-        deepLinkCloudPending = false
-        isDeepLinkLaunching = false
+    private func failDeepLink(_ request: DeepLinkRequest, message: String, preserveRunningSession: Bool = false) {
+        if !preserveRunningSession {
+            queuedDeepLinkRequest = nil
+            pendingDeepLinkSuccessURL = nil
+            pendingDeepLinkErrorURL = nil
+            deepLinkCloudPending = false
+            isDeepLinkLaunching = false
+        } else {
+            isDeepLinkLaunching = queuedDeepLinkRequest != nil
+        }
         if let errorURL = request.errorURL {
             config.openURL(DeepLinkRouter.errorCallbackURL(base: errorURL, message: message))
         } else {
@@ -1115,6 +1127,7 @@ public struct ShellHostConfig: Sendable {
         pendingDeepLinkSuccessURL = nil
         pendingDeepLinkErrorURL = nil
         queuedDeepLinkRequest = nil
+        stoppingRunningGame = false
         deepLinkCloudPending = false
         isDeepLinkLaunching = false
     }

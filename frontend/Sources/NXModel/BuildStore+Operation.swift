@@ -115,12 +115,13 @@ extension BuildStore {
             }
             let packageOnce = hasIOS && iosPackagesSharedApp
             let batchExportsIPA: Bool? = hasIOS ? iosExportsShell : nil
+            let batchExportsFramework: Bool? = hasIOS ? iosExportsFramework : nil
             let destination = (!hasIOS || iosExportsShell) ? nil : devices.deviceName(devices.installDevice)
             if hasIOS {
                 deferredExportsIPA = iosExportsShell
             }
             if deferredShell.isEmpty {
-                queue.start(target: target, packageAfter: packageOnce, exportIPA: batchExportsIPA, destinationName: destination)
+                queue.start(target: target, packageAfter: packageOnce, exportIPA: batchExportsIPA, exportFramework: batchExportsFramework, destinationName: destination)
             } else {
                 queue.resume()
             }

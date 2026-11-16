@@ -353,6 +353,59 @@ private struct DeepLinkLaunchError: LocalizedError {
         #expect(harness.openedURLs == [try #require(URL(string: "shortcuts://game-b"))])
     }
 
+    @Test func deepLinkWhileStoppingQueuesInsteadOfReusingAndUnknownTargetPreservesRunningCallback() async throws {
+        let box = try FrameworkBox()
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.drift).framework", titleID: Fixtures.drift,
+            title: "Drift", bundleID: "org.nxnative.drift", box: box
+        )
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.wave).framework", titleID: Fixtures.wave,
+            title: "Wave", bundleID: "org.nxnative.wave", box: box
+        )
+        try seedAppData(box: box, titleID: Fixtures.drift)
+        try seedAppData(box: box, titleID: Fixtures.wave)
+
+        let harness = DeepLinkHarness()
+        let launcher = DeepLinkRecordingLauncher()
+        let model = makeModel(box: box, harness: harness, launcher: launcher)
+
+        // Start Game A with x-success callback.
+        let urlA = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.drift)&x-success=shortcuts://done-a"))
+        #expect(await model.handleDeepLinkNow(urlA))
+        harness.activeGameID = Fixtures.drift
+
+        // Sending an unknown target while Game A is still running triggers error callback for that bad link
+        // without wiping Game A's pending x-success callback.
+        let badURL = try #require(URL(string: "nx2apple://launch?id=MissingGame&x-error=shortcuts://err-bad"))
+        #expect(await model.handleDeepLinkNow(badURL))
+        #expect(harness.openedURLs == [try #require(URL(string: "shortcuts://err-bad?errorMessage=Game%20%22MissingGame%22%20was%20not%20found."))])
+        harness.openedURLs.removeAll()
+
+        // Request switch to Game B (async stop requested, activeGameID still reports A until teardown finishes).
+        let urlB = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.wave)&x-success=shortcuts://done-b"))
+        #expect(await model.handleDeepLinkNow(urlB))
+        #expect(harness.stopCount == 1)
+
+        // Before Game A finishes tearing down, re-requesting A must queue A for relaunch rather than treating it as already running.
+        let relaunchA = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.drift)&x-success=shortcuts://relaunch-a"))
+        #expect(await model.handleDeepLinkNow(relaunchA))
+        #expect(harness.openedURLs.isEmpty)
+        #expect(model.isDeepLinkLaunching)
+
+        // When Game A finishes teardown, ShellHostModel launches queued A rather than firing x-success prematurely.
+        harness.activeGameID = nil
+        NotificationCenter.default.post(name: ShellHostModel.didReturnToLibraryNotification, object: nil)
+        try await Task.sleep(for: .milliseconds(80))
+        await model.waitForDeepLinkTask()
+        #expect(launcher.launched.map(\.titleID) == [Fixtures.drift, Fixtures.drift])
+        #expect(harness.openedURLs.isEmpty)
+
+        // When Game A finally exits normally, shortcuts://relaunch-a fires.
+        NotificationCenter.default.post(name: ShellHostModel.didReturnToLibraryNotification, object: nil)
+        #expect(harness.openedURLs == [try #require(URL(string: "shortcuts://relaunch-a"))])
+    }
+
     @Test func hotAddedFrameworkLaunchesWithoutPriorReloadAndManualPlayClearsDeepLinkState() async throws {
         let box = try FrameworkBox()
         let hotRoot = box.documents.appendingPathComponent("Frameworks", isDirectory: true)

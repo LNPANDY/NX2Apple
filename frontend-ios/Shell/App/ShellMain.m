@@ -388,6 +388,16 @@ static UIInterfaceOrientationMask shell_orientations(UITraitCollection *traits) 
 @interface SceneDelegate : UIResponder <UIWindowSceneDelegate>
 @property (strong, nonatomic) UIWindow *window;
 @end
+static NSURL *shell_pick_launch_url(NSSet<UIOpenURLContext *> *contexts) {
+    NSURL *fallback = nil;
+    for (UIOpenURLContext *ctx in contexts) {
+        if (!ctx.URL) continue;
+        if ([ctx.URL.scheme.lowercaseString isEqualToString:@"nx2apple"]) return ctx.URL;
+        if (!fallback) fallback = ctx.URL;
+    }
+    return fallback;
+}
+
 @implementation SceneDelegate
 - (UIInterfaceOrientationMask)supportedInterfaceOrientationsForWindowScene:(UIWindowScene *)windowScene {
     return shell_orientations(windowScene.traitCollection);   // iOS 27 and later
@@ -396,13 +406,16 @@ static UIInterfaceOrientationMask shell_orientations(UITraitCollection *traits) 
     (void)session;
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
     self.window.backgroundColor = UIColor.blackColor;
-    NSURL *initialURL = o.URLContexts.allObjects.firstObject.URL;
+    NSURL *initialURL = shell_pick_launch_url(o.URLContexts);
     g_library_vc = [ShellLibrary makeControllerWithInitialURL:initialURL];
     self.window.rootViewController = g_library_vc;
     [self.window makeKeyAndVisible];
 }
 - (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts {
     (void)scene;
+    for (UIOpenURLContext *ctx in URLContexts) {
+        if (ctx.URL && [ctx.URL.scheme.lowercaseString isEqualToString:@"nx2apple"] && [ShellLibrary handleOpenURL:ctx.URL]) return;
+    }
     for (UIOpenURLContext *ctx in URLContexts) {
         if (ctx.URL && [ShellLibrary handleOpenURL:ctx.URL]) break;
     }

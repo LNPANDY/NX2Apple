@@ -55,6 +55,7 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
 /// The library's root controller, for ShellMain.m's scene delegate.
 @objc(ShellLibrary) final class ShellLibrary: NSObject {
     @MainActor private static weak var activeModel: ShellHostModel?
+    @MainActor private static var pendingOpenURL: URL?
 
     @MainActor @objc static func makeController() -> UIViewController {
         makeController(initialURL: nil)
@@ -89,8 +90,10 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
         for entry in model.entries {
             fputs("shell: game \(entry.id) \(entry.title) at \(entry.frameworkURL?.lastPathComponent ?? "-")\(entry.problem.map { ", broken: \($0.reason), \($0.detail)" } ?? "")\n", stderr)
         }
-        if let initialURL {
-            _ = model.handleDeepLink(initialURL)
+        let resolvedInitialURL = initialURL ?? pendingOpenURL
+        pendingOpenURL = nil
+        if let resolvedInitialURL {
+            _ = model.handleDeepLink(resolvedInitialURL)
         } else if let id = ProcessInfo.processInfo.environment["DM_SHELL_PLAY"], !id.isEmpty {
             // DM_SHELL_PLAY=<title ID> in the launch environment (devicectl process launch --environment-variables, the Mac launcher's
             // Play on device) starts that game as Play in the library would, through the same launcher
@@ -104,6 +107,11 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
     }
 
     @MainActor @objc(handleOpenURL:) static func handleOpenURL(_ url: URL) -> Bool {
-        activeModel?.handleDeepLink(url) ?? false
+        if let activeModel {
+            return activeModel.handleDeepLink(url)
+        }
+        guard DeepLinkRouter.isLaunchURL(url) else { return false }
+        pendingOpenURL = url
+        return true
     }
 }

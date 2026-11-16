@@ -220,6 +220,3 @@ index 44a6fe9..051bd25 100644
  | Game rumble | `DM_RUMBLE` | `1`, `0` |
  | Rumble strength | `DM_RUMBLE_GAIN` | `0` to `3` |
  | Rumble cutoff | `DM_RUMBLE_MIN` | `0` to `0.9` |
--- 
-2.54.0 (Apple Git-157)
-

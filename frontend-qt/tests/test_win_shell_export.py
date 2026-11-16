@@ -653,6 +653,104 @@ class StandaloneFrameworkExportTest(unittest.TestCase):
                 self.assertTrue(pu.reveal(str(fw)))
                 popen.assert_called_once_with(['explorer.exe', f'/select,{os.path.normpath(str(fw.resolve()))}'])
 
+    def test_library_records_framework_and_reveal_does_not_leak_across_games(self) -> None:
+        import plistlib
+        from unittest import mock
+
+        cleanup = None
+        try:
+            from nspb_qt.model import Model
+        except ImportError:
+            if str(HERE) not in sys.path:
+                sys.path.insert(0, str(HERE))
+            from test_post_build_cleanup import _load_model_with_qt_fallback
+            model_mod, cleanup = _load_model_with_qt_fallback()
+            Model = model_mod.Model
+
+        try:
+            tid_a = '01007EF00011E000'
+            tid_b = '0100000000010000'
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                out_dir = root / 'out'
+                work_dir = root / 'work'
+                fw_src = work_dir / 'shell-framework' / f'DmGame{tid_a}.framework'
+                fw_src.mkdir(parents=True)
+                (fw_src / f'DmGame{tid_a}').write_bytes(b'macho')
+                with open(fw_src / 'Info.plist', 'wb') as pf:
+                    plistlib.dump({'DMTitleID': tid_a, 'CFBundleIconFile': 'AppIcon.png'}, pf)
+
+                lib_path = root / 'library.json'
+                library = lib.GameLibrary(str(lib_path))
+                recorded = library.record_completed_ios(
+                    ipa_path=str(out_dir / f'DmGame{tid_a}.framework'),
+                    output_dir=str(out_dir),
+                    title_id=tid_a,
+                    name='Game A',
+                    shell_root=str(root / 'shell'),
+                )
+                # Ensure record_completed_ios keeps .framework directories after export
+                dest = out_dir / f'DmGame{tid_a}.framework'
+                dest.mkdir(parents=True, exist_ok=True)
+                (dest / 'Info.plist').write_bytes(b'plist')
+                recorded2 = library.record_completed_ios(
+                    ipa_path=str(dest),
+                    output_dir=str(out_dir),
+                    title_id=tid_a,
+                    name='',
+                    shell_root=str(root / 'shell'),
+                )
+                self.assertEqual(recorded2.ipa_path, str(dest))
+                self.assertTrue(recorded2.has_ipa)
+                self.assertEqual(recorded2.primary_reveal_path, str(dest))
+                self.assertNotEqual(recorded2.name, f'DmGame{tid_a}')
+
+                # Reveal must NOT leak Game A's framework when switching to Game B
+                self.assertEqual(
+                    lib.reveal_ipa_path(
+                        ipa_kind='framework',
+                        shell_cache='',
+                        out_dir=str(out_dir),
+                        build_key=tid_b,
+                        last_ipa=str(dest),
+                        library_ipa='',
+                    ),
+                    '',
+                )
+                # Matches Game A even via moved last_ipa when Info.plist DMTitleID matches
+                self.assertEqual(
+                    lib.reveal_ipa_path(
+                        ipa_kind='framework',
+                        shell_cache='',
+                        out_dir=str(root / 'other-out'),
+                        build_key=tid_a,
+                        last_ipa=str(dest),
+                        library_ipa='',
+                    ),
+                    str(dest),
+                )
+
+                # Overwrite rollback preserves old backup if replace fails
+                m = Model()
+                m.ipa_kind = 'framework'
+                m.out_dir = str(out_dir)
+                m.effective_work_dir = str(work_dir)
+                (dest / 'old-marker.txt').write_text('keep', encoding='utf-8')
+                real_replace = os.replace
+
+                def flaky_replace(src, dst):
+                    if '.tmp-' in str(src):
+                        raise OSError('simulated replace error')
+                    return real_replace(src, dst)
+
+                with mock.patch('nspb_qt.model.os.replace', side_effect=flaky_replace):
+                    ok, _ = m._export_standalone_framework(tid_a, out_dir=str(out_dir), fallback_name='Game A')
+                self.assertFalse(ok)
+                self.assertTrue((dest / 'old-marker.txt').is_file())
+        finally:
+            if cleanup is not None:
+                cleanup()
+
 
 if __name__ == '__main__':
     unittest.main()

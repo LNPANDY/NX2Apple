@@ -2046,6 +2046,3 @@ index e1c5074..37c7bef 100644
      return NULL;
  }
  void front_ios_boot(void) {   // front_ios.m, once the game view exists
--- 
-2.54.0 (Apple Git-157)
-

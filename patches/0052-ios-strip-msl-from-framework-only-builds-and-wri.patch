@@ -357,6 +357,3 @@ index 3305171..37b288f 100755
    python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(m["framework_executable"] != sys.argv[2])' "$OUTFW/game.manifest.json" "$FW_NAME" \
      || die "$OUTFW/game.manifest.json does not name $FW_NAME"
    t "done: $OUTFW ($(du -sh "$OUTFW" | cut -f1); build_shell.sh embeds it in the shell)"
--- 
-2.54.0 (Apple Git-157)
-

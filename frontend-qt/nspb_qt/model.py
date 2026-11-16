@@ -5089,23 +5089,37 @@ class Model(QObject):
         suffix = uuid.uuid4().hex[:8]
         tmp_dest = dest.parent / f'.{dest.name}.tmp-{suffix}'
         old_dest = dest.parent / f'.{dest.name}.old-{suffix}'
+
+        def _remove_path(path: Path) -> None:
+            if os.path.islink(path) or os.path.isfile(path):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            elif os.path.lexists(path):
+                shutil.rmtree(path, ignore_errors=True)
+
+        replaced = False
         try:
             shutil.copytree(fw, tmp_dest, symlinks=True)
             picked = self.artwork.custom_paths.get(tid_up)
             se.place_banner(tid_up, str(tmp_dest), banners_dir=self.artwork.banners_dir, picked=picked)
-            if dest.exists():
+            if os.path.lexists(dest):
                 os.replace(dest, old_dest)
             os.replace(tmp_dest, dest)
-        except OSError as e:
-            shutil.rmtree(tmp_dest, ignore_errors=True)
-            if not dest.exists() and old_dest.exists():
+            replaced = True
+        except (OSError, RuntimeError, ValueError) as e:
+            if os.path.lexists(old_dest):
+                _remove_path(dest)
                 try:
                     os.replace(old_dest, dest)
                 except OSError:
                     pass
             return False, self.t('shell.exportFailed', str(e))
         finally:
-            shutil.rmtree(old_dest, ignore_errors=True)
+            _remove_path(tmp_dest)
+            if replaced:
+                _remove_path(old_dest)
 
         self.ipa_path = str(dest)
         self._record_library_ios_completion(tid_up, name=fallback_name)

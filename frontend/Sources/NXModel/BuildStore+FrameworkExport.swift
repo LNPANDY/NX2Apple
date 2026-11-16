@@ -52,10 +52,7 @@ extension BuildStore {
                     return
                 }
                 self.exportedIPAPath = destPath
-                self.done = true
-                self.doneNote = String(format: self.t("shell.frameworkExportDone"), destPath)
-                self.running = false
-                self.cleanupStaging()
+                self.finishInstall(nil, note: String(format: self.t("shell.frameworkExportDone"), destPath))
             }
         }
     }
@@ -117,18 +114,23 @@ extension BuildStore {
                 }
             }
 
-            if fm.fileExists(atPath: destURL.path) {
+            let hasExisting = fm.fileExists(atPath: destURL.path) || (try? fm.attributesOfItem(atPath: destURL.path)) != nil
+            if hasExisting {
                 try fm.moveItem(at: destURL, to: oldURL)
             }
+            var replaced = false
             do {
                 try fm.moveItem(at: tmpURL, to: destURL)
+                replaced = true
             } catch {
-                if !fm.fileExists(atPath: destURL.path), fm.fileExists(atPath: oldURL.path) {
+                // Always clear any partial/dangling destination before restoring the previous backup.
+                try? fm.removeItem(at: destURL)
+                if fm.fileExists(atPath: oldURL.path) {
                     try? fm.moveItem(at: oldURL, to: destURL)
                 }
                 throw error
             }
-            if fm.fileExists(atPath: oldURL.path) {
+            if replaced && fm.fileExists(atPath: oldURL.path) {
                 try? fm.removeItem(at: oldURL)
             }
             PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: false, removeShellFramework: true)
