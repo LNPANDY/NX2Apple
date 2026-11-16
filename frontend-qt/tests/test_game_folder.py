@@ -205,6 +205,21 @@ class FolderTests(unittest.TestCase):
         self.assertEqual(r.title_id, 0)
         self.assertFalse(r.has_title_id)
 
+    def test_nup_switch2_edition_is_its_highest_program(self):
+        # LNPANDY/NX2Apple#1353, seedds/nxnative PR #2692: the Switch 1 program and the Switch 2 one (index 1 in the low 12 bits); pack_nup.py
+        # packs the highest, so that one is the game, with only its own updates. The library's copy of the reader reads it the same way
+        from nspb_qt import library
+        s1, s2 = 0x0100453019AA8000, 0x0400453019AA8001
+        p = self.make('x.nup', nup([(s1, 0, 0), (s1 + 0x800, 131072, 1), (s2, 0, 0), (s1 + 0x1001, 0, 2)]))
+        for r in (inputs.read_nup(str(p)), library.GameFolder.read_nup(str(p))):
+            self.assertEqual(r.title_id, s2)
+            self.assertEqual(r.updates, [])
+            self.assertEqual([t for t, _ in r.dlc], [s1 + 0x1001])
+        p = self.make('x.nup', nup([(s2, 0, 0), (s2 + 0x800, 65536, 1), (s1, 0, 0), (s1 + 0x800, 196608, 1)]))
+        for r in (inputs.read_nup(str(p)), library.GameFolder.read_nup(str(p))):
+            self.assertEqual(r.title_id, s2)
+            self.assertEqual([v for v, _ in r.updates], [65536])
+
     def test_nup_problems(self):
         self.make('a.nup', nup([(TID, 0, 0)], magic=b'NUP\x02'))
         self.problem('notNUP', ('a.nup',))

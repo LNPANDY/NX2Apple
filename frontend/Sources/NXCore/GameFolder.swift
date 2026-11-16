@@ -255,9 +255,12 @@ package enum GameFolder {
     }
 
     /// A NUP's title ID, updates and DLC from its header and package table (SPEC v1, pack_nup.py `Nup` and `scan`). The title ID
-    /// is the base package's, else an update's with the low 12 bits cleared (a base may be an empty placeholder, Pokémon Pokopia),
-    /// else 0: the script then reads it from the code. Checks the magic, the version and the file size, not the SHA-256s (the
-    /// script checks every file it reads).
+    /// is a program's ID: a base package's title ID, else an update's without its 0x800 (a base may be an empty placeholder with
+    /// title ID 0, Pokémon Pokopia), else 0: the script then reads it from the code. One NUP can hold several programs of one
+    /// application, each with its own base and updates (a Switch 2 Edition of a Switch 1 game: Xenoblade Chronicles X's
+    /// 0400453019AA8001 beside its Switch 1 program, #1353). pack_nup.py packs the one of the highest index (the low 12 bits) unless
+    /// told otherwise (seedds/nxnative PR #2692), so that one is the game, with its own updates. Checks the magic, the version and
+    /// the file size, not the SHA-256s (the script checks every file it reads).
     package static func readNUP(_ path: String) -> Result<Contents, Problem> {
         let name = (path as NSString).lastPathComponent
         guard let h = FileHandle(forReadingAtPath: path) else { return .failure(.notNUP(name)) }
@@ -282,17 +285,18 @@ package enum GameFolder {
             table = [UInt8](h.readData(ofLength: Int(minTable)))
         }
         guard table.count == Int(minTable), table[0..<4].elementsEqual([0x54, 0x4F, 0x43, 0x01]) else { return .failure(.notNUP(name)) }
-        var base: UInt64 = 0, updates: [(version: Int, path: String)] = [], addons: [UInt64] = [], updateTitle: UInt64 = 0
+        var programs = Set<UInt64>(), patches: [(program: UInt64, version: Int)] = [], addons: [UInt64] = []
         for i in 0..<count {
             let o = 0x30 + i * 0x40, tid = u(table, o, 8), version = Int(u(table, o + 20, 4))
             switch table[o + 24] {
-            case 0: base = tid
-            case 1: updates.append((version: version, path: path)); if updateTitle == 0 { updateTitle = tid & ~0xFFF }
+            case 0: if tid != 0 { programs.insert(tid) }
+            case 1: patches.append((program: tid & ~0x800, version: version)); programs.insert(tid & ~0x800)   // program N's update is its ID + 0x800
             case 2: addons.append(tid)
             default: break
             }
         }
-        let app = base != 0 && base & 0xFFF == 0 ? base : updateTitle
+        let app = programs.max { ($0 & 0xFFF, $0) < ($1 & 0xFFF, $1) } ?? 0
+        let updates = patches.filter { $0.program == app }.map { (version: $0.version, path: path) }
         return .success(Contents(folder: (path as NSString).deletingLastPathComponent, titleID: app,
                                  updates: updates.sorted { $0.version < $1.version }, dlc: addons.sorted().map { (titleID: $0, path: path) }, nup: path))
     }
