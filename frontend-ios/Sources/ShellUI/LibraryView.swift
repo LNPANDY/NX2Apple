@@ -59,6 +59,8 @@ public struct LibraryView: View {
     /// The game whose save-backup restore confirmation is open, and its backup timestamp label.
     @State var restoreBackupGameID: String?
     @State var restoreBackupLabel = ""
+    /// The game whose Add to Home Screen guide is open.
+    @State var homeScreenGameID: String?
     /// The game whose Delete question is open, and whether its saves go too.
     @State var deleteGameID: String?
     @State var deleteSaves = false
@@ -212,6 +214,7 @@ public struct LibraryView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: shellSettingsOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: helpGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: restoreBackupGameID)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: homeScreenGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: deleteGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: choice)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: padMapping)
@@ -223,6 +226,7 @@ public struct LibraryView: View {
         .environment(\.shellIgnoresPress, { [gate] in gate.isSystemEcho })
         .environment(\.shellShowHelp, { game in openHelp(game.id) })
         .environment(\.shellAskRestoreBackup, { game, label in openRestoreBackup(game.id, label: label) })
+        .environment(\.shellAskHomeScreen, actions.supportsHomeScreen ? { game in openHomeScreen(game.id) } : nil)
         .environment(\.shellAskDelete, { game in openDelete(game.id) })
         .environment(\.shellFocus, focus)
         .environment(\.shellFocusRefresh, focusRefresh)
@@ -264,7 +268,7 @@ public struct LibraryView: View {
 
     var menuPresented: Bool {
         touchLayout != nil || settingsOpen || controllersOpen || shellSettingsOpen || helpGameID != nil
-            || restoreBackupGameID != nil || deleteGameID != nil || choice != nil || padMapping != nil || buttonTestOpen
+            || restoreBackupGameID != nil || homeScreenGameID != nil || deleteGameID != nil || choice != nil || padMapping != nil || buttonTestOpen
     }
 
     // Host-owned alerts and sheets must wait until the menu presentation finishes closing.
@@ -296,6 +300,7 @@ public struct LibraryView: View {
         padMapping = nil
         helpGameID = nil
         restoreBackupGameID = nil
+        homeScreenGameID = nil
         deleteGameID = nil
         let leaving: PanelRetention.Panel? = controllersOpen ? .controllers : shellSettingsOpen ? .shellSettings : nil
         controllersOpen = false
@@ -368,7 +373,7 @@ public struct LibraryView: View {
             ZStack {
                 if settingsOpen, let selected {
                     settingsPane(selected, width: geometry.size.width)
-                        .accessibilityHidden(controllersOpen || shellSettingsOpen || choice != nil || padMapping != nil || helpGameID != nil || restoreBackupGameID != nil || deleteGameID != nil)
+                        .accessibilityHidden(controllersOpen || shellSettingsOpen || choice != nil || padMapping != nil || helpGameID != nil || restoreBackupGameID != nil || homeScreenGameID != nil || deleteGameID != nil)
                 }
                 if retention.draws(.controllers, open: controllersOpen) {
                     ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap,
@@ -393,6 +398,17 @@ public struct LibraryView: View {
                     ScrollView {
                         RestoreSaveBackupView(game: game, backup: restoreBackupLabel,
                                               restore: { confirmRestoreBackup(id) }, cancel: closeRestoreBackup)
+                    }
+                    .background(ShellPalette.background)
+                }
+                if let id = homeScreenGameID, let game = games.first(where: { $0.id == id })?.game {
+                    ScrollView {
+                        AddToHomeScreenView(
+                            game: game,
+                            saveAndOpen: { await guardedActions.onAddToHomeScreen?(id) ?? false },
+                            copyURL: { guardedActions.onCopyShortcutURL?(id) },
+                            close: closeHomeScreen
+                        )
                     }
                     .background(ShellPalette.background)
                 }
@@ -421,28 +437,29 @@ public struct LibraryView: View {
 
     var tabletopSettings: Bool {
         horizontalDivision && settingsOpen && !controllersOpen && !shellSettingsOpen && choice == nil
-            && padMapping == nil && !buttonTestOpen && helpGameID == nil && restoreBackupGameID == nil && deleteGameID == nil
+            && padMapping == nil && !buttonTestOpen && helpGameID == nil && restoreBackupGameID == nil && homeScreenGameID == nil && deleteGameID == nil
     }
 
     var menuTitle: String {
-        guard choice == nil, padMapping == nil, !buttonTestOpen, helpGameID == nil, restoreBackupGameID == nil, deleteGameID == nil else { return "" }
+        guard choice == nil, padMapping == nil, !buttonTestOpen, helpGameID == nil, restoreBackupGameID == nil, homeScreenGameID == nil, deleteGameID == nil else { return "" }
         if controllersOpen { return ShellStrings.text("Controllers") }
         if shellSettingsOpen { return ShellStrings.text("Settings") }
         return settingsOpen && (horizontalDivision || !settingsHeroVisible) ? selected?.game.title ?? "" : ""
     }
 
     @ViewBuilder func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets) -> some View {
+        let homeScreenAction: ((String) -> Void)? = actions.supportsHomeScreen ? { openHomeScreen($0) } : nil
         if layout.isCoverFlow {
             CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, obscured: menuPresented, screenInsets: insets,
                           select: select, primary: { primary($0) }, openSettings: openSettings, openControllers: openControllers,
-                          openShellSettings: openShellSettings, copyShortcutURL: guardedActions.onCopyShortcutURL)
+                          openShellSettings: openShellSettings, openHomeScreen: homeScreenAction)
                 .equatable()
                 .transition(.opacity)
         } else {
             PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: insets.top, bottomInset: insets.bottom, obscured: menuPresented,
                             controllers: controllers.count, select: select, primary: { primary($0) },
                             openSettings: openSettings, openControllers: openControllers, openShellSettings: openShellSettings,
-                            copyShortcutURL: guardedActions.onCopyShortcutURL, position: $libraryPosition)
+                            openHomeScreen: homeScreenAction, position: $libraryPosition)
                 .equatable()
                 .transition(.opacity)
         }
@@ -510,7 +527,7 @@ public struct LibraryView: View {
                     .buttonStyle(.borderedProminent).tint(ShellPalette.cream).foregroundStyle(.black)
             }
         }
-        if settingsOpen, helpGameID == nil, restoreBackupGameID == nil, deleteGameID == nil, choice == nil, padMapping == nil,
+        if settingsOpen, helpGameID == nil, restoreBackupGameID == nil, homeScreenGameID == nil, deleteGameID == nil, choice == nil, padMapping == nil,
            !controllersOpen, !shellSettingsOpen, let selected {
             ToolbarItem(placement: .primaryAction) {
                 toolbarButton(selected.game.state.actionTitle, selected.game.state.actionSymbol, "state.action", "set.play") { primary(selected, fromSettings: true) }
@@ -592,6 +609,7 @@ public struct LibraryView: View {
                     .init(title: "Done", symbol: "checkmark", id: "touchLayout.done", target: "lay.done", placement: .done, action: confirmTouchLayout)]
         }
         if helpGameID != nil { return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "help.done", target: "help.done", placement: .close, action: closeHelp)] }
+        if homeScreenGameID != nil { return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "homeScreen.close", target: "hsc.close", placement: .close, action: closeHomeScreen)] }
         if restoreBackupGameID != nil { return [] }
         if deleteGameID != nil { return [] }
         if controllersOpen { return [.init(title: "Close controllers", symbol: "xmark", id: "controllers.close", target: "ctl.close", placement: .close, action: back)] }
@@ -646,6 +664,7 @@ public struct LibraryView: View {
         else if touchLayout != nil { prefix = "lay." }
         else if helpGameID != nil { prefix = "help." }
         else if restoreBackupGameID != nil { prefix = "rst." }
+        else if homeScreenGameID != nil { prefix = "hsc." }
         else if deleteGameID != nil { prefix = "del." }
         else if controllersOpen { prefix = "ctl." }
         else if shellSettingsOpen { prefix = "shs." }

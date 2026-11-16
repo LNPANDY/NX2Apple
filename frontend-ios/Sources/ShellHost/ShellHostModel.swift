@@ -7,6 +7,7 @@ import UIKit
 #endif
 #if os(iOS)
 import GameController
+import Photos
 #endif
 
 /// Where the host finds things. Everything the model touches outside itself is here, so tests point it at a temporary folder.
@@ -23,6 +24,7 @@ public struct ShellHostConfig: Sendable {
     public var defaults: @Sendable (String) -> UserDefaults
     public var openURL: @MainActor @Sendable (URL) -> Void
     public var copyToPasteboard: @MainActor @Sendable (String) -> Void
+    public var saveImageToPhotos: @MainActor @Sendable (Data) async -> Bool
     public var activeRunningGameID: @MainActor @Sendable () -> String?
     public var requestStopRunningGame: @MainActor @Sendable () -> Void
     /// The clock, for the last-played date and its wording.
@@ -38,6 +40,7 @@ public struct ShellHostConfig: Sendable {
                 defaults: @escaping @Sendable (String) -> UserDefaults = GameDefaults.suite(for:),
                 openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen,
                 copyToPasteboard: @escaping @MainActor @Sendable (String) -> Void = ShellHostConfig.systemCopyToPasteboard,
+                saveImageToPhotos: @escaping @MainActor @Sendable (Data) async -> Bool = ShellHostConfig.systemSaveImageToPhotos,
                 activeRunningGameID: @escaping @MainActor @Sendable () -> String? = { nil },
                 requestStopRunningGame: @escaping @MainActor @Sendable () -> Void = {},
                 now: @escaping @Sendable () -> Date = { Date() },
@@ -51,6 +54,7 @@ public struct ShellHostConfig: Sendable {
         self.defaults = defaults
         self.openURL = openURL
         self.copyToPasteboard = copyToPasteboard
+        self.saveImageToPhotos = saveImageToPhotos
         self.activeRunningGameID = activeRunningGameID
         self.requestStopRunningGame = requestStopRunningGame
         self.now = now
@@ -68,6 +72,24 @@ public struct ShellHostConfig: Sendable {
     @MainActor public static func systemCopyToPasteboard(_ text: String) {
         #if canImport(UIKit)
         UIPasteboard.general.string = text
+        #endif
+    }
+
+    @MainActor public static func systemSaveImageToPhotos(_ pngData: Data) async -> Bool {
+        #if os(iOS)
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else { return false }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetCreationRequest.forAsset()
+                request.addResource(with: .photo, data: pngData, options: nil)
+            }
+            return true
+        } catch {
+            return false
+        }
+        #else
+        return false
         #endif
     }
 
@@ -727,7 +749,11 @@ public struct ShellHostConfig: Sendable {
             onRestoreSaveBackup: { [weak self] id in self?.restoreLatestSaveBackup(id) },
             onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) },
             onOpenHomeButtonSettings: { [weak self] in self?.openHomeButtonSettings() },
-            onCopyShortcutURL: { [weak self] id in self?.copyShortcutURL(for: id) })
+            onCopyShortcutURL: { [weak self] id in self?.copyShortcutURL(for: id) },
+            onAddToHomeScreen: { [weak self] id in
+                guard let self else { return false }
+                return await self.saveIconAndOpenShortcuts(for: id)
+            })
     }
 
     public func change(_ id: String, setting: String, value: String) {
@@ -940,6 +966,20 @@ public struct ShellHostConfig: Sendable {
     public func copyShortcutURL(for id: String) {
         guard let entry = entry(id) else { return }
         config.copyToPasteboard(DeepLinkRouter.shortcutURLString(for: entry))
+    }
+
+    @discardableResult
+    public func saveIconAndOpenShortcuts(for id: String) async -> Bool {
+        guard let initialEntry = entry(id),
+              let pngData = HomeScreenShortcutSupport.renderSquareIconPNG(for: initialEntry, size: 512) else {
+            return false
+        }
+        let saved = await config.saveImageToPhotos(pngData)
+        guard let currentEntry = entry(id) else { return false }
+        config.copyToPasteboard(currentEntry.title)
+        guard saved else { return false }
+        config.openURL(HomeScreenShortcutSupport.createShortcutURL)
+        return true
     }
 
     @discardableResult

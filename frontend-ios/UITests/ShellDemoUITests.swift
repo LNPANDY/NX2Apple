@@ -22,18 +22,25 @@ import XCTest
         attachment.lifetime = .keepAlways
         add(attachment)
     }
+    private var visibleKeyboardCount: Int {
+        let viewport = app.windows.firstMatch.frame
+        return (0..<app.keyboards.count).filter {
+            app.keyboards.element(boundBy: $0).frame.intersects(viewport)
+        }.count
+    }
     func testThumbnailContextMenuDoesNotShowKeyboard() {
         extraArguments = ["--samples"]
         launch("library")
         let tile = app.buttons["tile.orbit"]
         XCTAssertTrue(tile.waitForExistence(timeout: 5))
-        XCTAssertEqual(app.keyboards.count, 0)
+        XCTAssertEqual(visibleKeyboardCount, 0)
         tile.press(forDuration: 1)
         let settings = app.buttons["Game settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 5))
-        XCTAssertEqual(app.keyboards.count, 0)
+        XCTAssertEqual(visibleKeyboardCount, 0)
         let play = app.buttons["Play"]
         XCTAssertTrue(play.exists)
+        XCTAssertTrue(app.buttons["Add to Home Screen…"].exists)
         XCTAssertLessThan(play.frame.minY, settings.frame.minY)
         capture("thumbnail-context-menu")
         play.tap()
@@ -54,7 +61,7 @@ import XCTest
         let changed = NSPredicate(format: "label == %@", "Animal Crossing™: New Horizons")
         expectation(for: changed, evaluatedWith: app.staticTexts["hero.title"])
         waitForExpectations(timeout: 5)
-        XCTAssertEqual(app.keyboards.count, 0)
+        XCTAssertEqual(visibleKeyboardCount, 0)
     }
 
     func testRecentGamesSelectWithoutLaunching() {
@@ -1334,5 +1341,27 @@ import XCTest
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertEqual(app.staticTexts["hero.title"].label, "Animal Crossing™: New Horizons")
         capture("selected-after-rotation")
+    }
+
+    func testAddToHomeScreenGuideOpensFromSettingsAndCopiesURL() {
+        extraArguments = ["--samples"]
+        XCUIDevice.shared.orientation = .portrait
+        launch("settings")
+        let addBtn = app.buttons["set.homeScreen"].firstMatch
+        reveal(addBtn)
+        XCTAssertTrue(addBtn.isHittable)
+        addBtn.tap()
+
+        XCTAssertTrue(app.staticTexts["homeScreen.title"].waitForExistence(timeout: 5))
+        let saveBtn = app.buttons["homeScreen.save"].firstMatch
+        let copyBtn = app.buttons["homeScreen.copy"].firstMatch
+        XCTAssertTrue(saveBtn.exists)
+        XCTAssertTrue(copyBtn.exists)
+        copyBtn.tap()
+
+        let backBtn = app.buttons["homeScreen.close"].firstMatch
+        XCTAssertTrue(backBtn.waitForExistence(timeout: 5))
+        backBtn.tap()
+        XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
     }
 }

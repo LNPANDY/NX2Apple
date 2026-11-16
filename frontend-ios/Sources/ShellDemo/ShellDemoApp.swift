@@ -209,7 +209,12 @@ struct DemoScreen: View {
             #if canImport(UIKit)
             UIPasteboard.general.string = shortcut
             #endif
-            notice = demoText("Copied shortcut URL: \(shortcut)")
+        }, onAddToHomeScreen: { id in
+            let title = games.first(where: { $0.id == id })?.game.title ?? id
+            #if canImport(UIKit)
+            UIPasteboard.general.string = title
+            #endif
+            return true
         })
     }
 }

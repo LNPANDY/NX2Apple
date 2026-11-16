@@ -107,6 +107,9 @@ final class ShellTextsCaptureTests: XCTestCase {
                         GameDetailView(detail: try detail(model, quiet), actions: model.actions, showsPrimaryAction: false)
                             .environment(\.shellAskDelete, { _ in })
                             .padding(24))
+            try capture("texts-home-screen", width: 402,
+                        AddToHomeScreenView(game: try detail(model, Fixtures.orbit).game,
+                                            saveAndOpen: { true }, copyURL: {}, close: {}))
         }
     }
 

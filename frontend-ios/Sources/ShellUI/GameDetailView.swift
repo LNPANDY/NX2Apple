@@ -13,8 +13,10 @@ public struct GameDetailView: View {
     public var nativeSections: Bool
     @Environment(\.shellAskDelete) private var askDelete
     @Environment(\.shellAskRestoreBackup) private var askRestoreBackup
+    @Environment(\.shellAskHomeScreen) private var askHomeScreen
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var localRestoreBackup = false
+    @State private var localHomeScreen = false
     public init(detail: GameDetail, actions: ShellActions = ShellActions(), showsPrimaryAction: Bool = true, showsHeader: Bool = true, nativeSections: Bool = false) {
         self.detail = detail
         self.actions = actions
@@ -44,6 +46,18 @@ public struct GameDetailView: View {
                 .presentationDetents([.medium])
                 .presentationBackground(ShellPalette.background)
             }
+        }
+        .sheet(isPresented: $localHomeScreen) {
+            ScrollView {
+                AddToHomeScreenView(
+                    game: detail.game,
+                    saveAndOpen: { await actions.onAddToHomeScreen?(detail.id) ?? false },
+                    copyURL: { actions.onCopyShortcutURL?(detail.id) },
+                    close: { localHomeScreen = false }
+                )
+            }
+            .presentationDetents([.medium, .large])
+            .presentationBackground(ShellPalette.background)
         }
     }
     @ViewBuilder private var contents: some View {
@@ -115,11 +129,11 @@ public struct GameDetailView: View {
                 versionRow
             }
         }
-        if let onCopyShortcutURL = actions.onCopyShortcutURL {
+        if askHomeScreen != nil || actions.supportsHomeScreen {
             if nativeSections {
-                Section { copyShortcutButton(onCopyShortcutURL) }
+                Section { homeScreenButton }
             } else {
-                copyShortcutButton(onCopyShortcutURL)
+                homeScreenButton
             }
         }
         VStack(alignment: .leading, spacing: 10) {
@@ -147,14 +161,20 @@ public struct GameDetailView: View {
             .accessibilityIdentifier("detail.version")
     }
 
-    private func copyShortcutButton(_ action: @escaping (String) -> Void) -> some View {
-        Button {
-            action(detail.id)
-        } label: {
-            Label(ShellStrings.text("Copy Shortcut URL"), systemImage: "link")
+    private func requestHomeScreen() {
+        if let askHomeScreen {
+            askHomeScreen(detail.game)
+        } else {
+            localHomeScreen = true
         }
-        .accessibilityIdentifier("set.copyShortcut")
-        .shellTarget("set.copyShortcut") { action(detail.id) }
+    }
+
+    private var homeScreenButton: some View {
+        Button(action: requestHomeScreen) {
+            Label(ShellStrings.text("Add to Home Screen…"), systemImage: "plus.square")
+        }
+        .accessibilityIdentifier("set.homeScreen")
+        .shellTarget("set.homeScreen", action: requestHomeScreen)
     }
 
     private var header: some View {

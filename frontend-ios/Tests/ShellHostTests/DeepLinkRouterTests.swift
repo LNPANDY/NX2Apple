@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import ShellUI
 import Testing
 @testable import ShellHost
@@ -7,6 +9,8 @@ import Testing
 private final class DeepLinkHarness {
     var openedURLs: [URL] = []
     var copiedStrings: [String] = []
+    var savedPhotos: [Data] = []
+    var allowPhotoSave = true
     var activeGameID: String?
     var stopRequestCount = 0
 }
@@ -78,6 +82,11 @@ private struct DeepLinkLaunchError: LocalizedError {
             defaults: { UserDefaults(suiteName: suitePrefix + $0)! },
             openURL: { harness.openedURLs.append($0) },
             copyToPasteboard: { harness.copiedStrings.append($0) },
+            saveImageToPhotos: { data in
+                guard harness.allowPhotoSave else { return false }
+                harness.savedPhotos.append(data)
+                return true
+            },
             activeRunningGameID: { harness.activeGameID },
             requestStopRunningGame: { harness.stopRequestCount += 1 }
         )
@@ -449,17 +458,93 @@ private struct DeepLinkLaunchError: LocalizedError {
         #expect(harness.copiedStrings == ["nx2apple://launch?id=DmGame\(Fixtures.orbit)"])
     }
 
+    @Test func saveIconAndOpenShortcutsRendersOpaqueSquarePNGAndRespectsPhotoReceipt() async throws {
+        let box = try FrameworkBox()
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Fixture", bundleID: "org.nxnative.orbit", box: box
+        )
+        let harness = DeepLinkHarness()
+        let model = makeModel(box: box, harness: harness)
+        let onAdd = try #require(model.actions.onAddToHomeScreen)
+
+        let ok = await onAdd(Fixtures.orbit)
+        #expect(ok == true)
+        #expect(harness.copiedStrings == ["Orbit Fixture"])
+        #expect(harness.openedURLs == [HomeScreenShortcutSupport.createShortcutURL])
+        #expect(harness.savedPhotos.count == 1)
+
+        let savedPNG = try #require(harness.savedPhotos.first)
+        let src = try #require(CGImageSourceCreateWithData(savedPNG as CFData, nil))
+        let img = try #require(CGImageSourceCreateImageAtIndex(src, 0, nil))
+        #expect(img.width == 512)
+        #expect(img.height == 512)
+        let opaqueAlpha: Set<CGImageAlphaInfo> = [.none, .noneSkipLast, .noneSkipFirst]
+        #expect(opaqueAlpha.contains(img.alphaInfo))
+
+        // Placeholder fallback when neither icon nor banner exists also produces a valid 512x512 opaque PNG.
+        let placeholderPNG = try #require(
+            HomeScreenShortcutSupport.renderSquareIconPNG(title: "The Legend of Zelda", seed: Fixtures.orbit, size: 512)
+        )
+        let phSrc = try #require(CGImageSourceCreateWithData(placeholderPNG as CFData, nil))
+        let phImg = try #require(CGImageSourceCreateImageAtIndex(phSrc, 0, nil))
+        #expect(phImg.width == 512 && phImg.height == 512)
+        #expect(opaqueAlpha.contains(phImg.alphaInfo))
+
+        // Negative receipt check: when photo library access is denied, do not open Shortcuts or claim success.
+        harness.allowPhotoSave = false
+        harness.openedURLs.removeAll()
+        harness.copiedStrings.removeAll()
+        let denied = await onAdd(Fixtures.orbit)
+        #expect(denied == false)
+        #expect(harness.copiedStrings == ["Orbit Fixture"])
+        #expect(harness.openedURLs.isEmpty)
+    }
+
+    @Test func availableShortcutGamesListsInstalledAndExcludesDeleted() throws {
+        let box = try FrameworkBox()
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Fixture", bundleID: "org.nxnative.orbit", box: box
+        )
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(secondTitleID).framework", titleID: secondTitleID,
+            title: "Alpha Fixture", bundleID: "org.nxnative.alpha", box: box
+        )
+        let suitePrefix = "shortcut.catalog.\(UUID().uuidString)."
+        let defaultsFn: @Sendable (String) -> UserDefaults = { UserDefaults(suiteName: suitePrefix + $0)! }
+
+        let all = HomeScreenShortcutSupport.availableGames(
+            gamesRoot: box.frameworks,
+            defaults: defaultsFn
+        )
+        #expect(all.map(\.title) == ["Alpha Fixture", "Orbit Fixture"])
+        #expect(all.allSatisfy { $0.iconPNG != nil })
+
+        // Mark Orbit as deleted in shell defaults: Shortcuts entity query must exclude it.
+        defaultsFn(Fixtures.orbit).set(true, forKey: GameDeletion.deletedKey)
+        let filtered = HomeScreenShortcutSupport.availableGames(
+            gamesRoot: box.frameworks,
+            defaults: defaultsFn
+        )
+        #expect(filtered.map(\.titleID) == [secondTitleID])
+    }
+
     @Test func projectShellYmlDeclaresURLSchemeAndFilesVisibility() throws {
-        let ymlURL = URL(fileURLWithPath: #filePath)
+        let iosRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Shell/project-shell.yml")
-        let yml = try String(contentsOf: ymlURL, encoding: .utf8)
+        let yml = try String(contentsOf: iosRoot.appendingPathComponent("Shell/project-shell.yml"), encoding: .utf8)
         #expect(yml.contains("UIFileSharingEnabled: true"))
         #expect(yml.contains("LSSupportsOpeningDocumentsInPlace: true"))
+        #expect(yml.contains("NSPhotoLibraryAddUsageDescription:"))
         #expect(yml.contains("CFBundleURLTypes:"))
         #expect(yml.contains("CFBundleURLName: org.nxnative.shell"))
         #expect(yml.contains("CFBundleURLRole: Editor"))
         #expect(yml.contains("CFBundleURLSchemes:"))
         #expect(yml.contains("- nx2apple"))
+
+        let intentsSource = try String(contentsOf: iosRoot.appendingPathComponent("Shell/App/ShellShortcuts.swift"), encoding: .utf8)
+        #expect(intentsSource.contains("struct LaunchGameIntent: AppIntent"))
+        #expect(intentsSource.contains("struct ShellShortcutsProvider: AppShortcutsProvider"))
     }
 }

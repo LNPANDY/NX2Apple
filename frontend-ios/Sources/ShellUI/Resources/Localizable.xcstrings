@@ -641,6 +641,198 @@
         }
       }
     },
+    "Add the NX2Apple Launch Game action and pick this game.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die NX2Apple-Aktion zum Spielstart hinzufügen und dieses Spiel auswählen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add the NX2Apple Launch Game action and pick this game."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade la acción Iniciar juego de NX2Apple y elige este juego."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez l’action Lancer un jeu de NX2Apple et choisissez ce jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi l’azione Avvia gioco di NX2Apple e scegli questo gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple のゲーム起動アクションを追加し、このゲームを選びます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NX2Apple의 게임 실행 동작을 추가하고 이 게임을 선택합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicione a ação Iniciar Jogo do NX2Apple e escolha este jogo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lägg till åtgärden Starta spel från NX2Apple och välj det här spelet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加「NX2Apple」的启动游戏操作，并选中此游戏。"
+          }
+        }
+      }
+    },
+    "Add to Home Screen": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Startbildschirm"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to Home Screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir a pantalla de inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur l’écran d’accueil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi a schermata Home"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホーム画面に追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 화면에 추가"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar à Tela de Início"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lägg till på hemskärmen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加到主屏幕"
+          }
+        }
+      }
+    },
+    "Add to Home Screen…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Startbildschirm …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to Home Screen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir a pantalla de inicio…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur l’écran d’accueil…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi a schermata Home…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホーム画面に追加…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 화면에 추가…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar à Tela de Início…"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lägg till på hemskärmen…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加到主屏幕…"
+          }
+        }
+      }
+    },
     "All controllers are player 1": {
       "localizations": {
         "de": {
@@ -829,6 +1021,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "允许其他 App 在游玩时继续播放音频。"
+          }
+        }
+      }
+    },
+    "Allow photo access in Settings to save the icon, or copy the launch URL below.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaube in den Einstellungen den Fotozugriff zum Sichern des Symbols oder kopiere unten die Start-URL."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow photo access in Settings to save the icon, or copy the launch URL below."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite el acceso a Fotos en Ajustes para guardar el icono o copia la URL de inicio abajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorisez l’accès aux photos dans Réglages pour enregistrer l’icône, ou copiez l’URL ci-dessous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti l’accesso a Foto in Impostazioni per salvare l’icona oppure copia l’URL qui sotto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンを保存するには「設定」で写真へのアクセスを許可するか、下の起動 URL をコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘을 저장하려면 설정에서 사진 접근을 허용하거나 아래 실행 URL을 복사하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permita o acesso a Fotos nos Ajustes para salvar o ícone ou copie o URL abaixo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillåt åtkomst till Bilder i Inställningar för att spara ikonen eller kopiera start-URL nedan."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在系统设置中允许照片访问以保存图标，或直接使用下方启动链接。"
           }
         }
       }
@@ -3841,66 +4097,66 @@
         }
       }
     },
-    "Copy Shortcut URL": {
+    "Copy Launch URL": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kurzbefehl-URL kopieren"
+            "value": "Start-URL kopieren"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy Shortcut URL"
+            "value": "Copy Launch URL"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copiar URL del atajo"
+            "value": "Copiar URL de inicio"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copier l’URL du raccourci"
+            "value": "Copier l’URL de lancement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copia URL del comando rapido"
+            "value": "Copia URL di avvio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ショートカット URL をコピー"
+            "value": "起動 URL をコピー"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "단축어 URL 복사"
+            "value": "실행 URL 복사"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copiar URL do atalho"
+            "value": "Copiar URL de abertura"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopiera genvägs-URL"
+            "value": "Kopiera start-URL"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "拷贝快捷指令 URL"
+            "value": "拷贝启动链接"
           }
         }
       }
@@ -8381,6 +8637,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "如何更新"
+          }
+        }
+      }
+    },
+    "Icon Saved & Title Copied": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbol gesichert & Titel kopiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon Saved & Title Copied"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icono guardado y título copiado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icône enregistrée et titre copié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icona salvata e titolo copiato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコン保存・タイトルコピー完了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘 저장 및 제목 복사됨"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ícone salvo e título copiado"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikon sparad och titel kopierad"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存图标并复制名称"
           }
         }
       }
@@ -15873,6 +16193,70 @@
         }
       }
     },
+    "Save Icon & Open Shortcuts": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbol sichern & Kurzbefehle öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Icon & Open Shortcuts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar icono y abrir Atajos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer l’icône et ouvrir Raccourcis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva icona e apri Comandi Rapidi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンを保存してショートカットを開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘 저장 및 단축어 열기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar ícone e abrir Atalhos"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spara ikon och öppna Genvägar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存图标并打开快捷指令"
+          }
+        }
+      }
+    },
     "Saves are deleted too and cannot be brought back.": {
       "localizations": {
         "de": {
@@ -16445,6 +16829,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "着色器预取"
+          }
+        }
+      }
+    },
+    "Share to the Home Screen and choose the saved icon.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Über Teilen zum Startbildschirm hinzufügen und das gesicherte Bild wählen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share to the Home Screen and choose the saved icon."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparte en la pantalla de inicio y elige el icono guardado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partagez sur l’écran d’accueil et choisissez l’icône enregistrée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividi sulla schermata Home e scegli l’icona salvata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有からホーム画面に追加し、保存したアイコンを選択します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 메뉴에서 홈 화면에 추가를 누르고 저장한 아이콘을 선택합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhe na Tela de Início e escolha o ícone salvo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dela till hemskärmen och välj den sparade ikonen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点分享添加到主屏幕，选刚保存的封面图即可。"
           }
         }
       }
@@ -17473,6 +17921,70 @@
         }
       }
     },
+    "Tap below to save the icon, copy the title and open Shortcuts.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unten tippen, um das Symbol zu sichern, den Titel zu kopieren und Kurzbefehle zu öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap below to save the icon, copy the title and open Shortcuts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca abajo para guardar el icono, copiar el título y abrir Atajos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touchez ci-dessous pour enregistrer l’icône, copier le titre et ouvrir Raccourcis."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocca qui sotto per salvare l’icona, copiare il titolo e aprire Comandi Rapidi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のボタンでアイコン保存・タイトルコピーして「ショートカット」を開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아래 버튼을 눌러 아이콘을 저장하고 제목을 복사한 뒤 단축어를 엽니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque abaixo para salvar o ícone, copiar o título e abrir o app Atalhos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryck nedan för att spara ikonen, kopiera titeln och öppna Genvägar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点下方主按钮保存封面图、复制游戏名并打开「快捷指令」。"
+          }
+        }
+      }
+    },
     "The cloud save for %@ could not be read right now. You can play with this device's save without overwriting the cloud file.": {
       "localizations": {
         "de": {
@@ -18365,6 +18877,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "把手机横过来，预览会更大。"
+          }
+        }
+      }
+    },
+    "URL Copied": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL kopiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL Copied"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL copiada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL copiée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL copiato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL をコピーしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL 복사됨"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL copiado"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL kopierad"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拷贝链接"
           }
         }
       }

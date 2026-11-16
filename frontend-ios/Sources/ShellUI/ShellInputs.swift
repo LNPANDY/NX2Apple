@@ -302,6 +302,13 @@ public struct ShellActions {
     public var onOpenHomeButtonSettings: () -> Void
     /// Copies the game's Apple Shortcuts `nx2apple://launch?id=...` deep-link URL to the clipboard.
     public var onCopyShortcutURL: ((String) -> Void)?
+    /// Saves a square game icon to Photos, copies the title, and opens Shortcuts to add a Home Screen icon.
+    public var onAddToHomeScreen: (@MainActor (String) async -> Bool)?
+
+    public var supportsHomeScreen: Bool {
+        onAddToHomeScreen != nil || onCopyShortcutURL != nil
+    }
+
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
                 onChange: @escaping (String, String, String) -> Void = { _, _, _ in },
                 onPickGameData: @escaping (String) -> Void = { _ in }, onUseAppData: @escaping (String) -> Void = { _ in },
@@ -317,7 +324,8 @@ public struct ShellActions {
                 onRestoreSaveBackup: @escaping (String) -> Void = { _ in },
                 onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in },
                 onOpenHomeButtonSettings: @escaping () -> Void = {},
-                onCopyShortcutURL: ((String) -> Void)? = nil) {
+                onCopyShortcutURL: ((String) -> Void)? = nil,
+                onAddToHomeScreen: (@MainActor (String) async -> Bool)? = nil) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -342,5 +350,6 @@ public struct ShellActions {
         self.onDeleteGame = onDeleteGame
         self.onOpenHomeButtonSettings = onOpenHomeButtonSettings
         self.onCopyShortcutURL = onCopyShortcutURL
+        self.onAddToHomeScreen = onAddToHomeScreen
     }
 }
