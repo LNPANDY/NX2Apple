@@ -88,6 +88,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let experimentalBuilderKey = "experimentalBuilder"
     nonisolated package static let experimentalBuilderPathKey = "experimentalBuilderPath"
     nonisolated package static let savedKeysKey = "savedKeysPath"
+    nonisolated package static let buildUpstreamKey = "buildUpstream"
+    nonisolated package static let macNativeGamesPathKey = "macNativeGamesPath"
 
     @Published package var gameDir = ""
     @Published package var slots: [Slot] = [
@@ -206,6 +208,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The app's own nxb (Contents/Resources/nxbuild/nxb, frontend/nxbuild.pin), nil in tests and in a build without a pinned release.
     package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
     package var nxbRun = false   // the running build is `nxb build`, not the script: its exit code has its own messages
+    @Published package var buildUpstream: EngineUpstreamKind {
+        didSet { defaults.set(buildUpstream.rawValue, forKey: Self.buildUpstreamKey) }
+    }
+    @Published package var macNativeGamesPath: String {
+        didSet { defaults.set(macNativeGamesPath, forKey: Self.macNativeGamesPathKey) }
+    }
+    package var mngRun = false
     @Published package var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
@@ -367,6 +376,14 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         experimentalBuilder = ExperimentalBuilder.featureEnabled && defaults.bool(forKey: Self.experimentalBuilderKey)
         experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
         savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
+        if MacNativeGamesBuilder.featureEnabled,
+           let rawUpstream = defaults.string(forKey: Self.buildUpstreamKey),
+           let parsedUpstream = EngineUpstreamKind(rawValue: rawUpstream) {
+            buildUpstream = parsedUpstream
+        } else {
+            buildUpstream = .nxnative
+        }
+        macNativeGamesPath = defaults.string(forKey: Self.macNativeGamesPathKey) ?? ""
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.
@@ -394,7 +411,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     /// A build may start: the repository is usable, the base game and the keys are there (a game folder needs no keys), the tools
     /// are all present and none runs.
-    package var canBuild: Bool { repo.isRepo && inputsReady && deps.allPresent && !running }
+    package var canBuild: Bool { (usesExternalUpstreamRepo || repo.isRepo) && inputsReady && deps.allPresent && !running }
 
     /// A line for the build card's note, from a store that has no card of its own (the dependency store's failed install).
     package func note(_ text: String) { doneNote = text }
