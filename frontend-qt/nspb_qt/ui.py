@@ -286,6 +286,8 @@ class MainWindow(QMainWindow):
             self.m.driveCopyProgress.connect(self._on_drive_copy_progress)
         if hasattr(self.m, 'driveCopyFinished'):
             self.m.driveCopyFinished.connect(self._on_drive_copy_finished)
+        if hasattr(self.m, 'upstreamStateChanged'):
+            self.m.upstreamStateChanged.connect(self._on_upstream_state_changed)
 
         if self.m.log_path:
             self._append_log(self.m.t('log.at', str(self.m.log_path)) + '\n\n')
@@ -1317,6 +1319,10 @@ class MainWindow(QMainWindow):
         self.running_setup.toggled.connect(self._refresh_build_inputs)
         self.body_col.addWidget(self.running_setup, 0, Qt.AlignLeft)
 
+        # Engine Switcher Card at the top of Builds (nxnative built-in + downloadable upstreams)
+        self.engine_group = self._build_engine_switcher_card()
+        self.body_col.addWidget(self.engine_group)
+
         # Setup Hint Card (shown when repo or required deps are not ready)
         self.setup_hint_card = self._build_setup_hint_card()
         self.body_col.addWidget(self.setup_hint_card)
@@ -1347,6 +1353,118 @@ class MainWindow(QMainWindow):
 
         self.body_col.addStretch(1)
         return body
+
+    def _build_engine_switcher_card(self) -> CardGroup:
+        grp = CardGroup(title=self.m.t('engine.title'))
+
+        # Row 1: nxnative (built-in default)
+        r_nx = QWidget()
+        rnx_lay = QHBoxLayout(r_nx)
+        rnx_lay.setContentsMargins(18, 12, 18, 12)
+        rnx_lay.setSpacing(12)
+        self.eng_nx_dot = _dot(style.GREEN)
+        rnx_lay.addWidget(self.eng_nx_dot)
+        nx_col = QVBoxLayout()
+        nx_col.setSpacing(2)
+        self.eng_nx_title = QLabel('nxnative · ' + self.m.t('upstream.builtinBadge'))
+        self.eng_nx_title.setObjectName('rowTitle')
+        self.eng_nx_sub = QLabel(self.m.t('upstream.nxnativeCardNote'))
+        self.eng_nx_sub.setObjectName('muted')
+        self.eng_nx_sub.setWordWrap(True)
+        nx_col.addWidget(self.eng_nx_title)
+        nx_col.addWidget(self.eng_nx_sub)
+        rnx_lay.addLayout(nx_col, 1)
+        self.eng_nx_btn = QPushButton(self.m.t('upstream.activeBadge'))
+        self.eng_nx_btn.setFixedWidth(148)
+        self.eng_nx_btn.clicked.connect(lambda: self.m.select_upstream('nxnative'))
+        rnx_lay.addWidget(self.eng_nx_btn)
+        grp.add_row(r_nx)
+
+        # Row 2: S2Arm (download -> extract -> switch)
+        self.eng_s2a_div = grp.add_divider()
+        self.eng_s2a_row = QWidget()
+        rs2_lay = QHBoxLayout(self.eng_s2a_row)
+        rs2_lay.setContentsMargins(18, 12, 18, 12)
+        rs2_lay.setSpacing(12)
+        self.eng_s2a_dot = _dot(style.NEUTRAL_DOT)
+        rs2_lay.addWidget(self.eng_s2a_dot)
+        s2_col = QVBoxLayout()
+        s2_col.setSpacing(2)
+        self.eng_s2a_title = QLabel('S2Arm')
+        self.eng_s2a_title.setObjectName('rowTitle')
+        self.eng_s2a_sub = QLabel(self.m.t('upstream.s2armCardNote'))
+        self.eng_s2a_sub.setObjectName('muted')
+        self.eng_s2a_sub.setWordWrap(True)
+        s2_col.addWidget(self.eng_s2a_title)
+        s2_col.addWidget(self.eng_s2a_sub)
+        rs2_lay.addLayout(s2_col, 1)
+        self.eng_s2a_btn = QPushButton(self.m.t('upstream.download'))
+        self.eng_s2a_btn.setFixedWidth(148)
+        self.eng_s2a_btn.clicked.connect(self._on_s2arm_engine_action)
+        rs2_lay.addWidget(self.eng_s2a_btn)
+        grp.add_row(self.eng_s2a_row)
+        return grp
+
+    def _on_s2arm_engine_action(self) -> None:
+        state_kind, _frac, _detail = self.m.upstream_state('s2arm')
+        if state_kind == 'installed':
+            self.m.select_upstream('s2arm')
+        elif state_kind in ('not_installed', 'failed'):
+            self.m.download_upstream('s2arm')
+
+    def _on_upstream_state_changed(self) -> None:
+        self._refresh_engine_switcher()
+        self._refresh_running()
+
+    def _refresh_engine_switcher(self) -> None:
+        t = self.m.t
+        self.engine_group.set_title(t('engine.title'))
+        nx_active = getattr(self.m, 'build_upstream', 'nxnative') == 'nxnative'
+        _set_dot(self.eng_nx_dot, style.GREEN if nx_active else style.NEUTRAL_DOT)
+        self.eng_nx_title.setText('nxnative · ' + t('upstream.builtinBadge'))
+        self.eng_nx_sub.setText(t('upstream.nxnativeCardNote'))
+        self.eng_nx_btn.setText(t('upstream.activeBadge' if nx_active else 'upstream.switchBtn'))
+        self.eng_nx_btn.setEnabled((not nx_active) and (not self.m.running))
+
+        from . import upstream_store
+        show_s2a = 's2arm' in upstream_store.available_upstreams()
+        self.eng_s2a_row.setVisible(show_s2a)
+        if self.eng_s2a_div is not None:
+            self.eng_s2a_div.setVisible(show_s2a)
+        if not show_s2a:
+            return
+
+        s2a_active = getattr(self.m, 'build_upstream', 'nxnative') == 's2arm'
+        state_kind, _frac, detail = self.m.upstream_state('s2arm')
+        if state_kind == 'installed':
+            _set_dot(self.eng_s2a_dot, style.GREEN if s2a_active else style.NEUTRAL_DOT)
+            self.eng_s2a_sub.setText(t('upstream.s2armCardNote' if s2a_active else 'upstream.readySwitch'))
+            self.eng_s2a_btn.setText(t('upstream.activeBadge' if s2a_active else 'upstream.switchBtn'))
+            self.eng_s2a_btn.setEnabled((not s2a_active) and (not self.m.running))
+        elif state_kind == 'downloading':
+            _set_dot(self.eng_s2a_dot, style.AMBER)
+            self.eng_s2a_sub.setText(
+                t('upstream.downloadingProgress', detail) if detail else t('upstream.downloading')
+            )
+            self.eng_s2a_btn.setText(t('upstream.downloading'))
+            self.eng_s2a_btn.setEnabled(False)
+        elif state_kind == 'extracting':
+            _set_dot(self.eng_s2a_dot, style.AMBER)
+            self.eng_s2a_sub.setText(t('upstream.extracting'))
+            self.eng_s2a_btn.setText(t('upstream.extracting'))
+            self.eng_s2a_btn.setEnabled(False)
+        elif state_kind == 'failed':
+            _set_dot(self.eng_s2a_dot, style.AMBER)
+            self.eng_s2a_sub.setText(
+                t('upstream.downloadFailed' if detail == 'download' else 'upstream.extractFailed')
+            )
+            self.eng_s2a_btn.setText(t('fail.retry'))
+            self.eng_s2a_btn.setEnabled(not self.m.running)
+        else:
+            _set_dot(self.eng_s2a_dot, style.NEUTRAL_DOT)
+            self.eng_s2a_sub.setText(t('upstream.s2armCardNote'))
+            self.eng_s2a_btn.setText(t('upstream.download'))
+            self.eng_s2a_btn.setEnabled(not self.m.running)
 
     def _build_setup_hint_card(self) -> CardGroup:
         grp = CardGroup(title=self.m.t('section.setup'))
@@ -2677,6 +2795,7 @@ class MainWindow(QMainWindow):
         # Headings & Cards
         self.running_setup.setText(t('section.setup'))
         self.preparing.setText(t('library.preparing'))
+        self._refresh_engine_switcher()
         self.files_group.set_title(t('section.files'))
         self.files_group.set_footer(t('msg.workdirHint'))
         self.folder_cta_title.setText(t('build.folderCTA') + ' · ' + t('data.note'))
@@ -3170,6 +3289,8 @@ class MainWindow(QMainWindow):
         expanded = not running or self.running_setup.isChecked()
         self.running_setup.setVisible(running)
         self.running_setup.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        self.engine_group.setVisible(expanded)
+        self.engine_group.setEnabled(not running)
         self.files_group.setVisible(expanded)
         self.target_group.setVisible(expanded)
         self.files_group.setEnabled(not running)
@@ -3178,8 +3299,10 @@ class MainWindow(QMainWindow):
         # A previous export can still be revealed or copied to a drive.
         self.install_group.setVisible(expanded or os.path.isfile(self._effective_ipa_path())
                                       or os.path.isdir(self._effective_archive_path()))
-        setup_needed = not self.m.repo_ok or (self.m.deps_checked and not self.m.all_deps_ok)
+        repo_ready = self.m.repo_ok or getattr(self.m, 'uses_external_upstream_repo', False)
+        setup_needed = not repo_ready or (self.m.deps_checked and not self.m.all_deps_ok)
         self.setup_hint_card.setVisible(expanded and setup_needed)
+        self._refresh_engine_switcher()
 
     def _refresh_running(self) -> None:
         self._show_failure()
@@ -3194,7 +3317,8 @@ class MainWindow(QMainWindow):
             self.build_btn.setEnabled(self.m.can_build)
             if not self.m.can_build and not self._failed:
                 is_prebuild_block = False
-                if not self.m.repo_ok:
+                repo_ready = self.m.repo_ok or getattr(self.m, 'uses_external_upstream_repo', False)
+                if not repo_ready:
                     why = t('status.chooseRepo')
                 elif not self.m.deps_checked:
                     why = t('status.checkingDeps')

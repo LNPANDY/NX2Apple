@@ -212,7 +212,7 @@ struct LauncherView: View {
     @State private var completedFooterDismissed = false
     @State private var buildInventoryFilter = BuildInventoryFilter.owned
 
-    var needsBuildSetup: Bool { !repo.isRepo || !buildDependencies.allPresent }
+    var needsBuildSetup: Bool { (!repo.isRepo && !m.usesExternalUpstreamRepo) || !buildDependencies.allPresent }
     private var completedActivityVisible: Bool {
         !completedFooterDismissed && !completionDismissal.expired && m.completionStatus != nil && buildQueue.running == nil && !buildQueue.isAdvancing
     }

@@ -97,7 +97,15 @@ struct SettingsPage: View {
     @ViewBuilder private var tools: some View {
         KeysCard(build: build)
         ToolsCard(repo: repo, engine: engine, dependencies: dependencies, buildRunning: build.running,
-                  shellCache: { ShellCacheRow(build: build) }, builder: { if ExperimentalBuilder.featureEnabled { ExperimentalBuilderRow(build: build) } }) {
+                  shellCache: { ShellCacheRow(build: build) }, builder: {
+            if ExperimentalBuilder.featureEnabled || MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled {
+                CardGroup("") {
+                    if ExperimentalBuilder.featureEnabled { ExperimentalBuilderRow(build: build) }
+                    if ExperimentalBuilder.featureEnabled && (MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled) { CardDivider() }
+                    if MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled { UpstreamBuilderRow(build: build) }
+                }
+            }
+        }) {
             DiagnosticsButton(report: diagnostics, game: library.selected)
         }
         .id("set.deps")

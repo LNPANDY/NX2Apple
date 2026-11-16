@@ -86,6 +86,9 @@ import NXModel
                 if defaults.string(forKey: OnboardingDefaults.platform) == "mac" { _ = dependencies.check() }
             })
         laterBuild.value = build
+        if defaults === UserDefaults.standard {
+            build.adoptInstalledUpstreams()
+        }
         self.repo = repo; self.engineSync = engineSync; self.dependencies = dependencies; self.deviceStore = devices
         self.appUpdates = updates; self.build = build
         let queueFile = defaults === UserDefaults.standard

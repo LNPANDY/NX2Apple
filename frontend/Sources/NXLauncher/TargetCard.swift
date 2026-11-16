@@ -54,13 +54,16 @@ package struct TargetCard: View {
     }
 
     private func targetCard(_ value: String, symbol: String, title: String, note: String) -> some View {
-        let selected = build.target == value
+        let macOnlyBlocked = value == BuildTarget.ios && build.isMacNativeGamesSelected
+        let selected = build.target == value && !macOnlyBlocked
+        let displayNote = macOnlyBlocked ? "upstream.mngMacOnly" : note
         return Button { build.target = value } label: {
-            LauncherTargetOptionLabel(title: loc.t(title), symbol: symbol, note: loc.t(note), selected: selected)
+            LauncherTargetOptionLabel(title: loc.t(title), symbol: symbol, note: loc.t(displayNote), selected: selected)
         }
-        .buttonStyle(.plain).disabled(build.running)
+        .buttonStyle(.plain).disabled(build.running || macOnlyBlocked)
+        .opacity(macOnlyBlocked ? 0.5 : 1)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .padTarget("set.build.target." + value, scope: "main", radius: 14, enabled: !build.running) { if !build.running { build.target = value } }
+        .padTarget("set.build.target." + value, scope: "main", radius: 14, enabled: !build.running && !macOnlyBlocked) { if !build.running && !macOnlyBlocked { build.target = value } }
     }
 }
 

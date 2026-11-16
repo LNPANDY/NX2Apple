@@ -28,6 +28,8 @@ from . import library as lib
 from . import platform_util as pu
 from . import post_build_cleanup as pbc
 from . import romfs_languages
+from . import s2arm_builder
+from . import upstream_store
 from .i18n import Lang
 from .l10n import t
 
@@ -235,6 +237,7 @@ class Model(QObject):
     driveCopyStateChanged = Signal()
     driveCopyProgress = Signal(object, object)   # done_bytes, total_bytes
     driveCopyFinished = Signal(bool, bool, str)  # ok, cancelled, info
+    upstreamStateChanged = Signal()
 
     #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
     #: path, or '' when the user cancelled. `pick_dep_folder` calls it, so the model stays UI-free.
@@ -281,6 +284,18 @@ class Model(QObject):
         self.update_path = ''
         self.dlc_paths: list[str] = []
         self.keys_path = ''
+        saved_upstream = self.settings.value('buildUpstream', 'nxnative', type=str)
+        self.s2arm_path = self.settings.value('s2armPath', '', type=str)
+        if not s2arm_builder.is_usable_tree(self.s2arm_path):
+            managed = upstream_store.usable_managed_path('s2arm')
+            if managed:
+                self.s2arm_path = managed
+        self.upstream_states: dict[str, tuple[str, float | None, str]] = {}
+        self._upstream_lock = threading.Lock()
+        if s2arm_builder.feature_enabled() and saved_upstream == 's2arm' and s2arm_builder.is_usable_tree(self.s2arm_path):
+            self.build_upstream = 's2arm'
+        else:
+            self.build_upstream = 'nxnative'
         self.game_folder: inputs.GameFolderContents | None = None   # a game chosen as a folder of files or a NUP (no keys needed)
         self.game_folder_problem = ''   # why a chosen game folder cannot be built, shown on the base row
         self.out_dir = ''
@@ -2364,6 +2379,8 @@ class Model(QObject):
     def game_folder_engine_problem(self, found: 'inputs.GameFolderContents') -> str:
         """What the engine lacks for this game: the packer (an older engine) or a profile for the game. '' when nothing,
         and before the engine exists (the build asks again)."""
+        if self.is_s2arm_selected:
+            return ''
         eng = self.engine_path
         if not eng or not Path(eng, 'dm').is_dir():
             return ''
@@ -2484,12 +2501,108 @@ class Model(QObject):
         return ''
 
     @property
+    def is_s2arm_selected(self) -> bool:
+        return s2arm_builder.feature_enabled() and getattr(self, 'build_upstream', 'nxnative') == 's2arm'
+
+    @property
+    def uses_external_upstream_repo(self) -> bool:
+        return self.is_s2arm_selected and s2arm_builder.is_usable_tree(getattr(self, 's2arm_path', ''))
+
+    def is_upstream_installed(self, kind: str) -> bool:
+        if kind == 'nxnative':
+            return True
+        if kind == 's2arm':
+            return s2arm_builder.is_usable_tree(getattr(self, 's2arm_path', ''))
+        return False
+
+    def upstream_state(self, kind: str) -> tuple[str, float | None, str]:
+        if kind == 'nxnative':
+            return ('builtin', None, '')
+        with self._upstream_lock:
+            active = self.upstream_states.get(kind)
+        if active is not None:
+            if active[0] == 'failed' and self.is_upstream_installed(kind):
+                return ('installed', None, '')
+            return active
+        return ('installed', None, '') if self.is_upstream_installed(kind) else ('not_installed', None, '')
+
+    def select_upstream(self, kind: str) -> bool:
+        if self.running:
+            return False
+        if kind == 'nxnative':
+            self.build_upstream = 'nxnative'
+            self.settings.setValue('buildUpstream', 'nxnative')
+            self.upstreamStateChanged.emit()
+            return True
+        if kind == 's2arm' and s2arm_builder.feature_enabled() and self.is_upstream_installed('s2arm'):
+            state_kind = self.upstream_state('s2arm')[0]
+            if state_kind in ('downloading', 'extracting'):
+                return False
+            self.build_upstream = 's2arm'
+            self.settings.setValue('buildUpstream', 's2arm')
+            self.upstreamStateChanged.emit()
+            return True
+        return False
+
+    def download_upstream(self, kind: str) -> None:
+        if kind != 's2arm' or self.running or not s2arm_builder.feature_enabled():
+            return
+        with self._upstream_lock:
+            cur = self.upstream_states.get(kind)
+            if cur is not None and cur[0] in ('downloading', 'extracting'):
+                return
+            self.upstream_states[kind] = ('downloading', None, '')
+        self.upstreamStateChanged.emit()
+
+        def _worker() -> None:
+            def _on_prog(written: int, expected: int | None) -> None:
+                frac, txt = upstream_store.format_download_progress(written, expected)
+                with self._upstream_lock:
+                    cur_s = self.upstream_states.get(kind)
+                    if cur_s is None or cur_s[0] != 'downloading':
+                        return
+                    self.upstream_states[kind] = ('downloading', frac, txt)
+                self.upstreamStateChanged.emit()
+
+            def _on_ext() -> None:
+                with self._upstream_lock:
+                    self.upstream_states[kind] = ('extracting', None, '')
+                self.upstreamStateChanged.emit()
+
+            try:
+                installed_dir = upstream_store.download_and_install_upstream(
+                    kind,
+                    on_progress=_on_prog,
+                    on_extracting=_on_ext,
+                )
+            except upstream_store.UpstreamInstallError as exc:
+                err_kind = 'download' if exc.kind == 'download' else 'extract'
+                with self._upstream_lock:
+                    self.upstream_states[kind] = ('failed', None, err_kind)
+                self.upstreamStateChanged.emit()
+                return
+            except Exception:
+                with self._upstream_lock:
+                    self.upstream_states[kind] = ('failed', None, 'extract')
+                self.upstreamStateChanged.emit()
+                return
+
+            self.s2arm_path = str(installed_dir)
+            self.settings.setValue('s2armPath', self.s2arm_path)
+            with self._upstream_lock:
+                self.upstream_states.pop(kind, None)
+            self.upstreamStateChanged.emit()
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    @property
     def can_build(self) -> bool:
+        upstream_repo_ok = self.uses_external_upstream_repo
         if getattr(self, '_is_fast_refresh', False):
-            return self.repo_ok and self.all_deps_ok and not self.running
+            return (self.repo_ok or upstream_repo_ok) and self.all_deps_ok and not self.running
         # a game folder needs no keys, a refused one cannot build
         inputs_ready = self.game_folder is not None or (bool(self.base_path) and bool(self.keys_path))
-        if not (self.repo_ok and inputs_ready and self.all_deps_ok and not self.running):
+        if not ((self.repo_ok or upstream_repo_ok) and inputs_ready and self.all_deps_ok and not self.running):
             return False
         return not bool(self.prebuild_block_reason())
 
@@ -2946,7 +3059,14 @@ class Model(QObject):
         self._fast_refresh_external_img = ''
         self._last_error = ''
         self.failure = None
-        if not self.repo_ok:
+        if self.is_s2arm_selected:
+            if not self.s2arm_path:
+                self.finished.emit(False, self.t('upstream.s2armMissing'))
+                return
+            if not s2arm_builder.is_usable_tree(self.s2arm_path):
+                self.finished.emit(False, self.t('upstream.s2armInvalid', self.s2arm_path))
+                return
+        elif not self.repo_ok:
             self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
             return
         if self.game_folder is None and not self.base_path:
@@ -2955,7 +3075,7 @@ class Model(QObject):
         if block:
             self.finished.emit(False, block)
             return
-        if engine.needs_sync_before_build(self.repo_path):
+        if not self.is_s2arm_selected and engine.needs_sync_before_build(self.repo_path):
             # engine/ is the only engine and is stale or missing: make it, then build (a failed sync names its fix in the log)
             def _on_synced(ok: bool) -> None:
                 if ok and queued_ext_img:
@@ -3037,6 +3157,119 @@ class Model(QObject):
             input_dir = staging
             if unpicked:
                 self.log(self.t('msg.stagedFromSharedFolder', Path(self.base_path).name) + '\n')
+
+        if self.is_s2arm_selected:
+            Path(work_dir).mkdir(parents=True, exist_ok=True)
+            events_file = str(Path(work_dir, 's2a-events.jsonl'))
+            is_unencrypted = folder is not None or Path(input_dir).suffix.lower() == '.nup'
+            cmd_argv, cwd, extra_env = s2arm_builder.build_command(
+                self.s2arm_path,
+                python_exe=py,
+                source_input=input_dir,
+                keys_path=self.keys_path,
+                is_unencrypted=is_unencrypted,
+                work_dir=work_dir,
+                target=self.target,
+                title_id=tid_hex,
+                events_file=events_file,
+            )
+            self._build_cancelled = False
+            self.running = True
+            self.runningChanged.emit(True)
+            with self._ensure_pso_lock():
+                self.stages = []
+            self.log_tail = ''
+            self.stagesChanged.emit()
+            self.log(self.t('msg.running', ' '.join(cmd_argv)) + '\n')
+            env = pu.child_env()
+            env.update(extra_env)
+
+            def run_s2arm() -> tuple[bool, str]:
+                ok = False
+                rc = -1
+                proc: subprocess.Popen | None = None
+                try:
+                    proc = subprocess.Popen(
+                        cmd_argv,
+                        cwd=cwd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding='utf-8',
+                        errors='replace',
+                        bufsize=1,
+                        env=env,
+                        **pu.process_group_kwargs(),
+                    )
+                    self._proc = proc
+                    if getattr(self, '_build_cancelled', False):
+                        pu.kill_process_tree(proc)
+                    assert proc.stdout is not None
+                    for line in proc.stdout:
+                        self._on_line(line.rstrip('\n'))
+                    rc = proc.wait()
+                    ok = rc == 0 and not getattr(self, '_build_cancelled', False)
+                except OSError as e:
+                    self.log(f'{e}\n')
+                finally:
+                    poll_fn = getattr(proc, 'poll', None)
+                    still_running = (poll_fn() is None) if callable(poll_fn) else False
+                    if proc is not None and (not ok or still_running):
+                        pu.kill_process_tree(proc)
+                    self._proc = None
+                self._flush_lines()
+                events_text = ''
+                if Path(events_file).is_file():
+                    try:
+                        events_text = Path(events_file).read_text(encoding='utf-8', errors='replace')
+                    except OSError:
+                        pass
+                summary = s2arm_builder.parse_events(events_text) if events_text else None
+                if ok:
+                    for st in self.stages:
+                        if st.state == 'running':
+                            st.state = 'done'
+                    self.stagesChanged.emit()
+                    ipa = summary.get('ipa') if summary else None
+                    root = summary.get('root') if summary else None
+                    if ipa and Path(ipa).exists():
+                        self.ipa_path = ipa
+                        note = self.t('msg.ipaAt', ipa)
+                    elif root and Path(root).exists():
+                        note = self.t('upstream.s2armMacDone', root)
+                    else:
+                        note = self.t('upstream.s2armDone')
+                else:
+                    if self.stages:
+                        self.stages[-1].state = 'failed'
+                        self.stagesChanged.emit()
+                    err = s2arm_builder.last_error(self.log_tail, events_text=events_text)
+                    note = self.t('msg.buildFailedReason', err) if err else self.t('msg.buildFailed', rc)
+                return ok, note
+
+            def work_s2arm() -> None:
+                try:
+                    ok, note = run_s2arm()
+                except Exception as e:
+                    self.log(f'{e}\n')
+                    if self.stages:
+                        self.stages[-1].state = 'failed'
+                        self.stagesChanged.emit()
+                    ok, note = False, self.t('msg.buildFailedReason', str(e))
+                finally:
+                    self.running = False
+                    try:
+                        self.runningChanged.emit(False)
+                    except RuntimeError:
+                        pass
+                try:
+                    self.finished.emit(ok, note)
+                except RuntimeError:
+                    pass
+
+            self._thread = threading.Thread(target=work_s2arm, daemon=True)
+            self._thread.start()
+            return
 
         compressed = any(Path(f).suffix.lower() in ('.nsz', '.xcz')
                          for f in staged if f)

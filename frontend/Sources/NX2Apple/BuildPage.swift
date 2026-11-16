@@ -79,6 +79,7 @@ struct BuildPage: View {
                     if processActive { BuildProcessCard(build: build, availableHeight: viewport.size.height, logOpen: logOpen) }
                     else { ProgressCard(build: build) }
                 } else {
+                    if step == 0 || queueReview { EngineSwitcherCard(build: build) }
                     if queueReview {
                         BuildQueueCard(queue: queue, showsHeading: false, artwork: queueIcon, onSelectGames: onSelectGames, playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) })
                         if queue.hasIOS { InstallCard(devices: devices, build: build, forQueue: true) }

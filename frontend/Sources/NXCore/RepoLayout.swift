@@ -24,8 +24,22 @@ package enum RepoLayout {
 
     /// The tools of `requiredTools` that `dir` does not have (empty: the build tools are as new as this app needs).
     package static func missingTools(in dir: String) -> [String] {
-        let root = EngineLayout.root(dir)   // the checkout's engine/, or an engine tree itself
-        return requiredTools.filter { !FileManager.default.fileExists(atPath: root + "/" + $0) }
+        missingTools(in: dir, for: .nxnative)
+    }
+
+    package static func missingTools(in dir: String, for upstream: EngineUpstreamKind) -> [String] {
+        guard !dir.isEmpty else { return EngineUpstream.descriptor(for: upstream).requiredTools }
+        let descriptor = EngineUpstream.descriptor(for: upstream)
+        let fm = FileManager.default
+        switch upstream {
+        case .nxnative:
+            let root = EngineLayout.root(dir)
+            let prefix = root.hasSuffix("/") ? root : root + "/"
+            return descriptor.requiredTools.filter { !fm.fileExists(atPath: prefix + $0) }
+        case .s2arm, .macNativeGames:
+            let prefix = dir.hasSuffix("/") ? dir : dir + "/"
+            return descriptor.requiredTools.filter { !fm.fileExists(atPath: prefix + $0) }
+        }
     }
 
     /// Whether the checkout's build script has this fork's `--work-dir` (issue #5): an upstream

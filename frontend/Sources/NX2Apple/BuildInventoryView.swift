@@ -26,7 +26,7 @@ struct BuildInventoryView: View {
     @ObservedObject var repo: RepoStore
     @ObservedObject var dependencies: DependencyStore
     let onOpenSettings: () -> Void
-    private var needsSetup: Bool { !repo.isRepo || !dependencies.allPresent }
+    private var needsSetup: Bool { (!repo.isRepo && !build.usesExternalUpstreamRepo) || !dependencies.allPresent }
     let hasDraft: Bool
     let inventory: [BuildInventoryEntry]
     let filter: BuildInventoryFilter
@@ -83,7 +83,8 @@ struct BuildInventoryView: View {
                 .padTarget("builds.first", scope: "main", focusColor: LauncherPalette.onCream, enabled: !build.running && !needsSetup, activate: { if !build.running && !needsSetup { newBuild() } })
 
             }
-            SetupHintCard(repo: repo, dependencies: dependencies, onOpenSettings: onOpenSettings)
+            EngineSwitcherCard(build: build)
+            SetupHintCard(repo: repo, dependencies: dependencies, usesExternalUpstream: build.usesExternalUpstreamRepo, onOpenSettings: onOpenSettings)
             Group {
                 CurrentBuildEntry(build: build, hasDraft: hasDraft, artwork: inventory.first(where: { $0.game.titleID == build.gameTitleID }).flatMap { artwork[$0.id] },
                                   title: inventory.first(where: { $0.game.titleID == build.gameTitleID })?.game.displayName(loc.lang), resume: resume)
