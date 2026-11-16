@@ -362,12 +362,24 @@ extension LauncherView {
         .transition(.opacity)
     }
 
+    /// Adds games to the build queue with the build settings of the Builds page. During a build the queue starts them once that build ends (#1112).
+    func enqueueBuilds(_ games: [LibraryGame]) {
+        let batch = UUID()
+        queue.enqueue(games.filter { !m.running || $0.id != activeBuildID }.map {
+            QueueEntry(game: $0, engineID: stores.engineSync.selection.engineID, target: m.target, batch: batch,
+                       packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame)
+        })
+    }
+
     func status(_ game: LibraryGame, prominent: Bool = false) -> some View {
         let building = m.running && activeBuildID == game.id
-        let color = building ? LauncherPalette.building : ((game.isReady || game.hasIOSBuild) ? LauncherPalette.ready : LauncherPalette.unbuilt)
+        let queued = !building && queue.queued.contains { $0.titleID == game.titleID }
+        let color = building || queued ? LauncherPalette.building : ((game.isReady || game.hasIOSBuild) ? LauncherPalette.ready : LauncherPalette.unbuilt)
         let key: String
         if building {
             key = "library.building"
+        } else if queued {
+            key = "library.queued"
         } else if game.isReady && game.hasIOSBuild {
             key = "library.readyMacAndIOS"
         } else if game.isReady {
