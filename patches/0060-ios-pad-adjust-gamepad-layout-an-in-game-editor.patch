@@ -1,0 +1,1897 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: odonnellmatt <odonnellmatt@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 10:01:31 +0800
+Subject: [PATCH] ios/pad: Adjust Gamepad Layout, an in-game editor for the
+ touch controls
+
+The groups of the touch controls (DM_TOUCH_GROUPS, the previous change) are
+set in the game. The gear's Controller layout menu holds Adjust Gamepad
+Layout below 2D, 3D and Tap (in 2D and 3D: Tap has no controls). It opens
+the layout editor over the game (DmGamepad.m, "The layout editor", on the
+rules of DmPadEditing.h):
+
+- Every group is outlined, with its name on a tag. A tap chooses one. A
+  drag moves it once the finger has gone 8 points, snapping to the edges
+  and the middle of its area. A pinch with two fingers on it, or the
+  panel's slider or - and +, resizes it. A thumb resting elsewhere neither
+  stops a drag nor starts a pinch, and a touch on the panel never moves a
+  group under it.
+- The panel (DmPadEditor.m, a small dark card the player can drag by its
+  title) has, above the chosen group's row, a two-way choice: Both sides
+  together (the default: the shoulders of both sides, and the left stick
+  with A B X Y, move and size together, so one drag lowers the whole top
+  row) or Each side on its own. The choice is kept per layout and saved
+  with it. Picking Both sides together while the two sides are apart moves
+  nothing; the next move or size of either takes the other to its mirrored
+  place, or is refused there for want of room. For a group with no mirror
+  image (the D-pad in 3D, and - with the menu button and +) the choice is
+  dimmed, still showing the layout's, so the panel keeps its height. The
+  panel also has All controls, Save for All games or This game (in the
+  shell), Reset to default (for this game also "Same as All games"),
+  Cancel and Done. It is placed again after a rotation or a new window
+  size.
+- A spot with no room is drawn red under the finger and the group goes
+  back when the finger lifts. A size stops where the group meets another.
+  The panel says why, once per gesture, with a warning haptic.
+- While the editor is open the game keeps running but is told it lost the
+  focus, as for the quit prompt (front_ios_overlay_focus), so a game that
+  pauses there pauses. The touch gamepad releases every key and sends
+  nothing, no touch reaches the game, and physical controllers keep
+  playing. The controls show even while a controller hides them.
+- VoiceOver: each group is an adjustable element with Move up, down, left
+  and right. The elements are made once, so the focus stays on them. The
+  choice is named "Move left and right groups"; dimmed, it is one element
+  that says why ("This group has no matching group on the other side.").
+- Drawing follows the groups: labels, roundings and the gear's symbol take
+  each group's size, and the stick's travel goes with its ring.
+
+Done saves DM_TOUCH_GROUPS. A front end that hosts games in its own process
+keeps the value through three hooks the engine finds with dlsym
+(dm_shell_touch_groups_save, _load and _forget, docs/frontends.md), for
+every game or for this game, and passes the value in effect at the next
+start, with DM_TOUCH_GROUPS_OWN=1 for a game's own. A game's own app keeps
+it in its preferences as launcher.DM_TOUCH_GROUPS. When the player picks
+the other scope, Done replaces only the layouts the editor showed or the
+player changed and keeps the others as that scope holds them. Done with
+nothing changed saves nothing. The menu item's words are the third line of
+DM_GAME_MENU_TEXT and the editor's are DM_PAD_EDIT_TEXT (27 lines, in
+DmPadEditing.h's order); without them the editor is in English. With
+nothing stored the touch controls draw and take touches as before.
+
+Docs: settings.md (In-game menu), playing.md, frontends.md (the hooks),
+env_switches.tsv (DM_TOUCH_GROUPS, DM_TOUCH_GROUPS_OWN, DM_PAD_EDIT_TEXT,
+DM_GAME_MENU_TEXT). DmPadEditor.m is added to the shell framework's sources
+and to the Duo harness.
+
+Checked here (Linux, no Apple SDK): DmGamepad.m and DmPadEditor.m pass
+clang -fsyntax-only -fobjc-arc against declaration stubs of the Apple
+names they use; test_pad_geometry.py (clang -Wall -Werror), with
+pad_groups_check.m's check_mirror_choice (on every screen in 2D and 3D:
+which groups the choice is for, linked exactly when it applies, each side
+on its own moves one side, picking Both sides together moves nothing,
+Reset and another scope keep it, Done saves it) and the 27 lines' order;
+the same checks under gcc ASan and UBSan; env_switches.py --check,
+test_docs.py. With no groups the pad is byte-identical to the base's (a
+dump of every geometry field and the hit test, 3,528 cases, same md5).
+New Duo harness tests: one drag lowers both shoulder clusters by 250
+points on an 11-inch iPad held sideways and the moved keys take their
+touches; Each side on its own moves one cluster and is saved; a touch on
+the panel moves no group; a resting thumb leaves a drag alone; Cancel keeps
+the layout from before and saves nothing; a pinch takes the stick to 150 %
+with its travel.
+
+Run on a Mac, on the author's own tree (this series' feature code on
+another base), with the whole series applied (the Duo harness links again
+only from its last change): Xcode built it, the harness's seven
+testLayoutEditor cases passed on Simulators of an iPhone SE (3rd generation), an iPhone 17, an
+iPhone 17 Pro Max and an 11-inch iPad, held sideways and upright, in
+English, German and French; the shell with the editor was installed and
+played on an 11-inch iPad. Not run: this exact tree on a Mac (that is the
+pull request's CI and mac-verify), a real iPhone, a game's own app.
+
+Front-ends: new: a front end that hosts games in its own process keeps the in-game layout editor's groups by exporting dm_shell_touch_groups_save, _load and _forget, and passes DM_TOUCH_GROUPS (with DM_TOUCH_GROUPS_OWN=1 for a game's own); it may pass DM_PAD_EDIT_TEXT (27 lines) and a third DM_GAME_MENU_TEXT line (docs/frontends.md)
+
+Upstream-Status: pending [builds on 0020 and 0040: the seedds/nxnative pull request follows once they are upstream]
+Reason: players move and resize the touch controls by groups in the game (gear, Controller layout, Adjust Gamepad Layout), saved for all games or for one game
+Issue: LNPANDY/NX2Apple#ISSUE (the feature issue, to be opened before the pull request)
+
+---
+ dm/ios/Sources/DmGameMenu.h                  |   2 +
+ dm/ios/Sources/DmGamepad.m                   | 531 ++++++++++++++++++-
+ dm/ios/Sources/DmPadEditing.h                |  34 +-
+ dm/ios/Sources/DmPadEditor.h                 |  44 ++
+ dm/ios/Sources/DmPadEditor.m                 | 315 +++++++++++
+ dm/ios/Sources/GameMenu.swift                |  17 +-
+ dm/ios/Sources/front_ios.m                   |  17 +-
+ dm/ios/project-framework.yml                 |   1 +
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m     | 237 +++++++++
+ dm/ios/tests/duo/project.yml                 |   1 +
+ dm/ios/tests/pad_geometry/pad_groups_check.m | 103 +++-
+ dm/ios/tests/test_pad_geometry.py            |   7 +-
+ docs/frontends.md                            |   2 +
+ docs/playing.md                              |   2 +-
+ docs/settings.md                             |   2 +
+ 15 files changed, 1276 insertions(+), 39 deletions(-)
+ create mode 100644 dm/ios/Sources/DmPadEditor.h
+ create mode 100644 dm/ios/Sources/DmPadEditor.m
+
+diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
+index a7e9c69..4294ef4 100644
+--- a/dm/ios/Sources/DmGameMenu.h
++++ b/dm/ios/Sources/DmGameMenu.h
+@@ -10,6 +10,8 @@ void *dm_game_menu(void);   // GameMenu.swift: a retained UIMenu, rebuilt each t
+ int dm_pad_layout(void);   // DmGamepad.m: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
+ bool dm_pad_layout_offered(int layout);   // Tap only in handheld mode
+ void dm_pad_layout_set(int layout);   // releases every touch first, and is saved for the next start
++bool dm_pad_edit_offered(void);   // DmGamepad.m: Adjust Gamepad Layout is in the menu (the 2D and 3D layouts: Tap has no controls to move)
++void dm_pad_edit_begin(void);   // opens the layout editor over the game (on the main queue, once the menu has closed)
+ void dm_gamepad_touch_feedback(bool on);   // DM_TOUCH_HAPTICS
+ bool dm_setting_live(const char *env, const char *value);
+ void *dm_quit_menu(void);   // front_ios.m: the menu's last item, Quit <game>, which opens the quit prompt (a retained UIMenu, shown inline)   // front_ios.m: value NULL asks whether the running game takes env at once; otherwise applies it
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 7d44869..54df82d 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -12,6 +12,8 @@
+ //   Touch-down ownership (dm_pad_menu_takes and dm_pad_hit in DmPadGeometry.h): the menu button where it is nearer than a locked key (a view of its own, DmMenuButton), locked keys next (shoulders, − / +, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
+ //     then in 3D the right stick for a touch in the right third.
+ //   The player can move single controls in the shell's settings (DM_TOUCH_LAYOUT, one arrangement per layout): the geometry places each only where it fits and keeps the rest where they were.
++//   The player can also move and resize whole groups in the game (the gear › Controller layout › Adjust Gamepad Layout, "The layout editor" below): the shoulders of each side,
++//     the left stick, the D-pad, A B X Y and − with the gear and +, saved as DM_TOUCH_GROUPS (DmPadGeometry.h's "Groups") for every game or, in the shell, for this game.
+ //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
+ //   Where each control sits is DmPadGeometry.h (pure, tested on the Mac); the player picks the size there through DM_TOUCH_SIZE (small, medium, large; a size that does not fit the screen moves toward medium) and the left stick's place through DM_TOUCH_STICK (corner, higher, inward).
+ //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
+@@ -23,6 +25,7 @@
+ #import <CoreMotion/CoreMotion.h>
+ #import <CoreText/CoreText.h>
+ #include <pthread.h>
++#include <dlfcn.h>
+ #include "dm.h"
+ #include "dm_input.h"
+ #include "front.h"
+@@ -37,6 +40,8 @@
+ #include <stdatomic.h>
+ #import "DmLayout.h"
+ #import "DmPadGeometry.h"
++#import "DmPadEditing.h"
++#import "DmPadEditor.h"
+ #import "DmGameMenu.h"
+ 
+ enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
+@@ -128,12 +133,17 @@ static const CGFloat                               // (the grab radii of the sti
+     K_MENU_IDLE = 3.0;                              // seconds a connected controller leaves the menu gear visible before fading it out
+ static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
+ static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
++static NSString *const k_groups_key = @"launcher.DM_TOUCH_GROUPS";   // NSUserDefaults of a game's own app: the layout editor's value (the shell keeps its own, dm_shell_touch_groups_save)
++typedef int (*dm_shell_groups_save_fn)(int scope, const char *value);           // the hosting app's hook (docs/frontends.md): 0 every game, 1 this game; "" is the built-in layout. 1 on success
++typedef int (*dm_shell_groups_load_fn)(int scope, char *out, int cap);          // the hosting app's hook: 1 and the value when one is stored for the scope, 0 for none
++typedef int (*dm_shell_groups_forget_fn)(int scope);                            // the hosting app's hook: nothing stored for the scope any more (1: this game follows every game's). 1 on success
++void front_ios_overlay_focus(int open);   // front_ios.m: the layout editor opened or closed over the game (the game's focus)
+ int dm_opmode(void);   // hle_oe.c: 0 = handheld
+ void front_ios_quit_poll(void);          // front_ios.m: a controller's buttons changed (the Home hold, A and B in the quit prompt)
+ int front_ios_quit_blocks_input(void);   // front_ios.m: the quit prompt has the controllers, the game gets none
+ void front_ios_quit_controllers(void);   // front_ios.m: the controllers changed (it reads the Home button setting once)
+ 
+-@interface DmGamepad : UIView
++@interface DmGamepad : UIView <UIGestureRecognizerDelegate>
+ - (void)arrange:(DmLayout)layout;
+ - (BOOL)menuTakes:(CGPoint)p;
+ - (BOOL)webTouchActive;
+@@ -141,6 +151,10 @@ void front_ios_quit_controllers(void);   // front_ios.m: the controllers changed
+ - (BOOL)reduceMotionEnabled;
+ - (void)wakeMenu;
+ - (void)setMenuOpen:(BOOL)open;
++- (BOOL)editOffered;
++- (void)beginEditing;
++- (void)finishEditing:(BOOL)save;
++- (BOOL)editing;
+ @end
+ // The menu button: a UIButton whose menu is the in-game menu (UIKit draws it and takes the touches while it is open). Its hit circle is larger than the drawn one, and a key nearer
+ // to the touch wins (− / + sit beside it), so it asks the pad
+@@ -158,6 +172,14 @@ void front_ios_quit_controllers(void);   // front_ios.m: the controllers changed
+ @end
+ static __weak DmGamepad *g_view;
+ static void pads_start(void);   // Physical controllers, below
++// The layout editor's VoiceOver element for a group (see "The layout editor"): adjustable (its size), with move actions.
++@interface DmPadGroupElement : UIAccessibilityElement
++@property (nonatomic, copy) void (^step)(int dir);
++@end
++@implementation DmPadGroupElement
++- (void)accessibilityIncrement { if (self.step) self.step(1); }
++- (void)accessibilityDecrement { if (self.step) self.step(-1); }
++@end
+ 
+ @implementation DmGamepad {
+     NSMapTable<UITouch *, NSNumber *> *_owner;     // touch → control (with the key for C_BTN or the stick for C_STICK, << 8)
+@@ -183,8 +205,32 @@ static void pads_start(void);   // Physical controllers, below
+     DmPadOptions _opts;                            // the player's options from the environment (DM_TOUCH_SIZE, DM_TOUCH_STICK, DM_TOUCH_LAYOUT)
+     DmPadLayout _arrangement;                      // DM_TOUCH_LAYOUT, which _opts.layout points to
+     DmPadGeo _geo; CGRect _geoBounds; UIEdgeInsets _geoInsets; BOOL _geoFull, _geoValid;   // where the controls are, and what it was computed for
+-    unsigned _loggedDropped;                       // the moved controls that kept their place, as last logged
++    unsigned _loggedDropped, _loggedGroupsDropped; // the moved controls and the groups that kept their place, as last logged
+     UITouch *_game[16];                           // touches on the game's touch screen by finger slot
++    DmPadGroups _groups;                           // DM_TOUCH_GROUPS in effect, which _opts.groups points to while the editor is closed
++    BOOL _groupsOwn;                               // that value is this game's own (the shell's DM_TOUCH_GROUPS_OWN), not every game's
++    // The layout editor (see "The layout editor")
++    BOOL _editing;
++    DmPadGroups _draft;                            // what the editor shows, which _opts.groups points to while it is open
++    int _editScope, _editOpened;                   // where Done saves (0 every game, 1 this game: the shell), and the scope in effect when it opened
++    DmPadGroups _editAtOpen, _editStored[2];       // the value in effect when it opened, and what each scope had stored then
++    BOOL _editHasStored[2];
++    int _editGroup;                                // the chosen group (DM_PAD_G_*), -1 for none
++    DmPadFingers _fingers;                         // which finger drags it, and when two pinch (DmPadEditing.h)
++    CGPoint _editStart, _editFrom;                 // where the dragging finger came down, and where the group's centre was then
++    int _editSize, _editMateSize;                  // the group's size during the drag, and its mirror image's (percent; -1: none follows)
++    DmPadGroups _dragBefore;                       // the draft when that finger came down: a pinch it began goes back there
++    BOOL _editRefused;                             // the drag is on a spot the editor refuses: drawn red there, back when the finger lifts
++    DmPadPlace _editRefusedAt;                     // that spot
++    int _pinchGroup, _pinchFrom;                   // the pinch in progress: its group and that group's size when it began
++    int _pinchCandidate; BOOL _pinchRestore;       // what the fingers decided when the pinch asked to begin (DmPadEditing.h's dm_pad_pinch_check)
++    BOOL _previewValid; DmPadGeo _preview;         // the refused spot, drawn instead of the draft while the finger is there
++    CALayer *_editLayer; CAShapeLayer *_outline[DM_PAD_G_N]; UILabel *_outlineTag[DM_PAD_G_N];   // each group's outline, and a tag with its name
++    DmPadGroupElement *_groupElement[DM_PAD_G_N];  // VoiceOver's element for each group, made once (focus stays on it while it changes)
++    DmPadEditPanel *_panel;
++    CGSize _panelFor;                              // the gamepad's size the panel was placed for: placed again when it changes (a rotation, a window)
++    UIPinchGestureRecognizer *_pinch;
++    UINotificationFeedbackGenerator *_editFeedback;
+ }
+ 
+ static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
+@@ -214,6 +260,17 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
+         if (!dm_pad_layout_parse(arrangement, &_arrangement)) LOG("front end: DM_TOUCH_LAYOUT ignored (not a layout the engine reads, %zu characters): every control keeps its place", strlen(arrangement));
+         else if (dm_pad_layout_count(&_arrangement)) LOG("front end: touch controls arranged by the player (DM_TOUCH_LAYOUT, %d moved over every layout)", dm_pad_layout_count(&_arrangement));
+         _opts.layout = &_arrangement;
++        const char *groupsEnv = getenv("DM_TOUCH_GROUPS");
++        BOOL inShell = dlsym(RTLD_DEFAULT, "dm_shell_touch_groups_save") != NULL;
++        NSString *savedGroups = groupsEnv || inShell ? nil : [NSUserDefaults.standardUserDefaults stringForKey:k_groups_key];   // a game's own app keeps the editor's value itself
++        const char *groupsValue = groupsEnv ? groupsEnv : savedGroups.UTF8String;
++        if (!dm_pad_groups_parse(groupsValue, &_groups)) LOG("front end: DM_TOUCH_GROUPS ignored (not a value the engine reads, %zu characters): every group keeps its place", strlen(groupsValue));
++        else if (groupsValue && *groupsValue) LOG("front end: touch control groups placed by the player (%s%s, %d placed over every layout): %s", groupsEnv ? "DM_TOUCH_GROUPS" : "the layout editor",
++                                                  getenv("DM_TOUCH_GROUPS_OWN") && atoi(getenv("DM_TOUCH_GROUPS_OWN")) ? ", this game's own" : "", dm_pad_groups_count(&_groups), groupsValue);
++        const char *own = getenv("DM_TOUCH_GROUPS_OWN");
++        _groupsOwn = own && atoi(own);
++        _opts.groups = &_groups;
++        _editGroup = _pinchGroup = -1;
+         [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
+             [(UIView *)environment setNeedsLayout];
+         }];
+@@ -287,6 +344,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
+     if (l == 2 && dm_opmode() != 0) l = 0;
+     [self reset];
+     _full = l == 1; _tap = l == 2;
++    if (_editing) { _editGroup = _pinchGroup = -1; [self editPanelUpdate]; }   // the layout editor shows that layout's own groups and choice (as arrange:)
+     [NSUserDefaults.standardUserDefaults setObject:@(l) forKey:k_layout_key];
+     [self applyLayout]; [self setNeedsLayout];
+ }
+@@ -305,11 +363,14 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
+         && _layout.topSafeOnly == layout.topSafeOnly && _layout.customControlsFullBounds == layout.customControlsFullBounds
+         && _layout.onTV == layout.onTV) return;
+     [self reset];   // A finger held across a pose change must not leave a key or game touch stuck.
++    BOOL setChanged = _layout.separated != layout.separated;
+     _layout = layout; _geoValid = NO;
++    if (_editing && setChanged) { _editGroup = -1; _pinchGroup = -1; [self editPanelUpdate]; }   // another layout (portrait or landscape) is on screen: its own groups
+     [self updateControlVisibility];
+     [self setNeedsLayout];
+ }
+-- (const DmPadGeo *)geo {   // DmPadGeometry.h, computed again whenever the bounds, the safe area, the split or the layout changed
++- (const DmPadGeo *)geo {   // DmPadGeometry.h, computed again whenever the bounds, the safe area, the split, the layout or the editor's draft changed
++    if (_previewValid) return &_preview;   // the editor's refused spot, under the finger
+     CGRect b = self.bounds; UIEdgeInsets i = self.safeAreaInsets;
+     if (!_geoValid || !CGRectEqualToRect(b, _geoBounds) || !UIEdgeInsetsEqualToEdgeInsets(i, _geoInsets) || _geoFull != _full) {
+         _geo = dm_pad_geo(b, i, _layout, _full, _opts);
+@@ -320,6 +381,12 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
+             for (int c = 0; c < DM_PAD_C_N; c++) if (_geo.dropped & (1u << c)) [names addObject:@(dm_pad_control_names[c])];
+             if (names.count) LOG("front end: touch layout: %s kept at the built-in place (no room there on this screen, or on another control)", [names componentsJoinedByString:@" "].UTF8String);
+         }
++        if (_geo.groupDropped != _loggedGroupsDropped) {   // the same for the groups (DM_TOUCH_GROUPS) of another device's or orientation's value
++            _loggedGroupsDropped = _geo.groupDropped;
++            NSMutableArray<NSString *> *names = [NSMutableArray array];
++            for (int k = 0; k < DM_PAD_G_N; k++) if (_geo.groupDropped & (1u << k)) [names addObject:@(dm_pad_group_names[k])];
++            if (names.count) LOG("front end: touch layout: groups %s kept at their built-in place (no room there on this screen)", [names componentsJoinedByString:@" "].UTF8String);
++        }
+     }
+     return &_geo;
+ }
+@@ -436,6 +503,7 @@ int front_web_touch(void);
+ - (BOOL)reduceMotionEnabled { return UIAccessibilityIsReduceMotionEnabled(); }
+ - (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)e {
+     UIView *v = [super hitTest:p withEvent:e];
++    if (_editing) return v;   // the layout editor takes every touch: none goes to a page or the game
+     if (v == self && [self webTouchActive] && ![self controlAt:p]) {
+         if (_padOff && !_layout.onTV && e && e.type == UIEventTypeTouches) [self wakeMenu];
+         return nil;
+@@ -443,6 +511,7 @@ int front_web_touch(void);
+     return v;
+ }
+ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
++    if (_editing) { [self editTouches:ts phase:0]; return; }
+     if (_padOff && !_layout.onTV) [self wakeMenu];
+     BOOL game = NO;
+     for (UITouch *t in ts) {
+@@ -463,6 +532,7 @@ int front_web_touch(void);
+     [self recompute];
+ }
+ - (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
++    if (_editing) { [self editTouches:ts phase:1]; return; }
+     BOOL game = NO;
+     for (UITouch *t in ts) {
+         uint64_t v = [_owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff); CGPoint p = [t locationInView:self];
+@@ -485,9 +555,16 @@ int front_web_touch(void);
+     if (game) [self pushGame];
+     [self recompute];
+ }
+-- (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:YES]; }
+-- (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:NO]; }
+-- (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0] = _stick[1] = nil; for (int i = 0; i < 16; i++) _game[i] = nil; [self pushGame]; [self recompute]; }
++- (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { if (_editing) [self editTouches:ts phase:2]; else [self endTouches:ts tapped:YES]; }
++- (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { if (_editing) [self editTouches:ts phase:3]; else [self endTouches:ts tapped:NO]; }
++- (void)reset {
++    if (_fingers.n || _fingers.drag) {   // the layout editor's fingers are forgotten (a drag ends where it last fitted); a pinch in progress goes on
++        BOOL pinch = _fingers.pinch;
++        memset(&_fingers, 0, sizeof _fingers); _fingers.pinch = pinch;
++        _editRefused = NO; _previewValid = NO; _geoValid = NO;
++    }
++    [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0] = _stick[1] = nil; for (int i = 0; i < 16; i++) _game[i] = nil; [self pushGame]; [self recompute];
++}
+ 
+ // ---- Shapes ----
+ static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
+@@ -529,24 +606,25 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
+         _label[b].contentsScale = scale; [_label[b] setNeedsDisplay];
+     }
+     _controls.frame = self.layer.bounds;
+-    for (int b = B_A; b <= B_Y; b++) { CGPoint c = [self facePos:b]; setPath(_key[b], circlePath(c, self.faceR)); placeLabel(_label[b], c, 20 * u); }
++    const CGFloat *gs = self.geo->gs;   // each group's size: its labels and roundings grow with it (all 1 without DM_TOUCH_GROUPS)
++    for (int b = B_A; b <= B_Y; b++) { CGPoint c = [self facePos:b]; setPath(_key[b], circlePath(c, self.faceR)); placeLabel(_label[b], c, 20 * u * gs[DM_PAD_G_FACE]); }
+     for (int i = 0; i < (int)(sizeof k_btns / sizeof *k_btns); i++) { int b = k_btns[i];
+         if (isDrop(b)) {
+-            BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b];
+-            setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u)); placeLabel(_label[b], c, 16 * u);   // tip toward the near top corner
++            BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b]; CGFloat gu = u * gs[right ? DM_PAD_G_RIGHT : DM_PAD_G_LEFT];
++            setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * gu)); placeLabel(_label[b], c, 16 * gu);   // tip toward the near top corner
+         } else if (isClick(b)) {
+-            CGPoint c = [self clickCenter:b]; setPath(_key[b], circlePath(c, self.geo->clickR[b == B_RS])); placeLabel(_label[b], c, 13 * u);
++            CGPoint c = [self clickCenter:b]; setPath(_key[b], circlePath(c, self.geo->clickR[b == B_RS])); placeLabel(_label[b], c, 13 * u * gs[b == B_RS ? DM_PAD_G_RIGHT : DM_PAD_G_LEFT]);
+         } else {
+             CGRect rc = [self pillRect:b];
+-            setPath(_key[b], CGPathCreateWithRoundedRect(rc, rc.size.height / 2, rc.size.height / 2, NULL)); placeLabel(_label[b], CGPointMake(CGRectGetMidX(rc), CGRectGetMidY(rc)), 18 * u);
++            setPath(_key[b], CGPathCreateWithRoundedRect(rc, rc.size.height / 2, rc.size.height / 2, NULL)); placeLabel(_label[b], CGPointMake(CGRectGetMidX(rc), CGRectGetMidY(rc)), 18 * u * gs[DM_PAD_G_MID]);
+         }
+     }
+     static const struct { int b; CGFloat angle; } arms[] = {{B_UP, 0}, {B_RIGHT, M_PI_2}, {B_DOWN, M_PI}, {B_LEFT, -M_PI_2}};   // the same arm in 90° steps
+-    for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, self.geo->armW, self.geo->armIn, arms[i].angle, 6 * u));
++    for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, self.geo->armW, self.geo->armIn, arms[i].angle, 6 * u * gs[DM_PAD_G_DPAD]));
+     CGFloat mr = self.geo->swapR; CGPoint mc = self.menuCenter;
+     _menu.frame = CGRectMake(mc.x - mr, mc.y - mr, 2 * mr, 2 * mr); _menu.layer.cornerRadius = mr;
+     _menu.layer.shadowPath = [UIBezierPath bezierPathWithOvalInRect:_menu.bounds].CGPath;
+-    [_menu setImage:[UIImage systemImageNamed:@"gearshape.fill" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 * u weight:UIImageSymbolWeightSemibold]] forState:UIControlStateNormal];
++    [_menu setImage:[UIImage systemImageNamed:@"gearshape.fill" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 * u * gs[DM_PAD_G_MID] weight:UIImageSymbolWeightSemibold]] forState:UIControlStateNormal];
+     setPath(_ring, circlePath(self.stickHome, [self stickR:0]));
+     CGFloat k = self.geo->knobR; _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
+     setPath(_knob, circlePath(CGPointMake(k, k), k));
+@@ -557,6 +635,7 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
+     if (!_padHint.hidden) [self placePadHint];
+     else if (_padOff && !_layout.onTV && !_menuOpen && ![self voiceOverRunning] && !_padHintShown && _padHintWords.length && !CGRectIsEmpty(self.bounds)) [self wakeMenu];
+     [self refresh];
++    if (_editing) [self layoutEditor];
+ }
+ 
+ // ---- The right-stick hint ----
+@@ -568,7 +647,7 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
+ static BOOL g_hintShown;   // once per launch
+ - (void)placeHint {
+     if (g_hintShown && _hint.hidden) return;
+-    if (!_full || _tap || _padOff || !_hintWords.length || CGRectIsEmpty(self.bounds)) { if (!_hint.hidden) [self hideHint]; return; }
++    if (!_full || _tap || _padOff || _editing || !_hintWords.length || CGRectIsEmpty(self.bounds)) { if (!_hint.hidden) [self hideHint]; return; }
+     CGFloat u = self.u, fs = fmin(fmax(15 * u, 13), 20);
+     UIFont *font = [UIFont systemFontOfSize:fs weight:UIFontWeightSemibold];
+     CGSize t = [_hintWords sizeWithAttributes:@{NSFontAttributeName: font}];
+@@ -607,6 +686,419 @@ static BOOL g_hintShown;   // once per launch
+     [CATransaction commit];
+ }
+ 
++// ---- The layout editor ("Adjust Gamepad Layout") ----
++// Opened from the in-game menu (GameMenu.swift: the gear › Controller layout › Adjust Gamepad Layout) in the 2D and 3D layouts. While it is open the game
++// keeps running but is told it lost the focus, as for the quit prompt (front_ios_overlay_focus: a game that pauses then pauses, as on a Switch's HOME menu),
++// the touch gamepad sends nothing and no touch reaches the game: every touch on the gamepad edits it, one on the panel is the panel's. Physical
++// controllers keep playing as before.
++//   A tap chooses a group (DmPadGeometry.h's DM_PAD_G_*: each outlined, its name on a tag), a drag moves it once the finger has gone a few points (its box
++//   snaps to the edges and the middle of its area), a pinch of two fingers on it, the panel's slider or − and + resize it. DmPadEditing.h's fingers decide
++//   which finger drags and when two pinch: a thumb resting elsewhere neither stops a drag nor starts a pinch. The panel (DmPadEditor.m) also has, above
++//   the chosen group's row, the choice Both sides together (the default: the shoulders of both sides, and the left stick with A B X Y, move together, and
++//   size together as far as each has room) or Each side on its own, per layout, dimmed for the D-pad and − + (no mirror image); all controls' size, where
++//   Done saves (in the shell: all games or this game), Reset to default (the layout on screen back to the built-in one; for this game also "Same as All
++//   games"), Cancel (the layout from before) and Done.
++//   Every change goes through DmPadEditing.h's rules: a spot that does not fit is drawn red under the finger and the group goes back when it lifts, a size
++//   stops where the group meets another, and the panel says why, once per gesture.
++//   Done saves DM_TOUCH_GROUPS: in the shell through dm_shell_touch_groups_save (docs/frontends.md), where the shell's own editor reads it (every game's value,
++//   or this game's own), the layouts the editor neither showed nor changed kept as that scope holds them (DmPadEditing.h, "Where Done saves"); in a
++//   game's own app in NSUserDefaults (launcher.DM_TOUCH_GROUPS), read at the next start. The running game takes it at once.
++static const char *edit_text_env(void) { return getenv("DM_PAD_EDIT_TEXT"); }
++static NSString *edit_text(int i) { char t[256]; dm_pad_text(edit_text_env(), i, t, sizeof t); return @(t); }
++static NSString *edit_group_title(int k, BOOL full) { char t[64]; dm_pad_group_title(k, full, edit_text_env(), t, sizeof t); return @(t); }
++static UIColor *edit_cream(void) { return [UIColor colorWithRed:0.98 green:0.93 blue:0.80 alpha:1]; }
++static UIColor *edit_red(void) { return [UIColor colorWithRed:1 green:0.36 blue:0.30 alpha:1]; }
++static BOOL edit_parse(NSString *v, DmPadGroups *out) { return v && dm_pad_groups_parse(v.UTF8String, out); }   // nil, or a value the engine does not read: NO
++- (BOOL)editOffered { return !_tap; }   // Tap has no controls to move
++- (BOOL)editing { return _editing; }
++- (DmPadScene)editScene {
++    DmPadScene sc; memset(&sc, 0, sizeof sc);
++    sc.bounds = self.bounds; sc.insets = self.safeAreaInsets; sc.layout = _layout; sc.full = _full; sc.o = _opts; sc.o.groups = NULL;
++    return sc;
++}
++- (void)beginEditing {
++    if (_editing || _tap) return;
++    [self reset];
++    _draft = _groups; _opts.groups = &_draft;
++    _editing = YES; _editGroup = _pinchGroup = _pinchCandidate = -1; _pinchRestore = NO; _editRefused = NO; _previewValid = NO; _geoValid = NO;
++    memset(&_fingers, 0, sizeof _fingers);
++    BOOL inShell = dlsym(RTLD_DEFAULT, "dm_shell_touch_groups_save") != NULL;
++    _editScope = _editOpened = inShell && _groupsOwn ? 1 : 0;
++    _editAtOpen = _groups;   // what each scope holds for Done (editScopeValue:): this value, and what is stored for each scope now
++    for (int s = 0; s < 2; s++) _editHasStored[s] = (s == 0 || inShell) && edit_parse([self storedGroups:s], &_editStored[s]);
++    _menu.userInteractionEnabled = NO;   // the gear is part of the middle group while the editor is open: a touch on it moves the group
++    if (!_editLayer) {
++        _editLayer = [CALayer layer];
++        [self.layer addSublayer:_editLayer];
++        for (int k = 0; k < DM_PAD_G_N; k++) {
++            _outline[k] = [CAShapeLayer layer]; [_editLayer addSublayer:_outline[k]];
++            UILabel *tag = [UILabel new];
++            tag.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold]; tag.textAlignment = NSTextAlignmentCenter;
++            tag.layer.masksToBounds = YES; tag.userInteractionEnabled = NO; tag.isAccessibilityElement = NO;
++            _outlineTag[k] = tag; [self addSubview:tag];
++        }
++    }
++    _editLayer.hidden = NO;
++    for (int k = 0; k < DM_PAD_G_N; k++) [self bringSubviewToFront:_outlineTag[k]];
++    _editFeedback = [UINotificationFeedbackGenerator new]; [_editFeedback prepare];
++    _pinch = [[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(editPinched:)];
++    _pinch.delegate = self;   // no touch on the panel, and only two fingers near one group (gestureRecognizerShouldBegin:)
++    [self addGestureRecognizer:_pinch];
++    _panel = [[DmPadEditPanel alloc] initWithTexts:edit_text_env() scopes:inShell];
++    __weak DmGamepad *weak = self;
++    _panel.groupSize = ^(int percent) { [weak editGroupSize:percent quiet:NO]; };
++    _panel.allSize = ^(int percent) { [weak editAllSize:percent]; };
++    _panel.mirror = ^(BOOL on) { [weak editMirror:on]; };
++    _panel.scope = ^(int scope) { [weak editScope:scope]; };
++    _panel.reset = ^{ [weak editReset]; };
++    _panel.follow = ^{ [weak editFollow]; };
++    _panel.finish = ^(BOOL save) { [weak finishEditing:save]; };
++    [self addSubview:_panel];
++    [self editPanelUpdate];
++    _panelFor = self.bounds.size;
++    [_panel placeIn:self.bounds avoiding:[self editGroupRects]];
++    [self updateControlVisibility];
++    [self wakeMenu];
++    [self hideHint];
++    front_ios_overlay_focus(1);
++    LOG("front end: layout editor open (%s, %s), Done saves for %s", _full ? "3D" : "2D", _layout.separated ? "controls below the picture" : "controls over the picture",
++        _editScope ? "this game" : "every game");
++    [self setNeedsLayout];
++    UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, _panel);
++}
++- (void)finishEditing:(BOOL)save {
++    if (!_editing) return;
++    if (save) {
++        DmPadGroups value = [self editScopeValue:_editScope];
++        int act = dm_pad_done(_editScope, _editOpened, &_draft, &value);
++        const char *where = _editScope ? "this game" : "every game";
++        if (act == DM_PAD_DONE_SAVE) {
++            char v[DM_PAD_GROUPS_MAX + 1];
++            BOOL fits = dm_pad_groups_encode(&_draft, v, sizeof v), ok = fits && [self storeGroupsValue:@(v) scope:_editScope];
++            if (fits) { _groups = _draft; _groupsOwn = _editScope == 1; }
++            if (ok) LOG("front end: layout editor done: %s, saved for %s", *v ? v : "the built-in layout", where);
++            else LOG("[RED] front end: layout editor done, but the layout was not saved (%s): this run keeps it", fits ? "the shell did not take it" : "longer than DM_TOUCH_GROUPS takes");
++        } else if (act == DM_PAD_DONE_FOLLOW) {   // this game's own layout forgotten: it follows every game's again, which stays as it is
++            char v[DM_PAD_GROUPS_MAX + 1]; dm_pad_groups_encode(&value, v, sizeof v);
++            BOOL ok = [self forgetGroups:1];
++            _groups = value; _groupsOwn = NO;
++            setenv("DM_TOUCH_GROUPS", v, 1); setenv("DM_TOUCH_GROUPS_OWN", "0", 1);
++            if (ok) LOG("front end: layout editor done: this game follows every game's layout again (%s)", *v ? v : "the built-in layout");
++            else LOG("[RED] front end: layout editor done, but the shell kept this game's own layout: this run follows every game's");
++        } else LOG("front end: layout editor done: nothing changed, nothing saved");
++    } else LOG("front end: layout editor canceled, the layout from before stays");
++    _editing = NO; _opts.groups = &_groups; _geoValid = NO; _previewValid = NO; _editRefused = NO; _editGroup = _pinchGroup = _pinchCandidate = -1; _pinchRestore = NO;
++    memset(&_fingers, 0, sizeof _fingers);
++    if (_pinch) { [self removeGestureRecognizer:_pinch]; _pinch = nil; }
++    [_panel removeFromSuperview]; _panel = nil;
++    _editLayer.hidden = YES; _editFeedback = nil;
++    for (int k = 0; k < DM_PAD_G_N; k++) { _outline[k].path = NULL; _outlineTag[k].hidden = YES; _groupElement[k] = nil; }
++    self.accessibilityElements = nil;
++    _menu.userInteractionEnabled = YES;
++    [self updateControlVisibility];
++    front_ios_overlay_focus(0);
++    [self recompute];
++    [self setNeedsLayout];
++    UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, nil);
++}
++// What a scope holds for the editor (DmPadEditing.h's dm_pad_scope_value): what Done keeps of the layouts it neither shows nor changed.
++- (DmPadGroups)editScopeValue:(int)scope {
++    return dm_pad_scope_value(scope, _editOpened, &_editAtOpen, _editHasStored[0] ? &_editStored[0] : NULL, _editHasStored[1] ? &_editStored[1] : NULL);
++}
++// Saves a value for a scope: the shell's store (0 every game, 1 this game), or this app's NSUserDefaults. "" is the built-in layout. The environment
++// follows, so whatever reads it later in this run sees the value.
++- (BOOL)storeGroupsValue:(NSString *)value scope:(int)scope {
++    dm_shell_groups_save_fn save = (dm_shell_groups_save_fn)dlsym(RTLD_DEFAULT, "dm_shell_touch_groups_save");
++    BOOL ok = YES;
++    if (save) ok = save(scope, value.UTF8String) == 1;
++    else if (value.length) [NSUserDefaults.standardUserDefaults setObject:value forKey:k_groups_key];
++    else [NSUserDefaults.standardUserDefaults removeObjectForKey:k_groups_key];
++    setenv("DM_TOUCH_GROUPS", value.UTF8String, 1);
++    setenv("DM_TOUCH_GROUPS_OWN", scope ? "1" : "0", 1);
++    return ok;
++}
++// Forgets what is stored for a scope: in the shell through dm_shell_touch_groups_forget (1: this game follows every game's layout again; 0: nothing is
++// stored for every game), in a game's own app its NSUserDefaults key. A shell without that hook has this game follow every game's by saving every game's
++// value as it is stored (what a save for every game does there), and cannot forget every game's (NO).
++- (BOOL)forgetGroups:(int)scope {
++    dm_shell_groups_forget_fn forget = (dm_shell_groups_forget_fn)dlsym(RTLD_DEFAULT, "dm_shell_touch_groups_forget");
++    if (forget) return forget(scope) == 1;
++    dm_shell_groups_save_fn save = (dm_shell_groups_save_fn)dlsym(RTLD_DEFAULT, "dm_shell_touch_groups_save");
++    if (!save) { [NSUserDefaults.standardUserDefaults removeObjectForKey:k_groups_key]; return YES; }
++    if (scope != 1) return NO;
++    NSString *all = [self storedGroups:0];
++    return save(0, (all ?: @"").UTF8String) == 1;
++}
++// What is stored for a scope, as the next start reads it (nil: nothing).
++- (NSString *)storedGroups:(int)scope {
++    dm_shell_groups_load_fn load = (dm_shell_groups_load_fn)dlsym(RTLD_DEFAULT, "dm_shell_touch_groups_load");
++    if (load) { char v[DM_PAD_GROUPS_MAX + 2]; return load(scope, v, (int)sizeof v) == 1 ? @(v) : nil; }
++    return [NSUserDefaults.standardUserDefaults stringForKey:k_groups_key];
++}
++- (NSArray<NSValue *> *)editGroupRects {
++    NSMutableArray<NSValue *> *rects = [NSMutableArray array];
++    const DmPadGeo *g = self.geo;
++    for (int k = 0; k < DM_PAD_G_N; k++) if (dm_pad_group_drawn(k, _full)) {
++        CGRect b = dm_pad_group_box(g, _full, k, NULL);
++        if (!CGRectIsNull(b)) [rects addObject:[NSValue valueWithCGRect:CGRectInset(b, -12, -12)]];
++    }
++    return rects;
++}
++- (void)editChanged { _geoValid = NO; [self setNeedsLayout]; [self editPanelUpdate]; }
++- (void)editPanelUpdate {
++    if (!_panel) return;
++    DmPadScene sc = [self editScene];
++    if (_editGroup >= 0 && dm_pad_group_drawn(_editGroup, _full))
++        [_panel showGroup:edit_group_title(_editGroup, _full) size:dm_pad_place_now(&sc, &_draft, _editGroup).size min:dm_pad_size_min(&sc, &_draft, _editGroup) max:DM_PAD_SIZE_MAX];
++    else [_panel showGroup:nil size:100 min:DM_PAD_SIZE_MIN max:DM_PAD_SIZE_MAX];
++    [_panel showAll:dm_pad_all_now(&sc, &_draft) min:dm_pad_all_min(&sc, &_draft)];
++    [_panel showMirror:!_draft.solo[dm_pad_scene_set(&sc)] applies:dm_pad_mirror_applies(&sc, _editGroup)];   // the layout on screen's choice
++    [_panel showScope:_editScope];
++}
++// The fingers on the gamepad while the editor is open (0 began, 1 moved, 2 ended, 3 cancelled): DmPadEditing.h's fingers decide what each does.
++- (void)editTouches:(NSSet<UITouch *> *)ts phase:(int)phase {
++    for (UITouch *t in ts) {
++        uintptr_t finger = (uintptr_t)(__bridge void *)t;
++        CGPoint p = [t locationInView:self];
++        if (phase == 0) {
++            BOOL panel = _panel && [t.view isDescendantOfView:_panel];   // the panel's labels, rows and card pass their touches up: they are still the panel's
++            int k = -1, nearby = -1;
++            if (!panel) [self editGroupAt:p group:&k nearby:&nearby];
++            if (dm_pad_finger_down(&_fingers, finger, p, k, nearby, panel, t.timestamp) == DM_PAD_FINGER_CHOOSE) [self editDragBegin:p];
++        } else if (phase == 1) {
++            if (dm_pad_finger_moved(&_fingers, finger, p) == DM_PAD_FINGER_MOVE) [self editDragMove:p];
++        } else if (dm_pad_finger_up(&_fingers, finger) == DM_PAD_FINGER_DROP) [self editDragEndWarn:phase == 2];   // cancelled (a pinch took the fingers): no warning
++    }
++}
++- (void)editGroupAt:(CGPoint)p group:(int *)k nearby:(int *)nearby {   // the group a finger is on (it takes it), and the one it is near (for a pinch)
++    const DmPadGeo *g = self.geo;
++    *k = dm_pad_group_at(g, _full, p, DM_PAD_TOUCH_SLOP);
++    *nearby = *k >= 0 ? *k : dm_pad_group_at(g, _full, p, DM_PAD_PINCH_SLOP);
++}
++- (void)editDragBegin:(CGPoint)p {   // a finger down: the group under it is chosen (none: nothing is), and a drag may follow
++    _previewValid = NO; _editRefused = NO; _geoValid = NO;
++    const DmPadGeo *g = self.geo;
++    int k = dm_pad_group_at(g, _full, p, DM_PAD_TOUCH_SLOP);
++    _editGroup = k;
++    if (k >= 0) {
++        DmPadScene sc = [self editScene];
++        _editStart = p; _editFrom = g->at[k];
++        _editSize = dm_pad_place_now(&sc, &_draft, k).size;
++        _editMateSize = dm_pad_mate_size(&sc, &_draft, k);   // the mirror image goes along at the size it has
++        _dragBefore = _draft;
++        [_editFeedback prepare];
++        [_panel beginGesture];
++    }
++    [self editChanged];
++}
++- (void)editDragMove:(CGPoint)p {
++    int k = _editGroup;
++    if (k < 0) return;
++    DmPadScene sc = [self editScene];
++    _previewValid = NO;
++    const DmPadGeo *g = self.geo;   // the draft's: the homes and the areas
++    DmPadPlace place = dm_pad_place_at(g, k, _editSize, CGPointMake(_editFrom.x + p.x - _editStart.x, _editFrom.y + p.y - _editStart.y), DM_PAD_SNAP);
++    DmPadGroups out;
++    if (dm_pad_try_places(&sc, &_draft, k, place, _editMateSize, &out)) { _draft = out; _editRefused = NO; }
++    else { _editRefused = YES; _editRefusedAt = place; _preview = dm_pad_preview_places(&sc, &_draft, k, place, _editMateSize); _previewValid = YES; }
++    [self editChanged];
++}
++- (void)editDragEnd { [self editDragEndWarn:YES]; }
++- (void)editDragEndWarn:(BOOL)warn {   // the finger lifted: from a refused spot the group goes back to its last place that fits, and the panel says why
++    if (_editRefused) {
++        _editRefused = NO; _previewValid = NO;
++        if (warn && _editGroup >= 0) {
++            DmPadScene sc = [self editScene];
++            if (dm_pad_mate_blocks(&sc, &_draft, _editGroup, _editRefusedAt))   // the group fits there on its own: its mirror image has no room
++                [self editWarn:[NSString stringWithFormat:@"%@: %@", edit_group_title(dm_pad_group_mirror(_editGroup), _full), edit_text(DM_PAD_TEXT_MATE_NO_ROOM)]];
++            else [self editWarn:edit_text(DM_PAD_TEXT_NO_ROOM)];
++        }
++    }
++    [self editChanged];
++}
++- (void)editWarn:(NSString *)message {   // the panel's line for a moment and a warning haptic, each message once per gesture
++    if ([_panel flash:message]) [_editFeedback notificationOccurred:UINotificationFeedbackTypeWarning];
++}
++- (BOOL)gestureRecognizer:(UIGestureRecognizer *)g shouldReceiveTouch:(UITouch *)t {   // the pinch takes no touch on the panel (its slider keeps them), nor one far from every group
++    (void)g;
++    if (_panel && [t.view isDescendantOfView:_panel]) return NO;
++    int k = -1, nearby = -1;
++    [self editGroupAt:[t locationInView:self] group:&k nearby:&nearby];
++    return nearby >= 0;
++}
++// The pinch begins only on two fingers that came down near the same group: a drag and a thumb resting elsewhere are no pinch, and the drag goes on.
++// DmPadEditing.h's dm_pad_pinch_check also says whether that group goes back to where it was before its first finger moved it (editPinchBegin:).
++- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
++    if (g != _pinch) return [super gestureRecognizerShouldBegin:g];
++    int k = -1; BOOL restore = NO;
++    if (!_editing || !dm_pad_pinch_check(&_fingers, &k, &restore)) return NO;
++    _pinchCandidate = k; _pinchRestore = restore;
++    return YES;
++}
++- (void)editPinched:(UIPinchGestureRecognizer *)r {
++    switch (r.state) {
++    case UIGestureRecognizerStateBegan: [self editPinchBegin:[r locationInView:self]]; break;
++    case UIGestureRecognizerStateChanged: [self editPinchScale:r.scale]; break;
++    default: [self editPinchEnd]; break;   // ended, cancelled or failed
++    }
++}
++- (void)editPinchBegin:(CGPoint)c {
++    if (_fingers.drag && _fingers.moving) [self editDragEndWarn:NO];   // the drag the first finger began gives way to the pinch
++    _previewValid = NO; _editRefused = NO; _geoValid = NO;
++    if (_pinchRestore) _draft = _dragBefore;   // that finger's move was the pinch's start: the group goes back to where it was first
++    int k = _pinchCandidate >= 0 ? _pinchCandidate : dm_pad_group_at(self.geo, _full, c, 24);   // the fingers' group; a call with no fingers (the Duo harness): the one at c
++    _pinchCandidate = -1; _pinchRestore = NO;
++    dm_pad_pinch_on(&_fingers);
++    _pinchGroup = k;
++    if (k >= 0) { DmPadScene sc = [self editScene]; _editGroup = k; _pinchFrom = dm_pad_place_now(&sc, &_draft, k).size; }
++    [_panel beginGesture];
++    [self editChanged];
++}
++- (void)editPinchScale:(CGFloat)scale { if (_pinchGroup >= 0) [self editGroupSize:(int)lround(_pinchFrom * scale) quiet:NO]; }
++- (void)editPinchEnd { _pinchGroup = -1; dm_pad_pinch_off(&_fingers); }
++// The chosen group's size asked for (the slider, − and +, a pinch, VoiceOver): the size it got. Its mirror image goes along as far as it has room
++// (DmPadEditing.h's dm_pad_try_size_mated), and the panel says so when it stops while the chosen group grows on (not when that comes back down).
++- (int)editGroupSize:(int)percent quiet:(BOOL)quiet {
++    int k = _editGroup;
++    if (k < 0 || !_editing) return 0;
++    DmPadScene sc = [self editScene];
++    int want = dm_pad_clampi(percent, dm_pad_size_min(&sc, &_draft, k), DM_PAD_SIZE_MAX), mate = 0, before = dm_pad_place_now(&sc, &_draft, k).size;
++    BOOL linked = dm_pad_linked(&sc, &_draft, k);
++    DmPadGroups out;
++    int got = dm_pad_try_size_mated(&sc, &_draft, k, want, &out, &mate);
++    _draft = out;
++    if (!quiet && got != want) [self editWarn:edit_text(DM_PAD_TEXT_NO_ROOM)];
++    else if (!quiet && linked && got > before && mate < got) [self editWarn:[NSString stringWithFormat:@"%@: %@", edit_group_title(dm_pad_group_mirror(k), _full), edit_text(DM_PAD_TEXT_MATE_FULL)]];
++    [self editChanged];
++    return got;
++}
++- (int)editAllSize:(int)percent {   // from the size that keeps every touch target 44 points across (dm_pad_all_min) up
++    if (!_editing) return 0;
++    DmPadScene sc = [self editScene];
++    int want = dm_pad_clampi(percent, dm_pad_all_min(&sc, &_draft), DM_PAD_ALL_MAX);
++    DmPadGroups out;
++    int got = dm_pad_try_all(&sc, &_draft, want, &out);
++    _draft = out;
++    if (got != want) [self editWarn:edit_text(DM_PAD_TEXT_NO_ROOM)];
++    [self editChanged];
++    return got;
++}
++// The panel's choice for the layout on screen: Both sides together (on) or Each side on its own. It moves nothing: picked while the two sides are
++// apart, the mirror image goes to its mirrored place at the next move or size (DmPadEditing.h). Reset keeps it, Cancel forgets it, Done saves it.
++- (void)editMirror:(BOOL)on {
++    DmPadScene sc = [self editScene];
++    int set = dm_pad_scene_set(&sc);
++    _draft.solo[set] = on ? 0 : 1;
++    LOG("front end: layout editor: %s (%s)", on ? "both sides together" : "each side on its own", dm_pad_set_names[set]);
++    [self editChanged];
++}
++// Where Done saves: the layout on screen and the ones changed stay, the others are that scope's (DmPadEditing.h, "Where Done saves").
++- (void)editScope:(int)scope {
++    scope = scope ? 1 : 0;
++    if (scope == _editScope) return;
++    DmPadScene sc = [self editScene];
++    DmPadGroups was = [self editScopeValue:_editScope], now = [self editScopeValue:scope];
++    _draft = dm_pad_scope_draft(&_draft, &was, &now, dm_pad_scene_set(&sc));
++    _editScope = scope;
++    [self editChanged];
++}
++- (void)editReset {   // the layout on screen back to the built-in one
++    DmPadScene sc = [self editScene];
++    dm_pad_groups_reset(&_draft, dm_pad_scene_set(&sc));
++    _editGroup = -1;
++    [self editChanged];
++}
++- (void)editFollow {   // Reset to default › Same as All games (this game, in the shell): every game's layout shown; Done has this game follow it again
++    _draft = [self editScopeValue:0];
++    _editScope = 0;
++    _editGroup = -1;
++    [self editChanged];
++}
++// A move by VoiceOver's actions: the chosen group's centre by d points, through the drag's rules.
++- (void)editMoveGroup:(int)k by:(CGPoint)d {
++    [self editDragBegin:self.geo->at[k]];
++    if (_editGroup != k) return;
++    [self editDragMove:CGPointMake(_editStart.x + d.x, _editStart.y + d.y)];
++    BOOL refused = _editRefused;
++    [self editDragEnd];
++    UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, refused ? edit_text(DM_PAD_TEXT_NO_ROOM) : edit_group_title(k, _full));
++}
++// VoiceOver's element for group k, made once so its focus stays on it while the group changes: adjustable (swipe up or down resizes it), with Move up,
++// down, left and right.
++- (DmPadGroupElement *)editElement:(int)k {
++    if (_groupElement[k]) return _groupElement[k];
++    DmPadGroupElement *el = [[DmPadGroupElement alloc] initWithAccessibilityContainer:self];
++    __weak DmGamepad *weak = self; int group = k;
++    el.step = ^(int dir) {
++        DmGamepad *s = weak;
++        if (!s || !s->_editing) return;
++        DmPadScene sc = [s editScene];
++        s->_editGroup = group;
++        [s->_panel beginGesture];
++        [s editGroupSize:dm_pad_place_now(&sc, &s->_draft, group).size + 5 * dir quiet:NO];
++    };
++    CGFloat d = 20;
++    el.accessibilityCustomActions = @[
++        [[UIAccessibilityCustomAction alloc] initWithName:edit_text(DM_PAD_TEXT_UP) actionHandler:^BOOL(UIAccessibilityCustomAction *a) { (void)a; [weak editMoveGroup:group by:CGPointMake(0, -d)]; return YES; }],
++        [[UIAccessibilityCustomAction alloc] initWithName:edit_text(DM_PAD_TEXT_DOWN) actionHandler:^BOOL(UIAccessibilityCustomAction *a) { (void)a; [weak editMoveGroup:group by:CGPointMake(0, d)]; return YES; }],
++        [[UIAccessibilityCustomAction alloc] initWithName:edit_text(DM_PAD_TEXT_LEFT) actionHandler:^BOOL(UIAccessibilityCustomAction *a) { (void)a; [weak editMoveGroup:group by:CGPointMake(-d, 0)]; return YES; }],
++        [[UIAccessibilityCustomAction alloc] initWithName:edit_text(DM_PAD_TEXT_RIGHT) actionHandler:^BOOL(UIAccessibilityCustomAction *a) { (void)a; [weak editMoveGroup:group by:CGPointMake(d, 0)]; return YES; }],
++    ];
++    _groupElement[k] = el;
++    return el;
++}
++// The outlines, the tags with the groups' names, VoiceOver's elements and the panel's place, on the geometry the controls were just drawn with.
++- (void)layoutEditor {
++    const DmPadGeo *g = self.geo;
++    DmPadScene sc = [self editScene];
++    BOOL linked = _editGroup >= 0 && dm_pad_linked(&sc, &_draft, _editGroup);
++    int mate = linked ? dm_pad_group_mirror(_editGroup) : -1;
++    NSMutableArray *elements = UIAccessibilityIsVoiceOverRunning() ? [NSMutableArray array] : nil;
++    [CATransaction begin]; [CATransaction setDisableActions:YES];
++    _editLayer.frame = self.layer.bounds;
++    for (int k = 0; k < DM_PAD_G_N; k++) {
++        CGRect b = dm_pad_group_drawn(k, _full) ? dm_pad_group_box(g, _full, k, NULL) : CGRectNull;
++        BOOL show = !CGRectIsNull(b);
++        _outline[k].hidden = !show; _outlineTag[k].hidden = !show;
++        if (!show) continue;
++        BOOL chosen = k == _editGroup, follows = k == mate, refused = _editRefused && (chosen || follows);
++        CGRect r = CGRectInset(b, -6, -6);
++        CGPathRef path = CGPathCreateWithRoundedRect(r, 12, 12, NULL);
++        _outline[k].path = path; CGPathRelease(path);
++        _outline[k].strokeColor = (refused ? edit_red() : chosen || follows ? edit_cream() : [UIColor colorWithWhite:1 alpha:0.75]).CGColor;
++        _outline[k].fillColor = (refused ? [edit_red() colorWithAlphaComponent:0.14] : chosen ? [edit_cream() colorWithAlphaComponent:0.10] : UIColor.clearColor).CGColor;
++        _outline[k].lineWidth = chosen ? 3 : 1.5;
++        _outline[k].lineDashPattern = chosen ? nil : @[@6, @4];
++        UILabel *tag = _outlineTag[k];
++        tag.text = edit_group_title(k, _full);
++        tag.textColor = chosen ? UIColor.blackColor : UIColor.whiteColor;
++        tag.backgroundColor = refused ? edit_red() : chosen ? edit_cream() : [UIColor colorWithWhite:0 alpha:0.6];
++        CGSize ts = [tag sizeThatFits:CGSizeMake(300, 40)];
++        CGFloat w = ceil(ts.width) + 14, h = ceil(ts.height) + 6;
++        CGFloat y = CGRectGetMinY(r) - h - 4 >= CGRectGetMinY(self.bounds) + 2 ? CGRectGetMinY(r) - h - 4 : CGRectGetMaxY(r) + 4;
++        if (y + h > CGRectGetMaxY(self.bounds) - 2) y = CGRectGetMinY(r) + 4;   // no room above or below: inside the outline's top
++        CGFloat x = fmin(fmax(CGRectGetMidX(r) - w / 2, CGRectGetMinX(self.bounds) + 2), CGRectGetMaxX(self.bounds) - w - 2);
++        tag.frame = CGRectMake(x, y, w, h); tag.layer.cornerRadius = h / 2;
++        if (elements) {
++            DmPadGroupElement *el = [self editElement:k];
++            el.accessibilityLabel = tag.text;
++            el.accessibilityValue = [NSString stringWithFormat:@"%d %%", dm_pad_place_now(&sc, &_draft, k).size];
++            el.accessibilityTraits = UIAccessibilityTraitAdjustable | (chosen ? UIAccessibilityTraitSelected : 0);
++            el.accessibilityFrameInContainerSpace = r;
++            [elements addObject:el];
++        }
++    }
++    [CATransaction commit];
++    if (elements) {
++        if (_panel) [elements addObject:_panel];
++        if (![self.accessibilityElements isEqualToArray:elements]) self.accessibilityElements = elements;   // the same elements: VoiceOver keeps its focus
++    }
++    if (!CGSizeEqualToSize(_panelFor, self.bounds.size)) {   // a rotation or another window size: the panel fits the new bounds, Done and Cancel in reach
++        _panelFor = self.bounds.size;
++        [_panel placeIn:self.bounds avoiding:[self editGroupRects]];
++    } else [_panel keepIn:self.bounds];
++}
++
+ // ---- Physical controllers ----
+ // Each controller with an extended gamepad profile is a player of its own, as on the Mac (front_mac.m): it holds a slot (pad_slots.h: player 1 first, a reconnected controller
+ // gets its player back) and goes to dm_pad_set_player, and hle_hid.c reports player n on its own npad while the slot is held (dm_pad_players). Player 1's controller is ORed
+@@ -800,7 +1292,7 @@ static BOOL pads_slotted(GCController *gone) {
+     unsigned gen = ++_menuGen;
+     [_menu.layer removeAllAnimations];
+     _menu.hidden = NO; _menu.alpha = 1;
+-    if (!_padOff || _layout.onTV || _menuOpen || [self voiceOverRunning]) { [self hidePadHintNow]; return; }
++    if (!_padOff || _layout.onTV || _menuOpen || _editing || [self voiceOverRunning]) { [self hidePadHintNow]; return; }
+     if (!_padHintShown && _padHintWords.length && !CGRectIsEmpty(self.bounds)) {
+         _padHintShown = YES;
+         [self placePadHint];
+@@ -811,7 +1303,7 @@ static BOOL pads_slotted(GCController *gone) {
+     __weak DmGamepad *weak = self;
+     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(K_MENU_IDLE * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+         DmGamepad *s = weak;
+-        if (!s || s->_menuGen != gen || !s->_padOff || s->_layout.onTV || s->_menuOpen || [s voiceOverRunning]) return;
++        if (!s || s->_menuGen != gen || !s->_padOff || s->_layout.onTV || s->_menuOpen || s->_editing || [s voiceOverRunning]) return;
+         if ([s reduceMotionEnabled]) {
+             s->_menu.alpha = 0; s->_menu.hidden = YES;
+             [s hidePadHintNow];
+@@ -833,8 +1325,8 @@ static BOOL pads_slotted(GCController *gone) {
+     if (_padOff && !_layout.onTV) [self wakeMenu];
+ }
+ - (void)updateControlVisibility {
+-    _controls.hidden = _padOff;
+-    if (_padOff && _layout.onTV) {
++    _controls.hidden = _padOff && !_editing;   // the layout editor shows the controls even while a controller hides them
++    if (_padOff && _layout.onTV && !_editing) {
+         ++_menuGen; [_menu.layer removeAllAnimations];
+         _menu.alpha = 1; _menu.hidden = YES;
+         [self hidePadHintNow];
+@@ -961,6 +1453,8 @@ void dm_gamepad_touch_feedback(bool on) { [g_view setTouchFeedback:on]; }
+ int dm_pad_layout(void) { return g_view ? [g_view padLayout] : 0; }
+ bool dm_pad_layout_offered(int layout) { return layout == 0 || layout == 1 || (layout == 2 && dm_opmode() == 0); }
+ void dm_pad_layout_set(int layout) { [g_view setPadLayout:layout]; }
++bool dm_pad_edit_offered(void) { return g_view && [g_view editOffered]; }
++void dm_pad_edit_begin(void) { dispatch_async(dispatch_get_main_queue(), ^{ [g_view beginEditing]; }); }   // once the menu has closed
+ void dm_gamepad_pads_read(void) {   // front_ios.m: the quit prompt closed, the game reads every controller as it is now (a button held through it counts again)
+     if (g_merge) { for (GCController *c in GCController.controllers) if (c.extendedGamepad) read_pad(c.extendedGamepad); }
+     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p].extendedGamepad) read_pad(g_held[p].extendedGamepad);
+@@ -982,6 +1476,7 @@ void dm_gamepad_teardown(void) {
+         g_motion = nil;
+     }
+     if (g_view) {
++        [g_view finishEditing:NO];   // a game that quits with the layout editor open keeps the layout from before
+         [NSNotificationCenter.defaultCenter removeObserver:g_view];
+         [g_view reset];
+         g_view = nil;
+diff --git a/dm/ios/Sources/DmPadEditing.h b/dm/ios/Sources/DmPadEditing.h
+index 27469de..5c6cc80 100644
+--- a/dm/ios/Sources/DmPadEditing.h
++++ b/dm/ios/Sources/DmPadEditing.h
+@@ -8,9 +8,11 @@
+ //   A size asked for (a pinch, the slider, − and +) is the largest between the size now and the one asked for that fits (dm_pad_try_size_mated), so a
+ //   group grows until it meets another and stops there. All controls' size likewise (dm_pad_try_all), never below the size that keeps every touch
+ //   target 44 points across (dm_pad_all_min).
+-//   Mirror left and right (the draft's solo off, the default): a move or a size of one group goes to its mirror image too (the shoulders of both
+-//   sides, the left stick and A B X Y), mirrored from their built-in places; a size only as far as the mirror image has room, the chosen group going
+-//   on alone past it ("Mirror left and right when one side has less room").
++//   The panel's two-way choice, Both sides together (the draft's solo off, the default) or Each side on its own (solo on): together, a move or a size
++//   of one group goes to its mirror image too (the shoulders of both sides, the left stick and A B X Y), mirrored from their built-in places; a size
++//   only as far as the mirror image has room, the chosen group going on alone past it ("Both sides together when one side has less room"). The
++//   choice is for the groups that have a mirror image (dm_pad_mirror_applies). Picking it moves nothing: picked while the two sides are apart, the
++//   mirror image goes to its mirrored place at the next move or size of either (one that leaves it no room there is refused, as any other).
+ //   Where Done saves (every game's layout or this game's own) and what it keeps of the other layouts: "Where Done saves". Which finger drags and when
+ //   two fingers pinch: "The editor's fingers".
+ //   A drag snaps the group's box to the area's edges and to its middle within a few points (dm_pad_place_at).
+@@ -83,11 +85,19 @@ static inline DmPadPlace dm_pad_place_at(const DmPadGeo *g, int k, int size, CGP
+     c.y = dm_pad_snap(c.y, s * h.size.height, CGRectGetMinY(a), CGRectGetMaxY(a), snap);
+     return dm_pad_place_centred(g, k, size, c);
+ }
+-// The halves are linked (Mirror left and right) and group k has a mirror image drawn in this layout.
++// The halves are linked (Both sides together) and group k has a mirror image drawn in this layout.
+ static inline BOOL dm_pad_linked(const DmPadScene *sc, const DmPadGroups *draft, int k) {
+     int m = dm_pad_group_mirror(k);
+     return m >= 0 && !draft->solo[dm_pad_scene_set(sc)] && dm_pad_group_drawn(m, sc->full);
+ }
++// The panel's choice (Both sides together or Each side on its own) is for group k: it has a mirror image drawn in this layout (the shoulders of each
++// side, the left stick and A B X Y), or none is chosen (k < 0, or a group this layout does not draw: the panel shows none), and the choice is then for
++// whichever is chosen next. Not for the D-pad and − +, which have none: the panel dims it there.
++static inline BOOL dm_pad_mirror_applies(const DmPadScene *sc, int k) {
++    if (k < 0 || !dm_pad_group_drawn(k, sc->full)) return YES;
++    int m = dm_pad_group_mirror(k);
++    return m >= 0 && dm_pad_group_drawn(m, sc->full);
++}
+ // The mirror image m of group k at p, at size sizeM (percent): the same move from its built-in place as k's, left and right swapped, at a size of
+ // its own. For the shoulders (built in symmetric) at k's size that is the mirrored anchor. g holds the homes.
+ static inline DmPadPlace dm_pad_place_partner_at(const DmPadGeo *g, int k, int m, DmPadPlace p, int sizeM) {
+@@ -166,10 +176,10 @@ static inline int dm_pad_try_size(const DmPadScene *sc, const DmPadGroups *draft
+     return good;
+ }
+ 
+-// ---- Mirror left and right when one side has less room ----
++// ---- Both sides together when one side has less room ----
+ // A drag moves the mirror image along at the size it has (a drag never resizes anything). A size goes to the mirror image as far as it has room:
+ // the two take it together while both fit, then the chosen group goes on alone and its mirror image keeps the largest size it has room for (A B X Y
+-// larger than the left stick, which meets the D-pad in 3D). Mirror left and right then keeps the two places mirrored, not their sizes equal.
++// larger than the left stick, which meets the D-pad in 3D). Both sides together then keeps the two places mirrored, not their sizes equal.
+ // The size group k's mirror image has now, -1 when the halves are not linked or k has none.
+ static inline int dm_pad_mate_size(const DmPadScene *sc, const DmPadGroups *draft, int k) {
+     return dm_pad_linked(sc, draft, k) ? dm_pad_place_now(sc, draft, dm_pad_group_mirror(k)).size : -1;
+@@ -264,7 +274,7 @@ static inline int dm_pad_try_all(const DmPadScene *sc, const DmPadGroups *draft,
+     }
+     return good;
+ }
+-// Every group of the layout on screen back at its built-in place and size, all controls at 100 (Mirror left and right is kept).
++// Every group of the layout on screen back at its built-in place and size, all controls at 100 (Both sides together or Each side on its own is kept).
+ static inline void dm_pad_groups_reset(DmPadGroups *d, int set) { memset(d->place[set], 0, sizeof d->place[set]); d->all[set] = 0; }
+ 
+ // The drawn group at p: the nearest one whose box, grown by slop, holds p; -1 for none.
+@@ -409,15 +419,19 @@ static inline void dm_pad_pinch_off(DmPadFingers *s) { s->pinch = NO; }
+ // A newer line is added at the end. MATE_FULL and MATE_NO_ROOM follow a group's name and a colon ("Left stick: No more room to grow": the mirror
+ // image stopped while the chosen group grew on; "Left stick: No room there while mirrored": the spot is refused for the mirror image's sake).
+ // BUILT_IN and FOLLOW are what "Reset to default" offers for this game: the layout on screen built in, or this game's layout the same as every game's.
++// TOGETHER and ON_ITS_OWN are the two-way choice above the chosen group's row (the draft's solo off or on). MIRROR is its name for VoiceOver ("Move left
++// and right groups"; the line was the label of the switch "Mirror left and right" that the choice replaced, so an older shell's line still names it),
++// NO_MIRROR the reason VoiceOver gives while the choice is dimmed (the D-pad, − and +).
+ enum { DM_PAD_TEXT_TITLE = 0, DM_PAD_TEXT_HINT, DM_PAD_TEXT_CHOOSE, DM_PAD_TEXT_ALL, DM_PAD_TEXT_MIRROR, DM_PAD_TEXT_SAVE_FOR, DM_PAD_TEXT_ALL_GAMES,
+        DM_PAD_TEXT_THIS_GAME, DM_PAD_TEXT_RESET, DM_PAD_TEXT_CANCEL, DM_PAD_TEXT_DONE, DM_PAD_TEXT_NO_ROOM, DM_PAD_TEXT_STICK, DM_PAD_TEXT_DPAD,
+        DM_PAD_TEXT_SMALLER, DM_PAD_TEXT_LARGER, DM_PAD_TEXT_UP, DM_PAD_TEXT_DOWN, DM_PAD_TEXT_LEFT, DM_PAD_TEXT_RIGHT, DM_PAD_TEXT_MATE_FULL,
+-       DM_PAD_TEXT_MATE_NO_ROOM, DM_PAD_TEXT_BUILT_IN, DM_PAD_TEXT_FOLLOW, DM_PAD_TEXT_N };
++       DM_PAD_TEXT_MATE_NO_ROOM, DM_PAD_TEXT_BUILT_IN, DM_PAD_TEXT_FOLLOW, DM_PAD_TEXT_TOGETHER, DM_PAD_TEXT_ON_ITS_OWN, DM_PAD_TEXT_NO_MIRROR,
++       DM_PAD_TEXT_N };
+ static const char *_Nonnull const dm_pad_text_english[DM_PAD_TEXT_N] = {
+     "Adjust Gamepad Layout", "Drag a group to move it. Pinch it or use the slider to resize it.", "Tap a group to choose it", "All controls",
+-    "Mirror left and right", "Save for", "All games", "This game", "Reset to default", "Cancel", "Done", "No room there", "Left stick", "D-pad",
++    "Move left and right groups", "Save for", "All games", "This game", "Reset to default", "Cancel", "Done", "No room there", "Left stick", "D-pad",
+     "Smaller", "Larger", "Move up", "Move down", "Move left", "Move right", "No more room to grow", "No room there while mirrored", "Built-in layout",
+-    "Same as All games",
++    "Same as All games", "Both sides together", "Each side on its own", "This group has no matching group on the other side.",
+ };
+ static inline void dm_pad_text(const char *_Nullable env, int i, char *_Nonnull out, size_t cap) {
+     if (!cap) return;
+diff --git a/dm/ios/Sources/DmPadEditor.h b/dm/ios/Sources/DmPadEditor.h
+new file mode 100644
+index 0000000..3947f9d
+--- /dev/null
++++ b/dm/ios/Sources/DmPadEditor.h
+@@ -0,0 +1,44 @@
++// The in-game layout editor's panel ("Adjust Gamepad Layout", DmGamepad.m): above the chosen group's row the two-way choice Both sides together | Each
++// side on its own, the chosen group's size, all controls' size, where the layout is saved (in the shell: all games or this game), Reset to default,
++// Cancel and Done. A small dark card over the game that the player can drag by its title. It only shows values and reports what the player asks for;
++// the gamepad decides what fits (DmPadEditing.h) and shows the result back, so a slider that asks for more than fits stops where the group meets
++// another. A touch on the card is the card's: none reaches the gamepad under it. Main thread only.
++#pragma once
++#import <UIKit/UIKit.h>
++
++NS_ASSUME_NONNULL_BEGIN
++
++@interface DmPadEditPanel : UIView
++// env: DM_PAD_EDIT_TEXT (the words in the player's language, DmPadEditing.h's order); scopes: offer "Save for: All games / This game".
++- (instancetype)initWithTexts:(const char *_Nullable)env scopes:(BOOL)scopes;
++@property (nonatomic, copy, nullable) void (^groupSize)(int percent);   // the chosen group's size asked for (the slider, − and +)
++@property (nonatomic, copy, nullable) void (^allSize)(int percent);     // all controls' size asked for
++@property (nonatomic, copy, nullable) void (^mirror)(BOOL on);          // Both sides together (YES) or Each side on its own (NO) picked
++@property (nonatomic, copy, nullable) void (^scope)(int scope);         // 0 all games, 1 this game
++@property (nonatomic, copy, nullable) void (^reset)(void);              // Reset to default (for this game: › Built-in layout)
++@property (nonatomic, copy, nullable) void (^follow)(void);             // Reset to default › Same as All games (this game, in the shell)
++@property (nonatomic, copy, nullable) void (^finish)(BOOL save);        // Done (YES) or Cancel (NO)
++// The chosen group (nil: none, the row asks for a tap on one), its size and the sizes it may take, in percent.
++- (void)showGroup:(nullable NSString *)name size:(int)percent min:(int)min max:(int)max;
++- (void)showAll:(int)percent min:(int)min;   // all controls' size, and the smallest that keeps every touch target 44 points across
++// Both sides together (on) or Each side on its own, for the layout on screen. applies: the chosen group has a mirror image there, or none is chosen
++// (DmPadEditing.h's dm_pad_mirror_applies); otherwise the choice is dimmed, still showing the layout's, and VoiceOver says why.
++- (void)showMirror:(BOOL)on applies:(BOOL)applies;
++// The self-test's tap on the choice (0 Both sides together, 1 Each side on its own): the segment selected and the control's own action sent, as a
++// finger does. NO, and nothing changes, while the choice is dimmed.
++- (BOOL)tapMirrorSegment:(int)segment;
++@property (nonatomic, readonly) int mirrorSegment;    // the segment the choice shows
++@property (nonatomic, readonly) BOOL mirrorApplies;   // the choice takes taps
++- (void)showScope:(int)scope;
++// A gesture began (a finger on a group, a pinch, a VoiceOver step; the panel's own sliders and − and + count by themselves): each message flashes once
++// per gesture, so a slider held past the room there is says so once and does not buzz.
++- (void)beginGesture;
++- (BOOL)flash:(NSString *)message;   // a short line under the buttons for a moment ("No room there"); NO when this gesture already showed it
++// Its size for a width, and a place in bounds: centred, then moved off the rectangles it would cover where there is room. The gamepad places it again
++// when its bounds change size (a rotation, a window resized), so Done and Cancel stay in reach.
++- (CGSize)fittingSizeForWidth:(CGFloat)width;
++- (void)placeIn:(CGRect)bounds avoiding:(NSArray<NSValue *> *)rects;
++- (void)keepIn:(CGRect)bounds;   // after its title was dragged: back inside
++@end
++
++NS_ASSUME_NONNULL_END
+diff --git a/dm/ios/Sources/DmPadEditor.m b/dm/ios/Sources/DmPadEditor.m
+new file mode 100644
+index 0000000..f95f802
+--- /dev/null
++++ b/dm/ios/Sources/DmPadEditor.m
+@@ -0,0 +1,315 @@
++// The in-game layout editor's panel (DmPadEditor.h). UIKit views available from iOS 15, laid out with a stack view inside a blurred card; the gamepad
++// (DmGamepad.m) places the card by its frame and the player can drag it by its title.
++#import "DmPadEditor.h"
++#import "DmPadEditing.h"
++
++static UIColor *panel_cream(void) { return [UIColor colorWithRed:0.98 green:0.93 blue:0.80 alpha:1]; }
++
++@implementation DmPadEditPanel {
++    UIVisualEffectView *_card;
++    UIStackView *_stack;
++    UILabel *_title, *_hint, *_groupName, *_groupValue, *_allName, *_allValue, *_scopeLabel, *_flashLabel;
++    UISlider *_groupSlider, *_allSlider;
++    UIButton *_groupMinus, *_groupPlus, *_allMinus, *_allPlus, *_resetButton, *_cancelButton, *_doneButton;
++    UISegmentedControl *_mirrorControl, *_scopeControl;   // Both sides together | Each side on its own; Save for
++    UIStackView *_mirrorRow, *_scopeRow;
++    CGFloat _mirrorFont;   // the choice's titles' size now (fitMirrorTo:)
++    UIMenu *_resetMenu;   // Reset to default for this game: Built-in layout, or Same as All games (the shell)
++    NSString *_chooseText, *_smallerText, *_largerText, *_allText;
++    BOOL _hasGroup, _scopes;
++    int _groupNow, _allNow;   // the sizes the gamepad granted: a slider goes back to them when the finger lifts
++    NSMutableSet<NSString *> *_flashed;   // the messages this gesture showed
++    unsigned _flashGen;
++}
++
++static NSString *panel_text(const char *env, int i) {
++    char t[256]; dm_pad_text(env, i, t, sizeof t);
++    return [NSString stringWithUTF8String:t] ?: @(dm_pad_text_english[i]);
++}
++static UILabel *panel_label(CGFloat size, UIFontWeight weight, CGFloat alpha) {
++    UILabel *l = [UILabel new];
++    l.font = [UIFont systemFontOfSize:size weight:weight];
++    l.textColor = [UIColor colorWithWhite:1 alpha:alpha];
++    l.adjustsFontSizeToFitWidth = YES; l.minimumScaleFactor = 0.7;
++    return l;
++}
++static UIButton *panel_round(NSString *symbol, NSString *label) {
++    UIButtonConfiguration *c = UIButtonConfiguration.plainButtonConfiguration;
++    c.image = [UIImage systemImageNamed:symbol withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightMedium]];
++    c.contentInsets = NSDirectionalEdgeInsetsMake(4, 4, 4, 4);
++    UIButton *b = [UIButton buttonWithConfiguration:c primaryAction:nil];
++    b.accessibilityLabel = label;
++    [b.widthAnchor constraintEqualToConstant:34].active = YES;
++    return b;
++}
++static UIButton *panel_button(NSString *title, BOOL primary) {
++    UIButtonConfiguration *c = primary ? UIButtonConfiguration.filledButtonConfiguration : UIButtonConfiguration.grayButtonConfiguration;
++    c.title = title;
++    c.buttonSize = UIButtonConfigurationSizeSmall;
++    c.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
++    c.titleLineBreakMode = NSLineBreakByTruncatingTail;
++    if (primary) { c.baseBackgroundColor = panel_cream(); c.baseForegroundColor = UIColor.blackColor; }
++    return [UIButton buttonWithConfiguration:c primaryAction:nil];
++}
++static UIStackView *panel_row(NSArray<UIView *> *views) {
++    UIStackView *r = [[UIStackView alloc] initWithArrangedSubviews:views];
++    r.axis = UILayoutConstraintAxisHorizontal; r.spacing = 6; r.alignment = UIStackViewAlignmentCenter;
++    return r;
++}
++
++- (instancetype)initWithTexts:(const char *)env scopes:(BOOL)scopes {
++    if (!(self = [super initWithFrame:CGRectZero])) return nil;
++    _scopes = scopes; _groupNow = _allNow = 100;
++    _flashed = [NSMutableSet set];
++    self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
++    self.tintColor = panel_cream();
++    self.layer.shadowColor = UIColor.blackColor.CGColor; self.layer.shadowOpacity = 0.35; self.layer.shadowRadius = 12; self.layer.shadowOffset = CGSizeMake(0, 4);
++    _card = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterialDark]];
++    _card.layer.cornerRadius = 16; _card.clipsToBounds = YES;
++    _card.translatesAutoresizingMaskIntoConstraints = NO;
++    [self addSubview:_card];
++
++    _chooseText = panel_text(env, DM_PAD_TEXT_CHOOSE); _smallerText = panel_text(env, DM_PAD_TEXT_SMALLER); _largerText = panel_text(env, DM_PAD_TEXT_LARGER);
++    _allText = panel_text(env, DM_PAD_TEXT_ALL);
++
++    _title = panel_label(15, UIFontWeightSemibold, 1); _title.text = panel_text(env, DM_PAD_TEXT_TITLE);
++    _title.userInteractionEnabled = YES; _title.accessibilityTraits = UIAccessibilityTraitHeader;
++    [_title addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragged:)]];
++    _hint = panel_label(12, UIFontWeightRegular, 0.65); _hint.text = panel_text(env, DM_PAD_TEXT_HINT);
++    _hint.numberOfLines = 0; _hint.adjustsFontSizeToFitWidth = NO;
++    _hint.userInteractionEnabled = YES;
++    [_hint addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragged:)]];
++
++    __weak DmPadEditPanel *weak = self;
++    _groupName = panel_label(13, UIFontWeightMedium, 0.9);
++    _groupMinus = panel_round(@"minus.circle", _smallerText); _groupPlus = panel_round(@"plus.circle", _largerText);
++    _groupSlider = [UISlider new]; _groupSlider.minimumValue = DM_PAD_SIZE_MIN; _groupSlider.maximumValue = DM_PAD_SIZE_MAX;
++    [_groupSlider addTarget:self action:@selector(groupSlid:) forControlEvents:UIControlEventValueChanged];
++    [_groupSlider addTarget:self action:@selector(sliderDown:) forControlEvents:UIControlEventTouchDown];
++    [_groupSlider addTarget:self action:@selector(groupSliderUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
++    _groupValue = panel_label(13, UIFontWeightMedium, 0.9); _groupValue.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightMedium];
++    _groupValue.textAlignment = NSTextAlignmentRight; _groupValue.isAccessibilityElement = NO;
++    [_groupMinus addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weak stepGroup:-5]; }] forControlEvents:UIControlEventTouchUpInside];
++    [_groupPlus addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weak stepGroup:5]; }] forControlEvents:UIControlEventTouchUpInside];
++
++    _allName = panel_label(13, UIFontWeightMedium, 0.9); _allName.text = _allText;
++    _allMinus = panel_round(@"minus.circle", [NSString stringWithFormat:@"%@, %@", _allText, _smallerText]);
++    _allPlus = panel_round(@"plus.circle", [NSString stringWithFormat:@"%@, %@", _allText, _largerText]);
++    _allSlider = [UISlider new]; _allSlider.minimumValue = DM_PAD_ALL_MIN; _allSlider.maximumValue = DM_PAD_ALL_MAX; _allSlider.accessibilityLabel = _allText;
++    [_allSlider addTarget:self action:@selector(allSlid:) forControlEvents:UIControlEventValueChanged];
++    [_allSlider addTarget:self action:@selector(sliderDown:) forControlEvents:UIControlEventTouchDown];
++    [_allSlider addTarget:self action:@selector(allSliderUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
++    _allValue = panel_label(13, UIFontWeightMedium, 0.9); _allValue.font = _groupValue.font;
++    _allValue.textAlignment = NSTextAlignmentRight; _allValue.isAccessibilityElement = NO;
++    [_allMinus addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weak stepAll:-5]; }] forControlEvents:UIControlEventTouchUpInside];
++    [_allPlus addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weak stepAll:5]; }] forControlEvents:UIControlEventTouchUpInside];
++
++    // Both sides together | Each side on its own, the row above the chosen group's: the longer title takes the wider segment, and the titles take the
++    // largest size that fits the card (fitMirrorTo:, from placeIn:). VoiceOver: the control's name, then each segment, the selected one said so
++    // (UIKit's own); while it is dimmed the row is one element that names what is picked and says why (showMirror:applies:).
++    _mirrorControl = [[UISegmentedControl alloc] initWithItems:@[panel_text(env, DM_PAD_TEXT_TOGETHER), panel_text(env, DM_PAD_TEXT_ON_ITS_OWN)]];
++    _mirrorControl.apportionsSegmentWidthsByContent = YES;
++    _mirrorControl.selectedSegmentIndex = 0;
++    _mirrorControl.accessibilityLabel = panel_text(env, DM_PAD_TEXT_MIRROR);
++    _mirrorControl.accessibilityContainerType = UIAccessibilityContainerTypeSemanticGroup;   // the name is said on the way into the two segments
++    [_mirrorControl addTarget:self action:@selector(mirrorPicked:) forControlEvents:UIControlEventValueChanged];
++    [self setMirrorFont:13];
++
++    _scopeLabel = panel_label(13, UIFontWeightRegular, 0.9); _scopeLabel.text = panel_text(env, DM_PAD_TEXT_SAVE_FOR);
++    _scopeControl = [[UISegmentedControl alloc] initWithItems:@[panel_text(env, DM_PAD_TEXT_ALL_GAMES), panel_text(env, DM_PAD_TEXT_THIS_GAME)]];
++    _scopeControl.selectedSegmentIndex = 0; _scopeControl.accessibilityLabel = _scopeLabel.text;
++    [_scopeControl addTarget:self action:@selector(scopePicked:) forControlEvents:UIControlEventValueChanged];
++
++    _resetButton = panel_button(panel_text(env, DM_PAD_TEXT_RESET), NO);
++    _cancelButton = panel_button(panel_text(env, DM_PAD_TEXT_CANCEL), NO);
++    _doneButton = panel_button(panel_text(env, DM_PAD_TEXT_DONE), YES);
++    // For this game Reset to default asks which default (showScope:): the layout on screen built in, or this game's layout the same as every game's.
++    if (scopes) {
++        UIAction *builtIn = [UIAction actionWithTitle:panel_text(env, DM_PAD_TEXT_BUILT_IN) image:nil identifier:nil handler:^(UIAction *a) {
++            (void)a; DmPadEditPanel *s = weak; if (s.reset) s.reset();
++        }];
++        UIAction *same = [UIAction actionWithTitle:panel_text(env, DM_PAD_TEXT_FOLLOW) image:nil identifier:nil handler:^(UIAction *a) {
++            (void)a; DmPadEditPanel *s = weak; if (s.follow) s.follow();
++        }];
++        _resetMenu = [UIMenu menuWithTitle:@"" children:@[builtIn, same]];
++    }
++    [_resetButton addAction:[UIAction actionWithHandler:^(UIAction *a) {
++        (void)a; DmPadEditPanel *s = weak;
++        if (!s || s->_resetButton.showsMenuAsPrimaryAction) return;   // the menu asks instead
++        if (s.reset) s.reset();
++    }] forControlEvents:UIControlEventTouchUpInside];
++    [_cancelButton addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; DmPadEditPanel *s = weak; if (s.finish) s.finish(NO); }] forControlEvents:UIControlEventTouchUpInside];
++    [_doneButton addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; DmPadEditPanel *s = weak; if (s.finish) s.finish(YES); }] forControlEvents:UIControlEventTouchUpInside];
++
++    // The flash line keeps its height when it shows nothing (a space, see-through), so a message never squeezes the rows of a card sized without it.
++    _flashLabel = panel_label(12, UIFontWeightSemibold, 1); _flashLabel.textColor = [UIColor colorWithRed:1 green:0.62 blue:0.45 alpha:1];
++    _flashLabel.textAlignment = NSTextAlignmentCenter; _flashLabel.text = @" "; _flashLabel.alpha = 0;
++    _flashLabel.isAccessibilityElement = NO;   // flash: announces it
++
++    _mirrorRow = panel_row(@[_mirrorControl]);   // the control alone, the row's full width
++    _mirrorRow.accessibilityLabel = _mirrorControl.accessibilityLabel;
++    _mirrorRow.accessibilityHint = panel_text(env, DM_PAD_TEXT_NO_MIRROR);
++    _mirrorRow.accessibilityTraits = UIAccessibilityTraitNotEnabled;
++    UIStackView *groupRow = panel_row(@[_groupName, _groupMinus, _groupSlider, _groupPlus, _groupValue]);
++    UIStackView *allRow = panel_row(@[_allName, _allMinus, _allSlider, _allPlus, _allValue]);
++    _scopeRow = panel_row(@[_scopeLabel, _scopeControl]); _scopeRow.hidden = !scopes;
++    UIStackView *buttons = panel_row(@[_resetButton, _cancelButton, _doneButton]); buttons.distribution = UIStackViewDistributionFillEqually; buttons.spacing = 8;
++    for (UILabel *l in @[_groupName, _allName]) [l.widthAnchor constraintEqualToConstant:104].active = YES;
++    for (UILabel *l in @[_groupValue, _allValue]) [l.widthAnchor constraintEqualToConstant:44].active = YES;
++    [_scopeLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
++
++    _stack = [[UIStackView alloc] initWithArrangedSubviews:@[_title, _hint, _mirrorRow, groupRow, allRow, _scopeRow, buttons, _flashLabel]];
++    _stack.axis = UILayoutConstraintAxisVertical; _stack.spacing = 8; _stack.alignment = UIStackViewAlignmentFill;
++    [_stack setCustomSpacing:4 afterView:_title];
++    _stack.translatesAutoresizingMaskIntoConstraints = NO;
++    [_card.contentView addSubview:_stack];
++    [NSLayoutConstraint activateConstraints:@[
++        [_card.leadingAnchor constraintEqualToAnchor:self.leadingAnchor], [_card.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
++        [_card.topAnchor constraintEqualToAnchor:self.topAnchor], [_card.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
++        [_stack.leadingAnchor constraintEqualToAnchor:_card.contentView.leadingAnchor constant:14],
++        [_stack.trailingAnchor constraintEqualToAnchor:_card.contentView.trailingAnchor constant:-14],
++        [_stack.topAnchor constraintEqualToAnchor:_card.contentView.topAnchor constant:12],
++        [_stack.bottomAnchor constraintEqualToAnchor:_card.contentView.bottomAnchor constant:-12],
++    ]];
++    [self showGroup:nil size:100 min:DM_PAD_SIZE_MIN max:DM_PAD_SIZE_MAX];
++    [self showAll:100 min:DM_PAD_ALL_MIN];
++    [self showMirror:YES applies:YES];
++    [self showScope:0];
++    return self;
++}
++
++// ---- Touches ----
++// A touch on the card that no control of it takes (its title and labels, the rows' gaps, the blur) would go on up to the gamepad, whose touches edit the
++// layout under the card: it stops here. The controls and the title's drag take their own.
++- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { (void)touches; (void)event; }
++- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { (void)touches; (void)event; }
++- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { (void)touches; (void)event; }
++- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { (void)touches; (void)event; }
++
++// ---- What the player asks for ----
++- (void)groupSlid:(UISlider *)s { if (_hasGroup && self.groupSize) self.groupSize((int)lroundf(s.value)); }
++- (void)allSlid:(UISlider *)s { if (self.allSize) self.allSize((int)lroundf(s.value)); }
++- (void)sliderDown:(UISlider *)s { (void)s; [self beginGesture]; }
++// While a finger holds a slider its thumb follows the finger, past what fits too (the value beside it says what the group got); when it lifts, the
++// thumb goes to that.
++- (void)groupSliderUp:(UISlider *)s { s.value = _groupNow; }
++- (void)allSliderUp:(UISlider *)s { s.value = _allNow; }
++- (void)stepGroup:(int)d { [self beginGesture]; if (_hasGroup && self.groupSize) self.groupSize(_groupNow + d); }
++- (void)stepAll:(int)d { [self beginGesture]; if (self.allSize) self.allSize(_allNow + d); }
++- (void)mirrorPicked:(UISegmentedControl *)c { if (self.mirror) self.mirror(c.selectedSegmentIndex == 0); }   // a tap, or the self-test's tapMirrorSegment:
++- (BOOL)tapMirrorSegment:(int)segment {
++    if (!_mirrorControl.enabled || segment < 0 || segment >= (int)_mirrorControl.numberOfSegments) return NO;
++    _mirrorControl.selectedSegmentIndex = segment;
++    [_mirrorControl sendActionsForControlEvents:UIControlEventValueChanged];
++    return YES;
++}
++- (void)scopePicked:(UISegmentedControl *)c { if (self.scope) self.scope((int)c.selectedSegmentIndex); }
++- (void)dragged:(UIPanGestureRecognizer *)r {
++    UIView *parent = self.superview; if (!parent) return;
++    CGPoint t = [r translationInView:parent];
++    self.center = CGPointMake(self.center.x + t.x, self.center.y + t.y);
++    [r setTranslation:CGPointZero inView:parent];
++    [self keepIn:parent.bounds];
++}
++
++// ---- What the gamepad shows back ----
++- (void)showGroup:(NSString *)name size:(int)percent min:(int)min max:(int)max {
++    _hasGroup = name != nil;
++    _groupNow = percent;
++    _groupName.text = name ?: _chooseText;
++    _groupName.numberOfLines = name ? 1 : 2;
++    for (UIView *v in @[_groupMinus, _groupSlider, _groupPlus, _groupValue]) { v.alpha = name ? 1 : 0.35; v.userInteractionEnabled = name != nil; }
++    _groupMinus.enabled = _groupPlus.enabled = _groupSlider.enabled = name != nil;
++    _groupSlider.minimumValue = min; _groupSlider.maximumValue = max;
++    if (!_groupSlider.tracking) _groupSlider.value = percent;   // not under the finger (groupSliderUp: puts it there when it lifts)
++    _groupValue.text = name ? [NSString stringWithFormat:@"%d %%", percent] : @"";
++    _groupSlider.accessibilityLabel = name ?: _chooseText;
++    _groupSlider.accessibilityValue = [NSString stringWithFormat:@"%d %%", percent];
++    _groupMinus.accessibilityLabel = name ? [NSString stringWithFormat:@"%@, %@", name, _smallerText] : _smallerText;
++    _groupPlus.accessibilityLabel = name ? [NSString stringWithFormat:@"%@, %@", name, _largerText] : _largerText;
++}
++- (void)showAll:(int)percent min:(int)min {
++    _allNow = percent;
++    _allSlider.minimumValue = min;
++    if (!_allSlider.tracking) _allSlider.value = percent;
++    _allValue.text = [NSString stringWithFormat:@"%d %%", percent];
++    _allSlider.accessibilityValue = _allValue.text;
++}
++- (void)showMirror:(BOOL)on applies:(BOOL)applies {
++    NSInteger segment = on ? 0 : 1;
++    if (_mirrorControl.selectedSegmentIndex != segment) _mirrorControl.selectedSegmentIndex = segment;   // set in code: no action is sent
++    _mirrorControl.enabled = applies; _mirrorControl.alpha = applies ? 1 : 0.35;   // dimmed as the group's row is without a group
++    _mirrorRow.isAccessibilityElement = !applies;   // dimmed: one element, "Move left and right groups, Both sides together, dimmed", and why (its hint)
++    _mirrorRow.accessibilityValue = [_mirrorControl titleForSegmentAtIndex:(NSUInteger)segment];
++}
++- (int)mirrorSegment { return (int)_mirrorControl.selectedSegmentIndex; }
++- (BOOL)mirrorApplies { return _mirrorControl.enabled; }
++- (void)setMirrorFont:(CGFloat)size {   // the same font selected or not, so a segment keeps its width when it is picked
++    _mirrorFont = size;
++    NSDictionary<NSAttributedStringKey, id> *a = @{NSFontAttributeName: [UIFont systemFontOfSize:size weight:UIFontWeightMedium]};
++    [_mirrorControl setTitleTextAttributes:a forState:UIControlStateNormal];
++    [_mirrorControl setTitleTextAttributes:a forState:UIControlStateSelected];
++}
++// The choice's titles at the largest of 13, 12, 11 and 10 points at which the control, as UIKit sizes it, fits the row (width). Estimated with a stand-in
++// for the system font: 13 in every language on an iPad's card and on an iPhone held upright (a 323-point row), 10 to 13 in a 320-point window. A
++// fixed size, not the player's text size, so the row stays one line; what does not fit at 10 points UIKit shortens with an ellipsis.
++- (void)fitMirrorTo:(CGFloat)width {
++    for (CGFloat size = 13; size >= 10; size -= 1) {
++        if (_mirrorFont != size) [self setMirrorFont:size];
++        if (_mirrorControl.intrinsicContentSize.width <= width) return;
++    }
++}
++- (void)showScope:(int)scope {
++    _scopeControl.selectedSegmentIndex = scope ? 1 : 0;
++    BOOL ask = _scopes && scope && _resetMenu;   // this game: Reset to default asks which default
++    if (ask) { _resetButton.menu = _resetMenu; _resetButton.showsMenuAsPrimaryAction = YES; }
++    else { _resetButton.showsMenuAsPrimaryAction = NO; _resetButton.menu = nil; }
++}
++- (void)beginGesture { [_flashed removeAllObjects]; }
++- (BOOL)flash:(NSString *)message {
++    if ([_flashed containsObject:message]) return NO;
++    [_flashed addObject:message];
++    unsigned gen = ++_flashGen;
++    _flashLabel.text = message; _flashLabel.alpha = 1;
++    UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, message);
++    __weak DmPadEditPanel *weak = self;
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
++        DmPadEditPanel *s = weak;
++        if (!s || s->_flashGen != gen) return;
++        UILabel *label = s->_flashLabel;
++        [UIView animateWithDuration:0.25 animations:^{ label.alpha = 0; }];
++    });
++    return YES;
++}
++
++// ---- Where it sits ----
++- (CGSize)fittingSizeForWidth:(CGFloat)width {
++    return [self systemLayoutSizeFittingSize:CGSizeMake(width, 0) withHorizontalFittingPriority:UILayoutPriorityRequired
++                       verticalFittingPriority:UILayoutPriorityFittingSizeLevel];
++}
++- (void)placeIn:(CGRect)bounds avoiding:(NSArray<NSValue *> *)rects {
++    CGFloat w = fmin(400, bounds.size.width - 24);
++    _hint.hidden = bounds.size.height < 520;   // a phone held sideways: the card keeps to its rows
++    [self fitMirrorTo:w - 28];   // the rows' width: the card less the stack's insets
++    CGSize size = [self fittingSizeForWidth:w];
++    size.height = fmin(size.height, bounds.size.height - 16);
++    CGFloat best = CGFLOAT_MAX; CGPoint at = CGPointMake(CGRectGetMidX(bounds), CGRectGetMidY(bounds));
++    for (int i = 0; i < 5; i++) {   // the middle, then a little higher or lower, then near the top or the bottom
++        static const CGFloat f[5] = {0.5, 0.38, 0.62, 0.25, 0.75};
++        CGPoint c = CGPointMake(CGRectGetMidX(bounds), CGRectGetMinY(bounds) + bounds.size.height * f[i]);
++        CGRect r = CGRectMake(c.x - size.width / 2, c.y - size.height / 2, size.width, size.height);
++        CGFloat cover = 0;
++        for (NSValue *v in rects) { CGRect x = CGRectIntersection(r, v.CGRectValue); if (!CGRectIsNull(x)) cover += x.size.width * x.size.height; }
++        if (cover < best - 1) { best = cover; at = c; }
++    }
++    self.bounds = CGRectMake(0, 0, size.width, size.height);
++    self.center = at;
++    [self keepIn:bounds];
++}
++- (void)keepIn:(CGRect)bounds {   // each axis inside bounds (8 points in), or centred on it where the card is larger
++    CGRect f = self.frame, b = CGRectInset(bounds, 8, 8);
++    f.origin.x = f.size.width > b.size.width ? CGRectGetMidX(b) - f.size.width / 2 : fmin(fmax(f.origin.x, CGRectGetMinX(b)), CGRectGetMaxX(b) - f.size.width);
++    f.origin.y = f.size.height > b.size.height ? CGRectGetMidY(b) - f.size.height / 2 : fmin(fmax(f.origin.y, CGRectGetMinY(b)), CGRectGetMaxY(b) - f.size.height);
++    self.frame = f;
++}
++@end
+diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
+index 9ee0582..96f0e33 100644
+--- a/dm/ios/Sources/GameMenu.swift
++++ b/dm/ios/Sources/GameMenu.swift
+@@ -1,4 +1,5 @@
+-// The in-game menu, opened by the gamepad's menu button at the top centre (DmGamepad.m): the controller layout, then the settings-screen settings the running game takes at once
++// The in-game menu, opened by the gamepad's menu button at the top centre (DmGamepad.m): the controller layout (2D, 3D or Tap, and Adjust Gamepad Layout, which opens the layout
++// editor over the game: DmGamepad.m's "The layout editor"), then the settings-screen settings the running game takes at once
+ // (front_ios.m dm_setting_live), grouped as on the settings screen but without its headings, one row each, so the menu stays short over the game (its text size is fixed: front_ios.m
+ // startGame). A pick is saved as Play saves it (LauncherModel.choose), so the settings screen shows it at the next start; a setting an env file fixes is shown, not changed. Settings
+ // that need the next start (language, pipelines, the frame rate and so on), and the sliders, stay on the settings screen, which the menu's title points to.
+@@ -6,15 +7,16 @@ import UIKit
+ 
+ var gameMenuModel: LauncherModel?   // the settings screen's model (Launcher.swift); nil in an app without one: the menu has the layout only
+ 
+-// The menu's own words in the player's language (LNPANDY/NX2Apple#1129): DM_GAME_MENU_TEXT, one per line in GameMenuText's order, passed by the
++// The menu's own words in the player's language (LNPANDY/NX2Apple#1129): DM_GAME_MENU_TEXT, one per line in GameMenuText's order (a newer case is added at the end), passed by the
+ // launcher as DM_HOME_QUIT_TEXT is for the quit prompt: the shell sets it at launch, and a game's own app gets it in its bundled dm/env.txt (the build's
+ // --env-file), where the lines are joined by a backslash and n. A line that is missing or empty stays English.
+ enum GameMenuText: Int, CaseIterable {
+-    case moreSettings, controllerLayout
++    case moreSettings, controllerLayout, adjustLayout
+     var english: String {
+         switch self {
+         case .moreSettings: return "More settings on the start screen"
+         case .controllerLayout: return "Controller layout"
++        case .adjustLayout: return "Adjust Gamepad Layout"
+         }
+     }
+     static func line(_ t: GameMenuText, in text: String?) -> String {
+@@ -37,7 +39,14 @@ private func gameMenuItems() -> [UIMenuElement] {
+     let layouts = (0..<3).filter { dm_pad_layout_offered(Int32($0)) }.map { l in
+         UIAction(title: names[l], state: dm_pad_layout() == l ? .on : .off) { _ in dm_pad_layout_set(Int32(l)) }
+     }
+-    let layout = UIMenu(title: GameMenuText.controllerLayout.text, options: .singleSelection, children: layouts)   // a choice's value shows in its submenu: a subtitle would make each row two lines
++    // A choice's value shows in its submenu (a subtitle would make each row two lines). Below the choices, Adjust Gamepad Layout (2D and 3D): the
++    // layout editor opens over the game once the menu has closed (DmGamepad.m).
++    var layoutRows: [UIMenuElement] = [UIMenu(options: [.displayInline, .singleSelection], children: layouts)]
++    if dm_pad_edit_offered() {
++        let adjust = UIAction(title: GameMenuText.adjustLayout.text, image: UIImage(systemName: "slider.horizontal.3")) { _ in dm_pad_edit_begin() }
++        layoutRows.append(UIMenu(options: .displayInline, children: [adjust]))
++    }
++    let layout = UIMenu(title: GameMenuText.controllerLayout.text, children: layoutRows)
+     var items: [UIMenuElement] = []
+     var placed = false
+     if let m = gameMenuModel {
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index e2901fa..2f82a95 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -585,6 +585,17 @@ static void save_sync_background(void) {
+ 
+ static _Atomic int g_quitting;
+ static _Atomic uint64_t g_quit_epoch __attribute__((section("__DATA,__dm_keep")));
++// The layout editor (DmGamepad.m, "Adjust Gamepad Layout") is open over the game: the game is told it lost the focus while it is, as for the quit prompt (a game
++// that pauses then pauses), and has it back when it closes, unless the app is in the background or the quit prompt is open; becoming active again keeps it out
++// of focus while the editor is still open
++static _Atomic int g_overlay_open;
++static int quit_prompt_open(void);
++void front_ios_overlay_focus(int open) {
++    atomic_store(&g_overlay_open, open);
++    if (!g_layer || atomic_load(&g_quitting)) return;
++    if (open) dm_focus_set(2);
++    else if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive && !quit_prompt_open()) dm_focus_set(1);
++}
+ void front_ios_focus_event(int ev) {
+     if (!g_layer || atomic_load(&g_quitting)) return;
+     switch (ev) {
+@@ -595,7 +606,7 @@ void front_ios_focus_event(int ev) {
+             UIApplication.sharedApplication.idleTimerDisabled = YES;
+             if (g_audio_intr) { LOG("audio session: active again with no interruption-ended notice; resuming"); g_audio_intr = 0; g_session_off = 1; }
+             if (g_session_off) front_ios_audio_session();
+-            front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); break;
++            front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(atomic_load(&g_overlay_open) ? 2 : 1); break;
+     }
+ }
+ 
+@@ -724,6 +735,7 @@ static void front_ios_teardown(void) {
+     g_layer = nil;
+     atomic_fetch_add(&g_quit_epoch, 1);
+     atomic_store(&g_quitting, 0);
++    atomic_store(&g_overlay_open, 0);
+ }
+ // The prompt's quit: the cloud saves go out (as when the app goes to the background), then in the shell the host tears down its threads, GPU resources and 5 GB address space and returns the window to the library, or in a single-game app the host ends as on a SIGTERM. Off the main queue: both wait
+ static void quit_now(void);
+@@ -778,7 +790,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
+         LOG("front end: quit prompt open (%s)", holder ? "Home held" : "the in-game menu");
+         break;
+     case HQ_SETTLE:
+-        quit_hide_prompt(); dm_focus_set(1);
++        quit_hide_prompt(); dm_focus_set(atomic_load(&g_overlay_open) ? 2 : 1);   // the layout editor may still be open under it
+         LOG("front end: quit prompt closed, the game goes on");
+         break;
+     case HQ_IDLE:
+@@ -822,6 +834,7 @@ static void quit_touch(int hit) {   // DmQuitView: a tap on Quit, on Cancel or o
+     if (now == HQ_SETTLE) front_ios_quit_poll();   // with every button up the game has its input again at once
+ }
+ int front_ios_quit_blocks_input(void) { return hq_blocks_input(g_hq.phase); }
++static int quit_prompt_open(void) { return g_hq.phase == HQ_PROMPT; }   // the game is out of focus for the prompt itself
+ static void quit_close(void) {   // the app is leaving the foreground: whatever is shown closes, a Home still held needs a new press
+     if (g_hq.phase == HQ_IDLE || g_hq.phase == HQ_QUIT) return;
+     if (g_hq.phase == HQ_PROMPT || g_hq.phase == HQ_SETTLE) LOG("front end: quit prompt closed, the app left the foreground");
+diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
+index b939941..c05d18d 100644
+--- a/dm/ios/project-framework.yml
++++ b/dm/ios/project-framework.yml
+@@ -152,6 +152,7 @@ targets:
+       - path: framework/ShellGlue.m
+       - path: Sources/front_ios.m
+       - path: Sources/DmGamepad.m
++      - path: Sources/DmPadEditor.m
+       - path: Sources/GameMenu.swift
+       - path: Sources/LauncherSettings.swift
+       - path: Sources/CloudSaves.m
+diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+index 0c965c7..f35bc08 100644
+--- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
++++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+@@ -43,6 +43,7 @@ static NSUInteger gDuoHarnessProbeViewClassSerial;
+ @interface DuoFakeTouch : NSObject
+ @property (nonatomic) CGPoint point;
+ @property (nonatomic) NSTimeInterval timestamp;
++@property (nonatomic, weak) UIView *view;   // the view the touch landed on (nil: the pad); the layout editor leaves its panel's touches alone
+ - (CGPoint)locationInView:(UIView *)view;
+ @end
+ 
+@@ -113,6 +114,16 @@ static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(io
+ 
+ #endif
+ 
++// The layout editor (DmGamepad.m, "Adjust Gamepad Layout"): the methods its touches, its pinch and its panel call.
++@interface UIView (DuoHarnessLayoutEditor)
++- (void)beginEditing;
++- (void)finishEditing:(BOOL)save;
++- (BOOL)editing;
++- (void)editPinchBegin:(CGPoint)centroid;
++- (void)editPinchScale:(CGFloat)scale;
++- (void)editPinchEnd;
++@end
++
+ @interface UIView (DuoHarnessGamepadMenu)
+ - (void)setMenuOpen:(BOOL)open;
+ - (BOOL)webTouchActive;
+@@ -714,6 +725,232 @@ static BOOL gDuoHarnessReduceMotionEnabled;
+     [self endTouches:@[a] onPad:pad cancelled:YES];
+ }
+ 
++// The layout editor on an 11-inch iPad Pro held sideways: one drag lowers both shoulder clusters (Both sides together, the default), no key is pressed
++// while it is open, Done saves the value a game's own app keeps and the moved keys take their touches there; the next gamepad reads it back.
++- (void)resetLayoutEditorStore {
++    [NSUserDefaults.standardUserDefaults removeObjectForKey:@"launcher.DM_TOUCH_GROUPS"];
++    unsetenv("DM_TOUCH_GROUPS"); unsetenv("DM_TOUCH_GROUPS_OWN");
++}
++
++- (void)testLayoutEditorLowersBothShoulderClustersInOneDragAndSavesThem {
++    [self resetLayoutEditorStore];
++    dm_set_opmode(0);
++    CGRect bounds = CGRectMake(0, 0, 1210, 834);
++    DmLayout layout = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9);
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    dm_pad_layout_set(1);
++    [pad layoutIfNeeded];
++    XCTAssertTrue(dm_pad_edit_offered(), @"Adjust Gamepad Layout is offered in 3D");
++    CGPoint zl = [self controlCenterNamed:@"ZL" inPad:pad], zr = [self controlCenterNamed:@"ZR" inPad:pad], l3 = [self controlCenterNamed:@"L3" inPad:pad];
++    [pad beginEditing];
++    XCTAssertTrue([pad editing]);
++    DuoFakeTouch *a = [self touchAt:[self faceAIn:layout bounds:bounds] time:1];
++    [self beginTouches:@[a] onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, 0, @"While the editor is open a touch edits the layout and presses nothing");
++    [self endTouches:@[a] onPad:pad cancelled:NO];
++    DuoFakeTouch *drag = [self touchAt:zl time:2];
++    [self beginTouches:@[drag] onPad:pad];
++    for (int i = 1; i <= 10; i++) [self moveTouch:drag to:CGPointMake(zl.x, zl.y + 25 * i) onPad:pad];
++    [self endTouches:@[drag] onPad:pad cancelled:NO];
++    [pad layoutIfNeeded];
++    CGPoint zl2 = [self controlCenterNamed:@"ZL" inPad:pad], zr2 = [self controlCenterNamed:@"ZR" inPad:pad], l32 = [self controlCenterNamed:@"L3" inPad:pad];
++    XCTAssertEqualWithAccuracy(zl2.y - zl.y, 250, 1.5);
++    XCTAssertEqualWithAccuracy(l32.y - l3.y, 250, 1.5, @"L3 goes with its cluster");
++    XCTAssertEqualWithAccuracy(zr2.y - zr.y, 250, 1.5, @"Both sides together: the right cluster follows");
++    XCTAssertEqualWithAccuracy(zr2.x, zr.x, 1.5);
++    [pad finishEditing:YES];
++    XCTAssertFalse([pad editing]);
++    NSString *stored = [NSUserDefaults.standardUserDefaults stringForKey:@"launcher.DM_TOUCH_GROUPS"];
++    XCTAssertTrue([stored hasPrefix:@"1;3d/lshoulder:"], @"Done saves the value: %@", stored);
++    [self assertButton:DM_BTN_ZL at:zl2 onPad:pad time:3];
++    [self assertButton:DM_BTN_ZR at:zr2 onPad:pad time:4];
++    [self assertButton:0 at:zl onPad:pad time:5];
++    unsetenv("DM_TOUCH_GROUPS");   // the next start reads it from where Done saved it
++    UIView *again = [self padForLayout:layout bounds:bounds];
++    XCTAssertEqualWithAccuracy([self controlCenterNamed:@"ZL" inPad:again].y, zl2.y, 0.5);
++    [self resetLayoutEditorStore];
++}
++
++// The panel's two-way choice above the chosen group's row (Both sides together | Each side on its own), found by its English titles.
++- (UISegmentedControl *)mirrorChoiceInPad:(UIView *)pad {
++    NSMutableArray<UIView *> *todo = [NSMutableArray array];
++    for (UIView *v in pad.subviews) if ([NSStringFromClass(v.class) containsString:@"EditPanel"]) [todo addObject:v];
++    while (todo.count) {
++        UIView *v = todo.lastObject; [todo removeLastObject];
++        if ([v isKindOfClass:UISegmentedControl.class] && [[(UISegmentedControl *)v titleForSegmentAtIndex:0] isEqualToString:@"Both sides together"]) return (UISegmentedControl *)v;
++        [todo addObjectsFromArray:v.subviews];
++    }
++    XCTFail(@"Expected the panel's Both sides together | Each side on its own");
++    return nil;
++}
++- (void)tapSegment:(NSInteger)segment of:(UISegmentedControl *)control {   // as a finger does: the segment picked, then the control's own action
++    control.selectedSegmentIndex = segment;
++    [control sendActionsForControlEvents:UIControlEventValueChanged];
++}
++
++// Each side on its own, picked on the panel, moves the left shoulder cluster alone. The choice is dimmed for − + (no mirror image), still showing it,
++// and VoiceOver gets one element that says why. Both sides together with the two sides apart moves nothing; the next move of the right cluster takes
++// the left one to its mirrored place. Done saves the choice with the layout, and the editor opens on it again.
++- (void)testLayoutEditorEachSideOnItsOwnMovesOneClusterAndIsSaved {
++    [self resetLayoutEditorStore];
++    CGRect bounds = CGRectMake(0, 0, 1210, 834);
++    DmLayout layout = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9);
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    dm_pad_layout_set(1);
++    [pad layoutIfNeeded];
++    CGPoint zl = [self controlCenterNamed:@"ZL" inPad:pad], zr = [self controlCenterNamed:@"ZR" inPad:pad], plus = [self controlCenterNamed:@"+" inPad:pad];
++    [pad beginEditing];
++    UISegmentedControl *choice = [self mirrorChoiceInPad:pad];
++    XCTAssertEqual(choice.selectedSegmentIndex, 0, @"Both sides together at first");
++    XCTAssertTrue(choice.enabled, @"with no group chosen the choice takes taps");
++    XCTAssertEqualObjects(choice.accessibilityLabel, @"Move left and right groups");
++    XCTAssertEqualObjects([choice titleForSegmentAtIndex:1], @"Each side on its own");
++    [self tapSegment:1 of:choice];
++    DuoFakeTouch *drag = [self touchAt:zl time:1];
++    [self beginTouches:@[drag] onPad:pad];
++    for (int i = 1; i <= 6; i++) [self moveTouch:drag to:CGPointMake(zl.x, zl.y + 25 * i) onPad:pad];
++    [self endTouches:@[drag] onPad:pad cancelled:NO];
++    [pad layoutIfNeeded];
++    CGPoint zl2 = [self controlCenterNamed:@"ZL" inPad:pad];
++    XCTAssertEqualWithAccuracy(zl2.y - zl.y, 150, 1.5, @"Each side on its own: the left cluster moves");
++    XCTAssertEqualWithAccuracy([self controlCenterNamed:@"ZR" inPad:pad].y, zr.y, 0.01, @"and the right one stays");
++    XCTAssertTrue(choice.enabled && choice.selectedSegmentIndex == 1, @"the left shoulders chosen: the choice is theirs");
++    DuoFakeTouch *tap = [self touchAt:plus time:2];   // − + chosen: no mirror image
++    [self beginTouches:@[tap] onPad:pad];
++    [self endTouches:@[tap] onPad:pad cancelled:NO];
++    XCTAssertFalse(choice.enabled, @"dimmed for − +");
++    XCTAssertEqual(choice.selectedSegmentIndex, 1, @"still showing the layout's choice");
++    UIView *row = choice.superview;
++    XCTAssertTrue(row.isAccessibilityElement && (row.accessibilityTraits & UIAccessibilityTraitNotEnabled), @"dimmed, the row is one VoiceOver element");
++    XCTAssertEqualObjects(row.accessibilityValue, @"Each side on its own");
++    XCTAssertTrue(row.accessibilityHint.length > 0, @"that says why");
++    tap = [self touchAt:zr time:3];   // the right shoulders chosen: the choice is back
++    [self beginTouches:@[tap] onPad:pad];
++    [self endTouches:@[tap] onPad:pad cancelled:NO];
++    XCTAssertTrue(choice.enabled && !row.isAccessibilityElement);
++    [self tapSegment:0 of:choice];
++    [pad layoutIfNeeded];
++    XCTAssertEqualWithAccuracy([self controlCenterNamed:@"ZL" inPad:pad].y, zl2.y, 0.01, @"Both sides together with the sides apart moves nothing");
++    XCTAssertEqualWithAccuracy([self controlCenterNamed:@"ZR" inPad:pad].y, zr.y, 0.01);
++    drag = [self touchAt:zr time:4];
++    [self beginTouches:@[drag] onPad:pad];
++    for (int i = 1; i <= 4; i++) [self moveTouch:drag to:CGPointMake(zr.x, zr.y + 25 * i) onPad:pad];
++    [self endTouches:@[drag] onPad:pad cancelled:NO];
++    [pad layoutIfNeeded];
++    CGPoint zr3 = [self controlCenterNamed:@"ZR" inPad:pad], zl3 = [self controlCenterNamed:@"ZL" inPad:pad];
++    XCTAssertEqualWithAccuracy(zr3.y - zr.y, 100, 1.5);
++    XCTAssertEqualWithAccuracy(zl3.y, zr3.y, 0.5, @"the next move takes the left cluster to its mirrored place");
++    [self tapSegment:1 of:choice];
++    [pad finishEditing:YES];
++    NSString *stored = [NSUserDefaults.standardUserDefaults stringForKey:@"launcher.DM_TOUCH_GROUPS"];
++    XCTAssertTrue([stored hasPrefix:@"1;3d/solo:1/"], @"Done saves the choice with the layout: %@", stored);
++    [pad beginEditing];
++    XCTAssertEqual([self mirrorChoiceInPad:pad].selectedSegmentIndex, 1, @"and the editor opens on it");
++    [pad finishEditing:NO];
++    [self resetLayoutEditorStore];
++}
++
++// A touch on the editor's panel (its title, a label, a gap between its rows) is the panel's, even over a group: it neither chooses nor moves one.
++- (void)testLayoutEditorTouchOnThePanelLeavesTheGroupsAlone {
++    [self resetLayoutEditorStore];
++    CGRect bounds = CGRectMake(0, 0, 1210, 834);
++    DmLayout layout = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9);
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    dm_pad_layout_set(1);
++    [pad layoutIfNeeded];
++    CGPoint zr = [self controlCenterNamed:@"ZR" inPad:pad];
++    [pad beginEditing];
++    UIView *panel = nil;
++    for (UIView *v in pad.subviews) if ([NSStringFromClass(v.class) containsString:@"EditPanel"]) panel = v;
++    XCTAssertNotNil(panel, @"the editor shows its panel");
++    DuoFakeTouch *onPanel = [self touchAt:zr time:1];
++    onPanel.view = panel.subviews.firstObject ?: panel;   // as UIKit passes a touch a label or the card did not take
++    [self beginTouches:@[onPanel] onPad:pad];
++    for (int i = 1; i <= 5; i++) [self moveTouch:onPanel to:CGPointMake(zr.x, zr.y + 40 * i) onPad:pad];
++    [self endTouches:@[onPanel] onPad:pad cancelled:NO];
++    [pad layoutIfNeeded];
++    XCTAssertEqualWithAccuracy([self controlCenterNamed:@"ZR" inPad:pad].y, zr.y, 0.01, @"a drag on the panel moved the group under it");
++    [pad finishEditing:NO];
++    [self resetLayoutEditorStore];
++}
++
++// A thumb resting on the picture, before or during a drag, leaves the drag alone: the other thumb lowers the shoulders all the same.
++- (void)testLayoutEditorRestingThumbLeavesTheDragAlone {
++    [self resetLayoutEditorStore];
++    CGRect bounds = CGRectMake(0, 0, 1210, 834);
++    DmLayout layout = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9);
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    dm_pad_layout_set(1);
++    [pad layoutIfNeeded];
++    CGPoint zr = [self controlCenterNamed:@"ZR" inPad:pad], rest = CGPointMake(380, 470);   // the picture: no group there
++    [pad beginEditing];
++    DuoFakeTouch *thumb = [self touchAt:rest time:1], *drag = [self touchAt:zr time:2];
++    [self beginTouches:@[thumb] onPad:pad];   // first: the resting thumb
++    [self beginTouches:@[drag] onPad:pad];
++    for (int i = 1; i <= 5; i++) [self moveTouch:drag to:CGPointMake(zr.x, zr.y + 20 * i) onPad:pad];
++    DuoFakeTouch *late = [self touchAt:CGPointMake(rest.x + 40, rest.y) time:3];
++    [self beginTouches:@[late] onPad:pad];    // then another one during the drag
++    for (int i = 6; i <= 10; i++) [self moveTouch:drag to:CGPointMake(zr.x, zr.y + 20 * i) onPad:pad];
++    [self endTouches:@[drag] onPad:pad cancelled:NO];
++    [self endTouches:@[thumb, late] onPad:pad cancelled:NO];
++    [pad layoutIfNeeded];
++    XCTAssertEqualWithAccuracy([self controlCenterNamed:@"ZR" inPad:pad].y - zr.y, 200, 1.5, @"the drag went on beside the resting thumbs");
++    [pad finishEditing:NO];
++    [self resetLayoutEditorStore];
++}
++
++- (void)testLayoutEditorCancelKeepsTheLayoutFromBefore {
++    [self resetLayoutEditorStore];
++    CGRect bounds = CGRectMake(0, 0, 1210, 834);
++    DmLayout layout = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9);
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    dm_pad_layout_set(1);
++    [pad layoutIfNeeded];
++    CGPoint zl = [self controlCenterNamed:@"ZL" inPad:pad];
++    [pad beginEditing];
++    DuoFakeTouch *drag = [self touchAt:zl time:1];
++    [self beginTouches:@[drag] onPad:pad];
++    [self moveTouch:drag to:CGPointMake(zl.x + 120, zl.y + 200) onPad:pad];
++    [self endTouches:@[drag] onPad:pad cancelled:NO];
++    [pad finishEditing:NO];
++    [pad layoutIfNeeded];
++    XCTAssertEqualWithAccuracy([self controlCenterNamed:@"ZL" inPad:pad].y, zl.y, 0.01, @"Cancel: the layout from before");
++    XCTAssertNil([NSUserDefaults.standardUserDefaults stringForKey:@"launcher.DM_TOUCH_GROUPS"], @"and nothing saved");
++    [self assertButton:DM_BTN_ZL at:zl onPad:pad time:2];
++}
++
++// A pinch on the stick: its ring, its knob and its travel grow with it (2D, so the D-pad is not in the way): the old full-tilt distance is no longer
++// full tilt, the new one is.
++- (void)testLayoutEditorPinchGrowsTheStickAndItsTravel {
++    [self resetLayoutEditorStore];
++    CGRect bounds = CGRectMake(0, 0, 1210, 834);
++    DmLayout layout = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9);
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    dm_pad_layout_set(0);
++    [pad layoutIfNeeded];
++    CGRect ring = [self largestShapePathBoundsInLayer:pad.layer];
++    CGPoint c = CGPointMake(CGRectGetMidX(ring), CGRectGetMidY(ring));
++    CGFloat r = ring.size.width / 2;
++    [pad beginEditing];
++    [pad editPinchBegin:c];
++    [pad editPinchScale:1.25];
++    [pad editPinchScale:1.5];
++    [pad editPinchEnd];
++    [pad finishEditing:YES];
++    [pad layoutIfNeeded];
++    CGRect grown = [self largestShapePathBoundsInLayer:pad.layer];
++    XCTAssertEqualWithAccuracy(grown.size.width / 2, 1.5 * r, 1, @"the ring at 150 %%");
++    CGPoint c2 = CGPointMake(CGRectGetMidX(grown), CGRectGetMidY(grown));
++    DuoFakeTouch *stick = [self touchAt:c2 time:1];
++    [self beginTouches:@[stick] onPad:pad];
++    [self moveTouch:stick to:CGPointMake(c2.x + 0.8 * r, c2.y) onPad:pad];
++    XCTAssertLessThan(duo_harness_input().lx, 32767, @"the old full-tilt distance is no longer full tilt");
++    [self moveTouch:stick to:CGPointMake(c2.x + 0.8 * 1.5 * r + 1, c2.y) onPad:pad];
++    XCTAssertEqual(duo_harness_input().lx, 32767, @"the new one is");
++    [self endTouches:@[stick] onPad:pad cancelled:NO];
++    [self resetLayoutEditorStore];
++}
++
+ - (void)testDockingDropsTheTapLayout {
+     dm_set_opmode(0);
+     CGRect bounds = CGRectMake(0, 0, 844, 390);
+diff --git a/dm/ios/tests/duo/project.yml b/dm/ios/tests/duo/project.yml
+index de17721..d36ad55 100644
+--- a/dm/ios/tests/duo/project.yml
++++ b/dm/ios/tests/duo/project.yml
+@@ -12,6 +12,7 @@ targets:
+       - path: ../../Sources/GameMenu.swift
+       - path: ../../Sources/LauncherSettings.swift
+       - path: ../../Sources/DmGamepad.m
++      - path: ../../Sources/DmPadEditor.m
+       - path: ../../Sources/front_ios.m
+     dependencies:
+       - sdk: UIKit.framework
+diff --git a/dm/ios/tests/pad_geometry/pad_groups_check.m b/dm/ios/tests/pad_geometry/pad_groups_check.m
+index d22eabb..7d340f9 100644
+--- a/dm/ios/tests/pad_geometry/pad_groups_check.m
++++ b/dm/ios/tests/pad_geometry/pad_groups_check.m
+@@ -148,6 +148,26 @@ static void check_values(void) {
+     dm_pad_text("a\nb", DM_PAD_TEXT_RIGHT, t, sizeof t); if (strcmp(t, "Move right")) FAIL("DM_PAD_EDIT_TEXT missing line: '%s'", t);
+     dm_pad_group_title(DM_PAD_G_LEFT, YES, NULL, t, sizeof t); if (strcmp(t, "ZL L L3")) FAIL("group title: '%s'", t);
+     dm_pad_group_title(DM_PAD_G_DPAD, YES, "\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\nSteuerkreuz", t, sizeof t); if (strcmp(t, "Steuerkreuz")) FAIL("group title D-pad: '%s'", t);
++    // The two-way choice's lines: 27 in all, the choice's name where the switch's label was (line 4), its two segments and the dimmed reason at the end.
++    // A shell's 27 lines give them; an older shell's 24 leave the three new ones English and name the choice with its old line.
++    if (DM_PAD_TEXT_N != 27 || DM_PAD_TEXT_MIRROR != 4 || DM_PAD_TEXT_TOGETHER != 24 || DM_PAD_TEXT_NO_MIRROR != 26) FAIL("DM_PAD_EDIT_TEXT: %d lines", (int)DM_PAD_TEXT_N);
++    static const struct { int line; const char *english; } choice[] = {
++        {DM_PAD_TEXT_MIRROR, "Move left and right groups"}, {DM_PAD_TEXT_TOGETHER, "Both sides together"}, {DM_PAD_TEXT_ON_ITS_OWN, "Each side on its own"},
++        {DM_PAD_TEXT_NO_MIRROR, "This group has no matching group on the other side."},
++    };
++    char lines[2048]; size_t used = 0;
++    for (int i = 0; i < DM_PAD_TEXT_N; i++) used += (size_t)snprintf(lines + used, sizeof lines - used, "%sline %d", i ? "\n" : "", i);
++    for (size_t i = 0; i < sizeof choice / sizeof *choice; i++) {
++        char want[16]; snprintf(want, sizeof want, "line %d", choice[i].line);
++        dm_pad_text(NULL, choice[i].line, t, sizeof t); if (strcmp(t, choice[i].english)) FAIL("DM_PAD_EDIT_TEXT line %d in English: '%s'", choice[i].line, t);
++        dm_pad_text(lines, choice[i].line, t, sizeof t); if (strcmp(t, want)) FAIL("DM_PAD_EDIT_TEXT of 27 lines, line %d: '%s'", choice[i].line, t);
++    }
++    char *old = strstr(lines, "\nline 24"); if (old) *old = 0;   // what an older shell passes: 24 lines
++    dm_pad_text(lines, DM_PAD_TEXT_TOGETHER, t, sizeof t); if (strcmp(t, "Both sides together")) FAIL("DM_PAD_EDIT_TEXT of 24 lines, line 24: '%s'", t);
++    dm_pad_text(lines, DM_PAD_TEXT_NO_MIRROR, t, sizeof t); if (strcmp(t, choice[3].english)) FAIL("DM_PAD_EDIT_TEXT of 24 lines, line 26: '%s'", t);
++    dm_pad_text(lines, DM_PAD_TEXT_MIRROR, t, sizeof t); if (strcmp(t, "line 4")) FAIL("DM_PAD_EDIT_TEXT of 24 lines, line 4: '%s'", t);
++    // No line has a semicolon (the texts' rule), and no English line is empty.
++    for (int i = 0; i < DM_PAD_TEXT_N; i++) if (!*dm_pad_text_english[i] || strchr(dm_pad_text_english[i], ';')) FAIL("DM_PAD_EDIT_TEXT English line %d: '%s'", i, dm_pad_text_english[i]);
+ }
+ 
+ // ---- The built-in layout and the old values (migration) ----
+@@ -550,8 +570,8 @@ static void check_all_floor(void) {
+     printf("all controls' floor: %d layouts, every touch target 44 points or the built-in one\n", checked);
+ }
+ 
+-// ---- Mirror left and right when one side has less room ----
+-// On an 11-inch iPad held sideways in 3D with Mirror on, A B X Y asked at 150 %: the stick meets the D-pad near 109 %, where the two sized together
++// ---- Both sides together when one side has less room ----
++// On an 11-inch iPad held sideways in 3D with Both sides together, A B X Y asked at 150 %: the stick meets the D-pad near 109 %, where the two sized together
+ // stop; A B X Y goes on alone to 150 % and the stick stays as large as it has room for. Back down, the stick follows. A drag of A B X Y then moves
+ // the stick along at its own size (the stick at A B X Y's size had no room anywhere). The stick asked larger stops at its room, A B X Y with it.
+ // A spot refused only for the mirror image's sake is told apart (dm_pad_mate_blocks), and taken with the halves on their own.
+@@ -602,6 +622,84 @@ static void check_mirror_room(void) {
+     if (!found) FAIL("iPad Pro 11: no spot was refused for the stick's sake (dragging A B X Y inward)");
+ }
+ 
++// ---- The panel's choice: Both sides together or Each side on its own ----
++// On every screen, in 2D and 3D: the choice is for the shoulders of each side, the left stick and A B X Y, and for none chosen, never for the D-pad or
++// − +, and the halves are linked exactly when it applies and Both sides together is picked. Each side on its own: the left shoulders go down on their
++// own. Both sides together picked then moves nothing (the geometry never reads the choice); the next move of the right shoulders, or the next size of
++// the left ones, takes the other side to its mirrored place, or is refused there for want of room, as any other. Reset keeps the choice, Done saves it
++// (solo:1, and nothing more), and picking another scope keeps it for the layout on screen.
++static void check_mirror_choice(void) {
++    int screens = 0, followMove = 0, followSize = 0, refused = 0;
++    for (int i = 0; i < N_SCREENS; i++)
++        for (int full = 0; full < 2; full++) {
++            DmPadScene sc = scene(&k_screens[i], full, 1, 0, NULL);
++            int set = dm_pad_scene_set(&sc);
++            char what[96]; snprintf(what, sizeof what, "%s %s choice", k_screens[i].name, full ? "3D" : "2D");
++            DmPadGroups d; memset(&d, 0, sizeof d);
++            for (int k = -1; k < DM_PAD_G_N; k++) {
++                BOOL want = k < 0 || k == DM_PAD_G_LEFT || k == DM_PAD_G_RIGHT || k == DM_PAD_G_STICK || k == DM_PAD_G_FACE || (k == DM_PAD_G_DPAD && !full);
++                if (dm_pad_mirror_applies(&sc, k) != want) FAIL("%s: for group %d it %s", what, k, want ? "does not apply" : "applies");
++                for (int solo = 0; solo < 2 && k >= 0; solo++) {
++                    d.solo[set] = (signed char)solo;
++                    if (dm_pad_group_drawn(k, full) && dm_pad_linked(&sc, &d, k) != (dm_pad_mirror_applies(&sc, k) && !solo)) FAIL("%s: group %d linked %d, solo %d", what, k, dm_pad_linked(&sc, &d, k), solo);
++                }
++            }
++            // Each side on its own: the left shoulders down by a third of their free range, the right ones stay at their built-in place.
++            memset(&d, 0, sizeof d); d.solo[set] = 1;
++            DmPadGeo g = dm_pad_scene_geo(&sc, &d);
++            CGPoint c = g.at[DM_PAD_G_LEFT]; c.y += (g.area[DM_PAD_G_LEFT].size.height - g.home[DM_PAD_G_LEFT].size.height) / 3;
++            DmPadPlace p = dm_pad_place_at(&g, DM_PAD_G_LEFT, 100, c, DM_PAD_SNAP);
++            DmPadGroups t;
++            if (dm_pad_mate_size(&sc, &d, DM_PAD_G_LEFT) != -1) FAIL("%s: on their own, the left shoulders have a mate size", what);
++            if (!dm_pad_try_places(&sc, &d, DM_PAD_G_LEFT, p, -1, &t)) { if (!sc.layout.separated) FAIL("%s: the left shoulders could not go down on their own", what); continue; }
++            if (t.place[set][DM_PAD_G_RIGHT].size) FAIL("%s: on their own, the right shoulders moved with the left ones", what);
++            screens++;
++            // Both sides together while the two sides are apart: nothing moves.
++            DmPadGroups u = t; u.solo[set] = 0;
++            DmPadGeo apart = dm_pad_scene_geo(&sc, &t), together = dm_pad_scene_geo(&sc, &u);
++            if (!geo_identical(&apart, &together)) FAIL("%s: picking Both sides together moved something", what);
++            // The next move of the right shoulders (8 points down): the left ones to its mirrored place, at their own size.
++            CGPoint cr = together.at[DM_PAD_G_RIGHT]; cr.y += 8;
++            DmPadPlace q = dm_pad_place_at(&together, DM_PAD_G_RIGHT, 100, cr, 0);
++            DmPadGroups w;
++            if (dm_pad_try_places(&sc, &u, DM_PAD_G_RIGHT, q, dm_pad_mate_size(&sc, &u, DM_PAD_G_RIGHT), &w)) {
++                DmPadPlace L = w.place[set][DM_PAD_G_LEFT], R = w.place[set][DM_PAD_G_RIGHT];
++                if (!L.size || L.size != t.place[set][DM_PAD_G_LEFT].size || L.y != R.y || abs(L.x - (DM_PAD_ANCHOR_MAX - R.x)) > 1)
++                    FAIL("%s: the next move of the right shoulders did not take the left ones to their mirrored place (%d,%d,%d / %d,%d,%d)", what, L.x, L.y, L.size, R.x, R.y, R.size);
++                DmPadGeo h = dm_pad_scene_geo(&sc, &w);
++                check_geo(&sc, &h, what);
++                followMove++;
++            } else refused++;
++            // Or the next size of the left shoulders (110 %): where the right ones change, they are at the left ones' mirrored place at their own size
++            // (the same move from the built-in place, in the free range each has at its size).
++            int mate = 0, got = dm_pad_try_size_mated(&sc, &u, DM_PAD_G_LEFT, 110, &w, &mate);
++            DmPadPlace L = dm_pad_place_now(&sc, &w, DM_PAD_G_LEFT), R = w.place[set][DM_PAD_G_RIGHT];
++            if (memcmp(&R, &u.place[set][DM_PAD_G_RIGHT], sizeof R)) {
++                DmPadGeo hm = dm_pad_scene_home(&sc, &w);
++                DmPadPlace e = dm_pad_place_partner_at(&hm, DM_PAD_G_LEFT, DM_PAD_G_RIGHT, L, R.size);
++                if (e.x != R.x || e.y != R.y || R.size != mate) FAIL("%s: the next size (%d, the right %d) did not take the right shoulders to the mirrored place", what, got, mate);
++                followSize++;
++            }
++            DmPadGeo hs = dm_pad_scene_geo(&sc, &w);
++            check_geo(&sc, &hs, what);
++            // Reset keeps the choice; picking another scope keeps it for the layout on screen; Done saves it alone.
++            DmPadGroups r = t; dm_pad_groups_reset(&r, set);
++            if (r.solo[set] != 1) FAIL("%s: reset forgot Each side on its own", what);
++            DmPadGroups none; memset(&none, 0, sizeof none);
++            DmPadGroups other = dm_pad_scope_draft(&t, &none, &none, set);
++            if (other.solo[set] != 1) FAIL("%s: another scope forgot Each side on its own", what);
++            DmPadGroups only = none; only.solo[set] = 1;
++            char v[DM_PAD_GROUPS_MAX + 1], want[16]; snprintf(want, sizeof want, "1;%s/solo:1", dm_pad_set_names[set]);
++            DmPadGroups back;
++            if (dm_pad_done(DM_PAD_SCOPE_ALL, DM_PAD_SCOPE_ALL, &only, &none) != DM_PAD_DONE_SAVE || !dm_pad_groups_encode(&only, v, sizeof v) || strcmp(v, want)
++                || !dm_pad_groups_parse(v, &back) || back.solo[set] != 1 || dm_pad_groups_count(&back))
++                FAIL("%s: Done with only Each side on its own picked saves '%s'", what, v);
++            if (dm_pad_done(DM_PAD_SCOPE_ALL, DM_PAD_SCOPE_ALL, &none, &none) != DM_PAD_DONE_NOTHING) FAIL("%s: Both sides together as it was saves", what);
++        }
++    printf("mirror choice: on their own on %d screens and layouts; together again, the next move took the other side along on %d (refused for want of room on %d), the next size on %d\n",
++           screens, followMove, refused, followSize);
++}
++
+ // ---- Where Done saves ----
+ static DmPadGroups groups_value(const char *v) {
+     DmPadGroups g;
+@@ -758,6 +856,7 @@ int main(void) {
+     check_side_insets();
+     check_all_floor();
+     check_mirror_room();
++    check_mirror_choice();
+     check_scopes();
+     check_fingers();
+     if (!g_fail) printf("ok: %d geometries checked\n", g_checked);
+diff --git a/dm/ios/tests/test_pad_geometry.py b/dm/ios/tests/test_pad_geometry.py
+index f454f3d..4930a2d 100644
+--- a/dm/ios/tests/test_pad_geometry.py
++++ b/dm/ios/tests/test_pad_geometry.py
+@@ -15,8 +15,10 @@ included; anchors at 0 and 1000 put a group at its area's edges at any size; a s
+ 44-point touch target, and one too large comes down toward the built-in size; seeded random groups keep every rule of the geometry; a drag snaps,
+ mirrors the other side and stops at the edge, a spot on another group is refused, a size stops where the group meets another, reset is the
+ built-in layout; a saved draft read back gives the same frames and the same control for every touch; an 11-inch iPad Pro with its top row lowered.
+-And the editor's rules around it: all controls' size never takes a touch target under 44 points (or under the built-in one); with Mirror left and
+-right a group grows on past its mirror image's room; Done saves what the editor shows for the scope picked and keeps the other layouts of every
++And the editor's rules around it: all controls' size never takes a touch target under 44 points (or under the built-in one); with Both sides
++together a group grows on past its mirror image's room; the panel's choice (Both sides together or Each side on its own) is for the groups with a
++mirror image and dimmed for the D-pad and − +, picking it moves nothing, the next move takes the other side along, Reset keeps it and Done saves it,
++and its words are the 27 lines' last three and line 4; Done saves what the editor shows for the scope picked and keeps the other layouts of every
+ game's value or this game's; a touch on the panel never reaches the editor, a thumb resting elsewhere neither stops a drag nor starts a pinch, and a
+ pinch's first finger does not drag the group first. On a phone held sideways the stick, the D-pad and A B X Y moved up or grown past
+ their built-in band keep out of the side insets (the sensor housing), and an iPad's value keeps its anchors there.
+@@ -58,6 +60,7 @@ class PadGeometryTests(unittest.TestCase):
+         out = build_and_run(self, "pad_groups_check.m")
+         self.assertIn("iPad Pro 11, top row lowered: 1;3d/", out)
+         self.assertIn("mirror: A B X Y at 150 %", out)
++        self.assertIn("mirror choice: on their own on", out)
+         self.assertIn("all controls' floor:", out)
+         self.assertIn("side insets: ", out)
+         self.assertIn("Pro Max stick lifted: ring x 59.0", out)
+diff --git a/docs/frontends.md b/docs/frontends.md
+index 2d7655d..928620f 100644
+--- a/docs/frontends.md
++++ b/docs/frontends.md
+@@ -64,6 +64,8 @@ Settings a player chose in a front end and wants kept, also for a start from Fin
+ 
+ **An IPA** is installed by the player (sideloading); its own settings screen starts the game. Lines in the app's `Documents/env.txt` win over that screen ([Settings in a file](settings.md#settings-in-a-file)). The save and `log.txt` are in the app's Documents folder.
+ 
++An iOS game's touch controls can be moved and resized by groups in the game (the gear, **Controller layout**, **Adjust Gamepad Layout**: [In-game menu](settings.md#in-game-menu)). The engine reads the places as `DM_TOUCH_GROUPS` (`DmPadGeometry.h`, Groups) and a game's own app keeps what the editor saves as the saved choice `launcher.DM_TOUCH_GROUPS`. A front end that hosts games in its own process keeps them itself: it exports `int dm_shell_touch_groups_save(int scope, const char *value)` (scope 0 every game, 1 this game; `""` the built-in layout, kept as such; 1 when stored), `int dm_shell_touch_groups_load(int scope, char *out, int cap)` (1 and the value when one is stored, 0 for none) and `int dm_shell_touch_groups_forget(int scope)` (nothing stored for the scope any more: for 1 the game follows every game's layout again; 1 when done), which the engine finds with `dlsym` and calls on the main thread, passes the value in effect as `DM_TOUCH_GROUPS` at the next start (every game's `""` too, so an env file does not undo the player's choice), and `DM_TOUCH_GROUPS_OWN=1` when it is the game's own. The editor loads both scopes when it opens: a save for the scope the player picked takes from the editor only the layouts it showed or the player changed, and keeps the others as that scope holds them. A front end without `_forget` still works: the editor then has the game follow every game's by saving every game's value as it is. The editor's words in the player's language go in `DM_PAD_EDIT_TEXT`, one per line in `DmPadEditing.h`'s order, and the menu item's in the fifth line of `DM_GAME_MENU_TEXT`.
++
+ ## Saved choices
+ 
+ Each app keeps the player's choices in its own preferences domain, its bundle ID (`CFBundleIdentifier` in `Info.plist`, `org.nxnative.<title ID>` unless the app was packed with another): one string per setting, under the key `launcher.<env>` (`launcher.DM_FPS_TARGET` = `"30"`). The iPhone app's settings screen keeps them there, and a Mac app's launcher (`dm/mac/launcher.c`) reads them at every start, so a start from Finder or the Dock has them too. A front end writes the same keys (`CFPreferencesSetAppValue` with the app's bundle ID, or `defaults write org.nxnative.<title ID> launcher.DM_FPS_TARGET -string 30`), and a settings window inside the app would too: there is one set of choices, and every view of it agrees.
+diff --git a/docs/playing.md b/docs/playing.md
+index 8d7ea0f..9f07d2d 100644
+--- a/docs/playing.md
++++ b/docs/playing.md
+@@ -8,7 +8,7 @@ How to build and install a game: [README](../README.md#how-to-play).
+ 
+ ## Touch controls
+ 
+-The gear at the top centre opens the in-game menu: **Controller layout** switches between **2D** and **3D** (and **Tap**, every touch to the game, in handheld mode), and the settings that take effect at once are there too, such as **Picture**, **Console mode** and **Game rumble** ([In-game menu](settings.md#in-game-menu)). The app remembers your choices. Wonder, Engage, Dread, 13 Sentinels, Link's Awakening, Ace Attorney Investigations Collection, Unicorn Overlord, Rhythm Heaven Groove, Octopath Traveler 0, Pokémon Legends: Z-A, Cuphead, Absolum, Blasphemous 2, Brain Memory Training Academy, The Great Ace Attorney Chronicles, STEINS;GATE RE:BOOT, Big Brain Academy: Brain vs. Brain, Patrick's Parabox, Celeste, Raging Loop and Mario vs. Donkey Kong start in 2D, the other games in 3D (STEINS;GATE RE:BOOT's quick save is R3, in the 3D layout).
++The gear at the top centre opens the in-game menu: **Controller layout** switches between **2D** and **3D** (and **Tap**, every touch to the game, in handheld mode) and holds **Adjust Gamepad Layout**, which moves and resizes the touch controls by groups, and the settings that take effect at once are there too, such as **Picture**, **Console mode** and **Game rumble** ([In-game menu](settings.md#in-game-menu)). The app remembers your choices. Wonder, Engage, Dread, 13 Sentinels, Link's Awakening, Ace Attorney Investigations Collection, Unicorn Overlord, Rhythm Heaven Groove, Octopath Traveler 0, Pokémon Legends: Z-A, Cuphead, Absolum, Blasphemous 2, Brain Memory Training Academy, The Great Ace Attorney Chronicles, STEINS;GATE RE:BOOT, Big Brain Academy: Brain vs. Brain, Patrick's Parabox, Celeste, Raging Loop and Mario vs. Donkey Kong start in 2D, the other games in 3D (STEINS;GATE RE:BOOT's quick save is R3, in the 3D layout).
+ 
+ In 3D, the right stick (the camera in most games) is not drawn: swipe on the right third of the screen, starting anywhere off the buttons. In Super Mario Galaxy and Super Mario Galaxy 2, other touches outside the controls move the pointer; in Captain Toad: Treasure Tracker they touch the game's screen (touch blocks, stun enemies), and in Big Brain Academy: Brain vs. Brain too (its menus and activities).
+ 
+diff --git a/docs/settings.md b/docs/settings.md
+index 5af76cf..4b8d4b1 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -278,6 +278,8 @@ On the iPhone and iPad the gear at the top centre of the touch controls opens a
+ 
+ Console mode changes as on a Switch put in or taken out of its dock. While a TV shows the game it stays **Docked**, and the mode you pick applies when the TV is disconnected. **Docked** removes the Tap layout, as a docked Switch reads no touch screen.
+ 
++**Controller layout** › **Adjust Gamepad Layout** (2D and 3D) lets you move and resize the touch controls by groups: the left shoulders (ZL, L, L3), the right ones (ZR, R, R3), the left stick, the D-pad, A B X Y, and −, the gear and +. Tap a group to choose it, drag it anywhere (it follows once your finger has moved a few points, and snaps to the edges and the middle), and pinch it with two fingers on it, or use the panel's slider or − and +, to resize it. A thumb resting elsewhere on the screen does not get in the way of a drag, and a touch on the panel never moves a group under it. **All controls** resizes every control at once, down to the size that keeps every touch target 44 points across (on most iPhones held sideways at the small or medium size, − and + are no larger than that already, so it starts at 100 %). Above the chosen group's row the panel asks how a group and its mirror image move, the shoulders of both sides and the left stick with A B X Y: **Both sides together** (at first) moves them as one, so one drag lowers the whole top row, and a size goes to the mirror image as far as it has room, the chosen group growing on alone beyond that (A B X Y larger than the left stick, which meets the D-pad in 3D), the panel naming the group that stopped; **Each side on its own** moves and sizes only the group you drag. The choice is kept per layout, and it is dimmed while the D-pad or −, the gear and + is chosen, which have no mirror image. Picked while the two sides are apart, **Both sides together** moves nothing at once: the other side goes to the mirrored place the next time you move or resize either. A spot with no room turns red and the group goes back when you let go (the panel says when only the mirror image has no room there), and a size stops where the group meets another. **Reset to default** puts the layout on screen back, **Cancel** keeps the layout from before, **Done** saves it (nothing, when nothing changed). While the editor is open the game is told it lost the focus, as for the quit prompt, so a game that pauses there pauses, and the touch controls send nothing. Places are kept per layout (2D, 3D, over the picture or below it) as positions in the area each group may use, so they fit every screen; a group with no room on a smaller screen stays where it is built in. In the NX2Apple shell, **Save for** chooses all games or this game: the editor shows what Done saves there, the layout on screen and the ones you changed as you left them, the others as that choice holds them, so saving for all games from a game with its own layout replaces only those in every game's layout. For this game, **Reset to default** asks: **Built-in layout** (the layout on screen) or **Same as All games** (the game follows the layout of all games again, which Done leaves as it is). The value is `DM_TOUCH_GROUPS` (`DmPadGeometry.h`, Groups).
++
+ ## TV
+ 
+ Connect a TV or monitor by cable, or start Screen Mirroring to an Apple TV or AirPlay TV. The game fills it in 16:9 at up to 1080p and switches to **Docked**. The iPhone or iPad keeps its touch controls. With a physical controller connected, the touch controls and settings gear hide. Disconnect the controller to use touch again, or disconnect the TV to bring the picture and gear back to the device in its earlier mode. AirPlay adds some delay; a cable has almost none.
