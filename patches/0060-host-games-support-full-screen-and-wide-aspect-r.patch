@@ -4,7 +4,7 @@ Date: Mon, 16 Nov 2026 12:51:48 +0000
 Subject: [PATCH] host, games: support full-screen and wide aspect ratios for
  ACNH, Pokopia and Ocarina
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#2891
 Reason: Support full-screen aspect ratios on iPhone and wide Mac displays for supported game profiles
 Issue: none
 ---
