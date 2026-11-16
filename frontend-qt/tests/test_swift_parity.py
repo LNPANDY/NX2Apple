@@ -1748,9 +1748,10 @@ class ParityWindowTests(unittest.TestCase):
 
             # 5 & 7. Segmented control non-overlapping segments with gap >= 5px
             rects = w.ipa_kind_seg._segment_rects()
-            self.assertEqual(len(rects), 2)
-            r0, r1 = rects[0][2], rects[1][2]
+            self.assertEqual(len(rects), 3)
+            r0, r1, r2 = rects[0][2], rects[1][2], rects[2][2]
             self.assertGreaterEqual(r1.left() - r0.right(), 5.0)
+            self.assertGreaterEqual(r2.left() - r1.right(), 5.0)
 
             # 6. Step 1 & Step 3 reveal buttons + Copy game data button enabled when archive exists,
             # while redundant buttons on the Start Build row stay hidden

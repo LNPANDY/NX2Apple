@@ -680,8 +680,9 @@ class StandaloneFrameworkExportTest(unittest.TestCase):
                 with open(fw_src / 'Info.plist', 'wb') as pf:
                     plistlib.dump({'DMTitleID': tid_a, 'CFBundleIconFile': 'AppIcon.png'}, pf)
 
-                lib_path = root / 'library.json'
-                library = lib.GameLibrary(str(lib_path))
+                state_dir = root / 'state'
+                state_dir.mkdir()
+                library = lib.GameLibrary(state_dir)
                 recorded = library.record_completed_ios(
                     ipa_path=str(out_dir / f'DmGame{tid_a}.framework'),
                     output_dir=str(out_dir),

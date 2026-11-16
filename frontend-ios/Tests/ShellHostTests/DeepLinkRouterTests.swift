@@ -356,24 +356,25 @@ private struct DeepLinkLaunchError: LocalizedError {
     @Test func deepLinkWhileStoppingQueuesInsteadOfReusingAndUnknownTargetPreservesRunningCallback() async throws {
         let box = try FrameworkBox()
         _ = try makePlayableFramework(
-            in: box.frameworks, folder: "DmGame\(Fixtures.drift).framework", titleID: Fixtures.drift,
-            title: "Drift", bundleID: "org.nxnative.drift", box: box
+            in: box.frameworks, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Fixture", bundleID: "org.nxnative.orbit", box: box
         )
         _ = try makePlayableFramework(
-            in: box.frameworks, folder: "DmGame\(Fixtures.wave).framework", titleID: Fixtures.wave,
-            title: "Wave", bundleID: "org.nxnative.wave", box: box
+            in: box.frameworks, folder: "DmGame\(secondTitleID).framework", titleID: secondTitleID,
+            title: "Second Game", bundleID: "org.nxnative.second", box: box
         )
-        try seedAppData(box: box, titleID: Fixtures.drift)
-        try seedAppData(box: box, titleID: Fixtures.wave)
+        try seedAppData(box: box, titleID: Fixtures.orbit)
+        try seedAppData(box: box, titleID: secondTitleID)
 
         let harness = DeepLinkHarness()
         let launcher = DeepLinkRecordingLauncher()
+        launcher.onLaunch = { game in harness.activeGameID = game.titleID }
         let model = makeModel(box: box, harness: harness, launcher: launcher)
 
         // Start Game A with x-success callback.
-        let urlA = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.drift)&x-success=shortcuts://done-a"))
+        let urlA = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.orbit)&x-success=shortcuts://done-a"))
         #expect(await model.handleDeepLinkNow(urlA))
-        harness.activeGameID = Fixtures.drift
+        #expect(harness.activeGameID == Fixtures.orbit)
 
         // Sending an unknown target while Game A is still running triggers error callback for that bad link
         // without wiping Game A's pending x-success callback.
@@ -383,12 +384,12 @@ private struct DeepLinkLaunchError: LocalizedError {
         harness.openedURLs.removeAll()
 
         // Request switch to Game B (async stop requested, activeGameID still reports A until teardown finishes).
-        let urlB = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.wave)&x-success=shortcuts://done-b"))
+        let urlB = try #require(URL(string: "nx2apple://launch?id=\(secondTitleID)&x-success=shortcuts://done-b"))
         #expect(await model.handleDeepLinkNow(urlB))
-        #expect(harness.stopCount == 1)
+        #expect(harness.stopRequestCount == 1)
 
         // Before Game A finishes tearing down, re-requesting A must queue A for relaunch rather than treating it as already running.
-        let relaunchA = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.drift)&x-success=shortcuts://relaunch-a"))
+        let relaunchA = try #require(URL(string: "nx2apple://launch?id=\(Fixtures.orbit)&x-success=shortcuts://relaunch-a"))
         #expect(await model.handleDeepLinkNow(relaunchA))
         #expect(harness.openedURLs.isEmpty)
         #expect(model.isDeepLinkLaunching)
@@ -398,7 +399,7 @@ private struct DeepLinkLaunchError: LocalizedError {
         NotificationCenter.default.post(name: ShellHostModel.didReturnToLibraryNotification, object: nil)
         try await Task.sleep(for: .milliseconds(80))
         await model.waitForDeepLinkTask()
-        #expect(launcher.launched.map(\.titleID) == [Fixtures.drift, Fixtures.drift])
+        #expect(launcher.launched.map(\.titleID) == [Fixtures.orbit, Fixtures.orbit])
         #expect(harness.openedURLs.isEmpty)
 
         // When Game A finally exits normally, shortcuts://relaunch-a fires.

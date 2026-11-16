@@ -15,6 +15,15 @@ final class ShellExportCaptureTests: IsolatedDefaultsTestCase {
         let output = URL(fileURLWithPath: directory)
         let fm = FileManager.default
         try fm.createDirectory(at: output, withIntermediateDirectories: true)
+        let shellFolder = fm.temporaryDirectory.appendingPathComponent("NX2Apple-capture-\(UUID().uuidString)")
+        try fm.createDirectory(at: shellFolder, withIntermediateDirectories: true)
+        let ipa = shellFolder.appendingPathComponent("NX2Apple.ipa")   // the name an export writes
+        fm.createFile(atPath: ipa.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: ipa)
+        try handle.truncate(atOffset: 184_000_000)   // a sparse file of the size the card shows
+        try handle.close()
+        defer { try? fm.removeItem(at: shellFolder) }
+
         let rawLangs = ProcessInfo.processInfo.environment["NX_CAPTURE_LANGS"]
             ?? ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"]
             ?? "en"
