@@ -440,7 +440,7 @@ struct SavesView: View {
                         .padding(.horizontal, 22).padding(.vertical, 9)
                 }
                 .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(asking == nil ? .defaultAction : nil).disabled(busy)
-                .padTarget("saves.done", scope: "saves", radius: 20) { if !busy { dismiss() } }
+                .padTarget("saves.done", scope: "saves", focusColor: LauncherPalette.onCream, enabled: !busy) { if !busy { dismiss() } }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
         }
@@ -503,12 +503,12 @@ struct SavesView: View {
         let toMac = !busy && !(deviceSave?.folders.isEmpty ?? true)
         return HStack(spacing: 10) {
             Button(String(format: loc.t("saves.toDevice"), deviceName)) { ask(.device) }.disabled(!toDevice)
-                .padTarget("saves.toDevice", scope: "saves") { if toDevice { ask(.device) } }
+                .padTarget("saves.toDevice", scope: "saves", enabled: toDevice) { if toDevice { ask(.device) } }
             Button(String(format: loc.t("saves.toMac"), deviceName)) { ask(.mac) }.disabled(!toMac)
-                .padTarget("saves.toMac", scope: "saves") { if toMac { ask(.mac) } }
+                .padTarget("saves.toMac", scope: "saves", enabled: toMac) { if toMac { ask(.mac) } }
             Spacer(minLength: 8)
             Button(loc.t("dev.refresh")) { model.refresh() }.disabled(busy || !model.canRefresh)
-                .padTarget("saves.refresh", scope: "saves") { if !busy { model.refresh() } }
+                .padTarget("saves.refresh", scope: "saves", enabled: !busy && model.canRefresh) { if !busy { model.refresh() } }
             if FileManager.default.fileExists(atPath: transfer.backups.path) {
                 Button(loc.t("saves.backups")) { NSWorkspace.shared.open(transfer.backups) }
                     .padTarget("saves.backups", scope: "saves") { NSWorkspace.shared.open(transfer.backups) }
@@ -532,7 +532,7 @@ struct SavesView: View {
                     Text(loc.t("saves.replace")).font(.manrope(13, .bold))
                         .padding(.horizontal, 18).padding(.vertical, 9)
                 }
-                .buttonStyle(LauncherActionButtonStyle(.rounded(9))).keyboardShortcut(.defaultAction)
+                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(.defaultAction)
                 .padTarget("saves.replace", scope: "saves") { copy(replacing) }
             }
         }

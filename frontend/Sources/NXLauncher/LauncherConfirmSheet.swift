@@ -67,7 +67,7 @@ package struct LauncherConfirmSheet<Content: View>: View {
         .font(.manrope(13))
         .launcherAppearance()
         .tint(LauncherPalette.accent)
-        .onAppear { cancelFocused = true }
+        .onAppear { cancelFocused = true; pad.scope = scope; pad.focused = scope + ".cancel" }
     }
 }
 

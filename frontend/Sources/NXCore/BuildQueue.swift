@@ -24,6 +24,8 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
     package var packageAfter: Bool
     /// Whether an iPhone/iPad batch exports an unsigned IPA (true) or installs directly on a device (false), nil before start or on Mac.
     package var exportIPA: Bool?
+    /// False after compiling for a shared batch, true during packaging, nil when no packaging remains.
+    package var packagePending: Bool? = nil
     package var status: Status
     /// Why the entry failed or was skipped, shown in the summary.
     package var reason: String?
@@ -51,6 +53,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         case batch
         case packageAfter
         case exportIPA
+        case packagePending
         case status
         case reason
         case destinationName
@@ -116,6 +119,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.batch = try c.decode(UUID.self, forKey: .batch)
         self.packageAfter = try c.decodeIfPresent(Bool.self, forKey: .packageAfter) ?? false
         self.exportIPA = try c.decodeIfPresent(Bool.self, forKey: .exportIPA)
+        self.packagePending = try c.decodeIfPresent(Bool.self, forKey: .packagePending)
         self.status = try c.decode(Status.self, forKey: .status)
         self.reason = try c.decodeIfPresent(String.self, forKey: .reason)
         self.destinationName = try c.decodeIfPresent(String.self, forKey: .destinationName)
@@ -137,6 +141,27 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
             parts.append(paths.count > 1 ? "\(paths.count) × \(t(key))" : t(key))
         }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// One visible game can contain independent Mac and iOS jobs and their results.
+package struct QueueGame: Identifiable {
+    package let entries: [QueueEntry]
+    package var id: UUID { entries[0].id }
+    package var titleID: String { entries[0].titleID }
+    package var name: String { entries[0].name }
+    package var both: Bool { Set(entries.map { BuildTarget.normalized($0.target) }).count > 1 }
+    package var running: Bool { entries.contains { $0.status == .running || $0.packagePending == true } }
+    package var waiting: Bool { entries.contains { $0.status == .queued } }
+    package var retryable: Bool { !running && entries.contains { $0.status == .failed || $0.status == .skipped || $0.status == .stopped } }
+    package static func grouped(_ entries: [QueueEntry]) -> [QueueGame] {
+        var order: [String] = [], groups: [String: [QueueEntry]] = [:]
+        for entry in entries {
+            let key = entry.titleID.uppercased()
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(entry)
+        }
+        return order.map { QueueGame(entries: groups[$0]!) }
     }
 }
 

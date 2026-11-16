@@ -1,22 +1,29 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import NXCore
+import NXModel
 import NXLauncher
 
 @MainActor struct OnboardingView<Driver: OnboardingDriver>: View {
     @ObservedObject var driver: Driver
     var lang: Lang = .initial()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var padFocus = PadFocus()
+    @StateObject private var padFocus: PadFocus
     @StateObject private var gamepad: LauncherGamepad
     @State private var pickerOpen = false
     @State private var pickingKeys = true
     @State private var detailsOpen = false
+    @State private var xcodeOpen = false
+    @State private var supportOpen = false
+    @State private var keysHelpOpen = false
+    @State private var keysHelpDismissedAt = Date.distantPast
     @State private var pickerError: String?
+    @State private var selectedGames: Set<String> = []
     @State private var backwards = false
     @AccessibilityFocusState private var headingFocused: Bool
 
-    init(driver: Driver, lang: Lang = .initial(), gamepad: LauncherGamepad? = nil) {
+    init(driver: Driver, lang: Lang = .initial(), gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil) {
+        _padFocus = StateObject(wrappedValue: padFocus ?? PadFocus())
         _driver = ObservedObject(wrappedValue: driver)
         self.lang = lang
         _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())
@@ -45,34 +52,45 @@ import NXLauncher
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            navigation
-                .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
-            // The block sits in the middle of the space between header and footer; when it is taller than that space
-            // it starts at the top and scrolls (the minimum height only ever adds room around a short block).
-            GeometryReader { space in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 28) {
-                        heading
-                        stepContent
+        GeometryReader { window in
+            VStack(spacing: 0) {
+                if state.step == .keys || state.step == .games {
+                    compactImport(width: window.size.width)
+                } else {
+                // Setup needs room for its forms rather than the Library's expanding artwork showcase.
+                onboardingHero(width: window.size.width, height: 300)
+                GeometryReader { space in
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            stepContent
+                                .padding(.horizontal, 40).padding(.vertical, 32)
+                                .frame(maxWidth: 900, alignment: .leading)
+                                .frame(maxWidth: .infinity, minHeight: space.size.height, alignment: .center)
+                                .id(state.step)
+                                .transition(transition)
+                        }
+                        .onChange(of: padFocus.focused) { id in
+                            guard let id, padFocus.scope == "onboarding",
+                                  id != "onboarding.primary", id != "onboarding.back" else { return }
+                            withAnimation(LauncherMotion.animation(.easeInOut(duration: 0.18), reduceMotion: reduceMotion)) {
+                                proxy.scrollTo(id, anchor: .center)
+                            }
+                        }
                     }
-                    .frame(maxWidth: 880, alignment: .leading)
-                    .padding(.horizontal, 56).padding(.vertical, 28)
-                    .frame(maxWidth: .infinity, minHeight: space.size.height, alignment: .center)
-                    .id(state.step)
-                    .transition(transition)
+                }.clipped()
                 }
+                footer
+                    .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
             }
-            .clipped()
-            footer
-                .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
         }
         .animation(.easeInOut(duration: reduceMotion ? 0.16 : 0.32), value: state.step)
         .font(.manrope(14))
         .foregroundStyle(LauncherPalette.textStrong)
         .background(LauncherPalette.background)
         .background(LauncherWindowChrome())
+        .background(ConsoleKeyboardInput(perform: keyboardAction, accepts: { !pickerOpen && !keysHelpOpen && [.left, .right, .up, .down, .activate, .back].contains($0) }))
         .launcherAppearance()
+        .ignoresSafeArea(.container, edges: .top)
         .tint(LauncherPalette.accent)
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .padScope("onboarding", padFocus)
@@ -84,17 +102,46 @@ import NXLauncher
         }
         .onDisappear { gamepad.deactivate() }
         .onChange(of: state.step) { _ in
+            keysHelpOpen = false
+            padFocus.scope = "onboarding"
             padFocus.focused = nil
             detailsOpen = false
+            xcodeOpen = false
+            supportOpen = false
             pickerError = nil
+            selectedGames = []
             headingFocused = true
+        }
+        .onChange(of: keysHelpOpen) { open in
+            if !open {
+                keysHelpDismissedAt = Date()
+                padFocus.scope = "onboarding"
+                padFocus.focused = state.step == .keys && padFocus.visible ? "onboarding.keys.help" : nil
+            }
+        }
+        .task(id: state.step == .done && state.done == .ready) {
+            guard state.step == .done, state.done == .ready else { return }
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard !Task.isCancelled, state.step == .done else { return }
+            driver.openLibrary()
+        }
+        .onChange(of: state.xcode) { value in
+            if case .failed = value { return }
+            detailsOpen = false
+            if padFocus.focused == "onboarding.details" { padFocus.focused = "onboarding.xcode" }
+            if [.checking, .settingUp, .ready].contains(value), padFocus.focused == "onboarding.xcode.action" {
+                padFocus.focused = "onboarding.xcode"
+            }
+        }
+        .onChange(of: supportStatus) { value in
+            if case .failed = value { return }
+            if padFocus.focused == "onboarding.support.action" { padFocus.focused = "onboarding.support" }
         }
         .onChange(of: accessibilityStatus) { status in
             guard !status.isEmpty else { return }
             NSAccessibility.post(element: NSApplication.shared, notification: .announcementRequested,
                                  userInfo: [.announcement: status, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
         }
-        .onExitCommand { goBack() }
         .fileImporter(isPresented: $pickerOpen, allowedContentTypes: pickingKeys ? [.data] : [.folder]) { result in
             switch result {
             case let .success(url): pickingKeys ? driver.chooseKeys(url) : driver.chooseGames(url)
@@ -103,29 +150,34 @@ import NXLauncher
         }
     }
 
-    private var navigation: some View {
-        HStack {
-            Group {
-                if state.step != .welcome {
-                    Button(action: goBack) { Label(t("onboarding.back"), systemImage: "chevron.left") }
-                        .buttonStyle(LauncherSecondaryButtonStyle())
-                        .padTarget("onboarding.back", scope: "onboarding", activate: goBack)
-                } else { Color.clear.frame(height: 36) }
-            }.frame(width: 130, alignment: .leading)
-            Spacer()
-            HStack(spacing: 10) {
-                ForEach(OnboardingStep.allCases, id: \.self) { step in
-                    Capsule().fill(step == state.step ? LauncherPalette.cream : (step.index < state.step.index ? LauncherPalette.ready : LauncherPalette.ink(0.18)))
-                        .frame(width: step == state.step ? 26 : 7, height: 7)
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(String(format: t("onboarding.stepCount"), state.step.index + 1, OnboardingStep.allCases.count))
-            Spacer()
-            Color.clear.frame(width: 130, height: 1)   // balances the Back button; Set up later is in the footer, with its note (#686)
+    private func onboardingHero(width: CGFloat, height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            navigation
+            heading
+                .font(.manrope(min(50, max(40, width * 0.045)), .bold))
+                .padding(.horizontal, 40).padding(.vertical, 24)
+                .frame(maxWidth: 900, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .id(state.step)
+                .transition(LibraryHeroTransition.blurredMetadata(reduceMotion: reduceMotion))
         }
-        .padding(.horizontal, 40).padding(.top, 40).padding(.bottom, 12)
-        .background(TitlebarDoubleClick())   // an empty part of the header acts as the title bar does
+        .frame(height: height)
+        .background(LibraryFallbackArtwork(size: CGSize(width: width, height: height)))
+        .accessibilityIdentifier("onboarding.hero")
+    }
+
+    private var navigation: some View {
+        HStack(spacing: 22) {
+            LauncherBrandMark()
+            Divider().frame(height: 22)
+            Text(t("onboarding.setup")).font(.manrope(14, .medium)).foregroundStyle(LauncherPalette.secondaryText)
+            Spacer()
+            if state.step == .keys {
+                OnboardingKeysHelp(open: $keysHelpOpen, lang: lang, canSkip: state.canSkipKeys, skip: skipKeys)
+            }
+        }
+        .padding(.leading, 90).padding(.trailing, 32).frame(height: 64)
+        .background(TitlebarDoubleClick())
     }
 
     private var heading: some View {
@@ -133,7 +185,7 @@ import NXLauncher
             if state.step == .done {
                 OnboardingCheck(lang: lang).frame(width: 64, height: 64).padding(.bottom, 12)
             }
-            Text(t(state.step.titleKey)).font(.manrope(44, .bold)).tracking(-1.3)
+            Text(t(state.step.titleKey)).tracking(-1.3)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityValue(accessibilityStatus)
@@ -154,12 +206,7 @@ import NXLauncher
         case .xcode: xcode
         case .keys: keys
         case .games: games
-        case .done:
-            VStack(alignment: .leading, spacing: 18) {
-                requirement("onboarding.done.platform", value: t("onboarding.platform.\(state.selectedPlatform?.rawValue ?? "mac")"), okay: true)
-                requirement("onboarding.done.tools", value: t("onboarding.ready"), okay: true)
-                requirement("onboarding.done.keys", value: t(state.keys.statusKey), okay: state.keys == .valid ? true : nil)
-            }.modifier(OnboardingCard())
+        case .done: EmptyView()
         }
     }
 
@@ -169,9 +216,10 @@ import NXLauncher
             requirement("onboarding.require.files", value: t("onboarding.require.filesNote"), okay: nil)
             if case let .requirements(free, needed) = state.welcome {
                 requirement("onboarding.require.disk", value: String(format: t("onboarding.require.diskNote"), free, needed), okay: state.welcome.hasSpace)
-                // Always laid out (shown only when short of room) so the centered block does not shift
-                Text(t("onboarding.require.diskWarning")).foregroundStyle(LauncherPalette.building)
-                    .opacity(state.welcome.hasSpace ? 0 : 1).accessibilityHidden(state.welcome.hasSpace)
+                if !state.welcome.hasSpace {
+                    Text(t("onboarding.require.diskWarning")).foregroundStyle(LauncherPalette.building)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             // A fact about this Mac, constant during setup: a calm note, not a warning, and no gate.
             if state.osTooOldForNVN {
@@ -199,102 +247,158 @@ import NXLauncher
             ForEach(OnboardingPlatform.allCases, id: \.self) { platform in
                 let selected = state.selectedPlatform == platform
                 Button { driver.choosePlatform(platform) } label: {
-                    VStack(alignment: .leading, spacing: 18) {
-                        HStack {
-                            Image(systemName: platform.symbol).font(.system(size: 34, weight: .light))
-                            Spacer()
-                            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selected ? LauncherPalette.accent : LauncherPalette.ink(0.2))
-                        }.frame(height: 40, alignment: .top).accessibilityHidden(true)   // symbols differ in height: the titles stay on one line
-                        Text(t("onboarding.platform.\(platform.rawValue)")).font(.manrope(22, .bold))
-                        Text(t(platform.includesIOS ? "onboarding.platform.iosSize" : "onboarding.platform.macNote"))
-                            .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(24).frame(maxWidth: .infinity, minHeight: 216, maxHeight: 216, alignment: .topLeading)
-                    .background(selected ? LauncherPalette.selectedFillStrong : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.accent : LauncherPalette.ink(0.10), lineWidth: selected ? 2 : 1))
-                    .contentShape(RoundedRectangle(cornerRadius: 14))
+                    LauncherTargetOptionLabel(title: t("onboarding.platform.\(platform.rawValue)"), symbol: platform.symbol,
+                        badge: platform.includesIOS ? t("onboarding.platform.extraStorage") : nil, selected: selected, height: 180, titleAtBottom: true)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(t("onboarding.platform.\(platform.rawValue)"))
+                .accessibilityValue(platform.includesIOS ? t("onboarding.platform.extraStorage") : "")
                 .accessibilityAddTraits(selected ? .isSelected : [])
                 .padTarget("onboarding.platform.\(platform.rawValue)", scope: "onboarding", radius: 14) { driver.choosePlatform(platform) }
             }
         }
     }
 
-    /// Both Xcode cards have this content height in every state (the tallest is setting up with the iOS sub-step), so nothing
-    /// jumps when the state changes; content sits at the top and scrolls inside the card when it is longer.
-
-    private func fixedCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        ScrollView {
-            content().frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(height: onboardingXcodeCardHeight, alignment: .top)
-        .modifier(OnboardingCard())
+    private var supportStatus: OnboardingTaskState {
+        let tasks = OnboardingBackgroundTask.allCases.map { state.background[$0] ?? .queued }
+        if let failed = tasks.first(where: { if case .failed = $0 { return true }; return false }) { return failed }
+        if state.engineTransfer != nil || tasks.contains(where: { if case .running = $0 { return true }; return false }) { return .running(nil) }
+        return tasks.allSatisfy(\.isDone) ? .done : .queued
     }
 
     private var xcode: some View {
-        HStack(alignment: .top, spacing: 22) {
-            fixedCard {
-              VStack(alignment: .leading, spacing: 20) {
-                HStack(spacing: 12) {
-                    xcodeIcon
-                    Text(t(state.xcode.statusKey)).font(.manrope(18, .semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-                }.accessibilityElement(children: .combine)
-                switch state.xcode {
-                case .checking: Text(t("onboarding.xcode.checkingNote")).foregroundStyle(LauncherPalette.secondaryText)
-                case .missing: Text(t("onboarding.xcode.missingNote")).foregroundStyle(LauncherPalette.secondaryText)
-                case .disconnected: Text(t("xcodeChoice.unavailable")).foregroundStyle(LauncherPalette.secondaryText)
-                case .downloading:
-                    Text(t("onboarding.xcode.downloadNote")).foregroundStyle(LauncherPalette.secondaryText)
-                    waitingBar
-                case .needsSetup: Text(t("onboarding.xcode.passwordNote")).foregroundStyle(LauncherPalette.secondaryText)
-                case .settingUp, .ready:
-                    ForEach(state.setupTasks, id: \.self) { task in
-                        taskRow(task.titleKey, status: state.setup[task] ?? (state.xcode == .ready ? .done : .queued))
+        VStack(spacing: 14) {
+            setupAccordion("onboarding.xcode.section", subtitle: t(state.xcode.statusKey), id: "onboarding.xcode", open: $xcodeOpen) {
+                xcodeIcon
+            } content: {
+                VStack(alignment: .leading, spacing: 16) {
+                    switch state.xcode {
+                    case .checking: Text(t("onboarding.xcode.checkingNote")).foregroundStyle(LauncherPalette.secondaryText)
+                    case .missing: Text(t("onboarding.xcode.missingNote")).foregroundStyle(LauncherPalette.secondaryText)
+                    case .disconnected: Text(t("xcodeChoice.unavailable")).foregroundStyle(LauncherPalette.secondaryText)
+                    case .downloading:
+                        Text(t("onboarding.xcode.downloadNote")).foregroundStyle(LauncherPalette.secondaryText)
+                        waitingBar
+                    case .needsSetup: Text(t("onboarding.xcode.passwordNote")).foregroundStyle(LauncherPalette.secondaryText)
+                    case .settingUp, .ready:
+                        ForEach(state.setupTasks, id: \.self) { task in
+                            taskRow(task.titleKey, status: state.setup[task] ?? (state.xcode == .ready ? .done : .queued))
+                        }
+                    case let .failed(failure): failureView(failure)
                     }
-                case let .failed(failure): failureView(failure)
+                    if state.xcodeTooOldForNVN, state.xcode != .checking {
+                        Text(t("onboarding.nvn.xcode")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-                // Inside the fixed card (it scrolls when longer), so the card heights stay as they are.
-                if state.xcodeTooOldForNVN, state.xcode != .checking {
-                    Text(t("onboarding.nvn.xcode")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+            }
+            setupAccordion("onboarding.background.title", subtitle: t(supportStatus.statusKey), id: "onboarding.support", open: $supportOpen) {
+                statusIcon(supportStatus)
+            } content: {
+                VStack(alignment: .leading, spacing: 15) {
+                    ForEach(OnboardingBackgroundTask.allCases, id: \.self) { task in
+                        taskRow(task.titleKey, status: state.background[task] ?? .queued, detail: state.backgroundDetails[task])
+                    }
+                    if let transfer = state.engineTransfer {
+                        taskRow("onboarding.background.engine", status: .running(transfer.fraction), detail: transfer.detail)
+                    }
+                    Text(t("onboarding.background.note")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-              }
             }
-            fixedCard {
-              VStack(alignment: .leading, spacing: 15) {
-                Text(t("onboarding.background.title")).font(.manrope(14, .semibold))
-                ForEach(OnboardingBackgroundTask.allCases, id: \.self) { task in
-                    taskRow(
-                        task.titleKey,
-                        status: state.background[task] ?? .queued,
-                        detail: state.backgroundDetails[task]
-                    )
-                }
-                if let transfer = state.engineTransfer {
-                    taskRow(
-                        "onboarding.background.engine",
-                        status: .running(transfer.fraction),
-                        detail: transfer.detail
-                    )
-                }
-                Text(t("onboarding.background.note")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-              }
+        }
+    }
+
+    private func setupAccordion<Icon: View, Content: View>(_ title: String, subtitle: String, id: String, open: Binding<Bool>,
+        @ViewBuilder icon: () -> Icon, @ViewBuilder content: () -> Content) -> some View {
+        let toggle = {
+            withAnimation(LauncherMotion.animation(.easeOut(duration: 0.18), reduceMotion: reduceMotion)) { open.wrappedValue.toggle() }
+            if !open.wrappedValue, id == "onboarding.xcode", padFocus.visible, padFocus.focused == "onboarding.details" {
+                padFocus.focused = id
             }
+        }
+        return VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Button(action: toggle) {
+                    HStack(spacing: 12) {
+                        icon().frame(width: 52, height: 52)
+                            .background(LauncherPalette.ink(0.08), in: RoundedRectangle(cornerRadius: 10)).accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(t(title)).font(.manrope(14, .semibold))
+                            Text(subtitle).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                            .rotationEffect(.degrees(open.wrappedValue ? 90 : 0)).foregroundStyle(LauncherPalette.secondaryText).accessibilityHidden(true)
+                    }.padding(18).contentShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(t(open.wrappedValue ? "onboarding.expanded" : "onboarding.collapsed"))
+                .padTarget(id, scope: "onboarding", radius: 14, activate: toggle)
+                if id == "onboarding.xcode" {
+                    if state.xcode != .ready { xcodeAction.padding(.trailing, 18) }
+                } else if state.backgroundFailed {
+                    Button(t("onboarding.retry")) { driver.retry(.xcode) }
+                        .buttonStyle(LauncherSecondaryButtonStyle())
+                        .padTarget("onboarding.support.action", scope: "onboarding") { driver.retry(.xcode) }
+                        .padding(.trailing, 18)
+                }
+            }
+            if open.wrappedValue {
+                Divider().padding(.horizontal, 18)
+                content().padding(18).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.08)))
+    }
+
+    @ViewBuilder private var xcodeAction: some View {
+        switch state.xcode {
+        case .missing, .needsSetup, .failed, .disconnected:
+            Button(action: performXcodeAction) {
+                Text(t(state.xcode == .missing ? "onboarding.getXcode" : state.xcode == .needsSetup ? "onboarding.xcode.prepare" : "onboarding.retry"))
+                    .frame(minWidth: 90)
+            }
+            .buttonStyle(LauncherSecondaryButtonStyle())
+            .padTarget("onboarding.xcode.action", scope: "onboarding", activate: performXcodeAction)
+        case .checking, .downloading, .settingUp:
+            Button(action: driver.recheckXcode) {
+                HStack(spacing: 8) {
+                    OnboardingWaiting(label: t("onboarding.running")).frame(width: 14, height: 14).accessibilityHidden(true)
+                    Text(t("onboarding.xcode.waiting"))
+                }
+                .font(.manrope(13, .semibold)).padding(.horizontal, 15)
+                .frame(minWidth: 120, minHeight: LauncherControl.height).contentShape(Capsule())
+            }
+            .buttonStyle(.plain).launcherHover().disabled(state.xcode != .downloading)
+            .padTarget("onboarding.xcode.action", scope: "onboarding", enabled: state.xcode == .downloading, activate: driver.recheckXcode)
+        case .ready: EmptyView()
+        }
+    }
+
+    private func performXcodeAction() {
+        switch state.xcode {
+        case .missing: driver.getXcode()
+        case .needsSetup: driver.finishXcodeSetup()
+        default: driver.retry(.xcode)
         }
     }
 
     @ViewBuilder private var xcodeIcon: some View {
         switch state.xcode {
-        case .ready: OnboardingCheck(lang: lang).frame(width: 26, height: 26)
-        case .checking, .downloading, .settingUp: OnboardingWaiting(label: t("onboarding.running")).frame(width: 24, height: 24)
-        default: Image(systemName: "hammer").foregroundStyle(LauncherPalette.accent).accessibilityHidden(true)
+        case .ready: statusIcon(.done)
+        case .checking, .downloading, .settingUp: statusIcon(.running(nil))
+        default: Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 24)).foregroundStyle(.orange)
+        }
+    }
+
+    @ViewBuilder private func statusIcon(_ status: OnboardingTaskState) -> some View {
+        switch status {
+        case .done: Image(systemName: "checkmark.circle.fill").font(.system(size: 24)).foregroundStyle(LauncherPalette.ready)
+        case .running: OnboardingWaiting(label: t("onboarding.running")).frame(width: 24, height: 24)
+        case .queued: Image(systemName: "clock.fill").font(.system(size: 24)).foregroundStyle(LauncherPalette.secondaryText)
+        case .failed: Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 24)).foregroundStyle(.orange)
         }
     }
 
@@ -371,127 +475,93 @@ import NXLauncher
         }
     }
 
-    /// Content height of the keys card and the least of the games card, so their states do not resize them.
-
     private var keys: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 12) {
-                if state.keys == .valid { OnboardingCheck(lang: lang).frame(width: 26, height: 26) }
-                else if state.keys == .searching || state.keys == .validating {
-                    OnboardingWaiting(label: t(state.keys.statusKey)).frame(width: 24, height: 24)
-                } else { Image(systemName: "key").foregroundStyle(LauncherPalette.accent).accessibilityHidden(true) }
-                Text(t(state.keys.statusKey)).font(.manrope(17, .semibold))
-            }.accessibilityElement(children: .combine)
-            if case let .found(url) = state.keys {
-                Text(url.path).font(.mono(12)).foregroundStyle(LauncherPalette.secondaryText).textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if case let .invalid(reason) = state.keys {
-                Text(reason).foregroundStyle(LauncherPalette.building).fixedSize(horizontal: false, vertical: true)
-            }
-            if state.keys != .valid {
-                dropZone(keys: true, enabled: state.keys != .validating)
-            }
-            if state.canSkipKeys {
-                Button(t("onboarding.keys.skip"), action: skipKeys)
-                    .buttonStyle(LauncherSecondaryButtonStyle())
-                    .padTarget("onboarding.keys.skip", scope: "onboarding", activate: skipKeys)
-                Text(t("onboarding.keys.skipNote")).font(.manrope(12)).foregroundStyle(.secondary)
-            }
-            Text(t("onboarding.keys.privacy")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
-        }
-        .frame(minHeight: onboardingDropCardHeight, alignment: .topLeading)   // the same size whether it asks, checks or is done
-        .modifier(OnboardingCard())
+        OnboardingKeysContent(state: state, lang: lang,
+            choose: { pickingKeys = true; pickerOpen = true }, receive: driver.chooseKeys)
     }
 
     private var games: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            switch state.games {
-            case .scanning:
-                HStack(spacing: 12) {
-                    OnboardingWaiting(label: t("onboarding.games.scanning")).frame(width: 24, height: 24)
-                    Text(t("onboarding.games.scanning"))
-                }
-            case let .found(games) where !games.isEmpty:
-                if state.gamesNeedKeys { Text(t("onboarding.games.needKeys")).foregroundStyle(LauncherPalette.building) }
-                Text(String(format: t("onboarding.games.count"), games.count)).foregroundStyle(LauncherPalette.ready)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 210, maximum: 290))], alignment: .leading, spacing: 22) {
-                    ForEach(games) { game in
-                        VStack(alignment: .leading, spacing: 8) {
-                            // The collection's 1.8:1 crop, placeholder and radius, with driver-supplied artwork.
-                            GeometryReader { geometry in
-                                ZStack {
-                                    LauncherPalette.surface
-                                    if let cover = game.cover {   // the frame is on the picture: a cover of another shape still fills the tile (#661)
-                                        Image(nsImage: cover).resizable().scaledToFill()
-                                            .frame(width: geometry.size.width, height: geometry.size.height)
-                                    } else {
-                                        Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(LauncherPalette.secondaryText)
-                                    }
-                                }
-                                .frame(width: geometry.size.width, height: geometry.size.height).clipped()
-                                .clipShape(RoundedRectangle(cornerRadius: 5))
-                            }.aspectRatio(1.8, contentMode: .fit).accessibilityHidden(true)
-                            Text(game.title).font(.manrope(16, .semibold)).lineLimit(2)
-                            if !game.version.isEmpty {
-                                Text(String(format: t("onboarding.games.version"), game.version)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
-                            }
-                        }.accessibilityElement(children: .combine)
-                    }
-                }
-            case .none, .found:
-                Label(t("onboarding.games.none"), systemImage: "folder.badge.questionmark").foregroundStyle(LauncherPalette.building)
-                Text(t("onboarding.games.noneHint")).foregroundStyle(LauncherPalette.secondaryText)
-            case .empty: EmptyView()
-            }
-            dropZone(keys: false, enabled: state.games != .scanning)
-        }
-        .frame(minHeight: onboardingDropCardHeight, alignment: .topLeading)
+        OnboardingGamesContent(state: state, lang: lang, selected: $selectedGames,
+            choose: { pickingKeys = false; pickerOpen = true }, receive: driver.chooseGames,
+            build: { backwards = false; driver.buildGames(selectedGames) })
     }
 
-    private func dropZone(keys: Bool, enabled: Bool) -> some View {
-        OnboardingDropZone(label: t(keys ? "onboarding.keys.drop" : "onboarding.games.drop"),
-                           chooseLabel: t("onboarding.choose"), id: keys ? "keys" : "games", enabled: enabled,
-                           choose: { pickingKeys = keys; pickerOpen = true },
-                           receive: { url in keys ? driver.chooseKeys(url) : driver.chooseGames(url) })
+    private func compactImport(width: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            navigation
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 48) {
+                        heading.font(.manrope(min(50, max(40, width * 0.045)), .bold))
+                        stepContent
+                    }
+                    .padding(.horizontal, 40).padding(.top, 64).padding(.bottom, 32)
+                    .frame(maxWidth: 900, alignment: .leading).frame(maxWidth: .infinity, alignment: .top)
+                    .id(state.step).transition(transition)
+                }
+                .onChange(of: padFocus.focused) { id in
+                    guard let id, id.hasPrefix("onboarding.game.") else { return }
+                    withAnimation(LauncherMotion.animation(.easeInOut(duration: 0.18), reduceMotion: reduceMotion)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
+            }
+        }
+        .background(alignment: .top) { LibraryFallbackArtwork(size: CGSize(width: width, height: 300)).frame(height: 300) }
     }
+
+    private var footerEnabled: Bool { state.primaryEnabled && (state.step != .xcode || state.canAdvance) }
 
     private var footer: some View {
         VStack(spacing: 0) {
-            Divider().opacity(0.3)
+            ProgressView(value: Double(state.step.index + 1), total: Double(OnboardingStep.allCases.count))
+                .progressViewStyle(OnboardingStepProgressStyle())
+                .frame(height: 4)
+                .accessibilityLabel(String(format: t("onboarding.stepCount"), state.step.index + 1, OnboardingStep.allCases.count))
+                .accessibilityValue("")
+                .accessibilityIdentifier("onboarding.progress")
             HStack(spacing: 24) {
-                // Set up later and what it means stay together: one block, gap 6, the button first
-                VStack(alignment: .leading, spacing: 6) {
-                    Button(t("onboarding.later"), action: driver.skipForLater)
-                        .buttonStyle(.plain).font(.manrope(14, .semibold)).foregroundStyle(LauncherPalette.text)
-                        .padTarget("onboarding.later", scope: "onboarding", activate: driver.skipForLater)
-                    Text(t("onboarding.footer")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
-                    if let pickerError { Text(pickerError).font(.manrope(12)).foregroundStyle(LauncherPalette.building) }
+                if state.step != .welcome {
+                    Button(action: goBack) {
+                        Label(t("onboarding.back"), systemImage: "chevron.left").frame(minWidth: 120)
+                    }
+                        .buttonStyle(LauncherSecondaryButtonStyle(height: LauncherHeroAction.height))
+                        .padTarget("onboarding.back", scope: "onboarding", activate: goBack)
+                }
+                if let pickerError {
+                    Text(pickerError).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
+                if state.step == .keys {
+                    Button(t("onboarding.keys.later"), action: skipKeys)
+                        .buttonStyle(LauncherSecondaryButtonStyle(height: LauncherHeroAction.height)).disabled(!state.canSkipKeys)
+                        .padTarget("onboarding.keys.later", scope: "onboarding", enabled: state.canSkipKeys, activate: skipKeys)
+                }
                 Button(action: primaryAction) {
                     HStack(spacing: 12) {
-                        Text(t(state.primaryKey))
+                        Text(t(state.step == .xcode ? "onboarding.finishSetup" : state.step == .keys ? "onboarding.confirmKeys" : state.primaryKey))
                         Image(systemName: state.step == .done ? "arrow.up.right" : "arrow.right").accessibilityHidden(true)
                     }
-                    .font(.manrope(16, .semibold)).padding(.horizontal, 28).padding(.vertical, 15)
-                    .frame(minWidth: 190)
-                    .foregroundStyle(state.primaryEnabled ? LauncherPalette.onCream : LauncherPalette.ink(0.55))
-                    .background(state.primaryEnabled ? LauncherPalette.cream : LauncherPalette.ink(0.08), in: Capsule())
+                    .font(.manrope(16, .semibold)).padding(.horizontal, 28)
+                    .frame(minWidth: 150, minHeight: 44)
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain).disabled(!state.primaryEnabled)
+                .buttonStyle(LauncherActionButtonStyle()).disabled(!footerEnabled)
                 .keyboardShortcut(.return, modifiers: [])
-                .padTarget("onboarding.primary", scope: "onboarding", radius: 28) { if state.primaryEnabled { primaryAction() } }
-            }.padding(.horizontal, 56).padding(.vertical, 24)
-        }
+                .padTarget("onboarding.primary", scope: "onboarding", enabled: footerEnabled) { if footerEnabled { primaryAction() } }
+            }.padding(.horizontal, 40).padding(.vertical, 24).frame(maxWidth: 900)
+                .frame(maxWidth: .infinity)
+        }.background(LauncherPalette.background)
     }
 
     private func skipKeys() { backwards = false; driver.skipKeys() }
 
     private func primaryAction() {
-        guard state.primaryEnabled else { return }
+        guard footerEnabled else { return }
         backwards = false
+        if state.step == .xcode { driver.next(); return }
+        if state.step == .keys { driver.confirmKeys(); return }
         switch state.primary {
         case .start: driver.start()
         case .next: driver.next()
@@ -504,11 +574,26 @@ import NXLauncher
         }
     }
     private func goBack() { backwards = true; driver.back() }
+    private func keyboardAction(_ input: ConsoleInput) {
+        switch input {
+        case .left: padAction(.left)
+        case .right: padAction(.right)
+        case .up: padAction(.up)
+        case .down: padAction(.down)
+        case .activate: padAction(.a)
+        case .back: padAction(.b)
+        default: break
+        }
+    }
     private func padAction(_ action: LauncherGamepad.Action) {
         guard !pickerOpen else { return }
-        if action == .b { goBack(); return }
-        if !padFocus.visible {
-            padFocus.show(default: "onboarding.primary")
+        if action == .b {
+            if keysHelpOpen { keysHelpOpen = false }
+            else if Date().timeIntervalSince(keysHelpDismissedAt) > 0.2 { goBack() }
+            return
+        }
+        if !padFocus.visible || padFocus.focused == nil {
+            padFocus.show(default: state.step == .xcode ? "onboarding.xcode" : (state.step == .platform && state.selectedPlatform == nil ? "onboarding.platform.mac" : "onboarding.primary"))
             if [.up, .down, .left, .right].contains(action) { return }
         }
         switch action {
@@ -522,9 +607,6 @@ import NXLauncher
     }
 }
 
-private let onboardingXcodeCardHeight: CGFloat = 350
-private let onboardingDropCardHeight: CGFloat = 250
-
 private struct OnboardingCard: ViewModifier {
     func body(content: Content) -> some View {
         content.padding(24).frame(maxWidth: .infinity, alignment: .leading)
@@ -533,7 +615,7 @@ private struct OnboardingCard: ViewModifier {
     }
 }
 
-private struct OnboardingDropZone: View {
+struct OnboardingDropZone: View {
     let label: String, chooseLabel: String, id: String
     let enabled: Bool
     let choose: () -> Void
@@ -606,8 +688,10 @@ private struct OnboardingCheck: View {
     @StateObject private var padFocus = PadFocus()
     @StateObject private var gamepad = LauncherGamepad()
     private let lang = Lang.initial()
-    init(scenario: MockOnboardingDriver.Scenario) {
-        _driver = StateObject(wrappedValue: MockOnboardingDriver(scenario: scenario))
+    private let onComplete: ((OnboardingState) -> Void)?
+    init(scenario: MockOnboardingDriver.Scenario, games: [OnboardingGame]? = nil, onComplete: ((OnboardingState) -> Void)? = nil) {
+        self.onComplete = onComplete
+        _driver = StateObject(wrappedValue: MockOnboardingDriver(scenario: scenario, sampleGames: games))
     }
     var body: some View {
         Group {
@@ -638,8 +722,24 @@ private struct OnboardingCheck: View {
                 }
             }
         }
+        .onChange(of: driver.state.exit) { exit in
+            if exit == .library { onComplete?(driver.state) }
+        }
         .frame(minWidth: 900, minHeight: 680)
         .foregroundStyle(LauncherPalette.text).background(LauncherPalette.background)
         .background(LauncherWindowChrome()).launcherAppearance()
+    }
+}
+
+private struct OnboardingStepProgressStyle: ProgressViewStyle {
+    @Environment(\.colorScheme) private var scheme
+    func makeBody(configuration: Configuration) -> some View {
+        GeometryReader { geometry in
+            let color: Color = scheme == .dark ? LauncherPalette.cream : .black
+            Rectangle().fill(color.opacity(0.12))
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(color).frame(width: geometry.size.width * (configuration.fractionCompleted ?? 0))
+                }
+        }
     }
 }

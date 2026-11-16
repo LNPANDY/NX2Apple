@@ -35,6 +35,7 @@ struct ConsoleGame: Identifiable {
     var version: String
     var platforms: [Platform]
     var artwork: NSImage?
+    var icon: NSImage? = nil
     /// The game's large artwork (the hero slot, at screen size), for the home screen's backdrop: loaded for the focused game only.
     var hero: NSImage?
     var heroFocus = UnitPoint.center
@@ -144,7 +145,7 @@ enum ConsoleSheet: Equatable {
     /// gamePad: a game's controller settings (its Controls rows: rumble, and its own button mapping), opened from its options.
     /// library: the menu's Library page (the library's switch, the way to the cloud saves). settings: its General page (the display
     /// language, the app's update, the launcher after a game), language: the display language list.
-    /// cloudSaves: each game's cloud save state and time, as a page of its own over the whole screen.
+    /// cloudSaves: each game's cloud save state and time in a side panel.
     /// confirmExit: "Leave console mode?", over what is open (the menu's Exit, or B on the home screen).
     /// confirmMapping: "Save changes?", leaving the button mapping after something on it changed.
     /// cloudSave: the cloud's save and this Mac's both changed, or the cloud's cannot be read: the player chooses before the start (#957).
@@ -163,14 +164,8 @@ enum ConsoleSheet: Equatable {
         default: return false
         }
     }
-    /// Pages over the whole screen rather than a panel at the side: the cloud saves, a game's controller settings, the button mapping,
-    /// a game's page, all games, the search and the builds.
-    var isFullScreen: Bool {
-        switch self {
-        case .cloudSaves, .gamePad, .mapping, .gamePage, .allGames, .search, .builds, .supportedGames: return true
-        default: return false
-        }
-    }
+    /// Console destinations keep the Library context visible behind a trailing panel.
+    var isFullScreen: Bool { false }
     var scope: String {
         switch self {
         case .gamePage: return "console.gamePage"
@@ -280,6 +275,8 @@ struct ConsoleState {
     var assigningControllerID: String?
     var starting: ConsoleStarting = .preparing
     var assigningPlayer: Int?
+    var launchMinimized = false
+    var launchCancellable = false
     var startingGameID: String?
     var exited = false
     var time: Date = Date()
@@ -311,7 +308,7 @@ struct ConsoleState {
     var startingGame: ConsoleGame? { games.first { $0.id == startingGameID } }
 
     mutating func focus(_ id: String) {
-        guard startingGameID == nil, sheets.isEmpty, !exited, games.contains(where: { $0.id == id }) else { return }
+        guard (startingGameID == nil || launchMinimized), sheets.isEmpty, !exited, games.contains(where: { $0.id == id }) else { return }
         focusedGameID = id
     }
     mutating func moveFocus(_ step: Int) {
@@ -323,37 +320,37 @@ struct ConsoleState {
         guard !exited, startingGameID == nil, let game = games.first(where: { $0.id == id }) else { return }
         if pausedGameID == id { return }   // the driver resumes it (resume)
         if game.status == .ready, pausedGameID != nil { askQuitPaused(then: .play(id)); return }   // one game at a time: the paused one quits first
-        if game.status == .ready { startingGameID = id; starting = .preparing; sheets = []; stopped = nil }
+        if game.status == .ready { launchMinimized = false; startingGameID = id; starting = .preparing; sheets = []; stopped = nil }
         else if presentedSheet != .explanation(id) { sheets.append(.explanation(id)) }
     }
     mutating func openOptions(_ id: String) {
-        guard !exited, startingGameID == nil, games.contains(where: { $0.id == id }), presentedSheet != .options(id) else { return }
+        guard !exited, (startingGameID == nil || launchMinimized), games.contains(where: { $0.id == id }), presentedSheet != .options(id) else { return }
         sheets.append(.options(id))
     }
     mutating func openControllers() {
-        guard !exited, startingGameID == nil, presentedSheet != .controllers else { return }
+        guard !exited, (startingGameID == nil || launchMinimized), presentedSheet != .controllers else { return }
         sheets.append(.controllers)
     }
     mutating func openCloudSaves(_ rows: [ConsoleSaveRow]) {
-        guard !exited, startingGameID == nil, presentedSheet != .cloudSaves else { return }
-        saveRows = rows
+        guard !exited, (startingGameID == nil || launchMinimized), presentedSheet != .cloudSaves else { return }
+        saveRows = gameContextID.map { id in rows.filter { $0.id == id } } ?? rows
         sheets.append(.cloudSaves)
     }
     mutating func openLibrary() {
-        guard !exited, startingGameID == nil, presentedSheet != .library else { return }
+        guard !exited, (startingGameID == nil || launchMinimized), presentedSheet != .library else { return }
         sheets.append(.library)
     }
     mutating func openSettings() {
-        guard !exited, startingGameID == nil, presentedSheet != .settings else { return }
+        guard !exited, (startingGameID == nil || launchMinimized), presentedSheet != .settings else { return }
         sheets.append(.settings)
     }
     /// Pages and questions over a game's options or the Settings page, each once.
     mutating func push(_ sheet: ConsoleSheet) {
-        guard !exited, startingGameID == nil, presentedSheet != sheet else { return }
+        guard !exited, (startingGameID == nil || launchMinimized), presentedSheet != sheet else { return }
         sheets.append(sheet)
     }
     mutating func openLanguage() {
-        guard !exited, startingGameID == nil, presentedSheet != .language else { return }
+        guard !exited, (startingGameID == nil || launchMinimized), presentedSheet != .language else { return }
         sheets.append(.language)
     }
     /// Asks before leaving console mode: Leave goes to the desktop (exitToDesktop), B or Cancel closes the question.
@@ -363,12 +360,12 @@ struct ConsoleState {
         sheets.append(.confirmExit)
     }
     mutating func openMenu() {
-        guard !exited, startingGameID == nil, presentedSheet != .menu else { return }
+        guard !exited, (startingGameID == nil || launchMinimized), presentedSheet != .menu else { return }
         sheets.append(.menu)
     }
     /// The button mapping of all games (nil) or of one game.
     mutating func openMapping(game id: String? = nil) {
-        guard !exited, startingGameID == nil, presentedSheet != .mapping else { return }
+        guard !exited, (startingGameID == nil || launchMinimized), presentedSheet != .mapping else { return }
         if let id { guard games.first(where: { $0.id == id })?.mapsButtons == true else { return } }
         mappingRow = nil
         mappingGameID = id
@@ -388,7 +385,7 @@ struct ConsoleState {
     }
     /// A game's controller settings, over its options.
     mutating func openGamePad(_ id: String) {
-        guard !exited, startingGameID == nil, presentedSheet != .gamePad(id), let game = games.first(where: { $0.id == id }), game.hasControllerSettings else { return }
+        guard !exited, (startingGameID == nil || launchMinimized), presentedSheet != .gamePad(id), let game = games.first(where: { $0.id == id }), game.hasControllerSettings else { return }
         sheets.append(.gamePad(id))
     }
     /// A button's choices in the mapping sheet, or nil for the list again.
@@ -398,7 +395,7 @@ struct ConsoleState {
     }
     /// The Home button hint (HomeButtonHint.swift), over the home screen after a game quit.
     mutating func showHomeButtonHint() {
-        guard !exited, startingGameID == nil, presentedSheet != .homeButtonHint else { return }
+        guard !exited, (startingGameID == nil || launchMinimized), presentedSheet != .homeButtonHint else { return }
         sheets.append(.homeButtonHint)
     }
     /// The question before the start (#957): Starting ends while the player chooses, the sheet holds the question.
@@ -409,7 +406,7 @@ struct ConsoleState {
     }
     mutating func back() {
         guard !exited else { return }
-        if startingGameID != nil { return } // the driver ends Starting when the game window appears
+        if startingGameID != nil && (!launchMinimized || sheets.isEmpty) { return } // keep tracking a launch while allowing its background menus to close
         if presentedSheet == .mapping, mappingRow != nil { mappingRow = nil; return }   // B in a button's choices goes back to the list
         if presentedSheet == .mapping, mappingChanged { sheets.append(.confirmMapping); return }   // asks before leaving changes
         if presentedSheet == .mapping { mappingOrigin = nil; pendingMenuSwapAB = nil; mappingUndo = nil }
@@ -422,7 +419,7 @@ struct ConsoleState {
         else { confirmExit() }   // B on the home screen asks before leaving
     }
     mutating func exitToDesktop() { exited = true; sheets = []; startingGameID = nil; assigningPlayer = nil; assigningControllerID = nil; mappingRow = nil; mappingGameID = nil; mappingOrigin = nil; pendingMenuSwapAB = nil; mappingUndo = nil }
-    mutating func returnFromGame() { exited = false; startingGameID = nil; sheets = []; assigningPlayer = nil; assigningControllerID = nil; mappingRow = nil; mappingGameID = nil }
+    mutating func returnFromGame() { launchMinimized = false; launchCancellable = false; exited = false; startingGameID = nil; sheets = []; assigningPlayer = nil; assigningControllerID = nil; mappingRow = nil; mappingGameID = nil }
     mutating func setOption(game id: String, setting env: String, value: String) {
         guard !exited, startingGameID == nil, let i = games.firstIndex(where: { $0.id == id }),
               let setting = games[i].visibleSettings.first(where: { $0.env == env }), setting.accepts(value) else { return }

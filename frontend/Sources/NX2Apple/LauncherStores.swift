@@ -92,7 +92,7 @@ import NXModel
             ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("NX2Apple/build-queue.json") : nil
         let queue = BuildQueueStore(
             file: queueFile, engineID: { engineSync.selection.engineID }, busy: { build.running },
-            start: { build.startQueued($0) }, packageBatch: { _ in build.packageDeferred() }, engineChangedReason: { localizer.t("queue.engineChanged") })
+            start: { build.startQueued($0) }, packageBatch: { _ in build.packageDeferred(); return build.running }, engineChangedReason: { localizer.t("queue.engineChanged") })
         self.queue = queue
         build.queue = queue
         let transferFile = queueFile?.deletingLastPathComponent().appendingPathComponent("transfer-queue.json")
@@ -120,7 +120,13 @@ import NXModel
             guard !running else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let build, let queue, !build.running, queue.running != nil else { return }
+                    guard let build, let queue, !build.running else { return }
+                    if !queue.packaging.isEmpty {
+                        let outcome = build.queueOutcome
+                        queue.packageEnded(succeeded: outcome.succeeded, reason: outcome.reason, stopped: outcome.stopped)
+                        return
+                    }
+                    guard queue.running != nil else { return }
                     self?.settleFinishedBuild()
                     let outcome = build.queueOutcome
                     build.activeQueuedGameID = nil

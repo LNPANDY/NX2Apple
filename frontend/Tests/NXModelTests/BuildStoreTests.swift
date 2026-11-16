@@ -944,6 +944,32 @@ import XCTest
 
     // MARK: Space and the operation (#966, #676, #1059)
 
+    func testMixedQueueUsesEachSavedPlatformAndStillChecksIOSDeliveryWhenFormIsMac() {
+        let store = makeStore()
+        store.target = BuildTarget.mac
+        var startedTargets: [String] = []
+        let queue = BuildQueueStore(
+            file: nil,
+            engineID: { "queue-engine" },
+            busy: { false },
+            start: { startedTargets.append($0.target); return "fixture" }
+        )
+        queue.enqueue([
+            QueueEntry(titleID: "A", name: "Game A", target: BuildTarget.mac, inputs: [:], outputDirectory: "/out", engineID: "queue-engine"),
+            QueueEntry(titleID: "B", name: "Game B", target: BuildTarget.ios, inputs: [:], outputDirectory: "/out", engineID: "queue-engine")
+        ])
+        store.queue = queue
+
+        XCTAssertTrue(store.queueNeedsDevice, "the iOS job needs an export mode or a configured device and team")
+        devices.exportIPA = true
+        devices.exportOneGame = true
+        XCTAssertFalse(store.queueNeedsDevice)
+
+        store.startBuildOrQueue()
+        XCTAssertEqual(startedTargets, [BuildTarget.mac, BuildTarget.ios])
+        XCTAssertEqual(queue.entries.map(\.target), [BuildTarget.mac, BuildTarget.ios])
+    }
+
     func testABuildDoesNotStartWhenTheVolumeHasLessThanTheGameFilesAndSaysWhatIsKept() throws {
         let store = makeStore()
         store.target = BuildTarget.mac

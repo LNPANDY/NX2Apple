@@ -58,6 +58,7 @@ import XCTest
 
         m.running = true
         let id = try XCTUnwrap(recorder.activeBuildID, "the build's game goes into the library as it starts")
+        XCTAssertEqual(library.selectedID, other.id, "background work must not select its game")
         XCTAssertEqual(library.games.first { $0.id == id }?.titleID, titleID)
         XCTAssertFalse(library.games.first { $0.id == id }?.isReady ?? true)
 
@@ -70,7 +71,7 @@ import XCTest
         let game = try XCTUnwrap(library.games.first { $0.id == id })
         XCTAssertEqual(game.appPath, app.path)
         XCTAssertTrue(game.isReady)
-        XCTAssertEqual(library.selectedID, id, "the built game is the selected one")
+        XCTAssertEqual(library.selectedID, other.id, "recording a completed build must preserve the user selection")
         XCTAssertNil(recorder.activeBuildID, "the build is recorded and over")
         XCTAssertEqual(GameLibrary(file: file).games.first { $0.id == id }?.appPath, app.path, "library.json holds it")
     }

@@ -94,6 +94,8 @@ extension BuildStore {
         let games = deferredShell
         deferredShell = []
         guard let last = games.last, !running else { return }
+        target = BuildTarget.ios
+        failure = nil; stoppedByPlayer = false; done = false; doneNote = ""
         if deferredExportsIPA {
             var library = ShellLibrary.load(root: shellRoot)
             for game in games.dropLast() { library.add(.init(titleID: game.titleID, name: game.name, framework: game.framework)) }

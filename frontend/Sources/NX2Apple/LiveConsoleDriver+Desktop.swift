@@ -53,6 +53,7 @@ extension LiveConsoleDriver {
     /// Its mods, its cheats, whether its options differ from the defaults and its cloud save: read when its options open.
     func loadDetails(_ gameID: String) {
         guard let game = libraryGame(gameID), let i = state.games.firstIndex(where: { $0.id == gameID }) else { return }
+        state.games[i].icon = GameLibrary.appIcon(for: game, banners: library.artworkDirectory)
         let mods = GameMod.list(in: GameMod.folder(for: game, library: library.folder), titleID: game.titleID)
         state.games[i].mods = mods.map { ConsoleMod(name: $0.name, usable: $0.usable, on: $0.usable && game.mods.contains($0.name)) }
         state.games[i].cheats = cheats(game)
@@ -97,6 +98,9 @@ extension LiveConsoleDriver {
 
     func openOptions(_ gameID: String) {
         loadDetails(gameID)
+        if let game = libraryGame(gameID), let i = state.games.firstIndex(where: { $0.id == gameID }) {
+            state.games[i].lastSave = game.isReady ? SaveTransfer.newest(in: SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save) : nil
+        }
         state.openOptions(gameID)
     }
 

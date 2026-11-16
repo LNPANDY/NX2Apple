@@ -21,25 +21,32 @@ import XCTest
         return (file, games)
     }
 
-    /// The collection's header has the button before Sort, as high as Sort, at the narrowest and a wide window. A controller reaches it.
-    func testCollectionHeaderShowsSupportedGamesBeforeSort() throws {
+    /// Supported games lives beside New build on the Builds page and remains controller reachable.
+    func testBuildsHeaderShowsSupportedGamesBesideNewBuild() throws {
         let (file, games) = try libraryFile()
         for width in [CGFloat(900), 1440] {
             let stores = LauncherStores(defaults: testDefaults)
+            let root = file.deletingLastPathComponent()
+            let marker = root.appendingPathComponent(EngineLayout.marker)
+            try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: marker)
+            stores.repo.path = root.path
+            stores.dependencies.checked = true
+            stores.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "", present: true, installCmd: [])]
             let library = GameLibrary(file: file)
             library.selectedID = games[0].id
             let focus = PadFocus()
             let window = OffscreenWindow(size: NSSize(width: width, height: 760))
-            window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library, performStartupChecks: false, padFocus: focus))
+            window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false, padFocus: focus))
             window.orderFront(nil)
             defer { window.orderOut(nil) }
             settle()
             let frames = try XCTUnwrap(focus.frames["main"])
-            let button = try XCTUnwrap(frames.first { $0.id == "library.supported" }?.frame, "the header shows Supported games at \(width)")
-            let sort = try XCTUnwrap(frames.first { $0.id == "library.sort" }?.frame)
-            XCTAssertLessThan(button.maxX, sort.minX, "before Sort")
-            XCTAssertEqual(button.height, sort.height, accuracy: 1, "as high as Sort")
-            XCTAssertEqual(button.midY, sort.midY, accuracy: 1, "on Sort's line")
+            let button = try XCTUnwrap(frames.first { $0.id == "builds.supported" }?.frame, "the header shows Supported games at \(width)")
+            let sort = try XCTUnwrap(frames.first { $0.id == "builds.first" }?.frame)
+            XCTAssertLessThan(button.maxX, sort.minX, "before New build")
+            XCTAssertEqual(button.height, sort.height, accuracy: 1, "same height as New build")
+            XCTAssertEqual(button.midY, sort.midY, accuracy: 1, "on New build's line")
         }
     }
 
@@ -91,7 +98,7 @@ import XCTest
         XCTAssertTrue(ids.isSuperset(of: ["supported.row.0100000000000001", "supported.row.0100000000000002", "supported.close"]), "\(ids)")
     }
 
-    /// Console mode: the menu's Library page has the row, it opens the page over the whole screen, the keyboard and the on-screen keys
+    /// Console mode: the menu's Library page has the row, it opens the trailing sheet, the keyboard and the on-screen keys
     /// search it, and an owned game's notes lead to its page.
     func testConsoleLibraryPageOpensSupportedGames() throws {
         let driver = MockConsoleDriver(scenario: .full, animated: false)
@@ -107,7 +114,7 @@ import XCTest
         pad.focused = "console.library.supported"
         pad.activate(); settle()
         XCTAssertEqual(driver.state.presentedSheet, .supportedGames)
-        XCTAssertTrue(ConsoleSheet.supportedGames.isFullScreen)
+        XCTAssertFalse(ConsoleSheet.supportedGames.isFullScreen)
         XCTAssertEqual(pad.focused, ConsoleSupportedGamesPage<MockConsoleDriver>.firstTarget, "the focus starts on the keyboard")
         let all = driver.state.supportedShown.count
         XCTAssertGreaterThan(all, 1)
@@ -130,7 +137,7 @@ import XCTest
         pad.focused = "console.supported.row." + first.titleID; pad.activate(); settle()   // A opens the notes
         XCTAssertTrue(try XCTUnwrap(pad.frames["console.supported"]).contains { $0.id == "console.supported.open." + first.titleID })
         pad.focused = "console.supported.open." + first.titleID; pad.activate(); settle()
-        XCTAssertEqual(driver.state.presentedSheet, .gamePage(owned))
+        XCTAssertEqual(driver.state.presentedSheet, .options(owned))
         driver.back(); settle()
         XCTAssertEqual(driver.state.presentedSheet, .supportedGames, "B goes back to the list")
     }

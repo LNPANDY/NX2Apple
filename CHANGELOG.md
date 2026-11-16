@@ -1,5 +1,109 @@
 # Changelog
 
+## Unreleased
+
+- Build hero artwork stays paired with the running game title when an earlier platform build is retried.
+
+- Console Button mapping uses a large interactive controller preview above the left-side title, sharing its fade and blur transitions. Narrow windows retain the in-sheet preview.
+
+- Older iOS build chips use white text with a system-blue dot and outline on black, distinguishing the suggestion from orange warnings.
+
+- Refresh and transfer dialogs use artwork, selected-row backgrounds and shared controls. Library controls adapt to narrow windows, image recovery opens directly from batch refresh, and game-display help explains the fallback. Console tiles open with one click, selection sheets support arrows, Tab and Enter, and queue Retry keeps controller focus valid.
+
+- The local Mac redesign includes the latest refresh, missing-image recovery, selected-game transfer and display-choice features. New dialogs retain controller focus and Back behavior, and clearing queue history preserves unfinished platform pairs.
+
+- Desktop build queue handles lift the entire row to 1.05× size and move it vertically while neighboring rows preview the new order. Gray handles show an open hand on hover and a closed hand during pickup. Release saves the order, Escape cancels, and edge scrolling supports longer queues. Keyboard and controller ordering arrows and grouped platform builds are preserved.
+
+- Desktop queue rows show color artwork before the queue starts. Running and recovery states retain their existing treatment, and the queue hero is unchanged.
+
+- Desktop Settings uses consistent row spacing, clearer groups and shared rounded controls. Update actions show checking, download and preparation states without shifting, preserve controller focus and retain the original update policy when retried. Keys show file presence without implying verification, and contextual help keeps important consequences visible.
+
+- Setup groups keys and game-folder import beneath their descriptions. Imported games use Library cards with optional build selection, shared queue review and a short animated handoff into the Library.
+
+- Onboarding keys verify inline with clear status and error rows. Use these keys explicitly saves and continues, while Add keys later preserves previously saved keys. Keyless-format help is available from Only Gen 2 games?.
+
+- Onboarding platform cards use larger bottom-left titles. Xcode acquisition and preparation actions stay in the status row, with a silent recheck while waiting. Finish setup stays disabled until every prerequisite is ready and requires explicit activation to continue.
+
+- Onboarding platform choices share Build destination cards with iOS storage badges and taller onboarding choices. Xcode and additional support use expandable status rows with progress, readiness and recovery details. Keyboard and controller navigation retain valid focus between steps and retries.
+
+- Guided setup uses the compact NX hero, vertically balanced scrollable content and footer-attached step progress. Footer actions share the content gutters and matching button heights, and the redundant header step count is removed. Welcome copy and translations are updated, unused warning space is removed, and global Set up later is no longer shown.
+
+- Background build recording preserves the current Library selection and focus while queue progress advances independently.
+
+- Builds and queue artwork share proportional green completion, orange warning and red failure badges. Completed queue rows omit redundant Done text and offer secondary Play for ready Mac builds. Older iOS build chips use the warning treatment.
+
+- Combined-platform chips read Mac/iOS while platform selectors retain Both. Hero and footer color progress use a shared smooth reveal that ignores backward jitter within a run.
+
+- Builder heroes show platform chips instead of versions. Queue handoffs crossfade titles and artwork, and the progress footer shows the game’s platform beside its title.
+
+- Queue artwork animates each game into the foreground as completed artwork enlarges and fades away, keeping the builder and progress footer mounted between jobs. Platform handoffs crossfade to grayscale rather than reversing the color reveal. Reduce Motion skips spatial movement.
+
+- IPA export uses selectable NX Launcher and Single App cards with artwork and concise descriptions.
+
+- iOS delivery options place the install/export selector beside the section heading, above the card without a redundant row label.
+
+- Queue artwork keeps the current game aligned with page content, with dimmed upcoming games behind it in the leading gutter. One fixed-size stack serves the queue header, active builder and compact progress footer.
+
+- Batch platform filters hide work already queued and clear previous selections when switching platforms. The dialog uses clearer Build for wording and a contextual empty state.
+
+- Queue review uses a branded artwork coverflow hero and presents queued games before iOS delivery options, without a global platform picker.
+
+- Build queues group Mac and iOS jobs into one game row with Mac, iOS or Both chips. Both builds run consecutively, duplicate requests merge, and failed-platform retries preserve successful results.
+
+- Batch game selection includes Mac and iOS choices that carry through to the builder. Queue removal buttons show a stronger red hover state.
+
+- Build queue rows show leading square app artwork with compact trailing reorder and remove controls. Game selection sits beside the queue heading, and Cancel queue is at the bottom right.
+
+- Batch game selection shows square artwork and rounded selected rows. Arrow keys navigate and Enter toggles the focused row without submitting the queue.
+
+- Completed builds retain a dismissible status footer with Play for available Mac builds, positioned to the right of Close. Play dismisses it when no queued work remains.
+
+- Settings uses clearer build notification, post-play return, verification, update and save-folder wording. Game selection now makes its build-queue staging explicit, with matching translations.
+
+- Build results distinguish a ready Mac app, an installed iOS app, an exported IPA and missing game data. Result actions, transfer help and logs remain available without the setup navigation footer.
+
+- The Settings header button uses the selected black or cream fill while Settings is open, with a contrasting icon and controller focus.
+
+- Active builds keep the metadata hero, revealing its blurred artwork from monochrome to color as progress advances. A centered progress card uses fixed-height step rows, compact mode and a Stop Build action. Build options can show logs or all steps without changing the completion flow.
+
+- Game files uses one step heading with compact labels inside its input cards. The vertically centered keys guidance refers to the player’s own console. Input subheads share one style and optional labels use smaller muted text.
+
+- Builds shows a setup alert before new builds are available, with a direct route to Settings. Existing drafts and running operations are preserved.
+
+- Cancel build lives in the builder options menu as a destructive action with confirmation instead of a footer button.
+
+- Builds use larger step headings, hide empty queue controls and show logs only for build progress, results or an explicit failure-log request. A minimized artwork footer keeps the current operation visible while navigating and returns to the builder when activated.
+
+- Build destination guidance opens from the info icon beside Save to, with hover and keyboard/controller access instead of a persistent paragraph.
+
+- Library/Builds stays centered in the window while builder Back and options sit beside NX. Expanded search adapts without shifting navigation, and returning to a draft preserves its current step.
+
+- Build setup separates game files, platform and iOS installation into guided steps with sticky navigation. A metadata hero, separate input sections, adaptive update and DLC cards, device selection tiles and confirmed draft cancellation retain existing queue, export and recovery actions.
+
+- Console Home has a larger plain clock, matching-height cream-outlined controller, search and menu controls, shared artwork status chips and a thicker selection outline. Coverflow keeps the selected artwork in a fixed leading slot with a smaller recessed preceding cover angled toward it. Shared margins align the title, selected artwork and evenly spaced wrapping footer. The utility header and game content share 70 pt side margins with 50 pt top spacing. Unavailable games use monochrome artwork, a conditional right arrow reveals more games, and artwork and titles share the Library fades. Reduce Motion disables the coverflow transforms.
+
+- Settings and setup now keep controller focus on visible controls, including players, stick adjustments, cache actions and update questions. Controller mapping outlines follow the selectors themselves, console buttons retain contrasting rounded focus, and long console grids reveal every row, including partial final rows.
+
+- Builds keyboard and controller navigation now reaches inventory rows, builder controls, queue actions, logs and export choices. Batch cancellation stays on the inventory, artwork editing opens correctly from Builds, and confirmations isolate input. Controller outlines follow rounded controls and card boundaries, with contrasting focus on primary actions.
+
+- Library keyboard and controller input stays inside the active menu or sheet, restores parent focus on return and starts reopened questions safely. Dropdowns and the player picker support controller selection, artwork focus scrolls into view, and Remove and Free space use accessible confirmations. Carousel paging updates wait until layout finishes. Malformed title IDs no longer crash profile checks.
+
+- Empty Library filters retain the hero, navigation and carousel layout. Missing artwork uses a soft NX backdrop in Light and Dark, with static card-sized placeholders.
+
+- Library hero status chips sit closer to the title while action spacing is retained.
+
+- The shorter Library hero crossfades its blurred artwork, square metadata icon and title while keeping actions stable. Long titles wrap within the hero, controls retain their height during resizing, and the backdrop extends through top overscroll. Profile chips provide immediate help, signing expiry is available from Re-sign, and recorded iOS installations have a contextual open action.
+
+- Library artwork now shows matching availability chips, monochrome attention states, adaptive selection outlines and pointer hover emphasis. Mac and iOS filters include dual-platform games, hero actions are simplified, and keyboard activation follows the focused game. Generic platform labels use iOS. Mac apps missing declared game data no longer offer Play.
+
+- On macOS 26 and later, Library artwork extends under a native soft scroll-edge header. Builds and Settings keep opaque headers, with the opaque fallback retained on older macOS.
+
+- The Mac header uses the NX mark, a two-page Library/Builds selector and a separate round Settings button. Search opens without a sliding transition and focuses the input immediately.
+
+- Builds now opens a game inventory with per-platform status and build actions, current build or draft access, and page-local New build and Supported games actions. Existing queue, install, export and console flows remain available.
+
+- Mac launcher controls use consistent opaque selection colors in Light and Dark, content-sized actions, fully rounded buttons and dropdowns, and a grouped capsule navigation selector. Hero actions are 44 pt high and size to their labels.
+
 The release history of NX2Apple, newest first. Every release, with its full text, is on the [releases page](https://github.com/LNPANDY/NX2Apple/releases).
 
 Newest first. The fork follows upstream daily, so its game list and host fixes arrive automatically.

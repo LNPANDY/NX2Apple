@@ -58,12 +58,15 @@ package struct TransferCard: View {
                     Button(loc.t("transfer.retry")) { transfers.retry(entry.id) }
                         .disabled(entry.status == .cancelling)
                         .accessibilityLabel(String(format: loc.t("transfer.retryNamed"), entry.name))
+                        .padTarget("set.build.transfer.retry." + entry.id.uuidString, scope: "main", enabled: entry.status == .failed) { transfers.retry(entry.id) }
                     Button(loc.t("shell.showInFinder")) { showInFinder(entry) }
                         .accessibilityLabel(String(format: loc.t("transfer.finderNamed"), entry.name))
+                        .padTarget("set.build.transfer.finder." + entry.id.uuidString, scope: "main", enabled: true) { showInFinder(entry) }
                 }
                 Button(loc.t("transfer.cancel")) { transfers.cancel(entry.id) }
                     .disabled(entry.status == .cancelling)
                     .accessibilityLabel(String(format: loc.t("transfer.cancelNamed"), entry.name))
+                        .padTarget("set.build.transfer.cancel." + entry.id.uuidString, scope: "main", enabled: entry.status != .cancelling) { transfers.cancel(entry.id) }
             }
             .buttonStyle(LauncherSecondaryButtonStyle())
         }

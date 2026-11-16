@@ -14,7 +14,13 @@ package struct SendSelectedSheet: View {
     let mode: Mode
     @ObservedObject var build: BuildStore
     let close: () -> Void
+    @Environment(\.selectionArtworkDirectory) private var artworkDirectory
     @EnvironmentObject var loc: Localizer
+    @EnvironmentObject private var pad: PadFocus
+    @State private var parentScope = "main"
+    @State private var parentFocus: String?
+    private static var scope: String { "sendSelected" }
+    @State private var icons: [String: NSImage] = [:]
     @State private var checked: Set<String> = []
     @State private var didSeedSelection = false
 
@@ -64,23 +70,19 @@ package struct SendSelectedSheet: View {
                 }
                 Spacer(minLength: 12)
                 if !sources.isEmpty {
-                    Button(loc.t(allChecked ? "shell.clearSelection" : "shell.selectAll")) {
-                        if allChecked {
-                            checked.removeAll()
-                        } else {
-                            checked = Set(sources.map { $0.titleID.uppercased() })
-                        }
-                    }
+                    Button(loc.t(allChecked ? "shell.clearSelection" : "shell.selectAll"), action: toggleAll)
                     .buttonStyle(LauncherSecondaryButtonStyle())
                     .fixedSize()
+                    .padTarget("sendSelected.all", scope: Self.scope, activate: toggleAll)
                 }
             }
             .padding(.horizontal, 30)
             .padding(.top, 28)
             .padding(.bottom, 18)
 
+            ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: 0) {
+                VStack(spacing: 4) {
                     ForEach(sources, id: \.titleID) { source in
                         let key = source.titleID.uppercased()
                         let isChecked = checked.contains(key)
@@ -90,14 +92,16 @@ package struct SendSelectedSheet: View {
                                 Image(systemName: isChecked ? "checkmark.square.fill" : "square")
                                     .font(.system(size: 17))
                                     .foregroundStyle(isChecked ? LauncherPalette.ready : .secondary)
+                                Group {
+                                    if let icon = icons[key] { Image(nsImage: icon).resizable().scaledToFill() }
+                                    else { Image(systemName: "gamecontroller.fill").frame(maxWidth: .infinity, maxHeight: .infinity).background(LauncherPalette.surface) }
+                                }.frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityHidden(true)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(source.name)
                                         .font(.manrope(14, .medium))
                                         .lineLimit(2)
                                         .multilineTextAlignment(.leading)
-                                    Text(source.titleID.uppercased())
-                                        .font(.mono(11.5))
-                                        .foregroundStyle(.tertiary)
+
                                 }
                                 Spacer(minLength: 8)
                                 if bytes > 0 {
@@ -107,14 +111,21 @@ package struct SendSelectedSheet: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
-                            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                            .contentShape(Rectangle())
-                            .padding(.horizontal, 30)
+                            .padding(.horizontal, 10)
+                            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                            .background(isChecked ? LauncherPalette.ink(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(isChecked ? .isSelected : [])
+                        .accessibilityValue(source.titleID.uppercased())
+                        .padTarget("sendSelected.game." + key, scope: Self.scope, radius: 8, activate: { toggle(key) })
+                        .padding(.horizontal, 20)
                     }
                 }
+            }
+
+            .onChange(of: pad.focused) { id in if let id { proxy.scrollTo(id, anchor: .center) } }
             }
 
             if mode == .drive, let state = batchDriveState {
@@ -131,6 +142,7 @@ package struct SendSelectedSheet: View {
                 Button(loc.t("saves.cancel"), action: close)
                     .buttonStyle(LauncherSecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
+                    .padTarget("sendSelected.cancel", scope: Self.scope, activate: close)
                 Button { confirm() } label: {
                     Text(loc.t(mode == .device ? "shell.sendSelectedConfirm" : "shell.copySelectedConfirm"))
                         .font(.manrope(14, .semibold))
@@ -140,21 +152,39 @@ package struct SendSelectedSheet: View {
                 .buttonStyle(LauncherActionButtonStyle())
                 .disabled(!canConfirm)
                 .opacity(canConfirm ? 1 : 0.4)
-                .keyboardShortcut(.defaultAction)
+                .padTarget("sendSelected.confirm", scope: Self.scope, focusColor: LauncherPalette.onCream, enabled: canConfirm, activate: confirm)
             }
             .padding(.horizontal, 30)
             .padding(.vertical, 16)
         }
+        .background(PadKeyboardInput(focus: pad, scope: Self.scope, back: close))
+        .environment(\.padRingStyle, .hug)
+        .padScope(Self.scope, pad)
         .frame(width: 680)
         .frame(maxHeight: min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80))
         .background(LauncherPalette.background)
         .launcherAppearance()
         .onAppear {
+            icons = Dictionary(uniqueKeysWithValues: sources.compactMap { source in
+                NSImage(contentsOf: artworkDirectory.appendingPathComponent(source.titleID.uppercased()).appendingPathComponent("icon.jpg"))
+                    .map { (source.titleID.uppercased(), $0) }
+            })
+            parentScope = pad.scope; parentFocus = pad.focused
+            pad.scope = Self.scope
+            pad.focused = sources.first.map { "sendSelected.game." + $0.titleID.uppercased() } ?? "sendSelected.cancel"
             if !didSeedSelection {
                 didSeedSelection = true
                 checked = Set(sources.map { $0.titleID.uppercased() })
             }
         }
+        .onDisappear {
+            if pad.scope == Self.scope { pad.scope = parentScope; pad.focused = parentFocus }
+        }
+    }
+
+    private func toggleAll() {
+        if allChecked { checked.removeAll() }
+        else { checked = Set(sources.map { $0.titleID.uppercased() }) }
     }
 
     @ViewBuilder private func driveBanner(_ state: DriveState) -> some View {
@@ -210,6 +240,7 @@ package struct SendSelectedSheet: View {
     }
 
     private func confirm() {
+        guard canConfirm else { return }
         switch mode {
         case .device:
             build.sendSelectedGameData(titleIDs: checked)
@@ -217,5 +248,13 @@ package struct SendSelectedSheet: View {
             build.copySelectedToDrive(titleIDs: checked)
         }
         close()
+    }
+}
+
+private struct SelectionArtworkDirectoryKey: EnvironmentKey { static let defaultValue = BannerCache.directory }
+extension EnvironmentValues {
+    package var selectionArtworkDirectory: URL {
+        get { self[SelectionArtworkDirectoryKey.self] }
+        set { self[SelectionArtworkDirectoryKey.self] = newValue }
     }
 }

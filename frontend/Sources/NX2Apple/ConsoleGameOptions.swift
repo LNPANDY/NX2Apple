@@ -71,14 +71,14 @@ struct ConsoleChoiceRow: View {
                 .padding(.horizontal, 6)
                 .frame(maxWidth: .infinity, minHeight: compact ? 44 : 50)
                 .foregroundStyle(isChosen ? LauncherPalette.background : .white.opacity(0.85))
-                .background(isChosen ? LauncherPalette.cream : .white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(isChosen ? 0 : 0.08)))
-                .contentShape(RoundedRectangle(cornerRadius: 10))
+                .background(isChosen ? LauncherPalette.cream : .white.opacity(0.055), in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(isChosen ? 0 : 0.08)))
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title + ", " + label)
         .accessibilityAddTraits(isChosen ? .isSelected : [])
-        .padTarget(id + "." + key, scope: scope, radius: 10, activate: choose)
+        .padTarget(id + "." + key, scope: scope, activate: choose)
         .id(id + "." + key)
     }
 }
@@ -105,7 +105,7 @@ struct ConsoleSwitchRow: View {
             if !note.isEmpty { Text(note).font(.manrope(compact ? 13 : 15)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true) }
         }
         .padding(.horizontal, 20).padding(.vertical, compact ? 14 : 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: compact ? 84 : 96, alignment: .leading)
         .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
         .contentShape(RoundedRectangle(cornerRadius: 14))
         .opacity(enabled ? 1 : 0.45)
@@ -131,16 +131,19 @@ struct ConsoleSwitchRow: View {
     let lang: Lang
     let compact: Bool
     @Binding var editing: String?
+    @State private var showsDetails = false
     static var scope: String { "console.options" }
     private var scope: String { Self.scope }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
+    private var buildRunning: Bool { driver.state.builds.running }
 
     /// Where the focus starts on the page.
     static func firstTarget(_ game: ConsoleGame) -> String {
+        if game.status == .needsBuild { return "console.options.build" }
         if let first = game.basicSettings.first { return "console.option." + first.env }
         if game.hasControllerSettings { return "console.options.gamePad" }
         if !game.advancedSettings.isEmpty { return "console.options.advanced" }
-        return "console.options.play"
+        return "console.options.details"
     }
 
     var body: some View {
@@ -148,27 +151,73 @@ struct ConsoleSwitchRow: View {
             if game.optionSettings.isEmpty && !game.hasControllerSettings && game.mods.isEmpty && game.cheats == nil {
                 Text(t("console.noOptions")).foregroundStyle(LauncherPalette.secondaryText)
             }
+            ConsoleMenuRow(id: "console.options.details", scope: scope, symbol: "info.circle", title: t("console.options.information"),
+                           note: "", compact: compact) { showsDetails.toggle() }
+            if showsDetails { details }
+            if game.status != .ready, let key = game.status.explanationKey {
+                Text(t(key)).font(.manrope(compact ? 15 : 18)).foregroundStyle(LauncherPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if game.olderTools {
+                Text(t("library.olderToolsHelp")).font(.manrope(compact ? 15 : 18)).foregroundStyle(LauncherPalette.building)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if game.status == .needsBuild {
+                ConsoleSectionHeading(title: t("console.tab.build"), compact: compact).padding(.top, 12)
+                ConsoleMenuRow(id: "console.options.build", scope: scope, symbol: "hammer",
+                               title: t(buildRunning ? "queue.add" : "console.build"),
+                               note: t(buildRunning ? "console.gamePage.queueNote" : "console.gamePage.buildNote"), compact: compact) {
+                    driver.buildGame(game.id, queueOnly: buildRunning)
+                }
+            }
+            if !game.basicSettings.isEmpty { ConsoleSectionHeading(title: t("console.options.launch"), compact: compact).padding(.top, 12) }
             ForEach(game.basicSettings) { setting in
                 consoleOptionRow(setting, game: game, driver: driver, lang: lang, compact: compact, scope: scope, editing: $editing)
                     .id("console.option." + setting.env)
             }
             if game.hasControllerSettings {
                 ConsoleMenuRow(id: "console.options.gamePad", scope: scope, symbol: "gamecontroller", title: t("console.gamePad"),
-                               note: t("console.gamePad.note"), compact: compact) { driver.openGamePad(game.id) }
+                               note: "", compact: compact) { driver.openGamePad(game.id) }
             }
             if !game.advancedSettings.isEmpty {
                 ConsoleMenuRow(id: "console.options.advanced", scope: scope, symbol: "slider.horizontal.3", title: t("launch.advanced"),
-                               note: t("console.advanced.note"), value: String(format: t("launch.advancedCount"), game.advancedSettings.count),
+                               note: "", value: String(format: t("launch.advancedCount"), game.advancedSettings.count),
                                compact: compact) { driver.openAdvanced(game.id) }
             }
             mods
             ConsoleCheatsSection(driver: driver, game: game, lang: lang, compact: compact, scope: scope)
+            ConsoleSectionHeading(title: t("console.options.manageSection"), compact: compact).padding(.top, 14)
             if let save = game.save { saveCard(save) }
+            ConsoleMenuRow(id: "console.options.saves", scope: scope, symbol: "icloud", title: t("console.menu.saves"), note: "", compact: compact) { driver.openCloudSaves() }
+            ConsoleMenuRow(id: "console.options.manage", scope: scope, symbol: "ellipsis", title: t("console.manage"), note: "", compact: compact) { driver.openManage(game.id) }
             if game.canReset {
                 ConsoleMenuRow(id: "console.options.reset", scope: scope, symbol: "arrow.counterclockwise", title: t("console.reset.title"),
-                               note: t("console.reset.note"), compact: compact) { driver.askResetOptions(game.id) }
+                               note: "", compact: compact) { driver.askResetOptions(game.id) }
             }
         }
+    }
+
+    private var details: some View {
+        VStack(spacing: 12) {
+            detail(t("console.lastPlayed"), game.lastPlayed.map { ConsoleTimes.relative($0, now: driver.state.time, lang: lang) } ?? t("console.notPlayed"))
+            detail(t("console.playTime"), game.playSeconds > 0 ? ConsoleTimes.duration(game.playSeconds, lang: lang) : t("console.notPlayed"))
+            detail(t("console.gamePage.lastSave"), game.lastSave.map { ConsoleTimes.absolute($0, lang: lang) } ?? t("console.stopped.noSave"))
+            detail(t("console.gamePage.version"), game.version.isEmpty ? t("console.gamePage.unknown") : game.version)
+            detail(t("console.gamePage.platforms"), game.platforms.map { t($0.labelKey) }.joined(separator: ", "))
+            detail(t("console.gamePage.status"), t(game.status.labelKey))
+            if let text = game.save?.detail, !text.isEmpty {
+                Text(text).font(.manrope(compact ? 14 : 16)).foregroundStyle(LauncherPalette.secondaryText)
+            }
+        }
+        .padding(20).background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func detail(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Text(title).foregroundStyle(LauncherPalette.secondaryText)
+            Spacer(minLength: 8)
+            Text(value).multilineTextAlignment(.trailing)
+        }.font(.manrope(compact ? 15 : 18)).accessibilityElement(children: .combine)
     }
 
     // MARK: Mods
@@ -219,7 +268,10 @@ struct ConsoleSwitchRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(game.advancedSettings) { setting in
+            ForEach(Array(game.advancedSettings.enumerated()), id: \.element.id) { index, setting in
+                if index == 0 || game.advancedSettings[index - 1].sectionTitle != setting.sectionTitle {
+                    ConsoleSectionHeading(title: setting.sectionTitle, compact: compact).padding(.top, index == 0 ? 0 : 14)
+                }
                 consoleOptionRow(setting, game: game, driver: driver, lang: lang, compact: compact, scope: Self.scope, editing: $editing)
                     .id("console.option." + setting.env)
             }
@@ -239,14 +291,16 @@ struct ConsoleSwitchRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            ConsoleSectionHeading(title: t("console.library.games"), compact: compact)
             ForEach(ConsolePref.onLibrary, id: \.self) { pref in
-                ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), note: t(pref.noteKey),
+                ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), note: t("console.library.filterNote"),
                                  isOn: prefs[pref], compact: compact) { driver.setPref(pref, on: !prefs[pref]) }
             }
+            ConsoleSectionHeading(title: t("console.manage"), compact: compact).padding(.top, 14)
             ConsoleMenuRow(id: "console.library.saves", scope: scope, symbol: "icloud", title: t(ConsoleCloudSaves.menuKey),
-                           note: t(ConsoleCloudSaves.menuNoteKey), compact: compact) { driver.openCloudSaves() }
+                           note: "", compact: compact) { driver.openCloudSaves() }
             ConsoleMenuRow(id: "console.library.supported", scope: scope, symbol: "list.bullet.rectangle", title: t("supported.title"),
-                           note: t("console.supported.menuNote"), compact: compact) { driver.openSupportedGames() }
+                           note: "", compact: compact) { driver.openSupportedGames() }
         }
     }
 }
@@ -264,14 +318,16 @@ struct ConsoleSwitchRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            ConsoleSectionHeading(title: t("console.settings.preferences"), compact: compact)
             ConsoleMenuRow(id: "console.settings.language", scope: scope, symbol: "globe", title: t("console.language.title"),
-                           note: t("console.language.note"), value: languageName, compact: compact) { driver.openLanguage() }
+                           note: "", value: languageName, compact: compact) { driver.openLanguage() }
+            ForEach(ConsolePref.onSettings, id: \.self) { pref in
+                ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), isOn: prefs[pref], compact: compact) { driver.setPref(pref, on: !prefs[pref]) }
+                    .accessibilityHint(t(pref.noteKey))
+            }
+            ConsoleSectionHeading(title: t("console.settings.updates"), compact: compact).padding(.top, 14)
             ConsoleMenuRow(id: "console.settings.update", scope: scope, symbol: "arrow.down.app", title: t("console.update.title"),
                            note: updateNote, value: updateValue, compact: compact) { driver.appUpdateAction() }
-            ForEach(ConsolePref.onSettings, id: \.self) { pref in
-                ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), note: t(pref.noteKey),
-                                 isOn: prefs[pref], compact: compact) { driver.setPref(pref, on: !prefs[pref]) }
-            }
         }
     }
 

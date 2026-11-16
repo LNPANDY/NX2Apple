@@ -35,7 +35,7 @@ extension BuildStore {
 }
 
 // The queue's way into the build (LNPANDY/NX2Apple#943): an entry's snapshot becomes the form, then the build starts as if the player
-// pressed it. When the player stages a queue batch first, starting it applies the Build page's target and shared-app packaging mode.
+// pressed it. When the player stages a queue batch first, starting it keeps each job's platform and applies the shared iOS delivery options.
 extension BuildStore {
     /// True when the build queue holds waiting entries that have not started yet (or are waiting behind a running or paused build).
     package var hasQueuedBuilds: Bool { queuedCount > 0 }
@@ -53,15 +53,12 @@ extension BuildStore {
     }
 
     private func effectiveQueuedTarget(for entry: QueueEntry) -> String {
-        entry.locksTarget ? BuildTarget.normalized(entry.target) : target
+        BuildTarget.normalized(entry.target)
     }
 
     private var queueHasIOSTarget: Bool {
         guard hasQueuedBuilds else { return false }
-        guard let queued = queue?.queued, !queued.isEmpty else {
-            return target != BuildTarget.mac
-        }
-        return queued.contains { effectiveQueuedTarget(for: $0) != BuildTarget.mac }
+        return queue?.queued.contains { effectiveQueuedTarget(for: $0) != BuildTarget.mac } ?? false
     }
 
     /// True when a staged queue targets iPhone/iPad direct install without a device and signing team chosen yet.
@@ -78,7 +75,7 @@ extension BuildStore {
         return canBuild && keyProblem == nil
     }
 
-    /// Starts the staged build queue with the player's chosen target and install/export mode, or starts a single-game build when no
+    /// Starts the staged jobs on their saved platforms with the chosen iOS install/export mode, or starts a single-game build when no
     /// entries are waiting in the queue.
     package func startBuildOrQueue() {
         guard !running else { return }
@@ -112,7 +109,7 @@ extension BuildStore {
                 deferredExportsIPA = iosExportsShell
             }
             if deferredShell.isEmpty {
-                queue.start(target: target, packageAfter: packageOnce, exportIPA: batchExportsIPA, destinationName: destination)
+                queue.start(target: nil, packageAfter: packageOnce, exportIPA: batchExportsIPA, destinationName: destination)
             } else {
                 queue.resume()
             }

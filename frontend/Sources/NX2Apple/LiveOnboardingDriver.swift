@@ -237,14 +237,15 @@ enum OnboardingLaunch {
 
     var probe = XcodeProbe()
     var probed = false
+    var importedGames: [LibraryGame] = []
     var waitingForXcode = false      // Get Xcode was pressed: poll /Applications
+    private var recheckingXcode = false
     var xcodeBusy = false            // the finish-setup run owns state.xcode
     var backgroundStarted = false
     var failedDeps: [String: OnboardingFailure] = [:]
     var currentInstall: String?
     var sawRecheck = false
     var logMark = 0
-    var suppressAdvance = false
     var tasks: [String: Task<Void, Never>] = [:]
     var subscriptions: Set<AnyCancellable> = []
     let ephemeral: Bool
@@ -316,7 +317,7 @@ enum OnboardingLaunch {
             if OnboardingDefaults.resumeKeysSkip(in: d, keysSlotIsEmpty: model.keysPath.isEmpty) {
                 state.keys = .skipped
             } else if step.index > OnboardingStep.keys.index {
-                if model.keysReady { state.keys = .valid }   // the row's keys, or the ones saved in Settings
+                if model.keysReady { state.keysFile = URL(fileURLWithPath: model.keysPath); state.keys = .valid }   // the row's keys, or the ones saved in Settings
                 else { state.step = .keys }
             }
             // A stored step beyond Platform without a platform cannot be right; start from the choice.
@@ -376,6 +377,19 @@ enum OnboardingLaunch {
         pollForXcode()
     }
 
+    /// Read-only refresh without a transient checking state, prompts or navigation.
+    func recheckXcode() {
+        guard state.step == .xcode, state.xcode == .downloading, state.exit == nil,
+              !xcodeBusy, !recheckingXcode else { return }
+        recheckingXcode = true
+        spawn("xcode-recheck") { d in
+            defer { d.recheckingXcode = false }
+            guard await d.env.xcodeInstalled(), !Task.isCancelled,
+                  d.state.step == .xcode, d.state.exit == nil else { return }
+            await d.refreshXcode()
+        }
+    }
+
     func finishXcodeSetup() {
         guard state.step == .xcode, state.xcode == .needsSetup, state.exit == nil else { return }
         installApproved = true
@@ -408,14 +422,17 @@ enum OnboardingLaunch {
     }
 
     func confirmKeys() {
-        guard state.step == .keys, state.exit == nil, case let .found(url) = state.keys else { return }
-        validateKeys(url)
+        guard state.step == .keys, state.exit == nil, state.keys == .valid, let file = state.keysFile else { return }
+        model.updateSlot("keys") { $0.paths = [file.path]; $0.problem = "" }
+        keepKeys(file.path)
+        next()
     }
 
     func skipKeys() {
         guard state.canSkipKeys else { return }
         model.updateSlot("keys") { $0.paths = []; $0.problem = "" }
         // Skip leaves a keys file that is already saved alone: the keys stay optional here, and Settings holds them (#996)
+        state.keysFile = nil
         state.keys = .skipped
         store(true, OnboardingDefaults.keysSkipped)
         state.games = .empty   // rescan a previously visited folder for a build input that works without keys
@@ -432,7 +449,6 @@ enum OnboardingLaunch {
         let old = state.step
         state.back()
         guard old != state.step else { return }
-        suppressAdvance = true   // a step left behind stays reachable: Back must not bounce forward again
         enter(state.step)
     }
 
@@ -440,7 +456,6 @@ enum OnboardingLaunch {
         let old = state.step
         state.next()
         guard old != state.step else { return }
-        suppressAdvance = false
         enter(state.step)
     }
 
@@ -560,7 +575,6 @@ enum OnboardingLaunch {
         await refreshXcode()
         recomputeBackground()
         pumpInstalls()
-        advanceIfReady()
     }
 
     func refreshXcode() async {
@@ -590,7 +604,6 @@ enum OnboardingLaunch {
                 if await d.env.xcodeInstalled() {
                     d.waitingForXcode = false
                     await d.refreshXcode()
-                    d.advanceIfReady()
                     return
                 }
             }

@@ -35,7 +35,7 @@ final class ShellExportCaptureTests: IsolatedDefaultsTestCase {
         stores.deviceStore.sendWhere = SendWhere.device
         stores.deviceStore.exportOneGame = false
         func shot<V: View>(_ name: String, _ view: V) throws {
-            let framed = view.environmentObject(stores.localizer).padding(24).frame(width: 760).background(Color(white: 0.09)).environment(\.colorScheme, .dark)
+            let framed = view.environmentObject(stores.localizer).environmentObject(PadFocus()).padding(24).frame(width: 760).background(Color(white: 0.09)).environment(\.colorScheme, .dark)
             NSApplication.shared.setActivationPolicy(.accessory)
             let host = NSHostingView(rootView: framed)
             host.frame = NSRect(origin: .zero, size: host.fittingSize)

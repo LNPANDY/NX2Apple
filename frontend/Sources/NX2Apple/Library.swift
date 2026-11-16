@@ -549,7 +549,6 @@ final class GameLibrary: ObservableObject {
             game.appPath = existing.path
         }
         upsert(game)
-        selectedID = game.id
         return game.id
     }
 
@@ -571,6 +570,7 @@ final class GameLibrary: ObservableObject {
             game.archivePath = old.archivePath
             if game.customName.isEmpty { game.customName = old.customName }   // the player's name for it (Manage > Rename)
             if game.titleNames.isEmpty { game.titleNames = old.titleNames }   // until the new app's own names replace them below
+            if selectedID == old.id { selectedID = game.id }
             games.removeAll { $0.id == old.id }
         }
         game.titleID = app.titleID
@@ -582,7 +582,6 @@ final class GameLibrary: ObservableObject {
         if game.launchOptions[MacGameMode.optionEnv] == "1" {
             applyMacGameModeOption(enabled: true, for: game.id, appPath: path)
         }
-        selectedID = game.id
     }
 
     /// Only a choice that differs from the game's default is kept, so a setting left at its default follows a later build's.

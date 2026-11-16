@@ -123,14 +123,64 @@ import XCTest
         XCTAssertEqual(ordered.map(\.target), [BuildTarget.mac, BuildTarget.ios, BuildTarget.ios])
     }
 
-    func testSheetsAndDualPlatformStatusRenderCleanlyOffscreen() throws {
+    @MainActor func testSingleAndBatchRefreshOpenTheRedesignedQueueEditor() throws {
+        for entrypoint in ["hero.rebuild", "hero.rebuildAll"] {
+            let stores = makeStores()
+            let repo = temporary.appendingPathComponent(UUID().uuidString)
+            let marker = repo.appendingPathComponent(EngineLayout.marker)
+            try fm.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: marker)
+            stores.repo.path = repo.path
+            stores.dependencies.checked = true
+            stores.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "", present: true, installCmd: [])]
+            stores.deviceStore.exportIPA = false
+            stores.deviceStore.installDevice = ""; stores.deviceStore.signingTeam = ""
+            let package = repo.appendingPathComponent("game.nsp")
+            try Data().write(to: package)
+            var game = LibraryGame(titleID: tidFast, name: "Fixture refresh")
+            game.appPath = try makeMacApp(titleID: tidFast, name: "Fixture refresh " + UUID().uuidString)
+            game.hasShellFramework = true
+            game.inputs = ["base": [package.path]]
+            let library = GameLibrary(file: repo.appendingPathComponent("library.json"))
+            library.upsert(game)
+            library.selectedID = game.id
+            let pad = PadFocus()
+            let host = NSHostingView(rootView: LauncherView(stores: stores, library: library, performStartupChecks: false,
+                olderTools: [game.id], padFocus: pad, artworkStore: makeArtworkStore()))
+            let window = OffscreenWindow(size: .init(width: 1400, height: 900))
+            window.contentView = host; window.orderFront(nil)
+            defer { window.orderOut(nil); window.contentView = nil; window.close() }
+            func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.3)) }
+            settle()
+            XCTAssertNotNil(pad.frame(of: entrypoint))
+            pad.show(default: entrypoint); pad.activate(); settle()
+            if entrypoint == "hero.rebuildAll" {
+                XCTAssertEqual(pad.scope, "batchRefresh")
+                pad.focused = "batchRefresh.confirm"
+                XCTAssertNotNil(pad.frame(of: "batchRefresh.confirm"))
+                pad.activate(); settle()
+            }
+            XCTAssertEqual(stores.queue.games.count, 1)
+            XCTAssertTrue(stores.queue.games.first?.both == true)
+            XCTAssertFalse(stores.build.running, "missing iOS delivery settings keeps the staged queue reviewable")
+            XCTAssertEqual(pad.scope, "main")
+            XCTAssertNotNil(pad.frame(of: "set.build.queue.select"), "explicit refresh opens the queue editor, not just the inventory tab")
+        }
+    }
+
+    @MainActor func testSheetsRegisterControllerTargetsAndCancel() throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         let stores = makeStores()
         let artwork = makeArtworkStore()
+        let pad = PadFocus()
+        var batchClosed = false
+        var recovery: MissingImgGuideContext?
+        var guideClosed = false
         stores.deviceStore.devices = [
             AppleDevice(id: "UDID-1", name: "Player iPhone", model: "iPhone 17 Pro", os: "27.0", reachable: true, transport: "wired")
         ]
         stores.deviceStore.installDevice = "UDID-1"
+        stores.deviceStore.checked = true
 
         var dualGame = LibraryGame(titleID: tidFast, name: "Mario Kart 8 Deluxe")
         dualGame.appPath = try makeMacApp(titleID: tidFast, name: "Mario Kart 8 Deluxe")
@@ -168,10 +218,11 @@ import XCTest
             stores: stores,
             appVersion: "1.5.0",
             onConfirmed: {},
-            close: {}
+            close: { batchClosed = true },
+            recoverImage: { recovery = $0 }
         )
         .environmentObject(stores.localizer)
-        .environmentObject(PadFocus())
+        .environmentObject(pad)
 
         let guideCtx = MissingImgGuideContext(
             game: dualGame,
@@ -194,16 +245,67 @@ import XCTest
             chooseImgURL: { nil },
             onResolvedImg: { _ in },
             onFallbackFullRebuild: {},
-            close: {}
+            close: { guideClosed = true }
         )
         .environmentObject(stores.localizer)
-        .environmentObject(PadFocus())
+        .environmentObject(pad)
 
-        for host in [
-            NSHostingView(rootView: AnyView(batchSheet)),
-            NSHostingView(rootView: AnyView(guideSheet)),
-            NSHostingView(rootView: AnyView(launcher.status(dualGame, prominent: true).environmentObject(stores.localizer))),
-        ] {
+        let batchHost = NSHostingView(rootView: AnyView(batchSheet))
+        let batchWindow = OffscreenWindow(size: NSSize(width: 720, height: 640))
+        batchWindow.contentView = batchHost
+        batchWindow.orderFront(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        batchHost.layoutSubtreeIfNeeded()
+        let batchTargets = Set(pad.frames["batchRefresh", default: []].map(\.id))
+        XCTAssertTrue(batchTargets.contains("batchRefresh.game.\(dualGame.id.uuidString)"))
+        XCTAssertTrue(batchTargets.contains("batchRefresh.platform.mac.\(dualGame.id.uuidString)"))
+        XCTAssertTrue(batchTargets.contains("batchRefresh.platform.ios.\(dualGame.id.uuidString)"))
+        XCTAssertTrue(batchTargets.contains("batchRefresh.cancel"))
+        XCTAssertFalse(batchTargets.contains("batchRefresh.onlyFast"), "Fast-only selection has one meaningful refresh action")
+        pad.focused = "batchRefresh.game.\(dualGame.id.uuidString)"
+        XCTAssertTrue(PadKeyboardInput.handle(36, focus: pad, back: {}))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertNil(pad.frame(of: "batchRefresh.confirm"), "Return toggles the row instead of submitting the sheet")
+        _ = PadKeyboardInput.handle(36, focus: pad, back: {})
+        var missingImage = assessFast
+        missingImage.canFastRefreshIOS = false; missingImage.needsMissingImgGuideIOS = true; missingImage.hasUsableSeed = true
+        let recoveringAge = ToolsAge(older: [dualGame.id], assessments: [dualGame.id: missingImage])
+        batchWindow.contentView = NSHostingView(rootView: BatchRefreshSheet(library: library, toolsAge: recoveringAge,
+            stores: stores, onConfirmed: {}, close: { batchClosed = true }, recoverImage: { recovery = $0 })
+            .environmentObject(stores.localizer).environmentObject(pad))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        pad.focused = "batchRefresh.recover." + dualGame.id.uuidString
+        pad.activate()
+        XCTAssertEqual(recovery?.id, dualGame.id)
+        pad.show(default: "batchRefresh.cancel")
+        XCTAssertTrue(pad.cancel())
+        XCTAssertTrue(batchClosed)
+        batchWindow.orderOut(nil)
+
+        let guideHost = NSHostingView(rootView: AnyView(guideSheet))
+        let guideWindow = OffscreenWindow(size: NSSize(width: 720, height: 640))
+        guideWindow.contentView = guideHost
+        guideWindow.orderFront(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        guideHost.layoutSubtreeIfNeeded()
+        let guideTargets = Set(pad.frames["imgGuide", default: []].map(\.id))
+        XCTAssertTrue(guideTargets.contains("imgGuide.choose"))
+        XCTAssertTrue(guideTargets.contains("imgGuide.folder"))
+        XCTAssertFalse(guideTargets.contains("imgGuide.pull"), "the initial empty device scan disables pulling")
+        stores.deviceStore.devices = [AppleDevice(id: "UDID-1", name: "Player iPhone", model: "iPhone 17 Pro", os: "27.0", reachable: true, transport: "wired")]
+        stores.deviceStore.installDevice = "UDID-1"
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        guideHost.layoutSubtreeIfNeeded()
+        XCTAssertTrue(pad.frames["imgGuide", default: []].contains { $0.id == "imgGuide.pull" }, "connecting a device makes pulling controller reachable")
+        XCTAssertTrue(guideTargets.contains("imgGuide.cancel"))
+        pad.show(default: "imgGuide.choose")
+        XCTAssertTrue(pad.cancel())
+        XCTAssertTrue(guideClosed)
+        guideWindow.orderOut(nil)
+
+        let statusHost = NSHostingView(rootView: AnyView(launcher.heroSingleRefreshButton(dualGame, lightHero: false, compact: false).environmentObject(stores.localizer).environmentObject(pad)))
+        do {
+            let host = statusHost
             let win = OffscreenWindow(size: NSSize(width: 720, height: 640))
             win.contentView = host
             win.orderFront(nil)
@@ -318,6 +420,7 @@ import XCTest
             let root = view
                 .environmentObject(PadFocus())
                 .environmentObject(stores.localizer)
+                .environment(\.selectionArtworkDirectory, library.artworkDirectory)
                 .launcherDropdownHost()
                 .frame(width: size.width, height: size.height)
                 .background(LauncherPalette.background)
@@ -380,6 +483,10 @@ import XCTest
                     light: light,
                     size: sheetSize
                 )
+                stores.build.sharedAppDataSources = {
+                    [oot, mk8, stardew].map { TransferSource(titleID: $0.titleID, name: $0.name, archive: "/unused") }
+                }
+                try renderAndCapture("send-selected-\(code)", SendSelectedSheet(mode: .device, build: stores.build, close: {}), light: light, size: sheetSize)
                 try renderAndCapture(
                     "supported-games-\(code)",
                     SupportedGamesSheet(

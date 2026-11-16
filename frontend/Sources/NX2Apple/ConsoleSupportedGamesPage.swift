@@ -12,16 +12,19 @@ import NXLauncher
     let lang: Lang
     let glyphs: ConsoleGlyphs
     let compact: Bool
+    var embedded = false
+    @State private var availableWidth: CGFloat = 600
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expanded: String?
     @StateObject private var covers: SupportedCovers
     @State private var viewport: CGFloat = 0   // the scroll view's height: which rows are on screen
 
-    init(driver: Driver, lang: Lang, glyphs: ConsoleGlyphs, compact: Bool) {
+    init(driver: Driver, lang: Lang, glyphs: ConsoleGlyphs, compact: Bool, embedded: Bool = false) {
         self.driver = driver
         self.lang = lang
         self.glyphs = glyphs
+        self.embedded = embedded
         self.compact = compact
         _covers = StateObject(wrappedValue: driver.supportedCovers(maxPixel: Int(2 * Self.coverSize(compact: compact).width)))
     }
@@ -34,13 +37,15 @@ import NXLauncher
     static var firstTarget: String { "console.supported.key.a" }
     private var state: ConsoleState { driver.state }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
-    private var inset: CGFloat { compact ? 24 : 64 }
-    private var keySize: CGSize { compact ? CGSize(width: 30, height: 44) : CGSize(width: 64, height: 56) }
+    private var inset: CGFloat { embedded ? 40 : compact ? 24 : 64 }
+    private var keySize: CGSize { embedded ? CGSize(width: max(24, (availableWidth - 2 * inset - 72) / 10), height: 56) : compact ? CGSize(width: 30, height: 44) : CGSize(width: 64, height: 56) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ConsolePageHeader(title: t("supported.title"), note: t("console.supported.note"), compact: compact, closeLabel: t("console.close"),
-                              closeID: "console.supported.close", scope: Self.scope) { driver.back() }
+            if !embedded {
+                ConsolePageHeader(title: t("supported.title"), note: t("console.supported.note"), compact: compact, closeLabel: t("console.close"),
+                                  closeID: "console.supported.close", scope: Self.scope) { driver.back() }
+            }
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: compact ? 18 : 28) {
@@ -62,6 +67,7 @@ import NXLauncher
                     withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
                 }
             }
+            if !embedded || !state.supportedText.isEmpty {
             HStack {
                 Spacer(minLength: 0)
                 ConsoleHint(glyph: glyphs.hintGlyph(.back, swapAB: state.menuSwapAB), label: t(ConsoleSearchBack.labelKey(state.supportedText)),
@@ -70,9 +76,13 @@ import NXLauncher
                 }
             }
             .padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LauncherPalette.background)
+        .background(GeometryReader { area in
+            Color.clear.onAppear { availableWidth = area.size.width }.onChange(of: area.size.width) { availableWidth = $0 }
+        })
         .onChange(of: state.supportedText) { _ in expanded = nil }
         .onDisappear { covers.stop() }
     }
@@ -100,7 +110,7 @@ import NXLauncher
             ForEach(ConsoleKeyboard.rows, id: \.self) { row in
                 HStack(spacing: 8) {
                     ForEach(row, id: \.self) { key in
-                        ConsoleKeyButton(id: "console.supported.key." + key, scope: Self.scope, label: key.uppercased(), size: keySize, compact: compact) {
+                        ConsoleKeyButton(id: "console.supported.key." + key, scope: Self.scope, label: key.uppercased(), size: keySize, compact: embedded ? false : compact) {
                             driver.typeSupported(key)
                         }
                     }
@@ -108,11 +118,11 @@ import NXLauncher
             }
             HStack(spacing: 8) {
                 ConsoleKeyButton(id: "console.supported.key.space", scope: Self.scope, label: t("console.key.space"), size: keySize,
-                                 width: 4 * keySize.width + 24, compact: compact) { driver.typeSupported(" ") }
+                                 width: 4 * keySize.width + 24, compact: embedded ? false : compact) { driver.typeSupported(" ") }
                 ConsoleKeyButton(id: "console.supported.key.delete", scope: Self.scope, label: t("console.key.delete"), symbol: "delete.left", size: keySize,
-                                 width: 2 * keySize.width + 8, compact: compact) { driver.deleteSupported() }
+                                 width: 2 * keySize.width + 8, compact: embedded ? false : compact) { driver.deleteSupported() }
                 ConsoleKeyButton(id: "console.supported.key.done", scope: Self.scope, label: t("console.key.done"), size: keySize,
-                                 width: 2 * keySize.width + 8, primary: true, compact: compact) {
+                                 width: 2 * keySize.width + 8, primary: true, compact: embedded ? false : compact) {
                     pad.focused = state.supportedShown.first.map { "console.supported.row." + $0.titleID } ?? "console.supported.close"
                 }
             }
@@ -192,13 +202,13 @@ import NXLauncher
                         .foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                     if let owned {
                         let openID = "console.supported.open." + game.titleID
-                        Button { driver.openGamePage(owned) } label: {
+                        Button { driver.openOptions(owned) } label: {
                             Text(t("console.supported.open")).font(.manrope(compact ? 16 : 19, .semibold)).foregroundStyle(.white)
                                 .padding(.horizontal, 22).frame(height: compact ? 44 : 52)
                                 .background(.white.opacity(0.075), in: Capsule()).contentShape(Capsule())
                         }
                         .buttonStyle(.plain)
-                        .padTarget(openID, scope: Self.scope, radius: 26) { driver.openGamePage(owned) }
+                        .padTarget(openID, scope: Self.scope) { driver.openOptions(owned) }
                     }
                 }
                 .padding(.horizontal, 20).padding(.bottom, 6)

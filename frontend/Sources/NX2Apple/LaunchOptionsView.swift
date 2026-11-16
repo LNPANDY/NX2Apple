@@ -77,7 +77,7 @@ struct LaunchOptionsView: View {
                     category = LaunchCategory(rawValue: $0) ?? .game
                 }
                 .accessibilityElement(children: .contain).accessibilityLabel(loc.t("launch.title"))
-                .padTarget("opt.category", scope: "launch", radius: 17, activate: { moveCategory(1, in: destination) }, adjust: { moveCategory($0, in: destination) })
+                .padTarget("opt.category", scope: "launch", activate: { moveCategory(1, in: destination) }, adjust: { moveCategory($0, in: destination) })
                 .padding(.horizontal, 30).padding(.bottom, 16)
             }
             if let game {
@@ -130,7 +130,7 @@ struct LaunchOptionsView: View {
             Button(loc.t("library.setUpBuild")) { dismiss(); onBuild(game) }
                 .buttonStyle(LauncherSecondaryButtonStyle()).launcherRowControls()
                 .disabled(m.running || game.inputs["base", default: []].isEmpty)
-                .padTarget("opt.build", scope: "launch") { if !m.running { dismiss(); onBuild(game) } }
+                .padTarget("opt.build", scope: "launch", enabled: !m.running && !game.inputs["base", default: []].isEmpty) { if !m.running { dismiss(); onBuild(game) } }
         }
         .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -252,7 +252,7 @@ struct LaunchOptionsView: View {
                         .padding(.horizontal, 22).padding(.vertical, 9)
                 }
                 .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(.defaultAction)
-                .padTarget("opt.done", scope: "launch", radius: 20) { dismiss() }
+                .padTarget("opt.done", scope: "launch", focusColor: LauncherPalette.onCream) { dismiss() }
             }
         }
         .padding(.horizontal, 30).padding(.vertical, 16)
@@ -485,7 +485,7 @@ struct LaunchOptionsView: View {
                                 .labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(!mod.usable)
                         }
                         .padding(.horizontal, 18).padding(.vertical, 13).frame(minHeight: 52)
-                        .padTarget("mod." + mod.name, scope: "launch", radius: 10,
+                        .padTarget("mod." + mod.name, scope: "launch", radius: 10, enabled: mod.usable,
                                    activate: { if mod.usable { library.setMod(mod.name, on: !game.mods.contains(mod.name), for: gameID) } },
                                    adjust: { _ in if mod.usable { library.setMod(mod.name, on: !game.mods.contains(mod.name), for: gameID) } })
                         divider

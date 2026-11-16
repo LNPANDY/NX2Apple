@@ -65,4 +65,34 @@ final class PadFocusTests: IsolatedDefaultsTestCase {
         f.move(dx: 1, dy: 0)
         XCTAssertEqual(f.focused, "card.3")
     }
+
+    func testTargetsBehindAnotherScopeCannotActivateAndClosingRestoresFocus() {
+        let f = grid()
+        var activated = 0
+        f.register("card.2", .init(activate: { activated += 1 }))
+        f.show(default: "card.2")
+        f.scope = "launch"
+        f.setFrames([.init(id: "opt.done", frame: .init(x: 0, y: 0, width: 80, height: 30))], scope: "launch")
+        f.focused = "card.2"
+        f.activate()
+        XCTAssertEqual(activated, 0, "a retained main-window target must not act through a sheet")
+        f.focused = "opt.done"
+        f.scope = "main"
+        XCTAssertEqual(f.focused, "card.2", "closing a sheet returns to the original control")
+    }
+
+    func testReopeningAQuestionNeverRestoresItsPreviousDestructiveSelection() {
+        let f = grid()
+        f.show(default: "card.2")
+        f.setFrames([.init(id: "remove.cancel", frame: .init(x: 0, y: 0, width: 80, height: 30)),
+                     .init(id: "remove.confirm", frame: .init(x: 100, y: 0, width: 80, height: 30))], scope: "remove")
+        f.scope = "remove"
+        f.show(default: "remove.confirm")
+        f.scope = "main"
+        XCTAssertEqual(f.focused, "card.2")
+        f.scope = "remove"
+        XCTAssertNil(f.focused, "new presentations start fresh, only returning to a parent restores focus")
+        f.show(default: nil)
+        XCTAssertEqual(f.focused, "remove.cancel")
+    }
 }

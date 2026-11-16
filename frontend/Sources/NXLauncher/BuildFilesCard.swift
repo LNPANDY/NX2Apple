@@ -49,11 +49,12 @@ package struct BuildFilesCard: View {
             Button(loc.t("buildfiles.details")) { details(entry.id) }
                 .disabled(removing)
                 .accessibilityLabel(String(format: loc.t("buildfiles.detailsNamed"), entry.name))
-                .padTarget("set.buildfiles.details.\(index)", scope: "main") { if !removing { details(entry.id) } }
-            Button(loc.t("buildfiles.remove")) { store.ask(entry.id, building: building) }
+                .padTarget("set.buildfiles.details.\(index)", scope: "main", enabled: !removing) { if !removing { details(entry.id) } }
+            Button(loc.t("buildfiles.remove"), role: .destructive) { store.ask(entry.id, building: building) }
+                .buttonStyle(LauncherSecondaryButtonStyle(accent: .red))
                 .disabled(building || store.removing != nil)
                 .accessibilityLabel(String(format: loc.t("buildfiles.removeNamed"), entry.name))
-                .padTarget("set.buildfiles.\(index)", scope: "main") { if !building && store.removing == nil { store.ask(entry.id, building: building) } }
+                .padTarget("set.buildfiles.\(index)", scope: "main", enabled: !building && store.removing == nil) { if !building && store.removing == nil { store.ask(entry.id, building: building) } }
         }
     }
 }

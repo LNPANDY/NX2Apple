@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import NX2Apple
 @testable import NXCore
 
@@ -41,7 +42,7 @@ import XCTest
         _ = try library.addApp(try makeApp("Celeste", titleID: "0100000000000002", in: folder))
         final class Log { var launches: [String] = []; var posts: [String] = []; var yields: [String?] = []; var pid: Int32 = 4000 }
         let log = Log()
-        let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: testDefaults), repo: { "" }, lang: { .en },
+        let driver = LiveConsoleDriver(launchGracePeriod: 0, library: library, controls: ControlLayout(defaults: testDefaults), repo: { "" }, lang: { .en },
                                        labels: { L10n.string($0, .en) }, pads: { [] },
                                        launch: { game, _, done in log.pid += 1; log.launches.append(game.name); done(log.pid, nil) },
                                        artwork: { _, _ in nil }, startingTimeout: 0.2, observeSystem: false)
@@ -181,6 +182,145 @@ import XCTest
         XCTAssertEqual(h.driver.state.searchGames.map(\.title), ["Celeste"], "the title ID")
     }
 
+    func testStandaloneBuildGetsAnOverallProgressRowWithoutAQueue() throws {
+        let h = try makeHarness(), stores = LauncherStores(defaults: testDefaults)
+        h.driver.bindBuilds(stores.build, queue: stores.queue)
+        stores.build.overallProgress = 0.42; stores.build.running = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(h.driver.state.builds.queue.count, 1)
+        XCTAssertTrue(h.driver.state.builds.queue[0].active)
+        XCTAssertEqual(h.driver.state.builds.queue[0].progress, 0.42)
+        stores.build.running = false
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertTrue(h.driver.state.builds.queue.isEmpty)
+        stores.build.runningTarget = BuildTarget.mac
+        stores.build.macAppPath = h.folder.appendingPathComponent("Hades.app").path
+        stores.build.done = true
+        XCTAssertEqual(stores.build.completionStatus, .mac)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertTrue(h.driver.state.builds.hasActivity)
+        XCTAssertEqual(h.driver.state.builds.queue.first?.outcome, .success)
+        stores.build.installedOn = "Test device"; stores.build.archivePath = "/test/archive"
+        stores.build.installedDataComplete = false
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(h.driver.state.builds.queue.first?.outcome, .warning)
+        XCTAssertEqual(h.driver.state.builds.queue.first?.statusKey, "result.dataNeeded")
+    }
+
+    func testQueueCompletionFrameSettlesSuccessOnlyWithoutChangingTheNextSnapshot() {
+        let id = UUID(), nextID = UUID()
+        let old = ConsoleBuilds(running: true, queue: [.init(id: id, name: "First", statusKey: "queue.status.running", active: true, progress: 0.94)])
+        var next = ConsoleBuilds(running: true, queue: [
+            .init(id: id, name: "First", statusKey: "queue.status.done", outcome: .success),
+            .init(id: nextID, name: "Next", statusKey: "queue.status.running", active: true, progress: 0)
+        ])
+        let frame = ConsoleBuilds.completionFrame(from: old, to: next)
+        XCTAssertEqual(frame?.queue.first?.progress, 1)
+        XCTAssertEqual(frame?.queue.first?.id, id)
+        XCTAssertEqual(next.queue.last?.progress, 0)
+        XCTAssertNil(ConsoleBuilds.completionFrame(from: old, to: old))
+        next.queue[0].outcome = .failure
+        XCTAssertNil(ConsoleBuilds.completionFrame(from: old, to: next))
+    }
+
+    func testConsoleQueueMenuAvailabilityAndCompletedOrdering() {
+        var builds = ConsoleBuilds()
+        XCTAssertFalse(builds.hasActivity)
+        builds.running = true
+        XCTAssertTrue(builds.hasActivity)
+        builds.running = false
+        let done = ConsoleBuilds.QueueRow(id: UUID(), name: "Done", statusKey: "queue.status.done", outcome: .success)
+        let waiting = ConsoleBuilds.QueueRow(id: UUID(), name: "Waiting", statusKey: "queue.status.queued")
+        let failed = ConsoleBuilds.QueueRow(id: UUID(), name: "Failed", statusKey: "queue.status.failed", outcome: .failure)
+        builds.queue = [done, waiting, failed]
+        XCTAssertTrue(builds.hasActivity)
+        XCTAssertEqual(builds.orderedQueue.map(\.id), [waiting.id, failed.id, done.id])
+        builds.queue = [done]
+        XCTAssertTrue(builds.hasActivity, "retained completed result stays reachable")
+    }
+
+    func testCompletedQueueUsesActualCompletionOrderAcrossRetries() {
+        let first = ConsoleBuilds.QueueRow(id: UUID(), name: "First", statusKey: "queue.status.done", outcome: .success)
+        var retry = ConsoleBuilds.QueueRow(id: UUID(), name: "Retry", statusKey: "queue.status.failed", outcome: .failure)
+        let last = ConsoleBuilds.QueueRow(id: UUID(), name: "Last", statusKey: "queue.status.done", outcome: .success)
+        var old = ConsoleBuilds(queue: [first, retry, last])
+        old.retainCompletionOrder(from: ConsoleBuilds())
+        XCTAssertEqual(old.orderedQueue.map(\.id), [retry.id, last.id, first.id])
+        retry.outcome = .success
+        var next = ConsoleBuilds(queue: [first, retry, last])
+        next.retainCompletionOrder(from: old)
+        XCTAssertEqual(next.orderedQueue.map(\.id), [retry.id, last.id, first.id])
+    }
+
+    func testIndicatorChoosesActiveOrDeliveredResultButNeverAStagedQueue() {
+        let pending = ConsoleBuilds.QueueRow(id: UUID(), name: "Pending", statusKey: "queue.status.queued")
+        var builds = ConsoleBuilds(queue: [pending])
+        XCTAssertNil(builds.indicatorRow)
+        builds.running = true
+        builds.queue[0].active = true
+        builds.queue[0].progress = 0.6
+        XCTAssertEqual(builds.indicatorRow?.id, pending.id)
+        builds.running = false; builds.queue[0].active = false
+        builds.queue[0].outcome = .success
+        XCTAssertEqual(builds.indicatorRow?.outcome, .success)
+        let failed = ConsoleBuilds.QueueRow(id: UUID(), name: "Failed", statusKey: "queue.status.failed", outcome: .failure)
+        builds.queue.append(failed)
+        XCTAssertEqual(builds.indicatorRow?.id, failed.id)
+    }
+
+    func testConsoleOverallProgressCoversBothPlatformsAndDeferredPackaging() {
+        var mac = QueueEntry(titleID: "A", name: "Game", target: BuildTarget.mac, inputs: [:], outputDirectory: "/o", engineID: "e", status: .running)
+        var ios = QueueEntry(titleID: "A", name: "Game", target: BuildTarget.ios, inputs: [:], outputDirectory: "/o", engineID: "e", packageAfter: true)
+        func row(_ jobs: [QueueEntry], _ progress: Double?) -> ConsoleBuilds.QueueRow {
+            LiveConsoleDriver.builds(running: true, stopping: false, title: "", stages: [], queue: jobs, progress: progress).queue[0]
+        }
+        XCTAssertEqual(row([mac, ios], 0.6).progress!, 0.2, accuracy: 0.001)
+        mac.status = .done; ios.status = .running
+        XCTAssertEqual(row([mac, ios], 0.5).progress!, 0.5, accuracy: 0.001)
+        ios.status = .done; ios.packagePending = false
+        XCTAssertNil(row([mac, ios], 1).outcome)
+        XCTAssertFalse(row([mac, ios], 1).active)
+        XCTAssertEqual(row([mac, ios], 1).statusKey, "queue.awaitingPackage")
+        ios.packagePending = true
+        XCTAssertEqual(row([mac, ios], 0).progress!, 2.0 / 3, accuracy: 0.001)
+        XCTAssertEqual(row([mac, ios], 1).progress, 1)
+        XCTAssertNil(row([mac, ios], .nan).progress)
+        ios.packagePending = nil
+        XCTAssertEqual(row([mac, ios], 1).outcome, .success)
+    }
+
+    func testConsoleQueueGroupsBothJobsIntoOneGameWithPlatformChip() {
+        let jobs = [QueueEntry(titleID: "A", name: "Game", target: BuildTarget.mac, inputs: [:], outputDirectory: "/o", engineID: "e", status: .done),
+                    QueueEntry(titleID: "A", name: "Game", target: BuildTarget.ios, inputs: [:], outputDirectory: "/o", engineID: "e", status: .running)]
+        let page = LiveConsoleDriver.builds(running: true, stopping: false, title: "", stages: [], queue: jobs)
+        XCTAssertEqual(page.queue.count, 1)
+        XCTAssertEqual(page.queue[0].platformKey, "library.chip.both")
+        XCTAssertEqual(page.queue[0].statusKey, "queue.status.running")
+    }
+
+    func testConsoleDestinationsUsePanelsAndQueueRetainsPartialOutcomes() {
+        for sheet: ConsoleSheet in [.allGames, .search, .builds, .supportedGames, .gamePage("game"), .mapping, .cloudSaves, .settings] {
+            XCTAssertFalse(sheet.isFullScreen)
+        }
+        let jobs = [QueueEntry(titleID: "A", name: "Game", target: BuildTarget.mac, inputs: [:], outputDirectory: "/o", engineID: "e", status: .done),
+                    QueueEntry(titleID: "A", name: "Game", target: BuildTarget.ios, inputs: [:], outputDirectory: "/o", engineID: "e", status: .failed)]
+        var page = LiveConsoleDriver.builds(running: false, stopping: false, title: "", stages: [], queue: jobs)
+        XCTAssertEqual(page.queue.count, 1)
+        XCTAssertEqual(page.queue[0].outcome, .failure)
+        XCTAssertEqual(page.queue[0].platformSymbol, "laptopcomputer.and.iphone")
+        XCTAssertNotNil(NSImage(systemSymbolName: page.queue[0].platformSymbol, accessibilityDescription: nil))
+        var pending = jobs[0]; pending.packagePending = true
+        page = LiveConsoleDriver.builds(running: false, stopping: false, title: "", stages: [], queue: [pending])
+        XCTAssertNil(page.queue[0].outcome, "packaging is not complete")
+        var skipped = jobs[0]; skipped.status = .skipped
+        page = LiveConsoleDriver.builds(running: false, stopping: false, title: "", stages: [], queue: [skipped])
+        XCTAssertEqual(page.queue[0].outcome, .warning)
+        var stopped = jobs[0]; stopped.status = .stopped
+        page = LiveConsoleDriver.builds(running: false, stopping: false, title: "", stages: [], queue: [stopped])
+        XCTAssertEqual(page.queue[0].statusKey, "queue.status.stopped")
+        XCTAssertEqual(page.queue[0].outcome, .failure, "stopped work keeps the red failure badge without visible status copy")
+    }
+
     func testBuildsPageRowsFromTheStoreAndQueue() {
         let stages = [Stage(id: 1, name: "extract v655360", state: .done),
                       Stage(id: 2, name: "Install on iPhone", state: .running, percent: 40,
@@ -192,7 +332,8 @@ import XCTest
         XCTAssertEqual(builds.stages[0].name, "extract v655360")
         XCTAssertEqual(builds.stages[1].nameKey, "dev.installStage")
         XCTAssertEqual(builds.stages[1].nameArgument, "iPhone")
-        XCTAssertEqual(builds.queue.map(\.name), ["Hades"], "the queue's waiting games, not the earlier results")
+        XCTAssertEqual(builds.queue.map(\.name), ["Hades", "Celeste"], "retain results so the queue keeps its context")
+        XCTAssertEqual(builds.queue.last?.outcome, .success)
         XCTAssertEqual(builds.queue.first?.statusKey, "queue.status.queued")
         XCTAssertEqual(LiveConsoleDriver.builds(running: false, stopping: false, title: "", stages: stages, queue: []).stages, [], "no build, no stages")
         var state = ConsoleState()

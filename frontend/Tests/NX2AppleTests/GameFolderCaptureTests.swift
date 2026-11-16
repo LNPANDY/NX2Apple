@@ -164,7 +164,7 @@ final class GameFolderCaptureTests: IsolatedDefaultsTestCase {
         func capture(_ name: String, target: String) throws {
             model.target = target
             model.scan(folder: folderToScan)
-            let host = NSHostingView(rootView: LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false))
+            let host = NSHostingView(rootView: LauncherView(stores: stores, library: library, initialPage: .builds, initialBuildEditorOpen: true, performStartupChecks: false))
             let window = OffscreenWindow(size: NSSize(width: 1440, height: 1024), styleMask: [.titled, .closable, .resizable])
             window.contentView = host
             window.orderFront(nil)

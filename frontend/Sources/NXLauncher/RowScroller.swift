@@ -19,7 +19,9 @@ package final class RowScroller: ObservableObject {
         view.documentView?.postsFrameChangedNotifications = true
         observers = [(NSView.boundsDidChangeNotification, clip), (NSView.frameDidChangeNotification, clip),
                      (NSView.frameDidChangeNotification, view.documentView as Any)].map { name, object in
-            NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in self?.update() }
+            NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+                DispatchQueue.main.async { [weak self] in self?.update() }
+            }
         }
         update()
     }

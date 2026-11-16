@@ -14,12 +14,31 @@ enum LauncherPage: String, CaseIterable {
 
 /// The library's filter: every game in the games folder, or only those with a build. Remembered between launches.
 enum LibraryFilter: String, CaseIterable, Identifiable {
-    case owned, built
+    case owned, built, mac, ios
     var id: String { rawValue }
-    var labelKey: String { "filter." + rawValue }
+    static let libraryOptions: [LibraryFilter] = [.owned, .mac, .ios]
+    var labelKey: String {
+        switch self {
+        case .owned: return "builds.allGames"
+        case .built: return "filter.built"
+        case .mac: return "library.section.mac"
+        case .ios: return "library.section.mobile"
+        }
+    }
+    func adjusted(_ direction: Int) -> Self {
+        let index = Self.libraryOptions.firstIndex(of: self) ?? 0
+        return Self.libraryOptions[min(max(index + direction, 0), Self.libraryOptions.count - 1)]
+    }
 
     /// Owned shows every game without reading its build, so the default filter costs nothing per card.
-    func includes(_ game: LibraryGame) -> Bool { self == .owned || game.isReady || game.hasIOSBuild }
+    func includes(_ game: LibraryGame) -> Bool {
+        switch self {
+        case .owned: return true
+        case .built: return game.isReady || game.hasIOSBuild
+        case .mac: return game.isReady
+        case .ios: return game.hasIOSBuild
+        }
+    }
 
     /// The games this filter shows that match `search` (any name the game answers to), in `sort` order.
     func visibleGames(_ games: [LibraryGame], matching search: String = "", lang: Lang = Lang.initial(), sort: LibrarySort = .name) -> [LibraryGame] {

@@ -141,98 +141,30 @@ struct ConsoleBattery: View {
     }
 }
 
-/// Fixed-height strip: controller arrivals only change its horizontal content, never the library's position.
-struct ConsoleControllerChips: View {
+/// The controller entry keeps its size as devices arrive, with their status in its help and panel.
+struct ConsoleControllerButton: View {
     let controllers: [ConsoleController]
     let merged: Bool
     let lang: Lang
     var compact = false
-    var scope = "console"
     let openControllers: () -> Void
-    @EnvironmentObject private var pad: PadFocus
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private func t(_ key: String) -> String { L10n.string(key, lang) }
-    /// The chip's spoken label: name, kind, player, battery. Built in steps with explicit types: as one `+` chain
-    /// the release build's type checker ran out of time on it on a CI runner.
-    private func chipLabel(_ controller: ConsoleController) -> String {
-        let player: Int? = merged ? 1 : controller.player
-        let playerText: String = player.map { String(format: t("console.player"), $0) } ?? t("console.unassigned")
-        var parts: [String] = [controller.name, t(controller.kind.labelKey), playerText]
-        if let percent = controller.batteryPercent {
-            parts.append(String(format: t(controller.charging ? "console.batteryCharging" : "console.batteryLevel"), percent))
-        }
-        return parts.joined(separator: ", ")
+
+    private var summary: String {
+        guard !controllers.isEmpty else { return t("console.noControllers") }
+        return controllers.map { controller in
+            let player = (merged ? 1 : controller.player).map { String(format: t("console.player"), $0) } ?? t("console.unassigned")
+            var parts = [controller.name, t(controller.kind.labelKey), player]
+            if let percent = controller.batteryPercent {
+                parts.append(String(format: t(controller.charging ? "console.batteryCharging" : "console.batteryLevel"), percent))
+            }
+            return parts.joined(separator: ", ")
+        }.joined(separator: "\n")
     }
 
-    private var row: some View {
-        HStack(spacing: 8) {
-            if controllers.isEmpty {
-                chip(id: "empty", label: t("console.noControllers")) {
-                    Label(t("console.controllers"), systemImage: "gamecontroller")
-                }
-            }
-            ForEach(controllers) { controller in
-                chip(id: controller.id, label: chipLabel(controller)) {
-                    HStack(spacing: compact ? 5 : 8) {
-                        Image(systemName: controller.kind.symbol).accessibilityHidden(true)
-                        Text((merged ? 1 : controller.player).map { String(format: t("console.playerShort"), $0) } ?? "\u{2014}")   // the full "Unassigned" is in the Controllers list
-                        ConsoleBattery(controller: controller, lang: lang, compact: compact)
-                    }
-                }
-            }
-        }
-        .padding(5)
-    }
-
-    /// The chips take their own width (nothing is cut off) and sit at the trailing edge. Only when there are more than the row has
-    /// room for does it scroll sideways.
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            row.fixedSize().frame(maxWidth: .infinity, alignment: .trailing)
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) { row }
-                    .mask(HStack(spacing: 0) { Rectangle(); LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 18) })   // an overflowing row fades out instead of ending in a cut
-                    .onChange(of: pad.focused) { id in
-                        if let id, id.hasPrefix(scope + ".chip.") {
-                            withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
-                        }
-                    }
-            }
-        }
-        .frame(height: compact ? 40 : 52)
-    }
-    private func chip<C: View>(id: String, label: String, @ViewBuilder content: () -> C) -> some View {
-        Button(action: openControllers) {
-            content().font(.manrope(compact ? 12 : 17, .semibold))
-                .padding(.horizontal, compact ? 10 : 14).frame(height: compact ? 30 : 40)
-                .consoleBarFill().contentShape(Capsule())   // readable on bright art (ConsoleBarFill)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityHint(t("console.controllers"))
-        .padTarget(scope + ".chip." + id, scope: scope, radius: 24, activate: openControllers)
-    }
-}
-
-/// The desktop's work in the top bar: its operation line and a bar for the current stage. It takes no focus and has no action.
-struct ConsoleActivityChip: View {
-    let activity: ConsoleActivity
-    let compact: Bool
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "wrench.and.screwdriver")
-            Text(activity.title).lineLimit(1).truncationMode(.tail)
-            LauncherProgressBar(value: activity.stageProgress, height: 5).frame(width: compact ? 48 : 72)
-        }
-        .font(.manrope(compact ? 13 : 15, .semibold)).foregroundStyle(.white.opacity(0.8))
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(LauncherPalette.surface, in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
-        .frame(maxWidth: compact ? 260 : 420, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(activity.title)
-        .accessibilityValue(activity.spokenProgress)
-        .allowsHitTesting(false)
+        ConsoleHeaderButton(symbol: "gamecontroller.fill", id: "console.chip.controllers", label: t("console.controllers"), compact: compact, showsLabel: true, action: openControllers)
+            .accessibilityValue(summary).help(summary)
     }
 }
 
@@ -271,24 +203,27 @@ struct ConsoleToastView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 12) {
+                    ConsoleSectionHeading(title: t("console.controllers.input"), compact: compact)
                     mergeToggle
                     if showsMapping { menuSwapToggle }   // in reach here too, not only at the top of the button mapping (#1129)
                     if showsMapping { mappingEntry }
                     if showsMapping && state.homeButtonAvailable { homeEntry }
+                    if showsMapping { ConsoleSectionHeading(title: t("console.entry"), compact: compact).padding(.top, 14) }
                     if showsMapping { ForEach(ConsolePref.onControllers, id: \.self) { prefToggle($0) } }   // the ways into console mode, as the desktop's Controls card has them
+                    ConsoleSectionHeading(title: t("console.controllers.players"), compact: compact).padding(.top, 14)
                     Text(t("console.controllerNote")).font(.manrope(compact ? 17 : 22)).foregroundStyle(LauncherPalette.secondaryText)
                     HStack(spacing: 12) {
                         ForEach(1...4, id: \.self) { player in
                             Button { driver.requestPlayer(player) } label: {
                                 Text(String(format: t("console.playerShort"), player)).font(.manrope(compact ? 18 : 22, .bold))
                                     .frame(maxWidth: .infinity, minHeight: 56)
-                                    .background(state.assigningPlayer == player ? LauncherPalette.cream : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+                                    .background(state.assigningPlayer == player ? LauncherPalette.cream : LauncherPalette.surface, in: Capsule())
                                     .foregroundStyle(state.assigningPlayer == player ? LauncherPalette.background : LauncherPalette.textStrong)
                             }
                             .buttonStyle(.plain).accessibilityLabel(String(format: t("console.player"), player))
                             .accessibilityAddTraits(state.assigningPlayer == player ? .isSelected : [])
-                            .padTarget("console.player.\(player)", scope: scope, radius: 12, activate: { driver.requestPlayer(player) })
+                            .padTarget("console.player.\(player)", scope: scope, activate: { driver.requestPlayer(player) })
                         }
                     }
                     if let player = state.assigningPlayer {
@@ -300,115 +235,40 @@ struct ConsoleToastView: View {
                 .padding(.horizontal, compact ? 24 : 40).padding(.vertical, 12)
                 }.consoleScrollContent()
             }
+            .frame(minHeight: 0, maxHeight: .infinity)
             .consoleScrollFade()
             .onChange(of: pad.focused) { id in
                 if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } }
             }
         }
     }
-    /// "All controllers are player 1" as a switch with its state spelled out.
+    /// The shared switch keeps pointer and controller activation on the same row.
     private var mergeToggle: some View {
-        let flip = { driver.setPadMerge(!state.padMerge) }
-        return Button(action: flip) {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(t("console.mergeAll"), systemImage: "person.2").font(.manrope(compact ? 16 : 18, .semibold))
-                    Text(t(state.padMerge ? "console.on" : "console.off")).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.padMerge ? LauncherPalette.cream : LauncherPalette.secondaryText)
-                }
-                Spacer(minLength: 8)
-                Toggle(t("console.mergeAll"), isOn: Binding(get: { state.padMerge }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-        .padTarget("console.controller.merge", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
-        .accessibilityLabel(t("console.mergeAll")).accessibilityValue(t(state.padMerge ? "console.on" : "console.off"))
+        ConsoleSwitchRow(id: "console.controller.merge", scope: scope, title: t("console.mergeAll"), isOn: state.padMerge, compact: compact) { driver.setPadMerge(!state.padMerge) }
     }
 
     /// The button mapping for all games, with the layout it uses now, as iOS shows it in its Controllers page.
     private var mappingEntry: some View {
-        let open = { driver.openMapping() }
-        let value = t("controls.mode." + state.padLayout.mode.rawValue)
-        return Button(action: open) {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(t("console.mapping"), systemImage: "arrow.left.arrow.right").font(.manrope(compact ? 16 : 18, .semibold))
-                    Text(value).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.padLayout.isDefault ? LauncherPalette.secondaryText : LauncherPalette.cream)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundStyle(LauncherPalette.ink(0.4)).accessibilityHidden(true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-        .padTarget("console.controller.mapping", scope: scope, radius: 10, activate: open)
-        .accessibilityLabel(t("console.mapping")).accessibilityValue(value)
-        .accessibilityHint(t("console.menu.mappingNote"))
+        ConsoleMenuRow(id: "console.controller.mapping", scope: scope, symbol: "arrow.left.arrow.right", title: t("console.mapping"), note: "", value: t("controls.mode." + state.padLayout.mode.rawValue), compact: compact) { driver.openMapping() }
+            .accessibilityHint(t("console.menu.mappingNote"))
     }
 
     /// A launcher switch about controllers (ConsolePref.onControllers: start in console mode, offer it when a controller connects), as
-    /// a switch with what it does under it. Console mode only: the desktop's Controls card has the same switches.
+    /// a shared switch. Console mode only: the desktop's Controls card has the same switches.
     private func prefToggle(_ pref: ConsolePref) -> some View {
-        let on = state.prefs[pref]
-        let flip = { driver.setPref(pref, on: !on) }
-        return Button(action: flip) {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(t(pref.titleKey)).font(.manrope(compact ? 16 : 18, .semibold))
-                    Text(t(pref.noteKey)).font(.manrope(compact ? 14 : 16)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Toggle("", isOn: Binding(get: { on }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-        .padTarget("console.pref." + pref.rawValue, scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
-        .accessibilityLabel(t(pref.titleKey)).accessibilityHint(t(pref.noteKey)).accessibilityValue(t(on ? "console.on" : "console.off"))
+        ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), isOn: state.prefs[pref], compact: compact) { driver.setPref(pref, on: !state.prefs[pref]) }
+            .accessibilityHint(t(pref.noteKey))
     }
 
     /// "Quit games with the Home button": the system's setting on macOS 27 (HomeButtonSettings), opened as the desktop's Controls page does.
     private var homeEntry: some View {
-        let open = { driver.openSystemHomeSettings() }
-        return Button(action: open) {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(t("controls.homeQuit"), systemImage: "house").font(.manrope(compact ? 16 : 18, .semibold))
-                    Text(t("controls.homeQuitNote")).font(.manrope(compact ? 14 : 16)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "arrow.up.forward.app").font(.system(size: 15, weight: .semibold)).foregroundStyle(LauncherPalette.ink(0.45)).accessibilityHidden(true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-        .padTarget("console.controller.home", scope: scope, radius: 10, activate: open)
-        .accessibilityLabel(t("controls.homeQuit")).accessibilityHint(t("controls.homeQuitNote"))
+        ConsoleMenuRow(id: "console.controller.home", scope: scope, symbol: "house", title: t("controls.homeQuit"), note: "", compact: compact) { driver.openSystemHomeSettings() }
+            .accessibilityHint(t("controls.homeQuitNote"))
     }
 
-    /// Swap A and B in menus, as the button mapping page has it. Here it applies at once (the mapping page applies it on Save).
     private var menuSwapToggle: some View {
-        let flip = { driver.setMenuSwapAB(!state.menuSwapAB) }
-        return Button(action: flip) {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(t("console.mapping.menuSwap"), systemImage: "arrow.left.arrow.right").font(.manrope(compact ? 16 : 18, .semibold))
-                    Text(t("console.mapping.menuSwapNote")).font(.manrope(compact ? 14 : 17)).foregroundStyle(LauncherPalette.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Toggle(t("console.mapping.menuSwap"), isOn: Binding(get: { state.menuSwapAB }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-        .padTarget("console.controller.menuSwap", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
-        .accessibilityLabel(t("console.mapping.menuSwap")).accessibilityValue(t(state.menuSwapAB ? "console.on" : "console.off"))
+        ConsoleSwitchRow(id: "console.controller.menuSwap", scope: scope, title: t("console.mapping.menuSwap"), isOn: state.menuSwapAB, compact: compact) { driver.setMenuSwapAB(!state.menuSwapAB) }
+            .accessibilityHint(t("console.mapping.menuSwapNote"))
     }
 
     private func row(_ controller: ConsoleController) -> some View {
@@ -445,10 +305,10 @@ struct ConsoleToastView: View {
                     .lineLimit(2).minimumScaleFactor(0.7).fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, minHeight: compact ? 88 : 96).padding(.horizontal, 6)
-            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14)).contentShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
-        .padTarget("console.controller." + id, scope: scope, radius: 10, activate: perform)
+        .padTarget("console.controller." + id, scope: scope, radius: 14, activate: perform)
         .accessibilityLabel(label)
     }
     private func action(id: String, label: String, value: String? = nil, symbol: String, adjust: ((Int) -> Void)? = nil, perform: @escaping () -> Void) -> some View {
@@ -458,10 +318,10 @@ struct ConsoleToastView: View {
                 if let value { Text(value).font(.manrope(compact ? 16 : 20)).foregroundStyle(LauncherPalette.cream) }
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14)).contentShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
-        .padTarget("console.controller." + id, scope: scope, radius: 10, activate: perform, adjust: adjust)
+        .padTarget("console.controller." + id, scope: scope, radius: 14, activate: perform, adjust: adjust)
         .accessibilityLabel(label).accessibilityValue(value ?? "")
     }
 }
@@ -478,7 +338,7 @@ struct ConsoleToastView: View {
                 Spacer()
                 Button(action: close) { Image(systemName: "xmark").frame(width: 48, height: 48) }
                     .buttonStyle(.plain).accessibilityLabel(L10n.string("console.close", lang))
-                    .padTarget("console.sheet.close", scope: "console.controllers", radius: 24, activate: close)
+                    .padTarget("console.sheet.close", scope: "console.controllers", activate: close)
             }.padding(24)
             ConsoleControllerList(driver: driver, lang: lang, compact: true, showsMapping: false)
         }

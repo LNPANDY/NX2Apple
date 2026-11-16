@@ -3,6 +3,15 @@ import NXCore
 
 /// Which file a game's hero or thumbnail shows, the same for the library, the panel's live preview and console mode.
 extension GameLibrary {
+    /// A game's own square icon, never the shared mobile launcher's icon or a cropped banner.
+    static func appIcon(for game: LibraryGame, banners: URL) -> NSImage? {
+        let cached = banners.appendingPathComponent(game.titleID.uppercased()).appendingPathComponent("icon.jpg")
+        let app = URL(fileURLWithPath: game.appPath).appendingPathComponent("Contents/Resources/AppIcon.icns")
+        return ([cached] + (game.appPath.isEmpty ? [] : [app])).lazy
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .compactMap { ArtworkImages.shared.image(at: $0, maxPixel: 320) }.first
+    }
+
     /// The artwork files there are for a slot, best first. The hero: the player's own choice, then the game's eShop key art
     /// (ArtworkStore, or its first screenshot when it has no banner, as the panel's default), then an existing repository gameplay
     /// screenshot, then the app icon. A thumbnail: its own choice, else exactly the hero's.

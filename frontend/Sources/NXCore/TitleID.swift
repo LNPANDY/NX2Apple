@@ -33,7 +33,8 @@ package enum TitleID {
     /// 0x000 is a base game, 0x800 its update, anything else add-on content in the block above the base.
     package static func owner(_ tid: UInt64) -> UInt64 {
         let low = tid & 0xFFF
-        return low == 0 ? tid : (low == 0x800 ? tid & ~0xFFF : (tid & ~0xFFF) - 0x1000)
+        let block = tid & ~0xFFF
+        return low == 0 ? tid : (low == 0x800 || block < 0x1000 ? block : block - 0x1000)
     }
 
     /// The version in a file name, 0 when absent: `[v65536]` first, then the `_v65536` / ` v65536` token the

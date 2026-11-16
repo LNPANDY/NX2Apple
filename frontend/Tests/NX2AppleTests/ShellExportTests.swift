@@ -912,7 +912,7 @@ import NXModel
     }
 
     func testEveryLanguageHasTheExportTexts() {
-        let keys = ["shell.exportBuildStage", "shell.exportDone", "shell.exportFailed", "shell.exportPackStage", "shell.modeTitle", "shell.modeInstall",
+        let keys = ["shell.exportBuildStage", "shell.exportDone", "shell.exportFailed", "shell.exportPackStage", "shell.modeInstall",
                     "shell.modeExport", "shell.step1Title", "shell.step1Sub", "shell.step1Button", "shell.step1Done", "shell.showInFinder", "shell.step2Title",
                     "shell.step2Sub", "shell.step3Title", "shell.step3Sub", "shell.whereDevice", "shell.whereDrive", "shell.sendButton", "shell.sendStage",
                     "shell.sendProgress", "shell.sendDone", "shell.sendNoApp", "shell.sendSeveral", "shell.sendRefused", "shell.sendFinder",

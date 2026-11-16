@@ -10,6 +10,7 @@ import NXLauncher
     let scenario: Scenario
     private let lang: Lang
     private let animated: Bool
+    private let sampleGames: [OnboardingGame]?
     private var jobs: [String: Task<Void, Never>] = [:]
     private var retriedXcode = false
     private var retriedKeys = false
@@ -20,8 +21,8 @@ import NXLauncher
         var s = OnboardingState(); s.welcome = .requirements(freeGB: 64, neededGB: 24); return s
     }
 
-    init(scenario: Scenario = .fresh, state: OnboardingState = MockOnboardingDriver.sampleState, lang: Lang = .initial(), animated: Bool = true) {
-        self.scenario = scenario; self.state = state; self.lang = lang; self.animated = animated
+    init(scenario: Scenario = .fresh, state: OnboardingState = MockOnboardingDriver.sampleState, lang: Lang = .initial(), animated: Bool = true, sampleGames: [OnboardingGame]? = nil) {
+        self.scenario = scenario; self.state = state; self.lang = lang; self.animated = animated; self.sampleGames = sampleGames
         if scenario == .oldMac { self.state.osTooOldForNVN = true; self.state.xcodeTooOldForNVN = true }
         if animated { enterStep() }
     }
@@ -43,6 +44,8 @@ import NXLauncher
         state.xcode = .downloading
         downloadXcode()
     }
+    // The scripted download timer owns completion. A manual check never advances the mock clock.
+    func recheckXcode() {}
     func finishXcodeSetup() {
         guard state.step == .xcode, state.xcode == .needsSetup, state.exit == nil else { return }
         state.xcode = .settingUp
@@ -68,22 +71,31 @@ import NXLauncher
     func chooseKeys(_ url: URL) {
         guard state.step == .keys, state.exit == nil else { return }
         if case .invalid = state.keys { retriedKeys = true }
+        state.keysFile = url
         validateKeys()
     }
     func confirmKeys() {
-        guard state.step == .keys, state.exit == nil, case .found = state.keys else { return }
-        validateKeys()
+        guard state.step == .keys, state.exit == nil, state.keys == .valid else { return }
+        next()
     }
     func skipKeys() {
         guard state.canSkipKeys else { return }
+        state.keysFile = nil
         state.keys = .skipped
+        next()
+    }
+    func buildGames(_ ids: Set<String>) {
+        guard state.step == .games, state.canAdvance, case let .found(games) = state.games,
+              games.contains(where: { ids.contains($0.id) && (state.keys == .valid || !$0.needsKeys) }) else { return }
+        state.queuedGameIDs = Set(games.filter { ids.contains($0.id) && (state.keys == .valid || !$0.needsKeys) }.map(\.id))
         next()
     }
     func chooseGames(_ url: URL) {
         guard state.step == .games, state.exit == nil else { return }
         state.games = .scanning
         run("games", after: 1.1) { driver in
-            if driver.scenario == .noGames { driver.state.games = .none }
+            if let games = driver.sampleGames { driver.state.games = .found(games) }
+            else if driver.scenario == .noGames { driver.state.games = .none }
             else if driver.state.keys == .skipped {
                 driver.state.games = .found([.init(id: "demo.nup", title: "Demo.nup", version: "", needsKeys: false)])
             } else {
@@ -145,16 +157,19 @@ import NXLauncher
                 }
             case .downloading: downloadXcode()
             case .settingUp: setupXcode()
-            case .ready: if allowAutomaticAdvance { advanceWhenReady() }
+            case .ready: break
             default: break
             }
         case .keys:
             switch state.keys {
             case .empty, .searching:
                 state.keys = .searching
-                run("keys", after: 0.9) { d in d.state.keys = .found(URL(fileURLWithPath: "/Demo/Switch/prod.keys")) }
+                run("keys", after: 0.9) { d in
+                    d.state.keysFile = URL(fileURLWithPath: "/Demo/prod.keys")
+                    d.validateKeys()
+                }
             case .validating: validateKeys()
-            case .valid: if allowAutomaticAdvance { advanceWhenReady() }
+            case .valid: break
             default: break
             }
         case .games:
@@ -175,7 +190,6 @@ import NXLauncher
             run("bg.progress.\(task)", after: 1.0 + Double(index) * 0.6) { d in d.state.background[task] = .running(0.6) }
             run("bg.done.\(task)", after: 1.8 + Double(index) * 0.7) { d in
                 d.state.background[task] = .done
-                d.advanceWhenReady()
             }
         }
     }
@@ -197,7 +211,6 @@ import NXLauncher
                                              details: "Demo: MetalToolchain download returned HTTP 503."))
             } else {
                 d.state.xcode = .ready
-                d.advanceWhenReady()
             }
         }
     }
@@ -206,12 +219,7 @@ import NXLauncher
         run("keys", after: 1) { d in
             if d.scenario == .keysInvalid && !d.retriedKeys {
                 d.state.keys = .invalid(d.t("onboarding.demo.keysFailure"))
-            } else { d.state.keys = .valid; d.advanceWhenReady() }
+            } else { d.state.keys = .valid }
         }
-    }
-    private func advanceWhenReady() {
-        guard (state.step == .xcode || state.step == .keys), state.canAdvance else { return }
-        let step = state.step
-        run("advance", after: 0.7) { d in if d.state.step == step { d.next() } }
     }
 }

@@ -9,7 +9,8 @@ package struct PlayerPicker: View {
     @ObservedObject var players: PlayerProfileStore
     @EnvironmentObject var loc: Localizer
 
-    package init(players: PlayerProfileStore) { self.players = players }
+    package init(players: PlayerProfileStore, compact: Bool = false) { self.players = players; self.compact = compact }
+    private let compact: Bool
 
     /// The widest the menu's title may be.
     package static let maxWidth: CGFloat = 140
@@ -30,32 +31,41 @@ package struct PlayerPicker: View {
                     }
                 }
             } label: {
-                ViewThatFits(in: .horizontal) {
-                    chip { HStack(spacing: 7) { icon; Text(name).font(.manrope(13.5, .semibold)).lineLimit(1).truncationMode(.tail) }
-                        .frame(maxWidth: Self.maxWidth, alignment: .leading) }
-                    chip { icon }
+                if compact { chip { icon } } else {
+                    ViewThatFits(in: .horizontal) {
+                        chip { HStack(spacing: 7) { icon; Text(name).font(.manrope(13.5, .semibold)).lineLimit(1).truncationMode(.tail) }
+                            .frame(maxWidth: Self.maxWidth, alignment: .leading) }
+                        chip { icon }
+                    }
                 }
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .padding(.trailing, 12)
             .help(String(format: loc.t("players.current"), name))
             .accessibilityLabel(String(format: loc.t("players.current"), name))
+            .padTarget("top.player", scope: "main", activate: { step(1) }, adjust: step)
+            .padding(.trailing, 12)
         }
+    }
+
+    private func step(_ by: Int) {
+        guard let index = players.profiles.firstIndex(where: { $0.id == players.activeID }), !players.profiles.isEmpty else { return }
+        players.select(players.profiles[(index + by + players.profiles.count) % players.profiles.count].id)
     }
 
     private var icon: some View { Image(systemName: "person.crop.circle").font(.system(size: 15, weight: .medium)) }
 
     private func chip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(LauncherPalette.menuFill, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(LauncherPalette.secondaryBorder))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 12).frame(height: LauncherControl.height)
+            .background(LauncherPalette.menuFill, in: Capsule())
+            .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+            .contentShape(Capsule())
     }
 }
 
 /// Asks for a player's name: a new player, or a new name for `renaming`.
 struct PlayerNameSheet: View {
+    @EnvironmentObject private var pad: PadFocus
     @ObservedObject var players: PlayerProfileStore
     let renaming: PlayerProfile?
     let close: () -> Void
@@ -75,17 +85,25 @@ struct PlayerNameSheet: View {
             TextField(loc.t("players.name"), text: $name)
                 .textFieldStyle(.roundedBorder).focused($focused)
                 .onSubmit(commit)
+                .padTarget("playername.field", scope: "playername", radius: 5) { focused = true }
             HStack {
                 Spacer()
                 Button(loc.t("players.cancel"), action: close).keyboardShortcut(.cancelAction)
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .padTarget("playername.cancel", scope: "playername", activate: close)
                 Button(loc.t("players.save"), action: commit)
                     .keyboardShortcut(.defaultAction).disabled(!valid)
+                    .buttonStyle(LauncherActionButtonStyle())
+                    .padTarget("playername.save", scope: "playername", focusColor: LauncherPalette.onCream, enabled: valid, activate: commit)
             }
         }
         .padding(24).frame(width: 380)
+        .background(LauncherPalette.background).launcherAppearance()
+        .padScope("playername", pad)
         .onAppear {
             if let renaming { name = players.displayName(renaming) }
             focused = true
+            pad.scope = "playername"
         }
     }
 

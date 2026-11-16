@@ -91,6 +91,7 @@ extension BuildStore {
                 }
                 self.installedOn = device
                 self.installedAppPath = result.appPath
+                self.installedDataComplete = !result.copySkipped
                 self.finishInstall(nil, note: result.message)
             }
         }
@@ -190,6 +191,7 @@ extension BuildStore {
                 self.installedOn = device
                 self.installedAppPath = result.appPath
                 self.onBatchShellInstalled(games, result.appPath, device)
+                self.installedDataComplete = !result.copySkipped
                 self.finishInstall(nil, note: result.message)
             }
         }
