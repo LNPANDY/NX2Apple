@@ -31,6 +31,7 @@ struct EngineGameLauncher: GameLauncher {
             throw Failure.engine(refusal)
         }
         try plan.createFolders()
+        ShellTouchGroups.runningTitleID = game.titleID
         let pairs = plan.environment.sorted { $0.key < $1.key }
         let failure = withCStrings(pairs.map(\.key)) { keys in
             withCStrings(pairs.map(\.value)) { values in
@@ -42,6 +43,32 @@ struct EngineGameLauncher: GameLauncher {
         }
         if let failure { throw Failure.engine(localizeEngineLaunchError(String(cString: failure))) }
         dm_shell_present_game()
+    }
+}
+
+/// The game's layout editor (Adjust Gamepad Layout) saves, reads and forgets its groups through ShellMain.m's dm_shell_touch_groups_save,
+/// _load and _forget: every game's value (scope 0) or the running game's own (scope 1), in the stores the library's layout editor and the
+/// game's settings use (`TouchGroupsStore`). The engine calls them on the main thread.
+@objc(ShellTouchGroups) final class ShellTouchGroups: NSObject {
+    /// The game Play started, set before its framework loads: the game a value for this game belongs to.
+    @MainActor static var runningTitleID: String?
+
+    @MainActor private static var store: TouchGroupsStore {
+        TouchGroupsStore(shell: .current, game: runningTitleID.map { GameDefaults.suite(for: $0) })
+    }
+
+    @MainActor @objc(saveWithScope:value:) static func save(scope: Int, value: String) -> Bool {
+        let saved = store.save(scope: scope, value: value)
+        if saved { NotificationCenter.default.post(name: TouchGroupsStore.didChange, object: runningTitleID) }
+        return saved
+    }
+
+    @MainActor @objc(loadWithScope:) static func load(scope: Int) -> String? { store.load(scope: scope) }
+
+    @MainActor @objc(forgetWithScope:) static func forget(scope: Int) -> Bool {
+        let forgotten = store.forget(scope: scope)
+        if forgotten { NotificationCenter.default.post(name: TouchGroupsStore.didChange, object: runningTitleID) }
+        return forgotten
     }
 }
 

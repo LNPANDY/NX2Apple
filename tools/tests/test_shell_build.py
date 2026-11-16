@@ -206,6 +206,8 @@ class ShellBuild(unittest.TestCase):
                          'the shell dlopens the game framework, it must not link it')
         exported = subprocess.run(['nm', '-gU', str(app / 'DmShell')], capture_output=True, text=True, check=False).stdout
         self.assertIn('_dm_shell_return_to_library', exported, 'the shell executable must export _dm_shell_return_to_library for front_ios.m dlsym')
+        for hook in ('_dm_shell_touch_groups_save', '_dm_shell_touch_groups_load', '_dm_shell_touch_groups_forget'):
+            self.assertIn(hook, exported, f'the shell executable must export {hook} for DmGamepad.m dlsym (the layout editor)')
 
 
 if __name__ == '__main__':

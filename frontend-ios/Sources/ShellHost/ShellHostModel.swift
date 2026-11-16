@@ -132,6 +132,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var signingWarningDismissed = false
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
     @ObservationIgnored nonisolated(unsafe) private var foregroundObserver: (any NSObjectProtocol)?
+    @ObservationIgnored nonisolated(unsafe) private var touchGroupsObserver: (any NSObjectProtocol)?
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
                 shellSettings: ShellSettingsStore = .current) {
@@ -182,6 +183,12 @@ public struct ShellHostConfig: Sendable {
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
         }
+        // The game's layout editor saved or forgot its groups (for every game, or a game's own, which the shell settings' choices do not show):
+        // the running game's settings row follows, in place (refreshSettings). A change with no game named refreshes every game.
+        touchGroupsObserver = NotificationCenter.default.addObserver(forName: TouchGroupsStore.didChange, object: nil, queue: .main) { [weak self] note in
+            let id = note.object as? String
+            MainActor.assumeIsolated { self?.touchGroupsDidChange(id) }
+        }
         #if canImport(UIKit)
         foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -195,6 +202,7 @@ public struct ShellHostConfig: Sendable {
     deinit {
         defaultsObserver.map(NotificationCenter.default.removeObserver)
         foregroundObserver.map(NotificationCenter.default.removeObserver)
+        touchGroupsObserver.map(NotificationCenter.default.removeObserver)
     }
 
     /// Shell choices that change the displayed game defaults.
@@ -391,10 +399,18 @@ public struct ShellHostConfig: Sendable {
         let store = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults)
         let fromShell = Set(profile.settings.filter(store.isFromShell).map(\.env))
         let pad = GamePadMapStore(defaults: config.defaults(id))
+        let touch = TouchGroupsStore(shell: shellSettings, game: config.defaults(id))
         let sections = SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell)
         // A profile-provided DM_PAD_MAP row owns the mapping, so do not offer conflicting shell overrides.
         let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section()]
-        return (sections + padSections, store.hasModifiedSettings || !pad.entries.isEmpty)
+        // The touch controls' groups: whether this game follows every game's layout or has its own (the game's layout editor sets both).
+        return (sections + padSections + [touch.section()], store.hasModifiedSettings || !pad.entries.isEmpty || touch.own != nil)
+    }
+
+    /// The game's layout editor stored a value for game `id` (nil: no game named): its row and modified flag follow.
+    private func touchGroupsDidChange(_ id: String?) {
+        guard let id, let profile = cachedOrResolvedProfile(for: id) else { refreshAll(); return }
+        refreshSettings(id, profile: profile)
     }
 
     /// Updates only settings rows and the modified flag in place so tapping a control never re-runs disk or bookmark I/O.
@@ -692,6 +708,8 @@ public struct ShellHostConfig: Sendable {
         guard let profile = cachedOrResolvedProfile(for: id) else { return }
         if setting.hasPrefix("pad.") {
             GamePadMapStore(defaults: config.defaults(id)).change(setting, value: value)
+        } else if setting == TouchGroupsStore.rowID {
+            TouchGroupsStore(shell: shellSettings, game: config.defaults(id)).change(setting, value: value)
         } else {
             GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).set(setting, to: value)
         }
@@ -702,6 +720,7 @@ public struct ShellHostConfig: Sendable {
         guard let profile = cachedOrResolvedProfile(for: id) else { return }
         GameSettingsStore(profile: profile, defaults: config.defaults(id)).reset()
         GamePadMapStore(defaults: config.defaults(id)).reset()
+        TouchGroupsStore(shell: shellSettings, game: config.defaults(id)).reset()
         refreshSettings(id, profile: profile)
     }
 
@@ -1095,9 +1114,26 @@ public struct ShellHostConfig: Sendable {
     }
 
     /// DM_GAME_MENU_TEXT: the in-game menu's own words in the player's language, one per line in the engine's order (patch 0124, GameMenu.swift):
-    /// its title and Controller layout (#1129).
+    /// its title, Controller layout (#1129) and Adjust Gamepad Layout.
     static var gameMenuText: String {
-        [hostText("More settings on the start screen"), hostText("Controller layout")]
+        [hostText("More settings on the start screen"), hostText("Controller layout"), hostText("Adjust Gamepad Layout")]
+            .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
+    }
+
+    /// DM_PAD_EDIT_TEXT: the words of the engine's layout editor (Adjust Gamepad Layout, DmPadEditing.h) in the player's language, one per
+    /// line in the engine's order: the title, the hint, Tap a group to choose it, All controls, Move left and right groups (VoiceOver's name
+    /// for the choice below, where the switch Mirror left and right was), Save for, All games, This game, Reset to default, Cancel, Done, No
+    /// room there, Left stick, D-pad, Smaller, Larger, the four moves, then what the panel says after a group's name when its mirror image
+    /// stops (No more room to grow, No room there while mirrored), what Reset to default offers for this game (Built-in layout, Same as All
+    /// games), and the panel's two-way choice (Both sides together, Each side on its own) with what VoiceOver says while it is dimmed.
+    static var padEditText: String {
+        [hostText("Adjust Gamepad Layout"), hostText("Drag a group to move it. Pinch it or use the slider to resize it."),
+         hostText("Tap a group to choose it"), hostText("All controls"), hostText("Move left and right groups"), hostText("Save for"),
+         hostText("All games"), hostText("This game"), hostText("Reset to default"), hostText("Cancel"), hostText("Done"),
+         hostText("No room there"), hostText("Left stick"), hostText("D-pad"), hostText("Smaller"), hostText("Larger"),
+         hostText("Move up"), hostText("Move down"), hostText("Move left"), hostText("Move right"),
+         hostText("No more room to grow"), hostText("No room there while mirrored"), hostText("Built-in layout"), hostText("Same as All games"),
+         hostText("Both sides together"), hostText("Each side on its own"), hostText("This group has no matching group on the other side.")]
             .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
     }
 
@@ -1114,6 +1150,10 @@ public struct ShellHostConfig: Sendable {
         env["DM_HOME_QUIT_TEXT"] = Self.quitPromptText(gameName: entry(id)?.title ?? id)
         // The in-game menu's own words (patch 0124), as the Mac's build bakes them into a game's own app.
         env["DM_GAME_MENU_TEXT"] = Self.gameMenuText
+        // The touch controls' groups (the game's layout editor): a game's own value wins over every game's, which came with the shell's
+        // defaults above, and the editor then saves for this game by default. Its words in the player's language.
+        for (key, value) in TouchGroupsStore(shell: shellSettings, game: config.defaults(id)).launchValues { env[key] = value }
+        env["DM_PAD_EDIT_TEXT"] = Self.padEditText
         // A launcher.json DM_PAD_MAP row is authoritative, including an empty value.
         if !profile.settings.contains(where: { $0.env == "DM_PAD_MAP" }) {
             env["DM_PAD_MAP"] = PadMap.merged(global: shellSettings.padMap,
