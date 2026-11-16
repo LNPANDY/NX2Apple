@@ -11,17 +11,45 @@ import XCTest
 /// de, sv, fr, it) for the language.
 @MainActor
 final class ShellTextsCaptureTests: XCTestCase {
-    private var lang: String { ProcessInfo.processInfo.environment["NX_SHELL_CAPTURE_LANG"] ?? "en" }
+    private var currentLang = "en"
+
+    private var captureLanguages: [String] {
+        if let raw = ProcessInfo.processInfo.environment["NX_SHELL_CAPTURE_LANGS"], !raw.isEmpty {
+            let list = raw.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !list.isEmpty { return list }
+        }
+        return [ProcessInfo.processInfo.environment["NX_SHELL_CAPTURE_LANG"] ?? "en"]
+    }
 
     override func setUp() async throws {
         guard ProcessInfo.processInfo.environment["NX_SHELL_CAPTURE_DIR"] != nil else { throw XCTSkip("Set NX_SHELL_CAPTURE_DIR to capture the shell") }
-        let code = lang == "zh" ? "zh-Hans" : lang
-        if let ui = ShellStrings.bundle.path(forResource: code, ofType: "lproj") { ShellStrings.captureBundle = Bundle(path: ui) }
-        if let host = HostStrings.bundle.path(forResource: code, ofType: "lproj") { HostStrings.captureBundle = Bundle(path: host) }
+        applyLanguage(captureLanguages[0])
     }
     override func tearDown() async throws {
         ShellStrings.captureBundle = nil
         HostStrings.captureBundle = nil
+    }
+
+    private func applyLanguage(_ lang: String) {
+        currentLang = lang
+        ShellStrings.captureBundle = nil
+        HostStrings.captureBundle = nil
+        let code = lang == "zh" ? "zh-Hans" : lang
+        if let ui = ShellStrings.bundle.path(forResource: code, ofType: "lproj") { ShellStrings.captureBundle = Bundle(path: ui) }
+        if let host = HostStrings.bundle.path(forResource: code, ofType: "lproj") { HostStrings.captureBundle = Bundle(path: host) }
+    }
+
+    private func forEachCaptureLanguage(_ body: () throws -> Void) throws {
+        for lang in captureLanguages {
+            applyLanguage(lang)
+            defer {
+                ShellStrings.captureBundle = nil
+                HostStrings.captureBundle = nil
+            }
+            try body()
+        }
     }
 
     private func capture<V: View>(_ name: String, width: CGFloat, height: CGFloat? = nil, _ view: V) throws {
@@ -40,7 +68,7 @@ final class ShellTextsCaptureTests: XCTestCase {
         host.layoutSubtreeIfNeeded()
         let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name)-\(lang).png"))
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name)-\(currentLang).png"))
     }
 
     /// The fixture games through the real model: playable, needs game data, needs an app update and broken in several ways.
@@ -68,12 +96,18 @@ final class ShellTextsCaptureTests: XCTestCase {
     }
 
     func testCaptureAGamesSettings() throws {
-        let box = try Sandbox()
-        let model = try model(box)
-        try capture("texts-settings-ready", width: 402, height: 1600,
-                    LibraryView(games: model.details, initialSelection: Fixtures.orbit, initialDetailOpen: true))
-        try capture("texts-settings-needsdata", width: 402, height: 1600,
-                    LibraryView(games: model.details, initialSelection: quiet, initialDetailOpen: true))
+        try forEachCaptureLanguage {
+            let box = try Sandbox()
+            let model = try model(box)
+            try capture("texts-settings-ready", width: 402,
+                        GameDetailView(detail: try detail(model, Fixtures.orbit), actions: model.actions, showsPrimaryAction: false)
+                            .environment(\.shellAskDelete, { _ in })
+                            .padding(24))
+            try capture("texts-settings-needsdata", width: 402,
+                        GameDetailView(detail: try detail(model, quiet), actions: model.actions, showsPrimaryAction: false)
+                            .environment(\.shellAskDelete, { _ in })
+                            .padding(24))
+        }
     }
 
     func testCaptureAdaptiveGameActions() throws {
