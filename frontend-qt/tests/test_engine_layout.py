@@ -257,5 +257,46 @@ class OnlineSync(unittest.TestCase):
         self.assertTrue(lines)
 
 
+class MultiUpstreamDetectionTests(unittest.TestCase):
+    def setUp(self):
+        self.r = Path(tempfile.mkdtemp(prefix='qt-upstream-'))
+        self.addCleanup(shutil.rmtree, self.r, True)
+
+    def touch(self, rel: str | Path, text: str = 'x') -> None:
+        f = self.r / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+
+    def test_detection_for_empty_and_unknown_directories(self):
+        self.assertIsNone(engine.detect_upstream(''))
+        self.assertIsNone(engine.detect_upstream(str(self.r)))
+        self.assertFalse(engine.is_upstream_tree('', 'nxnative'))
+        self.assertFalse(engine.is_upstream_tree(str(self.r), 'nxnative'))
+        self.assertFalse(engine.is_upstream_tree(str(self.r), 's2arm'))
+        self.assertFalse(engine.is_upstream_tree(str(self.r), 'macnativegames'))
+
+    def test_detection_for_nxnative(self):
+        self.touch(MARKER)
+        self.assertTrue(engine.is_upstream_tree(str(self.r), 'nxnative'))
+        self.assertEqual(engine.detect_upstream(str(self.r)), 'nxnative')
+        self.assertTrue(engine.is_checkout(str(self.r)))
+
+    def test_detection_for_s2arm(self):
+        self.touch('pack/jobs/main.py')
+        self.touch('runtime/rewriter/rewriter.c')
+        self.assertTrue(engine.is_upstream_tree(str(self.r), 's2arm'))
+        self.assertFalse(engine.is_upstream_tree(str(self.r), 'nxnative'))
+        self.assertEqual(engine.detect_upstream(str(self.r)), 's2arm')
+        self.assertFalse(engine.is_checkout(str(self.r)))
+
+    def test_detection_for_macnativegames(self):
+        self.touch('build_app.py')
+        self.touch('games/totk/README.md')
+        self.assertTrue(engine.is_upstream_tree(str(self.r), 'macnativegames'))
+        self.assertFalse(engine.is_upstream_tree(str(self.r), 'nxnative'))
+        self.assertEqual(engine.detect_upstream(str(self.r)), 'macnativegames')
+        self.assertFalse(engine.is_checkout(str(self.r)))
+
+
 if __name__ == '__main__':
     unittest.main()
