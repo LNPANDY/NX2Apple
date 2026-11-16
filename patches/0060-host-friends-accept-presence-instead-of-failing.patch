@@ -1,0 +1,120 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alex Astall <aa@clhoz.com>
+Date: Mon, 16 Nov 2026 23:51:21 +0000
+Subject: [PATCH] host/friends: accept presence instead of failing it
+
+UserPresence::Initialize, SetDescription and Commit now succeed and
+publish nothing. They returned RES_FAIL like the calls that need the
+friends service.
+
+Twelve Minutes (Unity 2019.4 IL2CPP, SDK 12.3.7) calls Initialize once
+after account::GetNickname. On a failure its start-up stops before
+fs::MountSaveData, so the loading screen stays at 22% while the music
+plays (seedds/nxnative#217). With presence accepted it mounts its save
+and loads the next scenes within a second.
+
+The calls that need the service (friend lists, notification queue,
+online play sessions, invitations) still fail. t_friends checks both.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#2903
+Reason: Twelve Minutes stops at 22% when the host fails friends presence; bridge until upstream merges
+Issue: none (seedds/nxnative#217)
+
+---
+ dm/host/hle_friends.c      | 10 ++++++----
+ dm/host/tests/Makefile     |  5 ++++-
+ dm/host/tests/t_friends.c  | 17 +++++++++++++++++
+ docs/reference/services.md |  8 ++++++++
+ 4 files changed, 35 insertions(+), 5 deletions(-)
+ create mode 100644 dm/host/tests/t_friends.c
+
+diff --git a/dm/host/hle_friends.c b/dm/host/hle_friends.c
+index 7f41e6c3..d036f7a9 100644
+--- a/dm/host/hle_friends.c
++++ b/dm/host/hle_friends.c
+@@ -60,7 +60,9 @@ HLE_FORCE("_ZN2nn7friends18GetBlockedUserListEPiPNS_7account23NetworkServiceAcco
+ // Online play sessions (DRAGON QUEST XI S)
+ HLE_FORCE("_ZN2nn7friends28DeclareOpenOnlinePlaySessionERKNS_7account3UidE", "online play session unavailable (cut)", Result, h_fr_OpenSession, const void *uid) { (void)uid; return RES_FAIL; }
+ HLE_FORCE("_ZN2nn7friends29DeclareCloseOnlinePlaySessionERKNS_7account3UidE", "online play session unavailable (cut)", Result, h_fr_CloseSession, const void *uid) { (void)uid; return RES_FAIL; }
+-// Presence
+-HLE_FORCE("_ZN2nn7friends12UserPresence10InitializeERKNS_7account3UidE", "presence unavailable (cut)", Result, h_fr_UpInit, void *self, const void *uid) { (void)self; (void)uid; return RES_FAIL; }
+-HLE_FORCE("_ZN2nn7friends12UserPresence14SetDescriptionEPKc", "presence unavailable (cut)", Result, h_fr_UpDesc, void *self, const char *s) { (void)self; (void)s; return RES_FAIL; }
+-HLE_FORCE("_ZN2nn7friends12UserPresence6CommitEv", "presence unavailable (cut)", Result, h_fr_UpCommit, void *self) { (void)self; return RES_FAIL; }
++// Presence: accepted and dropped. A game may take a failed UserPresence::Initialize as fatal and stop, while a success with nothing published costs nothing.
++// Twelve Minutes (Unity 2019.4 IL2CPP) calls Initialize once after GetNickname; a failure ended its start-up before MountSaveData and the
++// loading screen stayed at 22% (seedds/nxnative#217). Nothing is published
++HLE_FORCE("_ZN2nn7friends12UserPresence10InitializeERKNS_7account3UidE", "presence accepted, not published (cut)", Result, h_fr_UpInit, void *self, const void *uid) { (void)self; (void)uid; return RES_OK; }
++HLE_FORCE("_ZN2nn7friends12UserPresence14SetDescriptionEPKc", "presence accepted, not published (cut)", Result, h_fr_UpDesc, void *self, const char *s) { (void)self; (void)s; return RES_OK; }
++HLE_FORCE("_ZN2nn7friends12UserPresence6CommitEv", "presence accepted, not published (cut)", Result, h_fr_UpCommit, void *self) { (void)self; return RES_OK; }
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 7d010ccf..366f1853 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -12,12 +12,13 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
+ GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
+ $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
+ GAME_H = ../gen/$(GAME)/game_profile.h
+-run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_clockwait $(B)/t_pause $(B)/t_pause_stress $(B)/t_pctl $(B)/t_sf $(B)/t_audren_sv $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_switch2 $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_profile_runtime
++run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_friends $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_clockwait $(B)/t_pause $(B)/t_pause_stress $(B)/t_pctl $(B)/t_sf $(B)/t_audren_sv $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_switch2 $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_profile_runtime
+ 	$(B)/t_language
+ 	$(B)/t_heap_size
+ 	$(B)/t_touch
+ 	$(B)/t_gesture
+ 	$(B)/t_oe $(QUIET)
++	$(B)/t_friends
+ 	$(B)/t_fs $(QUIET)
+ 	$(B)/t_fs_mutation $(QUIET)
+ 	TMPDIR="$(abspath $(B))" $(B)/t_fs_commit_list
+@@ -298,6 +299,8 @@ $(B)/t_time: t_time.c ../hle_time.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_time.c
+ $(B)/t_oe: t_oe.c ../hle_oe.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_oe.c ../hle_profile.c
++$(B)/t_friends: t_friends.c ../hle_friends.c ../hle.h ../dm.h $(GAME_H) | $(B)
++	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_friends.c
+ $(B)/t_condvar: t_condvar.c t_condvar_stub.c ../hle_thread.c ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wno-unused-function -DDM_TEST_HOOKS -I.. $(GINC) -o $@ t_condvar.c t_condvar_stub.c ../hle_thread.c ../hle_profile.c
+ $(B)/t_condvar_old: t_condvar.c t_condvar_stub.c ../hle_thread.c ../dm.h $(GAME_H) | $(B)
+diff --git a/dm/host/tests/t_friends.c b/dm/host/tests/t_friends.c
+new file mode 100644
+index 00000000..0f4155ad
+--- /dev/null
++++ b/dm/host/tests/t_friends.c
+@@ -0,0 +1,17 @@
++// friends service unit test: presence is accepted (Twelve Minutes stops its start-up on a failed UserPresence::Initialize, seedds/nxnative#217),
++// while the calls that would reach the service still fail. Expected results are hand-written, not taken from the implementation.
++#include "../hle_friends.c"
++void hle_bind_system_event(void *g, int autoclear) { (void)g; (void)autoclear; }
++void hle_signal_system_event(void *g) { (void)g; }
++static int checks, fails;
++#define CHECK(c, s) do { checks++; int ok = !!(c); fails += !ok; printf("%s %s\n", ok ? "✓" : "✗", s); } while (0)
++int main(void) {
++    uint8_t presence[0x100] = {0}, uid[16] = {1};
++    CHECK(h_fr_UpInit(presence, uid) == RES_OK, "UserPresence::Initialize succeeds");
++    CHECK(h_fr_UpDesc(presence, "in game") == RES_OK, "UserPresence::SetDescription succeeds");
++    CHECK(h_fr_UpCommit(presence) == RES_OK, "UserPresence::Commit succeeds");
++    CHECK(h_fr_NqInit(presence, uid) == RES_FAIL, "NotificationQueue::Initialize still fails");
++    CHECK(h_fr_OpenSession(uid) == RES_FAIL, "DeclareOpenOnlinePlaySession still fails");
++    printf("t_friends: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/docs/reference/services.md b/docs/reference/services.md
+index 3766d323..21d01ac0 100644
+--- a/docs/reference/services.md
++++ b/docs/reference/services.md
+@@ -1029,6 +1029,14 @@ Most service calls can be found before they crash, before the first boot or the
+ - **Fix:** the constructor is no longer taken over (`hle_account.c`): the SDK's own runs. No host interface sets the IPC pointer, so the SDK's destructor, reached through the vtable, finds no session to close and frees the object. `friends::AsyncContext` and `account::NintendoAccountAuthorizationRequestContext` have no vtable (their SDK constructors write none), so their takeovers stay.
+ - **Found on:** Pokémon Friends (`010008C01E742000`, update 1.1.5, SDK 19.3.11; no profile in the repository yet). The managed names come from Il2CppDumper's table ([IL2CPP method lookup](../development.md#il2cpp-method-lookup)).
+ 
++### Friends presence is accepted offline
++
++- **Symptom:** the loading screen stays at 22% for ever while the music plays (Twelve Minutes). No red line, no crash. `DM_FS=1` shows `level0` and the FMOD master bank read, then no other scene and no save mount; `DM_HLECOUNT` shows `account::TryOpenPreselectedUser`, `GetUserId`, `GetNickname` and `friends::UserPresence::Initialize` once each, and `fs::MountSaveData` never.
++- **Cause:** the host's `UserPresence::Initialize` returned `RES_FAIL` like the other friends calls. The game's start-up takes the failure as fatal and stops before it mounts its save, so the loading screen waits for a scene that is never asked for. A presence is the game's own object until the friends service publishes it, so failing to set one up is not what an offline console reports.
++- **Fix:** `UserPresence::Initialize`, `SetDescription` and `Commit` succeed and publish nothing (`hle_friends.c`). The calls that need the service (friend lists, notification queue, online play sessions, invitations) still fail.
++- **Check:** `make -C dm/host/tests GAME=<id> run` runs `t_friends`.
++- **Found on:** [Twelve Minutes](../../dm/games/0100CD701434C000/README.md) (Unity 2019.4.31f1 IL2CPP, SDK 12.3.7; seedds/nxnative#217).
++
+ ### Creating an ssl context needs no network
+ 
+ - **Symptom:** the game ends right after `nnMain`, with a crash in its own cleanup on an object it had not created yet (DRAGON QUEST BUILDERS 2: `CRASH sig=11 addr=0x60db0` at `main+0x2676c8`, x0 = 0, the callers `main+0x85210` and `main+0x7fabf8`). No red line.
