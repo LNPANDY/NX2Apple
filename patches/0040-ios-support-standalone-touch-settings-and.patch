@@ -8,14 +8,15 @@ Upstream-Status: pending [builds on touch layout patches]
 Reason: Expose touch size and stick settings and localized in-game menu labels
 Issue: LNPANDY/NX2Apple#1110
 ---
- dm/games/settings.tsv                    |  2 ++
- dm/ios/Sources/GameMenu.swift            | 23 +++++++++++++++++++++--
- dm/tools/tests/test_launcher_settings.py |  9 ++++++++-
- docs/settings.md                         |  8 +++++++-
- 4 files changed, 38 insertions(+), 4 deletions(-)
+ dm/games/settings.tsv                    |  2 +
+ dm/ios/Sources/DmGameMenu.h              |  1 +
+ dm/ios/Sources/GameMenu.swift            | 89 +++++++++++++++++++++++-
+ dm/tools/tests/test_launcher_settings.py |  9 ++-
+ docs/settings.md                         |  8 ++-
+ 5 files changed, 105 insertions(+), 4 deletions(-)
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 141b0d86..89c69f17 100644
+index 141b0d8..89c69f1 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -26,6 +26,8 @@ DM_FULLSCREEN	choice	0=Window,1=Fullscreen	0	platform:mac	Game	Display mode		lev
@@ -27,11 +28,23 @@ index 141b0d86..89c69f17 100644
  DM_RUMBLE	toggle	-	1	always	Controls	Game rumble		level=basic
  DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength		needs=DM_RUMBLE=1
  DM_RUMBLE_MIN	range	0:0.9:0.05	0	always	Controls	Rumble cutoff
+diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
+index a7e9c69..f7b236c 100644
+--- a/dm/ios/Sources/DmGameMenu.h
++++ b/dm/ios/Sources/DmGameMenu.h
+@@ -12,6 +12,7 @@ bool dm_pad_layout_offered(int layout);   // Tap only in handheld mode
+ void dm_pad_layout_set(int layout);   // releases every touch first, and is saved for the next start
+ void dm_gamepad_touch_feedback(bool on);   // DM_TOUCH_HAPTICS
+ bool dm_setting_live(const char *env, const char *value);
++bool dm_tv_connected(void);   // front_ios.m: true while an external display presents the game window
+ void *dm_quit_menu(void);   // front_ios.m: the menu's last item, Quit <game>, which opens the quit prompt (a retained UIMenu, shown inline)   // front_ios.m: value NULL asks whether the running game takes env at once; otherwise applies it
+ #ifdef __cplusplus
+ }
 diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
-index f91b0027..9ee0582f 100644
+index f91b002..ff785bb 100644
 --- a/dm/ios/Sources/GameMenu.swift
 +++ b/dm/ios/Sources/GameMenu.swift
-@@ -6,9 +6,28 @@ import UIKit
+@@ -6,9 +6,58 @@ import UIKit
  
  var gameMenuModel: LauncherModel?   // the settings screen's model (Launcher.swift); nil in an app without one: the menu has the layout only
  
@@ -54,14 +67,44 @@ index f91b0027..9ee0582f 100644
 +    var text: String { Self.line(self, in: getenv("DM_GAME_MENU_TEXT").map { String(cString: $0) }) }
 +}
 +
++private let shellMenuAllowlist: Set<String> = ["DM_OPMODE", "DM_PICTURE_FIT", "DM_SHOW_FPS", "DM_AUDIO_MIX", "DM_METAL_HUD"]
++
++private struct ShellMenuPayload: Decodable {
++    let suiteName: String
++    let items: [ShellMenuItem]
++}
++
++private struct ShellMenuItem: Decodable {
++    let env, kind, label, effectiveDefault: String
++    let onValue, offValue: String?
++    let options: [[String]]?
++
++    var resolvedOnValue: String { onValue ?? "1" }
++    var resolvedOffValue: String { offValue ?? "0" }
++
++    func accepts(_ v: String) -> Bool {
++        switch kind {
++        case "choice": return options?.contains { $0.count >= 2 && $0[0] == v } ?? false
++        case "toggle": return v == resolvedOnValue || v == resolvedOffValue
++        default: return false
++        }
++    }
++}
++
++private func currentShellMenu() -> ShellMenuPayload? {
++    guard let raw = getenv("DM_SHELL_MENU").map({ String(cString: $0) }),
++          let data = raw.data(using: .utf8) else { return nil }
++    return try? JSONDecoder().decode(ShellMenuPayload.self, from: data)
++}
++
  @_cdecl("dm_game_menu")
  public func dmGameMenu() -> UnsafeMutableRawPointer {
 -    let title = gameMenuModel != nil ? "More settings on the start screen" : ""
-+    let title = gameMenuModel != nil ? GameMenuText.moreSettings.text : ""
++    let title = (gameMenuModel != nil || currentShellMenu() != nil) ? GameMenuText.moreSettings.text : ""
      let menu = UIMenu(title: title, children: [UIDeferredMenuElement.uncached { done in done(gameMenuItems()) }])   // built each time it opens, so it shows the current choices
      return Unmanaged.passRetained(menu).toOpaque()
  }
-@@ -18,7 +37,7 @@ private func gameMenuItems() -> [UIMenuElement] {
+@@ -18,7 +67,7 @@ private func gameMenuItems() -> [UIMenuElement] {
      let layouts = (0..<3).filter { dm_pad_layout_offered(Int32($0)) }.map { l in
          UIAction(title: names[l], state: dm_pad_layout() == l ? .on : .off) { _ in dm_pad_layout_set(Int32(l)) }
      }
@@ -70,8 +113,55 @@ index f91b0027..9ee0582f 100644
      var items: [UIMenuElement] = []
      var placed = false
      if let m = gameMenuModel {
+@@ -28,6 +77,14 @@ private func gameMenuItems() -> [UIMenuElement] {
+             for s in m.rows(in: section) where (s.kind == "choice" || s.kind == "toggle") && dm_setting_live(s.env, nil) { rows.append(gameMenuRow(m, s)) }
+             if !rows.isEmpty { items.append(UIMenu(options: .displayInline, children: rows)) }
+         }
++    } else if let shell = currentShellMenu() {
++        let fixed = Set((getenv("DM_ENV_FILE_KEYS").map { String(cString: $0) } ?? "").split(separator: " ").map(String.init))
++        let rows = shell.items
++            .filter { shellMenuAllowlist.contains($0.env) && ($0.kind == "choice" || $0.kind == "toggle") && dm_setting_live($0.env, nil) }
++            .map { shellMenuRow(shell, $0, fixed: fixed) }
++        items.append(UIMenu(options: .displayInline, children: [layout]))
++        placed = true
++        if !rows.isEmpty { items.append(UIMenu(options: .displayInline, children: rows)) }
+     }
+     if !placed { items.insert(UIMenu(options: .displayInline, children: [layout]), at: 0) }
+     items.append(Unmanaged<UIMenu>.fromOpaque(dm_quit_menu()).takeRetainedValue())   // Quit <game>, last and on its own: it opens the quit prompt (front_ios.m)
+@@ -48,3 +105,31 @@ private func gameMenuRow(_ m: LauncherModel, _ s: Setting) -> UIMenuElement {
+     let actions = options.map { o in UIAction(title: o[1], attributes: attributes, state: o[0] == now ? .on : .off) { _ in pick(o[0]) } }
+     return UIMenu(title: s.label, subtitle: fixed ? "\(current), set in env.txt" : nil, options: .singleSelection, children: actions)
+ }
++
++private func shellMenuRow(_ shell: ShellMenuPayload, _ item: ShellMenuItem, fixed: Set<String>) -> UIMenuElement {
++    let envValue = getenv(item.env).map { String(cString: $0) }
++    let initialNow = envValue.flatMap { item.accepts($0) ? $0 : nil } ?? item.effectiveDefault
++    let tvLocked = item.env == "DM_OPMODE" && dm_tv_connected()
++    let now = tvLocked ? "1" : initialNow
++    let isFixed = fixed.contains(item.env)
++    let attributes: UIMenuElement.Attributes = (isFixed || tvLocked) ? .disabled : []
++    func pick(_ v: String) {
++        setenv(item.env, v, 1)
++        _ = dm_setting_live(item.env, v)
++        if !shell.suiteName.isEmpty, let defaults = UserDefaults(suiteName: shell.suiteName) {
++            let key = "launcher." + item.env
++            if v == item.effectiveDefault { defaults.removeObject(forKey: key) } else { defaults.set(v, forKey: key) }
++        }
++        fputs("launcher: \(item.env)=\(v) (in-game menu)\n", stderr)
++    }
++    if item.kind == "toggle" {
++        let on = item.resolvedOnValue, off = item.resolvedOffValue
++        let a = UIAction(title: item.label, attributes: attributes, state: now == on ? .on : .off) { _ in pick(now == on ? off : on) }
++        if isFixed { a.subtitle = "Set in env.txt" }
++        return a
++    }
++    let options = (item.options ?? []).filter { $0.count >= 2 }
++    let current = options.first { $0[0] == now }?[1] ?? now
++    let actions = options.map { o in UIAction(title: o[1], attributes: attributes, state: o[0] == now ? .on : .off) { _ in pick(o[0]) } }
++    return UIMenu(title: item.label, subtitle: isFixed ? "\(current), set in env.txt" : nil, options: .singleSelection, children: actions)
++}
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 9a48a505..c796c51b 100644
+index 9a48a50..c796c51 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -92,6 +92,13 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -98,7 +188,7 @@ index 9a48a505..c796c51b 100644
          self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2'})   # the Mac window's Display mode (front_mac.m reads 1 or 0); Switch 2 controllers (pad_switch2_apple.m, wired on the Mac only)
          s = mac['DM_FULLSCREEN']
 diff --git a/docs/settings.md b/docs/settings.md
-index 44a6fe9e..051bd255 100644
+index 44a6fe9..051bd25 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -4,7 +4,7 @@ The screen before the game starts shows the settings the game supports. A settin
@@ -130,3 +220,6 @@ index 44a6fe9e..051bd255 100644
  | Game rumble | `DM_RUMBLE` | `1`, `0` |
  | Rumble strength | `DM_RUMBLE_GAIN` | `0` to `3` |
  | Rumble cutoff | `DM_RUMBLE_MIN` | `0` to `0.9` |
+-- 
+2.54.0 (Apple Git-157)
+
