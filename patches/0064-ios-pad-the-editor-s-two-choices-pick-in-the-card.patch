@@ -8,7 +8,7 @@ Both sides together | Each side on its own set a font of its own, which dropped 
 
 Upstream-Status: pending [builds on 0020 and 0040: the seedds/nxnative pull request follows once they are upstream]
 Reason: the editor's two choices readable on every iOS: black text on the cream of the picked segment
-Issue: LNPANDY/NX2Apple#ISSUE (the feature issue, to be opened before the pull request)
+Issue: LNPANDY/NX2Apple#1397 (the feature issue, to be opened before the pull request)
 ---
  dm/ios/Sources/DmPadEditor.m | 14 ++++++++++++--
  1 file changed, 12 insertions(+), 2 deletions(-)

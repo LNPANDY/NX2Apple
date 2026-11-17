@@ -93,7 +93,7 @@ Front-ends: new: a front end that hosts games in its own process keeps the in-ga
 
 Upstream-Status: pending [builds on 0020 and 0040: the seedds/nxnative pull request follows once they are upstream]
 Reason: players move and resize the touch controls by groups in the game (gear, Controller layout, Adjust Gamepad Layout), saved for all games or for one game
-Issue: LNPANDY/NX2Apple#ISSUE (the feature issue, to be opened before the pull request)
+Issue: LNPANDY/NX2Apple#1397 (the feature issue, to be opened before the pull request)
 
 ---
  dm/ios/Sources/DmGameMenu.h                  |   2 +

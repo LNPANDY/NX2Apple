@@ -54,7 +54,7 @@ not part of CI.
 
 Upstream-Status: pending [builds on 0020 and 0040: the seedds/nxnative pull request follows once they are upstream]
 Reason: walks the layout editor step by step on iPhone and iPad Simulators in the Duo harness, with a picture of each step
-Issue: LNPANDY/NX2Apple#ISSUE (the feature issue, to be opened before the pull request)
+Issue: LNPANDY/NX2Apple#1397 (the feature issue, to be opened before the pull request)
 ---
  dm/ios/tests/duo/README.md                   |  11 +
  dm/ios/tests/duo/Sources/DuoHarnessApp.m     |  15 +

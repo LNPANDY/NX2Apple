@@ -73,7 +73,7 @@ and the run after them passed. Not run: a real iPhone.
 
 Upstream-Status: pending [builds on 0020 and 0040: the seedds/nxnative pull request follows once they are upstream]
 Reason: on a phone the layout editor's panel is a compact bar at the top or bottom of the safe area, so it leaves the controls being arranged in view
-Issue: LNPANDY/NX2Apple#ISSUE (the feature issue, to be opened before the pull request)
+Issue: LNPANDY/NX2Apple#1397 (the feature issue, to be opened before the pull request)
 
 ---
  dm/ios/Sources/DmGamepad.m                   |  34 ++-
