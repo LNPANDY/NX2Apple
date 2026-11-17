@@ -333,6 +333,7 @@ extension BuildStore {
                             if let installError {
                                 self.doneNote = String(format: self.t("dev.installFailed"), installError)
                             } else {
+                                ShellLibrary.recordInstalled(root: shell.root, device: device)
                                 self.installedOn = device
                                 self.installedAppPath = app
                                 self.doneNote = String(format: self.t("dev.resigned"), name)

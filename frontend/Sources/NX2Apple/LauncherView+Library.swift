@@ -390,6 +390,14 @@ extension LauncherView {
                     .overlay(Capsule().strokeBorder(LauncherPalette.noticeBorder))
                     .help(loc.t("switch2.help"))
             }
+            if verifiedProfiles.supportsFullScreen(game) {
+                Text(loc.t("widescreen.badge"))
+                    .font(.manrope(prominent ? 11 : 10.5, .bold)).foregroundStyle(LauncherPalette.ready)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(LauncherPalette.ready.opacity(0.12), in: Capsule())
+                    .overlay(Capsule().strokeBorder(LauncherPalette.ready.opacity(0.38)))
+                    .help(loc.t("widescreen.help"))
+            }
             if prominent && verifiedProfiles.isUnverified(game) {
                 Text(loc.t("macLibVerify.badge"))
                     .font(.manrope(11, .semibold))

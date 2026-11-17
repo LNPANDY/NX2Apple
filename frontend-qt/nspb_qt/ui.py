@@ -321,7 +321,7 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(24, 0, 16, 0)
         row.setSpacing(10)
 
-        # Brand (App Icon + NX2Apple — by nxnative)
+        # Brand (App Icon + NX2Apple)
         brand_row = QHBoxLayout()
         brand_row.setSpacing(10)
         self.app_icon_lbl = QLabel()
@@ -336,10 +336,7 @@ class MainWindow(QMainWindow):
         brand_row.addWidget(self.app_icon_lbl)
         self.title_label = QLabel('NX2Apple')
         self.title_label.setStyleSheet('font-size: 23px; font-weight: 800; color: #ffffff;')
-        self.sub_label = QLabel('— by nxnative')
-        self.sub_label.setObjectName('faint')
         brand_row.addWidget(self.title_label)
-        brand_row.addWidget(self.sub_label)
         row.addLayout(brand_row)
 
         row.addStretch(1)
@@ -1356,115 +1353,269 @@ class MainWindow(QMainWindow):
 
     def _build_engine_switcher_card(self) -> CardGroup:
         grp = CardGroup(title=self.m.t('engine.title'))
+        self._eng_last_auto_rev = getattr(self.m, 'upstream_auto_switch_revision', 0)
+        self._eng_popup: QFrame | None = None
+        self._eng_popup_rows: dict[str, dict[str, object]] = {}
 
-        # Row 1: nxnative (built-in default)
-        r_nx = QWidget()
-        rnx_lay = QHBoxLayout(r_nx)
-        rnx_lay.setContentsMargins(18, 12, 18, 12)
-        rnx_lay.setSpacing(12)
-        self.eng_nx_dot = _dot(style.GREEN)
-        rnx_lay.addWidget(self.eng_nx_dot)
-        nx_col = QVBoxLayout()
-        nx_col.setSpacing(2)
-        self.eng_nx_title = QLabel('nxnative · ' + self.m.t('upstream.builtinBadge'))
-        self.eng_nx_title.setObjectName('rowTitle')
-        self.eng_nx_sub = QLabel(self.m.t('upstream.nxnativeCardNote'))
-        self.eng_nx_sub.setObjectName('muted')
-        self.eng_nx_sub.setWordWrap(True)
-        nx_col.addWidget(self.eng_nx_title)
-        nx_col.addWidget(self.eng_nx_sub)
-        rnx_lay.addLayout(nx_col, 1)
-        self.eng_nx_btn = QPushButton(self.m.t('upstream.activeBadge'))
-        self.eng_nx_btn.setFixedWidth(148)
-        self.eng_nx_btn.clicked.connect(lambda: self.m.select_upstream('nxnative'))
-        rnx_lay.addWidget(self.eng_nx_btn)
-        grp.add_row(r_nx)
+        row = QWidget()
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(18, 13, 18, 13)
+        lay.setSpacing(12)
+        self.eng_active_dot = _dot(style.GREEN)
+        lay.addWidget(self.eng_active_dot)
 
-        # Row 2: S2Arm (download -> extract -> switch)
-        self.eng_s2a_div = grp.add_divider()
-        self.eng_s2a_row = QWidget()
-        rs2_lay = QHBoxLayout(self.eng_s2a_row)
-        rs2_lay.setContentsMargins(18, 12, 18, 12)
-        rs2_lay.setSpacing(12)
-        self.eng_s2a_dot = _dot(style.NEUTRAL_DOT)
-        rs2_lay.addWidget(self.eng_s2a_dot)
-        s2_col = QVBoxLayout()
-        s2_col.setSpacing(2)
-        self.eng_s2a_title = QLabel('S2Arm')
-        self.eng_s2a_title.setObjectName('rowTitle')
-        self.eng_s2a_sub = QLabel(self.m.t('upstream.s2armCardNote'))
-        self.eng_s2a_sub.setObjectName('muted')
-        self.eng_s2a_sub.setWordWrap(True)
-        s2_col.addWidget(self.eng_s2a_title)
-        s2_col.addWidget(self.eng_s2a_sub)
-        rs2_lay.addLayout(s2_col, 1)
-        self.eng_s2a_btn = QPushButton(self.m.t('upstream.download'))
-        self.eng_s2a_btn.setFixedWidth(148)
-        self.eng_s2a_btn.clicked.connect(self._on_s2arm_engine_action)
-        rs2_lay.addWidget(self.eng_s2a_btn)
-        grp.add_row(self.eng_s2a_row)
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        self.eng_active_title = QLabel('nxnative · ' + self.m.t('upstream.builtinBadge'))
+        self.eng_active_title.setObjectName('rowTitle')
+        self.eng_active_sub = QLabel(self.m.t('upstream.nxnativeCardNote'))
+        self.eng_active_sub.setObjectName('muted')
+        self.eng_active_sub.setWordWrap(True)
+        col.addWidget(self.eng_active_title)
+        col.addWidget(self.eng_active_sub)
+        lay.addLayout(col, 1)
+
+        self.eng_dropdown_btn = QPushButton('nxnative  ▾')
+        self.eng_dropdown_btn.setFixedWidth(168)
+        self.eng_dropdown_btn.setCursor(Qt.PointingHandCursor)
+        self.eng_dropdown_btn.clicked.connect(self._toggle_engine_dropdown)
+        lay.addWidget(self.eng_dropdown_btn)
+        grp.add_row(row)
         return grp
 
-    def _on_s2arm_engine_action(self) -> None:
-        state_kind, _frac, _detail = self.m.upstream_state('s2arm')
-        if state_kind == 'installed':
-            self.m.select_upstream('s2arm')
-        elif state_kind in ('not_installed', 'failed'):
-            self.m.download_upstream('s2arm')
+    def _ensure_engine_popup(self) -> QFrame:
+        from . import upstream_store
+        kinds = upstream_store.available_upstreams()
+        if self._eng_popup is not None and tuple(self._eng_popup_rows.keys()) == kinds:
+            return self._eng_popup
+
+        if self._eng_popup is not None:
+            self._eng_popup.close()
+            self._eng_popup.deleteLater()
+        self._eng_popup_rows.clear()
+
+        popup = QFrame(self, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        popup.setObjectName('engineDropdownPopup')
+        popup.setFixedWidth(376)
+        popup.setStyleSheet(
+            f'QFrame#engineDropdownPopup {{ background: {style.SURFACE}; border: 1px solid {style.BORDER}; border-radius: 12px; }}'
+            f'QFrame#engPopupRow {{ background: transparent; border-radius: 8px; }}'
+            f'QFrame#engPopupRow[active="true"] {{ background: {style.CARD_HOVER}; border: 1px solid {style.BORDER}; border-radius: 8px; }}'
+        )
+        outer = QVBoxLayout(popup)
+        outer.setContentsMargins(6, 6, 6, 6)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea(popup)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setMaximumHeight(260)
+
+        inner = QWidget()
+        inner.setStyleSheet('background: transparent;')
+        inner_lay = QVBoxLayout(inner)
+        inner_lay.setContentsMargins(2, 2, 2, 2)
+        inner_lay.setSpacing(4)
+
+        for kind in kinds:
+            item_frame = QFrame(inner)
+            item_frame.setObjectName('engPopupRow')
+            rlay = QHBoxLayout(item_frame)
+            rlay.setContentsMargins(12, 9, 12, 9)
+            rlay.setSpacing(10)
+
+            dot = _dot(style.NEUTRAL_DOT)
+            rlay.addWidget(dot)
+
+            tcol = QVBoxLayout()
+            tcol.setSpacing(3)
+            title_lbl = QLabel(upstream_store.upstream_display_name(kind))
+            title_lbl.setObjectName('rowTitle')
+            pbar = QProgressBar()
+            pbar.setFixedHeight(6)
+            pbar.setTextVisible(False)
+            pbar.setVisible(False)
+            sub_lbl = QLabel(self.m.t(upstream_store.upstream_note_key(kind)))
+            sub_lbl.setObjectName('muted')
+            sub_lbl.setWordWrap(True)
+            tcol.addWidget(title_lbl)
+            tcol.addWidget(pbar)
+            tcol.addWidget(sub_lbl)
+            rlay.addLayout(tcol, 1)
+
+            act_btn = QPushButton()
+            act_btn.setFixedWidth(104)
+            act_btn.setCursor(Qt.PointingHandCursor)
+            act_btn.clicked.connect(lambda _=False, k=kind: self._on_engine_popup_action(k))
+            rlay.addWidget(act_btn)
+
+            def _row_mouse_press(ev: QMouseEvent, k: str = kind) -> None:
+                if ev.button() == Qt.LeftButton:
+                    st_k, _f, _d = self.m.upstream_state(k)
+                    if st_k in ('builtin', 'installed') and not self.m.running:
+                        if self.m.select_upstream(k) and self._eng_popup is not None:
+                            self._eng_popup.close()
+                QFrame.mousePressEvent(item_frame, ev)
+
+            item_frame.mousePressEvent = _row_mouse_press  # type: ignore[method-assign]
+            inner_lay.addWidget(item_frame)
+            self._eng_popup_rows[kind] = {
+                'frame': item_frame,
+                'dot': dot,
+                'title': title_lbl,
+                'bar': pbar,
+                'sub': sub_lbl,
+                'btn': act_btn,
+            }
+
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
+        self._eng_popup = popup
+        return popup
+
+    def _toggle_engine_dropdown(self) -> None:
+        if self.m.running:
+            return
+        popup = self._ensure_engine_popup()
+        if popup.isVisible():
+            popup.close()
+            return
+        self._refresh_engine_popup()
+        popup.adjustSize()
+        content_h = sum(
+            w['frame'].sizeHint().height()  # type: ignore[union-attr]
+            for w in self._eng_popup_rows.values()
+        ) + max(0, len(self._eng_popup_rows) - 1) * 4 + 20
+        popup.setFixedHeight(min(max(content_h, 64), 260))
+        btn_bl = self.eng_dropdown_btn.mapToGlobal(QPoint(self.eng_dropdown_btn.width() - popup.width(), self.eng_dropdown_btn.height() + 6))
+        popup.move(btn_bl)
+        popup.show()
+
+    def _on_engine_popup_action(self, kind: str) -> None:
+        state_kind, _frac, _detail = self.m.upstream_state(kind)
+        if state_kind in ('builtin', 'installed'):
+            if self.m.select_upstream(kind) and self._eng_popup is not None:
+                self._eng_popup.close()
+        elif state_kind == 'not_installed' or state_kind == 'failed':
+            self.m.download_upstream(kind)
+        elif state_kind in ('downloading', 'extracting'):
+            self.m.cancel_upstream_download(kind)
 
     def _on_upstream_state_changed(self) -> None:
+        cur_rev = getattr(self.m, 'upstream_auto_switch_revision', 0)
+        auto_switched = cur_rev != getattr(self, '_eng_last_auto_rev', 0)
+        self._eng_last_auto_rev = cur_rev
         self._refresh_engine_switcher()
         self._refresh_running()
+        if auto_switched and self._eng_popup is not None and self._eng_popup.isVisible():
+            self._eng_popup.close()
+
+    def _refresh_engine_popup(self) -> None:
+        if self._eng_popup is None or not self._eng_popup_rows:
+            return
+        from . import upstream_store
+        t = self.m.t
+        active_kind = getattr(self.m, 'build_upstream', 'nxnative')
+        for kind, refs in self._eng_popup_rows.items():
+            frame: QFrame = refs['frame']  # type: ignore[assignment]
+            dot: StatusDot = refs['dot']  # type: ignore[assignment]
+            title_lbl: QLabel = refs['title']  # type: ignore[assignment]
+            pbar: QProgressBar = refs['bar']  # type: ignore[assignment]
+            sub_lbl: QLabel = refs['sub']  # type: ignore[assignment]
+            btn: QPushButton = refs['btn']  # type: ignore[assignment]
+
+            disp = upstream_store.upstream_display_name(kind)
+            is_builtin = upstream_store.upstream_is_builtin(kind)
+            is_active = active_kind == kind
+            st_kind, frac, detail = self.m.upstream_state(kind)
+
+            frame.setProperty('active', 'true' if is_active else 'false')
+            frame.style().unpolish(frame)
+            frame.style().polish(frame)
+
+            if st_kind in ('builtin', 'installed'):
+                badge = t('upstream.builtinBadge' if is_builtin else 'upstream.installedBadge')
+                title_lbl.setText(f'{disp} · {badge}')
+                _set_dot(dot, style.GREEN if is_active else style.NEUTRAL_DOT)
+                pbar.setVisible(False)
+                sub_lbl.setText(t(upstream_store.upstream_note_key(kind)))
+                btn.setText('✓  ' + t('upstream.activeBadge') if is_active else t('upstream.switchBtn'))
+                btn.setEnabled((not is_active) and (not self.m.running))
+                frame.setCursor(Qt.PointingHandCursor if (not is_active and not self.m.running) else Qt.ArrowCursor)
+            elif st_kind == 'downloading':
+                title_lbl.setText(disp)
+                _set_dot(dot, style.AMBER)
+                pbar.setVisible(True)
+                if frac is not None:
+                    pbar.setRange(0, 1000)
+                    pbar.setValue(int(round(max(0.0, min(frac, 1.0)) * 1000)))
+                else:
+                    pbar.setRange(0, 0)
+                sub_lbl.setText(t('upstream.downloadingProgress', detail) if detail else t('upstream.downloading'))
+                btn.setText(t('upstream.cancel'))
+                btn.setEnabled(True)
+                frame.setCursor(Qt.ArrowCursor)
+            elif st_kind == 'extracting':
+                title_lbl.setText(disp)
+                _set_dot(dot, style.AMBER)
+                pbar.setVisible(True)
+                pbar.setRange(0, 0)
+                sub_lbl.setText(t('upstream.extracting'))
+                btn.setText(t('upstream.cancel'))
+                btn.setEnabled(True)
+                frame.setCursor(Qt.ArrowCursor)
+            elif st_kind == 'failed':
+                title_lbl.setText(disp)
+                _set_dot(dot, style.AMBER)
+                pbar.setVisible(False)
+                sub_lbl.setText(t('upstream.downloadFailed' if detail == 'download' else 'upstream.extractFailed'))
+                btn.setText(t('upstream.retry'))
+                btn.setEnabled(not self.m.running)
+                frame.setCursor(Qt.ArrowCursor)
+            else:
+                title_lbl.setText(disp)
+                _set_dot(dot, style.NEUTRAL_DOT)
+                pbar.setVisible(False)
+                sub_lbl.setText(t(upstream_store.upstream_note_key(kind)))
+                btn.setText(t('upstream.download'))
+                btn.setEnabled(not self.m.running)
+                frame.setCursor(Qt.ArrowCursor)
 
     def _refresh_engine_switcher(self) -> None:
+        from . import upstream_store
         t = self.m.t
         self.engine_group.set_title(t('engine.title'))
-        nx_active = getattr(self.m, 'build_upstream', 'nxnative') == 'nxnative'
-        _set_dot(self.eng_nx_dot, style.GREEN if nx_active else style.NEUTRAL_DOT)
-        self.eng_nx_title.setText('nxnative · ' + t('upstream.builtinBadge'))
-        self.eng_nx_sub.setText(t('upstream.nxnativeCardNote'))
-        self.eng_nx_btn.setText(t('upstream.activeBadge' if nx_active else 'upstream.switchBtn'))
-        self.eng_nx_btn.setEnabled((not nx_active) and (not self.m.running))
+        active_kind = getattr(self.m, 'build_upstream', 'nxnative')
+        disp = upstream_store.upstream_display_name(active_kind)
+        badge = t('upstream.builtinBadge' if upstream_store.upstream_is_builtin(active_kind) else 'upstream.installedBadge')
+        self.eng_active_title.setText(f'{disp} · {badge}')
 
-        from . import upstream_store
-        show_s2a = 's2arm' in upstream_store.available_upstreams()
-        self.eng_s2a_row.setVisible(show_s2a)
-        if self.eng_s2a_div is not None:
-            self.eng_s2a_div.setVisible(show_s2a)
-        if not show_s2a:
-            return
+        busy_line = ''
+        for kind in upstream_store.available_upstreams():
+            st_kind, _frac, detail = self.m.upstream_state(kind)
+            if st_kind == 'downloading':
+                prog = t('upstream.downloadingProgress', detail) if detail else t('upstream.downloading')
+                busy_line = f'{upstream_store.upstream_display_name(kind)} · {prog}'
+                break
+            if st_kind == 'extracting':
+                busy_line = f"{upstream_store.upstream_display_name(kind)} · {t('upstream.extracting')}"
+                break
 
-        s2a_active = getattr(self.m, 'build_upstream', 'nxnative') == 's2arm'
-        state_kind, _frac, detail = self.m.upstream_state('s2arm')
-        if state_kind == 'installed':
-            _set_dot(self.eng_s2a_dot, style.GREEN if s2a_active else style.NEUTRAL_DOT)
-            self.eng_s2a_sub.setText(t('upstream.s2armCardNote' if s2a_active else 'upstream.readySwitch'))
-            self.eng_s2a_btn.setText(t('upstream.activeBadge' if s2a_active else 'upstream.switchBtn'))
-            self.eng_s2a_btn.setEnabled((not s2a_active) and (not self.m.running))
-        elif state_kind == 'downloading':
-            _set_dot(self.eng_s2a_dot, style.AMBER)
-            self.eng_s2a_sub.setText(
-                t('upstream.downloadingProgress', detail) if detail else t('upstream.downloading')
-            )
-            self.eng_s2a_btn.setText(t('upstream.downloading'))
-            self.eng_s2a_btn.setEnabled(False)
-        elif state_kind == 'extracting':
-            _set_dot(self.eng_s2a_dot, style.AMBER)
-            self.eng_s2a_sub.setText(t('upstream.extracting'))
-            self.eng_s2a_btn.setText(t('upstream.extracting'))
-            self.eng_s2a_btn.setEnabled(False)
-        elif state_kind == 'failed':
-            _set_dot(self.eng_s2a_dot, style.AMBER)
-            self.eng_s2a_sub.setText(
-                t('upstream.downloadFailed' if detail == 'download' else 'upstream.extractFailed')
-            )
-            self.eng_s2a_btn.setText(t('fail.retry'))
-            self.eng_s2a_btn.setEnabled(not self.m.running)
-        else:
-            _set_dot(self.eng_s2a_dot, style.NEUTRAL_DOT)
-            self.eng_s2a_sub.setText(t('upstream.s2armCardNote'))
-            self.eng_s2a_btn.setText(t('upstream.download'))
-            self.eng_s2a_btn.setEnabled(not self.m.running)
+        _set_dot(self.eng_active_dot, style.AMBER if busy_line else style.GREEN)
+        self.eng_active_sub.setText(busy_line if busy_line else t(upstream_store.upstream_note_key(active_kind)))
+        self.eng_dropdown_btn.setText(f'{disp}  ▾')
+        self.eng_dropdown_btn.setEnabled(not self.m.running)
+        if self.m.running and self._eng_popup is not None and self._eng_popup.isVisible():
+            self._eng_popup.close()
+        if self._eng_popup is not None:
+            self._refresh_engine_popup()
+            if self._eng_popup.isVisible():
+                content_h = sum(
+                    w['frame'].sizeHint().height()  # type: ignore[union-attr]
+                    for w in self._eng_popup_rows.values()
+                ) + max(0, len(self._eng_popup_rows) - 1) * 4 + 20
+                self._eng_popup.setFixedHeight(min(max(content_h, 64), 260))
 
     def _build_setup_hint_card(self) -> CardGroup:
         grp = CardGroup(title=self.m.t('section.setup'))
@@ -1716,6 +1867,7 @@ class MainWindow(QMainWindow):
             [
                 ('shared', self.m.t('shell.ipaShared')),
                 ('oneGame', self.m.t('shell.ipaOneGame')),
+                ('framework', self.m.t('shell.ipaFramework')),
             ],
             selected=self.m.ipa_kind,
         )
@@ -1872,24 +2024,29 @@ class MainWindow(QMainWindow):
             [
                 ('shared', self.m.t('shell.ipaShared')),
                 ('oneGame', self.m.t('shell.ipaOneGame')),
+                ('framework', self.m.t('shell.ipaFramework')),
             ],
             selected=self.m.ipa_kind,
         )
         one = self.m.ipa_kind == 'oneGame'
-        self.ipa_kind_note.setText(self.m.t('shell.ipaOneGameNote' if one else 'shell.ipaSharedNote'))
-        self.step1_title.setText('①  ' + self.m.t('shell.step1Title'))
-        self.step1_sub.setText(self.m.t('shell.oneGameSub' if one else 'shell.step1Sub'))
+        fw = self.m.ipa_kind == 'framework'
+        note_key = 'shell.ipaOneGameNote' if one else ('shell.ipaFrameworkNote' if fw else 'shell.ipaSharedNote')
+        self.ipa_kind_note.setText(self.m.t(note_key))
+        self.step1_title.setText('①  ' + self.m.t('shell.frameworkStep1Title' if fw else 'shell.step1Title'))
+        s1_sub_key = 'shell.oneGameSub' if one else ('shell.frameworkStep1Sub' if fw else 'shell.step1Sub')
+        self.step1_sub.setText(self.m.t(s1_sub_key))
         ipa_p = self._effective_ipa_path()
         has_ipa = bool(ipa_p and os.path.exists(ipa_p))
         built_games = (
             self.m.built_shell_games()
-            if not one and hasattr(self.m, 'built_shell_games')
+            if not one and not fw and hasattr(self.m, 'built_shell_games')
             else []
         )
         built_count = len(built_games)
         has_built_shell = built_count > 0
         can_repack = (
             not one
+            and not fw
             and hasattr(self.m, 'can_export_built_games')
             and bool(self.m.can_export_built_games())
         )
@@ -1904,8 +2061,9 @@ class MainWindow(QMainWindow):
         self.step1_reveal_btn.setText(self.m.t('shell.showInFinder'))
         self.step1_reveal_btn.setToolTip(self.m.t('msg.ipaAt', ipa_p) if has_ipa else '')
         self.step1_reveal_btn.setVisible(has_ipa)
-        self.step2_title.setText('②  ' + self.m.t('shell.step2Title'))
-        self.step2_sub.setText(self.m.t('shell.oneGameStep2Sub' if one else 'shell.step2Sub'))
+        self.step2_title.setText('②  ' + self.m.t('shell.frameworkStep2Title' if fw else 'shell.step2Title'))
+        s2_sub_key = 'shell.oneGameStep2Sub' if one else ('shell.frameworkStep2Sub' if fw else 'shell.step2Sub')
+        self.step2_sub.setText(self.m.t(s2_sub_key))
         self.step3_title.setText('③  ' + self.m.t('shell.step3Title') + ' · ' + self.m.t('shell.whereDrive'))
         self.drive_path_lbl.setText(self._drive_folder or self.m.t('shell.driveNone'))
         self.step3_open_romfs_btn.setText(self.m.t('shell.showInFinder'))
@@ -3297,7 +3455,7 @@ class MainWindow(QMainWindow):
         self.target_group.setEnabled(not running)
         self.ipa_kind_seg.setEnabled(not running)
         # A previous export can still be revealed or copied to a drive.
-        self.install_group.setVisible(expanded or os.path.isfile(self._effective_ipa_path())
+        self.install_group.setVisible(expanded or os.path.exists(self._effective_ipa_path())
                                       or os.path.isdir(self._effective_archive_path()))
         repo_ready = self.m.repo_ok or getattr(self.m, 'uses_external_upstream_repo', False)
         setup_needed = not repo_ready or (self.m.deps_checked and not self.m.all_deps_ok)

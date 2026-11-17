@@ -295,7 +295,7 @@ extension ShellInstaller {
             return nil
         }
         for (_, previous) in replaced { ShellInstall.discard(previous) }
-        ShellLibrary.recordInstalled(root: root)
+        ShellLibrary.recordInstalled(root: root, device: device)
         end(Self.installStageID, installName, ok: true)
         let outcome = Outcome(ok: true, message: fmt("dev.installed", deviceName),
                               appPath: ShellInstall.appPath(root: root), bundleID: library.bundleID)

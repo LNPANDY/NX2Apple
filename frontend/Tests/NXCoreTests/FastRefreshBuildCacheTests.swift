@@ -226,6 +226,30 @@ final class FastRefreshBuildCacheTests: XCTestCase {
         XCTAssertTrue(inspection.reason?.contains("missing shader/tables") == true)
     }
 
+    func testInspectHealsMisclassifiedGLAndVulkanSeedsEvenWithEmptyNVNStub() throws {
+        let glTID = "0100CD801CE5E000"
+        let glSeed = try createSeedDir(tid: glTID, chain: "oldchain0001", gfxAPI: "nvn", missingTables: true)
+        try fm.createDirectory(atPath: glSeed + "/shader/ios/gl", withIntermediateDirectories: true)
+        try Data("glmetal".utf8).write(to: URL(fileURLWithPath: glSeed + "/shader/ios/gl/gl_shaders.metallib"))
+        let repo = try createMockRepo(chain: "newchain9999")
+
+        let glInspect = BuildSeedCache.inspect(titleID: glTID, seedRoot: tempDir.path, repoPath: repo, fm: fm)
+        XCTAssertTrue(glInspect.isValid)
+        XCTAssertEqual(glInspect.record?.gfxAPI, "gl")
+        XCTAssertEqual(glInspect.record?.chain, "")
+        XCTAssertEqual(glInspect.path, .pathA)
+
+        let vkTID = "0100535012974000"
+        let vkSeed = try createSeedDir(tid: vkTID, chain: "oldchain0001", gfxAPI: "nvn", missingTables: true)
+        try fm.createDirectory(atPath: vkSeed + "/shader/ios/vk", withIntermediateDirectories: true)
+        try Data("vkmetal".utf8).write(to: URL(fileURLWithPath: vkSeed + "/shader/ios/vk/vk_shaders.metallib"))
+
+        let vkInspect = BuildSeedCache.inspect(titleID: vkTID, seedRoot: tempDir.path, repoPath: repo, fm: fm)
+        XCTAssertTrue(vkInspect.isValid)
+        XCTAssertEqual(vkInspect.record?.gfxAPI, "vulkan")
+        XCTAssertEqual(vkInspect.path, .pathA)
+    }
+
     func testPrefillCandidates() throws {
         let outDir = tempDir.appendingPathComponent("output").path
         let gameName = "Super Mario Odyssey"

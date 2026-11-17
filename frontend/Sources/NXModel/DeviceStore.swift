@@ -26,6 +26,7 @@ package enum SendWhere {
     nonisolated package static let teamKey = "signingTeam"
     nonisolated package static let exportKey = "exportIPA"
     nonisolated package static let oneGameKey = "exportOneGame"
+    nonisolated package static let frameworkKey = "exportFramework"
     nonisolated package static let sendWhereKey = "sendWhere"
     nonisolated package static let driveFolderKey = "driveFolder"
 
@@ -47,7 +48,17 @@ package enum SendWhere {
     }
     /// The export makes one game's own IPA with its game data inside, instead of the shared app (#540). Off unless the player picks it.
     @Published package var exportOneGame: Bool {
-        didSet { defaults.set(exportOneGame, forKey: Self.oneGameKey) }
+        didSet {
+            defaults.set(exportOneGame, forKey: Self.oneGameKey)
+            if exportOneGame && exportFramework { exportFramework = false }
+        }
+    }
+    /// The export makes a standalone `.framework` for the shared app without building or repacking the shell IPA.
+    @Published package var exportFramework: Bool {
+        didSet {
+            defaults.set(exportFramework, forKey: Self.frameworkKey)
+            if exportFramework && exportOneGame { exportOneGame = false }
+        }
     }
     /// Where step 3 of the export sends the game data: `SendWhere.device` or `.drive`. Saved when it changes.
     @Published package var sendWhere: String {
@@ -86,7 +97,9 @@ package enum SendWhere {
         self.installDevice = defaults.string(forKey: Self.deviceKey) ?? ""
         self.signingTeam = defaults.string(forKey: Self.teamKey) ?? ""
         self.exportIPA = defaults.bool(forKey: Self.exportKey)
-        self.exportOneGame = defaults.bool(forKey: Self.oneGameKey)
+        let savedOneGame = defaults.bool(forKey: Self.oneGameKey)
+        self.exportOneGame = savedOneGame
+        self.exportFramework = !savedOneGame && defaults.bool(forKey: Self.frameworkKey)
         self.sendWhere = defaults.string(forKey: Self.sendWhereKey) ?? SendWhere.device
         self.driveFolder = defaults.string(forKey: Self.driveFolderKey) ?? ""
     }

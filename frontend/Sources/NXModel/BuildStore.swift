@@ -39,6 +39,8 @@ package struct FilePick: Equatable {
     var exportIPA: Bool { get }
     /// The export makes one game's own IPA with its game data inside (#540).
     var exportOneGame: Bool { get }
+    /// The export makes a standalone `.framework` for the shared app without repacking the shell IPA.
+    var exportFramework: Bool { get }
     /// The folder the game data is copied to (a drive), empty when none is chosen.
     var driveFolder: String { get set }
     var xcrun: String { get }
@@ -54,6 +56,7 @@ package struct FilePick: Equatable {
 }
 
 extension InstallTarget {
+    package var exportFramework: Bool { false }
     package func cancelCopy() {}
     package func refreshDevices() async {}
 }
@@ -228,6 +231,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     @Published package internal(set) var s2armInstalled = false
     @Published package internal(set) var upstreamDownloads: [EngineUpstreamKind: UpstreamInstallState] = [:]
+    package var upstreamDownloadTasks: [EngineUpstreamKind: Task<Void, Never>] = [:]
+    package var upstreamDownloadGeneration: [EngineUpstreamKind: UInt64] = [:]
+    @Published package internal(set) var upstreamAutoSwitchRevision: UInt64 = 0
     package var upstreamTransport: EngineTransport = URLSessionEngineTransport()
     package var s2armRun = false
     package var s2armEventsPath = ""
@@ -304,6 +310,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     var deferredExportsIPA = false
     package var queuedExportIPA: Bool?
     package var queuedExportOneGame: Bool?
+    package var queuedExportFramework: Bool?
     var skipStaleCheckForQueuedEntry = false
     var afterStaleFrameworks: (() -> Void)?
     package var activeQueuedGameID: UUID?
@@ -422,6 +429,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var exportsShell: Bool { target != BuildTarget.mac && (queuedExportIPA ?? devices.exportIPA) }
     /// An export of one game's own IPA with the game data inside (#540): the engine's one-game app, no shared app, nothing to send.
     package var exportsOneGame: Bool { exportsShell && (queuedExportOneGame ?? devices.exportOneGame) }
+    /// An export of a standalone `.framework` for the shared app: no shell IPA build or repack, game data still sent separately.
+    package var exportsFramework: Bool { exportsShell && !exportsOneGame && (queuedExportFramework ?? devices.exportFramework) }
     package var installsDirectly: Bool { target != BuildTarget.mac && !devices.installDevice.isEmpty && !devices.signingTeam.isEmpty }
 
     /// Home shown as ~ (shorter in a one-line row, and it keeps the account name out of screenshots).

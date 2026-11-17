@@ -37,6 +37,7 @@ package struct ShellLibrary: Codable, Equatable {
     package static func stateFile(root: String) -> String { root + "/shell.json" }
     private static func receiptFile(root: String) -> String { root + "/.installed-games.json" }
     private static func legacyReceiptFile(root: String) -> String { ShellInstall.derivedData(root: root) + "/.installed-games.json" }
+    private static func deviceReceiptFile(root: String) -> String { root + "/.installed-device" }
 
     /// The file's library, or a fresh one when there is none (or it cannot be read: the next save writes a valid one).
     package static func load(root: String) -> ShellLibrary {
@@ -56,13 +57,31 @@ package struct ShellLibrary: Codable, Equatable {
     /// Stored under `<shell root>/.installed-games.json` (outside `DmShell.app` and `derived-data` so code-signature resources stay
     /// untouched, and cleaning derived data preserves install provenance without mutating `shell.json` on a failed device install).
     @discardableResult
-    package static func recordInstalled(root: String) -> Set<String> {
+    package static func recordInstalled(root: String, device: String = "") -> Set<String> {
         let titles = load(root: root).games.map { $0.titleID.uppercased() }
         guard !titles.isEmpty else { return [] }
         let receipt = receiptFile(root: root)
         try? FileManager.default.createDirectory(atPath: (receipt as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         try? JSONEncoder().encode(titles).write(to: URL(fileURLWithPath: receipt), options: .atomic)
+        let trimmedDevice = device.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedDevice.isEmpty {
+            try? Data(trimmedDevice.utf8).write(to: URL(fileURLWithPath: deviceReceiptFile(root: root)), options: .atomic)
+        }
         return Set(titles)
+    }
+
+    /// The UDID of the device the shared app was last installed onto, when recorded alongside `.installed-games.json`.
+    package static func installedDevice(root: String) -> String {
+        guard let data = FileManager.default.contents(atPath: deviceReceiptFile(root: root)),
+              let text = String(data: data, encoding: .utf8) else { return "" }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Saves the device UDID for an existing install receipt when migrating an older receipt that stored only title IDs.
+    package static func recordInstalledDevice(_ device: String, root: String) {
+        let trimmed = device.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !installedReceipt(root: root).isEmpty else { return }
+        try? Data(trimmed.utf8).write(to: URL(fileURLWithPath: deviceReceiptFile(root: root)), options: .atomic)
     }
 
     /// The uppercased title IDs from the last successful device install that are still present in `shell.json`.

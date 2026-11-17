@@ -4,6 +4,32 @@ package enum EngineUpstreamKind: String, Codable, CaseIterable, Equatable, Senda
     case nxnative
     case s2arm
     case macNativeGames = "macnativegames"
+
+    package var displayName: String {
+        switch self {
+        case .nxnative:
+            return "nxnative"
+        case .macNativeGames:
+            return "MacNativeGames"
+        case .s2arm:
+            return "S2Arm"
+        }
+    }
+
+    package var cardNoteKey: String {
+        switch self {
+        case .nxnative:
+            return "upstream.nxnativeCardNote"
+        case .macNativeGames:
+            return "upstream.mngCardNote"
+        case .s2arm:
+            return "upstream.s2armCardNote"
+        }
+    }
+
+    package var isBuiltIn: Bool {
+        self == .nxnative
+    }
 }
 
 package struct EngineUpstreamDescriptor: Equatable, Sendable {
@@ -41,6 +67,21 @@ package enum EngineUpstream {
             environmentPrefixes: ["MNG_", "TOTK_"]
         )
     ]
+
+    /// Ordered list of build engines offered on macOS, filtered by feature availability.
+    package static func availableOnMac(
+        macNativeGamesEnabled: Bool = MacNativeGamesBuilder.featureEnabled,
+        s2armEnabled: Bool = S2ArmBuilder.featureEnabled
+    ) -> [EngineUpstreamKind] {
+        var result: [EngineUpstreamKind] = [.nxnative]
+        if macNativeGamesEnabled {
+            result.append(.macNativeGames)
+        }
+        if s2armEnabled {
+            result.append(.s2arm)
+        }
+        return result
+    }
 
     package static func descriptor(for kind: EngineUpstreamKind) -> EngineUpstreamDescriptor {
         descriptors.first(where: { $0.kind == kind })!

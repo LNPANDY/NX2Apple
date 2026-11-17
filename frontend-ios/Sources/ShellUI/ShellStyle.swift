@@ -30,17 +30,17 @@ public enum ShellPalette {
 
 }
 
-enum ShellStrings {
+public enum ShellStrings {
     /// Visual QA renders one language's `.lproj` whatever the Mac's language is. Nil in the app.
     nonisolated(unsafe) static var captureBundle: Bundle?
-    static var bundle: Bundle { captureBundle ?? .module }
+    public static var bundle: Bundle { captureBundle ?? .module }
     static func text(_ key: String.LocalizationValue) -> String { String(localized: key, bundle: bundle) }
 
     /// A text of a game's `launcher.json` (section, label, note, option label) in the player's language. The file is English and
     /// not ours to change, so the catalog is keyed by that English text. The key is used as it is (a `%` in a note is not a format).
     /// A text with no entry, and an empty one, stays as it is: the player reads English, never a key. `bundle` is a language's
     /// `.lproj` in tests.
-    static func setting(_ text: String, bundle: Bundle = ShellStrings.bundle) -> String {
+    public static func setting(_ text: String, bundle: Bundle = ShellStrings.bundle) -> String {
         text.isEmpty ? text : bundle.localizedString(forKey: text, value: text, table: nil)
     }
 }

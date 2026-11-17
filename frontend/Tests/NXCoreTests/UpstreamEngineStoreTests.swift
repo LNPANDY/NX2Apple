@@ -182,4 +182,60 @@ final class UpstreamEngineStoreTests: XCTestCase {
         let failed = store.downloadAndInstall(kind: .macNativeGames, transport: transport)
         XCTAssertEqual(failed, .failure(.download))
     }
+
+    func testEngineUpstreamMetadataAndAvailableOnMac() {
+        XCTAssertEqual(EngineUpstreamKind.nxnative.displayName, "nxnative")
+        XCTAssertEqual(EngineUpstreamKind.macNativeGames.displayName, "MacNativeGames")
+        XCTAssertEqual(EngineUpstreamKind.s2arm.displayName, "S2Arm")
+        XCTAssertTrue(EngineUpstreamKind.nxnative.isBuiltIn)
+        XCTAssertFalse(EngineUpstreamKind.macNativeGames.isBuiltIn)
+        XCTAssertFalse(EngineUpstreamKind.s2arm.isBuiltIn)
+        XCTAssertEqual(EngineUpstreamKind.nxnative.cardNoteKey, "upstream.nxnativeCardNote")
+        XCTAssertEqual(EngineUpstreamKind.macNativeGames.cardNoteKey, "upstream.mngCardNote")
+        XCTAssertEqual(EngineUpstreamKind.s2arm.cardNoteKey, "upstream.s2armCardNote")
+
+        XCTAssertEqual(
+            EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: true),
+            [.nxnative, .macNativeGames, .s2arm]
+        )
+        XCTAssertEqual(
+            EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: true),
+            [.nxnative, .s2arm]
+        )
+        XCTAssertEqual(
+            EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false),
+            [.nxnative]
+        )
+    }
+
+    func testDownloadAndInstallCancellationCleansTemporaryFiles() throws {
+        let store = UpstreamEngineStore(root: storeRoot)
+        let transport = FakeTransport()
+        transport.archiveToCopy = try makeZip(of: try makeS2ArmFolder(name: "S2Arm-cancel", complete: true), name: "cancel.zip")
+
+        let preCancelled = store.downloadAndInstall(kind: .s2arm, transport: transport, shouldCancel: { true })
+        XCTAssertEqual(preCancelled, .failure(.cancelled))
+        XCTAssertNil(store.usableDirectory(for: .s2arm))
+
+        let cancelMidway = NSLock()
+        var cancelledFlag = false
+        let midCancelled = store.downloadAndInstall(
+            kind: .s2arm,
+            transport: transport,
+            shouldCancel: {
+                cancelMidway.lock()
+                defer { cancelMidway.unlock() }
+                return cancelledFlag
+            },
+            onProgress: { _, _ in
+                cancelMidway.lock()
+                cancelledFlag = true
+                cancelMidway.unlock()
+            }
+        )
+        XCTAssertEqual(midCancelled, .failure(.cancelled))
+        XCTAssertNil(store.usableDirectory(for: .s2arm))
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: storeRoot.path)) ?? []
+        XCTAssertTrue(entries.isEmpty, "Cancelled install must leave zero temporary or partial files: \(entries)")
+    }
 }

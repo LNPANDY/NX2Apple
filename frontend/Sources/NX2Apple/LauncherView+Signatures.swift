@@ -43,7 +43,8 @@ extension LauncherView {
     /// is not rebuilt, and its Documents stay.
     func resign(_ game: LibraryGame) {
         resignNote = nil
-        m.resignOnDevice(app: game.iosAppPath, device: game.installedDevice) {
+        let app = game.iosAppPath.isEmpty ? ShellInstall.appPath(root: m.shellCachePath) : game.iosAppPath
+        m.resignOnDevice(app: app, device: game.installedDevice) {
             resignNote = m.doneNote
             if !m.installedOn.isEmpty { library.recordSharedAppInstalled(app: m.installedAppPath, device: m.installedOn) }
             readSignatures()

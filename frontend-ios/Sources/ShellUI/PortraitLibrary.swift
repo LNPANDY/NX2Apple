@@ -39,6 +39,7 @@ struct PortraitLibrary: View, Equatable {
     let openSettings: () -> Void
     let openControllers: () -> Void
     let openShellSettings: () -> Void
+    var openHomeScreen: ((String) -> Void)? = nil
     @Binding var position: ScrollPosition
     @Namespace private var actionGlassNamespace
     @Namespace private var poseNamespace
@@ -367,6 +368,11 @@ struct PortraitLibrary: View, Equatable {
                     .disabled(detail.game.state != .playable)
                 Button(ShellStrings.text("Game settings"), systemImage: "slider.horizontal.3") {
                     select(detail.id); openSettings()
+                }
+                if let openHomeScreen {
+                    Button(ShellStrings.text("Add to Home Screen…"), systemImage: "plus.square") {
+                        openHomeScreen(detail.id)
+                    }
                 }
             }
         }
