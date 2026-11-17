@@ -1,33 +1,36 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alex Astall <aa@clhoz.com>
 Date: Mon, 16 Nov 2026 23:51:21 +0000
-Subject: [PATCH] game: add Twelve Minutes profile with a 2 GB pool
+Subject: [PATCH] game: add Twelve Minutes profile with a capped
+ StandardAllocator
 
 Twelve Minutes 1.0.1 (0100CD701434C000): Unity 2019.4.31f1 IL2CPP with
-FMOD, SDK 12.3.7. The profile is the NSP script's provisional one with
-app_pool cut from the Switch's 3285 MB to 2 GB.
+FMOD, SDK 12.3.7. The profile keeps the Switch's 3285 MB pool and sets
+stdalloc_cap to 1.94 GB.
 
-nninitStartup hands pool minus used memory to StandardAllocator. With
-the Switch's pool that region is 3.14 GB, and Unity's own regions above
-it reach +4.26 GB of the iPhone's 4.38 GB alias region at the end of the
-first load. A texture then reads a pool pointer of floats and the host
-crashes in nvn_sparse_pool. With 2 GB, 130 s on the Mac with the
-iPhone's alias size end at +3.51 GB, 2.27 GB mapped, no crash.
+nninitStartup hands pool minus used memory (3.14 GB) to
+StandardAllocator, and Unity's own regions above it reach +4.26 GB of
+the iPhone's 4.38 GB alias region at the end of the first load. A
+texture then reads a pool pointer of floats and the host crashes in
+nvn_sparse_pool. With the cap, 130 s on the Mac with the iPhone's alias
+size end at +3.51 GB, 2.28 GB mapped, no crash, and the game still reads
+the Switch's pool as its memory. Upstream asked for the cap in place of
+the 2 GB app_pool of seedds/nxnative#2904.
 
-Checked on an iPhone Duo, iOS 27: played to every ending with no crash,
-hang or visible or audible problem. On the Mac: title prompt and
-opening credits.
+Checked on an iPhone Duo, iOS 27: plays past the first load with this
+build; an earlier build with a 2 GB pool and the same address use was
+played to every ending with no crash, hang or visible or audible
+problem. On the Mac: title prompt and opening credits.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: forwarded seedds/nxnative#2904
-Reason: Twelve Minutes needs a 2 GB pool to fit the iPhone alias region; bridge until upstream merges
+Upstream-Status: forwarded seedds/nxnative#2947
+Reason: Twelve Minutes needs StandardAllocator capped to fit the iPhone alias region; bridge until upstream merges
 Issue: none (seedds/nxnative#217)
-
 ---
  dm/games/0100CD701434C000/README.md           |    26 +
  dm/games/0100CD701434C000/bf_want.tsv         |     1 +
- dm/games/0100CD701434C000/game.tsv            |    39 +
+ dm/games/0100CD701434C000/game.tsv            |    41 +
  dm/games/0100CD701434C000/pso_manifest.tsv    |     2 +
  dm/games/0100CD701434C000/pso_pairs.tsv       | 12082 ++++++++
  dm/games/0100CD701434C000/shader_facts.tsv    |    23 +
@@ -35,7 +38,7 @@ Issue: none (seedds/nxnative#217)
  .../shader_map.tsv.conflicts.tsv              |     2 +
  dm/games/0100CD701434C000/shader_pairs.tsv    |     7 +
  dm/games/README.md                            |     1 +
- 10 files changed, 35375 insertions(+)
+ 10 files changed, 35377 insertions(+)
  create mode 100644 dm/games/0100CD701434C000/README.md
  create mode 100644 dm/games/0100CD701434C000/bf_want.tsv
  create mode 100644 dm/games/0100CD701434C000/game.tsv
@@ -48,7 +51,7 @@ Issue: none (seedds/nxnative#217)
 
 diff --git a/dm/games/0100CD701434C000/README.md b/dm/games/0100CD701434C000/README.md
 new file mode 100644
-index 00000000..72015ddc
+index 00000000..024e2cc3
 --- /dev/null
 +++ b/dm/games/0100CD701434C000/README.md
 @@ -0,0 +1,26 @@
@@ -61,7 +64,7 @@ index 00000000..72015ddc
 +| Setting | Where | Why |
 +|---|---|---|
 +| `UserPresence::Initialize`, `SetDescription` and `Commit` succeed | `hle_friends.c`, for every game | a failed `Initialize` ended the start-up before `MountSaveData`: [Friends presence is accepted offline](../../../docs/reference/services.md#friends-presence-is-accepted-offline) |
-+| 5 GB guest layout with a 2 GB pool: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`, `app_pool 0x80000000` | [`game.tsv`](game.tsv) | the Switch's pool made StandardAllocator's region too large for the iPhone's alias region; see [Memory](#memory) |
++| 5 GB guest layout: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`; the Switch's pool `app_pool 0xCD500000` with `stdalloc_cap 0x7C000000` | [`game.tsv`](game.tsv) | StandardAllocator's 3.14 GB region left Unity's regions too little of the iPhone's alias region; see [Memory](#memory) |
 +| `shader_groups /Data/=data`, `depth_mode zero` | `game.tsv` | from the NSP script's survey and heap check |
 +
 +## Start-up
@@ -72,8 +75,8 @@ index 00000000..72015ddc
 +
 +- The NPDM declares 16 MB of system resource, so `nninitStartup` hands application pool − used memory to StandardAllocator (`[mem] address region … returning to main+0x299150`).
 +- With the Switch's 3285 MB pool that region is 3.14 GB at +0.06 GB, and Unity's own regions go above it. With `DM_ALIAS_SIZE=0x118000000` on the Mac, and on the iPhone, the high-water mark reached +4.26 GB of 4.38 GB at the end of the first load, then `CRASH sig=11 pc=nvn_sparse_pool+0x4 lr=mtl_reg_tex+…` on a texture whose pool word held floats (`0xbdc33c27ffffffff`), from `UnityGfxDeviceWorker` (`main+0x29b774`).
-+- With a 2 GB pool the region is 1.94 GB, and 130 s on the Mac with the iPhone's alias size (title prompt, opening credits) end at +3.51 GB with at most 2.27 GB mapped and no crash. The iPhone build with this pool passes the same point.
-+- On the iPhone the game was played through to every ending with this pool and no crash. The high-water mark after the opening was not measured.
++- With `stdalloc_cap 0x7C000000` StandardAllocator gets 1.94 GB of address space (`StandardAllocator::Initialize(nullptr, 3.14 GB) … 1.94 GB of address space, the profile's stdalloc_cap`) and the pool stays the Switch's 3285 MB, so the game reads the memory it would on the Switch. 130 s on the Mac with the iPhone's alias size (title prompt, opening credits) end at +3.51 GB with at most 2.28 GB mapped and no crash. On the iPhone Duo the game plays to every ending; an earlier build with a 2 GB `app_pool` instead of the cap gave the same figures and did too.
++- If a later build maps more than 1.94 GB through StandardAllocator, raise `stdalloc_cap` and check the high-water mark with `DM_ALIAS_SIZE=0x118000000` again.
 +
 +## Mac routes
 +
@@ -87,10 +90,10 @@ index 00000000..54caeb85
 +# generated
 diff --git a/dm/games/0100CD701434C000/game.tsv b/dm/games/0100CD701434C000/game.tsv
 new file mode 100644
-index 00000000..e07bbe40
+index 00000000..ec60eabe
 --- /dev/null
 +++ b/dm/games/0100CD701434C000/game.tsv
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,41 @@
 +# Twelve Minutes, SDK 12.3.7, Unity 2019.4.31f1 IL2CPP with FMOD (README.md)
 +
 +# ---- Identity ----
@@ -114,12 +117,14 @@ index 00000000..e07bbe40
 +zip_store	.assets:.bank:.dat:.resource:.ress:.metallib
 +
 +# ---- Memory ----
-+# virtual address memory: nninitStartup hands app_pool - used to StandardAllocator. The Switch's 3285 MB pool made a 3.14 GB region and the
-+# iPhone's 4.38 GB alias region ran out at the end of the first load; a 2 GB pool keeps the regions under +3.51 GB (README.md, Memory)
++# virtual address memory: nninitStartup hands app_pool - used (3.14 GB) to StandardAllocator, and Unity's own regions go above it; the iPhone's
++# 4.38 GB alias region ran out at the end of the first load. The pool stays the Switch's; stdalloc_cap gives StandardAllocator 1.94 GB of
++# address space and keeps the regions under +3.51 GB (README.md, Memory)
 +mem_reserve	0x140000000
 +mem_alias	0x118000000
 +mem_stack	0x10000000
-+app_pool	0x80000000
++app_pool	0xCD500000
++stdalloc_cap	0x7C000000
 +# the NPDM declares 16 MB of system resource
 +sys_resource	0x1000000
 +

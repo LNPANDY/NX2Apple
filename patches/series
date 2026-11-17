@@ -56,4 +56,4 @@
 0058-test-native-controller-motion-primes-the-adapter.patch
 0059-gfx-keep-argument-block-and-ub-padded-arena-gpu.patch
 0060-host-friends-accept-presence-instead-of-failing.patch
-0061-game-add-twelve-minutes-profile-with-a-2-gb-pool.patch
+0061-game-add-twelve-minutes-profile-with-a-capped.patch

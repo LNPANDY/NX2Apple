@@ -18,10 +18,9 @@ online play sessions, invitations) still fail. t_friends checks both.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: forwarded seedds/nxnative#2903
-Reason: Twelve Minutes stops at 22% when the host fails friends presence; bridge until upstream merges
+Upstream-Status: backport 60896b357264 (seedds/nxnative#2903)
+Reason: Twelve Minutes stops at 22% when the host fails friends presence; landed upstream, dropped at the next sync
 Issue: none (seedds/nxnative#217)
-
 ---
  dm/host/hle_friends.c      | 10 ++++++----
  dm/host/tests/Makefile     |  5 ++++-
