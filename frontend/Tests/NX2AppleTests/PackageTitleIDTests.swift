@@ -98,6 +98,7 @@ import XCTest
         let keys = temporary.appendingPathComponent("prod.keys").path
         try "header_key = \(headerKey.map { String(format: "%02x", $0) }.joined())\n".write(toFile: keys, atomically: true, encoding: .utf8)
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
+        library.applicationFolders = []   // the machine's own /Applications is not part of this test (a game built and moved there showed up in the scan)
         library.keysFile = { keys }
         let finished = expectation(description: "scan")
         let token = library.$scanning.dropFirst().filter { !$0 }.sink { _ in finished.fulfill() }
