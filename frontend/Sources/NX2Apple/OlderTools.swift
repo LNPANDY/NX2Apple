@@ -84,7 +84,8 @@ final class ToolsAge: ObservableObject {
                     appVersion: appVersion,
                     gitSpecificChanged: gitSpecificChanged,
                     seedRoot: seedRoot,
-                    repoPath: repo
+                    repoPath: repo,
+                    buildFilesFolder: BuildFilesFolder.chosen()
                 )
             }
 

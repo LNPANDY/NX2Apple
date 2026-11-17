@@ -99,6 +99,17 @@ final class FreeSpaceTests: IsolatedDefaultsTestCase {
         XCTAssertNil(BuildFolder.location(for: beside))
     }
 
+    func testTheChosenBuildFilesFolderIsLookedInFirst() {
+        var game = LibraryGame(titleID: "0100000000010000", name: "Adventure", outputDirectory: "/Users/a/Games")
+        game.inputs = ["base": ["/Volumes/Drive/Switch/Adventure/game.nsp"]]
+        XCTAssertEqual(BuildFolder.candidates(for: game, buildFilesFolder: "/Volumes/Drive/Builds"), [
+            "/Volumes/Drive/Builds/0100000000010000_build",
+            "/Users/a/Games/0100000000010000_build",
+            "/Volumes/Drive/Switch/Adventure/0100000000010000_build",
+        ])
+        XCTAssertEqual(BuildFolder.candidates(for: game, buildFilesFolder: "").first, "/Users/a/Games/0100000000010000_build")
+    }
+
     func testThePartsAreSizedAndWhatStaysIsNotOffered() throws {
         let game = try fixture()
         let survey = BuildFolder.survey(build.path, protecting: BuildFolder.protectedPaths(for: game))

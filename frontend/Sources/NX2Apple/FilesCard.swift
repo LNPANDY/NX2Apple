@@ -89,6 +89,37 @@ struct FilesCard: View {
                         .padTarget("set.build.output", scope: "main", activate: { build.chooseBuildFolder() })
                 }.padding(18)
             }
+            // Build files apart from the app (BuildStore+BuildFiles.swift): on an external drive, the game stays on the Mac.
+            CardGroup(loc.t("build.filesTo"), help: ("set.build.files.help", loc.t("msg.buildFilesHint")), insetTitle: true) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 12) {
+                        if build.buildFilesFolder.isEmpty {
+                            Text(loc.t("build.filesDefault")).font(.manrope(13)).foregroundStyle(.secondary)
+                        } else {
+                            Button { revealBuildFiles() } label: {
+                                Label("/" + (build.buildFilesFolder as NSString).lastPathComponent, systemImage: "externaldrive.fill")
+                                    .lineLimit(1).truncationMode(.middle)
+                            }.buttonStyle(.link).help(build.buildFilesFolder)
+                                .padTarget("set.build.files.reveal", scope: "main", activate: revealBuildFiles)
+                        }
+                        Spacer(minLength: 8)
+                        if !build.buildFilesFolder.isEmpty {
+                            Button(loc.t("data.clear")) { build.clearBuildFilesFolder() }
+                                .padTarget("set.build.files.clear", scope: "main", activate: { build.clearBuildFilesFolder() })
+                        }
+                        Button(loc.t("data.change")) { build.chooseBuildFilesFolder() }
+                            .padTarget("set.build.files", scope: "main", activate: { build.chooseBuildFilesFolder() })
+                    }
+                    if let offline = build.buildFilesOfflineNote {   // the drive is not connected
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11, weight: .semibold))
+                            Text(offline).font(.manrope(12.5)).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(LauncherPalette.building)
+                    }
+                }.padding(18)
+            }
         }
         .task(id: (build.gameTitleID ?? "") + loc.lang.code) {
             artwork = nil
@@ -125,6 +156,11 @@ struct FilesCard: View {
         .disabled(build.running)
     }
 
+    /// The chosen build-files folder in Finder; nothing opens while its drive is not connected.
+    private func revealBuildFiles() {
+        guard build.buildFilesOfflineNote == nil else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: build.buildFilesFolder, isDirectory: true))
+    }
     private var game: LibraryGame? { library?.games.first { $0.titleID == build.gameTitleID } }
     private var destination: URL {
         URL(fileURLWithPath: build.outDir.isEmpty ? (build.inputFolder.isEmpty ? NSHomeDirectory() : build.inputFolder) : build.outDir, isDirectory: true)

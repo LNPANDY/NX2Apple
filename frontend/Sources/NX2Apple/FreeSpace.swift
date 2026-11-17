@@ -62,13 +62,11 @@ enum FreeSpaceError: LocalizedError, Equatable {
 }
 
 enum BuildFolder {
-    /// Where the game's build folder can be: in its output folder (--work-dir), else beside its NSPs (the script's default,
-    /// and where a checkout without --work-dir puts it).
-    nonisolated static func candidates(for game: LibraryGame) -> [String] {
+    /// Where the game's build folder can be: in the build-files folder Settings chose (BuildFilesFolder), in its output folder
+    /// (--work-dir), else beside its NSPs (the script's default, and where a checkout without --work-dir puts it).
+    nonisolated static func candidates(for game: LibraryGame, buildFilesFolder: String = BuildFilesFolder.chosen()) -> [String] {
         let base = game.inputs["base", default: []].first.map { ($0 as NSString).deletingLastPathComponent } ?? ""
-        let dirs = [game.outputDirectory, base].filter { !$0.isEmpty }
-        var seen = Set<String>()
-        return dirs.map { $0 + "/" + game.titleID + "_build" }.filter { seen.insert($0).inserted }
+        return BuildFilesFolder.candidates(key: game.titleID, chosen: buildFilesFolder, others: [game.outputDirectory, base])
     }
 
     nonisolated static func location(for game: LibraryGame) -> String? {

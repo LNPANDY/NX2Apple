@@ -126,7 +126,8 @@ package enum GameUpdateCatalog {
         appVersion: String,
         gitSpecificChanged: Bool?,
         seedRoot: String = BuildSeedCache.defaultRoot(),
-        repoPath: String
+        repoPath: String,
+        buildFilesFolder: String = ""
     ) -> GameRefreshAssessment {
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         let spec = hasSpecificUpdate(titleID: tid, appVersion: appVersion, gitSpecificChanged: gitSpecificChanged)
@@ -146,7 +147,9 @@ package enum GameUpdateCatalog {
 
         let fm = FileManager.default
         let resolvedOutDir = resolveOutputDirectory(outDir: outDir, macAppPath: macAppPath)
-        let workDir = resolvedOutDir.isEmpty ? "" : (resolvedOutDir + "/" + tid + "_build")
+        // The build folder a refresh would use, or the one an earlier build left beside the app (BuildFilesFolder).
+        let workDirs = BuildFilesFolder.candidates(key: tid, chosen: buildFilesFolder, others: [resolvedOutDir])
+        let workDir = workDirs.first { isDirectory($0, fm: fm) } ?? workDirs.first ?? ""
 
         let inspection = BuildSeedCache.inspect(titleID: tid, seedRoot: seedRoot, repoPath: repoPath, fm: fm)
         let effectiveSeedPath: BuildSeedCache.RefreshPath?

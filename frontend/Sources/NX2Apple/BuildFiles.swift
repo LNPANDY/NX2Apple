@@ -278,7 +278,7 @@ private struct BuildFilesWiring: ViewModifier {
             BuildFiles.games(
                 library.games,
                 lang: loc.lang,
-                extraRoots: [library.folder, build.outDir, build.gameDir],
+                extraRoots: [library.folder, build.outDir, build.gameDir, build.buildFilesFolder],
                 engineRoot: EngineLayout.root(build.repo.path),
                 t: loc.t
             )

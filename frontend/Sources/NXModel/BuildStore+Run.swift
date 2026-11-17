@@ -91,7 +91,11 @@ extension BuildStore {
             let py = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
             let baseDir = inputFolder
             let tidHex = buildKey
-            let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+            let workDir = buildWorkDir(key: tidHex, baseDir: baseDir)
+            if let why = buildFilesDriveProblem(workDir: workDir) {
+                fail(why)
+                return
+            }
             if cloudFolderCheck(workDir) {
                 failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
                 fail(failureWhat(failure!))
@@ -114,7 +118,7 @@ extension BuildStore {
                 }
             }
             try? FileManager.default.createDirectory(atPath: workDir, withIntermediateDirectories: true)
-            let macOutput = MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, preferred: macAppPath)
+            let macOutput = MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, preferred: macAppPath, appDirectory: separateAppFolder(baseDir: baseDir))
             oneGameIPAPath = ""
             macAppPath = ""
             effectiveWorkDir = workDir
@@ -135,7 +139,11 @@ extension BuildStore {
             let py = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
             let baseDir = inputFolder
             let tidHex = buildKey
-            let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+            let workDir = buildWorkDir(key: tidHex, baseDir: baseDir)
+            if let why = buildFilesDriveProblem(workDir: workDir) {
+                fail(why)
+                return
+            }
             if cloudFolderCheck(workDir) {
                 failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
                 fail(failureWhat(failure!))
@@ -253,7 +261,12 @@ extension BuildStore {
             }
         }
         let tidHex = buildKey
-        let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+        let workDir = buildWorkDir(key: tidHex, baseDir: baseDir)
+        // A build-files folder on a drive that is not connected: the build would fill the Mac's own disk.
+        if let why = buildFilesDriveProblem(workDir: workDir) {
+            fail(why)
+            return
+        }
         // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
@@ -335,14 +348,14 @@ extension BuildStore {
         // script takes it in place of extracting the RomFS again once it checks out as this version's (#708). A game folder is packed, not extracted.
         // Only for the script: the experimental builder gets these arguments too, and `nxb build` has no such option (0.6.3 and 0.6.4 stop at it).
         if folder == nil, !nxbRun, RepoLayout.supportsRomfsFrom(repo.path) {
-            var reusable = RomFSArchive.reusableImages(root: outDir.isEmpty ? baseDir : outDir, key: tidHex)
+            var reusable = RomFSArchive.reusableImages(root: appFolder(baseDir: baseDir), key: tidHex)
             if let extImg = fastRefreshExternalImgPath, !reusable.contains(extImg), FileManager.default.fileExists(atPath: extImg) {
                 reusable.append(extImg)
             }
             for image in reusable { args += ["--romfs-from", image] }
         }
         let macApp = target == BuildTarget.mac
-        let macOutput = macApp ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, preferred: macAppPath) : nil
+        let macOutput = macApp ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, preferred: macAppPath, appDirectory: separateAppFolder(baseDir: baseDir)) : nil
         oneGameIPAPath = ""
         if exportsOneGame {
             // One game's own IPA with its game data inside (BuildStore+OneGame.swift, #540)

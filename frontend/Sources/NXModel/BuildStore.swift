@@ -130,6 +130,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var outDir: String {
         didSet { defaults.set(outDir, forKey: Self.outputKey) }
     }
+    /// Where the build files go when the player keeps them apart from the app (BuildFilesFolder, BuildStore+BuildFiles.swift).
+    /// Empty: beside the app, as before the setting.
+    @Published package var buildFilesFolder: String {
+        didSet { defaults.set(buildFilesFolder, forKey: BuildFilesFolder.key) }
+    }
     @Published package var stages: [Stage] = []
     /// The first shader rebuild explanation of this build. The view localizes it without pausing progress ingestion.
     @Published package var staleShadersMessageKey: String?
@@ -405,6 +410,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         self.volumesRoot = volumesRoot
         self.targetChanged = targetChanged
         outDir = defaults.string(forKey: Self.outputKey) ?? ""
+        buildFilesFolder = BuildFilesFolder.chosen(defaults)
         let savedTarget = BuildTarget.saved(defaults)
         target = savedTarget
         runningTarget = savedTarget
