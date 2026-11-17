@@ -15,24 +15,31 @@ public struct ShellHostView: View {
     }
 
     public var body: some View {
-        LibraryView(games: model.details, controllers: model.controllers, actions: model.actions, input: model.input,
-                    initialSelection: initialSelection, initialDetailOpen: initialDetailOpen, globalPadMap: model.globalPadMap,
-                    padMerge: model.padMerge, padSnapshot: model.padSnapshot,
-                    signingWarning: model.signingWarning,
-                    onDismissSigningWarning: { model.dismissSigningWarning() },
-                    canOpenHomeButtonSettings: model.canOpenHomeButtonSettings)
-            .disabled(model.launchingGame)
-            .overlay {
-                if model.launchingGame {
-                    ZStack {
-                        Color.black.opacity(0.45).ignoresSafeArea()
-                        ProgressView { Text("Preparing game…", bundle: .module) }
-                            .padding(24)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-                            .accessibilityIdentifier("launch.progress")
+        Group {
+            if model.isDeepLinkLaunching {
+                Color.black.ignoresSafeArea()
+                    .accessibilityIdentifier("deeplink.launching")
+            } else {
+                LibraryView(games: model.details, controllers: model.controllers, actions: model.actions, input: model.input,
+                            initialSelection: initialSelection, initialDetailOpen: initialDetailOpen, globalPadMap: model.globalPadMap,
+                            padMerge: model.padMerge, padSnapshot: model.padSnapshot,
+                            signingWarning: model.signingWarning,
+                            onDismissSigningWarning: { model.dismissSigningWarning() },
+                            canOpenHomeButtonSettings: model.canOpenHomeButtonSettings)
+                    .disabled(model.launchingGame)
+                    .overlay {
+                        if model.launchingGame {
+                            ZStack {
+                                Color.black.opacity(0.45).ignoresSafeArea()
+                                ProgressView { Text("Preparing game…", bundle: .module) }
+                                    .padding(24)
+                                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                                    .accessibilityIdentifier("launch.progress")
+                            }
+                        }
                     }
-                }
             }
+        }
             .sheet(item: $model.cloudConflict, onDismiss: {
                 model.cancelCloudConflictIfPending()
             }) { prompt in

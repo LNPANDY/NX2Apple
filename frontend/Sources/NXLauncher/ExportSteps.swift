@@ -37,13 +37,20 @@ package struct ExportSteps: View {
     private var gameName: String { build.gameName }
     private var oneGame: Bool { resultOnly ? build.completedOneGameIPA : devices.exportOneGame }
 
+    private var frameworkOnly: Bool { resultOnly ? build.completedFramework : !oneGame && devices.exportFramework }
+
     package var body: some View {
-        let exportBuiltCount = !oneGame && !build.running && build.exportsShell && !build.exportsOneGame ? build.builtShellGames().count : 0
+        let exportBuiltCount = !oneGame && !frameworkOnly && !build.running && build.exportsShell && !build.exportsOneGame && !build.exportsFramework ? build.builtShellGames().count : 0
+        let step1Title = frameworkOnly ? "shell.frameworkStep1Title" : "shell.step1Title"
+        let step1Done = oneGame ? "shell.oneGameDone" : frameworkOnly ? "shell.frameworkStep1Done" : "shell.step1Done"
+        let step1Sub = oneGame ? "shell.oneGameSub" : frameworkOnly ? "shell.frameworkStep1Sub" : "shell.step1Sub"
+        let step2Title = frameworkOnly ? "shell.frameworkStep2Title" : "shell.step2Title"
+        let step2Sub = oneGame ? "shell.oneGameStep2Sub" : frameworkOnly ? "shell.frameworkStep2Sub" : "shell.step2Sub"
         return VStack(spacing: 0) {
             if !resultOnly {
-                step(1, exported ? .done : .current, title: loc.t("shell.step1Title"),
-                     sub: exported ? String(format: loc.t(oneGame ? "shell.oneGameDone" : "shell.step1Done"), build.exportedIPAText)
-                                   : loc.t(oneGame ? "shell.oneGameSub" : "shell.step1Sub")) {
+                step(1, exported ? .done : .current, title: loc.t(step1Title),
+                     sub: exported ? String(format: loc.t(step1Done), build.exportedIPAText)
+                                   : loc.t(step1Sub)) {
                     if exported {
                         HStack(spacing: ExportGrid.gap) {
                             if exportBuiltCount > 0 {
@@ -65,8 +72,8 @@ package struct ExportSteps: View {
                 CardDivider()
             }
             if !resultOnly || exported {
-                step(resultOnly ? 1 : 2, sentDone ? .done : exported ? .current : .upcoming, title: loc.t("shell.step2Title"),
-                     sub: loc.t(oneGame ? "shell.oneGameStep2Sub" : "shell.step2Sub")) { EmptyView() }
+                step(resultOnly ? 1 : 2, sentDone ? .done : exported ? .current : .upcoming, title: loc.t(step2Title),
+                     sub: loc.t(step2Sub)) { EmptyView() }
             }
             if !oneGame { if !resultOnly || exported { CardDivider() }; sendStep }
         }

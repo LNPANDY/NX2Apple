@@ -5,6 +5,7 @@
 
 // Bumped only when a signature below changes: a shell refuses a framework whose dm_glue_version does not match.
 #define DM_GLUE_VERSION 1
+#define DM_GLUE_FOCUS_REQUEST_QUIT 4
 
 typedef const char *(*dm_glue_start_fn)(const char *const *argv, int argc, const void *game_image);
 typedef void (*dm_glue_present_fn)(void *window);

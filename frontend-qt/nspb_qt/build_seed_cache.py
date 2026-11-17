@@ -159,7 +159,20 @@ def inspect_seed(
         result['reason'] = f'shader/ios directory missing in {seed_dir}'
         return result
 
-    if gfx_api == 'nvn':
+    if gfx_api in ('', 'nvn'):
+        if (shader_ios / 'vk' / 'vk_shaders.metallib').is_file() or (seed_dir / 'captures' / 'vk_capture').is_dir():
+            gfx_api = 'vulkan'
+            seed_chain = ''
+        elif (shader_ios / 'gl' / 'gl_shaders.metallib').is_file() or (seed_dir / 'captures' / 'gl_capture').is_dir():
+            gfx_api = 'gl'
+            seed_chain = ''
+        elif not gfx_api:
+            gfx_api = 'nvn'
+
+    result['chain'] = seed_chain
+    result['gfx_api'] = gfx_api
+
+    if gfx_api in ('', 'nvn'):
         tables_dir = seed_dir / 'shader' / 'tables'
         c1 = tables_dir / 'c1_full.tsv'
         cb = tables_dir / 'cb_extent.tsv'
@@ -167,8 +180,10 @@ def inspect_seed(
             result['reason'] = f'shader/tables (c1_full.tsv/cb_extent.tsv) missing in {seed_dir}'
             return result
 
-    # Path A vs Path B determination
-    if engine_chain:
+    # Path A vs Path B determination: OpenGL and Vulkan do not depend on the NVN shader chain
+    if gfx_api in ('gl', 'vulkan'):
+        chain_match = True
+    elif engine_chain:
         chain_match = (seed_chain == engine_chain)
     else:
         chain_match = bool(seed_chain)

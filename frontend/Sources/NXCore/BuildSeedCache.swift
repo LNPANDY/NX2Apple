@@ -255,23 +255,37 @@ package enum BuildSeedCache {
             return Inspection(isValid: false, reason: "missing shader/pkg directory", record: record, seedDir: seedDir)
         }
 
-        let isNVN = record.gfxAPI == nil || record.gfxAPI?.lowercased() == "nvn"
-        if isNVN {
-            let tablesDir = seedDir + "/shader/tables"
-            let c1 = tablesDir + "/c1_full.tsv"
-            let cb = tablesDir + "/cb_extent.tsv"
-            guard fm.fileExists(atPath: c1), fm.fileExists(atPath: cb) else {
-                return Inspection(isValid: false, reason: "missing shader/tables {c1_full.tsv, cb_extent.tsv}", record: record, seedDir: seedDir)
-            }
-        }
-
         let shaderIOS = seedDir + "/shader/ios"
         guard fm.fileExists(atPath: shaderIOS, isDirectory: &isDir), isDir.boolValue else {
             return Inspection(isValid: false, reason: "missing shader/ios directory", record: record, seedDir: seedDir)
         }
 
+        var healedRecord = record
+        let rawAPI = record.gfxAPI?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if rawAPI == nil || rawAPI == "" || rawAPI == "nvn" {
+            if fm.fileExists(atPath: shaderIOS + "/vk/vk_shaders.metallib")
+                || fm.fileExists(atPath: seedDir + "/captures/vk_capture") {
+                healedRecord.gfxAPI = "vulkan"
+                healedRecord.chain = ""
+            } else if fm.fileExists(atPath: shaderIOS + "/gl/gl_shaders.metallib")
+                || fm.fileExists(atPath: seedDir + "/captures/gl_capture") {
+                healedRecord.gfxAPI = "gl"
+                healedRecord.chain = ""
+            }
+        }
+
+        let isNVN = healedRecord.gfxAPI == nil || healedRecord.gfxAPI?.lowercased() == "nvn"
+        if isNVN {
+            let tablesDir = seedDir + "/shader/tables"
+            let c1 = tablesDir + "/c1_full.tsv"
+            let cb = tablesDir + "/cb_extent.tsv"
+            guard fm.fileExists(atPath: c1), fm.fileExists(atPath: cb) else {
+                return Inspection(isValid: false, reason: "missing shader/tables {c1_full.tsv, cb_extent.tsv}", record: healedRecord, seedDir: seedDir)
+            }
+        }
+
         let repoChain = EngineLayout.shaderChain(repo: repoPath)
-        let normSeedChain = normalizeChain(record.chain)
+        let normSeedChain = normalizeChain(healedRecord.chain)
         let normRepoChain = normalizeChain(repoChain)
 
         let refreshPath: RefreshPath
@@ -283,7 +297,7 @@ package enum BuildSeedCache {
             refreshPath = .pathB
         }
 
-        return Inspection(isValid: true, reason: nil, record: record, path: refreshPath, seedDir: seedDir)
+        return Inspection(isValid: true, reason: nil, record: healedRecord, path: refreshPath, seedDir: seedDir)
     }
 
     /// Finds existing Mac `.app`, `<outDir>/games/<GameName>/<GameName>.img`, legacy `<outDir>/games/<TID>/romfs.img` for `--prefill-msl`.

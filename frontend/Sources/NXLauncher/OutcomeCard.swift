@@ -30,7 +30,7 @@ package struct OutcomeCard: View {
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 5) {
                             Text(verdict(status)).font(.manrope(16, .semibold))
-                            if status == .exported { Text(loc.t(build.completedOneGameIPA ? "result.oneGameIPA" : "result.sharedIPA")).font(.manrope(13)).foregroundStyle(.secondary) }
+                            if status == .exported { Text(build.completedFramework ? String(format: loc.t("shell.frameworkStep1Done"), build.exportedIPAText) : loc.t(build.completedOneGameIPA ? "result.oneGameIPA" : "result.sharedIPA")).font(.manrope(13)).foregroundStyle(.secondary) }
                             if status == .needsData { Text(loc.t("result.notReady")).font(.manrope(13)).foregroundStyle(.secondary) }
                         }
                     }
@@ -55,7 +55,7 @@ package struct OutcomeCard: View {
         switch status {
         case .mac: return loc.t("library.ready")
         case .installed: return String(format: loc.t("dev.installed"), devices.deviceName(build.installedOn))
-        case .exported: return loc.t("result.ipaExported")
+        case .exported: return loc.t(build.completedFramework ? "shell.ipaFramework" : "result.ipaExported")
         case .needsData: return loc.t("result.dataNeeded")
         }
     }

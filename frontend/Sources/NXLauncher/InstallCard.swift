@@ -53,8 +53,9 @@ package struct InstallCard: View {
             CardGroup("") {
                 if devices.exportIPA {
                     HStack(spacing: 14) {
-                        appKindCard(false)
-                        appKindCard(true)
+                        appKindCard("shared")
+                        appKindCard("one")
+                        appKindCard("framework")
                     }.fixedSize(horizontal: false, vertical: true).padding(18)
                     CardDivider()
                     if !forQueue { ExportSteps(build: build, devices: devices) }
@@ -169,20 +170,21 @@ package struct InstallCard: View {
         }
     }
 
-    private func appKindCard(_ oneGame: Bool) -> some View {
-        let selected = devices.exportOneGame == oneGame
-        return Button { pickKind(oneGame) } label: {
+    private func appKindCard(_ kind: String) -> some View {
+        let oneGame = kind == "one", framework = kind == "framework"
+        let selected = kind == (devices.exportOneGame ? "one" : devices.exportFramework ? "framework" : "shared")
+        return Button { pickKind(kind) } label: {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Spacer()
-                    if oneGame {
-                        Image(systemName: "app.fill").font(.system(size: 26, weight: .light))
+                    if oneGame || framework {
+                        Image(systemName: framework ? "shippingbox.fill" : "app.fill").font(.system(size: 26, weight: .light))
                             .foregroundStyle(selected ? LauncherPalette.accent : .secondary)
                     } else { LauncherBrandMark().accessibilityHidden(true) }
                 }.frame(height: 26)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(loc.t(oneGame ? "shell.choiceSingle" : "shell.choiceLauncher")).font(.manrope(16, .semibold))
-                    Text(loc.t(oneGame ? "shell.choiceSingleNote" : "shell.choiceLauncherNote"))
+                    Text(loc.t(framework ? "shell.ipaFramework" : oneGame ? "shell.choiceSingle" : "shell.choiceLauncher")).font(.manrope(16, .semibold))
+                    Text(loc.t(framework ? "shell.ipaFrameworkNote" : oneGame ? "shell.choiceSingleNote" : "shell.choiceLauncherNote"))
                         .font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -193,8 +195,8 @@ package struct InstallCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 14))
         }.buttonStyle(.plain).disabled(build.running)
             .accessibilityAddTraits(selected ? .isSelected : [])
-            .padTarget("set.build.install.kind." + (oneGame ? "one" : "shared"), scope: "main", radius: 14, enabled: !build.running,
-                       activate: { if !build.running { pickKind(oneGame) } })
+            .padTarget("set.build.install.kind." + kind, scope: "main", radius: 14, enabled: !build.running,
+                       activate: { if !build.running { pickKind(kind) } })
     }
 
     private func openXcode() {
@@ -208,9 +210,11 @@ package struct InstallCard: View {
     }
 
     /// The other kind of IPA: the IPA of the last export is not the one this choice makes, so step 1 starts again.
-    private func pickKind(_ oneGame: Bool) {
-        guard oneGame != devices.exportOneGame else { return }
+    private func pickKind(_ kind: String) {
+        let oneGame = kind == "one", framework = kind == "framework"
+        guard oneGame != devices.exportOneGame || framework != devices.exportFramework else { return }
         devices.exportOneGame = oneGame
+        devices.exportFramework = framework
         build.exportedIPAPath = ""
         build.send = .idle
     }

@@ -44,6 +44,7 @@ static dm_glue_present_fn g_present;
 static dm_glue_focus_fn g_focus;
 static UIViewController *g_library_vc;
 static char g_active_exe[1024];
+static char g_active_game_id[64];
 static const void *g_active_fbase;
 static DmFwSnap g_fw_snaps[64];
 static int g_nfw_snaps;
@@ -109,6 +110,7 @@ void dm_shell_return_to_library(void) {
         const void *fbase = g_active_fbase;
         g_active_fbase = NULL;
         g_active_exe[0] = '\0';
+        g_active_game_id[0] = '\0';
         g_focus = NULL;
         g_present = NULL;
         g_boot_ok = 0;
@@ -124,6 +126,7 @@ void dm_shell_return_to_library(void) {
                 [window.windowScene requestGeometryUpdateWithPreferences:[[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskAllButUpsideDown] errorHandler:nil];
             }
         }
+        [NSNotificationCenter.defaultCenter postNotificationName:@"DMShellDidReturnToLibrary" object:nil];
         NSString *slog = [documents() stringByAppendingPathComponent:@"shell-log.txt"];
         fflush(stderr);
         if (freopen(slog.fileSystemRepresentation, "a", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
@@ -335,6 +338,8 @@ const char *dm_shell_start_game(const char *const *keys, const char *const *valu
         return err;
     }
     strlcpy(g_active_exe, executable, sizeof g_active_exe);
+    if (game_id) strlcpy(g_active_game_id, game_id, sizeof g_active_game_id);
+    else g_active_game_id[0] = '\0';
     g_active_fbase = info.dli_fbase;
     g_present = present;
     g_focus = focus;
@@ -348,6 +353,16 @@ void dm_shell_present_game(void) {
         if ([s isKindOfClass:UIWindowScene.class]) for (UIWindow *w in ((UIWindowScene *)s).windows) if (w.isKeyWindow || !window) window = w;
     if (!window || !g_present) { fprintf(stderr, "[RED] shell: no window for the game view\n"); return; }
     g_present((__bridge void *)window);
+}
+
+const char *dm_shell_active_game_id(void) {
+    return (g_boot_ok && g_active_game_id[0]) ? g_active_game_id : NULL;
+}
+
+void dm_shell_request_stop_game(void) {
+    if (g_boot_ok && g_focus) {
+        g_focus(DM_GLUE_FOCUS_REQUEST_QUIT);
+    }
 }
 
 @interface App : UIResponder <UIApplicationDelegate>
@@ -364,20 +379,46 @@ static UIInterfaceOrientationMask shell_orientations(UITraitCollection *traits) 
 - (UISceneConfiguration *)application:(UIApplication *)a configurationForConnectingSceneSession:(UISceneSession *)s options:(UISceneConnectionOptions *)o {
     return [[UISceneConfiguration alloc] initWithName:@"Default" sessionRole:s.role];
 }
+- (BOOL)application:(UIApplication *)application openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
+    (void)application; (void)options;
+    return [ShellLibrary handleOpenURL:url];
+}
 @end
 
 @interface SceneDelegate : UIResponder <UIWindowSceneDelegate>
 @property (strong, nonatomic) UIWindow *window;
 @end
+static NSURL *shell_pick_launch_url(NSSet<UIOpenURLContext *> *contexts) {
+    NSURL *fallback = nil;
+    for (UIOpenURLContext *ctx in contexts) {
+        if (!ctx.URL) continue;
+        if ([ctx.URL.scheme.lowercaseString isEqualToString:@"nx2apple"]) return ctx.URL;
+        if (!fallback) fallback = ctx.URL;
+    }
+    return fallback;
+}
+
 @implementation SceneDelegate
 - (UIInterfaceOrientationMask)supportedInterfaceOrientationsForWindowScene:(UIWindowScene *)windowScene {
     return shell_orientations(windowScene.traitCollection);   // iOS 27 and later
 }
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)o {
+    (void)session;
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-    g_library_vc = [ShellLibrary makeController];
+    self.window.backgroundColor = UIColor.blackColor;
+    NSURL *initialURL = shell_pick_launch_url(o.URLContexts);
+    g_library_vc = [ShellLibrary makeControllerWithInitialURL:initialURL];
     self.window.rootViewController = g_library_vc;
     [self.window makeKeyAndVisible];
+}
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts {
+    (void)scene;
+    for (UIOpenURLContext *ctx in URLContexts) {
+        if (ctx.URL && [ctx.URL.scheme.lowercaseString isEqualToString:@"nx2apple"] && [ShellLibrary handleOpenURL:ctx.URL]) return;
+    }
+    for (UIOpenURLContext *ctx in URLContexts) {
+        if (ctx.URL && [ShellLibrary handleOpenURL:ctx.URL]) break;
+    }
 }
 // Forwarded to the running game framework's front_ios.m once a game has started
 - (void)sceneWillResignActive:(UIScene *)s { (void)s; if (g_focus) g_focus(0); }

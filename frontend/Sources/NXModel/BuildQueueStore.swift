@@ -198,14 +198,15 @@ import NXCore
     // MARK: Running
 
     /// Starts each job on its own platform, applying shared iOS delivery options to waiting iOS jobs.
-    package func start(target: String? = nil, packageAfter: Bool? = nil, exportIPA: Bool? = nil, destinationName: String? = nil) {
+    package func start(target: String? = nil, packageAfter: Bool? = nil, exportIPA: Bool? = nil, exportFramework: Bool? = nil, destinationName: String? = nil) {
         guard hasWaiting else { return }
         let normalizedStartTarget = target.map(BuildTarget.normalized)
-        if target != nil || packageAfter != nil || exportIPA != nil || destinationName != nil {
+        if target != nil || packageAfter != nil || exportIPA != nil || exportFramework != nil || destinationName != nil {
             let batch = UUID()
             let callerPassedMacOnlyDefaults = normalizedStartTarget == BuildTarget.mac
                 && (packageAfter == nil || packageAfter == false)
                 && exportIPA == nil
+                && exportFramework == nil
                 && destinationName == nil
             for index in entries.indices where entries[index].status == .queued {
                 if !entries[index].locksTarget, let normalizedStartTarget {
@@ -216,12 +217,14 @@ import NXCore
                 guard entries[index].target != BuildTarget.mac else {
                     entries[index].packageAfter = false
                     entries[index].exportIPA = nil
+                    entries[index].exportFramework = nil
                     entries[index].destinationName = nil
                     continue
                 }
                 if callerPassedMacOnlyDefaults && entries[index].locksTarget { continue }
                 if let packageAfter { entries[index].packageAfter = packageAfter }
                 if let exportIPA { entries[index].exportIPA = exportIPA }
+                if let exportFramework { entries[index].exportFramework = exportFramework }
                 entries[index].destinationName = destinationName
             }
         } else {
@@ -230,6 +233,7 @@ import NXCore
                 if entries[index].target == BuildTarget.mac {
                     entries[index].packageAfter = false
                     entries[index].exportIPA = nil
+                    entries[index].exportFramework = nil
                     entries[index].destinationName = nil
                 }
             }

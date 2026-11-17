@@ -308,7 +308,7 @@ struct LauncherView: View {
             gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }
             if performStartupChecks {
                 library.migrateLaunchOptions(); library.migrateArtwork(); CloudSavesMigration.run()
-                library.syncSharedApp(root: m.shellCachePath)
+                library.syncSharedApp(root: m.shellCachePath, fallbackDevice: stores.deviceStore.installDevice)
             }
             if let slot = qaArtwork, artworkEditor == nil, let game = library.selected { openArtwork(game, slot: slot) }
             if qaManage.open {
@@ -345,7 +345,7 @@ struct LauncherView: View {
         }
         .onChange(of: loc.lang) { _ in if performStartupChecks { fetchArtwork() } }   // the banners in the new language
         .onChange(of: library.games) { _ in
-            if performStartupChecks { library.syncSharedApp(root: m.shellCachePath) }
+            if performStartupChecks { library.syncSharedApp(root: m.shellCachePath, fallbackDevice: stores.deviceStore.installDevice) }
             refreshArtwork()
             readSignatures()
             if performStartupChecks { fetchArtwork(); library.fillMissingTitleNames() }
@@ -358,7 +358,10 @@ struct LauncherView: View {
         }   // other keys may name other packages (#1012) and unlock control-data lookups
         .onReceive(library.$scanning.removeDuplicates().dropFirst()) { scanning in if !scanning && performStartupChecks { checkTools() } }
         .onChange(of: m.shellCachePath) { root in
-            if performStartupChecks { library.syncSharedApp(root: root); readSignatures() }
+            if performStartupChecks { library.syncSharedApp(root: root, fallbackDevice: stores.deviceStore.installDevice); readSignatures() }
+        }
+        .onChange(of: stores.deviceStore.installDevice) { device in
+            if performStartupChecks, !device.isEmpty { library.syncSharedApp(root: m.shellCachePath, fallbackDevice: device); readSignatures() }
         }
         .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools(); library.fillMissingTitleNames() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
@@ -419,7 +422,7 @@ struct LauncherView: View {
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
         .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)
         .sheet(isPresented: $selectingGames) {
-            BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !m.exportsOneGame,
+            BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !m.exportsOneGame && !m.exportsFramework, exportsFramework: m.exportsFramework,
                 added: { target in m.target = target; buildEditorOpen = true }) { selectingGames = false }
                 .environmentObject(loc).environmentObject(padFocus)
         }

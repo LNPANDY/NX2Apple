@@ -19,10 +19,12 @@ import NXModel
         let isMac = normalizedTarget == BuildTarget.mac
         let outDir = ToolsAge.resolvedOutputDirectory(for: game, libraryFolder: libraryFolder)
         let exportsOneGame = stores.build.exportsOneGame
+        let exportsFramework = stores.build.exportsFramework
         let exportsIPA = stores.deviceStore.exportIPA
         let installDevice = stores.deviceStore.installDevice
-        let packageAfter = !isMac && !exportsOneGame
+        let packageAfter = !isMac && !exportsOneGame && !exportsFramework
         let entryExportIPA: Bool? = isMac ? nil : exportsIPA
+        let entryExportFramework: Bool? = (!isMac && exportsIPA) ? (exportsFramework ? true : false) : nil
         let destName: String? = (isMac || exportsIPA || installDevice.isEmpty)
             ? nil
             : stores.deviceStore.deviceName(installDevice)
@@ -39,6 +41,7 @@ import NXModel
             batch: batch,
             packageAfter: packageAfter,
             exportIPA: entryExportIPA,
+            exportFramework: entryExportFramework,
             destinationName: destName
         )
         entry.fastRefresh = fastRefresh

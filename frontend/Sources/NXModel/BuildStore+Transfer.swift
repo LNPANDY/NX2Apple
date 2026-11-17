@@ -43,7 +43,7 @@ extension BuildStore {
     }
 
     /// The IPA of the frameworks that are built can be made again: an IPA target, a built game, and nothing running.
-    package var canExportBuiltGames: Bool { !running && exportsShell && !exportsOneGame && !builtShellGames().isEmpty }
+    package var canExportBuiltGames: Bool { !running && exportsShell && !exportsOneGame && !exportsFramework && !builtShellGames().isEmpty }
 
     /// The shared app can be signed and installed from the frameworks already built: direct install mode with device and team ready.
     package var canInstallBuiltGames: Bool { !running && installsDirectly && !devices.exportIPA && !builtShellGames().isEmpty }

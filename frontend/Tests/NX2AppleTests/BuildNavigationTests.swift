@@ -675,8 +675,14 @@ import XCTest
             XCTAssertTrue(stores.deviceStore.exportIPA)
             aim("set.build.install.kind.one", focus); pad.perform(.a); settle()
             XCTAssertTrue(stores.deviceStore.exportOneGame)
+            stores.build.exportedIPAPath = "/fixture/previous.ipa"
+            aim("set.build.install.kind.framework", focus); pad.perform(.a); settle()
+            XCTAssertTrue(stores.deviceStore.exportFramework)
+            XCTAssertFalse(stores.deviceStore.exportOneGame)
+            XCTAssertTrue(stores.build.exportedIPAPath.isEmpty)
             aim("set.build.install.kind.shared", focus); pad.perform(.a); settle()
             XCTAssertFalse(stores.deviceStore.exportOneGame)
+            XCTAssertFalse(stores.deviceStore.exportFramework)
             stores.build.exportedIPAPath = "/fixture/export.ipa"
             settle()
             aim("set.build.export.where", focus); pad.perform(.a); settle()

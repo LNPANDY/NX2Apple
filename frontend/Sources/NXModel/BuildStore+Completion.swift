@@ -19,5 +19,6 @@ extension BuildStore {
         if done, runningTarget == BuildTarget.mac, !macAppPath.isEmpty { return .mac }
         return nil
     }
+    package var completedFramework: Bool { !exportedIPAPath.isEmpty && URL(fileURLWithPath: exportedIPAPath).pathExtension.lowercased() == "framework" }
     package var completedOneGameIPA: Bool { !oneGameIPAPath.isEmpty && oneGameIPAPath == exportedIPAPath }
 }

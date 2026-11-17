@@ -58,7 +58,7 @@ extension BuildStore {
                 )
             }
         }
-        if target != BuildTarget.mac, !exportsOneGame {
+        if target != BuildTarget.mac, !exportsOneGame, !exportsFramework {
             let root = shellRoot
             if !root.isEmpty,
                !folder.isEmpty,

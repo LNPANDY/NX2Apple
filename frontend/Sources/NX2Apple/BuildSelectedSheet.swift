@@ -14,6 +14,7 @@ struct BuildSelectedSheet: View {
     var target: String = BuildTarget.mac
     /// Whether the Build page currently builds into the shared app (either direct install or shared IPA export).
     var packagesSharedApp: Bool = false
+    var exportsFramework: Bool = false
     var added: (String) -> Void = { _ in }
     let close: () -> Void
     @EnvironmentObject var loc: Localizer
@@ -158,7 +159,9 @@ struct BuildSelectedSheet: View {
         queue.enqueue(candidates.filter { checked.contains($0.id) }.flatMap { game in
             targets.map { target in
                 QueueEntry(game: game, engineID: engineID, target: target, batch: batch,
-                           packageAfter: packagesSharedApp && target != BuildTarget.mac)
+                           packageAfter: packagesSharedApp && target != BuildTarget.mac,
+                           exportIPA: target != BuildTarget.mac && exportsFramework ? true : nil,
+                           exportFramework: target != BuildTarget.mac && exportsFramework ? true : nil)
             }
         })
         added(selectedTarget == BuildTarget.mac ? BuildTarget.mac : BuildTarget.ios)
@@ -170,9 +173,9 @@ extension QueueEntry {
     /// The snapshot of a library game for the build queue: the inputs and output folder the library holds for it now, and the target.
     /// The hero's "Rebuild" is `stores.queue.enqueue([QueueEntry(game: game, engineID: engine.selection.engineID)])`, "Rebuild all" the
     /// same for `library.games.filter { toolsAge.older.contains($0.id) }`.
-    init(game: LibraryGame, engineID: String, target: String? = nil, batch: UUID = UUID(), packageAfter: Bool = false) {
+    init(game: LibraryGame, engineID: String, target: String? = nil, batch: UUID = UUID(), packageAfter: Bool = false, exportIPA: Bool? = nil, exportFramework: Bool? = nil) {
         self.init(gameID: game.id, titleID: game.titleID, name: game.name, target: target ?? game.lastTarget,
                   inputs: game.inputs.filter { $0.key != GameLibrary.folderInput }, gameFolder: game.inputs[GameLibrary.folderInput]?.first,
-                  outputDirectory: game.outputDirectory, engineID: engineID, batch: batch, packageAfter: packageAfter)
+                  outputDirectory: game.outputDirectory, engineID: engineID, batch: batch, packageAfter: packageAfter, exportIPA: exportIPA, exportFramework: exportFramework)
     }
 }

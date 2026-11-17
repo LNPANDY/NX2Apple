@@ -139,6 +139,7 @@ import NXModel
                         build.deferShellPackaging = false
                         build.queuedExportIPA = nil
                         build.queuedExportOneGame = nil
+                        build.queuedExportFramework = nil
                     }
                 }
             }

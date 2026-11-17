@@ -30,6 +30,18 @@ import XCTest
         XCTAssertEqual(build.completionStatus, .exported)
     }
 
+    func testFrameworkResultUsesTheRecordedArtifactAfterExportPreferencesChange() {
+        let stores = LauncherStores(defaults: testDefaults), build = stores.build
+        build.exportedIPAPath = "/fixture/Game.framework"; build.done = true
+        stores.deviceStore.exportFramework = false
+        stores.deviceStore.exportOneGame = true
+        XCTAssertEqual(build.completionStatus, .exported)
+        XCTAssertTrue(build.completedFramework)
+        XCTAssertFalse(build.completedOneGameIPA)
+        build.exportedIPAPath = "/fixture/Game.ipa"
+        XCTAssertFalse(build.completedFramework)
+    }
+
     func testSkippedDataRemainsActionableAndSuccessfulRetryCompletesIt() {
         let stores = LauncherStores(defaults: testDefaults), build = stores.build
         stores.deviceStore.installDevice = "device"
