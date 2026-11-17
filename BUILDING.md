@@ -10,7 +10,7 @@ This is the command-line route the launcher drives for you. The build is upstrea
 git clone https://github.com/<you>/NX2Apple.git
 cd NX2Apple
 python3 tools/engine.py sync                      # the engine (nxnative at the pin plus our patches) into engine/, about 80 MB
-brew bundle --file=Brewfile                       # xcodegen, zstd, spirv-cross, glslang (the NSP script checks for it), .NET SDK
+brew bundle --file=Brewfile                       # xcodegen, zstd, spirv-cross, glslang (the NSP script checks for it); .NET SDK only for S2Arm or to rebuild the native tools
 python3 -m venv .venv                             # Homebrew's Python refuses global pip installs (PEP 668)
 .venv/bin/python -m pip install lz4 capstone fonttools zbic nsz "backports.zstd; python_version < '3.14'"
 source .venv/bin/activate                         # so that python3 below is the venv's (in each new terminal)

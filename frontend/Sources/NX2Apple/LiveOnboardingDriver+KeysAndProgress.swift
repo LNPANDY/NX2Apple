@@ -46,6 +46,7 @@ extension LiveOnboardingDriver {
         }
 
         guard backgroundStarted, stores.dependencies.checked else { return }
+        state.showsDotnet = !deps(for: .dotnet).isEmpty
         for task in OnboardingBackgroundTask.allCases {
             let rows = deps(for: task)
             if rows.allSatisfy(\.present) {

@@ -43,4 +43,15 @@ final class DotnetDetectionTests: XCTestCase {
         XCTAssertTrue(Toolchain.dotnetHasSDK10("/home/.dotnet/dotnet", runner: runner))
         XCTAssertEqual(runner.launches.first?.environment?["DOTNET_ROOT"], "/home/.dotnet")
     }
+
+    /// #1404: the engine's extractor and shader translator are native executables, so the tools panel asks for no .NET SDK
+    /// and a Mac without one is ready to build.
+    func testTheToolsPanelHasNoDotnetRow() {
+        XCTAssertFalse(DependencyCheck.detect(needsIOS: false, upstream: .nxnative).contains { $0.id == "dotnet" })
+    }
+
+    /// S2Arm still builds with the .NET SDK, so its tools panel keeps the row.
+    func testTheS2ArmToolsPanelKeepsItsDotnetRow() {
+        XCTAssertTrue(DependencyCheck.detect(needsIOS: false, upstream: .s2arm).contains { $0.id == "dotnet" })
+    }
 }

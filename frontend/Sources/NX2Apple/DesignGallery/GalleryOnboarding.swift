@@ -138,16 +138,16 @@ extension GalleryScene {
             s.xcode = [.xcodeChecking: .checking, .xcodeMissing: .missing, .xcodeDisconnected: .disconnected,
                        .xcodeDownloading: .downloading, .xcodeNeedsSetup: .needsSetup][state] ?? .checking
             s.setup = [:]
-            s.background = [.python: .done, .dotnet: .running(0.5), .tools: .queued]
+            s.background = [.python: .running(0.5), .tools: .queued]
         case .xcodeSettingUp:
             s.xcode = .settingUp
             s.setup = [.selected: .done, .license: .done, .firstLaunch: .done, .metal: .running(0.65), .ios: .queued]
-            s.background = [.python: .done, .dotnet: .running(0.5), .tools: .queued]
+            s.background = [.python: .done, .tools: .queued]
         case .xcodeOld:
             s.xcodeTooOldForNVN = true
         case .xcodeSupportFailed:
-            let failure = OnboardingFailure(message: String(format: L10n.string("dep.install.fail", lang), ".NET"), details: "dotnet-install: HTTP 503")
-            s.background[.dotnet] = .failed(failure)
+            let failure = OnboardingFailure(message: String(format: L10n.string("dep.install.fail", lang), "Python"), details: "pip install: HTTP 503")
+            s.background[.python] = .failed(failure)
         case .xcodeEngineTransfer:
             s.engineTransfer = OnboardingTransferProgress(fraction: 0.42, detail: "1.2 GB / 2.9 GB")
         case .keysSearching: s.keys = .searching

@@ -64,10 +64,10 @@ Fork ergänzt den Launcher und eine kurze Liste von Patches und folgt nxnative j
   Spielordner oder eine `.nup`-Datei) brauchen keine `prod.keys`.
 - Für ein iPhone oder iPad: iOS oder iPadOS 26 oder neuer und ein aktuelles Gerät. Ältere Geräte sind ungetestet.
 
-Für `nxnative` bringt die App ihre eigenen Build-Werkzeuge und ihr eigenes Python mit, du brauchst also weder
-Homebrew noch eine Python-Installation, und das .NET SDK 10 ist das einzige Werkzeug, das sie dir noch installiert.
-`nxkit` benötigt weder Python noch .NET. Die Seite „Abhängigkeiten“ des Launchers prüft jede Voraussetzung und
-installiert, was sie kann, mit einem Klick.
+Die App bringt ihre eigenen Build-Werkzeuge und ihr eigenes Python mit, du brauchst also weder
+Homebrew noch eine Python-Installation. Weder `nxnative` noch `nxkit` benötigt .NET; nur die S2Arm-Engine
+braucht es, und die App installiert ihr das .NET SDK mit einem Klick. Die Seite „Abhängigkeiten“ des
+Launchers prüft jede Voraussetzung und installiert, was sie kann, mit einem Klick.
 
 ## Installation
 

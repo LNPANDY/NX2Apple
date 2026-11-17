@@ -260,7 +260,7 @@ import NXLauncher
     // MARK: Xcode
 
     private var supportStatus: OnboardingTaskState {
-        let tasks = OnboardingBackgroundTask.allCases.map { state.background[$0] ?? .queued }
+        let tasks = state.backgroundTasks.map { state.background[$0] ?? .queued }
         if let failed = tasks.first(where: { if case .failed = $0 { return true }; return false }) { return failed }
         if state.engineTransfer != nil || tasks.contains(where: { if case .running = $0 { return true }; return false }) { return .running(nil) }
         return tasks.allSatisfy(\.isDone) ? .done : .queued
@@ -308,7 +308,7 @@ import NXLauncher
             }
             setupSection("onboarding.background.title", subtitle: supportSubtitle, status: OnboardingStatus(supportStatus), id: "onboarding.support", open: $supportOpen) {
                 VStack(alignment: .leading, spacing: DS.Space.s) {
-                    ForEach(OnboardingBackgroundTask.allCases, id: \.self) { task in
+                    ForEach(state.backgroundTasks, id: \.self) { task in
                         taskRow(task.titleKey, status: state.background[task] ?? .queued, detail: state.backgroundDetails[task])
                     }
                     if let transfer = state.engineTransfer {

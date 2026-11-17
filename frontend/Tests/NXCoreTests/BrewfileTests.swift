@@ -28,8 +28,8 @@ final class BrewfileTests: XCTestCase {
         XCTAssertEqual(try entries("brew").count, launcher.count, "a formula is listed twice")
     }
 
-    func testBrewfileCaskIsTheDotnetSdkTheLauncherNeeds() throws {
-        // The launcher checks for an SDK (`dotnet --list-sdks`) and installs channel 10.0; the cask is Homebrew's SDK.
+    func testBrewfileCaskIsTheDotnetSdkTheNativeToolsAreRebuiltWith() throws {
+        // Not a dependency of an nxnative build (#1404): S2Arm builds with it, and dm/tools/native_tools.sh publishes with it (net10.0).
         XCTAssertEqual(try entries("cask"), ["dotnet-sdk"])
     }
 }

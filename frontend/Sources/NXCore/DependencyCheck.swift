@@ -27,7 +27,8 @@ package enum DependencyCheck {
         return dep
     }
 
-    /// The dotnet installer's command (into ~/.dotnet, where `Toolchain.findDotnet` looks).
+    /// The dotnet installer's command (into ~/.dotnet, where `Toolchain.findDotnet` looks). No row of the panel has it: it is the
+    /// fix of the build failure "the shader translator does not run" (`BuildStore.fixBuildFailure`).
     package static let dotnetInstallCmd = ["/bin/bash", "-c",
         "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/di.sh && chmod +x /tmp/di.sh && /tmp/di.sh --channel 10.0 --install-dir $HOME/.dotnet"]
 
@@ -92,6 +93,8 @@ package enum DependencyCheck {
         let isS2Arm = upstream == .s2arm
         // nxkit is a native tool: it runs without Python and .NET
         guard upstream.needsPythonAndDotnet else { return out }
+        // Only S2Arm has a .NET row. nxnative's extractor and shader translator are native executables, so its build
+        // runs no dotnet (#1404). `dotnetInstallCmd` stays for this row and for the build failure card.
         if isS2Arm {
             let dnRes = S2ArmBuilder.findDotnet(tree: s2armPath, runner: runner)
             let dnDetail: String
@@ -104,11 +107,6 @@ package enum DependencyCheck {
             }
             out.append(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint",
                            present: dnRes.ok, detail: dnDetail, installCmd: dotnetInstallCmd))
-        } else {
-            let (dn, dnOK) = Toolchain.findDotnet()
-            out.append(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint",
-                           present: dnOK, detail: dnOK ? dn : "dep.dotnet.missing",
-                           installCmd: dotnetInstallCmd))
         }
 
         let isMNG = upstream == .macNativeGames

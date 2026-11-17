@@ -474,10 +474,11 @@ A GUI app does not inherit the shell's PATH. On a machine where a terminal sees
 `.NET` and the Python packages just fine, a naive `which dotnet` and
 `/usr/bin/python3` check reports both missing. So the app looks where the tools
 actually are (`~/.dotnet`, `/usr/local/share/dotnet`, the Python framework
-installs), verifies `.NET` with `--list-sdks` (the extractor targets `net10.0`),
-and picks the first interpreter that can really import
+installs) and picks the first interpreter that can really import
 `lz4 capstone fontTools zbic backports.zstd`. That same interpreter then runs the
-build.
+build. Only S2Arm builds with .NET, so only its check runs `dotnet --list-sdks`, against the
+SDK version in the S2Arm tree's `compat/tree/global.json` (10 when there is none). nxnative's
+extractor and shader translator are native executables and need no .NET (#1404).
 
 The interpreters uv installs (`uv python install`) count as well: they live in
 `~/.local/share/uv/python` (or `UV_PYTHON_INSTALL_DIR`) with shims in
