@@ -429,14 +429,8 @@ struct LauncherView: View {
 
     private var topBar: some View {
         HStack(spacing: 6) {
-            // The project is NX2Apple (the user's call: what this fork produces is NX2Apple);
-            // "by nxnative" credits the engine it stands on, which the sketch kept.
-            VStack(alignment: .leading, spacing: -2) {
-                Text("NX2Apple").font(.manrope(27, .bold)).tracking(-0.8)
-                Text("— by nxnative").font(.manrope(10.5, .medium))
-                    .foregroundStyle(LauncherPalette.unbuilt).tracking(0.2)
-            }
-            .fixedSize(horizontal: true, vertical: false)
+            Text("NX2Apple").font(.manrope(27, .bold)).tracking(-0.8)
+                .fixedSize(horizontal: true, vertical: false)
             ViewThatFits(in: .horizontal) {
                 navigationTabs(tabInset: 18, brandGap: 34)
                 navigationTabs(tabInset: 8, brandGap: 16)

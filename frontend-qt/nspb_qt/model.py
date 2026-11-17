@@ -322,8 +322,14 @@ class Model(QObject):
             managed = upstream_store.usable_managed_path('s2arm')
             if managed:
                 self.s2arm_path = managed
-        self.upstream_states: dict[str, tuple[str, float | None, str]] = {}
-        self._upstream_lock = threading.Lock()
+        self.upstream_auto_switch_revision = 0
+        self._upstream_coordinator = upstream_store.UpstreamDownloadCoordinator(
+            is_running=lambda: self.running,
+            on_installed=self._on_upstream_installed,
+            on_changed=lambda: self.upstreamStateChanged.emit(),
+        )
+        self.upstream_states = self._upstream_coordinator.states
+        self._upstream_lock = self._upstream_coordinator._lock
         if s2arm_builder.feature_enabled() and saved_upstream == 's2arm' and s2arm_builder.is_usable_tree(self.s2arm_path):
             self.build_upstream = 's2arm'
         else:
@@ -2548,15 +2554,7 @@ class Model(QObject):
         return False
 
     def upstream_state(self, kind: str) -> tuple[str, float | None, str]:
-        if kind == 'nxnative':
-            return ('builtin', None, '')
-        with self._upstream_lock:
-            active = self.upstream_states.get(kind)
-        if active is not None:
-            if active[0] == 'failed' and self.is_upstream_installed(kind):
-                return ('installed', None, '')
-            return active
-        return ('installed', None, '') if self.is_upstream_installed(kind) else ('not_installed', None, '')
+        return self._upstream_coordinator.state(kind, installed=self.is_upstream_installed(kind))
 
     def select_upstream(self, kind: str) -> bool:
         if self.running:
@@ -2567,8 +2565,7 @@ class Model(QObject):
             self.upstreamStateChanged.emit()
             return True
         if kind == 's2arm' and s2arm_builder.feature_enabled() and self.is_upstream_installed('s2arm'):
-            state_kind = self.upstream_state('s2arm')[0]
-            if state_kind in ('downloading', 'extracting'):
+            if self._upstream_coordinator.is_busy('s2arm'):
                 return False
             self.build_upstream = 's2arm'
             self.settings.setValue('buildUpstream', 's2arm')
@@ -2576,56 +2573,26 @@ class Model(QObject):
             return True
         return False
 
-    def download_upstream(self, kind: str) -> None:
-        if kind != 's2arm' or self.running or not s2arm_builder.feature_enabled():
-            return
-        with self._upstream_lock:
-            cur = self.upstream_states.get(kind)
-            if cur is not None and cur[0] in ('downloading', 'extracting'):
-                return
-            self.upstream_states[kind] = ('downloading', None, '')
-        self.upstreamStateChanged.emit()
-
-        def _worker() -> None:
-            def _on_prog(written: int, expected: int | None) -> None:
-                frac, txt = upstream_store.format_download_progress(written, expected)
-                with self._upstream_lock:
-                    cur_s = self.upstream_states.get(kind)
-                    if cur_s is None or cur_s[0] != 'downloading':
-                        return
-                    self.upstream_states[kind] = ('downloading', frac, txt)
-                self.upstreamStateChanged.emit()
-
-            def _on_ext() -> None:
-                with self._upstream_lock:
-                    self.upstream_states[kind] = ('extracting', None, '')
-                self.upstreamStateChanged.emit()
-
-            try:
-                installed_dir = upstream_store.download_and_install_upstream(
-                    kind,
-                    on_progress=_on_prog,
-                    on_extracting=_on_ext,
-                )
-            except upstream_store.UpstreamInstallError as exc:
-                err_kind = 'download' if exc.kind == 'download' else 'extract'
-                with self._upstream_lock:
-                    self.upstream_states[kind] = ('failed', None, err_kind)
-                self.upstreamStateChanged.emit()
-                return
-            except Exception:
-                with self._upstream_lock:
-                    self.upstream_states[kind] = ('failed', None, 'extract')
-                self.upstreamStateChanged.emit()
-                return
-
+    def _on_upstream_installed(self, kind: str, installed_dir: Path) -> None:
+        if kind == 's2arm':
             self.s2arm_path = str(installed_dir)
             self.settings.setValue('s2armPath', self.s2arm_path)
-            with self._upstream_lock:
-                self.upstream_states.pop(kind, None)
-            self.upstreamStateChanged.emit()
+        if not self.running:
+            self.upstream_auto_switch_revision += 1
+            self.select_upstream(kind)
 
-        threading.Thread(target=_worker, daemon=True).start()
+    def cancel_upstream_download(self, kind: str) -> bool:
+        return self._upstream_coordinator.cancel(kind)
+
+    def download_upstream(
+        self,
+        kind: str,
+        *,
+        downloader: Callable[..., None] | None = None,
+    ) -> threading.Thread | None:
+        if kind not in upstream_store.available_upstreams() or kind == 'nxnative':
+            return None
+        return self._upstream_coordinator.start_download(kind, downloader=downloader)
 
     @property
     def can_build(self) -> bool:

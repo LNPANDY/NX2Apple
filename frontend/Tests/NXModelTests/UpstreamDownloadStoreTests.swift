@@ -161,7 +161,7 @@ import XCTest
         XCTAssertEqual(store.buildUpstream, .nxnative)
     }
 
-    func testDownloadExtractAndSwitchEngines() async throws {
+    func testDownloadExtractAndAutoSwitchEngines() async throws {
         let transport = StubTransport()
         let s2URL = try XCTUnwrap(UpstreamEngineStore.archiveURL(for: .s2arm))
         let mngURL = try XCTUnwrap(UpstreamEngineStore.archiveURL(for: .macNativeGames))
@@ -170,27 +170,165 @@ import XCTest
 
         let store = makeStore(transport: transport)
         store.target = BuildTarget.ios
+        XCTAssertEqual(store.upstreamAutoSwitchRevision, 0)
 
         await store.downloadUpstream(.s2arm).value
         XCTAssertTrue(store.s2armInstalled)
         XCTAssertEqual(store.upstreamState(.s2arm), .installed)
         XCTAssertTrue(store.canSelectUpstream(.s2arm))
-
-        store.selectUpstream(.s2arm)
-        XCTAssertEqual(store.buildUpstream, .s2arm)
+        XCTAssertEqual(store.buildUpstream, .s2arm, "Completed download must auto-switch to the newly installed engine")
+        XCTAssertEqual(store.upstreamAutoSwitchRevision, 1)
         XCTAssertEqual(store.target, BuildTarget.ios)
         XCTAssertTrue(store.usesExternalUpstreamRepo)
 
         await store.downloadUpstream(.macNativeGames).value
         XCTAssertTrue(store.macNativeGamesInstalled)
         XCTAssertEqual(store.upstreamState(.macNativeGames), .installed)
-
-        store.selectUpstream(.macNativeGames)
         XCTAssertEqual(store.buildUpstream, .macNativeGames)
+        XCTAssertEqual(store.upstreamAutoSwitchRevision, 2)
         XCTAssertEqual(store.target, BuildTarget.mac)
 
         store.selectUpstream(.nxnative)
         XCTAssertEqual(store.buildUpstream, .nxnative)
+    }
+
+    func testDownloadCompletionWhileBuildRunningInstallsWithoutAutoSwitching() async throws {
+        final class GatedTransport: EngineTransport, @unchecked Sendable {
+            let sourceZip: URL
+            let entered = DispatchSemaphore(value: 0)
+            let proceed = DispatchSemaphore(value: 0)
+
+            init(sourceZip: URL) {
+                self.sourceZip = sourceZip
+            }
+
+            func data(from url: URL) -> EngineFetch<Data> { .failed }
+
+            func download(from url: URL, to destination: URL) -> Bool {
+                entered.signal()
+                proceed.wait()
+                guard let data = try? Data(contentsOf: sourceZip) else { return false }
+                return (try? data.write(to: destination)) != nil
+            }
+        }
+
+        let gated = GatedTransport(sourceZip: try makeS2ArmZip())
+        let store = makeStore(transport: gated)
+        let task = store.downloadUpstream(.s2arm)
+        await Task.detached {
+            _ = gated.entered.wait(timeout: .now() + 5)
+        }.value
+
+        store.running = true
+        gated.proceed.signal()
+        await task.value
+
+        XCTAssertTrue(store.s2armInstalled)
+        XCTAssertEqual(store.upstreamState(.s2arm), .installed)
+        XCTAssertEqual(store.buildUpstream, .nxnative, "Must not switch active engine while a build is running")
+        XCTAssertEqual(store.upstreamAutoSwitchRevision, 0)
+    }
+
+    func testCancelUpstreamDownloadResetsStateImmediatelyAndCleansStaging() async throws {
+        final class CancellableBlockingTransport: EngineTransport, @unchecked Sendable {
+            let sourceZip: URL
+            let entered = DispatchSemaphore(value: 0)
+            let released = DispatchSemaphore(value: 0)
+
+            init(sourceZip: URL) {
+                self.sourceZip = sourceZip
+            }
+
+            func data(from url: URL) -> EngineFetch<Data> { .failed }
+
+            func download(from url: URL, to destination: URL) -> Bool { false }
+
+            func download(
+                from url: URL,
+                to destination: URL,
+                progress: (@Sendable (Int64, Int64?) -> Void)?,
+                shouldCancel: (@Sendable () -> Bool)?
+            ) -> Bool {
+                progress?(1024, 4096)
+                entered.signal()
+                released.wait()
+                if shouldCancel?() == true {
+                    return false
+                }
+                guard let data = try? Data(contentsOf: sourceZip) else { return false }
+                return (try? data.write(to: destination)) != nil
+            }
+        }
+
+        let blocking = CancellableBlockingTransport(sourceZip: try makeS2ArmZip())
+        let store = makeStore(transport: blocking)
+        let task = store.downloadUpstream(.s2arm)
+        XCTAssertTrue(store.upstreamState(.s2arm).isBusy)
+
+        await Task.detached {
+            _ = blocking.entered.wait(timeout: .now() + 5)
+        }.value
+
+        store.cancelUpstreamDownload(.s2arm)
+        XCTAssertEqual(store.upstreamState(.s2arm), .notInstalled, "Cancel must immediately reset UI state to .notInstalled")
+
+        blocking.released.signal()
+        await task.value
+
+        XCTAssertFalse(store.s2armInstalled)
+        XCTAssertEqual(store.upstreamState(.s2arm), .notInstalled)
+        XCTAssertEqual(store.buildUpstream, .nxnative)
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: store.upstreamsRootURL.path)) ?? []
+        XCTAssertTrue(leftovers.isEmpty, "Cancelled download must leave zero leftover staging files: \(leftovers)")
+    }
+
+    func testStaleGenerationDoesNotOverwriteRestartedDownload() async throws {
+        final class TwoGenerationTransport: EngineTransport, @unchecked Sendable {
+            let sourceZip: URL
+            private let lock = NSLock()
+            private var callIndex = 0
+            let firstEntered = DispatchSemaphore(value: 0)
+            let releaseFirst = DispatchSemaphore(value: 0)
+
+            init(sourceZip: URL) {
+                self.sourceZip = sourceZip
+            }
+
+            func data(from url: URL) -> EngineFetch<Data> { .failed }
+
+            func download(from url: URL, to destination: URL) -> Bool {
+                lock.lock()
+                callIndex += 1
+                let idx = callIndex
+                lock.unlock()
+                if idx == 1 {
+                    firstEntered.signal()
+                    releaseFirst.wait()
+                    return false
+                }
+                guard let data = try? Data(contentsOf: sourceZip) else { return false }
+                return (try? data.write(to: destination)) != nil
+            }
+        }
+
+        let transport = TwoGenerationTransport(sourceZip: try makeS2ArmZip())
+        let store = makeStore(transport: transport)
+        let firstTask = store.downloadUpstream(.s2arm)
+        await Task.detached {
+            _ = transport.firstEntered.wait(timeout: .now() + 5)
+        }.value
+
+        store.cancelUpstreamDownload(.s2arm)
+        let secondTask = store.downloadUpstream(.s2arm)
+        await secondTask.value
+        XCTAssertTrue(store.s2armInstalled)
+        XCTAssertEqual(store.buildUpstream, .s2arm)
+
+        transport.releaseFirst.signal()
+        await firstTask.value
+        XCTAssertTrue(store.s2armInstalled)
+        XCTAssertEqual(store.upstreamState(.s2arm), .installed)
+        XCTAssertEqual(store.buildUpstream, .s2arm)
     }
 
     func testFailedDownloadSetsRetryStateAndRecoversOnRetry() async throws {
@@ -209,6 +347,7 @@ import XCTest
         await store.downloadUpstream(.s2arm).value
         XCTAssertTrue(store.s2armInstalled)
         XCTAssertEqual(store.upstreamState(.s2arm), .installed)
+        XCTAssertEqual(store.buildUpstream, .s2arm)
     }
 
     func testAdoptInstalledUpstreamsDiscoversManagedTreeAndResetsMissingSelection() throws {

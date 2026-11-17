@@ -4,10 +4,12 @@ Pure Python stdlib + `archive_guard` (no PySide6 dependency) so Ubuntu CI runs i
 """
 from __future__ import annotations
 
+import inspect
 import os
 from pathlib import Path
 import stat
 import sys
+import threading
 import urllib.error
 import urllib.request
 import uuid
@@ -23,6 +25,24 @@ ARCHIVE_URLS: dict[str, str] = {
     'macnativegames': 'https://codeload.github.com/ly05010419/MacNativeGames/zip/refs/heads/main',
 }
 
+UPSTREAM_META: dict[str, dict[str, object]] = {
+    'nxnative': {
+        'display_name': 'nxnative',
+        'note_key': 'upstream.nxnativeCardNote',
+        'builtin': True,
+    },
+    'macnativegames': {
+        'display_name': 'MacNativeGames',
+        'note_key': 'upstream.mngCardNote',
+        'builtin': False,
+    },
+    's2arm': {
+        'display_name': 'S2Arm',
+        'note_key': 'upstream.s2armCardNote',
+        'builtin': False,
+    },
+}
+
 MAX_UPSTREAM_ENTRIES = 80_000
 MAX_UPSTREAM_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB
 
@@ -32,7 +52,22 @@ class UpstreamInstallError(RuntimeError):
 
     def __init__(self, kind: str, message: str = '') -> None:
         super().__init__(message or kind)
-        self.kind = kind  # 'download' | 'extract' | 'unsupported'
+        self.kind = kind  # 'download' | 'extract' | 'cancelled' | 'unsupported'
+
+
+def upstream_display_name(kind: str) -> str:
+    meta = UPSTREAM_META.get(kind)
+    return str(meta['display_name']) if meta and 'display_name' in meta else kind
+
+
+def upstream_note_key(kind: str) -> str:
+    meta = UPSTREAM_META.get(kind)
+    return str(meta['note_key']) if meta and 'note_key' in meta else 'upstream.nxnativeCardNote'
+
+
+def upstream_is_builtin(kind: str) -> bool:
+    meta = UPSTREAM_META.get(kind)
+    return bool(meta.get('builtin', False)) if meta else (kind == 'nxnative')
 
 
 def default_upstreams_root() -> Path:
@@ -99,16 +134,21 @@ def install_upstream_zip(
     root: Path | str | None = None,
     *,
     is_windows: bool | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> Path:
     """Safely unpack `zip_path`, unwrap single-folder GitHub archive roots, and atomically install `<root>/<kind>`."""
     if kind not in ARCHIVE_URLS:
         raise UpstreamInstallError('unsupported', f'unsupported upstream kind: {kind}')
+    if cancel_event is not None and cancel_event.is_set():
+        raise UpstreamInstallError('cancelled', 'installation cancelled')
     base = Path(root) if root is not None else default_upstreams_root()
     base.mkdir(parents=True, exist_ok=True)
     tmp = base / f'.tmp-{uuid.uuid4().hex}'
     try:
         quota = ag.ArchiveQuota(max_entries=MAX_UPSTREAM_ENTRIES, max_bytes=MAX_UPSTREAM_BYTES)
         ag.extract_zip_safely(zip_path, tmp, quota=quota, allow_symlinks=True)
+        if cancel_event is not None and cancel_event.is_set():
+            raise UpstreamInstallError('cancelled', 'installation cancelled')
 
         source = tmp
         for _ in range(2):
@@ -135,6 +175,9 @@ def install_upstream_zip(
                     except OSError:
                         pass
 
+        if cancel_event is not None and cancel_event.is_set():
+            raise UpstreamInstallError('cancelled', 'installation cancelled')
+
         dest = base / kind
         return ag.install_staged_tree(
             source,
@@ -154,10 +197,15 @@ def _stream_download(
     dest_zip: Path,
     on_progress: Callable[[int, int | None], None] | None,
     timeout: float = 60.0,
+    cancel_event: threading.Event | None = None,
 ) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise UpstreamInstallError('cancelled', 'download cancelled')
     req = urllib.request.Request(url, headers={'User-Agent': 'NX2Apple/1.5'})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if cancel_event is not None and cancel_event.is_set():
+                raise UpstreamInstallError('cancelled', 'download cancelled')
             status = getattr(resp, 'status', 200)
             if status != 200:
                 raise UpstreamInstallError('download', f'HTTP {status}')
@@ -168,9 +216,13 @@ def _stream_download(
                 on_progress(0, expected)
             with open(ag.win_path(dest_zip), 'wb') as out:
                 while True:
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise UpstreamInstallError('cancelled', 'download cancelled')
                     chunk = resp.read(65536)
                     if not chunk:
                         break
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise UpstreamInstallError('cancelled', 'download cancelled')
                     out.write(chunk)
                     written += len(chunk)
                     if on_progress is not None:
@@ -185,23 +237,196 @@ def download_and_install_upstream(
     kind: str,
     root: Path | str | None = None,
     *,
-    downloader: Callable[[str, Path, Callable[[int, int | None], None] | None], None] | None = None,
+    downloader: Callable[..., None] | None = None,
     on_progress: Callable[[int, int | None], None] | None = None,
     on_extracting: Callable[[], None] | None = None,
     is_windows: bool | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> Path:
     """Download `kind` archive, extract it atomically into `<root>/<kind>`, and return its path."""
     url = ARCHIVE_URLS.get(kind)
     if not url:
         raise UpstreamInstallError('unsupported', f'unsupported upstream kind: {kind}')
+    if cancel_event is not None and cancel_event.is_set():
+        raise UpstreamInstallError('cancelled', 'download cancelled')
     base = Path(root) if root is not None else default_upstreams_root()
     base.mkdir(parents=True, exist_ok=True)
     zip_file = base / f'.download-{uuid.uuid4().hex}.zip'
-    fetch = downloader if downloader is not None else _stream_download
+
+    def _checked_progress(written: int, expected: int | None) -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise UpstreamInstallError('cancelled', 'download cancelled')
+        if on_progress is not None:
+            on_progress(written, expected)
+
     try:
-        fetch(url, zip_file, on_progress)
+        if downloader is None:
+            _stream_download(url, zip_file, _checked_progress, cancel_event=cancel_event)
+        else:
+            params = inspect.signature(downloader).parameters
+            if 'cancel_event' in params:
+                downloader(url, zip_file, _checked_progress, cancel_event=cancel_event)
+            else:
+                downloader(url, zip_file, _checked_progress)
+        if cancel_event is not None and cancel_event.is_set():
+            raise UpstreamInstallError('cancelled', 'download cancelled')
         if on_extracting is not None:
             on_extracting()
-        return install_upstream_zip(zip_file, kind, base, is_windows=is_windows)
+        return install_upstream_zip(
+            zip_file,
+            kind,
+            base,
+            is_windows=is_windows,
+            cancel_event=cancel_event,
+        )
     finally:
         ag.rmtree_force(zip_file)
+
+
+class UpstreamDownloadCoordinator:
+    """Thread-safe download/cancel/generation state machine without PySide6 dependency."""
+
+    def __init__(
+        self,
+        *,
+        root: Path | str | None = None,
+        is_running: Callable[[], bool] | None = None,
+        on_installed: Callable[[str, Path], None] | None = None,
+        on_changed: Callable[[], None] | None = None,
+    ) -> None:
+        self.root = Path(root) if root is not None else None
+        self._is_running = is_running or (lambda: False)
+        self._on_installed = on_installed
+        self._on_changed = on_changed
+        self._lock = threading.RLock()
+        self.states: dict[str, tuple[str, float | None, str]] = {}
+        self._generations: dict[str, int] = {}
+        self._cancel_events: dict[str, threading.Event] = {}
+        self._threads: dict[str, threading.Thread] = {}
+
+    def _notify(self) -> None:
+        if self._on_changed is not None:
+            self._on_changed()
+
+    def state(self, kind: str, *, installed: bool = False) -> tuple[str, float | None, str]:
+        if kind == 'nxnative':
+            return ('builtin', None, '')
+        with self._lock:
+            active = self.states.get(kind)
+        if active is not None:
+            if active[0] == 'failed' and installed:
+                return ('installed', None, '')
+            return active
+        return ('installed', None, '') if installed else ('not_installed', None, '')
+
+    def is_busy(self, kind: str) -> bool:
+        with self._lock:
+            cur = self.states.get(kind)
+        return bool(cur is not None and cur[0] in ('downloading', 'extracting'))
+
+    def cancel(self, kind: str) -> bool:
+        with self._lock:
+            ev = self._cancel_events.pop(kind, None)
+            had_active = kind in self.states
+            self._generations[kind] = self._generations.get(kind, 0) + 1
+            self.states.pop(kind, None)
+            self._threads.pop(kind, None)
+        if ev is not None:
+            ev.set()
+        if had_active or ev is not None:
+            self._notify()
+            return True
+        return False
+
+    def start_download(
+        self,
+        kind: str,
+        *,
+        downloader: Callable[..., None] | None = None,
+        is_windows: bool | None = None,
+    ) -> threading.Thread | None:
+        if kind == 'nxnative' or self._is_running():
+            return None
+        with self._lock:
+            cur = self.states.get(kind)
+            if cur is not None and cur[0] in ('downloading', 'extracting'):
+                return self._threads.get(kind)
+            gen = self._generations.get(kind, 0) + 1
+            self._generations[kind] = gen
+            cancel_ev = threading.Event()
+            self._cancel_events[kind] = cancel_ev
+            self.states[kind] = ('downloading', None, '')
+        self._notify()
+
+        def _worker() -> None:
+            def _on_prog(written: int, expected: int | None) -> None:
+                frac, txt = format_download_progress(written, expected)
+                with self._lock:
+                    if self._generations.get(kind) != gen or cancel_ev.is_set():
+                        return
+                    cur_s = self.states.get(kind)
+                    if cur_s is None or cur_s[0] != 'downloading':
+                        return
+                    self.states[kind] = ('downloading', frac, txt)
+                self._notify()
+
+            def _on_ext() -> None:
+                with self._lock:
+                    if self._generations.get(kind) != gen or cancel_ev.is_set():
+                        return
+                    self.states[kind] = ('extracting', None, '')
+                self._notify()
+
+            try:
+                installed_dir = download_and_install_upstream(
+                    kind,
+                    self.root,
+                    downloader=downloader,
+                    on_progress=_on_prog,
+                    on_extracting=_on_ext,
+                    is_windows=is_windows,
+                    cancel_event=cancel_ev,
+                )
+            except UpstreamInstallError as exc:
+                if exc.kind == 'cancelled':
+                    with self._lock:
+                        if self._generations.get(kind) == gen:
+                            self.states.pop(kind, None)
+                            self._cancel_events.pop(kind, None)
+                            self._threads.pop(kind, None)
+                    self._notify()
+                    return
+                err_kind = 'download' if exc.kind == 'download' else 'extract'
+                with self._lock:
+                    if self._generations.get(kind) != gen or cancel_ev.is_set():
+                        return
+                    self.states[kind] = ('failed', None, err_kind)
+                    self._cancel_events.pop(kind, None)
+                    self._threads.pop(kind, None)
+                self._notify()
+                return
+            except Exception:
+                with self._lock:
+                    if self._generations.get(kind) != gen or cancel_ev.is_set():
+                        return
+                    self.states[kind] = ('failed', None, 'extract')
+                    self._cancel_events.pop(kind, None)
+                    self._threads.pop(kind, None)
+                self._notify()
+                return
+
+            with self._lock:
+                if self._generations.get(kind) != gen or cancel_ev.is_set():
+                    return
+                self.states.pop(kind, None)
+                self._cancel_events.pop(kind, None)
+                self._threads.pop(kind, None)
+                if self._on_installed is not None:
+                    self._on_installed(kind, installed_dir)
+            self._notify()
+
+        thread = threading.Thread(target=_worker, daemon=True)
+        with self._lock:
+            self._threads[kind] = thread
+        thread.start()
+        return thread
