@@ -60,8 +60,8 @@ package enum ShellInstall {
     }
 
     /// The part of the build script's argument list that makes the game's framework instead of an Xcode project.
-    package static func buildArguments(workDir: String, team: String) -> [String] {
-        ["--shell-framework", workDir + "/shell-framework"] + (team.isEmpty ? [] : ["--team-id", team])
+    package static func buildArguments(workDir: String, team: String, gpu: String? = nil) -> [String] {
+        ["--shell-framework", workDir + "/shell-framework"] + (team.isEmpty ? [] : ["--team-id", team]) + (gpu.map { ["--gpu", $0] } ?? [])
     }
 
     // ---- 4: the project ----
@@ -102,7 +102,7 @@ package enum ShellInstall {
     package static func buildCommand(xcrun: String, root: String, device: String, team: String, bundleID: String) -> [String] {
         [xcrun, "xcodebuild", "-project", projectFolder(root: root) + "/" + projectName, "-scheme", scheme,
          "-configuration", "Release", "-destination", "id=\(device)", "-derivedDataPath", derivedData(root: root),
-         "-allowProvisioningUpdates", "DEVELOPMENT_TEAM=\(team)", "PRODUCT_BUNDLE_IDENTIFIER=\(bundleID)", "build"]
+         "-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration", "DEVELOPMENT_TEAM=\(team)", "PRODUCT_BUNDLE_IDENTIFIER=\(bundleID)", "build"]
     }
 
     /// Installing over the existing app keeps its Documents.
