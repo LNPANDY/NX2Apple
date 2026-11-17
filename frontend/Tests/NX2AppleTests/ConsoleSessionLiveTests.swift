@@ -182,27 +182,34 @@ import AppKit
         XCTAssertEqual(h.driver.state.searchGames.map(\.title), ["Celeste"], "the title ID")
     }
 
-    func testStandaloneBuildGetsAnOverallProgressRowWithoutAQueue() throws {
+    func testStandaloneBuildGetsAnOverallProgressRowWithoutAQueue() async throws {
+        func waitFor(_ condition: () -> Bool) async throws {
+            for _ in 0..<100 {
+                if condition() { return }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            XCTAssertTrue(condition(), "The published build state did not settle within two seconds")
+        }
         let h = try makeHarness(), stores = LauncherStores(defaults: testDefaults)
         h.driver.bindBuilds(stores.build, queue: stores.queue)
         stores.build.overallProgress = 0.42; stores.build.running = true
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        try await waitFor { h.driver.state.builds.queue.first?.active == true && h.driver.state.builds.queue.first?.progress == 0.42 }
         XCTAssertEqual(h.driver.state.builds.queue.count, 1)
-        XCTAssertTrue(h.driver.state.builds.queue[0].active)
-        XCTAssertEqual(h.driver.state.builds.queue[0].progress, 0.42)
+        XCTAssertEqual(h.driver.state.builds.queue.first?.active, true)
+        XCTAssertEqual(h.driver.state.builds.queue.first?.progress, 0.42)
         stores.build.running = false
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        try await waitFor { h.driver.state.builds.queue.isEmpty }
         XCTAssertTrue(h.driver.state.builds.queue.isEmpty)
         stores.build.runningTarget = BuildTarget.mac
         stores.build.macAppPath = h.folder.appendingPathComponent("Hades.app").path
         stores.build.done = true
         XCTAssertEqual(stores.build.completionStatus, .mac)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        try await waitFor { h.driver.state.builds.queue.first?.outcome == .success }
         XCTAssertTrue(h.driver.state.builds.hasActivity)
         XCTAssertEqual(h.driver.state.builds.queue.first?.outcome, .success)
         stores.build.installedOn = "Test device"; stores.build.archivePath = "/test/archive"
         stores.build.installedDataComplete = false
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        try await waitFor { h.driver.state.builds.queue.first?.outcome == .warning && h.driver.state.builds.queue.first?.statusKey == "result.dataNeeded" }
         XCTAssertEqual(h.driver.state.builds.queue.first?.outcome, .warning)
         XCTAssertEqual(h.driver.state.builds.queue.first?.statusKey, "result.dataNeeded")
     }
