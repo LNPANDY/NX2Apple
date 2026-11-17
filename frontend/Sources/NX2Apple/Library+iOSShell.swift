@@ -16,7 +16,11 @@ extension GameLibrary {
         if appExists {
             if ipa.isEmpty { game.ipaPath = "" }
             game.iosAppPath = app
-            game.installedDevice = device
+            if !device.isEmpty {
+                game.installedDevice = device
+            } else if !game.installedViaShellReceipt {
+                game.installedDevice = ""
+            }
             game.toolsCommit = commit
         } else if !commit.isEmpty {
             game.toolsCommit = commit
@@ -40,7 +44,7 @@ extension GameLibrary {
         guard !device.isEmpty,
               FileManager.default.fileExists(atPath: app + "/Info.plist"),
               let shell = ShellInstall.paths(ofApp: app) else { return }
-        applySharedAppInstalled(titles: ShellLibrary.recordInstalled(root: shell.root), app: app, device: device)
+        applySharedAppInstalled(titles: ShellLibrary.recordInstalled(root: shell.root, device: device), app: app, device: device)
     }
 
     private func applySharedAppInstalled(titles: Set<String>, app: String, device: String) {
@@ -60,19 +64,25 @@ extension GameLibrary {
 
     /// Restores the shared app's games from shell.json, frameworks, export IPAs, and the last successful install receipt.
     /// Works cleanly even when `<root>/derived-data` is absent or empty.
-    func syncSharedApp(root: String) {
+    func syncSharedApp(root: String, fallbackDevice: String = "") {
         let fm = FileManager.default
         let shellLib = ShellLibrary.load(root: root)
         let receipt = ShellLibrary.installedReceipt(root: root)
+        let receiptDevice = ShellLibrary.installedDevice(root: root)
         let app = ShellInstall.appPath(root: root)
         let hasSignedApp = fm.fileExists(atPath: app + "/" + AppSignature.profileName)
         let defaultIPA = ShellInstall.ipaPath(root: root)
         let hasDefaultIPA = fm.fileExists(atPath: defaultIPA)
 
-        // Find any existing installed device identifier from current games in receipt
-        let device = games.first(where: {
+        // Prefer the device UDID recorded with the install receipt, else any existing game in receipt, else the paired target device.
+        let existingDevice = games.first(where: {
             receipt.contains($0.titleID.uppercased()) && !$0.installedDevice.isEmpty
         })?.installedDevice ?? ""
+        let trimmedFallback = fallbackDevice.trimmingCharacters(in: .whitespacesAndNewlines)
+        let device = !receiptDevice.isEmpty ? receiptDevice : (!existingDevice.isEmpty ? existingDevice : trimmedFallback)
+        if receiptDevice.isEmpty && !device.isEmpty && !receipt.isEmpty {
+            ShellLibrary.recordInstalledDevice(device, root: root)
+        }
 
         var changed = false
         for i in games.indices {

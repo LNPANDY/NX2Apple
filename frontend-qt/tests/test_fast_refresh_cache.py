@@ -232,6 +232,37 @@ class TestBuildSeedCache(unittest.TestCase):
         self.assertEqual(info_b['chain'], '11223344')
         self.assertEqual(info_b['engine_chain'], '99887766')
 
+    def test_inspect_seed_gl_vulkan_path_a_and_self_heal(self):
+        seed_root = self.root / 'seeds_gl_vk'
+        engine_dir = self.root / 'engine_gl_vk'
+        chain_hdr = engine_dir / 'dm' / 'gfx' / 'nvn' / 'dmsh_chain.h'
+        chain_hdr.parent.mkdir(parents=True, exist_ok=True)
+        chain_hdr.write_text('#define DMSH_CHAIN "99887766"\n', encoding='utf-8')
+
+        # Proper GL seed stays on Path A even when engine NVN chain differs and chain is empty
+        gl_tid = '0100CD801CE5E000'
+        gl_dir = self._create_seed_tree(seed_root, gl_tid, chain='', gfx_api='gl')
+        (gl_dir / 'shader' / 'ios' / 'gl').mkdir(parents=True, exist_ok=True)
+        (gl_dir / 'shader' / 'ios' / 'gl' / 'gl_shaders.metallib').write_bytes(b'GLMETAL')
+        info_gl = build_seed_cache.inspect_seed(seed_root, gl_tid, engine_path=engine_dir)
+        self.assertTrue(info_gl['valid'])
+        self.assertEqual(info_gl['gfx_api'], 'gl')
+        self.assertEqual(info_gl['path_type'], 'A')
+        self.assertTrue(info_gl['chain_match'])
+
+        # Misclassified legacy seed (gfx_api="nvn" with missing tables + empty b-stub + real gl_shaders.metallib) heals to gl
+        bad_tid = '0100CD801CE5E002'
+        bad_dir = self._create_seed_tree(seed_root, bad_tid, chain='11223344', gfx_api='nvn')
+        shutil.rmtree(bad_dir / 'shader' / 'tables', ignore_errors=True)
+        (bad_dir / 'shader' / 'ios' / 'b-11223344.img').write_bytes(b'EMPTYSTUB')
+        (bad_dir / 'shader' / 'ios' / 'gl').mkdir(parents=True, exist_ok=True)
+        (bad_dir / 'shader' / 'ios' / 'gl' / 'gl_shaders.metallib').write_bytes(b'GLMETAL')
+        healed = build_seed_cache.inspect_seed(seed_root, bad_tid, engine_path=engine_dir)
+        self.assertTrue(healed['valid'])
+        self.assertEqual(healed['gfx_api'], 'gl')
+        self.assertEqual(healed['chain'], '')
+        self.assertEqual(healed['path_type'], 'A')
+
     def test_inspect_seed_structural_invalidation(self):
         seed_root = self.root / 'seeds'
         tid = '0100000000010000'

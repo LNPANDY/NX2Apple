@@ -18,6 +18,35 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings, Q_ARG, QMetaObject, QObject, Qt, QThread, Signal, Slot
 
+_REAL_QSETTINGS = QSettings
+
+
+class _IsolatedTestSettings:
+    """Per-instance in-memory settings used under unittest unless a test explicitly patches QSettings."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, object] = {}
+
+    def value(self, key: str, default: object = None, type: type | None = None) -> object:  # noqa: A002
+        val = self._store.get(key, default)
+        if type is not None and val is not None:
+            if type is bool and isinstance(val, str):
+                return val.lower() in ('1', 'true', 'yes')
+            try:
+                return type(val)
+            except (TypeError, ValueError):
+                return default
+        return val
+
+    def setValue(self, key: str, value: object) -> None:
+        self._store[key] = value
+
+    def remove(self, key: str) -> None:
+        self._store.pop(key, None)
+
+    def sync(self) -> None:
+        pass
+
 from . import app_update
 from . import build_failure as bf
 from . import build_notes
@@ -250,7 +279,10 @@ class Model(QObject):
 
     def __init__(self) -> None:
         super().__init__()
-        self.settings = QSettings('NS Port Builder', 'NSPortBuilder')
+        if 'unittest' in sys.modules and QSettings is _REAL_QSETTINGS:
+            self.settings = _IsolatedTestSettings()
+        else:
+            self.settings = QSettings('NS Port Builder', 'NSPortBuilder')
         self.lang = Lang.initial()
         self.repo_path = self._find_repo()
         self.python_path, self.python_ok, self.python_ver = pu.find_python()
