@@ -19,6 +19,24 @@ public struct EngineLaunchPlan: Equatable, Sendable {
     public var workingDirectory: URL
     /// The save and temp folders.
     public var foldersToCreate: [URL]
+    /// `Documents/games/<title ID>/`: where per-game `save/`, `temp/`, and `env.txt` live.
+    public var gameDirectory: URL
+    /// Display title for generating a readable `env.txt` header when missing.
+    public var gameTitle: String
+
+    public init(environment: [String: String], arguments: [String], frameworkExecutable: URL, imageMarker: String,
+                logURL: URL, workingDirectory: URL, foldersToCreate: [URL],
+                gameDirectory: URL? = nil, gameTitle: String = "") {
+        self.environment = environment
+        self.arguments = arguments
+        self.frameworkExecutable = frameworkExecutable
+        self.imageMarker = imageMarker
+        self.logURL = logURL
+        self.workingDirectory = workingDirectory
+        self.foldersToCreate = foldersToCreate
+        self.gameDirectory = gameDirectory ?? foldersToCreate.first?.deletingLastPathComponent() ?? workingDirectory
+        self.gameTitle = gameTitle
+    }
 
     /// `envFileText` is the shared `Documents/env.txt`. `gameEnvFileText` is the game's own `Documents/games/<title ID>/env.txt`
     /// (#557), read from `game.appFolder` when it is nil. A key in the game's file wins over the shared file, and the launch
@@ -155,15 +173,72 @@ public struct EngineLaunchPlan: Equatable, Sendable {
             imageMarker: manifest.imageMarker,
             logURL: documents.appendingPathComponent("log.txt"),
             workingDirectory: documents,
-            foldersToCreate: [save, temp])
+            foldersToCreate: [save, temp],
+            gameDirectory: gdir,
+            gameTitle: game.name)
     }
 
-    /// Creates the save and temp folders (and their parents) when they are missing. The temp folder is kept out of the backup, the
-    /// save folder stays in it (`BackupExclusion`, #618).
+    /// Readable per-game `env.txt` template with every setting commented out by default so in-app settings remain unlocked.
+    public static func defaultGameEnvTemplate(title: String, titleID: String) -> String {
+        let safeTitle = title
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeID = titleID
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let headerTitle = safeTitle.isEmpty ? safeID : "\(safeTitle) (\(safeID))"
+        return [
+            "# NX2Apple per-game environment overrides for \(headerTitle)",
+            "# Remove the leading \"# \" on a line to override the in-app setting.",
+            "# Keys set here win over the shared Documents/env.txt and the UI controls.",
+            "#",
+            "# Language code (default: en-US)",
+            "# DM_LANG=en-US",
+            "#",
+            "# Frame-rate counter on screen (0 = off, 1 = on)",
+            "# DM_SHOW_FPS=0",
+            "#",
+            "# Apple Metal performance HUD (0 = off, 1 = on)",
+            "# DM_METAL_HUD=0",
+            "#",
+            "# Frame-rate cap (0 = game's own limit, 30, 60, 120)",
+            "# DM_FPS_TARGET=60",
+            "#",
+            "# Operation mode (0 = handheld, 1 = console)",
+            "# DM_OPMODE=0",
+            "#",
+            "# Picture fit in landscape (fit or fill)",
+            "# DM_PICTURE_FIT=fit",
+            "#",
+            "# Spatial upscaling for scaled pictures (off or metalfx)",
+            "# DM_PRESENT_UPSCALE=off",
+            "#",
+            "# Fixed 3D render scale factor (0.5 to 1.0)",
+            "# DM_RENDER_SCALE=1.0",
+            "#",
+            "# Audio mix mode (0 = exclusive, 1 = mix with other apps)",
+            "# DM_AUDIO_MIX=0",
+            "#",
+            "# Controller rumble (0 = off, 1 = on)",
+            "# DM_RUMBLE=1",
+            ""
+        ].joined(separator: "\n")
+    }
+
+    /// Creates the save and temp folders (and their parents) when they are missing, and seeds a commented per-game `env.txt`
+    /// only if one does not already exist. The temp folder is kept out of the backup, the save folder stays in it (`BackupExclusion`, #618).
     public func createFolders(fileManager fm: FileManager = .default) throws {
         for url in foldersToCreate {
             try fm.createDirectory(at: url, withIntermediateDirectories: true)
             if !GameDeletion.isSave(url.lastPathComponent) { BackupExclusion.exclude(url) }
+        }
+        try fm.createDirectory(at: gameDirectory, withIntermediateDirectories: true)
+        let envURL = gameDirectory.appendingPathComponent("env.txt")
+        if !fm.fileExists(atPath: envURL.path) {
+            let template = Self.defaultGameEnvTemplate(title: gameTitle, titleID: gameDirectory.lastPathComponent)
+            try Data(template.utf8).write(to: envURL, options: .atomic)
         }
     }
 

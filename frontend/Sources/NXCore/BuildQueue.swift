@@ -24,6 +24,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
     package var packageAfter: Bool
     /// Whether an iPhone/iPad batch exports an unsigned IPA (true) or installs directly on a device (false), nil before start or on Mac.
     package var exportIPA: Bool?
+    package var exportFramework: Bool?
     package var status: Status
     /// Why the entry failed or was skipped, shown in the summary.
     package var reason: String?
@@ -51,6 +52,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         case batch
         case packageAfter
         case exportIPA
+        case exportFramework
         case status
         case reason
         case destinationName
@@ -73,6 +75,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         batch: UUID = UUID(),
         packageAfter: Bool = false,
         exportIPA: Bool? = nil,
+        exportFramework: Bool? = nil,
         status: Status = .queued,
         reason: String? = nil,
         destinationName: String? = nil,
@@ -93,6 +96,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.batch = batch
         self.packageAfter = packageAfter
         self.exportIPA = exportIPA
+        self.exportFramework = exportFramework
         self.status = status
         self.reason = reason
         self.destinationName = destinationName
@@ -116,6 +120,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.batch = try c.decode(UUID.self, forKey: .batch)
         self.packageAfter = try c.decodeIfPresent(Bool.self, forKey: .packageAfter) ?? false
         self.exportIPA = try c.decodeIfPresent(Bool.self, forKey: .exportIPA)
+        self.exportFramework = try c.decodeIfPresent(Bool.self, forKey: .exportFramework)
         self.status = try c.decode(Status.self, forKey: .status)
         self.reason = try c.decodeIfPresent(String.self, forKey: .reason)
         self.destinationName = try c.decodeIfPresent(String.self, forKey: .destinationName)

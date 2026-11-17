@@ -114,10 +114,12 @@ import NXCore
                 if effectiveTarget == BuildTarget.mac {
                     entry.packageAfter = false
                     entry.exportIPA = nil
+                    entry.exportFramework = nil
                     entry.destinationName = nil
                 } else if joinsActiveBatch, let iosRef = activeIOSReference {
                     entry.packageAfter = iosRef.packageAfter
                     entry.exportIPA = iosRef.exportIPA
+                    entry.exportFramework = iosRef.exportFramework
                     entry.destinationName = iosRef.destinationName
                 }
                 if joinsActiveBatch, let currentBatch {
@@ -128,6 +130,7 @@ import NXCore
                 entry.batch = currentBatch.batch
                 entry.packageAfter = currentBatch.packageAfter
                 entry.exportIPA = currentBatch.exportIPA
+                entry.exportFramework = currentBatch.exportFramework
                 entry.destinationName = currentBatch.destinationName
             }
             entries.append(entry)
@@ -228,10 +231,12 @@ import NXCore
             if effectiveTarget == BuildTarget.mac {
                 requeued.packageAfter = false
                 requeued.exportIPA = nil
+                requeued.exportFramework = nil
                 requeued.destinationName = nil
             } else if joinsActiveBatch, let iosRef = activeIOSReference {
                 requeued.packageAfter = iosRef.packageAfter
                 requeued.exportIPA = iosRef.exportIPA
+                requeued.exportFramework = iosRef.exportFramework
                 requeued.destinationName = iosRef.destinationName
             }
             if joinsActiveBatch, let currentBatch {
@@ -242,6 +247,7 @@ import NXCore
             requeued.batch = currentBatch.batch
             requeued.packageAfter = currentBatch.packageAfter
             requeued.exportIPA = currentBatch.exportIPA
+            requeued.exportFramework = currentBatch.exportFramework
             requeued.destinationName = currentBatch.destinationName
         }
         entries.append(requeued)
@@ -256,17 +262,19 @@ import NXCore
         target: String? = nil,
         packageAfter: Bool? = nil,
         exportIPA: Bool? = nil,
+        exportFramework: Bool? = nil,
         destinationName: String? = nil
     ) {
         guard hasWaiting else { return }
         let normalizedStartTarget = target.map(BuildTarget.normalized)
-        let hasSharedParams = target != nil || packageAfter != nil || exportIPA != nil || destinationName != nil
+        let hasSharedParams = target != nil || packageAfter != nil || exportIPA != nil || exportFramework != nil || destinationName != nil
         if hasSharedParams {
             let existingDoneBatch = entries.last(where: { $0.status == .done })?.batch
             let batch = existingDoneBatch ?? UUID()
             let callerPassedMacOnlyDefaults = (normalizedStartTarget == BuildTarget.mac)
                 && (packageAfter == nil || packageAfter == false)
                 && exportIPA == nil
+                && exportFramework == nil
                 && destinationName == nil
             for index in entries.indices where entries[index].status == .queued {
                 if entries[index].locksTarget {
@@ -276,16 +284,19 @@ import NXCore
                     if locked == BuildTarget.mac {
                         entries[index].packageAfter = false
                         entries[index].exportIPA = nil
+                        entries[index].exportFramework = nil
                         entries[index].destinationName = nil
                     } else if !callerPassedMacOnlyDefaults {
                         if let packageAfter { entries[index].packageAfter = packageAfter }
                         if let exportIPA { entries[index].exportIPA = exportIPA }
+                        if let exportFramework { entries[index].exportFramework = exportFramework }
                         entries[index].destinationName = destinationName
                     }
                 } else {
                     if let target { entries[index].target = target }
                     if let packageAfter { entries[index].packageAfter = packageAfter }
                     if let exportIPA { entries[index].exportIPA = exportIPA }
+                    if let exportFramework { entries[index].exportFramework = exportFramework }
                     entries[index].destinationName = destinationName
                     entries[index].batch = batch
                 }
@@ -297,6 +308,7 @@ import NXCore
                 if locked == BuildTarget.mac {
                     entries[index].packageAfter = false
                     entries[index].exportIPA = nil
+                    entries[index].exportFramework = nil
                     entries[index].destinationName = nil
                 }
             }

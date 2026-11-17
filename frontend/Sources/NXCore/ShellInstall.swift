@@ -150,8 +150,8 @@ package enum ShellInstall {
     /// Copies the game's banner into its framework as banner.<ext>, the picture the shell's library shows: the player's own pick,
     /// else the eShop banner the launcher caches per title ID (ArtworkStore). The cache is only read. Without either, an older
     /// banner is removed and the library shows the framework's icon.png. Returns the picture used.
-    @discardableResult static func placeBanner(titleID: String, framework: String, banners: URL, picked: String?,
-                                               fm: FileManager = .default) -> String? {
+    @discardableResult package static func placeBanner(titleID: String, framework: String, banners: URL, picked: String?,
+                                                       fm: FileManager = .default) -> String? {
         let source = [picked, BannerCache.cached(titleID, in: banners)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
         for ext in ["png", "jpg", "jpeg", "heic", "webp"] { try? fm.removeItem(atPath: framework + "/banner." + ext) }
         guard let source else { return nil }

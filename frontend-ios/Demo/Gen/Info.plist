@@ -31,5 +31,7 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Saves square game icons to Photos so you can use them on the Home Screen.</string>
 </dict>
 </plist>

@@ -304,7 +304,7 @@ class Model(QObject):
         self.mac_app_path = ''
         self.target = 'ios'   # 'ios' (an IPA) or 'mac-app' (a double-clickable Mac app; macOS only)
         self.bc_on_cpu = False
-        self.ipa_kind = 'shared'   # 'shared' (shell.ipaShared) or 'oneGame' (shell.ipaOneGame)
+        self.ipa_kind = 'shared'   # 'shared' (shell.ipaShared), 'oneGame' (shell.ipaOneGame), or 'framework' (shell.ipaFramework)
         self.library = lib.GameLibrary()
         self.library.sync_ios_shell_state(self.shell_cache_path)
         self.artwork = lib.ArtworkStore(on_updated=lambda _tid: self._emit_library_changed())
@@ -2714,7 +2714,7 @@ class Model(QObject):
         dotnet_ok = self.dotnet_ok
         ipa_kind = self.ipa_kind
         mac_app = eff_target == 'mac-app'
-        use_shell_fw = not mac_app and ipa_kind == 'shared' and self.supports_shell_framework()
+        use_shell_fw = not mac_app and ipa_kind in ('shared', 'framework') and self.supports_shell_framework()
         drive_folder_snap = getattr(self, 'drive_folder', '')
         ext_img_clean = (external_img_path or '').strip()
 
@@ -2725,7 +2725,7 @@ class Model(QObject):
         self._fast_refresh_out_dir = out_d
         self._fast_refresh_game_name = resolved_game_name
         self._fast_refresh_external_img = ''
-        self._defer_shell_export = not export_shell_at_end
+        self._defer_shell_export = (not export_shell_at_end) if ipa_kind == 'shared' else False
         self.mac_app_path = self.ipa_path = self.archive_path = ''
         self.effective_work_dir = work_dir
         self._build_cancelled = False
@@ -2991,6 +2991,11 @@ class Model(QObject):
                         self.library.selected_id = tid
                         self.library.save()
                         self._emit_library_changed()
+                elif ipa_kind == 'framework':
+                    ok_pack, pack_note = self.pack_archive(tid, export_shell=False)
+                    if not ok_pack:
+                        return False, pack_note
+                    return self._export_standalone_framework(tid, out_dir=out_d, fallback_name=resolved_game_name)
                 elif ipa_kind != 'oneGame':
                     return self.pack_archive(tid, export_shell=use_shell_fw)
                 else:
@@ -3314,18 +3319,19 @@ class Model(QObject):
         self.ipa_path = self.archive_path = self.mac_app_path = ''
         mac_app = self.target == 'mac-app'
         self.effective_work_dir = work_dir if has_work_dir else str(Path(base_dir if folder is not None else input_dir, f'{tid_hex}_build'))
-        use_shell_fw = not mac_app and self.ipa_kind == 'shared' and self.supports_shell_framework()
+        use_shell_fw = not mac_app and self.ipa_kind in ('shared', 'framework') and self.supports_shell_framework()
         if mac_app:
             args += ['--platform', 'mac-app']
             self.mac_app_path = str(Path(self.out_dir or base_dir, f'{tid_hex}.app'))
             args += ['-o', self.mac_app_path]
         elif use_shell_fw:
-            from .win import shell_export as se
-            tpl = se.find_shell_template(self.engine_path, root=self.shell_cache_path, log=self.log)
-            if tpl is None or not (tpl / se.SCHEME).is_file():
-                self._fast_refresh_external_img = ''
-                self.finished.emit(False, self.t('shell.exportFailed', f'missing {se.APP_NAME} template'))
-                return
+            if self.ipa_kind == 'shared':
+                from .win import shell_export as se
+                tpl = se.find_shell_template(self.engine_path, root=self.shell_cache_path, log=self.log)
+                if tpl is None or not (tpl / se.SCHEME).is_file():
+                    self._fast_refresh_external_img = ''
+                    self.finished.emit(False, self.t('shell.exportFailed', f'missing {se.APP_NAME} template'))
+                    return
             sf_dir = Path(self.effective_work_dir, 'shell-framework')
             if sf_dir.is_dir():
                 for old_fw in sf_dir.glob('DmGame*.framework'):
@@ -3455,6 +3461,11 @@ class Model(QObject):
                 self.stagesChanged.emit()
                 if self.ipa_kind == 'oneGame' and not self.ipa_path:
                     self.ipa_path = self._resolve_one_game_ipa_path(base_dir, input_dir, tid_hex)
+                if self.ipa_kind == 'framework':
+                    ok_pack, pack_note = self.pack_archive(title_id, export_shell=False)
+                    if not ok_pack:
+                        return False, pack_note
+                    return self._export_standalone_framework(title_id)
                 if self.ipa_kind != 'oneGame':
                     return self.pack_archive(title_id, export_shell=use_shell_fw)
                 if not self.ipa_path:
@@ -4228,7 +4239,7 @@ class Model(QObject):
         return (
             not self.running
             and self.target == 'ios'
-            and self.ipa_kind != 'oneGame'
+            and self.ipa_kind == 'shared'
             and bool(self.repo_ok)
             and bool(self.built_shell_games())
         )
@@ -5043,6 +5054,78 @@ class Model(QObject):
             if tid.upper() in exported_ids:
                 pbc.clean_built_framework_container(fw)
         return ok, msg
+
+    def _export_standalone_framework(
+        self,
+        title_id: str | None = None,
+        *,
+        out_dir: str = '',
+        fallback_name: str = '',
+    ) -> tuple[bool, str]:
+        """Atomically export `DmGame<TID>.framework` to the output folder without building a shell IPA."""
+        import uuid
+        from .win import shell_export as se
+
+        work = getattr(self, 'effective_work_dir', '')
+        fw = se.built_framework(work)
+        tid = self._verified_title_id(work, (se.title_id_of_framework(fw) if fw else '') or (title_id or ''))
+        if fw is None:
+            fw = Path(work, 'shell-framework', f'DmGame{tid}.framework')
+        if not fw.is_dir():
+            folder = fw.parent.name or 'shell-framework'
+            game_name = fallback_name or tid
+            return False, self.t('shell.noFramework', game_name, folder)
+
+        tid_up = tid.strip().upper() if re.fullmatch(r'[0-9A-Fa-f]{16}', tid.strip()) else tid.strip()
+        target_out = out_dir or self.out_dir or (
+            self.game_folder.folder
+            if self.game_folder is not None
+            else (str(Path(self.base_path).parent) if self.base_path else '')
+        )
+        if not target_out:
+            target_out = str(Path(work).parent)
+        dest = Path(lib.game_framework_path(target_out, tid_up))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        suffix = uuid.uuid4().hex[:8]
+        tmp_dest = dest.parent / f'.{dest.name}.tmp-{suffix}'
+        old_dest = dest.parent / f'.{dest.name}.old-{suffix}'
+
+        def _remove_path(path: Path) -> None:
+            if os.path.islink(path) or os.path.isfile(path):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            elif os.path.lexists(path):
+                shutil.rmtree(path, ignore_errors=True)
+
+        replaced = False
+        try:
+            shutil.copytree(fw, tmp_dest, symlinks=True)
+            picked = self.artwork.custom_paths.get(tid_up)
+            se.place_banner(tid_up, str(tmp_dest), banners_dir=self.artwork.banners_dir, picked=picked)
+            if os.path.lexists(dest):
+                os.replace(dest, old_dest)
+            os.replace(tmp_dest, dest)
+            replaced = True
+        except (OSError, RuntimeError, ValueError) as e:
+            if os.path.lexists(old_dest):
+                _remove_path(dest)
+                try:
+                    os.replace(old_dest, dest)
+                except OSError:
+                    pass
+            return False, self.t('shell.exportFailed', str(e))
+        finally:
+            _remove_path(tmp_dest)
+            if replaced:
+                _remove_path(old_dest)
+
+        self.ipa_path = str(dest)
+        self._record_library_ios_completion(tid_up, name=fallback_name)
+        pbc.clean_work_dir(work, remove_extracted_romfs=False, remove_shell_framework=False)
+        pbc.clean_built_framework_container(fw)
+        return True, self.t('shell.frameworkExportDone', str(dest))
 
     def _record_library_ios_completion(self, title_id: str | None = None, name: str = '') -> None:
         inputs_map: dict[str, list[str]] = {}

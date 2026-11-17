@@ -33,14 +33,20 @@ package struct ExportSteps: View {
     private var toDrive: Bool { devices.sendWhere == SendWhere.drive }
     private var gameName: String { build.gameName }
     private var oneGame: Bool { devices.exportOneGame }
+    private var frameworkOnly: Bool { !oneGame && devices.exportFramework }
 
     package var body: some View {
-        let canExportBuilt = !oneGame && !build.running && build.exportsShell && !build.exportsOneGame
+        let canExportBuilt = !oneGame && !frameworkOnly && !build.running && build.exportsShell && !build.exportsOneGame && !build.exportsFramework
         let exportBuiltCount = canExportBuilt ? build.builtShellGames().count : 0
+        let step1TitleKey = frameworkOnly ? "shell.frameworkStep1Title" : "shell.step1Title"
+        let step1DoneKey = oneGame ? "shell.oneGameDone" : (frameworkOnly ? "shell.frameworkStep1Done" : "shell.step1Done")
+        let step1SubKey = oneGame ? "shell.oneGameSub" : (frameworkOnly ? "shell.frameworkStep1Sub" : "shell.step1Sub")
+        let step2TitleKey = frameworkOnly ? "shell.frameworkStep2Title" : "shell.step2Title"
+        let step2SubKey = oneGame ? "shell.oneGameStep2Sub" : (frameworkOnly ? "shell.frameworkStep2Sub" : "shell.step2Sub")
         VStack(spacing: 0) {
-            step(1, exported ? .done : .current, title: loc.t("shell.step1Title"),
-                 sub: exported ? String(format: loc.t(oneGame ? "shell.oneGameDone" : "shell.step1Done"), build.exportedIPAText)
-                               : loc.t(oneGame ? "shell.oneGameSub" : "shell.step1Sub")) {
+            step(1, exported ? .done : .current, title: loc.t(step1TitleKey),
+                 sub: exported ? String(format: loc.t(step1DoneKey), build.exportedIPAText)
+                               : loc.t(step1SubKey)) {
                 if exported {
                     HStack(spacing: ExportGrid.gap) {
                         if exportBuiltCount > 0 {
@@ -60,8 +66,8 @@ package struct ExportSteps: View {
                 }
             }
             CardDivider()
-            step(2, sentDone ? .done : exported ? .current : .upcoming, title: loc.t("shell.step2Title"),
-                 sub: loc.t(oneGame ? "shell.oneGameStep2Sub" : "shell.step2Sub")) { EmptyView() }
+            step(2, sentDone ? .done : exported ? .current : .upcoming, title: loc.t(step2TitleKey),
+                 sub: loc.t(step2SubKey)) { EmptyView() }
             if !oneGame { CardDivider(); sendStep }
         }
         .sheet(item: $selectSheetMode) { mode in

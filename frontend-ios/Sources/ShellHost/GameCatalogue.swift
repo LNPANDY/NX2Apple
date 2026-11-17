@@ -19,6 +19,24 @@ public struct HostEnvironment: Equatable, Sendable {
     }
 }
 
+/// Self-describing metadata parsed from a game framework's `Info.plist`.
+public struct FrameworkBundleInfo: Equatable, Sendable {
+    public var bundleIdentifier: String?
+    public var displayName: String?
+    public var shortVersionString: String?
+    public var titleID: String?
+    public var iconFile: String?
+
+    public init(bundleIdentifier: String? = nil, displayName: String? = nil, shortVersionString: String? = nil,
+                titleID: String? = nil, iconFile: String? = nil) {
+        self.bundleIdentifier = bundleIdentifier
+        self.displayName = displayName
+        self.shortVersionString = shortVersionString
+        self.titleID = titleID
+        self.iconFile = iconFile
+    }
+}
+
 /// One folder under `Games/`, read: what its files say, or why they could not be read.
 public struct CatalogueEntry: Equatable, Sendable, Identifiable {
     public var id: String
@@ -38,10 +56,22 @@ public struct CatalogueEntry: Equatable, Sendable, Identifiable {
     /// The game's framework folder: inside `directory` for a `Games/<title ID>/` bundle, `directory` itself for an
     /// embedded `<Name>.framework`. Nil while the manifest could not be read.
     public var frameworkURL: URL?
+    /// Metadata read from the framework's `Info.plist`, if present.
+    public var bundleInfo: FrameworkBundleInfo? = nil
     /// Set when the unsigned shared IPA externalized this framework's `msl/` shader tree alongside game data (#947).
     public var requiresExternalShaders: Bool = false
     /// The app bundle's same-chain framework when a hot-pushed stripped framework overrides it.
     public var fallbackBundledFrameworkURL: URL? = nil
+
+    /// Canonical identifier used for `nx2apple://launch?id=...` shortcuts: folder basename without `.framework`, fallback `id`.
+    public var shortcutFrameworkIdentifier: String {
+        let folder = directory.lastPathComponent
+        if folder.hasSuffix(".framework") {
+            let stem = String(folder.dropLast(".framework".count))
+            if !stem.isEmpty { return stem }
+        }
+        return id
+    }
 }
 
 /// Marker written last inside `Documents/Frameworks/.staging-<ID>-<token>/.ready` once every file of a hot-pushed
@@ -372,8 +402,15 @@ public enum GameCatalogue {
         let folder = fw.lastPathComponent
         let fallbackID = String(folder.dropLast(".framework".count))
         let manifestURL = fw.appendingPathComponent("game.manifest.json")
-        var entry = CatalogueEntry(id: fallbackID, directory: fw, bannerURL: image(named: "banner", in: fw, fm), iconURL: image(named: "icon", in: fw, fm))
-        entry.readableName = lenientName(in: manifestURL, fm)
+        let bundleInfo = readFrameworkBundleInfo(at: fw, fm)
+        var entry = CatalogueEntry(
+            id: fallbackID,
+            directory: fw,
+            bannerURL: image(named: "banner", in: fw, fm),
+            iconURL: frameworkIcon(in: fw, bundleInfo: bundleInfo, fm),
+            bundleInfo: bundleInfo
+        )
+        entry.readableName = lenientName(in: manifestURL, fm) ?? bundleInfo?.displayName
         do {
             guard let data = fm.contents(atPath: manifestURL.path) else {
                 throw GameProblem(cause: .manifestMissing, reason: hostText("Game manifest missing"), detail: hostText("\(folder) has no game.manifest.json."))
@@ -404,6 +441,68 @@ public enum GameCatalogue {
             logger.error("\(folder, privacy: .public): \(problem.reason, privacy: .public): \(problem.detail, privacy: .public)")
         }
         return entry
+    }
+
+    private static func readFrameworkBundleInfo(at fw: URL, _ fm: FileManager) -> FrameworkBundleInfo? {
+        let plistURL = fw.appendingPathComponent("Info.plist")
+        guard let data = fm.contents(atPath: plistURL.path),
+              let plist = (try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)) as? [String: Any] else {
+            return nil
+        }
+        func stringValue(_ key: String) -> String? {
+            guard let raw = plist[key] as? String else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        let info = FrameworkBundleInfo(
+            bundleIdentifier: stringValue("CFBundleIdentifier"),
+            displayName: stringValue("CFBundleDisplayName") ?? stringValue("CFBundleName"),
+            shortVersionString: stringValue("CFBundleShortVersionString"),
+            titleID: stringValue("DMTitleID"),
+            iconFile: stringValue("CFBundleIconFile")
+        )
+        if info.bundleIdentifier == nil && info.displayName == nil && info.shortVersionString == nil
+            && info.titleID == nil && info.iconFile == nil {
+            return nil
+        }
+        return info
+    }
+
+    private static func frameworkIcon(in fw: URL, bundleInfo: FrameworkBundleInfo?, _ fm: FileManager) -> URL? {
+        if let iconFile = bundleInfo?.iconFile, isSafeSingleFileComponent(iconFile) {
+            let direct = fw.appendingPathComponent(iconFile, isDirectory: false)
+            if isRegularIconFile(direct, inside: fw, fm) {
+                return direct
+            }
+            if (iconFile as NSString).pathExtension.isEmpty {
+                for ext in imageExtensions {
+                    let withExt = fw.appendingPathComponent("\(iconFile).\(ext)", isDirectory: false)
+                    if isRegularIconFile(withExt, inside: fw, fm) {
+                        return withExt
+                    }
+                }
+            }
+        }
+        return image(named: "AppIcon", in: fw, fm) ?? image(named: "icon", in: fw, fm)
+    }
+
+    private static func isSafeSingleFileComponent(_ name: String) -> Bool {
+        guard !name.isEmpty, name != ".", name != ".." else { return false }
+        if name.contains("/") || name.contains("\\") || name.contains(":") || name.contains("..") {
+            return false
+        }
+        if name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) {
+            return false
+        }
+        return true
+    }
+
+    private static func isRegularIconFile(_ url: URL, inside root: URL, _ fm: FileManager) -> Bool {
+        let resolvedParent = url.resolvingSymlinksInPath().deletingLastPathComponent().standardizedFileURL
+        let resolvedRoot = root.resolvingSymlinksInPath().standardizedFileURL
+        guard resolvedParent == resolvedRoot else { return false }
+        var isDir: ObjCBool = false
+        return fm.fileExists(atPath: url.path, isDirectory: &isDir) && !isDir.boolValue
     }
 
     /// The second framework with a title ID: broken, naming the one that was kept.

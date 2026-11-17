@@ -282,7 +282,9 @@ extension LauncherView {
                     engineID: stores.engineSync.selection.engineID,
                     target: m.target,
                     batch: batch,
-                    packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame
+                    packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame && !m.exportsFramework,
+                    exportIPA: (m.target != BuildTarget.mac && m.exportsShell) ? true : nil,
+                    exportFramework: m.exportsFramework ? true : nil
                 ))
             }
         }

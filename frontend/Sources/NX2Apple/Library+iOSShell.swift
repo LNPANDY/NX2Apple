@@ -175,7 +175,12 @@ extension LibraryGame {
         guard hasIOSBuild else { return false }
         if hasShellFramework || installedViaShellReceipt || shellIPAExists { return false }
         if hasIOSApp && ShellInstall.paths(ofApp: iosAppPath) != nil { return false }
-        if !ipaPath.isEmpty && (ipaPath as NSString).lastPathComponent.lowercased() == "nx2apple.ipa" { return false }
+        if !ipaPath.isEmpty {
+            let ipaURL = URL(fileURLWithPath: ipaPath)
+            if ipaURL.lastPathComponent.lowercased() == "nx2apple.ipa" || ipaURL.pathExtension.lowercased() == "framework" {
+                return false
+            }
+        }
         return true
     }
 }

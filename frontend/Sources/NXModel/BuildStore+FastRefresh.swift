@@ -150,7 +150,7 @@ extension BuildStore {
             return
         }
 
-        if !isMac, !exportsOneGame, let why = shellRootProblem() {
+        if !isMac, !exportsOneGame, !exportsFramework, let why = shellRootProblem() {
             fail(why)
             clearFastRefreshContext()
             return
@@ -439,6 +439,8 @@ extension BuildStore {
                         self.packArchive(workDir: self.effectiveWorkDir, titleID: outTID) { archive in
                             if self.deferShellPackaging {
                                 self.deferShellPackage(framework: fw, titleID: outTID, name: name, archive: archive)
+                            } else if self.exportsFramework {
+                                self.exportFrameworkBundle(framework: fw, titleID: outTID, name: name)
                             } else if self.exportsShell {
                                 self.exportShell(framework: fw, titleID: outTID, name: name)
                             } else {
