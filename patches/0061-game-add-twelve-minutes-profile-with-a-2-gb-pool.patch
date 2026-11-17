@@ -14,8 +14,9 @@ first load. A texture then reads a pool pointer of floats and the host
 crashes in nvn_sparse_pool. With 2 GB, 130 s on the Mac with the
 iPhone's alias size end at +3.51 GB, 2.27 GB mapped, no crash.
 
-Checked on an iPhone (past the first load) and on the Mac (title prompt
-and opening credits). Later chapters were not played.
+Checked on an iPhone Duo, iOS 27: played to every ending with no crash,
+hang or visible or audible problem. On the Mac: title prompt and
+opening credits.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
@@ -53,7 +54,7 @@ index 00000000..72015ddc
 @@ -0,0 +1,26 @@
 +# Twelve Minutes (`0100CD701434C000`)
 +
-+Base game 1.0.1 (v0), SDK 12.3.7. Unity 2019.4.31f1 IL2CPP with FMOD Studio on NVN. Modules `main`, `subsdk0` and `sdk`. On an iPhone (iPhone Duo, iOS 27): past the loading screen, into the opening. On the Mac: the title prompt and the opening credits; not played further.
++Base game 1.0.1 (v0), SDK 12.3.7. Unity 2019.4.31f1 IL2CPP with FMOD Studio on NVN. Modules `main`, `subsdk0` and `sdk`. Plays to every ending on an iPhone (iPhone Duo, iOS 27) with no crash, hang or visible or audible problem. On the Mac: the title prompt and the opening credits; not played further.
 +
 +## What it needs
 +
@@ -72,7 +73,7 @@ index 00000000..72015ddc
 +- The NPDM declares 16 MB of system resource, so `nninitStartup` hands application pool − used memory to StandardAllocator (`[mem] address region … returning to main+0x299150`).
 +- With the Switch's 3285 MB pool that region is 3.14 GB at +0.06 GB, and Unity's own regions go above it. With `DM_ALIAS_SIZE=0x118000000` on the Mac, and on the iPhone, the high-water mark reached +4.26 GB of 4.38 GB at the end of the first load, then `CRASH sig=11 pc=nvn_sparse_pool+0x4 lr=mtl_reg_tex+…` on a texture whose pool word held floats (`0xbdc33c27ffffffff`), from `UnityGfxDeviceWorker` (`main+0x29b774`).
 +- With a 2 GB pool the region is 1.94 GB, and 130 s on the Mac with the iPhone's alias size (title prompt, opening credits) end at +3.51 GB with at most 2.27 GB mapped and no crash. The iPhone build with this pool passes the same point.
-+- Not measured: later chapters. If one maps more than the pool allows, raise `app_pool` and check the high-water mark again.
++- On the iPhone the game was played through to every ending with this pool and no crash. The high-water mark after the opening was not measured.
 +
 +## Mac routes
 +
