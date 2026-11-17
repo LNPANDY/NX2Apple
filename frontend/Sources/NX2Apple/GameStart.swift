@@ -5,7 +5,7 @@ import NXLauncher
 
 /// What Play starts a Mac game with, in one place: the desktop launcher's Play button and the console mode both use it, so a
 /// game gets the same environment from either (the saved choices for an app that does not read them itself, the mods, the Controls
-/// page's layout for older builds, shared saved maps for capable builds, DM_PAD_MERGE, DM_SCREEN and DM_LAUNCHER=0). Console mode plays on a TV-sized screen with a controller, so it asks for
+/// page's layout for older builds, shared saved maps for capable builds, DM_PAD_MERGE, DM_SCREEN, DM_LAUNCHER=0 and the player's DM_NICK). Console mode plays on a TV-sized screen with a controller, so it asks for
 /// `fullscreen`, which forces DM_FULLSCREEN on whatever the game's Display setting says, and `homeMenu`, the Home menu's way back to it (#952).
 enum GameStart {
     @MainActor static func environment(for game: LibraryGame, library: GameLibrary, controls: ControlLayout, repo: String,
@@ -67,6 +67,8 @@ enum GameStart {
                 environment.merge(playerEnv) { $1 }
             }
         }
+        // The player's name as the game's user name (#1128): what a game shows for its Switch user, the default player's too once renamed
+        if let player { environment.merge(player.nicknameEnvironment(existing: environment)) { $1 } }
         return environment
     }
 

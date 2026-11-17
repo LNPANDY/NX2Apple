@@ -2312,6 +2312,7 @@
   "players.default": "玩家 1",
   "players.group": "玩家",
   "players.name": "名称",
+  "players.nameNote": "从这里启动的游戏会用玩家的名字作为你的名字。玩家 1 改名之前，游戏仍用它自己的名字。",
   "players.new": "新玩家…",
   "players.newNote": "新玩家的每个游戏都从空存档开始。云存档仍属于第一位玩家。",
   "players.newTitle": "新玩家",
