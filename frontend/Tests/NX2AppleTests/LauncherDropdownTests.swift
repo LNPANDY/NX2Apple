@@ -3,6 +3,7 @@ import XCTest
 @testable import NX2Apple
 @testable import NXCore
 @testable import NXLauncher
+@testable import NXModel
 
 final class LauncherDropdownTests: IsolatedDefaultsTestCase {
     private let window = CGSize(width: 1000, height: 700)
@@ -69,6 +70,42 @@ final class LauncherDropdownTests: IsolatedDefaultsTestCase {
         XCTAssertNil(LauncherDropdownLayout.step(from: nil, by: 1, count: 0))
     }
 
+    func testCustomPanelPlacementBelowAboveAndRightAligned() {
+        let rightButton = CGRect(x: 760, y: 120, width: 184, height: 36)
+        let below = LauncherDropdownLayout.placeCustom(button: rightButton, container: window, maxHeight: 260, width: 376)
+        XCTAssertTrue(below.opensBelow)
+        XCTAssertEqual(below.x + 376, rightButton.maxX)
+        XCTAssertEqual(below.topY, rightButton.maxY + LauncherDropdownLayout.gap)
+        XCTAssertEqual(below.maxHeight, 260)
+
+        let lowButton = CGRect(x: 760, y: 580, width: 184, height: 36)
+        let above = LauncherDropdownLayout.placeCustom(button: lowButton, container: window, maxHeight: 260, width: 376)
+        XCTAssertFalse(above.opensBelow)
+        XCTAssertEqual(above.bottomY, lowButton.minY - LauncherDropdownLayout.gap)
+        XCTAssertEqual(above.maxHeight, 260)
+    }
+
+    func testCustomAndStandardDropdownRequestsAreMutuallyExclusive() {
+        let state = LauncherDropdownState()
+        let reqID = UUID()
+        let customID = UUID()
+        state.request = LauncherDropdownRequest(id: reqID, options: [("a", "A")], selection: "a", label: "Test") { _ in }
+        XCTAssertEqual(state.request?.id, reqID)
+        XCTAssertNil(state.custom)
+
+        state.custom = LauncherCustomDropdown(id: customID, label: "Engine") { _ in AnyView(EmptyView()) }
+        XCTAssertNil(state.request)
+        XCTAssertEqual(state.custom?.id, customID)
+
+        state.request = LauncherDropdownRequest(id: reqID, options: [("a", "A")], selection: "a", label: "Test") { _ in }
+        XCTAssertEqual(state.request?.id, reqID)
+        XCTAssertNil(state.custom)
+
+        state.close()
+        XCTAssertNil(state.request)
+        XCTAssertNil(state.custom)
+    }
+
     /// Opt-in native rendering for pull request screenshots (NX_LAUNCHER_CAPTURE_DIR): the Settings language row with its list open.
     @MainActor func testRenderDropdownForScreenshots() throws {
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
@@ -108,5 +145,67 @@ final class LauncherDropdownTests: IsolatedDefaultsTestCase {
         host.cacheDisplay(in: host.bounds, to: rep)
         try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("dropdown-settings.png"))
         window.orderOut(nil)
+    }
+
+    /// Opt-in native rendering for PR visual QA (`NX_LAUNCHER_CAPTURE_DIR`): captures Builds page with collapsed row,
+    /// open dropdown (uninstalled), and open dropdown (downloading + Cancel) across `en`/`zh` and `light`/`dark`.
+    @MainActor func testRenderLauncherForVisualQAEngineDropdown() throws {
+        guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
+        let output = URL(fileURLWithPath: directory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        NSApplication.shared.setActivationPolicy(.accessory)
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("nx-engine-dropdown-qa-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let prevMNG = MacNativeGamesBuilder.featureEnabled
+        let prevS2 = S2ArmBuilder.featureEnabled
+        MacNativeGamesBuilder.featureEnabled = true
+        S2ArmBuilder.featureEnabled = true
+        defer {
+            MacNativeGamesBuilder.featureEnabled = prevMNG
+            S2ArmBuilder.featureEnabled = prevS2
+        }
+
+        let stores = LauncherStores(defaults: testDefaults)
+        stores.dependencies.checked = true
+        stores.build.home = tempDir.path
+        let library = GameLibrary(file: tempDir.appendingPathComponent("library.json"))
+        library.applicationFolders = []
+        let size = NSSize(width: 1280, height: 860)
+
+        func capture(name: String, openDropdown: Bool, light: Bool) throws {
+            let root = LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false)
+                .environment(\.engineDropdownInitiallyOpen, openDropdown)
+                .frame(width: size.width, height: size.height)
+            let host = NSHostingView(rootView: root)
+            let window = OffscreenWindow(size: size, styleMask: [.titled, .closable, .resizable, .fullSizeContentView])
+            window.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+            window.contentView = host
+            window.orderFront(nil)
+            defer { window.orderOut(nil); window.contentView = nil; window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.55))
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(name + ".png"))
+        }
+
+        for (code, lang) in [("en", Lang.en), ("zh", Lang.zh)] {
+            stores.build.lang = lang
+            stores.localizer.lang = lang
+            for light in [true, false] {
+                let scheme = light ? "light" : "dark"
+                stores.build.upstreamDownloads = [:]
+                try capture(name: "builds-engine-collapsed-\(code)-\(scheme)", openDropdown: false, light: light)
+                try capture(name: "builds-engine-open-uninstalled-\(code)-\(scheme)", openDropdown: true, light: light)
+                stores.build.upstreamDownloads = [
+                    .s2arm: .downloading(fraction: 0.42, progressText: "38.6 / 92.0 MB (42%)")
+                ]
+                try capture(name: "builds-engine-open-downloading-\(code)-\(scheme)", openDropdown: true, light: light)
+                stores.build.upstreamDownloads = [:]
+            }
+        }
     }
 }

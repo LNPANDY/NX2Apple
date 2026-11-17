@@ -6,6 +6,7 @@ import Foundation
 package struct UpstreamEngineStore: Sendable {
     package enum Failure: Error, Equatable, Sendable {
         case unsupportedKind
+        case cancelled
         case download
         case unpack
         case incomplete
@@ -66,9 +67,16 @@ package struct UpstreamEngineStore: Sendable {
     }
 
     @discardableResult
-    package func install(zip: URL, kind: EngineUpstreamKind) throws -> URL {
+    package func install(
+        zip: URL,
+        kind: EngineUpstreamKind,
+        shouldCancel: (@Sendable () -> Bool)? = nil
+    ) throws -> URL {
         guard let dest = directory(for: kind) else {
             throw Failure.unsupportedKind
+        }
+        if shouldCancel?() == true {
+            throw Failure.cancelled
         }
         let fm = FileManager.default
         let tmp = root.appendingPathComponent(".tmp-" + UUID().uuidString, isDirectory: true)
@@ -89,7 +97,20 @@ package struct UpstreamEngineStore: Sendable {
         } catch {
             throw Failure.unpack
         }
+        if let shouldCancel {
+            while ditto.isRunning {
+                if shouldCancel() {
+                    ditto.terminate()
+                    ditto.waitUntilExit()
+                    throw Failure.cancelled
+                }
+                Thread.sleep(forTimeInterval: 0.025)
+            }
+        }
         ditto.waitUntilExit()
+        if shouldCancel?() == true {
+            throw Failure.cancelled
+        }
         guard ditto.terminationStatus == 0 else {
             throw Failure.unpack
         }
@@ -126,6 +147,10 @@ package struct UpstreamEngineStore: Sendable {
             }
         }
 
+        if shouldCancel?() == true {
+            throw Failure.cancelled
+        }
+
         try? fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         let backup = root.appendingPathComponent(".old-" + kind.rawValue + "-" + UUID().uuidString, isDirectory: true)
         let hadExisting = fm.fileExists(atPath: dest.path)
@@ -158,24 +183,31 @@ package struct UpstreamEngineStore: Sendable {
     package func downloadAndInstall(
         kind: EngineUpstreamKind,
         transport: EngineTransport,
+        shouldCancel: (@Sendable () -> Bool)? = nil,
         onProgress: (@Sendable (Int64, Int64?) -> Void)? = nil,
         onExtracting: (@Sendable () -> Void)? = nil
     ) -> Result<URL, Failure> {
         guard let url = Self.archiveURL(for: kind) else {
             return .failure(.unsupportedKind)
         }
+        if shouldCancel?() == true {
+            return .failure(.cancelled)
+        }
         let fm = FileManager.default
         try? fm.createDirectory(at: root, withIntermediateDirectories: true)
         let zipFile = root.appendingPathComponent(".download-" + UUID().uuidString + ".zip")
         defer { try? fm.removeItem(at: zipFile) }
 
-        let ok = transport.download(from: url, to: zipFile, progress: onProgress)
+        let ok = transport.download(from: url, to: zipFile, progress: onProgress, shouldCancel: shouldCancel)
+        if shouldCancel?() == true {
+            return .failure(.cancelled)
+        }
         guard ok else {
             return .failure(.download)
         }
         onExtracting?()
         do {
-            return .success(try install(zip: zipFile, kind: kind))
+            return .success(try install(zip: zipFile, kind: kind, shouldCancel: shouldCancel))
         } catch let err as Failure {
             return .failure(err)
         } catch {

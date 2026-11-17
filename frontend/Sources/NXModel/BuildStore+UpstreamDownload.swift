@@ -24,7 +24,28 @@ package enum UpstreamInstallState: Equatable, Sendable {
     }
 }
 
+private final class UpstreamCancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+}
+
 extension BuildStore {
+    package var availableUpstreams: [EngineUpstreamKind] {
+        EngineUpstream.availableOnMac()
+    }
+
     package var upstreamsRootURL: URL {
         UpstreamEngineStore.root(forHome: home)
     }
@@ -88,38 +109,66 @@ extension BuildStore {
         }
     }
 
+    package func cancelUpstreamDownload(_ kind: EngineUpstreamKind) {
+        upstreamDownloadGeneration[kind, default: 0] &+= 1
+        upstreamDownloadTasks.removeValue(forKey: kind)?.cancel()
+        upstreamDownloads.removeValue(forKey: kind)
+    }
+
     @discardableResult
     package func downloadUpstream(_ kind: EngineUpstreamKind) -> Task<Void, Never> {
         guard kind != .nxnative, !running else { return Task {} }
         if kind == .macNativeGames && !MacNativeGamesBuilder.featureEnabled { return Task {} }
         if kind == .s2arm && !S2ArmBuilder.featureEnabled { return Task {} }
-        if upstreamDownloads[kind]?.isBusy == true { return Task {} }
+        if upstreamDownloads[kind]?.isBusy == true {
+            return upstreamDownloadTasks[kind] ?? Task {}
+        }
 
+        let gen = (upstreamDownloadGeneration[kind] ?? 0) &+ 1
+        upstreamDownloadGeneration[kind] = gen
         upstreamDownloads[kind] = .downloading(fraction: nil, progressText: "")
         let store = UpstreamEngineStore(root: upstreamsRootURL)
         let transport = upstreamTransport
+        let cancelFlag = UpstreamCancelFlag()
 
-        return Task { [weak self] in
-            let result = await Task.detached {
-                store.downloadAndInstall(
-                    kind: kind,
-                    transport: transport,
-                    onProgress: { written, expected in
-                        let formatted = EngineUpdate.formatDownloadProgress(written: written, expected: expected)
-                        hop {
-                            guard self?.upstreamDownloads[kind]?.isBusy == true else { return }
-                            self?.upstreamDownloads[kind] = .downloading(fraction: formatted.fraction, progressText: formatted.text)
+        let task = Task { [weak self] in
+            let result = await withTaskCancellationHandler {
+                await Task.detached {
+                    store.downloadAndInstall(
+                        kind: kind,
+                        transport: transport,
+                        shouldCancel: { cancelFlag.isCancelled },
+                        onProgress: { written, expected in
+                            guard !cancelFlag.isCancelled else { return }
+                            let formatted = EngineUpdate.formatDownloadProgress(written: written, expected: expected)
+                            hop {
+                                guard let self,
+                                      self.upstreamDownloadGeneration[kind] == gen,
+                                      !cancelFlag.isCancelled,
+                                      self.upstreamDownloads[kind]?.isBusy == true else { return }
+                                self.upstreamDownloads[kind] = .downloading(fraction: formatted.fraction, progressText: formatted.text)
+                            }
+                        },
+                        onExtracting: {
+                            guard !cancelFlag.isCancelled else { return }
+                            hop {
+                                guard let self,
+                                      self.upstreamDownloadGeneration[kind] == gen,
+                                      !cancelFlag.isCancelled else { return }
+                                self.upstreamDownloads[kind] = .extracting
+                            }
                         }
-                    },
-                    onExtracting: {
-                        hop {
-                            self?.upstreamDownloads[kind] = .extracting
-                        }
-                    }
-                )
-            }.value
+                    )
+                }.value
+            } onCancel: {
+                cancelFlag.cancel()
+            }
 
-            guard let self else { return }
+            guard let self,
+                  self.upstreamDownloadGeneration[kind] == gen,
+                  !Task.isCancelled,
+                  !cancelFlag.isCancelled else { return }
+            self.upstreamDownloadTasks.removeValue(forKey: kind)
             switch result {
             case .success(let url):
                 switch kind {
@@ -131,10 +180,18 @@ extension BuildStore {
                     self.s2armPath = url.path
                 }
                 self.upstreamDownloads.removeValue(forKey: kind)
+                if !self.running {
+                    self.selectUpstream(kind)
+                    self.upstreamAutoSwitchRevision &+= 1
+                }
+            case .failure(.cancelled):
+                self.upstreamDownloads.removeValue(forKey: kind)
             case .failure(let err):
                 let reason: UpstreamInstallState.FailureReason = err == .download ? .download : .extract
                 self.upstreamDownloads[kind] = .failed(reason)
             }
         }
+        upstreamDownloadTasks[kind] = task
+        return task
     }
 }

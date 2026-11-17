@@ -246,17 +246,43 @@ package protocol EngineTransport {
     func download(from url: URL, to destination: URL) -> Bool
     /// Download to `destination`, reporting `(writtenBytes, expectedBytes)` as chunks arrive.
     func download(from url: URL, to destination: URL, progress: (@Sendable (Int64, Int64?) -> Void)?) -> Bool
+    /// Download to `destination` with optional progress reporting and cooperative cancellation.
+    func download(
+        from url: URL,
+        to destination: URL,
+        progress: (@Sendable (Int64, Int64?) -> Void)?,
+        shouldCancel: (@Sendable () -> Bool)?
+    ) -> Bool
 }
 
 extension EngineTransport {
     package func download(from url: URL, to destination: URL, progress: (@Sendable (Int64, Int64?) -> Void)?) -> Bool {
         download(from: url, to: destination)
     }
+
+    package func download(
+        from url: URL,
+        to destination: URL,
+        progress: (@Sendable (Int64, Int64?) -> Void)?,
+        shouldCancel: (@Sendable () -> Bool)?
+    ) -> Bool {
+        if shouldCancel?() == true { return false }
+        let ok = download(from: url, to: destination, progress: { written, expected in
+            guard shouldCancel?() != true else { return }
+            progress?(written, expected)
+        })
+        if shouldCancel?() == true {
+            try? FileManager.default.removeItem(at: destination)
+            return false
+        }
+        return ok
+    }
 }
 
 private final class EngineDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let destination: URL
     private let progress: (@Sendable (Int64, Int64?) -> Void)?
+    private let shouldCancel: (@Sendable () -> Bool)?
     private let done: @Sendable (Bool) -> Void
     private let lock = NSLock()
     private var movedOK = false
@@ -265,10 +291,12 @@ private final class EngineDownloadDelegate: NSObject, URLSessionDownloadDelegate
     init(
         destination: URL,
         progress: (@Sendable (Int64, Int64?) -> Void)?,
+        shouldCancel: (@Sendable () -> Bool)? = nil,
         done: @escaping @Sendable (Bool) -> Void
     ) {
         self.destination = destination
         self.progress = progress
+        self.shouldCancel = shouldCancel
         self.done = done
     }
 
@@ -279,11 +307,21 @@ private final class EngineDownloadDelegate: NSObject, URLSessionDownloadDelegate
         totalBytesWritten: Int64,
         totalBytesExpectedToWrite: Int64
     ) {
+        if shouldCancel?() == true {
+            downloadTask.cancel()
+            return
+        }
         let expected = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil
         progress?(totalBytesWritten, expected)
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        if shouldCancel?() == true {
+            lock.lock()
+            movedOK = false
+            lock.unlock()
+            return
+        }
         let ok: Bool
         if (downloadTask.response as? HTTPURLResponse)?.statusCode == 200 {
             ok = (try? FileManager.default.moveItem(at: location, to: destination)) != nil
@@ -302,7 +340,7 @@ private final class EngineDownloadDelegate: NSObject, URLSessionDownloadDelegate
             return
         }
         finished = true
-        let ok = error == nil && movedOK
+        let ok = error == nil && movedOK && (shouldCancel?() != true)
         lock.unlock()
         done(ok)
     }
@@ -333,11 +371,21 @@ package struct URLSessionEngineTransport: EngineTransport {
     }
 
     package func download(from url: URL, to destination: URL) -> Bool {
-        download(from: url, to: destination, progress: nil)
+        download(from: url, to: destination, progress: nil, shouldCancel: nil)
     }
 
     package func download(from url: URL, to destination: URL, progress: (@Sendable (Int64, Int64?) -> Void)?) -> Bool {
-        guard progress != nil else {
+        download(from: url, to: destination, progress: progress, shouldCancel: nil)
+    }
+
+    package func download(
+        from url: URL,
+        to destination: URL,
+        progress: (@Sendable (Int64, Int64?) -> Void)?,
+        shouldCancel: (@Sendable () -> Bool)?
+    ) -> Bool {
+        if shouldCancel?() == true { return false }
+        guard progress != nil || shouldCancel != nil else {
             var ok = false
             let sem = DispatchSemaphore(value: 0)
             session.downloadTask(with: url) { local, response, _ in
@@ -360,7 +408,7 @@ package struct URLSessionEngineTransport: EngineTransport {
         }
         let box = OutcomeBox()
         let sem = DispatchSemaphore(value: 0)
-        let delegate = EngineDownloadDelegate(destination: destination, progress: progress) { succeeded in
+        let delegate = EngineDownloadDelegate(destination: destination, progress: progress, shouldCancel: shouldCancel) { succeeded in
             box.set(succeeded)
             sem.signal()
         }
@@ -369,8 +417,23 @@ package struct URLSessionEngineTransport: EngineTransport {
         c.timeoutIntervalForRequest = 60
         let streamSession = URLSession(configuration: c, delegate: delegate, delegateQueue: nil)
         defer { streamSession.finishTasksAndInvalidate() }
-        streamSession.downloadTask(with: url).resume()
-        sem.wait()
+        let task = streamSession.downloadTask(with: url)
+        task.resume()
+        if let shouldCancel {
+            while sem.wait(timeout: .now() + .milliseconds(40)) == .timedOut {
+                if shouldCancel() {
+                    task.cancel()
+                    sem.wait()
+                    break
+                }
+            }
+        } else {
+            sem.wait()
+        }
+        if shouldCancel?() == true {
+            try? FileManager.default.removeItem(at: destination)
+            return false
+        }
         return box.ok
     }
 }
