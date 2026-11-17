@@ -1881,6 +1881,7 @@
   "players.default": "Jugador 1",
   "players.group": "Jugadores",
   "players.name": "Nombre",
+  "players.nameNote": "Los juegos que se inician desde aquí usan el nombre del jugador como el tuyo. Jugador 1 conserva el nombre del juego hasta que lo renombres.",
   "players.new": "Nuevo jugador…",
   "players.newNote": "Un jugador nuevo empieza cada juego sin partida guardada. El guardado en la nube se queda con el primer jugador.",
   "players.newTitle": "Nuevo jugador",

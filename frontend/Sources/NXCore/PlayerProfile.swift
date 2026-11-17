@@ -41,6 +41,36 @@ package struct PlayerProfile: Codable, Equatable, Identifiable, Sendable {
             .appendingPathComponent(base.lastPathComponent)
     }
 
+    /// The most the engine keeps of a nickname: `nn::account::Nickname` holds 32 bytes of UTF-8 and a terminator
+    /// (dm/host/hle_account.c copies at most 32 bytes of `DM_NICK`).
+    package static let nicknameBytes = 32
+
+    /// The name the game shows for its user (`nn::account::GetNickname`), from the player's name: control characters and line
+    /// breaks become spaces, and it is cut to `nicknameBytes` on a character boundary, so the engine never cuts a character in
+    /// half. nil for the default player not yet renamed: the game keeps the engine's "Player".
+    package var nickname: String? {
+        var cleaned = ""
+        for character in name {
+            cleaned.append(character.unicodeScalars.contains { CharacterSet.controlCharacters.union(.newlines).contains($0) } ? " " : character)
+        }
+        cleaned = cleaned.trimmingCharacters(in: .whitespaces)
+        guard !cleaned.isEmpty else { return nil }
+        var cut = ""
+        for character in cleaned {
+            guard cut.utf8.count + String(character).utf8.count <= Self.nicknameBytes else { break }
+            cut.append(character)
+        }
+        cut = cut.trimmingCharacters(in: .whitespaces)
+        return cut.isEmpty ? nil : cut
+    }
+
+    /// `DM_NICK` for Play: the player's `nickname` (#1128), also for the default player once renamed. A `DM_NICK` already in
+    /// `existing` (a launch option) is left to it, and a player without a nickname adds nothing.
+    package func nicknameEnvironment(existing: [String: String] = [:]) -> [String: String] {
+        guard existing["DM_NICK"] == nil, let nickname else { return [:] }
+        return ["DM_NICK": nickname]
+    }
+
     /// What Play adds to the game's environment for this player, given the game's usual save folder (SaveTransfer.macSave):
     /// - `DM_SAVE`: the player's folder.
     /// - `DM_PSO_USER`: the game's shared `pso_user.tsv` (nvn_mtl.m puts it beside `DM_SAVE` otherwise), so what the game learned

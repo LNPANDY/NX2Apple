@@ -1882,6 +1882,7 @@
   "players.default": "Spieler 1",
   "players.group": "Spieler",
   "players.name": "Spielername",
+  "players.nameNote": "Von hier gestartete Spiele verwenden den Namen des Spielers als deinen. Spieler 1 behält den Namen des Spiels, bis du ihn umbenennst.",
   "players.new": "Neuer Spieler …",
   "players.newNote": "Ein neuer Spieler beginnt jedes Spiel mit einem leeren Spielstand. Cloud-Spielstände bleiben beim ersten Spieler.",
   "players.newTitle": "Neuer Spieler",

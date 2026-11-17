@@ -1881,6 +1881,7 @@
   "players.default": "Spelare 1",
   "players.group": "Spelare",
   "players.name": "Namn",
+  "players.nameNote": "Spel som startas härifrån använder spelarens namn som ditt. Spelare 1 behåller spelets eget namn tills du byter namn.",
   "players.new": "Ny spelare…",
   "players.newNote": "En ny spelare börjar varje spel med en tom sparfil. Molnsparfiler stannar hos den första spelaren.",
   "players.newTitle": "Ny spelare",

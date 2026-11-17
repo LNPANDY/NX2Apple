@@ -3,7 +3,8 @@ import NXCore
 import NXModel
 
 /// Settings > Library > Players: one row per player with Rename and Remove, and Add player below. A player is a save folder
-/// (PlayerProfile), so the note says what a second player does and does not get: cloud saves stay with the first player.
+/// (PlayerProfile), so the note says what a second player does and does not get: cloud saves stay with the first player. It
+/// also says that games show the player's name (DM_NICK, #1128).
 package struct PlayersCard: View {
     @ObservedObject var players: PlayerProfileStore
     @EnvironmentObject var loc: Localizer
@@ -18,7 +19,7 @@ package struct PlayersCard: View {
     package init(players: PlayerProfileStore) { self.players = players }
 
     package var body: some View {
-        CardGroup(loc.t("players.group"), footnote: loc.t("players.cloudNote")) {
+        CardGroup(loc.t("players.group"), footnote: loc.t("players.cloudNote") + " " + loc.t("players.nameNote")) {
             ForEach(Array(players.profiles.enumerated()), id: \.element.id) { index, profile in
                 if index > 0 { CardDivider() }
                 let name = players.displayName(profile)

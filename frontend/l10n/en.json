@@ -1880,6 +1880,7 @@
   "players.default": "Player 1",
   "players.group": "Players",
   "players.name": "Name",
+  "players.nameNote": "Games started from here use the player's name as yours. Player 1 keeps the game's own name until renamed.",
   "players.new": "New player…",
   "players.newNote": "A new player starts every game with an empty save. Cloud saves stay with the first player.",
   "players.newTitle": "New player",
