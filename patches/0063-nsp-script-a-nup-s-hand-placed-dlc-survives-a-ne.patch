@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HC <hcbille@gmail.com>
+Date: Tue, 17 Nov 2026 21:27:35 +0100
+Subject: [PATCH] nsp script: a NUP's hand-placed DLC survives a new extraction
+ and the launcher's cleanup
+
+The Mac launcher removes the build folder's aoc/ after every build (PostBuildCleanup), and a new nxb-extract run swapped its own empty aoc/ in, so the DLC image placed there by hand was gone at the next build. A NUP that lists no DLC now also takes the images in aoc/ beside the .nup, and the swap keeps the hand-placed images.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#2905
+Reason: The Mac launcher's cleanup removed a NUP build's hand-placed DLC image (Pokemon Pokopia), and a new NUP extraction replaced it
+Issue: none
+
+---
+ dm/tools/tests/test_nsp_nup.py |  7 +++++++
+ scripts/build_ipa_from_nsp.py  | 12 +++++++++++-
+ 2 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/dm/tools/tests/test_nsp_nup.py b/dm/tools/tests/test_nsp_nup.py
+index 5bbfee7..d0337e0 100644
+--- a/dm/tools/tests/test_nsp_nup.py
++++ b/dm/tools/tests/test_nsp_nup.py
+@@ -1,5 +1,6 @@
+ """NSP script with a NUP container (scripts/pack_nup.py): the container is read and checked, its versions and DLC packed into what the script's later steps read, its control data saved,
+ and the script asks for no keys. The NUPs are written here (SPEC v1, https://github.com/a55uka/nup). The run stops at the prerequisite check; no game files, keys or Xcode needed."""
++import types
+ import hashlib
+ import importlib.util
+ import json
+@@ -545,6 +546,12 @@ class Pack(Base):
+         self.assertIsNone(nsp.extract_aoc('nx', 'keys', REPO, work, TID, fam, work / 'logs'))
+         self.assertIsNone(nsp.extract_aoc('nx', 'keys', REPO, work, TID, {'dlc': []}, work / 'logs'))   # not a NUP: unchanged
+ 
++    def test_hand_placed_aoc_beside_the_nup_survives_the_cleanup(self):   # the launcher removes <build>/aoc after a build; aoc/ beside the .nup is copied in again
++        work = self.out(); game = self.dir / 'game'; (game / 'aoc').mkdir(parents=True); (game / 'aoc' / '1.img').write_bytes(b'marker')
++        fam = {'dlc': [], 'nup': types.SimpleNamespace(path=game / 'x.nup')}
++        self.assertEqual(nsp.extract_aoc('nx', 'keys', REPO, work, TID, fam, work / 'logs'), work / 'aoc')
++        self.assertEqual((work / 'aoc' / '1.img').read_bytes(), b'marker')
++
+     def test_nsp_dlc_not_reused_after_nup(self):   # the NUP packs into the aoc/ the NSP extraction keyed: the same NSPs again extract again
+         n = self.open(); app, _, _, dlc = pack_nup.scan(n)
+         work, logs, p = self.out(), self.out() / 'logs', self.dir / 'dlc.nsp'
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 412ecff..64e0e42 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -588,7 +588,11 @@ def nxb_extract_nup(ex, name, k, base, app, n, marker):
+         except (OSError, ValueError, struct.error): whole = said = False
+         if whole and said:
+             swap_in(out, dst)
+-            if (scratch / 'aoc').is_dir() and n.path not in _nxb_nups: swap_in(scratch / 'aoc', work / 'aoc')   # the images are the same in every version's run
++            if (scratch / 'aoc').is_dir() and n.path not in _nxb_nups:   # the images are the same in every version's run
++                if not any((scratch / 'aoc').glob('*.img')) and (work / 'aoc').is_dir():   # a NUP with no DLC: keep the images placed in aoc/ by hand (extract_aoc)
++                    for p in (work / 'aoc').glob('*.img'):
++                        if not p.with_name(p.name + '.inputs.json').exists(): shutil.copy2(p, scratch / 'aoc' / p.name)
++                swap_in(scratch / 'aoc', work / 'aoc')
+             _nxb_nups.add(n.path)
+             keyfile.write_text(key + '\n')
+             rmtree(scratch)
+@@ -1705,6 +1709,12 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
+     and aoc/ holds the files that extraction wrote (names, sizes and times): a NUP or a dump folder packs its DLC into the same aoc/"""
+     if not fam['dlc']:
+         if fam.get('nup'):   # a NUP that lists no DLC (Pokemon Pokopia's) keeps the images the player put in aoc/ by hand: the ones the packer made have an .inputs.json beside them
++            beside = Path(getattr(fam['nup'], 'path', None) or work).parent / 'aoc'   # aoc/ beside the .nup: the launcher's cleanup after a build removes the build folder's aoc/, never this one
++            if beside.is_dir() and beside.resolve() != (work / 'aoc').resolve():
++                for p in sorted(beside.glob('*.img')):
++                    d = work / 'aoc' / p.name
++                    if p.is_file() and not (d.is_file() and d.stat().st_size == p.stat().st_size and d.stat().st_mtime_ns == p.stat().st_mtime_ns):
++                        d.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(p, d)
+             mine = sorted(p for p in (work / 'aoc').glob('*.img') if p.is_file() and not p.with_name(p.name + '.inputs.json').exists()) if (work / 'aoc').is_dir() else []
+             if mine: say(f'DLC from aoc/ placed by hand: {", ".join(p.name for p in mine)}'); return work / 'aoc'
+         return None
