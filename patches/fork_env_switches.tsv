@@ -42,3 +42,5 @@ DM_TOUCH_LAYOUT	player	The player's per-layout touch-control arrangement, encode
 DM_TOUCH_SIZE	player	iOS touch-control size: small, medium (default) or large. Controls move toward medium when the requested size does not fit
 DM_TOUCH_STICK	player	iOS left touch-stick position: corner (default), higher or inward
 DM_UI_HOLD	test	When set, keeps the controller mapping test window open for 60 seconds after its UI screenshot for manual inspection
+DM_XUSB	switch	`0` stops reading wired Xbox 360 and Xbox One pads over USB, which macOS has no driver for and GameController does not list (`pad_xusb_mac.h`); Mac only
+DM_XUSB_LOG	diagnostic	`1` logs each report of such a pad that changes (`pad_xusb_mac.h`); Mac only
