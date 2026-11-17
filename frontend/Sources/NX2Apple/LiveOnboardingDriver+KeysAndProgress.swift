@@ -7,7 +7,7 @@ import NXModel
 extension LiveOnboardingDriver {
     // MARK: Background progress and installs
 
-    private static let handledDepIDs: Set<String> = ["xcode", "metal", "python", "dotnet"]
+    private static let handledDepIDs: Set<String> = ["xcode", "metal", "python"]
 
     func bindProgressStreams() {
         Publishers.CombineLatest(stores.dependencies.$installProgress, stores.dependencies.$installDetail)
@@ -30,7 +30,6 @@ extension LiveOnboardingDriver {
     func deps(for task: OnboardingBackgroundTask) -> [Dep] {
         switch task {
         case .python: return stores.dependencies.deps.filter { $0.id == "python" }
-        case .dotnet: return stores.dependencies.deps.filter { $0.id == "dotnet" }
         case .tools: return stores.dependencies.deps.filter { !Self.handledDepIDs.contains($0.id) }
         }
     }
@@ -88,8 +87,8 @@ extension LiveOnboardingDriver {
         return (min(max(combined, 0), 1), "\(label) (\(doneCount + 1)/\(rows.count))")
     }
 
-    /// One install at a time, in the order Python, .NET, tools. Homebrew and its formulas need Xcode's command line tools,
-    /// so they wait for Xcode to be ready. The other two start at once.
+    /// One install at a time, in the order Python, tools. Homebrew and its formulas need Xcode's command line tools,
+    /// so they wait for Xcode to be ready. Python starts at once.
     func pumpInstalls() {
         guard installApproved, backgroundStarted, stores.dependencies.checked, currentInstall == nil, state.exit == nil else { return }
         for task in OnboardingBackgroundTask.allCases {

@@ -43,4 +43,10 @@ final class DotnetDetectionTests: XCTestCase {
         XCTAssertTrue(Toolchain.dotnetHasSDK10("/home/.dotnet/dotnet", runner: runner))
         XCTAssertEqual(runner.launches.first?.environment?["DOTNET_ROOT"], "/home/.dotnet")
     }
+
+    /// #1404: the engine's extractor and shader translator are native executables, so the tools panel asks for no .NET SDK
+    /// and a Mac without one is ready to build.
+    func testTheToolsPanelHasNoDotnetRow() {
+        XCTAssertFalse(DependencyCheck.detect(needsIOS: false).contains { $0.id == "dotnet" })
+    }
 }

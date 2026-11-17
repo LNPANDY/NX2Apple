@@ -533,10 +533,10 @@ enum OnboardingLaunch {
 
     /// Rough room the setup takes, not a measurement: Xcode when it is missing (about 3 GB to download, about 12 GB installed,
     /// and the room twice over while it unpacks: 15), the Metal Toolchain (about 1), the iOS platform when the player plays
-    /// on an iPhone (about 8, as the Platform step says), and the tools, Python packages, .NET SDK and caches (about 4).
+    /// on an iPhone (about 8, as the Platform step says), and the tools, Python packages and caches (about 3).
     /// Platform is not chosen yet at Welcome, so it counts the Mac only; choosePlatform computes it again.
     nonisolated static func neededGB(xcodeMissing: Bool, includesIOS: Bool) -> Int {
-        (xcodeMissing ? 15 : 0) + 1 + (includesIOS ? 8 : 0) + 4
+        (xcodeMissing ? 15 : 0) + 1 + (includesIOS ? 8 : 0) + 3
     }
 
     func updateWelcome() {

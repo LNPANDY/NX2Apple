@@ -27,7 +27,8 @@ package enum DependencyCheck {
         return dep
     }
 
-    /// The dotnet installer's command (into ~/.dotnet, where `Toolchain.findDotnet` looks).
+    /// The dotnet installer's command (into ~/.dotnet, where `Toolchain.findDotnet` looks). No row of the panel has it: it is the
+    /// fix of the build failure "the shader translator does not run" (`BuildStore.fixBuildFailure`).
     package static let dotnetInstallCmd = ["/bin/bash", "-c",
         "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/di.sh && chmod +x /tmp/di.sh && /tmp/di.sh --channel 10.0 --install-dir $HOME/.dotnet"]
 
@@ -80,10 +81,8 @@ package enum DependencyCheck {
                         installed: { Toolchain.firstExisting(["/opt/homebrew/bin/\($0)", "/usr/local/bin/\($0)"]) },
                         brew: Toolchain.firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]))
 
-        let (dn, dnOK) = Toolchain.findDotnet()
-        out.append(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint",
-                       present: dnOK, detail: dnOK ? dn : "dep.dotnet.missing",
-                       installCmd: dotnetInstallCmd))
+        // No .NET row (#1404): the engine's extractor and shader translator are committed native executables, so a build runs no dotnet.
+        // `dotnetInstallCmd` stays for the build failure card of an engine whose translator still needs the runtime.
 
         let (py, pyOK) = Toolchain.findPython()
         // A too-old interpreter is a different problem from a missing package: say which one it is,

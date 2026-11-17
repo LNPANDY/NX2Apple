@@ -1752,7 +1752,6 @@
   "nxb.exit.other": "빌드에 실패했습니다 (nxb 종료 코드 %d).",
   "nxb.tooOld": "이 nxb는 너무 오래되었습니다 (%@). 실험용 빌더에는 nxb %@ 이상이 필요합니다. 설정에서 더 새로운 것을 선택하거나 실험용 빌더를 끄세요.",
   "onboarding.back": "뒤로",
-  "onboarding.background.dotnet": ".NET",
   "onboarding.background.engine": "게임 지원",
   "onboarding.background.installing": "설치 중…",
   "onboarding.background.note": "Xcode를 설정하는 동안 이 도구들이 준비됩니다.",

@@ -66,8 +66,8 @@ launcher e una breve serie di patch, seguendo gli aggiornamenti di nxnative ogni
   `.nup`) non hanno bisogno di `prod.keys`.
 - Per iPhone o iPad: iOS o iPadOS 26 o successivo e un dispositivo recente. I dispositivi più datati non sono stati testati.
 
-L'app include al suo interno gli strumenti di compilazione e Python, per cui non serve installare né Homebrew né Python. Il .NET SDK 10
-è l'unico strumento che viene ancora installato automaticamente per te. La pagina delle dipendenze del launcher verifica ogni requisito e
+L'app include al suo interno gli strumenti di compilazione e Python, per cui non serve installare né Homebrew, né Python, né .NET.
+La pagina delle dipendenze del launcher verifica ogni requisito e
 installa tutto ciò che può con un solo clic.
 
 ## Installazione

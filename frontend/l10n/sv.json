@@ -1752,7 +1752,6 @@
   "nxb.exit.other": "Bygget misslyckades (nxb-slutkod %d).",
   "nxb.tooOld": "Den här nxb är för gammal (%@). Den experimentella byggaren kräver nxb %@ eller senare. Välj en nyare i Inställningar eller stäng av den experimentella byggaren.",
   "onboarding.back": "Tillbaka",
-  "onboarding.background.dotnet": ".NET",
   "onboarding.background.engine": "Spelstöd",
   "onboarding.background.installing": "Installerar …",
   "onboarding.background.note": "De här verktygen förbereds medan du ställer in Xcode.",

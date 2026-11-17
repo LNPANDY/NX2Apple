@@ -67,9 +67,8 @@ launcher and a short list of patches, and follows nxnative every day.
   `prod.keys`.
 - For an iPhone or iPad: iOS or iPadOS 26 or later and a recent device. Older devices are untested.
 
-The app carries its own build tools and Python, so no Homebrew and no Python install; the .NET SDK 10
-is the one tool it still installs for you. The launcher's dependency page checks each requirement and
-installs what it can with one click.
+The app carries its own build tools and Python, so no Homebrew, no Python and no .NET install. The
+launcher's dependency page checks each requirement and installs what it can with one click.
 
 ## Install
 

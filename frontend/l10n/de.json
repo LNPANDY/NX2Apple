@@ -1753,7 +1753,6 @@
   "nxb.exit.other": "Der Build ist fehlgeschlagen (nxb-Exitcode %d).",
   "nxb.tooOld": "Dieses nxb ist zu alt (%@). Der experimentelle Builder braucht nxb %@ oder neuer. Wähle in den Einstellungen ein neueres oder schalte den experimentellen Builder aus.",
   "onboarding.back": "Zurück",
-  "onboarding.background.dotnet": ".NET",
   "onboarding.background.engine": "Spielunterstützung",
   "onboarding.background.installing": "Wird installiert …",
   "onboarding.background.note": "Diese Werkzeuge werden bereitgemacht, während du Xcode einrichtest.",
