@@ -232,6 +232,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     @Published package internal(set) var s2armInstalled = false
     @Published package internal(set) var upstreamDownloads: [EngineUpstreamKind: UpstreamInstallState] = [:]
+    package var upstreamDownloadTasks: [EngineUpstreamKind: Task<Void, Never>] = [:]
+    package var upstreamDownloadGeneration: [EngineUpstreamKind: UInt64] = [:]
+    @Published package internal(set) var upstreamAutoSwitchRevision: UInt64 = 0
     package var upstreamTransport: EngineTransport = URLSessionEngineTransport()
     package var s2armRun = false
     package var s2armEventsPath = ""

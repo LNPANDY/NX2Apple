@@ -134,6 +134,195 @@ class UpstreamStoreTests(unittest.TestCase):
             upstream_store.download_and_install_upstream('nxnative', self.store_root)
         self.assertEqual(unsup_ctx.exception.kind, 'unsupported')
 
+    def test_upstream_metadata_helpers(self) -> None:
+        self.assertEqual(upstream_store.upstream_display_name('nxnative'), 'nxnative')
+        self.assertEqual(upstream_store.upstream_display_name('s2arm'), 'S2Arm')
+        self.assertEqual(upstream_store.upstream_display_name('macnativegames'), 'MacNativeGames')
+        self.assertTrue(upstream_store.upstream_is_builtin('nxnative'))
+        self.assertFalse(upstream_store.upstream_is_builtin('s2arm'))
+        self.assertEqual(upstream_store.upstream_note_key('s2arm'), 'upstream.s2armCardNote')
+
+    def test_download_and_install_cancellation_cleans_staging(self) -> None:
+        import threading
+
+        cancel_ev = threading.Event()
+        source_zip = self._make_s2arm_zip('cancel.zip', complete=True)
+        payload = source_zip.read_bytes()
+
+        def cancelling_downloader(_url: str, dest: Path, on_progress, cancel_event=None) -> None:
+            self.assertIs(cancel_event, cancel_ev)
+            dest.write_bytes(payload[:64])
+            cancel_ev.set()
+            if on_progress:
+                on_progress(64, len(payload))
+
+        with self.assertRaises(upstream_store.UpstreamInstallError) as ctx:
+            upstream_store.download_and_install_upstream(
+                's2arm',
+                self.store_root,
+                downloader=cancelling_downloader,
+                cancel_event=cancel_ev,
+                is_windows=False,
+            )
+        self.assertEqual(ctx.exception.kind, 'cancelled')
+        self.assertEqual(upstream_store.usable_managed_path('s2arm', self.store_root, is_windows=False), '')
+        leftovers = list(self.store_root.iterdir()) if self.store_root.exists() else []
+        self.assertEqual(leftovers, [])
+
+    def test_coordinator_auto_install_cancel_and_stale_generation(self) -> None:
+        import threading
+
+        source_zip = self._make_s2arm_zip('coord.zip', complete=True)
+        payload = source_zip.read_bytes()
+        installed_events: list[tuple[str, Path]] = []
+        running = False
+
+        coord = upstream_store.UpstreamDownloadCoordinator(
+            root=self.store_root,
+            is_running=lambda: running,
+            on_installed=lambda k, p: installed_events.append((k, p)),
+        )
+        self.assertEqual(coord.state('nxnative'), ('builtin', None, ''))
+        self.assertEqual(coord.state('s2arm', installed=False), ('not_installed', None, ''))
+
+        # 1. Cancel mid-flight resets state immediately and stale worker cannot overwrite restarted download
+        first_entered = threading.Event()
+        release_first = threading.Event()
+        call_count = 0
+        call_lock = threading.Lock()
+
+        def gated_downloader(_url: str, dest: Path, on_progress, cancel_event=None) -> None:
+            nonlocal call_count
+            with call_lock:
+                call_count += 1
+                idx = call_count
+            if idx == 1:
+                if on_progress:
+                    on_progress(128, 1024)
+                first_entered.set()
+                release_first.wait(timeout=5.0)
+                raise upstream_store.UpstreamInstallError('download', 'stale failure')
+            dest.write_bytes(payload)
+            if on_progress:
+                on_progress(len(payload), len(payload))
+
+        t1 = coord.start_download('s2arm', downloader=gated_downloader, is_windows=False)
+        self.assertIsNotNone(t1)
+        self.assertTrue(first_entered.wait(timeout=5.0))
+        self.assertTrue(coord.is_busy('s2arm'))
+
+        self.assertTrue(coord.cancel('s2arm'))
+        self.assertEqual(coord.state('s2arm', installed=False), ('not_installed', None, ''))
+
+        t2 = coord.start_download('s2arm', downloader=gated_downloader, is_windows=False)
+        self.assertIsNotNone(t2)
+        assert t2 is not None
+        t2.join(timeout=5.0)
+        self.assertEqual(len(installed_events), 1)
+        self.assertEqual(installed_events[0][0], 's2arm')
+        self.assertEqual(coord.state('s2arm', installed=True), ('installed', None, ''))
+
+        release_first.set()
+        assert t1 is not None
+        t1.join(timeout=5.0)
+        self.assertEqual(coord.state('s2arm', installed=True), ('installed', None, ''))
+        self.assertEqual(len(installed_events), 1)
+
+
+try:
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+    HAS_PYSIDE6 = True
+except ImportError:
+    HAS_PYSIDE6 = False
+
+
+@unittest.skipUnless(HAS_PYSIDE6, 'PySide6 required for Qt Model/MainWindow engine dropdown tests')
+class QtEngineDropdownTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        cls._app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.temp_dir = Path(tempfile.mkdtemp(prefix='qt-engine-dropdown-test-'))
+        self.addCleanup(shutil.rmtree, self.temp_dir, True)
+        QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+        QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(self.temp_dir / 'settings'))
+        self._env_patch = mock.patch.dict(
+            os.environ,
+            {
+                'NX2APPLE_UPSTREAMS_DIR': str(self.temp_dir / 'upstreams'),
+                'NX2APPLE_MULTI_UPSTREAM': '1',
+            },
+            clear=False,
+        )
+        self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
+
+    def _make_s2arm_bytes(self) -> bytes:
+        zip_path = self.temp_dir / 's2arm-src.zip'
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr('S2Arm-main/pack/jobs/main.py', '#!/usr/bin/env python3\n')
+            zf.writestr('S2Arm-main/runtime/rewriter/rewriter.c', '/* rewriter */\n')
+            zf.writestr('S2Arm-main/pack/oneclick/oneclick.sh', '#!/bin/bash\n')
+            zf.writestr('S2Arm-main/pack/orch/oneclick_win.py', '#!/usr/bin/env python3\n')
+        return zip_path.read_bytes()
+
+    def test_model_auto_switches_on_install_unless_build_running(self) -> None:
+        from nspb_qt import model
+
+        payload = self._make_s2arm_bytes()
+        m = model.Model()
+        self.assertEqual(m.build_upstream, 'nxnative')
+
+        t = m.download_upstream('s2arm', downloader=lambda _u, dest, _p: dest.write_bytes(payload))
+        self.assertIsNotNone(t)
+        assert t is not None
+        t.join(timeout=5.0)
+        self.assertEqual(m.build_upstream, 's2arm')
+        self.assertEqual(m.upstream_auto_switch_revision, 1)
+
+        # Reset to nxnative and verify running=True prevents auto-switch on install
+        m.select_upstream('nxnative')
+        m.s2arm_path = ''
+        shutil.rmtree(self.temp_dir / 'upstreams', ignore_errors=True)
+
+        import threading
+        entered = threading.Event()
+        proceed = threading.Event()
+
+        def slow_dl(_u: str, dest: Path, _p) -> None:
+            entered.set()
+            proceed.wait(timeout=5.0)
+            dest.write_bytes(payload)
+
+        t2 = m.download_upstream('s2arm', downloader=slow_dl)
+        self.assertIsNotNone(t2)
+        self.assertTrue(entered.wait(timeout=5.0))
+        m.running = True
+        proceed.set()
+        assert t2 is not None
+        t2.join(timeout=5.0)
+        self.assertTrue(m.is_upstream_installed('s2arm'))
+        self.assertEqual(m.build_upstream, 'nxnative')
+        self.assertEqual(m.upstream_auto_switch_revision, 1)
+
+    def test_mainwindow_removes_by_nxnative_and_renders_dropdown_rows(self) -> None:
+        from nspb_qt import model, ui
+
+        m = model.Model()
+        win = ui.MainWindow(m, perform_startup_checks=False)
+        self.addCleanup(win.close)
+        self.assertFalse(hasattr(win, 'sub_label'))
+        self.assertEqual(win.brand_label.text(), 'NX2Apple')
+
+        popup = win._ensure_engine_popup()
+        win._refresh_engine_popup()
+        self.assertEqual(tuple(win._eng_popup_rows.keys()), ('nxnative', 's2arm'))
+        self.assertEqual(win._eng_popup_rows['s2arm']['btn'].text(), m.t('upstream.download'))
+        self.assertFalse(popup.isVisible())
+
 
 if __name__ == '__main__':
     unittest.main()

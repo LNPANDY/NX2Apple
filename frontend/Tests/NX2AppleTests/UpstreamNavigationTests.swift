@@ -15,24 +15,35 @@ import XCTest
         defer { MacNativeGamesBuilder.featureEnabled = oldMNG; S2ArmBuilder.featureEnabled = oldS2 }
         let stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
         let build = stores.build
+        let dropdowns = LauncherDropdownState()
         build.macNativeGamesPath = ""; build.s2armPath = ""; build.buildUpstream = .nxnative
         let window = OffscreenWindow(size: .init(width: 900, height: 500))
         defer { build.running = false; window.contentView = nil; window.orderOut(nil); window.close() }
         func host<V: View>(_ view: V) {
             window.contentView = NSHostingView(rootView: view.environmentObject(stores.localizer)
-                .environmentObject(pad).padScope("main", pad))
+                .environmentObject(pad).padScope("main", pad).launcherDropdownHost(dropdowns, pad: pad))
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         }
         host(EngineSwitcherCard(build: build))
+        pad.show(default: "set.build.engine"); pad.activate()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(pad.scope, "engineDropdown")
         for id in ["nxnative", "download.macnativegames", "download.s2arm"] {
             XCTAssertNotNil(pad.frame(of: "set.build.engine." + id))
         }
         let current = try XCTUnwrap(pad.frame(of: "set.build.engine.nxnative"))
         for id in ["macnativegames", "s2arm"] {
             let download = try XCTUnwrap(pad.frame(of: "set.build.engine.download." + id))
-            XCTAssertLessThan(download.maxY - current.minY, 180, "Engine cards must not expand to fill the page")
+            XCTAssertLessThan(download.maxY - current.minY, 260, "Engine dropdown rows must remain compact")
         }
+        XCTAssertTrue(PadKeyboardInput.handle(125, focus: pad, back: dropdowns.close))
+        XCTAssertEqual(pad.focused, "set.build.engine.download.macnativegames")
+        pad.move(dx: 0, dy: -1)
+        XCTAssertEqual(pad.focused, "set.build.engine.nxnative")
+        dropdowns.close()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertEqual(pad.scope, "main")
         build.running = true
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         XCTAssertFalse(pad.frames["main", default: []].contains { $0.id.hasPrefix("set.build.engine.") })
@@ -49,7 +60,9 @@ import XCTest
             else { build.s2armPath = directory.path }
         }
         host(EngineSwitcherCard(build: build))
-        pad.show(default: "set.build.engine.macnativegames"); pad.activate()
+        pad.show(default: "set.build.engine"); pad.activate()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        pad.focused = "set.build.engine.macnativegames"; pad.activate()
         XCTAssertEqual(build.buildUpstream, .macNativeGames)
         XCTAssertEqual(build.target, BuildTarget.mac)
         host(TargetCard(build: build))

@@ -163,7 +163,7 @@ struct LauncherView: View {
     }
 
     var libraryInputAvailable: Bool {
-        currentPadScope == "main" && padFocus.scope == "main" && dropdowns.request == nil && manageOpenFor == nil && removing == nil && !consolePrompt && !profileHelpOpen
+        currentPadScope == "main" && padFocus.scope == "main" && dropdowns.request == nil && dropdowns.custom == nil && manageOpenFor == nil && removing == nil && !consolePrompt && !profileHelpOpen
             && !updates.showUpdateSheet && launchError == nil && library.error == nil
     }
 
@@ -288,6 +288,7 @@ struct LauncherView: View {
         .manageMenuOverlay(items: manageOpenFor.flatMap { id in library.games.first { $0.id == id } }.map(manageItems),
                            label: loc.t("library.manage"), pad: padFocus) { manageOpenFor = nil }
         .launcherDropdownHost(dropdowns, pad: padFocus)
+        .onChange(of: dropdowns.custom?.id) { _ in padFocus.scope = currentPadScope }
         .onChange(of: dropdowns.request?.id) { id in padFocus.scope = id == nil ? currentPadScope : "dropdown" }
         .onChange(of: manageOpenFor) { id in
             padFocus.scope = id != nil ? "manage" : currentPadScope
@@ -642,7 +643,7 @@ struct LauncherView: View {
             if action == .b || action == .a { launchError = nil; library.error = nil }
             return
         }
-        if dropdowns.request != nil {
+        if dropdowns.request != nil || dropdowns.custom != nil {
             padFocus.show(default: nil)
             switch action {
             case .b: dropdowns.close()
@@ -737,7 +738,7 @@ struct LauncherView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        updates.showUpdateSheet ? "update" : updates.uninstallPlan != nil ? "uninstall" : cloudGate.isActive ? "cloudsave" : selectingGames ? "batch" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : batchRefreshOpen ? "batchRefresh" : missingImgGuideFor != nil ? "imgGuide" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : stores.buildFiles.confirming != nil ? "buildfiles" : deleting != nil ? "delete" : removing != nil ? "remove" : skippedItemsOpen ? "skipped" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        dropdowns.custom != nil ? "engineDropdown" : updates.showUpdateSheet ? "update" : updates.uninstallPlan != nil ? "uninstall" : cloudGate.isActive ? "cloudsave" : selectingGames ? "batch" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : batchRefreshOpen ? "batchRefresh" : missingImgGuideFor != nil ? "imgGuide" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : stores.buildFiles.confirming != nil ? "buildfiles" : deleting != nil ? "delete" : removing != nil ? "remove" : skippedItemsOpen ? "skipped" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).

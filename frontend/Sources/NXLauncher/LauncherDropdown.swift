@@ -40,6 +40,23 @@ package enum LauncherDropdownLayout {
         return (CGPoint(x: x, y: max(y, margin)), CGSize(width: width, height: height))
     }
 
+    /// Places a custom panel of fixed `width` and bounded `maxHeight` below (or above when tight) the trigger button.
+    package static func placeCustom(
+        button: CGRect,
+        container: CGSize,
+        maxHeight: CGFloat,
+        width: CGFloat
+    ) -> (x: CGFloat, topY: CGFloat, bottomY: CGFloat, maxHeight: CGFloat, opensBelow: Bool) {
+        let clampedWidth = min(width, max(minWidth, container.width - margin * 2))
+        let below = container.height - margin - (button.maxY + gap)
+        let above = button.minY - gap - margin
+        let opensBelow = below >= maxHeight || below >= above
+        let available = max(min(maxHeight, opensBelow ? below : above), rowHeight + padding * 2)
+        let preferredX = button.midX > container.width / 2 ? button.maxX - clampedWidth : button.minX
+        let x = min(max(preferredX, margin), max(margin, container.width - clampedWidth - margin))
+        return (x: x, topY: max(button.maxY + gap, margin), bottomY: max(button.minY - gap, margin), maxHeight: available, opensBelow: opensBelow)
+    }
+
     /// The row an arrow key lands on, wrapping at the ends. Without a highlighted row Down takes the first, Up the last.
     package static func step(from current: Int?, by delta: Int, count: Int) -> Int? {
         guard count > 0 else { return nil }
@@ -62,11 +79,44 @@ package struct LauncherDropdownRequest {
     package let choose: (String) -> Void
 }
 
+/// A custom interactive dropdown panel (such as the Build engine switcher) hosted above scroll clipping.
+package struct LauncherCustomDropdown {
+    package let id: UUID
+    package let width: CGFloat
+    package let maxHeight: CGFloat
+    package let label: String
+    package let content: (@escaping () -> Void) -> AnyView
+
+    package init(
+        id: UUID,
+        width: CGFloat = 368,
+        maxHeight: CGFloat = 260,
+        label: String = "",
+        content: @escaping (@escaping () -> Void) -> AnyView
+    ) {
+        self.id = id
+        self.width = width
+        self.maxHeight = maxHeight
+        self.label = label
+        self.content = content
+    }
+}
+
 /// The open dropdown of one window or sheet, shared by the host (which draws the list) and the buttons (which open it).
 package final class LauncherDropdownState: ObservableObject {
     package init() {}
-    @Published package var request: LauncherDropdownRequest?
-    package func close() { withAnimation(.easeOut(duration: 0.12)) { request = nil } }
+    @Published package var request: LauncherDropdownRequest? {
+        didSet { if request != nil, custom != nil { custom = nil } }
+    }
+    @Published package var custom: LauncherCustomDropdown? {
+        didSet { if custom != nil, request != nil { request = nil } }
+    }
+    package func close() {
+        withAnimation(.easeOut(duration: 0.12)) {
+            request = nil
+            custom = nil
+        }
+    }
 }
 
 private struct LauncherDropdownHostKey: EnvironmentKey { static let defaultValue: LauncherDropdownState? = nil }
@@ -120,6 +170,44 @@ private struct LauncherDropdownHost: ViewModifier {
     }
 }
 
+private struct LauncherCustomDropdownBox: View {
+    let custom: LauncherCustomDropdown
+    let maxHeight: CGFloat
+    let close: () -> Void
+    @State private var monitor: Any?
+
+    var body: some View {
+        custom.content(close)
+            .environment(\.launcherControlWidth, nil)
+            .frame(width: custom.width)
+            .frame(maxHeight: maxHeight)
+            .fixedSize(horizontal: false, vertical: true)
+            .launcherDropdownSurface()
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(custom.label)
+            .accessibilityAddTraits(.isModal)
+            .accessibilityAction(.escape, close)
+            .onAppear {
+                stopKeys()
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    if event.keyCode == 53 {
+                        close()
+                        return nil
+                    }
+                    return event
+                }
+            }
+            .onDisappear {
+                stopKeys()
+            }
+    }
+
+    private func stopKeys() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+}
+
 private struct LauncherDropdownLayer: View {
     @ObservedObject var state: LauncherDropdownState
     let anchors: [UUID: Anchor<CGRect>]
@@ -140,6 +228,28 @@ private struct LauncherDropdownLayer: View {
                         .launcherDropdownSurface()
                         .offset(x: spot.origin.x, y: spot.origin.y)
                         .transition(.opacity)
+                }
+            } else if let custom = state.custom, let anchor = anchors[custom.id] {
+                let button = g[anchor]
+                let width = min(custom.width, max(LauncherDropdownLayout.minWidth, g.size.width - LauncherDropdownLayout.margin * 2))
+                let spot = LauncherDropdownLayout.placeCustom(button: button, container: g.size, maxHeight: custom.maxHeight, width: width)
+                ZStack(alignment: .topLeading) {
+                    Color.black.opacity(0.001).contentShape(Rectangle())
+                        .onTapGesture { state.close() }
+                        .accessibilityHidden(true)
+                    if spot.opensBelow {
+                        LauncherCustomDropdownBox(custom: custom, maxHeight: spot.maxHeight, close: { state.close() })
+                            .offset(x: spot.x, y: spot.topY)
+                            .transition(.opacity)
+                    } else {
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            LauncherCustomDropdownBox(custom: custom, maxHeight: spot.maxHeight, close: { state.close() })
+                        }
+                        .frame(width: width, height: max(spot.bottomY - LauncherDropdownLayout.margin, 0), alignment: .bottomLeading)
+                        .offset(x: spot.x, y: LauncherDropdownLayout.margin)
+                        .transition(.opacity)
+                    }
                 }
             }
         }
