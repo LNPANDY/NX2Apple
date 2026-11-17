@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HC <hcbille@gmail.com>
+Date: Mon, 16 Nov 2026 23:18:07 +0100
+Subject: [PATCH] nsp script: a NUP that lists no DLC keeps the aoc/ images
+ placed by hand
+
+Pokemon Pokopia's NUP carries no DLC, and its DLC NSP is a marker package (one empty file). extract_aoc returned None for a NUP without DLC, so an aoc/<index>.img the player extracted was ignored and the host reported 0 add-on contents. It now returns aoc/ when it holds .img files without the packer's .inputs.json beside them.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#2905
+Reason: A NUP without DLC (Pokemon Pokopia) ignored a hand-extracted aoc/<index>.img
+Issue: none
+
+---
+ dm/tools/tests/test_nsp_nup.py | 10 ++++++++++
+ scripts/build_ipa_from_nsp.py  |  6 +++++-
+ 2 files changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/dm/tools/tests/test_nsp_nup.py b/dm/tools/tests/test_nsp_nup.py
+index 3b8f2fd..5bbfee7 100644
+--- a/dm/tools/tests/test_nsp_nup.py
++++ b/dm/tools/tests/test_nsp_nup.py
+@@ -535,6 +535,16 @@ class Pack(Base):
+         self.assertEqual(sorted(p.name for p in aoc.iterdir()), ['1.img', '1.img.inputs.json'])
+         self.assertIn('dlcfile', romfs_image.read_index(aoc / '1.img'))
+ 
++    def test_hand_placed_aoc_kept_when_nup_lists_no_dlc(self):   # Pokemon Pokopia's NUP has no DLC; its DLC NSP is a marker the player extracts into aoc/<index>.img
++        work = self.out(); aoc = work / 'aoc'; aoc.mkdir(parents=True)
++        fam = {'dlc': [], 'nup': object()}
++        self.assertIsNone(nsp.extract_aoc('nx', 'keys', REPO, work, TID, fam, work / 'logs'))   # nothing there: no DLC
++        (aoc / '1.img').write_bytes(b'by hand')
++        self.assertEqual(nsp.extract_aoc('nx', 'keys', REPO, work, TID, fam, work / 'logs'), aoc)
++        (aoc / '1.img.inputs.json').write_text('{}')   # the packer's own image is stale once the container lists no DLC
++        self.assertIsNone(nsp.extract_aoc('nx', 'keys', REPO, work, TID, fam, work / 'logs'))
++        self.assertIsNone(nsp.extract_aoc('nx', 'keys', REPO, work, TID, {'dlc': []}, work / 'logs'))   # not a NUP: unchanged
++
+     def test_nsp_dlc_not_reused_after_nup(self):   # the NUP packs into the aoc/ the NSP extraction keyed: the same NSPs again extract again
+         n = self.open(); app, _, _, dlc = pack_nup.scan(n)
+         work, logs, p = self.out(), self.out() / 'logs', self.dir / 'dlc.nsp'
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 6a231c8..f503c48 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -1703,7 +1703,11 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
+     app + N, whose DLC are the application's). The host reports these indices as owned and mounts them (DM_AOC_DIR).
+     Returns None without DLC. Reused when the DLC NSPs (names, sizes and times) and nx_extract are as at the last extraction (extraction_key) (Monster Hunter Rise: 250 DLC, 30 s),
+     and aoc/ holds the files that extraction wrote (names, sizes and times): a NUP or a dump folder packs its DLC into the same aoc/"""
+-    if not fam['dlc']: return None
++    if not fam['dlc']:
++        if fam.get('nup'):   # a NUP that lists no DLC (Pokemon Pokopia's) keeps the images the player put in aoc/ by hand: the ones the packer made have an .inputs.json beside them
++            mine = sorted(p for p in (work / 'aoc').glob('*.img') if p.is_file() and not p.with_name(p.name + '.inputs.json').exists()) if (work / 'aoc').is_dir() else []
++            if mine: say(f'DLC from aoc/ placed by hand: {", ".join(p.name for p in mine)}'); return work / 'aoc'
++        return None
+     if fam.get('nup'):
+         PROG.stage('unpack DLC', step='unpacking')
+         if fam['nup'].path in _nxb_nups and all((work / 'aoc' / f'{tid - app - 0x1000}.img').is_file() for tid, _, _ in fam['dlc']):   # nxb-extract wrote them with the versions
