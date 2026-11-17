@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <haseenesss@gmail.com>
+Date: Tue, 17 Nov 2026 22:55:30 +0900
+Subject: [PATCH] 13 Sentinels (Asia): the main thread waits for the render
+ thread instead of skipping the frame
+
+Upstream-Status: forwarded seedds/nxnative#2936
+Reason: the game crashes at its first frame when the start is slow (a library folder on a USB 2.0 disk)
+
+At the end of a frame the main thread waits for the render thread only as
+long as the frame's time lasts (main+0x30c194), then goes on without it. The
+render thread's first submission waits on the host for the pipeline archive
+and the prepare step. From a library folder on a USB 2.0 disk that wait was
+7 s and more, the main thread ran on meanwhile, and the render thread's first
+draws bound a texture entry of index -1: SIGSEGV at main+0x309128, in 13 of
+13 starts with a wait of 7 s or more and in none of 8 below 6.5 s (Mac, M2,
+8 GB).
+
+patches.py cuts the three branches that end the wait in the 1.00 build of
+main, so the main thread waits until the render thread is done. 9 of 9 starts
+ran with the cut. The rewriter's output with it is the binary that was tested.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+
+Issue: LNPANDY/NX2Apple#1411
+
+---
+ dm/games/01008D7016438000/README.md  |  6 ++++--
+ dm/games/01008D7016438000/patches.py | 24 ++++++++++++++++++++++++
+ 2 files changed, 28 insertions(+), 2 deletions(-)
+ create mode 100644 dm/games/01008D7016438000/patches.py
+
+diff --git a/dm/games/01008D7016438000/README.md b/dm/games/01008D7016438000/README.md
+index cf3e3c5..c522694 100644
+--- a/dm/games/01008D7016438000/README.md
++++ b/dm/games/01008D7016438000/README.md
+@@ -11,7 +11,7 @@ Base game 1.00 (v0), SDK 11.4.3: the Japanese / Korean / Chinese cartridge and e
+ | `sys_resource 0x0` | `game.tsv` | the NPDM declares no system resource (the NSP script writes it from the NPDM) |
+ | `depth_mode zero` | `game.tsv` | the game sets the near = 0 depth mode, so the pipeline bases made before it runs (the NSP script's Mac prebuild, and a [pipeline archive made offline](../../../docs/development.md#the-pipeline-archive-made-offline) for the iPhone when one is built with `DM_PSO_GPUS`) take its vertex shaders' `main0_z` entries (the host itself follows the mode the game sets) |
+ 
+-No `patches.py`, no `sdk_patches.py` cut for its `sdk` build (`2d369d99…`), no `pad_layout` (the iPhone pad starts in the 2D layout). The rest of the profile is the NSP script's provisional one.
++One cut in [`patches.py`](patches.py) (below), no `sdk_patches.py` cut for its `sdk` build (`2d369d99…`), no `pad_layout` (the iPhone pad starts in the 2D layout). The rest of the profile is the NSP script's provisional one.
+ 
+ ## Files and shaders
+ 
+@@ -20,7 +20,9 @@ No `patches.py`, no `sdk_patches.py` cut for its `sdk` build (`2d369d99…`), no
+ 
+ ## Found on this game
+ 
+-Nothing: no host change was needed.
++No host change was needed. One cut of the game's own code:
++
++- **A crash at the first frame when the start is slow** (`SIGSEGV` at `main+0x309128`, about 9 s after the start, before the logo). At the end of a frame the main thread waits for the render thread only as long as the frame's time lasts (`main+0x30c194`), then goes on without it: a skipped frame. The render thread's first submission waits on the host for the pipeline archive and the prepare step. From an internal disk that is 0.1 s. From a library folder on a USB 2.0 disk (20 to 40 MB/s, a 131 MB archive) it was 7 s and more, the main thread meanwhile ran on (reading the next screens' files from the same disk, which made the wait longer), and the render thread's first draws bound a texture entry of index −1. What the main thread did to that texture meanwhile was not traced. Measured on a Mac with an M2 and 8 GB: 13 of 13 starts with a wait of 7 s or more crashed, none of 8 below 6.5 s. [`patches.py`](patches.py) cuts the three branches that end the wait, so the main thread waits until the render thread is done: 9 of 9 starts ran, with waits of 2 to 3.5 s (no start with the cut had a wait of 7 s, since the main thread no longer reads from the disk meanwhile). A frame the render thread cannot finish in time now makes the game slower instead of being skipped.
+ 
+ ## Open
+ 
+diff --git a/dm/games/01008D7016438000/patches.py b/dm/games/01008D7016438000/patches.py
+new file mode 100644
+index 0000000..489b9fc
+--- /dev/null
++++ b/dm/games/01008D7016438000/patches.py
+@@ -0,0 +1,24 @@
++# 13 Sentinels: Aegis Rim, Asian release (01008D7016438000): the rewriter's patches of this game's own builds. dm/tools/patch_nso.py loads every profile's patches.py and applies those of a
++# module's NSO build ID; CUTS as described there ("Registered patches"). Patches of Nintendo SDK module builds are in dm/tools/sdk_patches.py
++CUTS = {
++  # 1.00 (v0) main: the main thread's wait for the render thread at the end of a frame (main+0x30c194). While the render thread is busy (main+0x30909c) it sleeps 1 ms at a time
++  # (main+0x2c7c2c), but only for what is left of the frame's time ([x19+0x300] + interval − now, in µs): with nothing left (b.ls), under 1 ms left (b.lo) or the count of sleeps used up
++  # (b.ne falls through) it goes on to the next frame without the render thread (w25 = 1, a skipped frame). On the host the render thread's first submission waits for the pipeline
++  # archive to open and for the prepare step (nvn_mtl.m warm_start): 0.1 s from an internal disk, 7 s and more from a USB 2.0 disk (a 131 MB archive in a library folder). The main
++  # thread then skips every frame meanwhile and runs on (it reads the next screens' files from the same disk, which makes the wait longer still), and the render thread's first draws
++  # bind a texture entry of index −1: SIGSEGV at main+0x309128 (x0 = entries + 0xffffffff × 0xe8), in 13 of 13 starts whose wait was 7 s or longer and in none of 8 below 6.5 s. What
++  # the main thread did to that texture meanwhile was not traced. With the three branches cut the main thread waits until the render thread is done, however long: 9 of 9 starts ran
++  # (1200 to 1800 frames); their waits were 2 to 3.5 s, since the main thread no longer reads from the disk meanwhile, so no start with the cut had a wait of 7 s
++  '311947020f64f5742ce3c16162c4d87f': [
++    (0x30c27c, '29020054', '1f2003d5', 'frame end, no frame time left: b.ls main+0x30c2c0 (skip the frame) → nop (wait for the render thread)'),
++    (0x30c284, 'e3010054', '1f2003d5', 'frame end, under 1 ms left: b.lo main+0x30c2c0 (skip the frame) → nop (wait for the render thread)'),
++    (0x30c2bc, '41ffff54', 'faffff17', 'frame end, the wait loop: b.ne main+0x30c2a4 → b main+0x30c2a4 (no end by count: only the render thread being done ends it)'),
++  ],
++}
++
++# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md)
++BINDING = [
++    {'what': 'frame end: the main thread waits for the render thread instead of skipping the frame', 'now': 'build', 'goal': 'game', 'purpose': 'race',
++     'why': "Vanillaware's frame loop; the western release (01003FC01670C000) runs the same engine, and a function-matched rule could carry the cut to it and over updates",
++     'blocked': 'the western build was not at hand to check the function there'},
++]
