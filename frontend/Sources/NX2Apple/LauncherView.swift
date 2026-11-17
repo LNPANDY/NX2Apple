@@ -244,6 +244,10 @@ struct LauncherView: View {
                     manage: { library.selectedID = $0.id; manageOpenFor = $0.id },
                     setFilter: { buildInventoryFilter = $0 }, resume: { if needsBuildSetup && !m.running && !m.done && m.completionStatus == nil { settingsCategory = .tools; page = .settings } else { buildEditorOpen = true } }, newBuild: newBuild,
                     supportedGames: openSupportedGames, queue: stores.queue, chooseFolder: chooseLibraryFolder, pad: padFocus)
+            } else if page == .saves {   // every game's save (SavesPage.swift, #1079)
+                SavesPage(library: library, saveSettings: stores.saveSettings, players: stores.players, repo: stores.repo.path,
+                          openSaves: { savesFor = $0 })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
                 CardPages(artworkStore: artworkStore, buildStep: $buildStep, confirmingBuildCancel: $confirmingBuildCancel, buildLogOpen: $buildLogOpen, allBuildStepsOpen: $allBuildStepsOpen, settings: page == .settings, build: m, updates: updates, repo: repo, engine: engine, dependencies: stores.dependencies, devices: devices, queue: stores.queue, transfers: stores.transfers, onSelectGames: { selectingGames = true },

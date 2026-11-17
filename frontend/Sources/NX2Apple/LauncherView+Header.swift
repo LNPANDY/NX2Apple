@@ -16,7 +16,7 @@ extension LauncherView {
 
     private func navigationTabs(compact: Bool = false, tabInset: CGFloat) -> some View {
         HStack(spacing: 2) {
-            ForEach([LauncherPage.library, .builds], id: \.self) { destination in
+            ForEach([LauncherPage.library, .builds, .saves], id: \.self) { destination in   // Saves: SavesPage.swift (#1079)
                 Button { page = destination; if destination == .builds { buildEditorOpen = false } } label: {
                     // The selected tab is bold. The bold text also sizes the (hidden) slot, so a tab never changes width as the selection moves.
                     ZStack {
@@ -57,7 +57,7 @@ extension LauncherView {
             ViewThatFits(in: .horizontal) {
                 navigationTabs(tabInset: 18)
                 navigationTabs(tabInset: 8)
-                navigationTabs(compact: true, tabInset: 14)
+                navigationTabs(compact: true, tabInset: 7)   // three tabs (Saves, #1079) beside the player and search at 900 pt
             }
             HStack(spacing: 6) {
                 PlayerPicker(players: stores.players, compact: searching)   // whose saves Play uses (PlayerPicker.swift)
