@@ -25,6 +25,9 @@ final class RowEdgeTests: XCTestCase {
             .background(Color.black)
             .environment(\.colorScheme, .dark)
         NSApplication.shared.setActivationPolicy(.accessory)
+        // Overlay scroll bars, as on a Mac with only a trackpad: with a mouse connected, macOS's Automatic setting shows legacy bars that take room of their own,
+        // and the collection never reaches the strip. In memory and for this process only (the argument domain), never the player's settings.
+        UserDefaults.standard.setVolatileDomain(["AppleShowScrollBars": "WhenScrolling"], forName: UserDefaults.argumentDomain)
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(origin: .zero, size: screen)
         let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -100_000, y: -100_000), size: screen),
