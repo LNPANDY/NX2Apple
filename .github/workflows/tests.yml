@@ -156,7 +156,7 @@ jobs:
       # The shader translator's tests (test_image_atomic_bounds, test_dmsh_geometry) run the committed translator on synthetic Maxwell shaders, then spirv-val and the committed spirv-cross:
       # one translation chain serves every game, so these are what checks a translator change on games its author does not own (GitHub issue #272). Compiling their MSL with
       # Metal (DMSH_TEST_METAL=1) and running it on the GPU (DMSH_TEST_GPU=1) stay local.
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: '10.0.x'   # dm/gfx/tools/dmsh_xlate_bin targets net10.0
       - name: Install spirv-val   # spirv-cross is the in-repo build (dm/gfx/tools/spirv_cross_bin)
