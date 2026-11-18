@@ -10,9 +10,11 @@ package struct MacGameBundle {
     package var titleNames: [String: String] = [:]
     package var upstream: EngineUpstreamKind = .nxnative
 
-    enum Invalid: LocalizedError {
-        case notGame
-        var errorDescription: String? { L10n.string("library.notGame", Lang.initial()) }
+    package enum Invalid: LocalizedError {
+        case notGame, missingData
+        package var errorDescription: String? {
+            L10n.string(self == .missingData ? "ios.ui.missingDataChip" : "library.notGame", Lang.initial())
+        }
     }
 
     private struct CachedEntry {
@@ -24,6 +26,7 @@ package struct MacGameBundle {
         let displayName: String?
         let version: String?
         let shaderChain: String?
+        let requiresRomFS: Bool
         let titleNames: [String: String]
         let upstream: EngineUpstreamKind
     }
@@ -74,6 +77,10 @@ package struct MacGameBundle {
             guard hasRequiredBinaries(in: bundleURL, executable: entry.executable, upstream: entry.upstream, fm: fm) else {
                 removeCached(bundleKey)
                 throw Invalid.notGame
+            }
+            guard requiredDataExists(in: bundleURL, required: entry.requiresRomFS) else {
+                removeCached(bundleKey)
+                throw Invalid.missingData
             }
             return MacGameBundle(titleID: entry.titleID, name: entry.displayName ?? url.deletingPathExtension().lastPathComponent,
                                  version: entry.version, shaderChain: entry.shaderChain, displayName: entry.displayName,
@@ -147,12 +154,24 @@ package struct MacGameBundle {
         let ver = displayVersion(info)
         let chain = info["DMChain"] as? String
         let names = GameTitleNames.read(info)
+        let requiresRomFS = info["DMRomfsMarker"] != nil
+        guard requiredDataExists(in: bundleURL, required: requiresRomFS) else { throw Invalid.missingData }
         storeCached(CachedEntry(plistInode: plistInode, plistSize: plistSize, plistModified: plistModified,
                                 executable: executable, titleID: upperID, displayName: title, version: ver,
-                                shaderChain: chain, titleNames: names, upstream: upstream), for: bundleKey)
+                                shaderChain: chain, requiresRomFS: requiresRomFS, titleNames: names, upstream: upstream), for: bundleKey)
         return MacGameBundle(titleID: upperID, name: title ?? url.deletingPathExtension().lastPathComponent,
                              version: ver, shaderChain: chain, displayName: title,
                              titleNames: names, upstream: upstream)
+    }
+
+    /// Current packages declare DMRomfsMarker and ship a RomFS image or tree. Older bundles keep their existing contract.
+    private static func requiredDataExists(in app: URL, required: Bool) -> Bool {
+        guard required else { return true }
+        let resources = app.appendingPathComponent("Contents/Resources")
+        var directory: ObjCBool = false
+        let fm = FileManager.default
+        if fm.fileExists(atPath: resources.appendingPathComponent("romfs.img").path, isDirectory: &directory), !directory.boolValue { return true }
+        return fm.fileExists(atPath: resources.appendingPathComponent("romfs").path, isDirectory: &directory) && directory.boolValue
     }
 
     private static func cached(_ key: String) -> CachedEntry? {

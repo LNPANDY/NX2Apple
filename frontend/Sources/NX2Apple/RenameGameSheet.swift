@@ -58,7 +58,7 @@ struct RenameGameSheet: View {
                 }
                 .buttonStyle(LauncherActionButtonStyle())
                 .keyboardShortcut(.defaultAction)
-                .padTarget("rename.save", scope: "rename", radius: 20) { commit() }
+                .padTarget("rename.save", scope: "rename", focusColor: LauncherPalette.onCream) { commit() }
             }
             .padding(.horizontal, 28).padding(.vertical, 16)
         }

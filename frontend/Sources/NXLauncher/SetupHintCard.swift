@@ -24,11 +24,21 @@ package struct SetupHintCard: View {
 
     package var body: some View {
         if (!repo.isRepo && !usesExternalUpstream) || !dependencies.allPresent {
-            CardGroup(loc.t("section.setup")) {
-                CardRow(loc.t("library.setupHint"), dot: LauncherPalette.building) {
-                    Button(loc.t("build.setup"), action: onOpenSettings)
-                }
+            HStack(spacing: 14) {
+                Image(systemName: "gearshape.fill").font(.system(size: 24))
+                    .foregroundStyle(.orange).frame(width: 52, height: 52)
+                    .background(LauncherPalette.ink(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityHidden(true)
+                Text(loc.t("library.setupHint")).font(.manrope(14, .medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 12)
+                Button(loc.t("build.setup"), action: onOpenSettings)
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .padTarget("set.build.setup", scope: "main", activate: onOpenSettings)
             }
+            .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
         }
     }
 }

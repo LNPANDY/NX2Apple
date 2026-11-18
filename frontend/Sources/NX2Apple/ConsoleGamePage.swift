@@ -2,7 +2,7 @@ import SwiftUI
 import NXCore
 import NXLauncher
 
-/// A game's page (#816, A on a tile), over the whole screen in console mode's look: its title, the tabs on L and R (Overview, Saves,
+/// Legacy game details (#816), embedded in the console panel: the tabs on L and R (Overview, Saves,
 /// Build, Cheats) and what each holds, from data and actions console mode already has. Overview: Play (Resume for a paused game, the
 /// way to the desktop for one that is not built), when it was last played, for how long and where its save stands, then Controls,
 /// Launch options (the options Y opens) and Manage.
@@ -12,6 +12,7 @@ import NXLauncher
     let lang: Lang
     let glyphs: ConsoleGlyphs
     let compact: Bool
+    var embedded = false
     @Binding var editing: String?
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -19,7 +20,7 @@ import NXLauncher
     static var scope: String { "console.gamePage" }
     private var scope: String { Self.scope }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
-    private var inset: CGFloat { compact ? 24 : 64 }
+    private var inset: CGFloat { embedded ? 40 : compact ? 24 : 64 }
     private var state: ConsoleState { driver.state }
     private var paused: Bool { state.pausedGameID == game.id }
 
@@ -38,8 +39,10 @@ import NXLauncher
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ConsolePageHeader(title: game.title, subtitle: subtitle, compact: compact, closeLabel: t("console.close"),
-                              closeID: "console.gamePage.close", scope: scope) { driver.back() }
+            if !embedded {
+                ConsolePageHeader(title: game.title, subtitle: subtitle, compact: compact, closeLabel: t("console.close"),
+                                  closeID: "console.gamePage.close", scope: scope) { driver.back() }
+            }
             tabs.padding(.horizontal, inset).padding(.bottom, compact ? 16 : 28)
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
@@ -70,8 +73,8 @@ import NXLauncher
     }
 
     /// What the buttons do on this page: X plays (resumes a paused game), Y opens the options, − the quick menu, B goes back.
-    static func hintIDs(_ game: ConsoleGame) -> [String] {
-        (game.status == .ready ? ["console.gamePage.hint.play", "console.gamePage.hint.options"] : []) + ["console.gamePage.hint.quick", "console.gamePage.hint.back"]
+    static func hintIDs(_ game: ConsoleGame, embedded: Bool = false) -> [String] {
+        (game.status == .ready ? ["console.gamePage.hint.play", "console.gamePage.hint.options"] : []) + ["console.gamePage.hint.quick", embedded ? "console.gamePage.close" : "console.gamePage.hint.back"]
     }
 
     private var hints: some View {
@@ -86,7 +89,7 @@ import NXLauncher
             ConsoleHint(glyph: g(.quickMenu), label: t("console.quickMenu"), id: "console.gamePage.hint.quick", scope: scope,
                         compact: compact) { driver.openQuickMenu() }
             Spacer(minLength: 0)
-            ConsoleHint(glyph: g(.back), label: t("console.back"), id: "console.gamePage.hint.back", scope: scope, compact: compact) { driver.back() }
+            if !embedded { ConsoleHint(glyph: g(.back), label: t("console.back"), id: "console.gamePage.hint.back", scope: scope, compact: compact) { driver.back() } }
         }
     }
 
@@ -111,6 +114,7 @@ import NXLauncher
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
+                .padTarget("console.gamePage.tab." + tab.rawValue, scope: scope, focusColor: on ? LauncherPalette.onCream : nil) { driver.stepGameTab(tabIndex(tab) - tabIndex(state.gameTab)) }
             }
             ConsoleGlyphView(glyph: glyphs.hintGlyph(.nextTab, swapAB: state.menuSwapAB), size: compact ? 20 : 24).foregroundStyle(.white.opacity(0.7))
         }
@@ -142,7 +146,9 @@ import NXLauncher
             }
             .frame(maxWidth: 680, alignment: .leading)
             if !compact {
-                ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus).aspectRatio(1.8, contentMode: .fit)
+                ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus)
+                    .saturation(game.status == .ready && !game.olderTools ? 1 : 0).drawingGroup()
+                    .aspectRatio(1.8, contentMode: .fit)
                     .frame(maxWidth: 520)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.12), lineWidth: 1))
@@ -253,16 +259,19 @@ import NXLauncher
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(game.title).font(.manrope(compact ? 19 : 24, .semibold)).foregroundStyle(LauncherPalette.cream).padding(.bottom, 12)
+            ConsoleSectionHeading(title: t("console.tab.build"), compact: compact)
             ConsoleMenuRow(id: "console.manage.desktop", scope: "console.manage", symbol: "macwindow", title: t("console.openOnDesktop"),
-                           note: t("console.gamePage.desktopNote"), compact: compact) { driver.openOnDesktop(game.id) }
+                           note: "", compact: compact) { driver.openOnDesktop(game.id) }
+            if game.status == .ready || game.canReset {
+                ConsoleSectionHeading(title: t("console.options.manageSection"), compact: compact).padding(.top, 14)
+            }
             if game.status == .ready {
                 ConsoleMenuRow(id: "console.manage.saves", scope: "console.manage", symbol: "icloud", title: t("console.menu.saves"),
-                               note: t("console.menu.savesNote"), compact: compact) { driver.openCloudSaves() }
+                               note: "", compact: compact) { driver.openCloudSaves() }
             }
             if game.canReset {
                 ConsoleMenuRow(id: "console.manage.reset", scope: "console.manage", symbol: "arrow.counterclockwise", title: t("console.reset.title"),
-                               note: t("console.reset.note"), compact: compact) { driver.askResetOptions(game.id) }
+                               note: "", compact: compact) { driver.askResetOptions(game.id) }
             }
             Spacer(minLength: 0)
         }

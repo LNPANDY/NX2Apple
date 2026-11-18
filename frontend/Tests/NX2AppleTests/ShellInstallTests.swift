@@ -282,7 +282,7 @@ import NXModel
                 XCTAssertFalse(text.contains(";") || text.contains("；"), key)
             }
         }
-        XCTAssertEqual(L10n.string("build.iosNote", .en), "One app on your iPhone or iPad for all your games.")
+        XCTAssertEqual(L10n.string("build.iosNote", .en), "One iOS app for all your games.")
     }
 
     // ---- the stand-ins ----

@@ -26,10 +26,14 @@ package struct ShellCopyCard: View {
                 HStack(spacing: 10) {
                     Button(loc.t("shell.copyStart")) { devices.answerCopy(.copy) }
                         .keyboardShortcut(plan.versionNote == nil ? nil : .defaultAction)
-                    if plan.canWaitForCable { Button(loc.t("shell.copyWaitCable")) { devices.answerCopy(.waitForCable) } }
+                        .padTarget("set.build.copy.start", scope: "main") { devices.answerCopy(.copy) }
+                    if plan.canWaitForCable { Button(loc.t("shell.copyWaitCable")) { devices.answerCopy(.waitForCable) }
+                        .padTarget("set.build.copy.wait", scope: "main") { devices.answerCopy(.waitForCable) } }
                     Button(loc.t("shell.copySkip")) { devices.answerCopy(.skip) }
+                        .padTarget("set.build.copy.skip", scope: "main") { devices.answerCopy(.skip) }
                 }
                 .buttonStyle(LauncherSecondaryButtonStyle()).padding(.top, 2)
+                    .padTarget("set.build.copy.stopWaiting", scope: "main") { devices.cancelWait() }
             }
         } else if devices.shellWaiting {
             card {
@@ -39,6 +43,7 @@ package struct ShellCopyCard: View {
                 }
                 Button(loc.t("shell.copyStopWaiting")) { devices.cancelWait() }
                     .buttonStyle(LauncherSecondaryButtonStyle()).padding(.top, 2)
+                    .padTarget("set.build.copy.stopWaiting", scope: "main") { devices.cancelWait() }
             }
         }
     }

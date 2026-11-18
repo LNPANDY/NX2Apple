@@ -22,7 +22,7 @@ struct ConsoleHint: View {
                 .background(primary ? LauncherPalette.cream : (compact ? .white.opacity(0.07) : .clear), in: Capsule())
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain).padTarget(id, scope: scope, radius: 28, activate: action)
+        .buttonStyle(.plain).padTarget(id, scope: scope, radius: primary ? nil : 8, focusColor: primary ? LauncherPalette.onCream : nil, activate: action)
     }
 }
 
@@ -31,8 +31,18 @@ struct ConsoleTileFramesKey: PreferenceKey {
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue()) { _, new in new } }
 }
 
+struct ConsoleClock: View {
+    static func fontSize(compact: Bool) -> CGFloat { compact ? 34 : 44 }
+    let time: Date
+    let compact: Bool
+    var body: some View {
+        Text(time, style: .time).font(.manrope(compact ? 34 : 44, .medium)).monospacedDigit()
+            .foregroundStyle(.white).fixedSize()
+    }
+}
+
 /// The home screen (#816): the top bar (the activity, the controllers, the clock, Search and the menu), the focused game's title, and
-/// its rows, Continue playing, Ready to play and Needs attention, each scrolling sideways. Up and down go from row to row (ConsoleView
+/// its history and availability groups, each scrolling sideways. Up and down go from row to row (ConsoleView
 /// handles the presses, ConsoleHome.move decides), the row in focus sits at the top of the rows' area and the next one shows under it.
 @MainActor struct ConsoleHomeScreen<Driver: ConsoleDriver>: View {
     @ObservedObject var driver: Driver
@@ -40,26 +50,29 @@ struct ConsoleTileFramesKey: PreferenceKey {
     let glyphs: ConsoleGlyphs
     let size: CGSize
     let compact: Bool
+    var launchNamespace: Namespace.ID? = nil
+    var floatingPanelChrome = false
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tileFrames: [String: CGRect] = [:]
 
     private var state: ConsoleState { driver.state }
+    private var panelOpen: Bool { state.presentedSheet != nil }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
-    private var inset: CGFloat { compact ? 24 : 64 }
+    private var inset: CGFloat { compact ? 24 : 70 }
     private var tileWidth: CGFloat { compact ? size.width - inset * 2 - 16 : min(420, size.width * 0.28) }
     /// A row: its heading, the tiles with their room for the ring, and the captions.
     private var sectionHeight: CGFloat { tileWidth / 1.8 + (compact ? 92 : 104) }
     /// The pad ids of the hint strip, so up from it goes back to the focused game.
-    static var hintIDs: Set<String> { ["console.open", "console.play", "console.options", "console.menu", "console.quickMenuHint", "console.desktop"] }
+    static var hintIDs: Set<String> { ["console.open", "console.options", "console.menu", "console.quickMenuHint", "console.desktop"] }
     /// The top bar's targets: the controller chips, Search and the menu button.
-    static func isTopBar(_ id: String) -> Bool { id.hasPrefix("console.chip.") || id == "console.searchButton" || id == "console.menuButton" }
+    static func isTopBar(_ id: String) -> Bool { id == "console.build.activity" || id.hasPrefix("console.chip.") || id == "console.searchButton" || id == "console.menuButton" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            topBar.padding(.horizontal, inset).padding(.top, compact ? 24 : 40)
+            topBar.padding(.horizontal, inset).padding(.top, compact ? 24 : 50)
             if state.games.isEmpty {
-                empty.frame(maxWidth: .infinity, maxHeight: .infinity)
+                empty.frame(maxWidth: .infinity, maxHeight: .infinity).blur(radius: panelOpen ? 14 : 0)
             } else {
                 // The title and the rows sit at the bottom, above the hints, so the artwork has the screen above them. A short window scrolls.
                 GeometryReader { area in
@@ -73,82 +86,64 @@ struct ConsoleTileFramesKey: PreferenceKey {
                         .frame(minHeight: area.size.height, alignment: .bottomLeading)
                     }
                 }
-                hintBar.padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32)
+                .blur(radius: panelOpen ? 14 : 0)
+                hintBar.blur(radius: panelOpen ? 14 : 0).padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32)
             }
         }
-        .padScope("console", pad)
+        .animation(.easeInOut(duration: panelOpen ? (reduceMotion ? 0.1 : 0.18) : 0.08), value: panelOpen)
     }
 
     // MARK: Top bar
 
-    /// One fixed-height status row: the controller chips (scrolling sideways inside their own group) to the left of the clock, then
+    /// One fixed-height status row: the plain clock, flexible controller chips, then
     /// Search and the menu. Its height never changes, so a controller arriving or leaving moves nothing below it.
     private var topBar: some View {
         HStack(spacing: compact ? 12 : 20) {
-            if let activity = state.activity { ConsoleActivityChip(activity: activity, compact: compact) }
-            ConsoleControllerChips(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
-            Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
-                .foregroundStyle(.white).fixedSize()
-                .padding(.horizontal, compact ? 10 : 14).frame(height: compact ? 30 : 40)
-                .consoleBarFill()
-            barButton("magnifyingglass", id: "console.searchButton", label: t("console.search")) { driver.openSearch() }
-            // The menu, as + opens it: drawn as a controller chip (same capsule, same height), focusable like them.
-            barButton("line.3.horizontal", id: "console.menuButton", label: t("console.menu")) { driver.openMenu() }
+            ConsoleClock(time: state.time, compact: compact).hidden().accessibilityHidden(true)
+            Spacer(minLength: 8)
+            HStack(spacing: compact ? 12 : 20) {
+                HStack(alignment: .center, spacing: compact ? 12 : 16) {
+                    ConsoleControllerButton(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
+                    barButton("magnifyingglass", id: "console.searchButton", label: t("console.search")) { driver.openSearch() }
+                    barButton("line.3.horizontal", id: "console.menuButton", label: t("console.menu")) { driver.openMenu() }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            }.blur(radius: panelOpen ? 14 : 0)
         }
-        .frame(height: compact ? 40 : 52)
+        .frame(height: compact ? 48 : 56)
         // The banner sits under the bar, so it never covers the controller chips, and it is drawn over the page without moving it (#1004)
         .overlay(alignment: .top) {
             if let toast = state.toast {
-                ConsoleToastView(toast: toast).id(toast.id).transition(.opacity)
-                    .offset(y: (compact ? 40 : 52) - 12)
+                ConsoleToastView(toast: toast).id(toast.id).transition(.opacity).blur(radius: panelOpen ? 14 : 0)
+                    .offset(y: (compact ? 48 : 56) - 12)
             }
         }
         .zIndex(1)
     }
 
     private func barButton(_ symbol: String, id: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: compact ? 12 : 17, weight: .semibold))
-                .padding(.horizontal, compact ? 10 : 14).frame(height: compact ? 30 : 40)
-                .consoleBarFill().contentShape(Capsule())
-        }
-        .buttonStyle(.plain).accessibilityLabel(label)
-        .padTarget(id, scope: "console", radius: 24, activate: action)
+        ConsoleHeaderButton(symbol: symbol, id: id, label: label, compact: compact, action: action)
     }
 
     // MARK: Title
 
-    /// A fixed-height slot: the old and the new title overlap and cross-fade in place (0.12 s), so nothing slides and the rows below
-    /// never move, whatever the title's length. Above it, what the game is: paused, its status, or when it was last played.
+    /// A fixed-height slot: the old and the new title overlap and cross-fade in place with the Library timing, so nothing slides and the rows below
+    /// never move, whatever the title's length. Availability stays on the artwork chip.
     private func title(_ game: ConsoleGame) -> some View {
         let big = compact ? 36 : min(56, size.width / 26)
         return ZStack(alignment: .bottomLeading) {
             VStack(alignment: .leading, spacing: compact ? 10 : 16) {
-                Text(eyebrow(game)).font(.manrope(compact ? 14 : 18, .semibold))
-                    .tracking(2).foregroundStyle(LauncherPalette.cream.opacity(0.75)).lineLimit(1)
                 Text(game.title).font(.manrope(big, .bold))
                     .tracking(-1.4).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     .shadow(color: .black.opacity(0.45), radius: 12)
                     .accessibilityAddTraits(.isHeader)
-                if !game.version.isEmpty {
-                    Text(String(format: t("console.version"), game.version)).monospacedDigit().lineLimit(1)
-                        .font(.manrope(compact ? 14 : 18)).foregroundStyle(.white.opacity(0.6))
-                }
+
             }
             .id(game.id).transition(.opacity)
         }
-        .animation(.easeInOut(duration: 0.12), value: game.id)
+        .animation(LibraryHeroTransition.metadata(reduceMotion: reduceMotion), value: game.id)
         .padding(.horizontal, inset)
-        .frame(height: compact ? 160 : 86 + 2.4 * big, alignment: .bottomLeading)
-    }
-
-    private func eyebrow(_ game: ConsoleGame) -> String {
-        if game.id == state.pausedGameID { return t("console.paused").uppercased() }
-        if game.status != .ready { return t(game.status.labelKey).uppercased() }
-        // ready, but in Needs attention: why it is there (built with other tools than the engine has now)
-        if game.olderTools, game.lastPlayed == nil { return (t("console.ready") + " \u{00b7} " + t("library.olderTools")).uppercased() }
-        if let date = game.lastPlayed { return String(format: t("console.lastPlayedOn"), ConsoleTimes.relative(date, now: state.time, lang: lang)).uppercased() }
-        return t("console.ready").uppercased()
+        .frame(height: compact ? 130 : 54 + 2.4 * big, alignment: .bottomLeading)
     }
 
     // MARK: Rows
@@ -188,59 +183,113 @@ struct ConsoleTileFramesKey: PreferenceKey {
 
     private func row(_ section: ConsoleHomeSection) -> some View {
         let games = section.gameIDs.compactMap { id in state.games.first { $0.id == id } }
-        let rowWidth = size.width - 2 * (inset - 8)
+        let rowWidth = size.width
+        let cellWidth = tileWidth + 24
+        // Align the visible stroke after the active artwork scales about its center.
+        let leading = inset - 12 + (reduceMotion ? 0 : tileWidth * 0.02)
+        let anchor = UnitPoint(x: leading / max(1, rowWidth - cellWidth), y: 0.5)
         let space = "console.row." + section.id
         return VStack(alignment: .leading, spacing: compact ? 6 : 8) {
-            ConsoleSectionHeading(title: t(section.row.titleKey), compact: compact).padding(.horizontal, inset)
+            if section.row == .continuePlaying {
+                ConsoleSectionHeading(title: t(section.row.titleKey), compact: compact).padding(.horizontal, inset)
+            }
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: (compact ? 22 : 28) - 16) {
-                        ForEach(games) { game in tile(game, rowWidth: rowWidth, space: space) }
+                        ForEach(games) { game in tile(game, games: games, rowWidth: rowWidth, space: space) }
                     }
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 20)
+                    .padding(.leading, leading)
+                    .padding(.trailing, max(0, rowWidth - leading - cellWidth))
                 }
                 .coordinateSpace(name: space)
                 .onPreferenceChange(ConsoleTileFramesKey.self) { frames in tileFrames.merge(frames) { _, new in new } }
-                .padding(.horizontal, inset - 8)   // the scroll area is the page margin, so tiles clip there and the title lines up with the first tile
                 .onChange(of: state.focusedGame?.id) { id in
-                    // The ring moves across the visible tiles. The row scrolls only when the focused tile would leave the visible area, by
-                    // the least that brings it inside, and a new focus replaces the running scroll (held repeats do not queue).
                     guard let id, section.gameIDs.contains(id) else { return }
-                    guard let frame = tileFrames[id] else { proxy.scrollTo(Self.rowCell(id), anchor: .center); return }
-                    let anchor: UnitPoint? = frame.minX < 8 ? .leading : (frame.maxX > rowWidth - 8 ? .trailing : nil)
-                    if let anchor { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.2)) { proxy.scrollTo(Self.rowCell(id), anchor: anchor) } }
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+                        proxy.scrollTo(Self.rowCell(id), anchor: anchor)
+                    }
                 }
-                .onAppear { if let id = state.focusedGame?.id, section.gameIDs.contains(id) { proxy.scrollTo(Self.rowCell(id), anchor: .center) } }
+                .onChange(of: size.width) { _ in
+                    if let id = state.focusedGame?.id, section.gameIDs.contains(id) {
+                        proxy.scrollTo(Self.rowCell(id), anchor: anchor)
+                    }
+                }
+                .onAppear { if let id = state.focusedGame?.id, section.gameIDs.contains(id) { proxy.scrollTo(Self.rowCell(id), anchor: anchor) } }
+                .overlay {
+                    HStack {
+                        Spacer(minLength: 0)
+                        edgeArrow(games, rowWidth: rowWidth, anchor: anchor, proxy: proxy)
+                    }
+                    .padding(.horizontal, max(4, inset - 34))
+                    .padding(.bottom, 28)
+                }
             }
         }
     }
 
-    private func tile(_ game: ConsoleGame, rowWidth: CGFloat, space: String) -> some View {
+    private func tile(_ game: ConsoleGame, games: [ConsoleGame], rowWidth: CGFloat, space: String) -> some View {
         let selected = state.focusedGame?.id == game.id
         let paused = game.id == state.pausedGameID
-        let open = { paused ? driver.resume(game.id) : driver.openGamePage(game.id) }
+        let open = {
+            driver.focus(game.id)
+            if paused { driver.resume(game.id) }
+            else if game.status == .ready { driver.play(game.id) }
+            else { driver.openOptions(game.id) }
+        }
         return Button {
             ConsoleHomePointerInput.tapTile(game.id, focused: state.focusedGame?.id, focus: {
                 driver.focus(game.id); pad.focused = "console.game." + game.id
             }, open: open)
         } label: {
-            ConsoleGameTile(game: game, selected: selected, compact: compact, lang: lang, captionVisible: tileVisible(game.id, rowWidth: rowWidth), paused: paused)
+            ConsoleGameTile(game: game, selected: selected, compact: compact, lang: lang, captionVisible: tileVisible(game.id, rowWidth: rowWidth), paused: paused,
+                            coverflow: true, tilt: tilt(game, games: games), rearOffset: tileWidth * 0.3, showsSelection: !pad.visible || pad.focused == "console.game." + game.id, launchNamespace: selected ? launchNamespace : nil)
                 .frame(width: tileWidth)
                 .contentShape(RoundedRectangle(cornerRadius: 16))
         }
         .buttonStyle(.plain)
         .padTarget("console.game." + game.id, scope: "console", radius: 16, activate: open)
-        // the focus scale is applied to the button with its ring, so the ring frames the image flush at any scale
-        .scaleEffect(selected && !reduceMotion ? 1.025 : 1)
-        .animation(.easeOut(duration: 0.15), value: selected)
+        .environment(\.padRingStyle, .none)
+        .zIndex(selected ? 1 : 0)
         .background(GeometryReader { g in Color.clear.preference(key: ConsoleTileFramesKey.self, value: [game.id: g.frame(in: .named(space))]) })
         .accessibilityLabel(game.title + ", " + t(paused ? "console.paused" : game.status.labelKey))
-        .accessibilityHint(t(paused ? "console.resumeHint" : "console.openHint"))
+        .accessibilityHint(t(paused ? "console.resumeHint" : (game.status == .ready ? "console.play" : "console.options")))
         .accessibilityAddTraits(selected ? .isSelected : [])
-        // every tile carries its own 8 pt of room for the ring and the focus scale, and the scroll target is this padded
+        // every tile carries its own 12 pt of room for the ring and the focus scale, and the scroll target is this padded
         // cell, so a scroll to the first or last tile never pushes that room out of the clip
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 12)
         .id(Self.rowCell(game.id))
+    }
+
+    private func tilt(_ game: ConsoleGame, games: [ConsoleGame]) -> Double {
+        guard let selected = state.focusedGame?.id,
+              let active = games.firstIndex(where: { $0.id == selected }),
+              let index = games.firstIndex(where: { $0.id == game.id }) else { return 0 }
+        return index == active ? 0 : (index < active ? 25 : -10)
+    }
+
+    @ViewBuilder private func edgeArrow(_ games: [ConsoleGame], rowWidth: CGFloat, anchor: UnitPoint, proxy: ScrollViewProxy) -> some View {
+        let hidden = games.filter { game in
+            guard let frame = tileFrames[game.id] else { return false }
+            return frame.maxX > rowWidth + 1
+        }
+        if let target = hidden.first {
+            let select = {
+                driver.focus(target.id)
+                pad.focused = "console.game." + target.id
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+                    proxy.scrollTo(Self.rowCell(target.id), anchor: anchor)
+                }
+            }
+            Button(action: select) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 18, weight: .semibold)).frame(width: 44, height: 44)
+                    .background(.black, in: Circle()).contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(t("library.scrollForward"))
+            .padTarget("console.edge." + (games.first?.id ?? "") + ".right", scope: "console", activate: select)
+        }
     }
 
     static func rowCell(_ id: String) -> String { "console.row." + id }
@@ -250,30 +299,43 @@ struct ConsoleTileFramesKey: PreferenceKey {
     private var hintBar: some View {
         let focused = state.focusedGame
         let paused = focused != nil && focused?.id == state.pausedGameID
-        let items = {
+        let primary = {
+            hint(.activate, paused ? "console.resume" : (focused?.status == .ready ? "console.play" : "console.options"), "console.open", primary: true) {
+                if let id = focused?.id { paused ? driver.resume(id) : (focused?.status == .ready ? driver.play(id) : driver.openOptions(id)) }
+            }
+        }
+        let secondary = {
             Group {
-                hint(.activate, paused ? "console.resume" : "console.open", "console.open", primary: true) {
-                    if let id = focused?.id { paused ? driver.resume(id) : driver.openGamePage(id) }
-                }
-                if !paused { hint(.play, "console.play", "console.play") { if let id = focused?.id { driver.play(id) } } }
                 hint(.options, "console.options", "console.options") { if let id = focused?.id { driver.openOptions(id) } }
                 hint(.menu, "console.menu", "console.menu") { driver.openMenu() }
                 hint(.quickMenu, "console.quickMenu", "console.quickMenuHint") { driver.openQuickMenu() }
-                hint(.back, "console.desktop", "console.desktop") { driver.confirmExit() }   // asks first, as B does
             }
         }
+        let back = { hint(.back, "console.desktop", "console.desktop") { driver.confirmExit() } }
         return VStack(spacing: 20) {
             Rectangle().fill(.white.opacity(0.10)).frame(height: 1)
             if compact {
-                // equal pills, two by two
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) { items() }
-            } else {
-                // inline glyph and label, the group centered as a whole with even spacing, the active one a cream pill
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: min(size.width * 0.08, 160)) { items() }
-                    HStack(spacing: 16) { items() }
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
+                    primary(); secondary(); back()
                 }
-                .frame(maxWidth: .infinity)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) {
+                        primary().fixedSize()
+                        Spacer(minLength: 16)
+                        hint(.options, "console.options", "console.options") { if let id = focused?.id { driver.openOptions(id) } }.fixedSize()
+                        Spacer(minLength: 16)
+                        hint(.menu, "console.menu", "console.menu") { driver.openMenu() }.fixedSize()
+                        Spacer(minLength: 16)
+                        hint(.quickMenu, "console.quickMenu", "console.quickMenuHint") { driver.openQuickMenu() }.fixedSize()
+                        Spacer(minLength: 16)
+                        back().fixedSize()
+                    }
+                    VStack(spacing: 12) {
+                        HStack { primary(); Spacer(minLength: 16); back() }
+                        HStack(spacing: 16) { secondary(); Spacer(minLength: 0) }
+                    }
+                }
             }
         }
     }
@@ -301,7 +363,8 @@ struct ConsoleHomePointerInput {
     private var moved = false
 
     static func tapTile(_ id: String, focused: String?, focus: () -> Void, open: () -> Void) {
-        if id == focused { open() } else { focus() }
+        focus()
+        open()
     }
 
     static func drag(_ translation: CGSize) -> Int? {
@@ -372,7 +435,7 @@ struct ConsolePrimaryButton: View {
                 .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8).padding(.horizontal, 20)   // a long label wraps or shrinks, the button keeps its width
                 .frame(maxWidth: .infinity, minHeight: 60).background(LauncherPalette.cream, in: Capsule()).contentShape(Capsule())
         }
-        .buttonStyle(.plain).padTarget(id, scope: scope, radius: 30, activate: action)   // half the 60 pt height: a capsule ring
+        .buttonStyle(.plain).padTarget(id, scope: scope, focusColor: LauncherPalette.onCream, activate: action)
     }
 }
 
@@ -404,17 +467,40 @@ enum ConsoleTimes {
     }
 }
 
-/// The top bar's capsules (the controllers, the clock, Search, the menu): a dark fill with a hairline, so white text keeps at least
-/// 4.5:1 on any art, together with the backdrop's top scrim (ConsoleBackdrop.scrimHeight).
-extension View {
-    func consoleBarFill() -> some View {
-        background(Color.black.opacity(ConsoleBarFill.opacity), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+/// Header actions share height, outline and centered content. Text actions use a capsule.
+struct ConsoleHeaderButton: View {
+    let symbol: String
+    let id: String
+    let label: String
+    let compact: Bool
+    var showsLabel = false
+    @EnvironmentObject private var pad: PadFocus
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var focused: Bool { pad.visible && pad.focused == id }
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol).font(.system(size: compact ? 18 : 20, weight: .semibold))
+                    .frame(width: 24, height: 24)
+                if showsLabel { Text(label).font(.manrope(compact ? 15 : 17, .semibold)).lineLimit(1) }
+            }
+            .padding(.horizontal, showsLabel ? 18 : 0)
+            .frame(width: showsLabel ? nil : (compact ? 48 : 52), height: compact ? 48 : 52)
+            .background {
+                if showsLabel { Capsule().fill(focused ? LauncherPalette.cream : .black) } else { Circle().fill(focused ? LauncherPalette.cream : .black) }
+            }
+            .overlay {
+                if showsLabel { Capsule().strokeBorder(LauncherPalette.cream, lineWidth: 2) }
+                else { Circle().strokeBorder(LauncherPalette.cream, lineWidth: 2) }
+            }
+            .contentShape(Capsule())
+        }
+        .foregroundStyle(focused ? Color.black : .white)
+        .buttonStyle(.plain).accessibilityLabel(label)
+        .padTarget(id, scope: "console", activate: action)
+        .environment(\.padRingStyle, .none)
+        .scaleEffect(focused && !reduceMotion ? 1.1 : 1)
+        .animation(.easeOut(duration: reduceMotion ? 0 : 0.16), value: focused)
     }
-}
-
-enum ConsoleBarFill {
-    /// Black at this share over pure white, under the scrim's 0.32 at the bar's middle, gives white text about 7:1, and 4.9:1 with
-    /// no scrim at all.
-    static let opacity = 0.55
 }

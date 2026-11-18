@@ -126,8 +126,8 @@ extension BuildStore {
         return folderName
     }
 
-    /// Step 3 can run once a build packed the game's data and the IPA exists, and nothing else runs.
-    package var canSendGameData: Bool { !running && !archivePath.isEmpty && !exportedIPAPath.isEmpty }
+    /// Game data can be sent after an IPA export or a recorded device install, while nothing else runs.
+    package var canSendGameData: Bool { !running && !archivePath.isEmpty && (!exportedIPAPath.isEmpty || !installedOn.isEmpty && !installedAppPath.isEmpty) }
 
     /// Multi-game drive copy is available whenever a drive folder is valid, nothing is running, and at least one game has packed data.
     package var canSelectGamesForDrive: Bool {

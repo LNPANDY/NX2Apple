@@ -169,6 +169,7 @@ import CryptoKit
         await store.stage(release, automatic: true).value
         XCTAssertNil(store.staged)
         XCTAssertEqual(store.blocked, text("app.noDigest", "v0.4.8"))
+        XCTAssertFalse(store.retryAvailable, "missing verification metadata requires a deliberate manual update")
         await store.stage(release, automatic: false).value
         XCTAssertEqual(store.staged?.release, release)
         XCTAssertNil(store.blocked, "a new attempt clears the refusal")
@@ -192,6 +193,8 @@ import CryptoKit
         XCTAssertEqual(store.status, text("app.stageNetFail", "v0.4.8"))
         XCTAssertEqual(store.blocked, store.status)
         XCTAssertNil(store.downloadProgress)
+        XCTAssertTrue(store.retryAvailable)
+        XCTAssertEqual(store.phase, .idle)
         XCTAssertTrue(runner.launches.isEmpty, "nothing to unpack")
     }
 
@@ -205,6 +208,45 @@ import CryptoKit
         _ = sub
         XCTAssertEqual(observed, [nil, 0, 0.25, 0.62, 1.0, nil])
         XCTAssertNil(store.downloadProgress, "cleared when staging finishes")
+    }
+
+    func testUpdatePhasesSeparateTransferFromPreparationAndRetryClearsOnSuccess() async {
+        let store = makeStore()
+        let check = store.checkForUpdate()
+        XCTAssertEqual(store.phase, .checking)
+        await check.value
+        XCTAssertEqual(store.phase, .idle)
+        XCTAssertTrue(store.retryAvailable)
+        source.file = zipData
+        let release = AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/a.zip", digest: nil)
+        var phases: [AppUpdateStore.Phase] = []
+        let sub = store.$phase.sink { phases.append($0) }
+        let task = store.stage(release, automatic: false)
+        XCTAssertEqual(store.phase, .downloading)
+        XCTAssertFalse(store.retryAvailable)
+        await task.value
+        withExtendedLifetime(sub) {}
+        XCTAssertTrue(phases.contains(.preparing))
+        XCTAssertEqual(store.phase, .idle)
+        XCTAssertNotNil(store.staged)
+        XCTAssertFalse(store.retryAvailable)
+        XCTAssertNil(store.downloadProgress)
+    }
+
+    func testRetryOfAutomaticDownloadDoesNotInstallOrRelaunch() async {
+        var quit = false
+        let store = makeStore(automatic: true, terminate: { quit = true })
+        let release = AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/a.zip", digest: digest(zipData))
+        store.update = release
+        source.file = nil
+        await store.stage(release, automatic: true).value
+        XCTAssertTrue(store.retryAvailable)
+        source.file = zipData
+        store.retryUpdate()
+        for _ in 0..<200 where store.busy { try? await Task.sleep(nanoseconds: 1_000_000) }
+        XCTAssertNotNil(store.staged)
+        XCTAssertFalse(quit, "retrying a background download must not become a manual install")
+        XCTAssertFalse(store.retryAvailable)
     }
 
     func testOnlyAReleasedCopyStages() async {

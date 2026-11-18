@@ -76,7 +76,7 @@ struct CheatsView: View {
                         .padding(.horizontal, 22).padding(.vertical, 9)
                 }
                 .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(.defaultAction).disabled(busy)
-                .padTarget("cheats.done", scope: "cheats", radius: 20) { if !busy { dismiss() } }
+                .padTarget("cheats.done", scope: "cheats", focusColor: LauncherPalette.onCream, enabled: !busy) { if !busy { dismiss() } }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
         }
@@ -229,13 +229,13 @@ struct CheatsView: View {
     private var actions: some View {
         HStack(spacing: 10) {
             Button(loc.t("cheats.import")) { pick() }.disabled(busy)
-                .padTarget("cheats.import", scope: "cheats") { if !busy { pick() } }
+                .padTarget("cheats.import", scope: "cheats", enabled: !busy) { if !busy { pick() } }
             Button(loc.t("cheats.showFolder")) { showFolder() }
                 .padTarget("cheats.folder", scope: "cheats") { showFolder() }
             Spacer(minLength: 8)
             if game?.onDevice ?? false {
                 Button(String(format: loc.t("cheats.toDevice"), deviceName)) { copyToDevice() }.disabled(!canCopy)
-                    .padTarget("cheats.toDevice", scope: "cheats") { if canCopy { copyToDevice() } }
+                    .padTarget("cheats.toDevice", scope: "cheats", enabled: canCopy) { if canCopy { copyToDevice() } }
             }
         }
         .buttonStyle(LauncherSecondaryButtonStyle())

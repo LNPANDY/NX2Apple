@@ -24,17 +24,19 @@ package struct ShellCacheRow: View {
         VStack(alignment: .leading, spacing: 0) {
             CardRow(loc.t("shellCache.row"), detail: loc.t("shellCache.note"), detail2: build.shortPath(path)) {
                 Button(loc.t("shellCache.open")) { build.revealFolder(URL(fileURLWithPath: path)) }
+                    .padTarget("set.cacheOpen", scope: "main") { build.revealFolder(URL(fileURLWithPath: path)) }
                     .buttonStyle(LauncherSecondaryButtonStyle())
                 Button(loc.t("shellCache.move")) { pickFolder() }
                     .buttonStyle(LauncherSecondaryButtonStyle())
                     .disabled(build.running)
-                    .padTarget("set.cacheMove", scope: "main") { if !build.running { pickFolder() } }
+                    .padTarget("set.cacheMove", scope: "main", enabled: !build.running) { if !build.running { pickFolder() } }
             }
             if !build.shellCacheIsDefault, build.shellMove == .idle {
                 Button(loc.t("shellCache.useDefault")) { build.prepareShellMoveToDefault() }
-                    .buttonStyle(.plain).font(.manrope(12.5, .semibold)).foregroundStyle(LauncherPalette.ready)
+                    .buttonStyle(LauncherSecondaryButtonStyle())
                     .disabled(build.running)
-                    .padding(.leading, axis).padding(.top, -5).padding(.bottom, 13)
+                    .padTarget("set.cacheDefault", scope: "main", enabled: !build.running) { if !build.running { build.prepareShellMoveToDefault() } }
+                    .frame(maxWidth: .infinity, alignment: .trailing).padding(.horizontal, 18).padding(.bottom, 13)
             }
             if build.shellMove != .idle {
                 panel.padding(.leading, axis).padding(.trailing, 18).padding(.bottom, 14)
@@ -67,7 +69,7 @@ package struct ShellCacheRow: View {
                         .font(.manrope(12.5)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText)
                 }
                 footer(.info, loc.t("shellCache.movingNote")) {
-                    button(loc.t("btn.stop"), accent: LauncherPalette.building) { build.stopShellMove() }
+                    button(loc.t("btn.stop"), id: "stop", accent: LauncherPalette.building) { build.stopShellMove() }
                 }
             case .moved(let root):
                 footer(.done, String(format: loc.t("shellCache.moved"), build.shortPath(root))) { ok }
@@ -102,9 +104,9 @@ package struct ShellCacheRow: View {
         }
         if build.running { note(.warning, loc.t("shellCache.busy")) }
         buttons {
-            button(loc.t("saves.cancel")) { build.dismissShellMove() }
+            button(loc.t("saves.cancel"), id: "cancel") { build.dismissShellMove() }
             if plan.problem == nil {
-                button(loc.t("shellCache.go"), accent: LauncherPalette.ready, enabled: !build.running) { build.confirmShellMove() }
+                button(loc.t("shellCache.go"), id: "confirm", accent: LauncherPalette.ready, enabled: !build.running) { build.confirmShellMove() }
             }
         }
     }
@@ -132,7 +134,7 @@ package struct ShellCacheRow: View {
         }
     }
 
-    private var ok: some View { button(loc.t("library.ok")) { build.dismissShellMove() } }
+    private var ok: some View { button(loc.t("library.ok"), id: "done") { build.dismissShellMove() } }
 
     /// A note with its button beside it, on one line when it fits: the progress and the results.
     private func footer<Content: View>(_ kind: NoteKind, _ text: String, @ViewBuilder _ content: () -> Content) -> some View {
@@ -143,8 +145,9 @@ package struct ShellCacheRow: View {
         HStack(spacing: 10) { Spacer(minLength: 0); content() }
     }
 
-    private func button(_ title: String, accent: Color? = nil, enabled: Bool = true, _ perform: @escaping () -> Void) -> some View {
+    private func button(_ title: String, id: String, accent: Color? = nil, enabled: Bool = true, _ perform: @escaping () -> Void) -> some View {
         Button(title, action: perform).buttonStyle(LauncherSecondaryButtonStyle(accent: accent)).disabled(!enabled).fixedSize()
+            .padTarget("set.cache." + id, scope: "main", enabled: enabled, activate: perform)
     }
 
     private enum NoteKind { case done, info, warning, blocked }

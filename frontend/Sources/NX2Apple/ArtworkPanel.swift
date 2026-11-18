@@ -31,7 +31,8 @@ struct ArtworkPanel: View {
             }
             .padding(.horizontal, 24).padding(.top, 22).padding(.bottom, 14)
             tabs.padding(.horizontal, 24).padding(.bottom, 14)
-            ScrollView {
+            ScrollViewReader { proxy in
+              ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     grid
                     if editor.isLoading { Text(t("artwork.loading")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText) }
@@ -41,6 +42,15 @@ struct ArtworkPanel: View {
                 }
                 .padding(.horizontal, 24).padding(.top, 6).padding(.bottom, 16)
                 .task(id: editor.selectedFile) { await editor.measureSelected() }
+              }
+              .onChange(of: focus.focused) { id in
+                  guard focus.scope == "artwork", let id else { return }
+                  withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .center) }
+              }
+              .onChange(of: editor.cursor) { index in
+                  guard let index, editor.tiles.indices.contains(index) else { return }
+                  proxy.scrollTo("artwork.tile." + editor.tiles[index].id, anchor: .center)
+              }
             }
             Divider().opacity(0.3)
             footer
@@ -69,8 +79,8 @@ struct ArtworkPanel: View {
                         Text(title).font(.manrope(14, on ? .bold : .medium))
                     }
                     .padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(on ? LauncherPalette.ink(0.10) : .clear, in: RoundedRectangle(cornerRadius: 9))
-                    .contentShape(RoundedRectangle(cornerRadius: 9))
+                    .background(on ? LauncherPalette.ink(0.10) : .clear, in: Capsule())
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(on ? .isSelected : [])
@@ -179,7 +189,7 @@ struct ArtworkPanel: View {
                 if !editor.isCentered {
                     Button(t("artwork.framing.center")) { editor.recenter() }.buttonStyle(LauncherSecondaryButtonStyle())
                         .controlSize(.small)
-                        .padTarget("artwork.framing.center", scope: "artwork", radius: 9) { editor.recenter() }
+                        .padTarget("artwork.framing.center", scope: "artwork") { editor.recenter() }
                 }
             }
             .frame(minHeight: 32)
@@ -318,19 +328,19 @@ struct ArtworkPanel: View {
     private var resetButton: some View {
         Button { editor.reset(editor.slot) } label: { Label(t("artwork.reset." + slotName), systemImage: "arrow.uturn.backward").lineLimit(1).fixedSize() }
             .buttonStyle(LauncherSecondaryButtonStyle())
-            .padTarget("artwork.reset", scope: "artwork", radius: 9) { editor.reset(editor.slot) }
+            .padTarget("artwork.reset", scope: "artwork") { editor.reset(editor.slot) }
     }
 
     @ViewBuilder private var cancelAndSave: some View {
         Button(t("artwork.cancel"), action: cancel).buttonStyle(LauncherSecondaryButtonStyle())
             .keyboardShortcut(.cancelAction)
-            .padTarget("artwork.cancel", scope: "artwork", radius: 9, activate: cancel)
+            .padTarget("artwork.cancel", scope: "artwork", activate: cancel)
         Button(action: save) {
             Text(t("artwork.save")).font(.manrope(13.5, .bold))
                 .padding(.horizontal, 22).padding(.vertical, 9)
         }
-        .buttonStyle(LauncherActionButtonStyle()).opacity(editor.isDirty ? 1 : 0.4).keyboardShortcut("s", modifiers: .command).disabled(!editor.isDirty)
-        .padTarget("artwork.save", scope: "artwork", radius: 20) { if editor.isDirty { save() } }
+        .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut("s", modifiers: .command).disabled(!editor.isDirty)
+        .padTarget("artwork.save", scope: "artwork", focusColor: LauncherPalette.onCream, enabled: editor.isDirty) { if editor.isDirty { save() } }
     }
 }
 

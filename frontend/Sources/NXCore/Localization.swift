@@ -46,7 +46,7 @@ package struct Lang: Hashable, Sendable {
     ///
     /// The picker exists because the device language is not always the one someone wants to read
     /// this app in (a Chinese Windows display language on hardware bought abroad, a Mac kept in
-    /// English by habit). "Follow the system" stays the default; the states are stored as
+    /// English by habit). "System" stays the default; the states are stored as
     /// "" (follow) or a language code ("zh", "en", "sv", "de", "fr", or any other file in `frontend/l10n`).
     package static func initial() -> Lang {
         find(UserDefaults.standard.string(forKey: "appLanguage") ?? "") ?? device()

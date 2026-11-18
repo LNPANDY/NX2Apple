@@ -9,9 +9,9 @@ struct LauncherPrimaryButtonStyle: ButtonStyle {
         configuration.label
             .font(.manrope(13, .bold)).lineLimit(1)
             .padding(.horizontal, 15).padding(.vertical, 9)
-            .background(LauncherPalette.cream.opacity(configuration.isPressed ? 0.8 : 1), in: RoundedRectangle(cornerRadius: 9))
+            .background(LauncherPalette.cream.opacity(configuration.isPressed ? 0.8 : 1), in: Capsule())
             .foregroundStyle(LauncherPalette.background)
-            .contentShape(RoundedRectangle(cornerRadius: 9))
+            .contentShape(Capsule())
     }
 }
 

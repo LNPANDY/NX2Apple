@@ -8,8 +8,9 @@ import XCTest
 final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
     /// Keys whose French text is the English one on purpose: names, units, button letters, codes.
     static let sameAsEnglish: Set<String> = [
+        "library.chip.both", "shell.choiceLauncher", "onboarding.xcode.section",
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.background.python",
-        "onboarding.background.dotnet", "onboarding.games.version", "onboarding.demo.mario",
+        "onboarding.background.dotnet", "onboarding.demo.mario",
         "console.platform.mac", "console.platform.iphone", "console.version",
         "saves.toDevice", "saves.toMac", "section.app", "app.version", "library.ok",
         "build.ios", "data.keys", "delete.part.ipa", "dep.tool.xcodegen",
@@ -29,6 +30,7 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "ios.host.ok", "ios.host.shellName", "ios.ui.interface", "ios.ui.padPlus", "ios.ui.version", "ios.ui.touchEditorPortrait", "ios.ui.gameVersionLabel",
         // Brand and device names on the batch refresh badge and platform tags.
         "batchRefresh.versionBadge", "batchRefresh.platformIOS", "batchRefresh.platformMac",
+        "library.section.mac", "library.section.mobile",
     ]
 
     func testNothingIsLeftInEnglishButTheListedNames() {
@@ -40,7 +42,7 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(Lang.find("fr"), .fr)
         XCTAssertEqual(Lang("fr").name, "Français", "a language's name is in that language")
         XCTAssertEqual(L10n.string("onboarding.start", .fr), "Commencer")
-        XCTAssertEqual(L10n.string("onboarding.platform.title", .fr), "Où voulez-vous jouer\u{a0}?")
+        XCTAssertEqual(L10n.string("onboarding.platform.title", .fr), "Où souhaitez-vous jouer ?")
         XCTAssertEqual(String(format: L10n.string("onboarding.stepCount", .fr), 2, 6), "Étape 2 sur 6")
     }
 }

@@ -110,7 +110,7 @@ struct CloudSaveSheet: View {
                 secondary("cloudCheck.cancel", id: "cloudsave.cancel") { gate.cancel() }.keyboardShortcut(.cancelAction)
                 Button(loc.t("cloudCheck.useSelected")) { if let picked { gate.choose(picked) } }
                     .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.cream)).disabled(picked == nil)   // no Return shortcut: a destructive choice is never the default
-                    .padTarget("cloudsave.use", scope: "cloudsave") { if let picked { gate.choose(picked) } }
+                    .padTarget("cloudsave.use", scope: "cloudsave", enabled: picked != nil) { if let picked { gate.choose(picked) } }
             }
         }
     }

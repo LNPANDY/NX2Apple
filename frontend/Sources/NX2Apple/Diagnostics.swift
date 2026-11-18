@@ -354,7 +354,7 @@ struct DiagnosticsButton: View {
         }
         .buttonStyle(LauncherSecondaryButtonStyle(accent: copied || showCopied ? LauncherPalette.ready : nil))
         .disabled(busy)
-        .padTarget("set.diagnostics", scope: "main") { if !busy { copy() } }
+        .padTarget("set.diagnostics", scope: "main", enabled: !busy) { if !busy { copy() } }
     }
 
     private func copy() {

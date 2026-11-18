@@ -281,7 +281,7 @@ private final class FakeFetch: CloudFileFetching, @unchecked Sendable {
         let library = GameLibrary(file: root.appendingPathComponent("library.json"))
         _ = try library.addApp(app)
         var launched: [[String: String]] = []
-        let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: TestDefaults.make("CloudSaveGateTests")), repo: { "" }, lang: { .en },
+        let driver = LiveConsoleDriver(launchGracePeriod: 0, library: library, controls: ControlLayout(defaults: TestDefaults.make("CloudSaveGateTests")), repo: { "" }, lang: { .en },
                                        labels: { L10n.string($0, .en) }, launch: { _, env, done in launched.append(env); done(7, nil) },
                                        artwork: { _, _ in nil }, startingTimeout: 0.2, observeSystem: false)
         let fetch = FakeFetch(.ready); fetch.held = true
