@@ -1,0 +1,329 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <haseenesss@gmail.com>
+Date: Wed, 18 Nov 2026 11:05:13 +0900
+Subject: [PATCH] Mac: a Switch Pro Controller's rumble goes through its own
+ report
+
+A controller that presents itself as a Switch Pro Controller (a GameSir
+Nova in its Switch mode, 057E:2009 over Bluetooth or its 2.4 GHz
+receiver) never vibrated in a game. Core Haptics started every engine
+with no error, but the pad plays only a sharpness of 0, and the host
+plays 0.5.
+
+Such a controller now gets its rumble through HID report 0x10, next to
+the DualShock 4 route and as SDL's hidapi driver does: each motor's own
+low and high band on its own actuator, encoded by pad_jc1.h's HD Rumble
+encoder, renewed every 40 ms while it plays. Vibration is turned on with
+subcommand 0x48 when the device is taken. DM_RUMBLE_PRO_REPORT=0 keeps
+the controller on Core Haptics.
+
+The route and its tests are the patch in LNPANDY/NX2Apple#1194, ported
+to the current haptics_apple.m, with the encoder the engine already has
+in place of a second one.
+
+Upstream-Status: pending
+Reason: A controller presenting itself as a Switch Pro Controller plays Core Haptics only at sharpness 0, so games never vibrated on it
+Issue: LNPANDY/NX2Apple#1194
+
+---
+ dm/host/haptics_apple.m         | 103 ++++++++++++++++++++++++++++++++
+ dm/host/tests/Makefile          |   2 +-
+ dm/host/tests/t_haptics_apple.m |  71 ++++++++++++++++++++--
+ 3 files changed, 170 insertions(+), 6 deletions(-)
+
+diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
+index ce6153b..69e0839 100644
+--- a/dm/host/haptics_apple.m
++++ b/dm/host/haptics_apple.m
+@@ -10,6 +10,7 @@
+ #import <AppKit/AppKit.h>
+ #import <IOKit/IOKitLib.h>
+ #import <IOKit/hid/IOHIDDevice.h>
++#include "pad_jc1.h"
+ #endif
+ #include <math.h>
+ #include <pthread.h>
+@@ -349,6 +350,99 @@ static BOOL ds4_route(int p, GCController *controller) {
+             ds4[p].bluetooth ? "Bluetooth" : "USB", [(__bridge NSNumber *)IOHIDDeviceGetProperty(ds4[p].dev, CFSTR(kIOHIDProductIDKey)) intValue]);
+     return YES;
+ }
++
++// A Switch Pro Controller, or a controller that presents itself as one (a GameSir Nova in its Switch mode: Nintendo 057E / 2009 over Bluetooth or
++// its 2.4 GHz receiver), is driven through its own rumble report, as SDL's hidapi driver does: 0x10, the packet counter, then four bytes of HD Rumble
++// for the left actuator and four for the right (pad_jc1.h's encoding). Core Haptics reaches some of these only at its lowest sharpness: on the Nova
++// (macOS 27.2.1) every engine and locality started with no error and only a sharpness of 0 was felt, so a game's rumble never was
++// (LNPANDY/NX2Apple#1194). The report also plays the game's own bands, each motor's low and high frequency and amplitude, where an engine gets an
++// intensity and a sharpness. DM_RUMBLE_PRO_REPORT=0 keeps such controllers on Core Haptics.
++typedef struct { IOHIDDeviceRef dev; uint64_t id; CFIndex size; uint8_t counter; uint8_t rumble[8], sent[8]; uint64_t generation; } pro_out;   // id: its registry entry
++static pro_out pro[DM_PLAYERS];
++static BOOL pro_report_on = YES;
++// Report 0x10 with the rumble alone, or 0x01 with a subcommand after it. Padded to the device's output report size (49 over Bluetooth, 64 over USB)
++static void pro_send(int p, const uint8_t rumble[8], const uint8_t *sub, size_t sublen) {
++    pro_out *o = &pro[p]; uint8_t r[64] = {0};
++    CFIndex n = MIN(MAX(o->size, (CFIndex)(10 + sublen)), (CFIndex)sizeof r);
++    r[0] = sub ? 0x01 : 0x10; r[1] = o->counter++ & 0x0F; memcpy(r + 2, rumble, 8);
++    if (sub) memcpy(r + 10, sub, sublen);
++    IOReturn e = IOHIDDeviceSetReport(o->dev, kIOHIDReportTypeOutput, r[0], r, n);
++    if (e != kIOReturnSuccess) { if (++errors <= 8 || errors % 64 == 0) fprintf(stderr, "[RED] haptics: Pro Controller rumble report: IOReturn 0x%x\n", e); return; }
++    if (!sub) memcpy(o->sent, rumble, 8);
++}
++// The left actuator plays the game's left motor and the right one its right motor, with the gain and DM_RUMBLE_MIN on each band's amplitude. A silent
++// actuator gets the neutral bytes whatever its frequencies. Resent every 40 ms while it plays: a Pro Controller lets a rumble fade out when no report renews it
++static void pro_apply(dm_haptic_state s) {
++    pro_out *o = &pro[s.player];
++    if (!o->dev) return;
++    for (int m = 0; m < 2; m++) {
++        dm_vibration v = s.motor[m];
++        v.amplitude_low = dm_haptics_apple_controller_intensity(v.amplitude_low * gain); v.amplitude_high = dm_haptics_apple_controller_intensity(v.amplitude_high * gain);
++        if (jc1_vibration_on(&v)) jc1_rumble_encode(&v, o->rumble + 4 * m); else memcpy(o->rumble + 4 * m, jc1_neutral_rumble, 4);
++    }
++    uint64_t generation = ++o->generation;
++    BOOL silent = !memcmp(o->rumble, jc1_neutral_rumble, 8);
++    if (silent && !memcmp(o->rumble, o->sent, 8)) return;
++    pro_send(s.player, o->rumble, NULL, 0);
++    if (silent) return;
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), queue, ^{
++        if (pro[s.player].dev && pro[s.player].generation == generation && s.epoch == dm_haptics_epoch(s.player)) { pro[s.player].generation--; pro_apply(s); }
++    });
++}
++static void pro_silence(int p) {
++    pro_out *o = &pro[p];
++    o->generation++;
++    memcpy(o->rumble, jc1_neutral_rumble, 8);
++    if (o->dev && memcmp(o->sent, jc1_neutral_rumble, 8)) pro_send(p, jc1_neutral_rumble, NULL, 0);
++}
++static void pro_release(int p) {
++    pro_out *o = &pro[p];
++    if (o->dev) { pro_silence(p); IOHIDDeviceClose(o->dev, kIOHIDOptionsTypeNone); CFRelease(o->dev); }
++    *o = (pro_out){0};
++}
++@interface DmProChannel : DmRumbleChannel   // one for both actuators; the route takes both motors' values at once (pro_apply)
++@end
++@implementation DmProChannel
++- (void)apply:(dm_haptic_level)level { (void)level; }
++- (void)stop { pro_silence(self.player); }
++@end
++// The first Pro Controller HID device no other player drives, opened for player p, asked of the registry at each connect as ds4_take does.
++// Its vibration is turned on (subcommand 0x48) once it is taken: GameController's own driver leaves it as it found it
++static BOOL pro_take(int p) {
++    CFMutableDictionaryRef match = IOServiceMatching(kIOHIDDeviceKey); io_iterator_t it = 0;
++    if (!match) return NO;
++    CFDictionarySetValue(match, CFSTR(kIOHIDVendorIDKey), (__bridge CFNumberRef)@0x057E);
++    CFDictionarySetValue(match, CFSTR(kIOHIDProductIDKey), (__bridge CFNumberRef)@0x2009);
++    if (IOServiceGetMatchingServices(kIOMainPortDefault, match, &it) != KERN_SUCCESS) return NO;   // takes match
++    BOOL found = NO;
++    for (io_service_t s; !found && (s = IOIteratorNext(it)); IOObjectRelease(s)) {
++        uint64_t id = 0; BOOL taken = NO;
++        if (IORegistryEntryGetRegistryEntryID(s, &id) != KERN_SUCCESS) continue;
++        for (int q = 0; q < DM_PLAYERS; q++) taken |= q != p && pro[q].dev && pro[q].id == id;
++        IOHIDDeviceRef dev = taken ? NULL : IOHIDDeviceCreate(kCFAllocatorDefault, s);
++        if (!dev) continue;
++        if (IOHIDDeviceOpen(dev, kIOHIDOptionsTypeNone) == kIOReturnSuccess) {
++            NSNumber *size = (__bridge NSNumber *)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDMaxOutputReportSizeKey));
++            pro[p] = (pro_out){.dev = dev, .id = id, .size = size.integerValue > 0 ? size.integerValue : JC1_REPORT_LEN};
++            found = YES;
++        } else CFRelease(dev);
++    }
++    IOObjectRelease(it);
++    if (found) {
++        static const uint8_t enable[2] = {0x48, 0x01};
++        pro_send(p, jc1_neutral_rumble, enable, sizeof enable);
++        memcpy(pro[p].sent, jc1_neutral_rumble, 8); memcpy(pro[p].rumble, jc1_neutral_rumble, 8);
++    }
++    return found;
++}
++// Only a controller GameController calls a Switch Pro Controller, and only while such a HID device is free
++static BOOL pro_route(int p, GCController *controller) {
++    if (!pro_report_on || ![controller.productCategory isEqualToString:@"Switch Pro Controller"] || !pro_take(p)) return NO;
++    DmProChannel *c = [DmProChannel new]; c.player = p; c.motor = -1; c.target = @"Pro Controller report"; [channels[p] addObject:c];
++    fprintf(stderr, "haptics: player %d controller %s, rumble through the Pro Controller report (%s)\n", p + 1, controller.vendorName.UTF8String ?: "unknown",
++            [(__bridge NSString *)IOHIDDeviceGetProperty(pro[p].dev, CFSTR(kIOHIDTransportKey)) UTF8String] ?: "unknown transport");
++    return YES;
++}
+ #endif
+ 
+ static void (*sinks[DM_PLAYERS])(const dm_haptic_state *);   // a player's own output instead of engines (dm_haptics_apple_set_sink)
+@@ -381,6 +475,7 @@ static void apply(dm_haptic_state s) {
+         NSArray<DmRumbleChannel *> *out = channels[s.player];
+ #if !TARGET_OS_IPHONE
+         if ([out.firstObject isKindOfClass:DmDs4Channel.class]) { ds4_apply(s); return; }
++        if ([out.firstObject isKindOfClass:DmProChannel.class]) { pro_apply(s); return; }
+ #endif
+         for (NSUInteger i = 0; i < out.count; i++) {
+             if (s.epoch != dm_haptics_epoch(s.player)) break;   // a failed channel may replace this route
+@@ -407,7 +502,9 @@ static void configure(int p, GCController *controller, GCHapticsLocality localit
+     if (sinks[p]) { sink_silence(p); dm_haptics_route(p, 1); return; }
+ #if !TARGET_OS_IPHONE
+     ds4_release(p);
++    pro_release(p);
+     if (controller && !locality && ds4_route(p, controller)) { dm_haptics_route(p, 1); return; }   // the report first, as SDL drives it
++    if (controller && !locality && pro_route(p, controller)) { dm_haptics_route(p, 1); return; }
+ #endif
+     if (controller) {
+         GCDeviceHaptics *h = controller.haptics;
+@@ -526,6 +623,7 @@ void dm_haptics_apple_output(int p, id owner, dm_haptics_output output) {
+             for (DmRumbleChannel *c in channels[p]) [c stop];
+ #if !TARGET_OS_IPHONE
+             ds4_release(p);
++            pro_release(p);
+ #endif
+             channels[p]=[NSMutableArray new]; nativeOutputs[p]=[output copy]; dm_haptics_route(p,1);
+         });
+@@ -571,6 +669,7 @@ void dm_haptics_apple_teardown(void) {
+                 sinks[p] = NULL;
+ #if !TARGET_OS_IPHONE
+                 ds4_release(p);
++                pro_release(p);
+ #endif
+                 channels[p] = nil;
+                 nativeOutputs[p] = nil;
+@@ -612,6 +711,10 @@ void dm_haptics_apple_init(void) {
+     if (e && *e) { float v = strtof(e, &end); if (end != e && !*end && isfinite(v)) rumble_min = fmaxf(0, fminf(0.9f, v)); }
+     e = getenv("DM_RUMBLE");
+     dm_haptics_init(apply, !e || atoi(e) != 0);
++#if !TARGET_OS_IPHONE
++    e = getenv("DM_RUMBLE_PRO_REPORT");
++    pro_report_on = !e || atoi(e) != 0;
++#endif
+ #if TARGET_OS_IPHONE
+     phoneSupported = CHHapticEngine.capabilitiesForHardware.supportsHaptics;
+ #endif
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 7ef1b45..10b7c68 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -292,7 +292,7 @@ $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle
+ 	$(CLANG) -O1 -g -fsanitize=thread -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c ../hle_bigstack.c
+ $(B)/t_haptics: t_haptics.c ../hle_haptics.c ../hle_haptics.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -g -Wall -Werror -I.. -o $@ t_haptics.c ../hle_haptics.c
+-$(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ../hle_haptics.c ../hle_haptics.h | $(B)
++$(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ../pad_jc1.h ../pad_pro.h ../hle_haptics.c ../hle_haptics.h | $(B)
+ 	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -I.. -o $@ t_haptics_apple.m ../hle_haptics.c -framework Cocoa -framework GameController -framework CoreHaptics -framework IOKit
+ $(B)/t_time: t_time.c ../hle_time.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_time.c
+diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
+index 041eb69..44f78c6 100644
+--- a/dm/host/tests/t_haptics_apple.m
++++ b/dm/host/tests/t_haptics_apple.m
+@@ -169,9 +169,10 @@ static void test_dispatch_after(dispatch_time_t when, dispatch_queue_t target, d
+ // A HID device in the fake registry: its entry (one per connection), and the handles made on it
+ @interface TestHid : NSObject
+ @property io_service_t service;
+-@property int product, opens, closes;
++@property int vendor, product, opens, closes;
+ @property BOOL bluetooth, failOpen;
+ @property NSData *report;
++@property NSMutableArray<NSData *> *reports;   // every report sent to it, oldest first
+ @end
+ @implementation TestHid
+ @end
+@@ -187,18 +188,28 @@ static NSUInteger listedNext;
+ static int objects;   // iterators and services not released yet
+ static TestHid *hid_add(int product) {
+     static io_service_t next = 1000;
+-    TestHid *h = [TestHid new]; h.service = next++; h.product = product; h.bluetooth = YES;
++    TestHid *h = [TestHid new]; h.service = next++; h.vendor = 0x054C; h.product = product; h.bluetooth = YES; h.reports = [NSMutableArray new];
+     [registry addObject:h]; return h;
+ }
++static TestHid *pro_hid_add(void) { TestHid *h = hid_add(0x2009); h.vendor = 0x057E; return h; }
++static TestHid *pro_hid_of(int player) {
++    __block IOHIDDeviceRef d; dispatch_sync(queue, ^{ d = pro[player].dev; });
++    return d ? ((__bridge TestHandle *)d).hid : nil;
++}
+ static TestHid *hid_of(int player) {
+     __block IOHIDDeviceRef d; dispatch_sync(queue, ^{ d = ds4[player].dev; });
+     return d ? ((__bridge TestHandle *)d).hid : nil;
+ }
+ static kern_return_t test_matching_services(mach_port_t port, CFDictionaryRef match, io_iterator_t *it) {
+     (void)port;
+-    assert(!listed && [(__bridge NSNumber *)CFDictionaryGetValue(match, CFSTR(kIOHIDVendorIDKey)) intValue] == 0x054C);
++    int vendor = [(__bridge NSNumber *)CFDictionaryGetValue(match, CFSTR(kIOHIDVendorIDKey)) intValue];
++    NSNumber *product = (__bridge NSNumber *)CFDictionaryGetValue(match, CFSTR(kIOHIDProductIDKey));
++    assert(!listed && (vendor == 0x054C || vendor == 0x057E));
+     CFRelease(match);
+-    listed = [registry copy]; listedNext = 0; objects++; *it = SONY_ITERATOR;
++    listed = [registry filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(TestHid *h, NSDictionary *b) {
++        (void)b; return h.vendor == vendor && (!product || h.product == product.intValue);
++    }]];
++    listedNext = 0; objects++; *it = SONY_ITERATOR;
+     return KERN_SUCCESS;
+ }
+ static io_object_t test_iterator_next(io_iterator_t it) {
+@@ -223,6 +234,7 @@ static IOHIDDeviceRef test_device_create(CFAllocatorRef a, io_service_t s) {
+ static CFTypeRef test_device_property(IOHIDDeviceRef d, CFStringRef key) {
+     TestHid *h = ((__bridge TestHandle *)d).hid;
+     if (CFEqual(key, CFSTR(kIOHIDProductIDKey))) return (__bridge CFTypeRef)@(h.product);
++    if (CFEqual(key, CFSTR(kIOHIDMaxOutputReportSizeKey))) return (__bridge CFTypeRef)@(h.bluetooth ? 49 : 64);
+     assert(CFEqual(key, CFSTR(kIOHIDTransportKey)));
+     return (__bridge CFTypeRef)(h.bluetooth ? @"Bluetooth" : @"USB");
+ }
+@@ -237,6 +249,7 @@ static IOReturn test_device_report(IOHIDDeviceRef d, IOHIDReportType t, CFIndex
+     assert(t == kIOHIDReportTypeOutput && id == r[0] && h.opens > h.closes);
+     if (![registry containsObject:h]) return kIOReturnNoDevice;
+     h.report = [NSData dataWithBytes:r length:n];
++    [h.reports addObject:h.report];
+     return kIOReturnSuccess;
+ }
+ static void drain(void) { dispatch_sync(queue, ^{}); dispatch_sync(queue, ^{}); }
+@@ -608,6 +621,54 @@ int main(void) { @autoreleasepool {
+     assert(nativeStops && !outputOwners[0] && !nativeOutputs[0] && channels[0].count==1 && [controllerLocalities[0] isEqual:GCHapticsLocalityLeftHandle]);
+     dm_haptics_apple_controller(0, nil); dm_haptics_apple_controller(1, nil); drain();
+     assert(ds4_crc((const uint8_t *)"123456789", 9) == 0xCBF43926u);   // the report's CRC32 (IEEE, reflected)
++    // A Switch Pro Controller (or a pad presenting itself as one, LNPANDY/NX2Apple#1194) gets its rumble report while a 057E / 2009 device is free; vibration is turned on once
++    static const uint8_t neutral[8] = {0x00, 0x01, 0x40, 0x40, 0x00, 0x01, 0x40, 0x40};
++    registry = [NSMutableArray new];
++    hid_add(0x05C4);   // a Sony device is not a Pro Controller's
++    TestHid *proBt = pro_hid_add();
++    TestController *sp = [TestController new]; sp.haptics = [TestHaptics new]; sp.productCategory = @"Switch Pro Controller";
++    dm_haptics_apple_controller(0, (id)sp); drain();
++    assert(pro_hid_of(0) == proBt && proBt.opens == 1 && channels[0].count == 1 && [channels[0][0] isKindOfClass:DmProChannel.class]);
++    b = proBt.reports.lastObject.bytes;
++    assert(proBt.reports.count == 1 && proBt.reports[0].length == 49 && b[0] == 0x01 && b[10] == 0x48 && b[11] == 0x01 && !memcmp(b + 2, neutral, 8));
++    // Each motor on its own actuator, with the game's bands (HD Rumble bytes, pad_jc1.h); renewed every 40 ms while it plays, never through Core Haptics
++    dm_vibration_update u2[] = {{0, 0, {1, 160, 0, 320}}, {0, 1, {0, 160, 1, 320}}};
++    dm_haptics_send(u2, 2); drain();
++    b = proBt.reports.lastObject.bytes;
++    assert(proBt.reports.count == 2 && proBt.reports[1].length == 49 && b[0] == 0x10 && (b[1] & 0x0F) == 1);
++    assert(!memcmp(b + 2, (uint8_t[]){0x00, 0x01, 0x40, 0x72, 0x00, 0xC9, 0x40, 0x40}, 8));
++    advance(0.1);
++    assert(proBt.reports.count >= 4 && !memcmp((const uint8_t *)proBt.reports.lastObject.bytes + 2, (uint8_t[]){0x00, 0x01, 0x40, 0x72, 0x00, 0xC9, 0x40, 0x40}, 8) && sp.haptics.attempts == 0);
++    // The gain scales the amplitude, and a motor at rest keeps the neutral bytes
++    uint8_t half[4]; dm_vibration hv = {0.5f, 160, 0, 320}; jc1_rumble_encode(&hv, half);
++    gain = 0.5f; send_pair(1, 0); drain();
++    assert(half[3] != 0x72 && !memcmp((const uint8_t *)proBt.reports.lastObject.bytes + 2, half, 4) && !memcmp((const uint8_t *)proBt.reports.lastObject.bytes + 6, neutral, 4));
++    gain = 1;
++    // Silence stops the renewals with the neutral pattern
++    send_pair(0, 0); drain();
++    NSUInteger quiet = proBt.reports.count;
++    assert(!memcmp((const uint8_t *)proBt.reports.lastObject.bytes + 2, neutral, 8));
++    advance(0.2);
++    assert(proBt.reports.count == quiet);
++    // A second one gets its own device (USB: its report size); with none free it stays on Core Haptics
++    TestController *sp2 = [TestController new]; sp2.haptics = [TestHaptics new]; sp2.productCategory = @"Switch Pro Controller";
++    dm_haptics_apple_controller(1, (id)sp2); drain();
++    assert(!pro_hid_of(1) && channels[1].count == 1 && ![channels[1][0] isKindOfClass:DmProChannel.class]);
++    dm_haptics_apple_controller(1, nil); drain();
++    TestHid *proUsb = pro_hid_add(); proUsb.bluetooth = NO;
++    dm_haptics_apple_controller(1, (id)sp2); drain();
++    assert(pro_hid_of(1) == proUsb && pro_hid_of(0) == proBt && proUsb.reports[0].length == 64);
++    // Leaving silences a playing actuator and closes the device
++    send_pair(0.8f, 0); drain();
++    dm_haptics_apple_controller(0, nil); drain();
++    assert(proBt.closes == 1 && !pro_hid_of(0) && !memcmp((const uint8_t *)proBt.reports.lastObject.bytes + 2, neutral, 8));
++    // DM_RUMBLE_PRO_REPORT=0 keeps it on Core Haptics
++    pro_report_on = NO;
++    dm_haptics_apple_controller(0, (id)sp); drain();
++    assert(!pro_hid_of(0) && channels[0].count == 1 && ![channels[0][0] isKindOfClass:DmProChannel.class]);
++    pro_report_on = YES;
++    dm_haptics_apple_controller(0, nil); dm_haptics_apple_controller(1, nil); drain();
++    assert(proUsb.closes == 1 && objects == 0);
+     // Shell game switch: teardown resets gain and rumble_min and allows the next game to re-read or clear DM_RUMBLE_GAIN / DM_RUMBLE_MIN
+     dm_haptics_apple_teardown();
+     assert(gain == 1 && rumble_min == 0 && !g_haptics_inited);
+@@ -672,5 +733,5 @@ int main(void) { @autoreleasepool {
+     for (TestTimer *timer in haltTimers) timer.block();
+     assert(oldEngine.stops == stopsAtTeardown);
+     dm_haptics_apple_teardown();
+-    puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, the DualSense's handles, level cutoff and the DualShock 4 route passed");
++    puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, the DualSense's handles, level cutoff, the DualShock 4 route and the Pro Controller route passed");
+ } }
