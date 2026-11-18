@@ -51,7 +51,7 @@ struct Diagnostics {
         var iosSDK: String?
     }
 
-    /// The selected game, for the game-problem form: what its app was built with and the end of its log.
+    /// The selected game, for a bug report: what its app was built with and the end of its log.
     struct GameInfo: Equatable {
         var name: String
         var titleID: String

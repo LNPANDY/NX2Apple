@@ -146,10 +146,11 @@ même fichier. Quand une même clé est définie plusieurs fois, l’ordre est :
 et `~/Library/Logs/nxnative/<title ID>.log`. Sur l’iPhone, ils sont dans l’app Fichiers sous le nom de l’app :
 `save/` et `log.txt` (l’exécution précédente est `log.prev.txt`).
 
-**Signaler un bug.** Utilisez les [formulaires de ticket](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
-(problème de jeu, de compilation, de lanceur). Chacun demande le jeu et son title ID, vos versions et votre
-appareil, **Réglages > Copier les diagnostics** et le journal du jeu. [CONTRIBUTING.md](CONTRIBUTING.md) explique
-pourquoi. Un signalement avec le `log.txt` complet est examiné en premier. Ne joignez jamais de clés, de fichiers
+**Signaler un bug.** Un problème de lanceur ou de compilation va dans les [formulaires de ticket](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
+(problème de compilation, de lanceur). Chacun demande vos versions et votre ordinateur,
+**Réglages > Copier les diagnostics** et, pour une compilation, le journal de compilation. [CONTRIBUTING.md](CONTRIBUTING.md) explique
+pourquoi. Un jeu qui plante, se fige, tourne lentement ou s’affiche mal va chez
+[seedds/nxnative](https://github.com/seedds/nxnative/issues). Ne joignez jamais de clés, de fichiers
 de jeu ni rien d’extrait d’un jeu.
 
 ## Jeux

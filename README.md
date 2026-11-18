@@ -159,10 +159,11 @@ the order is: the shell's own settings, the game's `env.txt`, the game's `mods/`
 `~/Library/Logs/nxnative/<title ID>.log`. On the iPhone they are in the Files app under the app's
 name: `save/` and `log.txt` (the previous run is `log.prev.txt`).
 
-**Reporting a bug.** Use the [issue forms](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
-(game problem, build problem, launcher problem). Each asks for the game and its title ID, your
-versions and device, **Settings > Copy diagnostics** and the game's log; [CONTRIBUTING.md](CONTRIBUTING.md)
-says why. A report with the full `log.txt` is looked at first. Never attach keys, game files or
+**Reporting a bug.** A launcher or build problem goes to the
+[issue forms](https://github.com/LNPANDY/NX2Apple/issues/new/choose) (build problem, launcher problem). Each asks
+for your versions and computer, **Settings > Copy diagnostics** and, for a build, the Build log.
+[CONTRIBUTING.md](CONTRIBUTING.md) says why. A game that crashes, freezes, runs slowly or looks wrong goes to
+[seedds/nxnative](https://github.com/seedds/nxnative/issues). Never attach keys, game files or
 anything extracted from a game.
 
 ## Games

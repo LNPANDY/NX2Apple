@@ -6,7 +6,7 @@ body:
       value: |
         Thanks for the report. A build fails at one step with one message. The fields below find it.
         **Never attach game files, keys, title keys or anything extracted from a game.** Logs and screenshots are fine.
-        If the game builds but then crashes, freezes or looks wrong, use the Game problem form.
+        If the game builds but then crashes, freezes or looks wrong, report it at https://github.com/seedds/nxnative/issues instead.
   - type: dropdown
     id: step
     attributes:

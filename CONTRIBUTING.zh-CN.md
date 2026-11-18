@@ -1,23 +1,22 @@
 # 参与贡献
 
-提 issue 要附什么、提 pull request 的规则和补丁队列见 [CONTRIBUTING.md](CONTRIBUTING.md)。在终端里手动构建（工具、`prod.keys`、IPA）见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。下面是帮忙补充游戏。
+提 issue 要附什么、提 pull request 的规则和补丁队列见 [CONTRIBUTING.md](CONTRIBUTING.md)。在终端里手动构建（工具、`prod.keys`、IPA）见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。游戏本身出问题（崩溃、卡死、变慢、画面或声音不对、手柄操作异常）请提到 [seedds/nxnative](https://github.com/seedds/nxnative/issues)，不要提在这里。下面是帮忙补充游戏。
 
 ## 帮忙补充游戏
 
 每款新游戏都需要单独的 bring-up：profile（build ID、内存布局、纹理槽位）、必要时的 shader 读取器、
-以及补丁点。**两种帮忙方式，都有用：**
+以及补丁点。游戏的 profile 属于引擎代码，引擎在 [seedds/nxnative](https://github.com/seedds/nxnative)。**三种帮忙方式，都有用：**
 
 - **报告一款能跑的游戏** —— 如果你让验证清单之外的游戏跑起来了，开 issue 附上 title ID、更新版本和
   你做的步骤，它会变成一个别人也能用的 profile。
+- **把新游戏的 profile 或引擎修复提交到 seedds/nxnative。** 我们不再在这里接收 nxnative 引擎的补丁。请直接向 seedds/nxnative 提 pull request，并遵循他们的 [CONTRIBUTING.md](https://github.com/seedds/nxnative/blob/main/CONTRIBUTING.md)。外部人员在 `patches/` 中新增或修改文件的 PR 会被关闭，并附上指向 nxnative 的说明。
 - **提交缺失的着色器** —— 如果游戏能跑但首次使用某个效果时卡顿，说明它的 shader 变体不在映射表里。
   宿主可以导出找不到的部分（`DM_NVN_SHDUMP=<dir>`）。附上它们，我们把它加进 `shader_map.tsv`，
   所有人都受益。
 
-带完整 `Documents/log.txt` 的 issue 会优先看——那份日志通常能直接指出缺的是什么。
-
 ## 提 pull request
 
-提 pull request 的基本规则（一个 PR 一项改动、PR 模板、截图、引擎与补丁）见[英文版](CONTRIBUTING.md#a-pull-request)。下面是外部贡献者的 PR 如何处理。
+提 pull request 的基本规则（一个 PR 一项改动、PR 模板、截图，以及引擎的改动要提交到 seedds/nxnative）见[英文版](CONTRIBUTING.md#a-pull-request)。下面是外部贡献者的 PR 如何处理。
 
 ### 修复、功能和想法
 
@@ -45,7 +44,7 @@ PR 如果等待作者回复满 30 天，会被关闭，并附一条说明，之�
 
 维护者（v0lumehi 和 LNPANDY）的功能在 48 小时后合并。来自外部的功能不会靠等待合并，要在维护者认可想法、试用应用并审查代码之后才合并。
 
-`patches/` 中的补丁在合并时取 `main` 上 `patches/series` 的下一个空闲编号。执行合并的人负责重新编号，并在 PR 中注明。你不需要为了追空闲编号而反复 rebase。
+维护者的 `patches/` 补丁在合并时取 `main` 上 `patches/series` 的下一个空闲编号。执行合并的人负责重新编号，并在 PR 中注明。来自外部的补丁不再接收。
 
 ## 给 AI 代理和其他工具
 

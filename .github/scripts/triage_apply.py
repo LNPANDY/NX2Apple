@@ -22,7 +22,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ALLOWED_LABELS = ['game', 'build', 'launcher', 'ios', 'mac', 'idea', 'question', 'needs-info', 'duplicate']
+ALLOWED_LABELS = ['build', 'launcher', 'ios', 'mac', 'idea', 'question', 'needs-info', 'duplicate']
 MAX_LABELS = 4
 MAX_DUPLICATES = 3
 MAX_COMMENT = 1500

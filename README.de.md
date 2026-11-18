@@ -150,11 +150,11 @@ der App ab (`log/<title ID>.log`). Sonst liegen sie in `~/Library/Application Su
 `~/Library/Logs/nxnative/<title ID>.log`. Auf dem iPhone liegen sie in der Dateien-App unter dem Namen der
 App: `save/` und `log.txt` (der vorige Lauf ist `log.prev.txt`).
 
-**Einen Fehler melden.** Nutze die [Issue-Formulare](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
-(Spielproblem, Build-Problem, Launcher-Problem). Jedes fragt nach dem Spiel und seiner Title ID, deinen
-Versionen und deinem Gerät, nach **Einstellungen > Diagnose kopieren** und nach dem Log des Spiels.
-[CONTRIBUTING.md](CONTRIBUTING.md) sagt, warum. Eine Meldung mit dem vollständigen `log.txt` wird zuerst
-angesehen. Hänge niemals Schlüssel, Spieldateien oder etwas aus einem Spiel Extrahiertes an.
+**Einen Fehler melden.** Ein Launcher- oder Build-Problem gehört in die [Issue-Formulare](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
+(Build-Problem, Launcher-Problem). Jedes fragt nach deinen Versionen und deinem Rechner, nach
+**Einstellungen > Diagnose kopieren** und bei einem Build nach dem Build-Log.
+[CONTRIBUTING.md](CONTRIBUTING.md) sagt, warum. Ein Spiel, das abstürzt, hängt, langsam läuft oder falsch aussieht,
+gehört zu [seedds/nxnative](https://github.com/seedds/nxnative/issues). Hänge niemals Schlüssel, Spieldateien oder etwas aus einem Spiel Extrahiertes an.
 
 ## Spiele
 

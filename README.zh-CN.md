@@ -130,9 +130,10 @@ Mod 更简单：把它的文件夹放进 `Documents/games/<title ID>/mods/<mod �
 `~/Library/Application Support/nxnative/<title ID>/` 和 `~/Library/Logs/nxnative/<title ID>.log`。
 iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上一次运行的是 `log.prev.txt`）。
 
-**报告问题。** 请用[问题表单](https://github.com/LNPANDY/NX2Apple/issues/new/choose)（游戏问题、构建问题、
-启动器问题）。表单会要你填游戏和 title ID、版本和设备、**设置 > 复制诊断信息**，以及游戏的日志；
-为什么需要见 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。附上完整 `log.txt` 的报告会优先处理。
+**报告问题。** 启动器问题和构建问题请用[问题表单](https://github.com/LNPANDY/NX2Apple/issues/new/choose)（构建问题、
+启动器问题）。表单会要你填版本和电脑、**设置 > 复制诊断信息**，构建问题还要填构建日志。
+为什么需要见 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。游戏崩溃、卡死、变慢或画面不对，请提到
+[seedds/nxnative](https://github.com/seedds/nxnative/issues)。
 千万不要附上密钥、游戏文件或任何从游戏中提取的内容。
 
 ## 游戏

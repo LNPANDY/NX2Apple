@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import triage_logs as tl  # noqa: E402
 
-ALLOWED_LABELS = ['game', 'build', 'launcher', 'ios', 'mac', 'idea', 'question', 'needs-info', 'duplicate']
+ALLOWED_LABELS = ['build', 'launcher', 'ios', 'mac', 'idea', 'question', 'needs-info', 'duplicate']
 SKIP_LABEL = 'no-triage'
 BODY_CAP = 12000
 MAX_PROMPT_BYTES = 90000   # one command-line argument holds 128 KiB on Linux; stay well below, whatever characters the issue uses
@@ -28,24 +28,16 @@ REQUIRED = {
     'macOS or iOS / iPadOS version': 'macOS / iOS version',
     'Device, chip and RAM': 'device',
     'Copy diagnostics': 'Copy diagnostics',
-    "The game's log": "the game's log",
     'Build log': 'build log',
     'The message': 'the error message',
     'Game, title ID and versions': 'game, title ID and versions',
-    'Game and title ID': 'game and title ID',
-    'Base game and update versions': 'base game and update versions',
-    'How it was installed': 'how it was installed',
-    'What happens, and when': 'what happens, and when',
-    'Launch options changed from the defaults': 'launch options',
-    'Game profile lines from the build log': 'game profile lines from the build log',
     'What happens, or what you would like': 'what happens, or what you would like',
     'Which step failed': 'which step failed',
     'Built for': 'built for',
     'Game files': 'game files',
-    'Where it runs': 'where it runs',
     'This is': 'what this is',
 }
-KIND_HEADINGS = {'Which step failed': 'build', 'Where it runs': 'game', 'This is': 'launcher'}
+KIND_HEADINGS = {'Which step failed': 'build', 'This is': 'launcher'}
 
 STOP = set('the a an and or of to in on is are was were it its for with when after before not no this that my i me you at by from as be can cant cannot does doesnt dont do bug issue problem game'.split())
 
@@ -77,7 +69,7 @@ def sections(body):
     return {k: '\n'.join(v).strip() for k, v in out.items()}
 
 
-LOG_FIELDS = ("The game's log", 'Build log')
+LOG_FIELDS = ('Build log',)
 NO_ANSWER = ('', '_No response_')
 APP_VERSION = re.compile(r'\bv\d+\.\d+(?:\.\d+)?\b|\bNX2Apple\b[^\n]{0,40}?\bv?\d+\.\d+|\b(?:app|launcher) version\W{0,3}v?\d+\.\d+', re.I)
 OS_VERSION = re.compile(r'\b(?:mac ?os(?: x)?|ios|ipados)\s+(?:[a-z]+\s+)?v?\d+(?:\.\d+)*', re.I)
@@ -90,8 +82,7 @@ def analyse_form(body, readable_attachments):
     The log counts as given when its own form field has text or a log attachment could be read; a `[RED]` line quoted in another field
     does not. `Copy diagnostics` is not asked of an idea (the form says it is not needed)."""
     sec = sections(body)
-    from_form = any(h in sec for h in ('NX2Apple version', 'No keys, no game files', 'Game, title ID and versions',
-                                          'Game and title ID'))
+    from_form = any(h in sec for h in ('NX2Apple version', 'No keys, no game files', 'Game, title ID and versions'))
     missing, kind, target = [], None, None
     if from_form:
         for h, k in KIND_HEADINGS.items():
@@ -107,7 +98,7 @@ def analyse_form(body, readable_attachments):
             if h in LOG_FIELDS and readable_attachments:
                 continue
             missing.append(name)
-        w = sec.get('Where it runs', '') + ' ' + sec.get('Built for', '')
+        w = sec.get('Built for', '')
         target = 'ios' if re.search(r'iPhone|iPad', w) else 'mac' if 'Mac' in w else None
     else:
         text = body or ''
