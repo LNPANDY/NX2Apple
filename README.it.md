@@ -140,10 +140,11 @@ modalità portatile).
 `~/Library/Logs/nxnative/<title ID>.log`. Sull'iPhone si trovano nell'app File sotto il nome dell'app:
 `save/` e `log.txt` (l'esecuzione precedente è salvata come `log.prev.txt`).
 
-**Segnalare un bug.** Usa gli appositi [moduli per le segnalazioni](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
-(problema di gioco, problema di compilazione, problema del launcher). Ciascun modulo richiede il nome del gioco e il suo Title ID, le versioni in uso
-e il dispositivo, l'output di **Impostazioni > Copia diagnostica** e il log del gioco. Il file [CONTRIBUTING.it.md](CONTRIBUTING.it.md)
-spiega il motivo di queste richieste. Le segnalazioni accompagnate dal file `log.txt` completo vengono esaminate per prime. Non allegare mai chiavi, file di gioco o
+**Segnalare un bug.** Un problema del launcher o di compilazione va negli appositi [moduli per le segnalazioni](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
+(problema di compilazione, problema del launcher). Ciascun modulo richiede le versioni in uso
+e il computer, l'output di **Impostazioni > Copia diagnostica** e, per una compilazione, il log di compilazione. Il file [CONTRIBUTING.it.md](CONTRIBUTING.it.md)
+spiega il motivo di queste richieste. Un gioco che va in crash, si blocca, rallenta o appare in modo errato va segnalato su
+[seedds/nxnative](https://github.com/seedds/nxnative/issues). Non allegare mai chiavi, file di gioco o
 qualsiasi elemento estratto da un gioco.
 
 ## Giochi

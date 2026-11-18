@@ -4,17 +4,19 @@ Issues and pull requests are welcome. NX2Apple is the launcher (`frontend/`, `fr
 
 ## Reporting a problem
 
-Game problems, build problems and launcher problems each have an issue form (`.github/ISSUE_TEMPLATE/`). The form asks for what a report needs — versions, device, Copy diagnostics, the build log's game profile lines, the game's log and the crash report. Use it from the Issues page. A report without those is usually unactionable.
+Everything about the launcher belongs here: the app, a build that fails, an install to a device. Build problems and launcher problems each have an issue form (`.github/ISSUE_TEMPLATE/`). The form asks for what a report needs, such as versions, device, Copy diagnostics and the Build log. Use it from the Issues page. A report without those is usually unactionable.
+
+A game that crashes, freezes, hangs, runs slowly, looks or sounds wrong, or whose controls misbehave once it runs goes to [seedds/nxnative](https://github.com/seedds/nxnative/issues), not here.
 
 ## Where an issue goes
 
-- **Here:** the app, a build or install that fails, and a game that does not run well on your Mac or iPhone or iPad.
+- **Here:** the launcher (the Mac app, the Windows app, the iOS shell), its settings, library and updates, translations, a build or install that fails, and this repository's docs and CI.
 - **[Discussions](https://github.com/LNPANDY/NX2Apple/discussions):** questions (Q&A) and ideas (Ideas). Bugs stay issues.
-- **[seedds/nxnative](https://github.com/seedds/nxnative/issues):** how the engine works, porting a new game, a rendering fault you have traced into the engine itself. Engine fixes and game profiles go there as a pull request, see "Helping with games".
+- **[seedds/nxnative](https://github.com/seedds/nxnative/issues):** a game that crashes, freezes, hangs, runs slowly, looks or sounds wrong, or whose controls misbehave once it runs. Also how the engine works and porting a new game. Engine fixes and game profiles go there as a pull request, see "Helping with games".
 
 ## What a report needs
 
-Pick a form: **Game problem**, **Build problem** or **Launcher problem or idea**. Each asks for what the problem is traced with: the game, its title ID and versions, the target, the device and OS, the NX2Apple version, **Settings > Copy diagnostics**, and the log (a game's log, or the Build log on the Builds page). A report without them gets a request for them first. Where a game's log is: a Mac game in a library folder writes `log/<title ID>.log` beside its app, otherwise `~/Library/Logs/nxnative/<title ID>.log`. On an iPhone or iPad it is `log.txt` in the Files app.
+Pick a form: **Build problem** or **Launcher problem or idea**. Each asks for what the problem is traced with: the NX2Apple version, the computer and OS, **Settings > Copy diagnostics**, and for a build the game, its title ID and versions and the Build log on the Builds page. A report without them gets a request for them first.
 
 **Never attach keys, game files or anything extracted from a game.** Logs, screenshots, title IDs and build IDs are fine.
 
@@ -30,16 +32,11 @@ useful:**
   that others can use.
 - **Send a new game profile, or a fix to the engine, to seedds/nxnative.** We no longer take patches for
   the engine here. Open the pull request there and follow their [CONTRIBUTING.md](https://github.com/seedds/nxnative/blob/main/CONTRIBUTING.md)
-  (a new game takes its profile, its note and its row in the games table). If the game also matters for
-  Apple devices here, link your pull request in a Game problem issue here, or in a comment on the issue
-  that already exists. A PR here that adds or changes a file in `patches/` from outside is closed with a
+  (a new game takes its profile, its note and its row in the games table). A PR here that adds or changes a file in `patches/` from outside is closed with a
   pointer to seedds/nxnative.
 - **Send the shaders that are missing** — if a game runs but stutters on first use of an effect, its
   shader variants are missing from the map. The host can dump what it cannot find
   (`DM_NVN_SHDUMP=<dir>`). Attach those and we add them to `shader_map.tsv` for everyone.
-
-Issues with a full `Documents/log.txt` get looked at first — that log usually names the exact
-missing piece.
 
 ## A pull request
 
@@ -118,7 +115,7 @@ Issue forms and the PR template apply in the browser only. `gh issue create`, th
   - Keep the main text under 150 words. Put evidence in `<details><summary>Details</summary> ... </details>` below it: the full cause analysis, logs and traces, the list of tests run, the commands.
   - Say once and plainly what you did not check or could not run.
   - A PR does not repeat its issue. Link it and add only what is new.
-- **Problem reports.** Write the body as `###` headings with the same names as the form's fields (for example `### Game and title ID`, `### Copy diagnostics`, `### The game's log`) and fill every required field from [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). Ask the user for what you cannot read yourself: the Copy diagnostics output, the log, the versions. If a required field is missing, do not open the issue.
+- **Problem reports.** Write the body as `###` headings with the same names as the form's fields (for example `### Which step failed`, `### Copy diagnostics`, `### Build log`) and fill every required field from [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). A game that crashes, freezes or looks wrong is not a report here, it goes to seedds/nxnative. Ask the user for what you cannot read yourself: the Copy diagnostics output, the log, the versions. If a required field is missing, do not open the issue.
 - **Ideas and plans.** These have no form. Write plain sections that fit the content, for example `### Idea`, `### Plan` and `### Done when`. Leave out the problem fields (`This is`, `NX2Apple version`, `Computer and OS`, `Copy diagnostics`). Open it with the labels `idea` and `no-triage`.
 - **Before you build.** If you work for an outside contributor, a feature or a proposal needs an issue in a milestone (see "Fixes, features and ideas"). Check that it exists or ask the user. A new game profile or an engine fix is not a PR here. It goes to seedds/nxnative (see "Helping with games").
 - **Pull requests.** Use the sections of [.github/pull_request_template.md](.github/pull_request_template.md): `gh pr create --template .github/pull_request_template.md`, or the same headings in `--body`. Answer each section and remove the `<!-- -->` hints. Under Fix or feature, tick one box. A feature from outside links the issue with the go. A change to the engine does not belong in a PR here, see "A pull request".

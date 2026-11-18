@@ -144,10 +144,11 @@ inställningar, spelets `env.txt`, spelets mapp `mods/`, den delade `Documents/e
 `~/Library/Logs/nxnative/<title ID>.log`. På iPhone ligger de i appen Filer under appens namn: `save/` och
 `log.txt` (föregående körning är `log.prev.txt`).
 
-**Rapportera ett fel.** Använd [formulären för ärenden](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
-(spelproblem, byggproblem, launcherproblem). Varje formulär frågar efter spelet och dess title ID, dina
-versioner och din enhet, **Inställningar > Kopiera diagnostik** och spelets logg.
-[CONTRIBUTING.md](CONTRIBUTING.md) förklarar varför. En rapport med hela `log.txt` tittar vi på först.
+**Rapportera ett fel.** Ett launcher- eller byggproblem hör hemma i [formulären för ärenden](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
+(byggproblem, launcherproblem). Varje formulär frågar efter dina versioner och din dator,
+**Inställningar > Kopiera diagnostik** och, för en build, byggloggen.
+[CONTRIBUTING.md](CONTRIBUTING.md) förklarar varför. Ett spel som kraschar, hänger sig, går långsamt eller ser fel ut
+hör hemma hos [seedds/nxnative](https://github.com/seedds/nxnative/issues).
 Bifoga aldrig nycklar, spelfiler eller något som extraherats ur ett spel.
 
 ## Spel

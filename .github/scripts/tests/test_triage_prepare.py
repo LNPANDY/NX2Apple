@@ -17,40 +17,38 @@ def form(**fields):
     return '\n\n'.join(f'### {h}\n\n{v}' for h, v in fields.items()) + '\n'
 
 
-GAME = {'Game and title ID': 'X, 0100000000000000', 'Base game and update versions': '1.0, 1.0.1', 'Where it runs': 'Mac app (built for This Mac)',
-        'Device, chip and RAM': 'M2', 'macOS or iOS / iPadOS version': 'macOS 26.1', 'How it was installed': 'DMG', 'NX2Apple version': 'v0.4.9',
-        'What happens, and when': 'crash', 'Launch options changed from the defaults': 'None',
-        'Copy diagnostics': 'diag', 'Game profile lines from the build log': 'profile', "The game's log": 'log text'}
+BUILD = {'Which step failed': 'Rewrite', 'The message': '[RED] boom', 'Build log': 'log text', 'Copy diagnostics': 'diag',
+         'Game, title ID and versions': 'X, 0100000000000000, 1.0', 'Built for': 'This Mac', 'Game files': 'NSP and XCI',
+         'Computer and OS': 'Mac, macOS 26.1'}
 
 
 class Form(unittest.TestCase):
     def missing(self, body, readable=0):
         return tp.analyse_form(body, readable)['missing']
 
-    def test_complete_game_form(self):
-        self.assertEqual(self.missing(form(**GAME)), [])
+    def test_complete_build_form(self):
+        self.assertEqual(self.missing(form(**BUILD)), [])
 
     def test_empty_fields(self):
-        f = dict(GAME, **{'NX2Apple version': '_No response_', 'Copy diagnostics': '_No response_'})
-        self.assertEqual(self.missing(form(**f)), ['NX2Apple version', 'Copy diagnostics'])
+        f = dict(BUILD, **{'The message': '_No response_', 'Copy diagnostics': '_No response_'})
+        self.assertEqual(self.missing(form(**f)), ['Copy diagnostics', 'the error message'])
 
-    def test_empty_game_and_title_id_is_missing(self):
-        f = dict(GAME, **{'Game and title ID': '_No response_'})
-        self.assertEqual(self.missing(form(**f)), ['game and title ID'])
-        self.assertEqual(self.missing(form(**{'Game and title ID': '_No response_'})), ['game and title ID'])
+    def test_empty_game_title_id_and_versions_is_missing(self):
+        f = dict(BUILD, **{'Game, title ID and versions': '_No response_'})
+        self.assertEqual(self.missing(form(**f)), ['game, title ID and versions'])
 
-    def test_every_required_game_field_is_checked(self):
-        for h in GAME:
-            r = self.missing(form(**dict(GAME, **{h: '_No response_'})))
+    def test_every_required_build_field_is_checked(self):
+        for h in BUILD:
+            r = self.missing(form(**dict(BUILD, **{h: '_No response_'})))
             self.assertEqual(len(r), 1, h)
 
     def test_empty_fenced_field_is_missing(self):
-        f = dict(GAME, **{'Copy diagnostics': '```markdown\n\n```'})
+        f = dict(BUILD, **{'Copy diagnostics': '```markdown\n\n```'})
         self.assertEqual(self.missing(form(**f)), ['Copy diagnostics'])
 
     def test_heading_inside_a_fenced_field_stays_in_it(self):
         diag = '```markdown\n### NX2Apple diagnostics\n\n- App: NX2Apple v0.7.3\n```'
-        sec = tp.sections(form(**dict(GAME, **{'Copy diagnostics': diag})))
+        sec = tp.sections(form(**dict(BUILD, **{'Copy diagnostics': diag})))
         self.assertEqual(sec['Copy diagnostics'], diag)
         self.assertNotIn('NX2Apple diagnostics', sec)
 
@@ -78,8 +76,8 @@ class Form(unittest.TestCase):
         self.assertEqual(self.missing('v0.4.9, iOS 26', readable=0), ['the log (or Copy diagnostics)'])
 
     def test_kind_and_target_hints(self):
-        r = tp.analyse_form(form(**dict(GAME, **{'Where it runs': 'iPhone or iPad (built for iPhone / iPad)'})), 0)
-        self.assertEqual((r['kind_hint'], r['target_hint']), ('game', 'ios'))
+        r = tp.analyse_form(form(**dict(BUILD, **{'Built for': 'iPhone or iPad'})), 0)
+        self.assertEqual((r['kind_hint'], r['target_hint']), ('build', 'ios'))
 
 
 class Prompt(unittest.TestCase):

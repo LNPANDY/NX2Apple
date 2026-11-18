@@ -1,6 +1,6 @@
 # 参与贡献
 
-提 issue 要附什么、提 pull request 的规则和补丁队列见 [CONTRIBUTING.md](CONTRIBUTING.md)。在终端里手动构建（工具、`prod.keys`、IPA）见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。下面是帮忙补充游戏。
+提 issue 要附什么、提 pull request 的规则和补丁队列见 [CONTRIBUTING.md](CONTRIBUTING.md)。在终端里手动构建（工具、`prod.keys`、IPA）见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。游戏本身出问题（崩溃、卡死、变慢、画面或声音不对、手柄操作异常）请提到 [seedds/nxnative](https://github.com/seedds/nxnative/issues)，不要提在这里。下面是帮忙补充游戏。
 
 ## 帮忙补充游戏
 
@@ -9,12 +9,10 @@
 
 - **报告一款能跑的游戏** —— 如果你让验证清单之外的游戏跑起来了，开 issue 附上 title ID、更新版本和
   你做的步骤，它会变成一个别人也能用的 profile。
-- **把新游戏的 profile 或引擎修复提交到 seedds/nxnative。** 我们不再在这里接收 nxnative 引擎的补丁。请直接向 seedds/nxnative 提 pull request，并遵循他们的 [CONTRIBUTING.md](https://github.com/seedds/nxnative/blob/main/CONTRIBUTING.md)。如果这款游戏对这里的 Apple 设备也重要，请在这里的 Game problem issue 中链接你的 pull request。外部人员在 `patches/` 中新增或修改文件的 PR 会被关闭，并附上指向 nxnative 的说明。
+- **把新游戏的 profile 或引擎修复提交到 seedds/nxnative。** 我们不再在这里接收 nxnative 引擎的补丁。请直接向 seedds/nxnative 提 pull request，并遵循他们的 [CONTRIBUTING.md](https://github.com/seedds/nxnative/blob/main/CONTRIBUTING.md)。外部人员在 `patches/` 中新增或修改文件的 PR 会被关闭，并附上指向 nxnative 的说明。
 - **提交缺失的着色器** —— 如果游戏能跑但首次使用某个效果时卡顿，说明它的 shader 变体不在映射表里。
   宿主可以导出找不到的部分（`DM_NVN_SHDUMP=<dir>`）。附上它们，我们把它加进 `shader_map.tsv`，
   所有人都受益。
-
-带完整 `Documents/log.txt` 的 issue 会优先看——那份日志通常能直接指出缺的是什么。
 
 ## 提 pull request
 
