@@ -9,7 +9,7 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
     /// Keys whose German text is the English text on purpose: names, units and button letters.
     private let sameAsEnglish: Set<String> = [
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.setup.metal",
-        "onboarding.background.python", "onboarding.background.dotnet", "onboarding.games.version",
+        "onboarding.background.python", "onboarding.games.version",
         "onboarding.demo.mario", "msg.ipaAt", "console.kind.gamepad", "console.platform.mac",
         "console.platform.iphone", "console.version", "console.fps30", "console.fps60", "saves.toDevice",
         "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "library.ok", "build.ios", "data.update", "data.keys", "delete.part.ipa",

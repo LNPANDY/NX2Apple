@@ -1752,7 +1752,6 @@
   "nxb.exit.other": "La build non è riuscita (codice di uscita nxb %d).",
   "nxb.tooOld": "Questo nxb è troppo vecchio (%@). Il builder sperimentale richiede nxb %@ o più recente. Scegline uno più recente in Impostazioni o disattiva il builder sperimentale.",
   "onboarding.back": "Indietro",
-  "onboarding.background.dotnet": ".NET",
   "onboarding.background.engine": "Supporto giochi",
   "onboarding.background.installing": "Installazione…",
   "onboarding.background.note": "Questi strumenti si preparano mentre configuri Xcode.",

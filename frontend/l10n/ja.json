@@ -1751,7 +1751,6 @@
   "nxb.exit.other": "ビルドに失敗しました（nxb 終了コード %d）。",
   "nxb.tooOld": "この nxb は古すぎます（%@）。実験的ビルダーには nxb %@ 以降が必要です。設定で新しいものを選択するか、実験的ビルダーをオフにしてください。",
   "onboarding.back": "戻る",
-  "onboarding.background.dotnet": ".NET",
   "onboarding.background.engine": "ゲームサポート",
   "onboarding.background.installing": "インストール中…",
   "onboarding.background.note": "Xcode をセットアップしている間に、これらのツールを準備します。",

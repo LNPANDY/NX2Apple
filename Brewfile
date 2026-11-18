@@ -4,4 +4,4 @@ brew "xcodegen"      # generates the Xcode project
 brew "zstd"          # decompression
 brew "spirv-cross"   # shader translation
 brew "glslang"       # glslangValidator: the NSP script checks for it before every build
-cask "dotnet-sdk"    # the .NET SDK (10) the extractor and the shader translator run on
+cask "dotnet-sdk"    # the .NET SDK (10): only to rebuild the engine's native extractor and shader translator (dm/tools/native_tools.sh); a game build runs no dotnet

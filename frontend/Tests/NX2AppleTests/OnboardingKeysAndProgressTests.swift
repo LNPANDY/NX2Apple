@@ -189,7 +189,6 @@ import NXModel
         stores.localizer.lang = .en
         stores.dependencies.deps = [
             Dep(id: "python", name: "dep.python", hint: "", present: false, installing: true, installCmd: ["/usr/bin/true"]),
-            Dep(id: "dotnet", name: "dep.dotnet", hint: "", present: true, installCmd: []),
         ]
         stores.dependencies.checked = true
         let library = GameLibrary(file: temporary.appendingPathComponent("library-progress.json"))

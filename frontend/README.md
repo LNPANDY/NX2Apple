@@ -356,8 +356,7 @@ A GUI app does not inherit the shell's PATH. On a machine where a terminal sees
 `.NET` and the Python packages just fine, a naive `which dotnet` and
 `/usr/bin/python3` check reports both missing. So the app looks where the tools
 actually are (`~/.dotnet`, `/usr/local/share/dotnet`, the Python framework
-installs), verifies `.NET` with `--list-sdks` (the extractor targets `net10.0`),
-and picks the first interpreter that can really import
+installs) and picks the first interpreter that can really import
 `lz4 capstone fontTools zbic backports.zstd`. That same interpreter then runs the
 build.
 

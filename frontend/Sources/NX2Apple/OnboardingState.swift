@@ -65,7 +65,7 @@ enum OnboardingSetupTask: String, CaseIterable {
 }
 
 enum OnboardingBackgroundTask: String, CaseIterable {
-    case python, dotnet, tools
+    case python, tools
     var titleKey: String { "onboarding.background.\(rawValue)" }
 }
 

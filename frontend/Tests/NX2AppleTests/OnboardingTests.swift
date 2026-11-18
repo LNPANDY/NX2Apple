@@ -193,7 +193,7 @@ final class OnboardingTests: IsolatedDefaultsTestCase {
                 s.platform = .selected(.both)
                 s.xcode = .settingUp
                 s.setup = [.selected: .done, .license: .done, .firstLaunch: .done, .metal: .running(0.65), .ios: .queued]
-                s.background = [.python: .done, .dotnet: .running(0.5), .tools: .queued]
+                s.background = [.python: .done, .tools: .queued]
                 s.keys = .found(URL(fileURLWithPath: "/Demo/Switch/prod.keys"))
                 s.games = .found([.init(id: "a", title: "Super Mario Odyssey", version: "1.0.0"),
                                   .init(id: "b", title: "Balatro", version: "1.0.0")])
@@ -221,7 +221,7 @@ final class OnboardingTests: IsolatedDefaultsTestCase {
             var s = OnboardingState()
             s.step = .xcode; s.platform = .selected(.both); s.xcode = xcode
             s.setup = [.selected: .done, .license: .done, .firstLaunch: .done, .metal: .running(0.65), .ios: .running(0.2)]
-            s.background = [.python: .done, .dotnet: .running(0.5), .tools: .queued]
+            s.background = [.python: .done, .tools: .queued]
             let driver = MockOnboardingDriver(state: s, lang: .en, animated: false)
             let host = NSHostingView(rootView: OnboardingView(driver: driver, lang: .en))
             let window = OffscreenWindow(size: NSSize(width: 900, height: 680), styleMask: [.titled, .closable, .resizable])
@@ -241,7 +241,7 @@ final class OnboardingTests: IsolatedDefaultsTestCase {
                 var s = MockOnboardingDriver.sampleState
                 s.step = step; s.platform = .selected(.mac); s.xcode = .ready
                 s.setup = [.selected: .done, .license: .done, .firstLaunch: .done, .metal: .done]
-                s.background = [.python: .done, .dotnet: .done, .tools: .done]
+                s.background = [.python: .done, .tools: .done]
                 s.osTooOldForNVN = true; s.xcodeTooOldForNVN = true
                 let driver = MockOnboardingDriver(state: s, lang: lang, animated: false)
                 let host = NSHostingView(rootView: OnboardingView(driver: driver, lang: lang))

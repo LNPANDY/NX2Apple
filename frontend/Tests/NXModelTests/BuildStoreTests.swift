@@ -666,8 +666,8 @@ import XCTest
 
     func testTheFixButtonsRunTheDependencyRowsOwnInstall() {
         let store = makeStore()
-        deps.deps = [Dep(id: "dotnet", name: "dep.dotnet", hint: "", present: false, installCmd: ["/usr/bin/true"]),
-                     Dep(id: "python", name: "dep.python", hint: "", present: false, installCmd: ["/usr/bin/true"])]
+        // No dotnet row: the tools panel has none (#1404), the translator's fix brings its own install command.
+        deps.deps = [Dep(id: "python", name: "dep.python", hint: "", present: false, installCmd: ["/usr/bin/true"])]
         store.fixBuildFailure(.translator)
         store.fixBuildFailure(.zbic)
         store.fixBuildFailure(.iosSDK)

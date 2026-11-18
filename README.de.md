@@ -66,7 +66,7 @@ Fork ergänzt den Launcher und eine kurze Liste von Patches und folgt nxnative j
 - Für ein iPhone oder iPad: iOS oder iPadOS 26 oder neuer und ein aktuelles Gerät. Ältere Geräte sind ungetestet.
 
 Die App bringt ihre eigenen Build-Werkzeuge und ihr eigenes Python mit, also brauchst du weder Homebrew
-noch eine Python-Installation. Das .NET SDK 10 ist das einzige Werkzeug, das sie dir noch installiert.
+noch eine Python- oder .NET-Installation.
 Die Seite „Abhängigkeiten“ des Launchers prüft jede Voraussetzung und installiert, was sie kann, mit einem Klick.
 
 ## Installation

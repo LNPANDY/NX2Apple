@@ -1752,7 +1752,6 @@
   "nxb.exit.other": "构建失败（nxb 退出代码 %d）。",
   "nxb.tooOld": "此 nxb 版本过旧（%@）。实验性构建器需要 nxb %@ 或更新版本。请在设置中选择较新的版本，或关闭实验性构建器。",
   "onboarding.back": "返回",
-  "onboarding.background.dotnet": ".NET",
   "onboarding.background.engine": "游戏支持包",
   "onboarding.background.installing": "正在安装…",
   "onboarding.background.note": "这些工具将在设置 Xcode 时准备就绪。",

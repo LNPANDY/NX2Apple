@@ -356,7 +356,7 @@ import NXModel
     func testBackgroundInstallsRunOneAtATimeAndToolsWaitForXcode() async {
         let fake = Fake()
         let deps = [dep("xcode", present: true), dep("metal", present: true), dep("brew", present: false),
-                    dep("brew:xcodegen", present: false), dep("dotnet", present: false), dep("python", present: false)]
+                    dep("brew:xcodegen", present: false), dep("python", present: false)]
         let (driver, model) = make(fake, deps: deps, step: .xcode, platform: .mac)
         driver.activate()
         await driver.settle()
@@ -367,10 +367,9 @@ import NXModel
             driver.stores.dependencies.checked = true
             await driver.settle()
         }
-        await finish("python"); XCTAssertEqual(fake.installed, ["python", "dotnet"])
+        await finish("python"); XCTAssertEqual(fake.installed, ["python", "brew"])
         XCTAssertEqual(driver.state.background[.python], .done)
-        await finish("dotnet"); XCTAssertEqual(fake.installed, ["python", "dotnet", "brew"])
-        await finish("brew"); XCTAssertEqual(fake.installed, ["python", "dotnet", "brew", "brew:xcodegen"])
+        await finish("brew"); XCTAssertEqual(fake.installed, ["python", "brew", "brew:xcodegen"])
         await finish("brew:xcodegen")
         XCTAssertTrue(driver.state.backgroundReady)
         XCTAssertEqual(driver.state.step, .keys, "Xcode and the tools are done: the step moves on by itself")
@@ -379,7 +378,7 @@ import NXModel
     func testToolsStayQueuedUntilXcodeIsReady() async {
         let fake = Fake(); fake.probe.selectedIsXcode = false
         let deps = [dep("xcode", present: true), dep("metal", present: true), dep("brew", present: false),
-                    dep("dotnet", present: true), dep("python", present: true)]
+                    dep("python", present: true)]
         let (driver, _) = make(fake, deps: deps, step: .xcode, platform: .mac)
         driver.activate()
         await driver.settle()
@@ -391,7 +390,7 @@ import NXModel
     func testAFailedInstallShowsFailureWithTheNameAndMovesOn() async {
         let fake = Fake()
         let (driver, model) = make(fake, deps: [dep("xcode", present: true), dep("metal", present: true),
-                                                 dep("dotnet", present: false), dep("python", present: false)], step: .xcode, platform: .mac)
+                                                 dep("brew", present: false), dep("python", present: false)], step: .xcode, platform: .mac)
         driver.activate()
         await driver.settle()
         driver.stores.dependencies.checked = false
@@ -400,7 +399,7 @@ import NXModel
         await driver.settle()
         guard case let .failed(failure) = driver.state.background[.python] else { return XCTFail("\(String(describing: driver.state.background[.python]))") }
         XCTAssertTrue(failure.message.contains(L10n.string("dep.python", model.lang)))
-        XCTAssertEqual(fake.installed, ["python", "dotnet"], "a failure does not stop the others")
+        XCTAssertEqual(fake.installed, ["python", "brew"], "a failure does not stop the others")
     }
 
     func testResumeKeepsTheStepOnlyWhileXcodeStillHolds() async {

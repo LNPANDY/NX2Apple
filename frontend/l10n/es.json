@@ -1752,7 +1752,6 @@
   "nxb.exit.other": "La compilación falló (código de salida de nxb %d).",
   "nxb.tooOld": "Este nxb es demasiado antiguo (%@). El compilador experimental necesita nxb %@ o posterior. Elige uno más nuevo en Ajustes o desactiva el compilador experimental.",
   "onboarding.back": "Atrás",
-  "onboarding.background.dotnet": ".NET",
   "onboarding.background.engine": "Compatibilidad de juegos",
   "onboarding.background.installing": "Instalando…",
   "onboarding.background.note": "Estas herramientas se preparan mientras configuras Xcode.",

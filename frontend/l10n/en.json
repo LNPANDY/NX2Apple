@@ -1751,7 +1751,6 @@
   "nxb.exit.other": "The build failed (nxb exit code %d).",
   "nxb.tooOld": "This nxb is too old (%@). The experimental builder needs nxb %@ or newer. Choose a newer one in Settings or turn the experimental builder off.",
   "onboarding.back": "Back",
-  "onboarding.background.dotnet": ".NET",
   "onboarding.background.engine": "Game support",
   "onboarding.background.installing": "Installing…",
   "onboarding.background.note": "These tools get ready while you set up Xcode.",
