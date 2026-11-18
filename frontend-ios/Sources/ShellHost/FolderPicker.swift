@@ -60,12 +60,16 @@ public struct DocumentFolderPicker: FolderPicker {
         return nil
     }
 
+    private nonisolated static func makeAnswer(_ continuation: CheckedContinuation<URL?, Never>) -> FolderPickAnswer<URL> {
+        FolderPickAnswer { continuation.resume(returning: $0) }
+    }
+
     @MainActor public func pickFolderOutcome() async -> FolderPickOutcome {
         guard let presenter = Self.topViewController() else { return .unavailable }
         let url: URL? = await withCheckedContinuation { continuation in
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
             picker.allowsMultipleSelection = false
-            let delegate = Delegate(answer: FolderPickAnswer { continuation.resume(returning: $0) })
+            let delegate = Delegate(answer: Self.makeAnswer(continuation))
             picker.delegate = delegate
             picker.presentationController?.delegate = delegate   // a sheet swiped away is a cancel, not a wait that never ends
             // The picker holds its delegate weakly: keep it for as long as the picker lives.

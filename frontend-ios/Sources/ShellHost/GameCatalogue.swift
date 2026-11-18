@@ -628,18 +628,42 @@ public enum DataLocator {
             else { return nil }
             return (url.deletingLastPathComponent(), url)
         }
-        let canonicalImage = url.appendingPathComponent("romfs.img")
-        if isComplete(canonicalImage, manifest: manifest, fm), acceptsImage(canonicalImage) { return (url, canonicalImage) }
+        var orderedCandidates: [URL] = [url.appendingPathComponent("romfs.img")]
         let entries = ((try? fm.contentsOfDirectory(atPath: url.path)) ?? []).sorted()
         for name in entries where name != "romfs.img" && name.lowercased() == "romfs.img" {
-            let image = url.appendingPathComponent(name)
-            if isComplete(image, manifest: manifest, fm), acceptsImage(image) { return (url, image) }
+            orderedCandidates.append(url.appendingPathComponent(name))
         }
         for name in entries where name.lowercased() != "romfs.img" && RomfsImageName.isNonPartImage(name) {
             let image = url.appendingPathComponent(name)
             guard let attrs = try? fm.attributesOfItem(atPath: image.path),
                   attrs[.type] as? FileAttributeType == .typeRegular else { continue }
-            if isComplete(image, manifest: manifest, fm), acceptsImage(image) { return (url, image) }
+            orderedCandidates.append(image)
+        }
+        var validImages: [URL] = []
+        for image in orderedCandidates where isComplete(image, manifest: manifest, fm) && acceptsImage(image) {
+            validImages.append(image)
+        }
+        if validImages.count == 1 {
+            return (url, validImages[0])
+        }
+        if validImages.count > 1 {
+            var pool = validImages
+            if let expectedIdentity = RomfsIdentity.parse(manifest.romfsIdentity) {
+                let exactMatches = pool.filter { RomfsIdentity.ofImage(at: $0) == expectedIdentity }
+                if !exactMatches.isEmpty {
+                    pool = exactMatches
+                }
+            }
+            var best = pool[0]
+            var bestScore = ShaderResources.embeddedTrailerPreference(at: best, manifest: manifest)
+            for candidate in pool.dropFirst() {
+                let score = ShaderResources.embeddedTrailerPreference(at: candidate, manifest: manifest)
+                if score > bestScore {
+                    best = candidate
+                    bestScore = score
+                }
+            }
+            return (url, best)
         }
         for tree in [url.appendingPathComponent("romfs", isDirectory: true), url]
         where fm.fileExists(atPath: tree.appendingPathComponent(manifest.romfsMarker).path) { return (url, tree) }

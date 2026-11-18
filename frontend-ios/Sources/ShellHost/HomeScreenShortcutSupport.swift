@@ -3,6 +3,91 @@ import CoreText
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+#if os(iOS)
+import Photos
+#endif
+
+/// Saves rendered PNG bytes to Photos entirely from a `nonisolated` context so Swift 6 never infers `@MainActor`
+/// isolation onto PhotoKit's background `changeBlock` or `completionHandler` queues (`_dispatch_assert_queue_fail`).
+public enum PhotoLibraryImageSaver {
+    public typealias PerformChangesHandler = @Sendable (
+        _ changeBlock: @escaping @Sendable () -> Void,
+        _ completionHandler: @escaping @Sendable (Bool, (any Error)?) -> Void
+    ) -> Void
+
+    private final class OnceGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entered = false
+
+        nonisolated init() {}
+
+        nonisolated func tryEnter() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !entered else { return false }
+            entered = true
+            return true
+        }
+    }
+
+    public nonisolated static func savePNGData(
+        _ pngData: Data,
+        requestAccess: @Sendable () async -> Bool,
+        performChanges: PerformChangesHandler,
+        writeAsset: @escaping @Sendable (Data) -> Void
+    ) async -> Bool {
+        guard !pngData.isEmpty else { return false }
+        guard await requestAccess() else { return false }
+        let payload = pngData
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let gate = OnceGate()
+            let changeBlock: @Sendable () -> Void = {
+                writeAsset(payload)
+            }
+            let completion: @Sendable (Bool, (any Error)?) -> Void = { ok, error in
+                if gate.tryEnter() {
+                    continuation.resume(returning: ok && error == nil)
+                }
+            }
+            performChanges(changeBlock, completion)
+        }
+    }
+
+    #if os(iOS)
+    private nonisolated static func requestPhotoAddAuthorization() async -> Bool {
+        let status = await withCheckedContinuation { (continuation: CheckedContinuation<PHAuthorizationStatus, Never>) in
+            let gate = OnceGate()
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                if gate.tryEnter() {
+                    continuation.resume(returning: status)
+                }
+            }
+        }
+        return status == .authorized || status == .limited
+    }
+
+    private nonisolated static func performSystemPhotoChanges(
+        _ changeBlock: @escaping @Sendable () -> Void,
+        completionHandler: @escaping @Sendable (Bool, (any Error)?) -> Void
+    ) {
+        PHPhotoLibrary.shared().performChanges(changeBlock, completionHandler: completionHandler)
+    }
+
+    private nonisolated static func createPhotoAsset(from pngData: Data) {
+        let request = PHAssetCreationRequest.forAsset()
+        request.addResource(with: .photo, data: pngData, options: nil)
+    }
+
+    public nonisolated static func saveToSystemPhotoLibrary(_ pngData: Data) async -> Bool {
+        await savePNGData(
+            pngData,
+            requestAccess: requestPhotoAddAuthorization,
+            performChanges: performSystemPhotoChanges,
+            writeAsset: createPhotoAsset
+        )
+    }
+    #endif
+}
 
 /// Metadata for one installed game exposed to Apple Shortcuts (`AppIntents`) and Home Screen icon generation.
 public struct ShortcutGameItem: Equatable, Sendable, Identifiable {

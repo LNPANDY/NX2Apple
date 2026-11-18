@@ -9,7 +9,9 @@ import Foundation
 
 package enum ShellHotInstall {
     package static let beaconRemotePath = "Documents/.shell-host.json"
-    package static let glueVersion = 1
+    /// Bumped when `DmShell.app` gains new host UI or launch capabilities (e.g. Home Screen shortcuts and expanded in-game menu)
+    /// so an older installed shell upgrades via one full `xcodebuild` install before resuming hot framework pushes.
+    package static let glueVersion = 2
     /// Fall back to full `xcodebuild` when fewer than 24 hours remain on a 7-day profile so the app's signature is renewed too.
     package static let minRemainingLifetime: Int64 = 24 * 3600
 

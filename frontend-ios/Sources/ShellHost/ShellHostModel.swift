@@ -7,7 +7,6 @@ import UIKit
 #endif
 #if os(iOS)
 import GameController
-import Photos
 #endif
 
 /// Where the host finds things. Everything the model touches outside itself is here, so tests point it at a temporary folder.
@@ -77,17 +76,7 @@ public struct ShellHostConfig: Sendable {
 
     @MainActor public static func systemSaveImageToPhotos(_ pngData: Data) async -> Bool {
         #if os(iOS)
-        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-        guard status == .authorized || status == .limited else { return false }
-        do {
-            try await PHPhotoLibrary.shared().performChanges {
-                let request = PHAssetCreationRequest.forAsset()
-                request.addResource(with: .photo, data: pngData, options: nil)
-            }
-            return true
-        } catch {
-            return false
-        }
+        return await PhotoLibraryImageSaver.saveToSystemPhotoLibrary(pngData)
         #else
         return false
         #endif
@@ -341,8 +330,9 @@ public struct ShellHostConfig: Sendable {
         shellScan = nil
         scannedShellFolder = folder.path
         shellMatches = [:]
-        let wanted = entries.compactMap { e in
-            e.problem == nil ? e.manifest.flatMap { m in RomfsIdentity.parse(m.romfsIdentity).map { (m.titleID, $0) } } : nil
+        let wanted: [(titleID: String, identity: RomfsIdentity, chain: String, gfxAPI: String?)] = entries.compactMap { e in
+            guard e.problem == nil, let m = e.manifest, let ident = RomfsIdentity.parse(m.romfsIdentity) else { return nil }
+            return (m.titleID, ident, m.chain, m.gfxAPI)
         }
         guard !wanted.isEmpty else { return }
         // `shellData.resolve()` above opened the bookmark's security scope and `BookmarkStore` keeps it open while this folder is
@@ -351,8 +341,10 @@ public struct ShellHostConfig: Sendable {
             let found = await Task.detached(priority: .utility) { () -> [String: URL] in
                 let index = ShellDataIndex(folder: folder)
                 var matches: [String: URL] = [:]
-                for (titleID, identity) in wanted where !Task.isCancelled {
-                    if let url = index.imageURL(matching: identity) { matches[titleID] = url }
+                for item in wanted where !Task.isCancelled {
+                    if let url = index.imageURL(matching: item.identity, preferredChain: item.chain, explicitGfxAPI: item.gfxAPI) {
+                        matches[item.titleID] = url
+                    }
                 }
                 return matches
             }.value
@@ -805,8 +797,22 @@ public struct ShellHostConfig: Sendable {
         if resolved.source != .picked {
             if let manifest = currentEntry.manifest, currentEntry.problem == nil {
                 let knownTitles = Dictionary(uniqueKeysWithValues: entries.map { ($0.id.uppercased(), $0.title) })
+                var identityOwners: [RomfsIdentity: String] = [:]
+                var ambiguousIdentities = Set<RomfsIdentity>()
+                for other in entries where other.id.caseInsensitiveCompare(id) != .orderedSame {
+                    guard let raw = other.manifest?.romfsIdentity,
+                          let parsed = RomfsIdentity.parse(raw),
+                          !ambiguousIdentities.contains(parsed) else { continue }
+                    if let prev = identityOwners[parsed], prev != other.title {
+                        identityOwners.removeValue(forKey: parsed)
+                        ambiguousIdentities.insert(parsed)
+                    } else {
+                        identityOwners[parsed] = other.title
+                    }
+                }
+                let knownIdentities = identityOwners
                 let finding = await Task.detached(priority: .userInitiated) {
-                    DataFolderDiagnostics.diagnose(folder: url, manifest: manifest, knownTitles: knownTitles)
+                    DataFolderDiagnostics.diagnose(folder: url, manifest: manifest, knownTitles: knownTitles, knownIdentities: knownIdentities)
                 }.value
                 guard pickGeneration[id] == generation, let latestEntry = entry(id) else { return }
                 let message = DataFolderDiagnostics.message(

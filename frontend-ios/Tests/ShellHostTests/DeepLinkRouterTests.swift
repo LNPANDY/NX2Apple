@@ -32,6 +32,17 @@ private struct DeepLinkLaunchError: LocalizedError {
     var errorDescription: String? { message }
 }
 
+private final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+    init(_ value: Value) { self.value = value }
+    func withLock<R>(_ body: (inout Value) -> R) -> R {
+        lock.lock()
+        defer { lock.unlock() }
+        return body(&value)
+    }
+}
+
 @MainActor @Suite(.serialized) struct DeepLinkRouterTests {
     private let secondTitleID = "0100000000080000"
 
@@ -499,6 +510,79 @@ private struct DeepLinkLaunchError: LocalizedError {
         #expect(denied == false)
         #expect(harness.copiedStrings == ["Orbit Fixture"])
         #expect(harness.openedURLs.isEmpty)
+    }
+
+    @Test func photoLibrarySaveExecutesChangeBlockAndCompletionOnBackgroundQueuesWithoutMainActorTrap() async throws {
+        let box = try FrameworkBox()
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Fixture", bundleID: "org.nxnative.orbit", box: box
+        )
+        let bgChangeQueue = DispatchQueue(label: "test.photokit.changeBlock")
+        let bgCompletionQueue = DispatchQueue(label: "test.photokit.completion")
+        let recorded = LockedBox<[Data]>([])
+        let ranOffMain = LockedBox<Bool>(false)
+        let suitePrefix = "shortcut.bg.\(UUID().uuidString)."
+
+        let harness = DeepLinkHarness()
+        let cfg = ShellHostConfig(
+            gamesRoot: box.frameworks,
+            appDataRoot: box.documents.appendingPathComponent("games", isDirectory: true),
+            defaults: { UserDefaults(suiteName: suitePrefix + $0)! },
+            openURL: { harness.openedURLs.append($0) },
+            copyToPasteboard: { harness.copiedStrings.append($0) },
+            saveImageToPhotos: { pngData in
+                await PhotoLibraryImageSaver.savePNGData(
+                    pngData,
+                    requestAccess: {
+                        await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                            bgCompletionQueue.async { cont.resume(returning: true) }
+                        }
+                    },
+                    performChanges: { changeBlock, completion in
+                        bgChangeQueue.async {
+                            dispatchPrecondition(condition: .notOnQueue(.main))
+                            ranOffMain.withLock { $0 = !Thread.isMainThread }
+                            changeBlock()
+                            bgCompletionQueue.async {
+                                dispatchPrecondition(condition: .notOnQueue(.main))
+                                completion(true, nil)
+                                // Duplicate completion callback must be ignored safely without double-resuming continuation.
+                                completion(true, nil)
+                            }
+                        }
+                    },
+                    writeAsset: { data in
+                        dispatchPrecondition(condition: .notOnQueue(.main))
+                        recorded.withLock { $0.append(data) }
+                    }
+                )
+            }
+        )
+        let model = ShellHostModel(config: cfg)
+        let ok = await model.saveIconAndOpenShortcuts(for: Fixtures.orbit)
+        #expect(ok == true)
+        #expect(ranOffMain.withLock { $0 } == true)
+        #expect(recorded.withLock { $0.count } == 1)
+        #expect(harness.copiedStrings == ["Orbit Fixture"])
+        #expect(harness.openedURLs == [HomeScreenShortcutSupport.createShortcutURL])
+
+        // Error from PhotoKit background completion returns false and never opens Shortcuts.
+        let failed = await PhotoLibraryImageSaver.savePNGData(
+            Data([0x89, 0x50, 0x4E, 0x47]),
+            requestAccess: { true },
+            performChanges: { changeBlock, completion in
+                bgChangeQueue.async {
+                    dispatchPrecondition(condition: .notOnQueue(.main))
+                    changeBlock()
+                    bgCompletionQueue.async {
+                        completion(false, DeepLinkLaunchError(message: "PhotoKit write failed"))
+                    }
+                }
+            },
+            writeAsset: { _ in dispatchPrecondition(condition: .notOnQueue(.main)) }
+        )
+        #expect(failed == false)
     }
 
     @Test func availableShortcutGamesListsInstalledAndExcludesDeleted() throws {
