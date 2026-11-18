@@ -58,3 +58,4 @@
 0060-host-games-support-full-screen-and-wide-aspect-r.patch
 0061-build-seed-infer-and-self-heal-gl-and-vulkan-gfx.patch
 0062-mac-launcher-bring-the-last-played-save-along-al.patch
+0063-nvn-decode-cpu-bc-buffer-to-texture-copies-and-r.patch
