@@ -18,18 +18,18 @@ Issue: none
  create mode 100644 dm/gfx/tests/t_rt_recycle_policy.c
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index a6a08230..636fe79c 100644
+index be2d7f0..cd2fc1b 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -39,6 +39,7 @@
- #include "nvn_primitive.h"
+@@ -40,6 +40,7 @@
  #include "nvn_link_drain.h"
+ #include "nvn_link_latch.h"
  #include "nvn_timestamp.h"
 +#include "nvn_rt_recycle.h"
  #include "msl_image.h"
  #include "../msl_mount.h"
  #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
-@@ -412,22 +413,90 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
+@@ -472,22 +473,90 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
  // added (resource_vis). Heaps idle for RH_IDLE_NS, and the oldest past
  // RH_CAP bytes waiting, leave the residency set when a submission begins (rh_trim). DM_NVN_RT_RECYCLE=0 makes each texture its own allocation and each family heap exact and freed
  // with its last texture, as before; ab alternates it with the DM_AB phases
@@ -125,7 +125,7 @@ index a6a08230..636fe79c 100644
  }
  @interface NvRecycledHeap : NSObject { @public id<MTLHeap> heap; } @end
  @implementation NvRecycledHeap
-@@ -444,7 +513,9 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
+@@ -504,7 +573,9 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
      *reused = 0;
      if (!size) return nil;
      int on = sw_on(rh_mode());
@@ -136,7 +136,7 @@ index a6a08230..636fe79c 100644
      void *got = NULL;
      if (on) {
          os_unfair_lock_lock(&g_rh_lk);
-@@ -455,11 +526,11 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
+@@ -515,11 +586,11 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
              if (h.storageMode != sm || h.cpuCacheMode != cm) continue;   // (a placed texture takes its heap's hazard tracking: a placement heap reports untracked, a descriptor default)
              best = i;
          }
@@ -150,7 +150,7 @@ index a6a08230..636fe79c 100644
      hd.storageMode = sm; hd.cpuCacheMode = cm; hd.hazardTrackingMode = hm;
      id<MTLHeap> h = [g_dev newHeapWithDescriptor:hd];
      if (h && on) atomic_fetch_add(&g_rh_made, 1);
-@@ -516,19 +587,18 @@ static void tu_register(id<MTLTexture> t, uint64_t serial) {
+@@ -576,19 +647,18 @@ static void tu_register(id<MTLTexture> t, uint64_t serial) {
      if (g_tu_gone.n && nvn_hm_del(&g_tu_gone, &serial)) g_tu_remade++;
      os_unfair_lock_unlock(&g_tu_lk);
  }
@@ -180,7 +180,7 @@ index a6a08230..636fe79c 100644
  }
  // The R32 storage under a 32-bit colour texture that takes image atomics (tex_upgrade): resident as long as the colour view over it lives, which is what the game's names hold
  @interface NvAtomicRaw : NSObject { @public id<MTLTexture> raw; } @end
-@@ -891,6 +961,28 @@ void mtl_init(void) {
+@@ -951,6 +1021,28 @@ static void mtl_init_once(void) {
      if (!g_nvn_deswz_gpu) MLOG("[RED] GPU deswizzle init failed; swizzled textures fall back to the CPU");
      MLOG("Metal device %s", g_dev.name.UTF8String);
      udc_selftest();
@@ -208,8 +208,8 @@ index a6a08230..636fe79c 100644
 +#endif
  }
  
- void dm_mtl_l3_tick(uint32_t tick) {
-@@ -17648,6 +17740,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+ void mtl_init(void) {
+@@ -19700,6 +19792,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      atomic_fetch_add(&g_defer_gen, 1);
      mtl_present_discard(1);
      dispatch_group_wait(bg_group(), DISPATCH_TIME_FOREVER);
@@ -222,7 +222,7 @@ index a6a08230..636fe79c 100644
  
      if (g_q) {
          if (on_sub_thread()) { up_flush(); rec_drain(); }
-@@ -17891,6 +17989,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -19946,6 +20044,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      for (unsigned i = 0; i < g_rh_n; i++) if (g_rh[i].heap) CFRelease(g_rh[i].heap);
      free(g_rh); g_rh = NULL; g_rh_n = g_rh_cap = 0; g_rh_bytes = 0;
      os_unfair_lock_unlock(&g_rh_lk);
@@ -237,7 +237,7 @@ index a6a08230..636fe79c 100644
      pthread_mutex_lock(&g_res_mu);
 diff --git a/dm/gfx/nvn/nvn_rt_recycle.h b/dm/gfx/nvn/nvn_rt_recycle.h
 new file mode 100644
-index 00000000..c569dbdf
+index 0000000..c569dbd
 --- /dev/null
 +++ b/dm/gfx/nvn/nvn_rt_recycle.h
 @@ -0,0 +1,59 @@
@@ -301,10 +301,10 @@ index 00000000..c569dbdf
 +
 +#endif
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index a0b3c776..fd6e819a 100644
+index 0c799cc..81cb970 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -541,6 +541,8 @@ t_image_alias: t_image_alias.m $(MTL_T_DEP)
+@@ -653,6 +653,8 @@ t_image_alias: t_image_alias.m $(MTL_T_DEP)
  check_t_image_alias: t_image_alias
  	DM_NVN_ENC_THREAD=0 MTL_DEBUG_LAYER=1 ./t_image_alias
  	DM_NVN_ENC_THREAD=1 MTL_DEBUG_LAYER=1 ./t_image_alias
@@ -314,12 +314,12 @@ index a0b3c776..fd6e819a 100644
  	clang $(CFLAGS) -fobjc-arc -o $@ t_rt_recycle.m $(MTL_T_SRC) $(FW)
  .PHONY: check_t_rt_recycle
 diff --git a/dm/gfx/tests/t_rt_recycle.m b/dm/gfx/tests/t_rt_recycle.m
-index 4e627da5..fc67a4c8 100644
+index a33a338..09a15c3 100644
 --- a/dm/gfx/tests/t_rt_recycle.m
 +++ b/dm/gfx/tests/t_rt_recycle.m
-@@ -105,6 +105,93 @@ int main(void) { @autoreleasepool {
-         settle();
-         CHECK(waiting() == 1, "its heap waits once the snapshot is freed");
+@@ -166,6 +166,93 @@ int main(void) { @autoreleasepool {
+         n = census_run("t_rt_recycle", &named, &queued);
+         CHECK(n >= 4 && queued == 0, "once their submissions complete, nothing is left for the queue");
      }
 +    {   // iOS adaptive policy: drain on <768 MiB, exact allocation, max_entry rejection, >64 batch drain, and pressure trim
 +        rh_test_set(1, 1, 512ull << 20, 0);
@@ -411,7 +411,7 @@ index 4e627da5..fc67a4c8 100644
      {
          tex_t g = target(&pool, 95009, 0, 640, 360); mtl_tex_init(&g);
          id<MTLTexture> tg = tex_mtl(&g);
-@@ -117,6 +204,8 @@ int main(void) { @autoreleasepool {
+@@ -178,6 +265,8 @@ int main(void) { @autoreleasepool {
      mtl_sub_commit(); mtl_drain();
      dm_gfx_teardown();
      CHECK(waiting() == 0 && g_rh == NULL && g_rh_bytes == 0, "dm_gfx_teardown frees waiting and live recycled heaps");
@@ -422,7 +422,7 @@ index 4e627da5..fc67a4c8 100644
  } }
 diff --git a/dm/gfx/tests/t_rt_recycle_policy.c b/dm/gfx/tests/t_rt_recycle_policy.c
 new file mode 100644
-index 00000000..29ea6264
+index 0000000..29ea626
 --- /dev/null
 +++ b/dm/gfx/tests/t_rt_recycle_policy.c
 @@ -0,0 +1,169 @@

@@ -18,7 +18,7 @@ Issue: LNPANDY/NX2Apple#971
  1 file changed, 7 insertions(+), 2 deletions(-)
 
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index a29b3c7..0a6dfce 100644
+index 8e6adb0..ed9c9df 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
 @@ -562,6 +562,11 @@ static void test_nintendo_labels(void) {
@@ -36,13 +36,13 @@ index a29b3c7..0a6dfce 100644
 @@ -574,10 +579,10 @@ static void test_native_motion_integration(void) {
          int player = merged ? 0 : 1;
          assert(d->slot == player && m.sensorsActive && m.valueChangedHandler);
-         assert(g_pro_controllers == 1 && g_pro_slot == player);
+         assert(g_pro_pair[PRO_MODEL_PRO].controllers == 1 && g_pro_pair[PRO_MODEL_PRO].slot == player);
 -        m.valueChangedHandler((id)m); assert(native_motion_player == player && native_motion_samples);
 +        native_motion_report(m); assert(native_motion_player == player && native_motion_samples);
          front_controllers_focus(0); assert(!m.sensorsActive && !m.valueChangedHandler && native_motion_cleared == player && !g_pro_active);
          front_controllers_focus(1); assert(m.sensorsActive && m.valueChangedHandler && g_pro_active);
 -        m.valueChangedHandler((id)m); assert(native_motion_player == player);
 +        native_motion_report(m); assert(native_motion_player == player);
-         controller_disconnect(d); assert(!m.valueChangedHandler && !m.sensorsActive && g_pro_slot == -1);
-         [g_devices removeObject:d]; controller_pro_changed(); assert(g_pro_controllers == 0);
+         controller_disconnect(d); assert(!m.valueChangedHandler && !m.sensorsActive && g_pro_pair[PRO_MODEL_PRO].slot == -1);
+         [g_devices removeObject:d]; controller_pro_changed(); assert(g_pro_pair[PRO_MODEL_PRO].controllers == 0);
      }
