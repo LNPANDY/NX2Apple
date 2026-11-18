@@ -32,12 +32,18 @@ package struct PersonalDefaultsCard: View {
         personal.save(defaults)
     }
 
+    private func cycleLanguage(_ step: Int) {
+        let values = languageOptions.map(\.value)
+        let current = values.firstIndex(of: personal.value(for: "DM_LANG") ?? "") ?? 0
+        store(values[(current + step + values.count) % values.count], "DM_LANG")
+    }
+
     package var body: some View {
         CardGroup(loc.t("defaults.title"), footnote: loc.t("defaults.note")) {
             CardRow(loc.t("launch.set.DM_LANG")) {
                 LauncherDropdown(options: languageOptions,
                                  selection: personal.value(for: "DM_LANG") ?? "", label: loc.t("launch.set.DM_LANG"), style: .button) { store($0, "DM_LANG") }
-                    .padTarget("set.defaultLanguage", scope: "main")
+                    .padTarget("set.defaultLanguage", scope: "main", activate: { cycleLanguage(1) }, adjust: cycleLanguage)
             }
             CardDivider()
             CardRow(loc.t("launch.set.DM_FULLSCREEN")) {
@@ -81,10 +87,15 @@ package struct MissingToolRow: View {
     package var body: some View {
         if dependencies.checked && !dependencies.allPresent {
             VStack(spacing: 0) {
-                CardRow(loc.t("settings.toolMissing"), dot: LauncherPalette.building) {
+                HStack(spacing: 14) {
+                    Image(systemName: "gearshape.fill").font(.system(size: 25))
+                        .foregroundStyle(LauncherPalette.building).frame(width: 52, height: 52)
+                        .background(LauncherPalette.ink(0.08), in: RoundedRectangle(cornerRadius: 10)).accessibilityHidden(true)
+                    Text(loc.t("settings.toolMissing")).font(.manrope(14, .medium)).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 12)
                     Button(loc.t("settings.showTools"), action: showTools)
                         .padTarget("set.showTools", scope: "main") { showTools() }
-                }
+                }.padding(18)
             }
             .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.building.opacity(0.6)))

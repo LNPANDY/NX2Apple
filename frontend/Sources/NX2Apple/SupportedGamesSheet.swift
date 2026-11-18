@@ -96,7 +96,8 @@ struct SupportedGamesSheet: View {
                 Text(loc.t("supported.none")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText)
                     .frame(maxWidth: .infinity, minHeight: 120)
             } else {
-                ScrollView {
+                ScrollViewReader { proxy in
+                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(shown) { game in
                             SupportedGameRow(game: game, detail: detail(game),
@@ -104,12 +105,20 @@ struct SupportedGamesSheet: View {
                                              owned: owned(game.titleID), cover: covers.image(game.titleID),
                                              expanded: selected == game.titleID,
                                              toggle: { selected = selected == game.titleID ? nil : game.titleID },
-                                             show: { id in showInLibrary(id); dismiss() })
+                                             show: { id in showInLibrary(id); dismiss() }, move: { direction in
+                                guard let index = shown.firstIndex(where: { $0.titleID == game.titleID }), shown.indices.contains(index + direction) else { return false }
+                                let id = "supported.row." + shown[index + direction].titleID
+                                proxy.scrollTo(id, anchor: .center)
+                                focus.focused = id
+                                return true
+                            })
                                 .onAppear { covers.appear(game.titleID) }
                                 .onDisappear { covers.disappear(game.titleID) }
                             Divider().opacity(0.25).padding(.leading, 30)
                         }
                     }
+                 }
+                 .onChange(of: focus.focused) { id in if let id { proxy.scrollTo(id, anchor: .center) } }
                 }
             }
             Divider().opacity(0.3)
@@ -131,7 +140,11 @@ struct SupportedGamesSheet: View {
         .font(.manrope(13))
         .launcherAppearance()
         .tint(LauncherPalette.accent)
-        .onAppear { searchFocused = true }
+        .onAppear {
+            searchFocused = true
+            focus.scope = "supported"
+            focus.focused = shown.first.map { "supported.row." + $0.titleID } ?? "supported.close"
+        }
         .onDisappear { covers.stop() }
     }
 }
@@ -146,6 +159,7 @@ private struct SupportedGameRow: View {
     let expanded: Bool
     let toggle: () -> Void
     let show: (UUID) -> Void
+    let move: (Int) -> Bool
     @EnvironmentObject var loc: Localizer
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -201,7 +215,7 @@ private struct SupportedGameRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain).launcherHover()
-            .padTarget("supported.row." + game.titleID, scope: "supported", radius: 6, activate: toggle)   // a controller opens the notes too
+            .padTarget("supported.row." + game.titleID, scope: "supported", radius: 6, activate: toggle, vertical: move)
             .accessibilityAddTraits(expanded ? .isSelected : [])
             .accessibilityHint(loc.t(expanded ? "supported.hideNotes" : "supported.showNotes"))
             if expanded {

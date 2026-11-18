@@ -226,7 +226,7 @@ struct ControlsView: View {
                         .padding(.horizontal, 22).padding(.vertical, 9)
                 }
                 .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(listening == nil ? .defaultAction : nil)
-                .padTarget("controls.done", scope: "controls", radius: 20) { stopListening(); original = nil; dismiss() }
+                .padTarget("controls.done", scope: "controls", focusColor: LauncherPalette.onCream) { stopListening(); original = nil; dismiss() }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
         }
@@ -240,12 +240,12 @@ struct ControlsView: View {
         .onAppear { if original == nil { original = layout.snapshot } }
         .onChange(of: cancelRequest) { _ in cancel() }
         .interactiveDismissDisabled(hasEdits)
-        .confirmationDialog(loc.t("controls.discardTitle"), isPresented: $confirmingDiscard, titleVisibility: .visible) {
-            Button(loc.t("controls.discard"), role: .destructive) { discard() }
-            Button(loc.t("controls.keepEditing"), role: .cancel) { }
-        } message: {
-            Text(loc.t("controls.discardNote"))
+        .sheet(isPresented: $confirmingDiscard) {
+            LauncherConfirmSheet(title: loc.t("controls.discardTitle"), subtitle: "", note: loc.t("controls.discardNote"),
+                cancelTitle: loc.t("controls.keepEditing"), confirmTitle: loc.t("controls.discard"), destructive: true, scope: "controldiscard",
+                cancel: { confirmingDiscard = false }, confirm: { confirmingDiscard = false; discard() })
         }
+        .onChange(of: confirmingDiscard) { open in focus.scope = open ? "controldiscard" : "controls" }
     }
 
     /// Whether the keys or buttons differ from how the editor opened.
@@ -285,17 +285,18 @@ struct ControlsView: View {
         HStack(spacing: 16) {
             Text(title).font(.manrope(14, .medium))
             Spacer(minLength: 12)
-            trailing().frame(width: LaunchControl.width, alignment: .trailing)
+            trailing()
+                .padTarget(target, scope: "controls", enabled: activate != nil || adjust != nil, activate: activate, adjust: adjust)
+                .frame(width: LaunchControl.width, alignment: .trailing)
         }
         .padding(.horizontal, 18).padding(.vertical, 9)
         .frame(minHeight: 46)
-        .padTarget(target, scope: "controls", radius: 10, activate: activate, adjust: adjust)
     }
 
     private func keyRow(_ f: ControlLayout.Function) -> some View {
         let on = listening == f.id
         let key = layout.key(f)
-        return line(loc.t("controls.fn." + f.id), target: "key." + f.id, activate: { on ? stopListening() : listen(f) }) {
+        return line(loc.t("controls.fn." + f.id), target: "key." + f.id) {
             HStack(spacing: 6) {
                 if key != nil && !on {
                     Button { layout.assign(f, key: nil) } label: {
@@ -303,6 +304,7 @@ struct ControlsView: View {
                             .frame(width: 22, height: 22).contentShape(Circle())
                     }
                     .buttonStyle(.plain).help(loc.t("controls.clear"))
+                    .padTarget("key.clear." + f.id, scope: "controls") { layout.assign(f, key: nil) }
                 }
                 Button { on ? stopListening() : listen(f) } label: {
                     Text(on ? loc.t("controls.press") : ControlLayout.keyName(key, loc.t) ?? loc.t("controls.none"))
@@ -315,6 +317,7 @@ struct ControlsView: View {
                 }
                 .buttonStyle(.plain)
                 .frame(width: 140)
+                .padTarget("key." + f.id, scope: "controls", focusColor: on ? LauncherPalette.onCream : nil) { on ? stopListening() : listen(f) }
             }
         }
     }

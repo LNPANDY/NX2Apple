@@ -9,6 +9,20 @@ final class ConsoleCloudSavesTests: IsolatedDefaultsTestCase {
     private let titleID = "0100535012974000"
     private var preference: String?
 
+    func testGameCloudSavesKeepsContextAndLibraryCloudSavesShowsAll() {
+        var state = ConsoleState()
+        state.games = [ConsoleGame(id: "one", title: "One", version: "", platforms: [.mac], artwork: nil, status: .ready)]
+        let rows = [ConsoleSaveRow(id: "one", title: "One", status: .synced), ConsoleSaveRow(id: "two", title: "Two", status: .off)]
+        state.openOptions("one")
+        state.openCloudSaves(rows)
+        XCTAssertEqual(state.saveRows.map(\.id), ["one"])
+        XCTAssertEqual(state.gameContextID, "one")
+        state.back(); state.back()
+        state.openCloudSaves(rows)
+        XCTAssertEqual(state.saveRows.map(\.id), ["one", "two"])
+        XCTAssertNil(state.gameContextID)
+    }
+
     override func setUpWithError() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-console-saves-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

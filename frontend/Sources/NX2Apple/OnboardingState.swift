@@ -133,8 +133,11 @@ struct OnboardingState: Equatable {
     var background: [OnboardingBackgroundTask: OnboardingTaskState] = [:]
     var backgroundDetails: [OnboardingBackgroundTask: String] = [:]
     var engineTransfer: OnboardingTransferProgress? = nil
+    var keysFile: URL? = nil
     var keys: Keys = .empty
     var games: Games = .empty
+    var queuedGameIDs: Set<String> = []
+    var reviewBuildQueue: Bool { !queuedGameIDs.isEmpty }
     var done: Done = .celebrating
     var exit: Exit? = nil
     /// NVN games need the Metal compiler of Xcode 27.2, which needs macOS 26.6. Hints only: setup continues either way.
@@ -153,7 +156,7 @@ struct OnboardingState: Equatable {
         background.values.contains { if case .failed = $0 { return true }; return false }
     }
     var canSkipKeys: Bool {
-        step == .keys && exit == nil && keys != .valid && keys != .validating && keys != .skipped
+        step == .keys && exit == nil && keys != .validating
     }
     var gamesNeedKeys: Bool {
         guard keys == .skipped, case let .found(games) = self.games, !games.isEmpty else { return false }
@@ -163,7 +166,7 @@ struct OnboardingState: Equatable {
         switch step {
         case .welcome: return welcome.hasSpace
         case .platform: return selectedPlatform != nil
-        case .xcode: return xcode == .ready && backgroundReady
+        case .xcode: return xcode == .ready && backgroundReady && engineTransfer == nil
         case .keys: return keys == .valid || keys == .skipped
         case .games: if case let .found(games) = games { return !games.isEmpty && !gamesNeedKeys }; return false
         case .done: return false
@@ -180,7 +183,7 @@ struct OnboardingState: Equatable {
             case .failed, .disconnected: return .retry
             default: return backgroundFailed ? .retry : (canAdvance ? .next : .waiting)
             }
-        case .keys: if case .found = keys { return .confirmKeys }; return canAdvance ? .next : .waiting
+        case .keys: return keys == .valid ? .confirmKeys : .waiting
         case .done: return .openLibrary
         }
     }
@@ -224,11 +227,13 @@ struct OnboardingState: Equatable {
     func start()
     func choosePlatform(_ platform: OnboardingPlatform)
     func getXcode()
+    func recheckXcode()
     func finishXcodeSetup()
     func retry(_ step: OnboardingStep)
     func chooseKeys(_ url: URL)
     func confirmKeys()
     func skipKeys()
+    func buildGames(_ ids: Set<String>)
     func chooseGames(_ url: URL)
     func back()
     func next()

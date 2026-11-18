@@ -90,13 +90,17 @@ import NXLauncher
     }
     private func animateStarting(_ gameID: String) {
         startingTask?.cancel()
+        state.launchCancellable = true
         startingTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_750_000_000)
+            guard !Task.isCancelled, let self, self.state.startingGameID == gameID else { return }
+            self.state.launchCancellable = false
             for count in stride(from: 0, through: 48, by: 4) {
                 try? await Task.sleep(nanoseconds: 180_000_000)
-                guard !Task.isCancelled, let self, self.state.startingGameID == gameID else { return }
+                guard !Task.isCancelled, self.state.startingGameID == gameID else { return }
                 self.state.starting = .compilingShaders(completed: count, total: 48)
             }
-            self?.state.starting = .opening
+            self.state.starting = .opening
         }
     }
 
@@ -173,6 +177,7 @@ import NXLauncher
     }
     func assignPlayer(controllerID: String, player: Int) { state.assignPlayer(controller: controllerID, player: player) }
     func back() {
+        if state.startingGameID != nil { startingTask?.cancel(); state.returnFromGame(); return }
         let wasGame = state.mappingGameID != nil
         state.back()
         if wasGame, state.mappingGameID == nil { state.padLayout = globalLayout }

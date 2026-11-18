@@ -73,11 +73,12 @@ struct StickDeadzoneCard: View {
             CardRow(loc.t("sticks.custom"), detail: loc.t(settings.custom ? "sticks.customOn" : "sticks.customOff")) {
                 Toggle(loc.t("sticks.custom"), isOn: Binding(get: { settings.custom }, set: { store.setCustom($0) }))
                     .labelsHidden().toggleStyle(LauncherSwitchStyle())
+                    .padTarget("sticks.custom", scope: "main") { store.setCustom(!settings.custom) }
             }
             CardDivider()
-            stickRow(loc.t("sticks.left"), percent: settings.left, input: monitor.left, set: store.setLeft)
+            stickRow(loc.t("sticks.left"), id: "left", percent: settings.left, input: monitor.left, set: store.setLeft)
             CardDivider()
-            stickRow(loc.t("sticks.right"), percent: settings.right, input: monitor.right, set: store.setRight)
+            stickRow(loc.t("sticks.right"), id: "right", percent: settings.right, input: monitor.right, set: store.setRight)
             CardDivider()
             HStack(spacing: 18) {
                 legend(filled: false, loc.t("sticks.input"))
@@ -87,7 +88,7 @@ struct StickDeadzoneCard: View {
                     .buttonStyle(LauncherSecondaryButtonStyle())
                     .disabled(settings.isDefault)
                     .accessibilityLabel(loc.t("sticks.resetAll"))
-                    .padTarget("sticks.reset", scope: "main") { store.reset() }
+                    .padTarget("sticks.reset", scope: "main", enabled: !settings.isDefault) { store.reset() }
             }
             .padding(.horizontal, 18).padding(.vertical, 13)
         }
@@ -95,12 +96,13 @@ struct StickDeadzoneCard: View {
         .onDisappear { monitor.stop() }
     }
 
-    private func stickRow(_ title: String, percent: Int, input: CGPoint, set: @escaping (Int) -> Void) -> some View {
+    private func stickRow(_ title: String, id: String, percent: Int, input: CGPoint, set: @escaping (Int) -> Void) -> some View {
         HStack(spacing: 14) {
             Text(title).font(.manrope(14)).frame(width: 90, alignment: .leading)
             LauncherSlider(value: Double(percent), range: 0...50, step: 1) { set(Int($0.rounded())) }
                 .accessibilityLabel(title)
                 .accessibilityValue("\(percent)%")
+                .padTarget("sticks." + id, scope: "main", radius: 5, enabled: settings.custom, adjust: { set(min(50, max(0, percent + $0))) })
                 .disabled(!settings.custom)
                 .opacity(settings.custom ? 1 : 0.45)
             Text("\(percent)%").font(.manrope(13, .semibold)).monospacedDigit().foregroundStyle(.secondary)

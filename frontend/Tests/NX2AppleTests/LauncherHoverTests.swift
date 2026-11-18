@@ -142,6 +142,10 @@ import NXModel
         region.resetCursorRects()
         XCTAssertEqual(region.cursors, [.pointingHand])
         region.cursors = []
+        region.cursor = .openHand
+        region.resetCursorRects()
+        XCTAssertEqual(region.cursors, [.openHand])
+        region.cursors = []
         region.enabled = false
         region.resetCursorRects()
         XCTAssertTrue(region.cursors.isEmpty)
@@ -205,7 +209,7 @@ import NXModel
                     .write(to: output.appendingPathComponent("\(lang.code)-idle.png"))
             }
             let frames = try XCTUnwrap(focus.frames["main"])
-            for (name, id) in [("card", "card." + games[1].id.uuidString), ("hero", "hero.play"), ("topbar", "top.build")] {
+            for (name, id) in [("card", "card." + games[1].id.uuidString), ("hero", "hero.play"), ("topbar", "tab.builds")] {
                 let frame = try XCTUnwrap(frames.first { $0.id == id }?.frame)
                 XCTAssertEqual(try hover(host, entered: true, at: NSPoint(x: frame.midX, y: frame.midY)), 1,
                                "hover must not spread to a sibling control")

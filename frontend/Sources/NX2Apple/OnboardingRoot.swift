@@ -9,6 +9,7 @@ import NXLauncher
     let stores: LauncherStores
     let library: GameLibrary
     let controls = ControlLayout()
+    let completionDismissal = BuildCompletionDismissal()
     /// Records the builds in the library whichever view is up: console mode takes LauncherView down while a build runs on.
     let recorder: BuildRecorder
     lazy var console: LiveConsoleDriver = {
@@ -37,6 +38,7 @@ struct RootView: View {
     var stores: LauncherStores { shared.stores }
     private var library: GameLibrary { shared.library }
     @State private var mode: Mode = .checking
+    @State private var reviewQueue = false
     @State private var driver: LiveOnboardingDriver?
     @StateObject private var gamepad = LauncherGamepad()
     @ObservedObject var console: ConsoleCoordinator
@@ -47,19 +49,19 @@ struct RootView: View {
             case .checking:
                 LauncherPalette.background.overlay(ProgressView().controlSize(.small))
             case .onboarding:
-                if let driver { OnboardingView(driver: driver, lang: stores.localizer.lang, gamepad: gamepad) }
+                if let driver { OnboardingView(driver: driver, lang: stores.localizer.lang, gamepad: gamepad).transition(.opacity) }
             case .launcher:
                 ZStack {
                     if console.active {
                         ConsoleInLanguage(localizer: stores.localizer) { lang in
                             ConsoleView(driver: shared.console, lang: lang, onExit: { console.exit(); shared.console.returnFromGame() },
-                                        chooseLanguage: { code in stores.localizer.choose(code); shared.console.refresh() })
+                                        chooseLanguage: { code in stores.localizer.choose(code); shared.console.refresh() }, completionDismissal: shared.completionDismissal)
                         }
                             .onAppear { shared.console.reloadCovers() }
                             .transition(CalmTransition.console)
                     } else {
-                        LauncherView(stores: stores, library: library, onRunSetup: runSetupAgain, enterConsole: { console.enter() },
-                                    controllerDriver: AnyConsoleDriver(shared.console), controls: shared.controls, recorder: shared.recorder)
+                        LauncherView(stores: stores, library: library, initialPage: reviewQueue ? .builds : .library, initialBuildEditorOpen: reviewQueue, onRunSetup: runSetupAgain, enterConsole: { console.enter() },
+                                    controllerDriver: AnyConsoleDriver(shared.console), controls: shared.controls, recorder: shared.recorder, completionDismissal: shared.completionDismissal)
                             .transition(CalmTransition.desktop)
                     }
                 }
@@ -101,7 +103,10 @@ struct RootView: View {
 
     private func show(fresh: Bool, ephemeral: Bool = false) {
         let d = LiveOnboardingDriver(stores: stores, library: library, fresh: fresh, ephemeral: ephemeral)
-        d.onExit = { _ in mode = .launcher; driver = nil }
+        d.onExit = { [weak d] _ in
+            reviewQueue = d?.state.reviewBuildQueue == true
+            withAnimation(.easeInOut(duration: 0.35)) { mode = .launcher; driver = nil }
+        }
         driver = d
         mode = .onboarding
         d.activate()

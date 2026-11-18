@@ -54,19 +54,19 @@ import AppKit
         XCTAssertNil(ConsoleHome.move(from: "gone", dx: 1, dy: 0, in: sections))
     }
 
-    func testPointerSelectsBeforeOpeningAndControllerActivationStillOpens() {
+    func testPointerFocusesAndOpensEveryTileInOneActivation() {
         var focused = "a", opened: [String] = []
         func tap(_ id: String) {
             ConsoleHomePointerInput.tapTile(id, focused: focused, focus: { focused = id }, open: { opened.append(id) })
         }
         tap("b")
         XCTAssertEqual(focused, "b")
-        XCTAssertTrue(opened.isEmpty)
-        tap("b")
         XCTAssertEqual(opened, ["b"])
+        tap("b")
+        XCTAssertEqual(opened, ["b", "b"])
         tap("c")
         XCTAssertEqual(focused, "c")
-        XCTAssertEqual(opened, ["b"])
+        XCTAssertEqual(opened, ["b", "b", "c"])
     }
 
     func testWheelAndDragMoveOneHomeRowAtATime() {

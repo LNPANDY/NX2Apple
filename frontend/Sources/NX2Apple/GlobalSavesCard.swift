@@ -24,7 +24,7 @@ struct GlobalSavesCard: View {
                     .padTarget("saves.global.choose", scope: "main") { chooseCloud() }
             }
             CardDivider()
-            CardRow(loc.t("savesloc.globalFolder"), detail: global.saveRoot.map(SaveLocationText.shown) ?? loc.t("savesloc.usual"), help: global.saveRoot ?? "") {
+            CardRow(loc.t("savesloc.globalFolder"), detail: loc.t("savesloc.globalFolderNote"), detail2: global.saveRoot.map(SaveLocationText.shown) ?? loc.t("savesloc.usual"), help: global.saveRoot ?? "") {
                 Button(loc.t("savesloc.change")) { chooseRoot() }
                     .padTarget("saves.global.root", scope: "main") { chooseRoot() }
                 if global.saveRoot != nil {

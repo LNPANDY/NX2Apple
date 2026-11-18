@@ -9,6 +9,9 @@ import NXModel
 /// CommonCrypto) on the chosen files.
 struct FilesCard: View {
     @ObservedObject var build: BuildStore
+    var library: GameLibrary? = nil
+    var artworkStore: ArtworkStore = .shared
+    @State private var artwork: NSImage?
     @EnvironmentObject var loc: Localizer
     @Binding var extrasOpen: Bool   // the optional input rows, kept by the page so they stay as they were when it is left and back
     @State private var keyCheck: KeyCheck.DetailedOutcome?   // prod.keys against the chosen files (KeyCheck.swift)
@@ -18,39 +21,81 @@ struct FilesCard: View {
     }
 
     var body: some View {
-        // The report's own mistake, and a reasonable one: the output folder silently decides where
-        // the build cache lives, so changing it threw away a finished build. Say it under Save to, all the time.
-        CardGroup(loc.t("section.files"), footnote: loc.t("msg.workdirHint")) {
-            Button(action: pickFolder) {
-                CardRow(loc.t(build.gameDir.isEmpty ? "build.folderCTA" : "build.folderSelected"),
-                    detail: build.gameDir.isEmpty ? loc.t("build.folderNote") : build.shortPath(build.gameDir), help: build.gameDir) {
-                    Text(loc.t(build.gameDir.isEmpty ? "data.choose" : "data.change"))
-                        .font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.onCream)
-                        .launcherRowControlFrame()
-                        .background(LauncherPalette.cream, in: Capsule())
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            ForEach(build.slots.filter { !$0.optional }, id: \.id) { s in
-                CardDivider()
-                slotRow(s)
-                if s.id == "keys", build.gameFolder == nil, let keyCheck {
-                    KeyCheckLine(outcome: keyCheck.outcome, detailed: keyCheck, t: loc.t)
+        VStack(alignment: .leading, spacing: 20) {
+            Text(loc.t("section.files")).font(.manrope(30, .bold))
+            if build.gameDir.isEmpty && build.basePath.isEmpty {
+                CardGroup("") {
+                    CardRow(loc.t(build.gameDir.isEmpty ? "build.folderCTA" : "build.folderSelected"), detail: build.gameDir.isEmpty ? "" : URL(fileURLWithPath: build.gameDir).lastPathComponent, help: build.gameDir) {
+                        Button(action: pickFolder) {
+                            Label(loc.t("data.choose"), systemImage: "folder").padding(.horizontal, 18).frame(height: LauncherControl.height)
+                        }.buttonStyle(LauncherActionButtonStyle())
+                            .padTarget("set.build.folder", scope: "main", focusColor: LauncherPalette.onCream, enabled: !build.running, activate: pickFolder)
+                    }
                 }
             }
-            CardDivider()
-            CardDisclosure(loc.t("build.options"), isOpen: extrasOpen) { extrasOpen.toggle() }
-            if extrasOpen {
-                ForEach(build.slots.filter(\.optional), id: \.id) { s in
-                    CardDivider()
-                    slotRow(s)
+            CardGroup("") {
+                HStack(spacing: 14) {
+                    Group {
+                        if let artwork { Image(nsImage: artwork).resizable().scaledToFit() }
+                        else { Image(systemName: "gamecontroller.fill").font(.system(size: 22)).frame(maxWidth: .infinity, maxHeight: .infinity).background(LauncherPalette.surface) }
+                    }.frame(width: 52, height: 52).clipShape(RoundedRectangle(cornerRadius: 10)).accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(loc.t("data.base")).font(.manrope(14, .semibold))
+                        Text(game?.displayName(loc.lang) ?? (build.gameName.isEmpty ? build.slot("base").summary(loc.t) : build.gameName))
+                            .font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
+                            .help(build.gameFolderRowText("base") ?? build.slot("base").summary(loc.t))
+                    }
+                    Spacer(minLength: 8)
+                    Button(loc.t(build.basePath.isEmpty ? "data.choose" : "data.change")) {
+                        build.pickFiles(kind: .base)
+                    }.padTarget("set.build.file.base", scope: "main", activate: {
+                        build.pickFiles(kind: .base)
+                    })
+                }.padding(18)
+            }
+            if build.gameFolder == nil && (!build.keysReady || keyCheckNeedsAttention) {
+                CardGroup("") {
+                    HStack(alignment: .center, spacing: 12) {
+                        Image(systemName: (!build.keysReady || keyCheckNeedsAttention) ? "key.slash.fill" : "key.fill")
+                            .font(.system(size: 24)).foregroundStyle((!build.keysReady || keyCheckNeedsAttention) ? LauncherPalette.building : LauncherPalette.secondaryText)
+                            .frame(width: 52, height: 52).background(LauncherPalette.ink(0.08), in: RoundedRectangle(cornerRadius: 10))
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(build.keysPath.isEmpty ? loc.t("build.keyHint") : URL(fileURLWithPath: build.keysPath).lastPathComponent).font(.manrope(14, .semibold)).multilineTextAlignment(.leading).help((build.keysFromSettings ? loc.t("keys.fromSettings") + "\n" : "") + build.keysPath)
+                            if let keyCheck { KeyCheckLine(outcome: keyCheck.outcome, detailed: keyCheck, t: loc.t) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        Button(loc.t(build.keysPath.isEmpty ? "data.choose" : "data.change")) { build.pickFiles(kind: .keys) }
+                            .padTarget("set.build.file.keys", scope: "main", activate: { build.pickFiles(kind: .keys) })
+                    }.padding(18)
                 }
+            } else if let keyCheck, case .cannotCheck = keyCheck.outcome {
+                KeyCheckLine(outcome: keyCheck.outcome, detailed: keyCheck, t: loc.t)
             }
-            CardDivider()
-            CardRow(loc.t("build.saveTo"), detail: build.outDir.isEmpty ? loc.t("build.saveDefault") : build.shortPath(build.outDir), help: build.outDir) {
-                Button(loc.t("data.change")) { build.chooseBuildFolder() }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 16) { optionalSections.frame(minWidth: 285) }
+                VStack(spacing: 24) { optionalSections }
             }
+            CardGroup(loc.t("build.saveTo"), help: ("set.build.output.help", loc.t("msg.workdirHint")), insetTitle: true) {
+                HStack(spacing: 12) {
+                    if build.outDir.isEmpty && build.inputFolder.isEmpty {
+                        Text(loc.t("build.saveDefault")).font(.manrope(13)).foregroundStyle(.secondary)
+                    } else {
+                        Button { NSWorkspace.shared.open(destination) } label: {
+                            Label("/" + destination.lastPathComponent, systemImage: "folder.fill").lineLimit(1).truncationMode(.middle)
+                        }.buttonStyle(.link).help(destination.path)
+                            .padTarget("set.build.output.reveal", scope: "main", activate: { NSWorkspace.shared.open(destination) })
+                    }
+                    Spacer(minLength: 8)
+                    Button(loc.t("data.change")) { build.chooseBuildFolder() }
+                        .padTarget("set.build.output", scope: "main", activate: { build.chooseBuildFolder() })
+                }.padding(18)
+            }
+        }
+        .task(id: (build.gameTitleID ?? "") + loc.lang.code) {
+            artwork = nil
+            guard let id = build.gameTitleID else { return }
+            let url = await artworkStore.fetchIcon(id, language: loc.lang.code)
+            guard !Task.isCancelled, build.gameTitleID == id else { return }
+            if let url { artwork = NSImage(contentsOf: url) }
         }
         .task(id: currentKeyInputs) {
             let inputs = currentKeyInputs
@@ -80,28 +125,40 @@ struct FilesCard: View {
         .disabled(build.running)
     }
 
-    private func slotRow(_ s: Slot) -> some View {
-        // A game folder (a Switch 2 game) fills the rows from its folders: they say what it holds, the keys row that none are
-        // needed, and only the base row can be cleared (which clears the folder). An empty prod.keys row says where the file comes from.
-        // An empty keys row, or one whose file is gone, shows the keys saved in Settings, which the build takes (#996).
-        let folderText = build.gameFolderRowText(s.id)
-        let saved = s.id == "keys" && build.keysFromSettings
-        let ready = folderText != nil ? (s.id == "keys" || s.ok) : s.ok || saved
-        let detail = folderText ?? (saved ? (build.savedKeys as NSString).lastPathComponent + "\n" + loc.t("keys.fromSettings")
-            : s.id == "keys" && s.paths.isEmpty ? loc.t("build.keyHint") : s.summary(loc.t))
-        return CardRow(loc.t(s.title), detail: detail,
-            dot: ready ? LauncherPalette.ready : LauncherPalette.unbuilt, help: saved ? build.savedKeys : s.paths.joined(separator: "\n")) {
-            if !s.paths.isEmpty && (folderText == nil || s.id == "base") {
-                Button(loc.t("data.clear")) { build.clear(s.id) }.buttonStyle(.plain)
-                    .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
-            }
-            if folderText == nil {
-                Button(s.paths.isEmpty ? loc.t("data.choose") : loc.t("data.change")) { build.pickFiles(kind: s.kind) }
+    private var game: LibraryGame? { library?.games.first { $0.titleID == build.gameTitleID } }
+    private var destination: URL {
+        URL(fileURLWithPath: build.outDir.isEmpty ? (build.inputFolder.isEmpty ? NSHomeDirectory() : build.inputFolder) : build.outDir, isDirectory: true)
+    }
+    private var keyCheckNeedsAttention: Bool {
+        guard let keyCheck else { return false }
+        switch keyCheck.outcome { case .fits, .cannotCheck: return false; default: return true }
+    }
+    private var optionalSections: some View {
+        ForEach(build.slots.filter(\.optional), id: \.id) { slot in
+            CardGroup(loc.t(slot.id == "dlc" ? "flow.dlcTitle" : slot.title), qualifier: loc.t("flow.optional"), insetTitle: true) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(build.gameFolderRowText(slot.id) ?? (slot.paths.isEmpty ? loc.t("data.notSelected") : slot.summary(loc.t)))
+                        .font(.manrope(12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
+                        .help(slot.paths.joined(separator: "\n"))
+                    if build.gameFolderRowText(slot.id) == nil {
+                        HStack(spacing: 12) {
+                            Button(loc.t(slot.paths.isEmpty ? "data.choose" : "data.change")) { build.pickFiles(kind: slot.kind) }
+                                .padTarget("set.build.file." + slot.id, scope: "main", activate: { build.pickFiles(kind: slot.kind) })
+                            if !slot.paths.isEmpty {
+                                Button(loc.t("data.clear")) { build.clear(slot.id) }
+                                    .padTarget("set.build.clear." + slot.id, scope: "main", activate: { build.clear(slot.id) })
+                            }
+                        }
+                    }
+                }.padding(18)
             }
         }
     }
 
-    private func pickFolder() {
+    private func pickFolder() { Self.pickFolder(build) }
+
+    static func pickFolder(_ build: BuildStore) {
+        guard !build.running else { return }
         let d = NSOpenPanel()
         d.canChooseDirectories = true; d.canChooseFiles = false
         if d.runModal() == .OK, let u = d.url { build.scan(folder: u.path) }

@@ -17,8 +17,8 @@ actor ArtworkStore {
     static let titleListURL = URL(string: "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json")!
     static let imageHosts: Set<String> = ["img-eshop.cdn.nintendo.net", "cdn2.steamgriddb.com", "www.nintendo.com"]
     /// The index format. An index written by an older launcher (no version: the first product per title ID won) is fetched
-    /// again once, so its picks are made by `BannerPick`. Version 3 adds the language the index was read for.
-    static let indexVersion = 3
+    /// again once, so its picks are made by `BannerPick`. Version 4 adds square metadata icons.
+    static let indexVersion = 4
 
     /// The launcher languages whose eShop has its own list in blawar/titledb: names, logos and banners in that language. Chinese
     /// reads Hong Kong's (17,418 titles with a banner, Chinese names; CN.zh has 89). Swedish has no Swedish list (SE.en is
@@ -43,6 +43,8 @@ actor ArtworkStore {
     /// What the list knows of a title besides its banner: up to `maxScreenshots` gameplay screenshots (1920×1080).
     struct Media: Codable, Equatable {
         var screenshots: [String]
+        var iconURL: String? = nil
+        var name: String? = nil
     }
     enum MediaLoad: Equatable {
         case loaded(Media)
@@ -309,11 +311,31 @@ actor ArtworkStore {
         seen.insert(id)
         if retrying { listFailed = false }
         loadIndex()
-        if index?.media?[id] == nil, !listFailed {
+        if index?.media?[id] == nil || index?.version != Self.indexVersion, !listFailed {
             await refresh(language: lang, generation: generation)
         }
         guard let media = index?.media?[id] else { return .offline }
         return media.screenshots.isEmpty ? .none : .loaded(media)
+    }
+
+    /// Optional metadata added to existing caches without invalidating downloaded artwork.
+    func cachedName(_ titleID: String, language: String = "en") -> String? {
+        loadIndex()
+        guard (index?.language ?? "en") == listLanguage(language) else { return nil }
+        let name = index?.media?[titleID.uppercased()]?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name?.isEmpty == false ? name : nil
+    }
+
+    /// The selected game's metadata icon uses the same bounded image validation as banners.
+    func fetchIcon(_ titleID: String, language: String) async -> URL? {
+        let id = titleID.uppercased()
+        guard Self.isTitleID(id) else { return nil }
+        let file = directory.appendingPathComponent(id).appendingPathComponent("icon.jpg")
+        if FileManager.default.fileExists(atPath: file.path) { return file }
+        _ = await media(for: id, language: language)
+        guard let data = try? await fetchImageData(index?.media?[id]?.iconURL) else { return nil }
+        do { try writeImageData(data, to: file); return file }
+        catch { return nil }
     }
 
     func candidate(_ source: ArtworkChoice.Source, titleID: String) async throws -> URL {
@@ -402,7 +424,7 @@ actor ArtworkStore {
             for id in kept {   // a title not in the list gets no screenshots, and no second look
                 let list = byID[id] ?? []
                 let product = BannerPick.pick(list) ?? list.first
-                media[id] = Media(screenshots: Array((product?.screenshots ?? []).prefix(Self.maxScreenshots)))
+                media[id] = Media(screenshots: Array((product?.screenshots ?? []).prefix(Self.maxScreenshots)), iconURL: product?.iconUrl, name: product?.name)
             }
             let fresh = Index(version: Self.indexVersion, language: language, fetched: Date(), banners: picked.banners, several: picked.several, media: media)
             index = fresh
@@ -519,12 +541,13 @@ enum BannerPick {
         var isDemo: Bool?
         var bannerUrl: String?
         var screenshots: [String]?
+        var iconUrl: String? = nil
 
         init(id: String?, name: String?, nsuId: Int64?, isDemo: Bool? = nil, bannerUrl: String?, screenshots: [String]? = nil) {
             self.id = id; self.name = name; self.nsuId = nsuId; self.isDemo = isDemo; self.bannerUrl = bannerUrl; self.screenshots = screenshots
         }
 
-        private enum CodingKeys: String, CodingKey { case id, name, nsuId, isDemo, bannerUrl, screenshots }
+        private enum CodingKeys: String, CodingKey { case id, name, nsuId, isDemo, bannerUrl, screenshots, iconUrl }
 
         /// Third-party data: a field of an unexpected type is left out instead of failing the whole list.
         init(from decoder: Decoder) throws {
@@ -537,6 +560,7 @@ enum BannerPick {
             isDemo = try? c.decodeIfPresent(Bool.self, forKey: .isDemo)
             bannerUrl = try? c.decodeIfPresent(String.self, forKey: .bannerUrl)
             screenshots = try? c.decodeIfPresent([String].self, forKey: .screenshots)
+            iconUrl = try? c.decodeIfPresent(String.self, forKey: .iconUrl)
         }
     }
 

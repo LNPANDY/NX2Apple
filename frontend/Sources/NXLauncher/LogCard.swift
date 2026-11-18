@@ -33,6 +33,7 @@ package struct LogCard: View {
                     .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 14).padding(.top, 2)
             }
             CardDisclosure(loc.t("build.log"), isOpen: logOpen) { logOpen.toggle() }
+                .padTarget("set.build.log", scope: "main", radius: 0) { logOpen.toggle() }
             if logOpen { BuildLogView(log: log, placeholder: loc.t("log.placeholder")).padding(.horizontal, 14).padding(.bottom, 14) }
         }
         .onReceive(showRequests) { show in

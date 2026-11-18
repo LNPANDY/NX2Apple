@@ -15,8 +15,6 @@ struct ConsoleBackdrop: View {
     /// The sharp art's share of the screen, from the top right corner.
     static let artWidth: CGFloat = 0.74
     static let artHeight: CGFloat = 0.8
-    /// How far the top bar's scrim reaches down.
-    static let scrimHeight: CGFloat = 160
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -26,13 +24,43 @@ struct ConsoleBackdrop: View {
                     if starting { blurred(game).overlay(Color.black.opacity(0.32)) }   // a scrim keeps the Starting text readable on any cover
                     else { home(game) }
                 }
+                .saturation(game.status == .ready && !game.olderTools ? 1 : 0)
                 .id(game.id).transition(.opacity)
             }
         }
         .frame(width: size.width, height: size.height)
-        .animation(.easeInOut(duration: reduceMotion ? 0.01 : 0.38), value: game?.id)   // the art cross-fades, slowly and softly
-        .animation(.easeInOut(duration: reduceMotion ? 0.01 : 0.25), value: game?.hero != nil)   // the large image replaces the cover
+        .overlay {
+            if !starting, let game {
+                home(game).saturation(game.status == .ready && !game.olderTools ? 1 : 0)
+                    .blur(radius: 16)
+                    .mask(alignment: .topTrailing) {
+                        EllipticalGradient(colors: [.black, .black.opacity(0.8), .clear], center: .topTrailing,
+                                           startRadiusFraction: 0, endRadiusFraction: 1)
+                            .frame(width: min(700, size.width * 0.46), height: min(300, size.height * 0.32))
+                    }
+                    .id(game.id).transition(.opacity).allowsHitTesting(false)
+            }
+        }
+        .overlay(alignment: .top) {
+            if !starting {
+                HStack(spacing: 0) {
+                    corner(.topLeading, material: .ultraThinMaterial, dimming: 0.12)
+                    Spacer(minLength: 0)
+                    corner(.topTrailing, material: .ultraThinMaterial, dimming: 0.24)
+                }.frame(height: min(300, size.height * 0.32))
+            }
+        }
+        .animation(LibraryHeroTransition.artwork(reduceMotion: reduceMotion), value: game?.id)   // the art cross-fades, slowly and softly
+        .animation(LibraryHeroTransition.artwork(reduceMotion: reduceMotion), value: game?.hero != nil)   // the large image replaces the cover
         .clipped().ignoresSafeArea().accessibilityHidden(true)
+    }
+
+    private func corner(_ center: UnitPoint, material: Material, dimming: Double) -> some View {
+        Rectangle().fill(material).overlay(.black.opacity(dimming))
+            .mask(EllipticalGradient(colors: [.black, .black.opacity(0.8), .clear], center: center,
+                                     startRadiusFraction: 0, endRadiusFraction: 1))
+            .frame(width: min(700, size.width * 0.46))
+            .allowsHitTesting(false).accessibilityHidden(true)
     }
 
     private func image(_ game: ConsoleGame) -> NSImage? { game.hero ?? game.artwork }
@@ -69,10 +97,7 @@ struct ConsoleBackdrop: View {
                            center: .bottomLeading, startRadius: 0, endRadius: max(size.width, size.height) * 0.85)
             LinearGradient(stops: [.init(color: bg.opacity(0), location: 0.6), .init(color: bg.opacity(0.85), location: 1)],
                            startPoint: .top, endPoint: .bottom)
-            // The top edge, where the controllers, the clock, Search and the menu sit: a dark scrim over the full width, so the status
-            // stays readable on bright art (the sharp art is brightest there). Clear after about 160 pt.
-            LinearGradient(colors: [.black.opacity(0.55), .black.opacity(0)], startPoint: .top, endPoint: .bottom)
-                .frame(height: Self.scrimHeight).frame(maxHeight: .infinity, alignment: .top)
+
         }
         .frame(width: size.width, height: size.height)
     }

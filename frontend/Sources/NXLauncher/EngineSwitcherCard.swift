@@ -19,6 +19,7 @@ extension EnvironmentValues {
 package struct EngineSwitcherCard: View {
     @ObservedObject var build: BuildStore
     @EnvironmentObject var loc: Localizer
+    @EnvironmentObject private var pad: PadFocus
     @Environment(\.launcherDropdownHost) private var dropdownHost
     @Environment(\.engineDropdownInitiallyOpen) private var envInitiallyOpen
     private let initiallyOpen: Bool
@@ -137,6 +138,7 @@ package struct EngineSwitcherCard: View {
             .anchorPreference(key: LauncherDropdownAnchorKey.self, value: .bounds) { [dropdownID: $0] }
             .accessibilityLabel(loc.t("engine.title"))
             .accessibilityValue(active.displayName)
+            .padTarget("set.build.engine", scope: "main", enabled: !build.running) { isOpen ? closeDropdown() : openDropdown() }
         } else {
             Button {
                 fallbackPopoverOpen.toggle()
@@ -155,6 +157,7 @@ package struct EngineSwitcherCard: View {
             }
             .accessibilityLabel(loc.t("engine.title"))
             .accessibilityValue(active.displayName)
+            .padTarget("set.build.engine", scope: "main", enabled: !build.running) { isOpen ? closeDropdown() : openDropdown() }
         }
     }
 
@@ -189,6 +192,7 @@ package struct EngineSwitcherCard: View {
             let label = loc.t("engine.title")
             let store = build
             let localizer = loc
+            let focus = pad
             withAnimation(.easeOut(duration: 0.12)) {
                 dropdownHost.custom = LauncherCustomDropdown(
                     id: dropdownID,
@@ -198,7 +202,7 @@ package struct EngineSwitcherCard: View {
                 ) { close in
                     AnyView(
                         EngineDropdownPanel(build: store, maxHeight: Self.panelMaxHeight, close: close)
-                            .environmentObject(localizer)
+                            .environmentObject(localizer).environmentObject(focus)
                     )
                 }
             }
@@ -222,6 +226,7 @@ package struct EngineSwitcherCard: View {
 package struct EngineDropdownPanel: View {
     @ObservedObject var build: BuildStore
     @EnvironmentObject var loc: Localizer
+    @EnvironmentObject private var pad: PadFocus
     let maxHeight: CGFloat
     let close: () -> Void
     @State private var hoveredKind: EngineUpstreamKind?
@@ -240,9 +245,41 @@ package struct EngineDropdownPanel: View {
             }
             .frame(maxHeight: maxHeight)
         }
+        .padScope("engineDropdown", pad)
+        .background(PadKeyboardInput(focus: pad, scope: "engineDropdown", back: close))
+        .overlay(alignment: .topLeading) {
+            Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
+                .padTarget("engineDropdown.cancel", scope: "engineDropdown", activate: close)
+        }
+        .onAppear { pad.scope = "engineDropdown"; pad.focused = actionID(build.buildUpstream) }
+        .onDisappear { if pad.scope == "engineDropdown" { pad.scope = "main"; pad.focused = "set.build.engine" } }
+        .onChange(of: build.upstreamDownloads) { _ in
+            if let id = pad.focused, let kind = build.availableUpstreams.first(where: { id.hasSuffix("." + $0.rawValue) }) {
+                pad.focused = actionID(kind)
+            }
+        }
         .onChange(of: build.upstreamAutoSwitchRevision) { _ in
             close()
         }
+    }
+
+    private func actionID(_ kind: EngineUpstreamKind) -> String {
+        switch build.upstreamState(kind) {
+        case .builtIn, .installed: return "set.build.engine." + kind.rawValue
+        case .downloading, .extracting: return "set.build.engine.cancel." + kind.rawValue
+        case .notInstalled, .failed: return "set.build.engine.download." + kind.rawValue
+        }
+    }
+
+    private func move(_ kind: EngineUpstreamKind, by step: Int) -> Bool {
+        let kinds = build.availableUpstreams
+        guard let index = kinds.firstIndex(of: kind), !kinds.isEmpty else { return false }
+        pad.focused = actionID(kinds[(index + step + kinds.count) % kinds.count])
+        return true
+    }
+
+    private func shortcut(_ kind: EngineUpstreamKind) -> KeyboardShortcut? {
+        pad.focused == actionID(kind) ? KeyboardShortcut(.return, modifiers: []) : nil
     }
 
     private var rowsList: some View {
@@ -343,6 +380,8 @@ package struct EngineDropdownPanel: View {
         }
         .help(loc.t(selected ? "upstream.activeBadge" : "upstream.readySwitch"))
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .keyboardShortcut(shortcut(kind))
+        .padTarget(actionID(kind), scope: "engineDropdown", radius: 9, enabled: !build.running, activate: { build.selectUpstream(kind); close() }, vertical: { move(kind, by: $0) })
     }
 
     private func notInstalledRow(kind: EngineUpstreamKind) -> some View {
@@ -372,6 +411,8 @@ package struct EngineDropdownPanel: View {
             }
             .buttonStyle(LauncherActionButtonStyle(.capsule))
             .disabled(build.running)
+            .keyboardShortcut(shortcut(kind))
+            .padTarget(actionID(kind), scope: "engineDropdown", enabled: !build.running, activate: { build.downloadUpstream(kind) }, vertical: { move(kind, by: $0) })
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
@@ -426,6 +467,8 @@ package struct EngineDropdownPanel: View {
                     .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
             }
             .buttonStyle(.plain)
+            .keyboardShortcut(shortcut(kind))
+            .padTarget(actionID(kind), scope: "engineDropdown", activate: { build.cancelUpstreamDownload(kind) }, vertical: { move(kind, by: $0) })
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -463,6 +506,8 @@ package struct EngineDropdownPanel: View {
             }
             .buttonStyle(.plain)
             .disabled(build.running)
+            .keyboardShortcut(shortcut(kind))
+            .padTarget(actionID(kind), scope: "engineDropdown", enabled: !build.running, activate: { build.downloadUpstream(kind) }, vertical: { move(kind, by: $0) })
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)

@@ -136,12 +136,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var running = false {
         didSet {
             if !running, !buildingGame { runningTarget = target }
-            if !running { operation = nil }
+            if !running { completedOperation = operation?.kind; operation = nil }
         }
     }
     /// What runs right now: operation, game and destination, taken when the work starts and independent of the Build form
     /// (BuildStore+Operation.swift). nil when nothing runs.
     @Published package internal(set) var operation: ActiveOperation?
+    package var completedOperation: ActiveOperation.Kind?
     @Published package var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
     // The shell folder (shellCachePath, shellRoot, shellRootProblem): BuildStore+ShellRoot.swift.
     @Published package var stopping = false
@@ -248,11 +249,20 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     // (--prepare-xcode, the route its README gives developers), xcodebuild signs it for that device with the
     // team (Xcode makes the provisioning profile) without the game files, devicectl installs it and copies the game's
     // folder (romfs.img, aoc/) into its Documents, as a sideloaded copy has it. Without a device or a team the build stays an unsigned IPA, as before.
-    @Published package var installedOn = ""       // the device the last build went to (its UDID)
+    @Published package var installedDataComplete: Bool?
+    @Published package var installedOn = "" { didSet { installedDataComplete = nil } }       // the device the last build went to (its UDID)
     @Published package var installedAppPath = ""  // the signed app that went there
     @Published package var exportedIPAPath = ""   // the unsigned IPA of an export (#416)
     @Published package var send: DataSend = .idle {  // step 3 of the export: the game data on its way (BuildStore+Send.swift)
-        didSet { if send != oldValue { finderShown = false } }
+        didSet {
+            if send != oldValue { finderShown = false }
+            guard devices.installDevice == installedOn else { return }
+            switch send {
+            case .sent: installedDataComplete = true
+            case .sending: installedDataComplete = false
+            default: break
+            }
+        }
     }
     /// The player chose the Finder way after the copy to the device did not work: step 3 shows its three steps (#491).
     @Published package var finderShown = false
@@ -293,14 +303,17 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The build queue (#943), wired by the app so the Build page's start actions can run a staged queue batch.
     package weak var queue: BuildQueueStore? {
         didSet {
-            let count = queue?.queued.count ?? 0
+            queueHasIOS = queue?.hasIOS ?? false
+            let count = queue?.games.filter(\.waiting).count ?? 0
             if queuedCount != count { queuedCount = count }
             queueSubscription = queue?.$entries.sink { [weak self] entries in
-                let next = entries.filter { $0.status == .queued }.count
+                self?.queueHasIOS = entries.contains { $0.status == .queued && $0.target != BuildTarget.mac }
+                let next = QueueGame.grouped(entries).filter(\.waiting).count
                 if self?.queuedCount != next { self?.queuedCount = next }
             }
         }
     }
+    @Published package private(set) var queueHasIOS = false
     @Published package private(set) var queuedCount = 0
     private var queueSubscription: AnyCancellable?
     /// The running send of each transfer asks this flag whether it was cancelled.

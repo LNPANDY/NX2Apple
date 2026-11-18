@@ -82,9 +82,7 @@ package struct TitlebarDoubleClick: NSViewRepresentable {
     package func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-/// The width of the button or dropdown at the trailing end of a setting row, the same on every page, so that these
-/// controls stand in one column whatever their labels. A row hands it to its trailing controls (`launcherRowControls()`),
-/// and LauncherSecondaryButtonStyle and LauncherDropdown take it from there. Outside a row they size to their label.
+/// Dropdowns share a trailing column; adjacent actions hug their labels up to this width.
 package enum LauncherControl {
     /// Wide enough for the longest everyday label in every language on one line ("Sök efter uppdateringar", 148 pt in 13 pt
     /// Manrope semibold, plus the buttons' 15 pt of padding on each side). LauncherControlWidthTests measures them all.
@@ -153,7 +151,7 @@ extension View {
 private struct LauncherControlWidthKey: EnvironmentKey { static let defaultValue: CGFloat? = nil }
 
 extension EnvironmentValues {
-    /// Set inside a setting row: every button and dropdown there is exactly this wide.
+    /// Set inside a setting row: dropdown width and maximum action width.
     package var launcherControlWidth: CGFloat? {
         get { self[LauncherControlWidthKey.self] }
         set { self[LauncherControlWidthKey.self] = newValue }
@@ -161,7 +159,7 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// The trailing controls of a setting row: buttons and dropdowns take LauncherControl.width.
+    /// The trailing controls of a setting row share a height and dropdown-width limit.
     package func launcherRowControls() -> some View { environment(\.launcherControlWidth, LauncherControl.width) }
 
     /// This text as wide and as high as a button of a setting row, on one line (for a control drawn by hand, like the cream capsule).
@@ -180,11 +178,14 @@ private struct LauncherRowControlFrame: ViewModifier {
 }
 
 package struct LauncherSecondaryButtonStyle: ButtonStyle {
-    package init(accent: Color? = nil) { self.accent = accent }
+    package init(accent: Color? = nil, height: CGFloat = LauncherControl.height) {
+        self.accent = accent; self.height = height
+    }
+    package let height: CGFloat
     /// Text and border in this colour (the build bar's Stop); plain text otherwise.
     package var accent: Color? = nil
     package func makeBody(configuration: Configuration) -> some View {
-        LauncherSecondaryButton(configuration: configuration, accent: accent)
+        LauncherSecondaryButton(configuration: configuration, accent: accent, height: height)
     }
 }
 
@@ -192,32 +193,33 @@ package struct LauncherSecondaryButtonStyle: ButtonStyle {
 private struct LauncherSecondaryButton: View {
     let configuration: ButtonStyleConfiguration
     let accent: Color?
-    /// Inside a setting row the button is exactly LauncherControl.width wide and LauncherControl.height high, its label centred on
-    /// one line (a little smaller when it does not fit): the buttons of a page line up in one column and are equally high.
+    let height: CGFloat
+    private var fontSize: CGFloat { height > LauncherControl.height ? 16 : 13 }
+    /// Inside a setting row, actions hug their labels up to the shared control-column width.
     @Environment(\.launcherControlWidth) private var width
     @Environment(\.isEnabled) private var enabled
-    @Environment(\.colorScheme) private var scheme
     @State private var hovered = false
 
     private var fill: Color {
         if configuration.isPressed { return LauncherPalette.secondaryPressed }
-        return scheme == .light && hovered && enabled ? LauncherPalette.secondaryHover : LauncherPalette.secondaryFill
+        return hovered && enabled ? LauncherPalette.secondaryHover : LauncherPalette.secondaryFill
     }
 
     var body: some View {
         configuration.label
-            .font(.manrope(13, .semibold))
+            .font(.manrope(fontSize, .semibold))
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .minimumScaleFactor(width == nil ? 1 : LauncherControl.minimumLabelScale)
-            .padding(.horizontal, 15).padding(.vertical, 9)
-            .frame(width: width, height: width == nil ? nil : LauncherControl.height)
-            .background(fill, in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(accent?.opacity(0.75) ?? LauncherPalette.secondaryBorder))
+            .padding(.horizontal, 15)
+            .frame(height: height)
+            .frame(maxWidth: width).fixedSize(horizontal: width != nil, vertical: false)
+            .background(fill, in: Capsule())
+            .overlay(Capsule().strokeBorder(accent?.opacity(0.75) ?? LauncherPalette.secondaryBorder))
             .foregroundStyle(enabled ? (accent ?? LauncherPalette.text) : .gray)
             .opacity(enabled ? 1 : 0.55)
-            .contentShape(RoundedRectangle(cornerRadius: 9))
-            .launcherMeasured(label: configuration.label.font(.manrope(13, .semibold)), room: LauncherControl.buttonLabelWidth)
+            .contentShape(Capsule())
+            .launcherMeasured(label: configuration.label.font(.manrope(fontSize, .semibold)), room: LauncherControl.buttonLabelWidth)
             .onHover { hovered = $0 }
             .launcherHover(lightBrightness: 0)
     }
@@ -249,7 +251,10 @@ private struct LauncherActionButton: View {
         let fill = LauncherActionButtonStyle.fill(light: scheme == .light, pressed: configuration.isPressed, hovered: hovered && enabled)
         configuration.label
             .foregroundStyle(LauncherPalette.onCream)
+            .frame(minHeight: LauncherControl.height)
             .background { background(fill) }
+            .contentShape(Rectangle())
+            .opacity(enabled ? 1 : 0.45)
             .onHover { hovered = $0 }
     }
 
@@ -293,23 +298,18 @@ package struct LauncherSwitchStyle: ToggleStyle {
     }
 }
 
-/// The cream button of the library's hero (Play, Build game, Open on a device). It has one size in every state and language, so
-/// the button does not change size when a game goes from not built to built. A long label shrinks, then ends in an ellipsis.
+/// Hero actions share a height; the label determines their width.
 package enum LauncherHeroAction {
-    package static let width: CGFloat = 200
-    package static let height: CGFloat = 54
+    package static let minimumWidth: CGFloat = 120
+    package static let height: CGFloat = 44
     package static let horizontalPadding: CGFloat = 24
-    package static let iconSlot: CGFloat = 28
+    package static let iconSlot: CGFloat = 20
     package static let iconSpacing: CGFloat = 8
-    package static let labelWidth = width - 2 * horizontalPadding - iconSlot - iconSpacing
-    package static let minimumScale: CGFloat = 0.7
 }
 
 package struct LauncherHeroActionLabel: View {
     package init(title: String, symbol: String, loading: Bool = false) {
-        self.title = title
-        self.symbol = symbol
-        self.loading = loading
+        self.title = title; self.symbol = symbol; self.loading = loading
     }
     package let title: String
     package let symbol: String
@@ -318,20 +318,14 @@ package struct LauncherHeroActionLabel: View {
     package var body: some View {
         HStack(spacing: LauncherHeroAction.iconSpacing) {
             if loading {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(LauncherPalette.onCream)
+                ProgressView().controlSize(.small).tint(LauncherPalette.onCream)
                     .frame(width: LauncherHeroAction.iconSlot)
-            } else {
-                Image(systemName: symbol).frame(width: LauncherHeroAction.iconSlot)
-            }
-            Text(title).lineLimit(1).minimumScaleFactor(LauncherHeroAction.minimumScale)
+            } else { Image(systemName: symbol).frame(width: LauncherHeroAction.iconSlot) }
+            Text(title).lineLimit(1).minimumScaleFactor(LauncherControl.minimumLabelScale)
         }
-        .font(.manrope(18, .bold))
-        .foregroundStyle(LauncherPalette.onCream)
+        .font(.manrope(16, .semibold))
         .padding(.horizontal, LauncherHeroAction.horizontalPadding)
-        .frame(width: LauncherHeroAction.width, height: LauncherHeroAction.height)
-        .background(LauncherPalette.cream, in: Capsule())
+        .frame(minWidth: LauncherHeroAction.minimumWidth, minHeight: LauncherHeroAction.height, maxHeight: LauncherHeroAction.height)
     }
 }
 
@@ -360,7 +354,7 @@ package enum LaunchControl {
     }
 }
 
-/// Two or three choices side by side; the chosen one is a cream pill in Dark, a white one with a hairline in Light. Each choice takes an equal share of the width
+/// Two or three choices side by side; the chosen pill is cream in Dark and near-black in Light. Each choice takes an equal share of the width
 /// it is given.
 package struct LauncherSegmented: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -375,6 +369,7 @@ package struct LauncherSegmented: View {
     package let size: CGFloat
     package let semibold: Bool
     package let choose: (String) -> Void
+    @Environment(\.isEnabled) private var enabled
     package var body: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.value) { o in
@@ -383,8 +378,8 @@ package struct LauncherSegmented: View {
                     Text(o.label).font(.manrope(size, semibold ? .semibold : (on ? (scheme == .light ? .semibold : .bold) : .medium)))
                         .foregroundStyle(on ? LauncherPalette.segmentSelectedText : LauncherPalette.segmentText)
                         .lineLimit(1).minimumScaleFactor(0.85)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: .infinity, minHeight: LauncherControl.height - 6)
                         .background(on ? LauncherPalette.segmentSelected : .clear, in: Capsule())
                         .overlay(Capsule().strokeBorder(on ? LauncherPalette.segmentSelectedBorder : .clear))
                         .contentShape(Capsule())
@@ -396,6 +391,8 @@ package struct LauncherSegmented: View {
         .padding(3)
         .background(LauncherPalette.segmentTrack, in: Capsule())
         .overlay(Capsule().strokeBorder(LauncherPalette.segmentTrackBorder))
+        .opacity(enabled ? 1 : 0.45)
+
     }
 
     /// Equal-share width sized so the longest option fits on one line at full size, at least `minWidth`.

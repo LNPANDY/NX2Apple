@@ -115,6 +115,25 @@ extension LiveOnboardingDriver {
         }
     }
 
+    /// Use the same snapshots and merge policy as the desktop batch picker. Review delivery settings before starting.
+    func buildGames(_ ids: Set<String>) {
+        guard state.step == .games, state.canAdvance, case let .found(found) = state.games,
+              let platform = state.selectedPlatform else { return }
+        let eligible = Set(found.filter { ids.contains($0.id) && (state.keys == .valid || !$0.needsKeys) }.map(\.id))
+        let targets = platform == .both ? [BuildTarget.mac, BuildTarget.ios] : [platform == .mac ? BuildTarget.mac : BuildTarget.ios]
+        let batch = UUID()
+        let entries = importedGames.filter { eligible.contains($0.titleID) }.map { imported in
+            library.games.first(where: { $0.titleID == imported.titleID }) ?? imported
+        }.flatMap { game in
+            targets.map { target in QueueEntry(game: game, engineID: stores.engineSync.selection.engineID, target: target,
+                batch: batch, packageAfter: target == BuildTarget.ios && !model.exportsOneGame) }
+        }
+        guard !entries.isEmpty else { return }
+        stores.queue.enqueue(entries)
+        state.queuedGameIDs = eligible
+        next()
+    }
+
     // MARK: Keys
 
     func searchKeys() async {
@@ -122,11 +141,13 @@ extension LiveOnboardingDriver {
         let known = model.keysPath
         let candidates = ([known].filter { !$0.isEmpty && FileManager.default.fileExists(atPath: $0) })
             + env.keyCandidates(gamesFolder: library.folder.isEmpty ? model.gameDir : library.folder)
-        if let first = candidates.first { state.keys = .found(URL(fileURLWithPath: first)) } else { state.keys = .empty }
+        if let first = candidates.first { validateKeys(URL(fileURLWithPath: first)) }
+        else { state.keysFile = nil; state.keys = .empty }
     }
 
     func validateKeys(_ url: URL) {
         store(nil, OnboardingDefaults.keysSkipped)
+        state.keysFile = url
         state.keys = .validating
         state.games = .empty
         spawn("keys") { d in
@@ -137,13 +158,7 @@ extension LiveOnboardingDriver {
             guard !Task.isCancelled, d.state.exit == nil, d.state.step == .keys, d.state.keys == .validating else { return }
             switch detailed.outcome {
             case .fits, .cannotCheck:
-                d.model.updateSlot("keys") {
-                    $0.paths = [url.path]
-                    $0.problem = ""
-                }
-                d.keepKeys(url.path)
                 d.state.keys = .valid
-                d.advanceIfReady()
             default:
                 d.state.keys = .invalid(KeyCheck.detailedMessage(detailed, d.t))
             }
@@ -242,6 +257,7 @@ extension LiveOnboardingDriver {
                 $0.problem = ""
             }
         }
+        importedGames = found
         library.setFolder(url)
         if !model.running { model.outDir = url.path }
         state.games = .found(found.map {
@@ -278,14 +294,4 @@ extension LiveOnboardingDriver {
         }
     }
 
-    // MARK: Advancing
-
-    func advanceIfReady() {
-        guard !suppressAdvance, state.exit == nil, state.step == .xcode || state.step == .keys, state.canAdvance else { return }
-        let step = state.step
-        spawn("advance") { d in
-            try? await Task.sleep(nanoseconds: UInt64(d.env.advanceDelay * 1_000_000_000))
-            if d.state.step == step, !d.suppressAdvance { d.next() }
-        }
-    }
 }
