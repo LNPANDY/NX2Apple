@@ -181,18 +181,19 @@ import NXCore
         persist()
     }
 
-    /// "Cancel queued builds": the waiting entries go, the running one and the results stay.
+    /// "Cancel queued builds": the waiting entries go, the running one and the results stay. When nothing runs, a shared-app batch
+    /// has no job left, so its built games are packaged now, as Stop does (`buildEnded(stopped:)`). The build store holds them in
+    /// `deferredShell` and would package them with the next batch otherwise. A running batch packages them when its build ends.
     package func cancelQueued() {
         entries.removeAll { $0.status == .queued }
-        if running == nil {
-            for index in entries.indices where entries[index].packagePending == false {
-                entries[index].packagePending = nil; entries[index].status = .failed
-            }
-        }
         awaitingResume = false
         paused = false
-        if running == nil { active = false }
+        guard running == nil else { persist(); return }
+        active = false
         persist()
+        var ended: [UUID] = []
+        for entry in entries where entry.packagePending == false && !ended.contains(entry.batch) { ended.append(entry.batch) }
+        for batch in ended { batchEnded(batch) }
     }
 
     // MARK: Running

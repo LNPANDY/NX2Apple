@@ -484,6 +484,25 @@ import NXCore
         XCTAssertEqual(packaged, [["A", "B"], ["D"]])
     }
 
+    func testCancellingAnIdleBatchPackagesItsBuiltGamesInsteadOfFailingThem() {
+        let batch = UUID(), q = store()
+        q.enqueue(["A", "B", "C"].map { entry($0, target: BuildTarget.ios, batch: batch) })
+        q.start(packageAfter: true, exportIPA: true)
+        busy = true; q.buildEnded(succeeded: true)   // another operation runs, so B does not start
+        XCTAssertNil(q.running)
+        XCTAssertEqual(q.entries.map(\.packagePending), [false, nil, nil])
+        busy = false; q.cancelQueued()
+        XCTAssertEqual(packaged, [["A"]], "the built game is packaged now, as the build store's deferred list would package it")
+        XCTAssertEqual(q.entries.map(\.titleID), ["A"])
+        XCTAssertEqual(q.entries[0].status, .done)
+        XCTAssertNil(q.entries[0].reason)
+        XCTAssertEqual(q.packaging.map(\.titleID), ["A"])
+        XCTAssertFalse(q.active)
+        busy = false; q.packageEnded(succeeded: true)
+        XCTAssertEqual(q.entries.map(\.status), [.done])
+        XCTAssertTrue(q.entries.allSatisfy { $0.packagePending == nil })
+    }
+
     func testBuiltButUnpackagedGamesRecoverAsWaitingAfterRestart() {
         let batch = UUID(), q = store()
         q.enqueue(["A", "B"].map { entry($0, target: BuildTarget.ios, batch: batch) })
