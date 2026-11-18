@@ -1,0 +1,282 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <haseenesss@gmail.com>
+Date: Wed, 18 Nov 2026 10:48:46 +0900
+Subject: [PATCH] Mac Joy-Con: a straight push of the stick reaches full
+
+pad_joycon.h divided the stick by one fixed radius of 1400. A Joy-Con's
+stick reaches less than that along an axis and a different distance in
+each direction (one Joy-Con (L): 1149 right, 1076 left, 1249 up, 1026
+down, 1433 on a diagonal), so a straight push read 0.73 to 0.89 and only
+a diagonal read full. Ocarina of Time walked where it should run, and
+could not roll.
+
+Each direction now has its own reach. The Joy-Con's own calibration is
+read from its SPI flash with pad_pro.h's readers (the user's block, else
+the factory's), as pad_jc1_mac.h does, and gives the rest and the reach
+below and above it. Until it answers, or if it never does, a direction's
+reach starts at 900 and grows with what the stick shows, up to 1600.
+
+t_pad_hid covers the measured Joy-Con, the learned reach and its cap,
+the factory's and the user's block on each side, and the read itself.
+
+Upstream-Status: pending [builds on seedds/nxnative#1322]
+Reason: The fork's own Joy-Con reader (pad_joycon.h) scaled the stick by one fixed radius, so a straight push stayed below full
+Issue: LNPANDY/NX2Apple#1367
+
+---
+ dm/host/pad_joycon.h      | 43 ++++++++++++++++++--
+ dm/host/pad_joycon_mac.h  | 20 ++++++++++
+ dm/host/tests/Makefile    |  2 +-
+ dm/host/tests/t_pad_hid.c | 82 +++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 143 insertions(+), 4 deletions(-)
+
+diff --git a/dm/host/pad_joycon.h b/dm/host/pad_joycon.h
+index 055da08..49aa7bd 100644
+--- a/dm/host/pad_joycon.h
++++ b/dm/host/pad_joycon.h
+@@ -2,15 +2,21 @@
+ #include <math.h>
+ #include <stddef.h>
+ #include <stdint.h>
++#include <stdlib.h>
+ #include <string.h>
+ #include "dm_input.h"
+ #include "motion_pro.h"
++#include "pad_pro.h"
+ 
+ // Nintendo Switch Joy-Con sideways decoder (DM_JOYCON_SPLIT=1, LNPANDY/NX2Apple#740):
+ // macOS switches Bluetooth Joy-Con (L) (0x057e:0x2006) and Joy-Con (R) (0x057e:0x2007) to standard
+ // 0x30 49-byte input reports at 60 Hz, while GCController merges the pair into one controller and
+ // drops the rail SL and SR buttons. Each half here becomes one horizontal sideways controller with
+ // its stick rotated 90 degrees and its rail SL and SR mapped to L and R.
++// Stick (LNPANDY/NX2Apple#1367): a Joy-Con's stick reaches a different distance in each direction, and less along an axis than on a diagonal (one Joy-Con (L): 1149 right,
++// 1076 left, 1249 up, 1026 down, 1433 diagonal), so one fixed radius left a straight push below full. The pad's own calibration, read from its SPI flash as pad_pro.h does
++// (the user's, else the factory's), gives the rest and the reach below and above it on each axis. Until it answers, or if it never does, each direction measures itself: its
++// reach starts low and grows with what the stick shows.
+ 
+ #define JOYCON_VID             0x057e
+ #define JOYCON_PID_L           0x2006
+@@ -18,13 +24,17 @@
+ #define JOYCON_REPORT_0x30     0x30
+ #define JOYCON_REPORT_MIN_LEN  12
+ #define JOYCON_STICK_CENTER    2048
+-#define JOYCON_STICK_RADIUS    1400.0f
++#define JOYCON_STICK_REACH_MIN 900.0f    // a direction's reach before the stick has shown more
++#define JOYCON_STICK_REACH_MAX 1600.0f   // and the most a direction learns, so one stray value cannot leave it short for good
+ #define JOYCON_STICK_DZ        0.12f
+ 
+ typedef struct {
+     uint16_t pid;
+     int calibrated;
+     int cx, cy;
++    int cal;                // the stick's calibration came from the pad (1 factory, 2 user), and its reach no longer grows
++    float reach[2][2];      // x, y: the raw distance of a full push below and above the rest
++    pad_pro spi;            // the calibration blocks read so far (pad_pro_spi_reply)
+     uint64_t buttons;
+     float sx, sy;
+     uint64_t joy_buttons;   // upright Joy-Con (L) / (R) npad buttons (dm_joy_set, DM_BTN_LSL..RSR)
+@@ -48,6 +58,33 @@ static inline void joycon_init(joycon_state *s, uint16_t pid) {
+     s->pid = pid;
+     s->cx = JOYCON_STICK_CENTER;
+     s->cy = JOYCON_STICK_CENTER;
++    for (int a = 0; a < 2; a++) s->reach[a][0] = s->reach[a][1] = JOYCON_STICK_REACH_MIN;
++}
++
++// One axis as a fraction of its reach on that side of the rest. Without the pad's calibration a push past the reach widens it
++static inline float joycon_stick_axis(joycon_state *s, int a, int delta) {
++    float *reach = &s->reach[a][delta > 0], mag = (float)abs(delta);
++    if (!s->cal && mag > *reach) *reach = mag < JOYCON_STICK_REACH_MAX ? mag : JOYCON_STICK_REACH_MAX;
++    return (float)delta / *reach;
++}
++
++// The SPI read that asks for a stick calibration block (user: the user's at 0x8010, else the factory's at 0x603D). Returns the output report's length
++static inline size_t joycon_stick_cal_ask(uint8_t out[16], uint8_t counter, int user) {
++    return user ? pad_pro_spi_read(out, counter, PAD_PRO_SPI_USER, PAD_PRO_SPI_USER_LEN) : pad_pro_spi_read(out, counter, PAD_PRO_SPI_FACTORY, PAD_PRO_SPI_FACTORY_LEN);
++}
++
++// A report 0x21 that answers joycon_stick_cal_ask sets this Joy-Con's rest and reach from its own block (the left stick's on a Joy-Con (L), the right stick's on a Joy-Con (R));
++// the user's calibration wins over the factory's. Returns 1 when the stick took a calibration, 0 for any other report
++static inline int joycon_stick_cal_reply(joycon_state *s, const uint8_t *r, size_t n) {
++    if (!s || !r || (s->pid != JOYCON_PID_L && s->pid != JOYCON_PID_R)) return 0;
++    int k = joycon_side(s->pid);
++    if (!(pad_pro_spi_reply(&s->spi, r, n) >> k & 1)) return 0;
++    s->cx = s->spi.rest[2 * k];
++    s->cy = s->spi.rest[2 * k + 1];
++    for (int a = 0; a < 2; a++) for (int up = 0; up < 2; up++) s->reach[a][up] = (float)s->spi.reach[2 * k + a][up];
++    s->calibrated = 1;
++    s->cal = s->spi.cal[k];
++    return 1;
+ }
+ 
+ static inline void joycon_stick_scale(float x, float y, float *ox, float *oy) {
+@@ -119,8 +156,8 @@ static inline int joycon_decode_0x30(joycon_state *s, const uint8_t *r, size_t n
+         s->cy = ry;
+         s->calibrated = 1;
+     }
+-    float dx = (float)(rx - s->cx) / JOYCON_STICK_RADIUS;
+-    float dy = (float)(ry - s->cy) / JOYCON_STICK_RADIUS;
++    float dx = joycon_stick_axis(s, 0, rx - s->cx);
++    float dy = joycon_stick_axis(s, 1, ry - s->cy);
+     joycon_stick_scale(dx, dy, &s->joy_sx, &s->joy_sy);
+     float rot_x = (s->pid == JOYCON_PID_L) ? -dy : dy;
+     float rot_y = (s->pid == JOYCON_PID_L) ? dx : -dx;
+diff --git a/dm/host/pad_joycon_mac.h b/dm/host/pad_joycon_mac.h
+index fa5d174..7ffcc10 100644
+--- a/dm/host/pad_joycon_mac.h
++++ b/dm/host/pad_joycon_mac.h
+@@ -17,6 +17,7 @@ typedef struct joycon_pad {
+     joycon_hold hold;
+     uint8_t subcmd_seq;
+     unsigned imu_retry;
++    unsigned cal_tick, cal_asks;  // reports since the Joy-Con was found, and the stick calibration reads sent so far
+     struct joycon_pad *partner;   // the other half when paired on one player slot
+     int primary;                  // 1 when this half owns the player slot
+     const void *gc_tag;           // opaque GCController tag for multi-pair haptics routing
+@@ -129,15 +130,34 @@ static void joycon_enable_imu(joycon_pad *d) {
+     IOHIDDeviceSetReport(d->hid, kIOHIDReportTypeOutput, 0x01, mode_30, sizeof mode_30);
+ }
+ 
++// The stick's own calibration (LNPANDY/NX2Apple#1367): the factory's block and the user's are asked for in turn, twice a second and JOYCON_CAL_ASKS times in all, because a
++// Joy-Con drops a subcommand that comes too soon after another. One with no answer keeps the reach each direction learns (pad_joycon.h).
++enum { JOYCON_CAL_ASKS = 6, JOYCON_CAL_EVERY = 30, JOYCON_CAL_PHASE = 15 };   // reports at 60 Hz, and off the tick joycon_enable_imu retries on
++static void joycon_ask_stick_cal(joycon_pad *d) {
++    if (!d || !d->hid || d->st.cal == 2 || d->cal_asks >= JOYCON_CAL_ASKS || ++d->cal_tick % JOYCON_CAL_EVERY != JOYCON_CAL_PHASE) return;
++    int user = d->cal_asks++ & 1;
++    if (!user && d->st.cal) return;   // the factory's is in, only the user's can still replace it
++    uint8_t ask[49] = {0};
++    joycon_stick_cal_ask(ask, d->subcmd_seq++, user);
++    IOHIDDeviceSetReport(d->hid, kIOHIDReportTypeOutput, 0x01, ask, sizeof ask);
++}
++
+ static void joycon_report(void *ctx, IOReturn result, void *sender, IOHIDReportType type, uint32_t id, uint8_t *rep, CFIndex len) {
+     (void)sender; (void)type; (void)id;
+     joycon_pad *d = ctx;
+     if (result != kIOReturnSuccess || !d || len <= 0) return;
++    if (rep[0] == 0x21) {   // a subcommand's reply: the stick calibration, or one this file does not read
++        if (joycon_stick_cal_reply(&d->st, rep, (size_t)len))
++            LOG("Joy-Con (%s): stick calibration from the %s: rest %d %d, reach %.0f-%.0f %.0f-%.0f", d->st.pid == JOYCON_PID_L ? "L" : "R", d->st.cal == 2 ? "user's" : "factory's",
++                d->st.cx, d->st.cy, d->st.reach[0][0], d->st.reach[0][1], d->st.reach[1][0], d->st.reach[1][1]);
++        return;
++    }
+     int was_home = d->st.home;
+     if (!joycon_decode_0x30(&d->st, rep, (size_t)len)) return;
+     joycon_read(d);
+     joycon_read_motion(d, rep, (size_t)len);
+     if (!d->motion.live && (++d->imu_retry % 60) == 1) joycon_enable_imu(d);
++    joycon_ask_stick_cal(d);
+     if (d->st.home != was_home) joycon_home_changed();
+     joycon_check_gesture(d, now_ns());
+ }
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 7ef1b45..dafc84b 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -437,7 +437,7 @@ tsan-threads-run: $(addprefix $(B)/,$(TSAN_T))
+ 	$(B)/t_sync_wait
+ 	DM_QOS_MAP=1 $(B)/t_notify_sched
+ 	DM_QOS_MAP=1 $(B)/t_notify_sched --all-peers
+-$(B)/t_pad_hid: t_pad_hid.c ../pad_hid.h ../pad_joycon.h ../motion_pro.h ../dm_input.h | $(B)
++$(B)/t_pad_hid: t_pad_hid.c ../pad_hid.h ../pad_joycon.h ../motion_pro.h ../pad_pro.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_pad_hid.c
+ run: $(B)/t_pad_pro
+ $(B)/t_pad_pro: t_pad_pro.c ../pad_pro.h ../dm_input.h | $(B)
+diff --git a/dm/host/tests/t_pad_hid.c b/dm/host/tests/t_pad_hid.c
+index e2d98d9..8a14bba 100644
+--- a/dm/host/tests/t_pad_hid.c
++++ b/dm/host/tests/t_pad_hid.c
+@@ -12,6 +12,87 @@ static void pack_stick(uint8_t *p, int x, int y) {
+     p[2] = (uint8_t)((y >> 4) & 0xff);
+ }
+ 
++// One stick's 9 calibration bytes in SPI flash: three x, y pairs, the left stick's in the order above, center, below and the right stick's center, below, above
++static void pack_cal(uint8_t *p, int right, int cx, int cy, int below_x, int below_y, int above_x, int above_y) {
++    if (right) { pack_stick(p, cx, cy); pack_stick(p + 3, below_x, below_y); pack_stick(p + 6, above_x, above_y); }
++    else { pack_stick(p, above_x, above_y); pack_stick(p + 3, cx, cy); pack_stick(p + 6, below_x, below_y); }
++}
++static void spi_reply(uint8_t rep[49], uint32_t addr, uint8_t len) {
++    memset(rep, 0, 49);
++    rep[0] = 0x21; rep[13] = 0x90; rep[14] = 0x10; rep[15] = addr & 0xff; rep[16] = addr >> 8 & 0xff; rep[19] = len;
++    memset(rep + 20, 0xff, len);   // erased flash
++}
++
++// LNPANDY/NX2Apple#1367: a straight push of a Joy-Con (L) stayed below full, so Ocarina of Time walked where it should run. The values are that Joy-Con's
++static void test_joycon_stick_reach(void) {
++    enum { CX = 2024, CY = 2240, RIGHT = 1149, LEFT = 1076, UP = 1249, DOWN = 1026 };
++    joycon_state j;
++    uint8_t rep[49];
++    memset(rep, 0, sizeof rep);
++    rep[0] = 0x30;
++
++    // No calibration from the pad: each direction learns its own reach, so every straight push ends full
++    joycon_init(&j, JOYCON_PID_L);
++    pack_stick(rep + 6, CX, CY);
++    CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.joy_sx == 0.0f && j.joy_sy == 0.0f);
++    pack_stick(rep + 6, CX + RIGHT, CY); CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.joy_sx > 0.99f && j.joy_sy == 0.0f);
++    pack_stick(rep + 6, CX - LEFT, CY);  CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.joy_sx < -0.99f && j.joy_sy == 0.0f);
++    pack_stick(rep + 6, CX, CY + UP);    CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.joy_sy > 0.99f && j.joy_sx == 0.0f);
++    pack_stick(rep + 6, CX, CY - DOWN);  CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.joy_sy < -0.99f && j.joy_sx == 0.0f);
++    CHECK(j.reach[0][1] == RIGHT && j.reach[0][0] == LEFT && j.reach[1][1] == UP && j.reach[1][0] == DOWN);
++    // The learned reach stays: half of it is about half (less the dead zone), and the sideways axes are full too (left is sideways down)
++    pack_stick(rep + 6, CX, CY - DOWN / 2);
++    CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.joy_sy < -0.40f && j.joy_sy > -0.47f);
++    pack_stick(rep + 6, CX - LEFT, CY);
++    CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.sy < -0.99f && j.sx == 0.0f);
++    // A stray value far outside does not leave a direction short for good: the reach stops at JOYCON_STICK_REACH_MAX
++    pack_stick(rep + 6, 4095, CY);
++    CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.reach[0][1] == JOYCON_STICK_REACH_MAX);
++
++    // The factory's calibration: rest and reach come from the pad, and a push past the reach reads full without widening it
++    uint8_t spi[49];
++    joycon_init(&j, JOYCON_PID_L);
++    pack_stick(rep + 6, CX + 300, CY);                    // the stick is held while the Joy-Con connects, so the first report is not its rest
++    CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.cx == CX + 300);
++    CHECK(!joycon_stick_cal_reply(&j, rep, sizeof rep));  // an input report is no reply
++    spi_reply(spi, PAD_PRO_SPI_FACTORY, PAD_PRO_SPI_FACTORY_LEN);
++    CHECK(!joycon_stick_cal_reply(&j, spi, sizeof spi) && !j.cal);   // erased flash is no calibration
++    pack_cal(spi + 20, 0, CX, CY, LEFT, DOWN, RIGHT, UP);
++    CHECK(joycon_stick_cal_reply(&j, spi, sizeof spi) && j.cal == 1 && j.cx == CX && j.cy == CY);
++    CHECK(j.reach[0][0] == LEFT && j.reach[0][1] == RIGHT && j.reach[1][0] == DOWN && j.reach[1][1] == UP);
++    pack_stick(rep + 6, CX, CY - DOWN);
++    CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.joy_sy < -0.99f && j.joy_sx == 0.0f);
++    pack_stick(rep + 6, CX + RIGHT + 200, CY);
++    CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.joy_sx == 1.0f && j.reach[0][1] == RIGHT);
++    // The user's calibration (magic b2 a1) replaces the factory's, and the factory's read again does not take it back
++    spi_reply(spi, PAD_PRO_SPI_USER, PAD_PRO_SPI_USER_LEN);
++    CHECK(!joycon_stick_cal_reply(&j, spi, sizeof spi) && j.cal == 1);   // no magic: the user never calibrated this stick
++    spi[20] = 0xb2; spi[21] = 0xa1;
++    pack_cal(spi + 22, 0, CX + 10, CY - 10, 1000, 1001, 1002, 1003);
++    CHECK(joycon_stick_cal_reply(&j, spi, sizeof spi) && j.cal == 2 && j.cx == CX + 10 && j.cy == CY - 10);
++    CHECK(j.reach[0][0] == 1000 && j.reach[1][0] == 1001 && j.reach[0][1] == 1002 && j.reach[1][1] == 1003);
++    spi_reply(spi, PAD_PRO_SPI_FACTORY, PAD_PRO_SPI_FACTORY_LEN);
++    pack_cal(spi + 20, 0, CX, CY, LEFT, DOWN, RIGHT, UP);
++    CHECK(!joycon_stick_cal_reply(&j, spi, sizeof spi) && j.cal == 2 && j.reach[0][0] == 1000);
++
++    // A Joy-Con (R) reads the right stick's block (the second, in its own order) and ignores the left stick's
++    joycon_init(&j, JOYCON_PID_R);
++    spi_reply(spi, PAD_PRO_SPI_FACTORY, PAD_PRO_SPI_FACTORY_LEN);
++    pack_cal(spi + 20, 0, CX, CY, LEFT, DOWN, RIGHT, UP);
++    CHECK(!joycon_stick_cal_reply(&j, spi, sizeof spi) && !j.cal);
++    pack_cal(spi + 29, 1, 2067, 2415, 1100, 1050, 1150, 1200);
++    CHECK(joycon_stick_cal_reply(&j, spi, sizeof spi) && j.cal == 1 && j.cx == 2067 && j.cy == 2415);
++    CHECK(j.reach[0][0] == 1100 && j.reach[1][0] == 1050 && j.reach[0][1] == 1150 && j.reach[1][1] == 1200);
++    memset(rep, 0, sizeof rep); rep[0] = 0x30;
++    pack_stick(rep + 9, 2067 - 1100, 2415);
++    CHECK(joycon_decode_0x30(&j, rep, sizeof rep) && j.joy_sx < -0.99f && j.sy > 0.99f);
++
++    // The read itself: output report 0x01, subcommand 0x10, the block's address and length
++    uint8_t ask[16];
++    CHECK(joycon_stick_cal_ask(ask, 0x13, 0) == 16 && ask[0] == 0x01 && ask[1] == 0x03 && ask[10] == 0x10 && ask[11] == 0x3d && ask[12] == 0x60 && ask[15] == PAD_PRO_SPI_FACTORY_LEN);
++    CHECK(joycon_stick_cal_ask(ask, 0, 1) == 16 && ask[11] == 0x10 && ask[12] == 0x80 && ask[15] == PAD_PRO_SPI_USER_LEN);
++}
++
+ static void test_joycon_split(void) {
+     CHECK(joycon_is_pid(0x057e, 0x2006) && joycon_is_pid(0x057e, 0x2007));
+     CHECK(!joycon_is_pid(0x057e, 0x2009) && !joycon_is_pid(0x045e, 0x2006));
+@@ -161,6 +242,7 @@ int main(void) {
+     h.axis[PH_ACCEL] = pad_hid_norm(200, 0, 255); CHECK(pad_hid_buttons(&h) & DM_BTN_ZR);
+     CHECK(pad_dupes_want(1, 1, 1, 0) == 0);   // one unplugged: back to GameController
+     test_joycon_split();
++    test_joycon_stick_reach();
+     printf("t_pad_hid: %d checks, %d failed\n", checks, fails);
+     return fails != 0;
+ }
