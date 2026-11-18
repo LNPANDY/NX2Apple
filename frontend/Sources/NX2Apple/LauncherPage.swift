@@ -69,17 +69,18 @@ enum LibrarySort: String, CaseIterable, Identifiable {
     var labelKey: String { "sort." + rawValue }
 
     func ordered(_ games: [LibraryGame], lang: Lang) -> [LibraryGame] {
-        games.sorted { left, right in
-            if self == .recent, left.lastPlayed != right.lastPlayed {
-                switch (left.lastPlayed, right.lastPlayed) {
+        // The name shown cleans the file name with regular expressions: work it out once per game, not twice per comparison.
+        games.map { (game: $0, name: $0.displayName(lang)) }.sorted { left, right in
+            if self == .recent, left.game.lastPlayed != right.game.lastPlayed {
+                switch (left.game.lastPlayed, right.game.lastPlayed) {
                 case let (l?, r?): return l > r
                 case (_?, nil): return true
                 default: return false
                 }
             }
-            let order = left.displayName(lang).localizedStandardCompare(right.displayName(lang))
-            return order == .orderedSame ? left.titleID < right.titleID : order == .orderedAscending
-        }
+            let order = left.name.localizedStandardCompare(right.name)
+            return order == .orderedSame ? left.game.titleID < right.game.titleID : order == .orderedAscending
+        }.map(\.game)
     }
 
     static func load(_ defaults: UserDefaults = .standard) -> LibrarySort {

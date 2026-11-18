@@ -9,14 +9,25 @@ struct BuildInventoryEntry: Identifiable {
     let mac: Bool
     let mobile: Mobile
     let installed: Bool
+    /// Read once here: the Mac package's version reads the bundle, and a table cell is drawn again on every redraw.
+    let version: String?
+    /// The name shown in the table, set by the view for its language (`named(_:)`). The sort and every cell read it, so the
+    /// game's name, which cleans the file name with regular expressions, is worked out once per game, not per comparison.
+    private(set) var displayName = ""
     enum Mobile { case none, app, ipa }
     var id: UUID { game.id }
-    var version: String? { game.playVersion ?? game.unbuiltVersion }
     init(_ game: LibraryGame) {
         self.game = game
-        mac = game.isReady
+        let app = game.playableMacBundle   // one read for `isReady` and `playVersion`
+        mac = app != nil
         installed = game.onDevice
         mobile = game.hasIOSApp ? .app : (game.hasIPA ? .ipa : .none)
+        version = app?.version ?? (mac ? nil : game.unbuiltVersion)   // `playVersion ?? unbuiltVersion`, which is nil for a Mac build
+    }
+    func named(_ lang: Lang) -> Self {
+        var entry = self
+        entry.displayName = game.displayName(lang)
+        return entry
     }
 }
 
@@ -50,10 +61,8 @@ struct BuildInventoryView: View {
     @EnvironmentObject private var loc: Localizer
 
     private var entries: [BuildInventoryEntry] {
-        inventory.filter { $0.game.matches(search: search, lang: loc.lang) }.filter {
-            filter.includes($0)
-        }.sorted {
-            let order = $0.game.displayName(loc.lang).localizedStandardCompare($1.game.displayName(loc.lang))
+        inventory.filter { filter.includes($0) && $0.game.matches(search: search, lang: loc.lang) }.map { $0.named(loc.lang) }.sorted {
+            let order = $0.displayName.localizedStandardCompare($1.displayName)
             return order == .orderedSame ? $0.game.titleID < $1.game.titleID : order == .orderedAscending
         }
     }
@@ -131,7 +140,7 @@ struct BuildInventoryView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 5)).accessibilityHidden(true)
                             }
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(entry.game.displayName(loc.lang)).font(.manrope(14, .semibold)).lineLimit(2)
+                                Text(entry.displayName).font(.manrope(14, .semibold)).lineLimit(2)
                                 if let version = entry.version {
                                     Text(version)
                                         .font(.manrope(11)).foregroundStyle(.secondary).lineLimit(1)
@@ -166,6 +175,9 @@ struct BuildInventoryView: View {
                     }.width(52)
                 }
                 .tableStyle(.inset(alternatesRowBackgrounds: false))
+                // The table's first row height guess. At AppKit's 24 points it builds about twice the rows that fit, and opening the
+                // tab costs that. 44 is the lowest row there is (the 36 point Manage button and the row inset), so no row changes.
+                .environment(\.defaultMinListRowHeight, LauncherControl.height + 8)
                 .scrollContentBackground(.hidden)
                 .background(LauncherPalette.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -215,7 +227,7 @@ struct BuildInventoryView: View {
             }
                 .buttonStyle(.plain).launcherHover()
                 .disabled(build.running || needsSetup)
-                .accessibilityLabel([loc.t("builds.buildMissing"), entry.game.displayName(loc.lang),
+                .accessibilityLabel([loc.t("builds.buildMissing"), entry.displayName,
                                      loc.t(target == BuildTarget.mac ? "library.section.mac" : "library.section.mobile")].joined(separator: ", "))
                 .accessibilityValue(loc.t("filter.notBuilt"))
                 .padTarget("builds.platform." + target + "." + entry.id.uuidString, scope: "main", enabled: !build.running && !needsSetup, activate: {

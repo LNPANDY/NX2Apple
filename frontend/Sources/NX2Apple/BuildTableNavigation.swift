@@ -25,6 +25,7 @@ struct BuildTableProbe: NSViewRepresentable {
     func makeNSView(context: Context) -> Probe { let view = Probe();view.navigation = navigation;return view }
     func updateNSView(_ view: Probe, context: Context) {
         view.navigation = navigation
+        guard navigation.table == nil else { return }   // every row has a probe: one that found the table is enough
         DispatchQueue.main.async { [weak view] in view?.attach() }
     }
 }

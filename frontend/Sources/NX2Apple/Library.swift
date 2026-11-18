@@ -40,7 +40,8 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var shellIPAExists = false
 
     /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
-    private var playableMacBundle: MacGameBundle? {
+    /// Reads the bundle on every call: a caller that needs both `isReady` and `playVersion` reads it once here.
+    var playableMacBundle: MacGameBundle? {
         guard !appPath.isEmpty, let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)),
               app.titleID == titleID else { return nil }
         return app
