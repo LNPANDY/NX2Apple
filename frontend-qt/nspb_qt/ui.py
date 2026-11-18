@@ -172,7 +172,7 @@ def _cleanup_destroyed_window(
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, model: Model) -> None:
+    def __init__(self, model: Model, *, perform_startup_checks: bool = True) -> None:
         super().__init__()
         self.m = model
         self.m.ask_folder = lambda title: QFileDialog.getExistingDirectory(
@@ -295,13 +295,15 @@ class MainWindow(QMainWindow):
         self._switch_page('builds')
 
         self._refresh_all()
-        for g in self.m.library.games:
-            self.m.artwork.request_banner_async(g.title_id)
+        if perform_startup_checks:
+            for g in self.m.library.games:
+                self.m.artwork.request_banner_async(g.title_id)
 
         self._init_timer = QTimer(self)
         self._init_timer.setSingleShot(True)
         self._init_timer.timeout.connect(self.m.check_deps)
-        self._init_timer.start(50)
+        if perform_startup_checks:
+            self._init_timer.start(50)
 
     # ================================================================ Top Bar & Window Controls
 
