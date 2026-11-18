@@ -104,6 +104,7 @@ extension BuildStore {
         beginOperation(.installing, game: nil, titleID: nil, destination: .target)
         stopping = false; stoppedByPlayer = false; installCancel.set(false); installPhaseActive = true
         running = true; done = false; doneNote = ""; failure = nil; stages = []
+        needsReplaceOldImgReminder = false; updatedImgPath = ""
         finderShown = false
         let installer = makeInstaller()
         let device = devices.installDevice
@@ -228,7 +229,15 @@ extension BuildStore {
     package func finishInstall(_ failure: String?, note: String? = nil) {
         running = false
         done = failure == nil
-        doneNote = failure ?? note ?? String(format: t("dev.installed"), devices.deviceName(devices.installDevice))
+        var resolved = failure ?? note ?? String(format: t("dev.installed"), devices.deviceName(devices.installDevice))
+        if failure == nil, !deferShellPackaging, needsReplaceOldImgReminder {
+            let imgName = updatedImgPath.isEmpty ? "romfs.img" : (updatedImgPath as NSString).lastPathComponent
+            let reminder = String(format: t("imgGuide.replaceOldImgBody"), imgName)
+            if !resolved.contains(reminder) {
+                resolved = resolved.isEmpty ? reminder : (resolved + "\n" + reminder)
+            }
+        }
+        doneNote = resolved
         cleanupStaging()
     }
 
@@ -244,6 +253,7 @@ extension BuildStore {
         }
         buildingGame = false; runningTarget = BuildTarget.ios
         beginOperation(.installing, game: nil, titleID: nil, destination: .target)
+        needsReplaceOldImgReminder = false; updatedImgPath = ""
         running = true
         runTool(id: 1004, name: String(format: t("dev.reinstallStage"), devices.deviceName(device)),
                 BuildCommands.reinstallCommand(xcrun: devices.xcrun, device: device, app: app), nameKey: "dev.reinstallStage",
@@ -298,6 +308,7 @@ extension BuildStore {
         buildingGame = false; runningTarget = BuildTarget.ios
         beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .target)
         stopping = false; stoppedByPlayer = false; installPhaseActive = true
+        needsReplaceOldImgReminder = false; updatedImgPath = ""
         running = true
         // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
         let command = ShellInstall.buildCommand(xcrun: xcrun, root: shell.root, device: device, team: team, bundleID: bundle)
@@ -412,6 +423,8 @@ extension BuildStore {
         beginOperation(.exportingIPA, game: nil, titleID: nil, destination: .none)
         stopping = false
         stoppedByPlayer = false
+        needsReplaceOldImgReminder = false
+        updatedImgPath = ""
         cancel.set(false)
         installPhaseActive = true
         running = true

@@ -214,7 +214,15 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
     package var nxbRun = false   // the running build is `nxb build`, not the script: its exit code has its own messages
     @Published package var buildUpstream: EngineUpstreamKind {
-        didSet { defaults.set(buildUpstream.rawValue, forKey: Self.buildUpstreamKey) }
+        didSet {
+            defaults.set(buildUpstream.rawValue, forKey: Self.buildUpstreamKey)
+            if MacNativeGamesBuilder.featureEnabled && buildUpstream == .macNativeGames && target != BuildTarget.mac {
+                target = BuildTarget.mac
+            }
+            if oldValue != buildUpstream {
+                upstreamChanged()
+            }
+        }
     }
     @Published package var macNativeGamesPath: String {
         didSet {
@@ -228,6 +236,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         didSet {
             defaults.set(s2armPath, forKey: Self.s2armPathKey)
             s2armInstalled = S2ArmBuilder.isUsableTree(s2armPath)
+            if oldValue != s2armPath && buildUpstream == .s2arm {
+                upstreamChanged()
+            }
         }
     }
     @Published package internal(set) var s2armInstalled = false
@@ -239,6 +250,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var s2armRun = false
     package var s2armEventsPath = ""
     @Published package var archivePath = ""  // the romfs folder the pack wrote
+    /// True after an iOS fast refresh embedded `DMMSLTR1` shaders into `.img`, reminding the player to replace older `.img` copies.
+    @Published package var needsReplaceOldImgReminder = false
+    @Published package var updatedImgPath = ""
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
     package var effectiveWorkDir = ""
@@ -367,6 +381,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var appReplaceCheck: (String) -> Bool? = { OutputVolume.supportsAppReplace(at: $0) }
     /// The target changed: the app checks the tools again when a Mac-only setup now needs, or no longer needs, the iOS SDK.
     package var targetChanged: () -> Void
+    /// Active builder upstream or S2Arm path changed: re-runs dependency checks for upstream-specific requirements.
+    package var upstreamChanged: () -> Void = {}
 
     // ---- What it works with ----
     package let localizer: Localizer
@@ -430,6 +446,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             }
         } else {
             buildUpstream = .nxnative
+        }
+        if buildUpstream == .macNativeGames && target != BuildTarget.mac {
+            target = BuildTarget.mac
+            runningTarget = BuildTarget.mac
+            defaults.set(BuildTarget.mac, forKey: Self.targetKey)
         }
     }
 
@@ -505,6 +526,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package func resetProgress() {
         archiveGeneration &+= 1
         fastRefreshExternalImgPath = nil
+        needsReplaceOldImgReminder = false
+        updatedImgPath = ""
         stopPSOPoll()
         stages = []
         log.clear()
