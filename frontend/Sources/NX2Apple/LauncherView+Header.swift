@@ -94,6 +94,7 @@ extension LauncherView {
         }
         .frame(height: 64)
         .background(TitlebarDoubleClick())   // an empty part of the bar acts as the title bar does
+        .launcherGlassLayer()   // the top bar floats above the content: its controls are glass (#1458)
     }
 
 

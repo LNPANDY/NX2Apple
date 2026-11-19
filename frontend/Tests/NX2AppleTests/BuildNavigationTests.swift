@@ -87,7 +87,7 @@ import XCTest
             XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "set.build.target.mac" || $0.id == "set.build.queue.cancel" })
             for count in [1, 3, 5] {
                 let rows = NSHostingView(rootView: BuildProcessRows(stages: (0..<count).map { Stage(id: $0, name: "Step") }).environmentObject(stores.localizer))
-                XCTAssertEqual(rows.fittingSize.height, CGFloat(count * 60 - 16), accuracy: 0.1)
+                XCTAssertEqual(rows.fittingSize.height, CGFloat(count * 36), accuracy: 0.1)   // 36 pt checklist rows without gaps (#1458)
             }
         }
     }

@@ -28,7 +28,14 @@ package enum DS {
         package static let statusReady = SwiftUI.Color(nsColor: nsStatusReady)
         package static let statusWarning = SwiftUI.Color(nsColor: nsStatusWarning)
         package static let statusError = SwiftUI.Color(nsColor: nsStatusError)
+        /// A notice's info symbol
         package static let statusInfo = SwiftUI.Color(nsColor: nsStatusInfo)
+        /// Done, a passed check, a notice's success symbol
+        package static let statusSuccess = SwiftUI.Color(nsColor: nsStatusSuccess)
+        /// Every symbol that is not a status or a selection: row, button and header icons. The same as text.secondary
+        package static let symbolDefault = SwiftUI.Color(nsColor: nsSymbolDefault)
+        /// A symbol of something selected or active, nothing else
+        package static let symbolAccent = SwiftUI.Color(nsColor: nsSymbolAccent)
         package static let nsBackground = rgb(0x0E0E0F, alpha: 1.0)
         package static let nsSurface = rgb(0x1A1A1C, alpha: 1.0)
         package static let nsSurfaceRaised = rgb(0x202023, alpha: 1.0)
@@ -42,6 +49,9 @@ package enum DS {
         package static let nsStatusWarning = rgb(0xFFC73D, alpha: 1.0)
         package static let nsStatusError = rgb(0xFF6B66, alpha: 1.0)
         package static let nsStatusInfo = rgb(0xFFF0D6, alpha: 1.0)
+        package static let nsStatusSuccess = rgb(0x40D678, alpha: 1.0)
+        package static let nsSymbolDefault = rgb(0xFFFFFF, alpha: 0.6)
+        package static let nsSymbolAccent = rgb(0xFFF0D6, alpha: 1.0)
         private static func rgb(_ hex: UInt32, alpha: CGFloat) -> NSColor {
             NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
         }
@@ -113,6 +123,10 @@ package enum DS {
         package static let leadingSlot: CGFloat = 20
         /// The readable column of a page of cards
         package static let contentWidth: CGFloat = 900
+        /// The app icon in a build page's compact header
+        package static let headerIcon: CGFloat = 64
+        /// A game's cover in a row's leading slot, and the slot of every row in that list
+        package static let thumbnail: CGFloat = 40
     }
 
     /// Animation durations in seconds.

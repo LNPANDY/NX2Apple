@@ -179,7 +179,7 @@ package struct LauncherSecondaryButtonStyle: ButtonStyle {
     }
 }
 
-/// A secondary button: clear Liquid Glass (LauncherGlass.swift), a quiet fill with a hairline before macOS 26.
+/// A secondary button: clear Liquid Glass in the navigation layer, a flat raised fill with a hairline in the content (LauncherGlass.swift).
 private struct LauncherSecondaryButton: View {
     let configuration: ButtonStyleConfiguration
     let accent: Color?
@@ -188,12 +188,13 @@ private struct LauncherSecondaryButton: View {
     /// Inside a setting row, actions hug their labels up to the shared control-column width.
     @Environment(\.launcherControlWidth) private var width
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.launcherGlassLayer) private var glassLayer
     @State private var hovered = false
 
     /// The stand-in's veil where the live glass is not drawn: a little brighter under the pointer and pressed.
     private var fill: Color {
         if configuration.isPressed { return LauncherPalette.ink(0.14) }
-        return hovered && enabled ? LauncherPalette.ink(0.11) : LauncherGlass.veil
+        return hovered && enabled ? LauncherPalette.ink(0.11) : (glassLayer ? LauncherGlass.veil : DS.Color.surfaceRaised)
     }
 
     var body: some View {
@@ -206,16 +207,16 @@ private struct LauncherSecondaryButton: View {
             .frame(height: height)
             .frame(width: width)   // in a setting row every button is as wide as the control column (DS.Control.columnWidth)
             .contentShape(Capsule())
-            .launcherGlass(in: Capsule(), fallback: fill, border: accent?.opacity(0.75))
-            .foregroundStyle(enabled ? (accent ?? LauncherPalette.text) : .gray)
-            .opacity(enabled ? 1 : 0.55)
+            .launcherControlSurface(in: Capsule(), fallback: fill, border: accent?.opacity(0.75))
+            .foregroundStyle(enabled ? (accent ?? LauncherPalette.text) : DS.Color.textTertiary)
             .launcherMeasured(label: configuration.label.font(.manrope(fontSize, .semibold)), room: LauncherControl.buttonLabelWidth)
             .onHover { hovered = $0 }
             .launcherHover()
     }
 }
 
-/// The primary action of a screen (Play, Build, Done, Save, Add to queue): Liquid Glass tinted with the cream accent, black text. The
+/// The primary action of a screen (Play, Build, Done, Save, Add to queue): the cream accent with black text, Liquid Glass in the
+/// navigation layer and a flat fill in the content (launcherControlSurface). Disabled, it is the raised surface with tertiary text. The
 /// label brings its own font and padding.
 package struct LauncherActionButtonStyle: ButtonStyle {
     package enum Outline { case capsule, rounded(CGFloat) }
@@ -231,19 +232,18 @@ private struct LauncherActionButton: View {
 
     var body: some View {
         configuration.label
-            .foregroundStyle(LauncherPalette.onCream)
+            .foregroundStyle(enabled ? LauncherPalette.onCream : DS.Color.textTertiary)   // disabled: the raised surface, tertiary text
             .frame(minHeight: LauncherControl.height)
             .contentShape(Rectangle())
             .modifier(Tinted(shape: shape))
-            .opacity(enabled ? 1 : 0.45)
     }
 
     private struct Tinted: ViewModifier {
         let shape: LauncherActionButtonStyle.Outline
         @ViewBuilder func body(content: Content) -> some View {
             switch shape {
-            case .capsule: content.launcherGlass(in: Capsule(), tint: LauncherPalette.cream)
-            case .rounded(let radius): content.launcherGlass(in: RoundedRectangle(cornerRadius: radius), tint: LauncherPalette.cream)
+            case .capsule: content.launcherControlSurface(in: Capsule(), tint: LauncherPalette.cream)
+            case .rounded(let radius): content.launcherControlSurface(in: RoundedRectangle(cornerRadius: radius), tint: LauncherPalette.cream)
             }
         }
     }

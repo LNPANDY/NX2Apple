@@ -302,6 +302,20 @@ Screens compose the components in `Sources/NXLauncher/DesignComponents.swift` in
 | A state that needs attention on a cover | `DSChip` |
 | Anything the player is told outside a sheet | `DSNotice` (`LauncherNotice`), in the slot under the top bar |
 | The bar under a wizard | `DSWizardFooter` with `DSContinueLabel` |
+| A row's button ("Choose…", "Change…", a notice's action) | `DSRowButtonStyle` |
+| Controls side by side that wrap | `DSFlowRow` |
+| The engine on a build page | `EngineFootnote` ("Built with nxnative · Change") |
+
+Liquid Glass belongs to the navigation layer that floats above the content (Apple's HIG for macOS 26): the top bar, the
+controls over the library hero, the carousel arrows and the wizard footer. Those views call `launcherGlassLayer()`, and only
+there do the button styles draw glass. In lists, cards, rows, sheets and notices the same styles are flat: the raised surface
+with a hairline, the accent fill for a primary action, and the raised surface with tertiary text when disabled.
+`DesignRulesTests` refuses glass anywhere else.
+
+Symbols take `symbol.default`, or `symbol.accent` when selected. Status dots and notice symbols take the status colours. A
+notice has one symbol per tone (info, warning, error, success), never its own. `DesignRulesTests` also checks the contrast
+of the text, symbol and status colours on every surface from `tokens.json`, refuses raw SwiftUI colours outside a short list,
+and refuses dashes and semicolons in the language files.
 
 New UI uses these and the `DS` tokens. `DesignTokenGuardTests` refuses a raw Manrope size, `Color(red:)`,
 `Color(white:)`, `NSColor(srgbRed:)` or a white opacity in `Sources/NX2Apple` outside the files it still lists,

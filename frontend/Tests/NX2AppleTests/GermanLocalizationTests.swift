@@ -8,7 +8,7 @@ import XCTest
 final class GermanLocalizationTests: IsolatedDefaultsTestCase {
     /// Keys whose German text is the English text on purpose: names, units and button letters.
     private let sameAsEnglish: Set<String> = [
-        "library.chip.both", "shell.choiceLauncher", "onboarding.xcode.section", "flow.optional",
+        "library.chip.both", "shell.choiceLauncher", "onboarding.xcode.section", "files.optional",
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.setup.metal",
         "onboarding.background.python", "onboarding.background.dotnet",
         "onboarding.demo.mario", "msg.ipaAt", "console.kind.gamepad", "console.platform.mac",

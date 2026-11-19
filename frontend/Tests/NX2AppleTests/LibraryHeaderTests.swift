@@ -33,7 +33,7 @@ import XCTest
             XCTAssertEqual(menu.height, play.height, accuracy: 1)
             XCTAssertEqual(menu.midY, play.midY, accuracy: 1)
             XCTAssertEqual(menu.minX - play.maxX, 12, accuracy: 1)
-            XCTAssertGreaterThanOrEqual(play.minX, 130)
+            XCTAssertGreaterThanOrEqual(play.minX, 24)   // no cover tile: the actions start at the content edge (#1458)
             XCTAssertGreaterThan(play.minY, 80)
             XCTAssertLessThan(menu.maxX, size.width)
             XCTAssertLessThan(play.maxY, size.height)

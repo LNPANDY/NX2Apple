@@ -251,11 +251,11 @@ struct LauncherView: View {
                               buildEditorOpen = false
                           }, onPlayGame: completedBuildGame.flatMap { game in game.isReady ? { primaryAction(game) } : nil }, onPlayQueuedGame: { titleID in
                               if let game = library.games.first(where: { $0.titleID == titleID }), game.isReady, !launching { primaryAction(game) }
-                          }, queuePlayEnabled: !launching, editingBuildResult: $editingBuildResult, onOpenSettings: { page = .settings },
+                          }, queuePlayEnabled: !launching, editingBuildResult: $editingBuildResult, onOpenSettings: { settingsCategory = .tools; page = .settings },
                           onChooseLibraryFolder: chooseLibraryFolder, onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
                           padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }), buildFiles: stores.buildFiles, buildingID: m.running ? activeBuildID : nil, onBuildFileDetails: { freeSpaceFor = $0 }, settingsCategory: $settingsCategory)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay(alignment: .top) { if page == .builds && buildEditorVisible { buildWizardBar } }   // in the hero's top, above the title (#1458)
+                    .safeAreaInset(edge: .top, spacing: 0) { if page == .builds && buildEditorVisible { buildWizardBar.background(DS.Color.background) } }   // the header row: back and "…" above the compact header (#1458)
                 }
             }
             if (m.running || stores.queue.active || completedActivityVisible) && (page != .builds || !buildEditorVisible) {

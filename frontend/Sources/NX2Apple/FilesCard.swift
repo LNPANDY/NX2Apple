@@ -21,75 +21,75 @@ struct FilesCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text(loc.t("section.files")).font(.manrope(30, .bold))
-            if build.gameDir.isEmpty && build.basePath.isEmpty {
-                CardGroup("") {
-                    CardRow(loc.t(build.gameDir.isEmpty ? "build.folderCTA" : "build.folderSelected"), detail: build.gameDir.isEmpty ? "" : URL(fileURLWithPath: build.gameDir).lastPathComponent, help: build.gameDir) {
-                        Button(action: pickFolder) {
-                            Label(loc.t("data.choose"), systemImage: "folder").padding(.horizontal, 18).frame(height: LauncherControl.height)
-                        }.buttonStyle(LauncherActionButtonStyle())
-                            .padTarget("set.build.folder", scope: "main", focusColor: LauncherPalette.onCream, enabled: !build.running, activate: pickFolder)
+        VStack(alignment: .leading, spacing: DS.Space.l) {
+            // One section of uniform rows (#1458): the folder first with the step's one primary button, then each input with
+            // "Not selected" or its file and a trailing Choose…. A dot in the leading slot once chosen, the base game's cover there.
+            CardGroup(loc.t("files.title")) {
+                VStack(spacing: 0) {
+                    fileRow(loc.t("files.folder"), subtitle: build.gameDir.isEmpty ? loc.t("files.folderNote") : URL(fileURLWithPath: build.gameDir).lastPathComponent,
+                            help: build.gameDir, chosen: !build.gameDir.isEmpty) {
+                        if build.gameDir.isEmpty {
+                            Button(action: pickFolder) { Text(loc.t("files.chooseFolder")).font(DS.Font.bodyStrong).padding(.horizontal, 15).frame(maxWidth: .infinity) }
+                                .buttonStyle(DSPrimaryButtonStyle())
+                                .padTarget("set.build.folder", scope: "main", focusColor: LauncherPalette.onCream, enabled: !build.running, activate: pickFolder)
+                        } else {
+                            Button(loc.t("data.change"), action: pickFolder)
+                                .padTarget("set.build.folder", scope: "main", enabled: !build.running, activate: pickFolder)
+                        }
                     }
-                }
-            }
-            CardGroup("") {
-                HStack(spacing: 14) {
-                    Group {
-                        if let artwork { Image(nsImage: artwork).resizable().scaledToFit() }
-                        else { Image(systemName: "gamecontroller.fill").font(.system(size: 22)).frame(maxWidth: .infinity, maxHeight: .infinity).background(LauncherPalette.surface) }
-                    }.frame(width: 52, height: 52).clipShape(RoundedRectangle(cornerRadius: 10)).accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(loc.t("data.base")).font(DS.Font.bodyStrong)
-                        Text(game?.displayName(loc.lang) ?? (build.gameName.isEmpty ? build.slot("base").summary(loc.t) : build.gameName))
-                            .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
-                            .help(build.gameFolderRowText("base") ?? build.slot("base").summary(loc.t))
+                    CardDivider()
+                    fileRow(loc.t("data.base"), subtitle: baseText, help: build.gameFolderRowText("base") ?? build.slot("base").summary(loc.t),
+                            chosen: build.slot("base").ok || build.gameFolder != nil, thumbnail: artwork) {
+                        if build.gameFolderRowText("base") == nil || build.gameFolder == nil {
+                            Button(loc.t(build.basePath.isEmpty ? "data.choose" : "data.change")) { build.pickFiles(kind: .base) }
+                                .padTarget("set.build.file.base", scope: "main", activate: { build.pickFiles(kind: .base) })
+                        }
                     }
-                    Spacer(minLength: 8)
-                    Button(loc.t(build.basePath.isEmpty ? "data.choose" : "data.change")) {
-                        build.pickFiles(kind: .base)
-                    }.padTarget("set.build.file.base", scope: "main", activate: {
-                        build.pickFiles(kind: .base)
-                    })
-                }.padding(18)
-            }
-            if build.gameFolder == nil && (!build.keysReady || keyCheckNeedsAttention) {
-                CardGroup("") {
-                    HStack(alignment: .center, spacing: 12) {
-                        Image(systemName: (!build.keysReady || keyCheckNeedsAttention) ? "key.slash.fill" : "key.fill")
-                            .font(.system(size: 24)).foregroundStyle((!build.keysReady || keyCheckNeedsAttention) ? LauncherPalette.building : LauncherPalette.secondaryText)
-                            .frame(width: 52, height: 52).background(LauncherPalette.ink(0.08), in: RoundedRectangle(cornerRadius: 10))
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(build.keysPath.isEmpty ? loc.t("build.keyHint") : URL(fileURLWithPath: build.keysPath).lastPathComponent).font(DS.Font.bodyStrong).multilineTextAlignment(.leading).help((build.keysFromSettings ? loc.t("keys.fromSettings") + "\n" : "") + build.keysPath)
-                            if let keyCheck { KeyCheckLine(outcome: keyCheck.outcome, detailed: keyCheck, t: loc.t) }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(build.slots.filter(\.optional), id: \.id) { slot in
+                        CardDivider()
+                        let folderText = build.gameFolderRowText(slot.id)
+                        fileRow(loc.t(slot.id == "dlc" ? "data.dlc" : slot.title),
+                                subtitle: folderText ?? (slot.paths.isEmpty ? loc.t("files.optional") : slot.summary(loc.t)),
+                                help: slot.paths.joined(separator: "\n"), chosen: !slot.paths.isEmpty || (folderText != nil && build.gameFolder != nil)) {
+                            if folderText == nil {
+                                HStack(spacing: DS.Space.xs) {
+                                    if !slot.paths.isEmpty {
+                                        Button { build.clear(slot.id) } label: { Image(systemName: "xmark") }
+                                            .buttonStyle(DSIconButtonStyle(size: 28)).accessibilityLabel(loc.t("data.clear"))
+                                            .padTarget("set.build.clear." + slot.id, scope: "main", activate: { build.clear(slot.id) })
+                                    }
+                                    Button(loc.t(slot.paths.isEmpty ? "data.choose" : "data.change")) { build.pickFiles(kind: slot.kind) }
+                                        .padTarget("set.build.file." + slot.id, scope: "main", activate: { build.pickFiles(kind: slot.kind) })
+                                }
+                            }
+                        }
+                    }
+                    CardDivider()
+                    fileRow(loc.t("files.keys"), subtitle: build.keysPath.isEmpty ? loc.t("data.notSelected") : URL(fileURLWithPath: build.keysPath).lastPathComponent,
+                            help: (build.keysFromSettings ? loc.t("keys.fromSettings") + "\n" : "") + build.keysPath,
+                            chosen: build.keysReady && !keyCheckNeedsAttention, problem: build.keysReady && keyCheckNeedsAttention,
+                            extra: keyCheck.map { AnyView(KeyCheckLine(outcome: $0.outcome, detailed: $0, t: loc.t)) }) {
                         Button(loc.t(build.keysPath.isEmpty ? "data.choose" : "data.change")) { build.pickFiles(kind: .keys) }
                             .padTarget("set.build.file.keys", scope: "main", activate: { build.pickFiles(kind: .keys) })
-                    }.padding(18)
-                }
-            } else if let keyCheck, case .cannotCheck = keyCheck.outcome {
-                KeyCheckLine(outcome: keyCheck.outcome, detailed: keyCheck, t: loc.t)
-            }
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 16) { optionalSections.frame(minWidth: 285) }
-                VStack(spacing: 24) { optionalSections }
-            }
-            CardGroup(loc.t("build.saveTo"), help: ("set.build.output.help", loc.t("msg.workdirHint")), insetTitle: true) {
-                HStack(spacing: 12) {
-                    if build.outDir.isEmpty && build.inputFolder.isEmpty {
-                        Text(loc.t("build.saveDefault")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
-                    } else {
-                        Button { NSWorkspace.shared.open(destination) } label: {
-                            Label("/" + destination.lastPathComponent, systemImage: "folder.fill").lineLimit(1).truncationMode(.middle)
-                        }.buttonStyle(.link).help(destination.path)
-                            .padTarget("set.build.output.reveal", scope: "main", activate: { NSWorkspace.shared.open(destination) })
                     }
-                    Spacer(minLength: 8)
-                    Button(loc.t("data.change")) { build.chooseBuildFolder() }
-                        .padTarget("set.build.output", scope: "main", activate: { build.chooseBuildFolder() })
-                }.padding(18)
+                }
+            }
+            CardGroup(loc.t("build.saveTo"), help: ("set.build.output.help", loc.t("msg.workdirHint"))) {
+                fileRow(loc.t("build.saveTo"), subtitle: build.outDir.isEmpty && build.inputFolder.isEmpty ? loc.t("build.saveDefault") : destination.path,
+                        help: destination.path, chosen: nil) {
+                    HStack(spacing: DS.Space.xs) {
+                        if !(build.outDir.isEmpty && build.inputFolder.isEmpty) {
+                            Button { NSWorkspace.shared.open(destination) } label: { Image(systemName: "folder") }
+                                .buttonStyle(DSIconButtonStyle(size: 28)).accessibilityLabel(loc.t("shell.showInFinder"))
+                                .padTarget("set.build.output.reveal", scope: "main", activate: { NSWorkspace.shared.open(destination) })
+                        }
+                        Button(loc.t("data.change")) { build.chooseBuildFolder() }
+                            .padTarget("set.build.output", scope: "main", activate: { build.chooseBuildFolder() })
+                    }
+                }
             }
         }
+        .buttonStyle(DSRowButtonStyle())
         .task(id: (build.gameTitleID ?? "") + loc.lang.code) {
             artwork = nil
             guard let id = build.gameTitleID else { return }
@@ -133,28 +133,41 @@ struct FilesCard: View {
         guard let keyCheck else { return false }
         switch keyCheck.outcome { case .fits, .cannotCheck: return false; default: return true }
     }
-    private var optionalSections: some View {
-        ForEach(build.slots.filter(\.optional), id: \.id) { slot in
-            CardGroup(loc.t(slot.id == "dlc" ? "flow.dlcTitle" : slot.title), qualifier: loc.t("flow.optional"), insetTitle: true) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(build.gameFolderRowText(slot.id) ?? (slot.paths.isEmpty ? loc.t("data.notSelected") : slot.summary(loc.t)))
-                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
-                        .help(slot.paths.joined(separator: "\n"))
-                    if build.gameFolderRowText(slot.id) == nil {
-                        HStack(spacing: 12) {
-                            Button(loc.t(slot.paths.isEmpty ? "data.choose" : "data.change")) { build.pickFiles(kind: slot.kind) }
-                                .padTarget("set.build.file." + slot.id, scope: "main", activate: { build.pickFiles(kind: slot.kind) })
-                            if !slot.paths.isEmpty {
-                                Button(loc.t("data.clear")) { build.clear(slot.id) }
-                                    .padTarget("set.build.clear." + slot.id, scope: "main", activate: { build.clear(slot.id) })
-                            }
-                        }
-                    }
-                }.padding(18)
-            }
-        }
+    private var baseText: String {
+        if let text = build.gameFolderRowText("base") { return text }
+        if build.basePath.isEmpty { return loc.t("data.notSelected") }
+        return game?.displayName(loc.lang) ?? (build.gameName.isEmpty ? build.slot("base").summary(loc.t) : build.gameName)
     }
 
+    /// One row of the list: a thumbnail-sized leading slot (the cover, a dot once chosen, empty otherwise), the title, one
+    /// secondary line and the trailing control column. `chosen` nil leaves the slot out (the Save to row).
+    private func fileRow<Trailing: View>(_ title: String, subtitle: String, help: String, chosen: Bool?, problem: Bool = false, thumbnail: NSImage? = nil,
+                                         extra: AnyView? = nil, @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(spacing: DS.Space.s) {
+            if let chosen {
+                ZStack {
+                    if let thumbnail, chosen {
+                        Image(nsImage: thumbnail).resizable().scaledToFill()
+                            .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail).clipShape(RoundedRectangle(cornerRadius: DS.Radius.chip))
+                    } else if chosen || problem {
+                        Circle().fill(problem ? DS.Color.statusWarning : DS.Color.statusSuccess).frame(width: 8, height: 8)
+                    }
+                }
+                .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail)
+                .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+                Text(subtitle).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).truncationMode(.middle).help(help)
+                if let extra { extra.padding(.top, DS.Space.xxs) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            trailing().frame(width: DS.Control.columnWidth, alignment: .trailing)
+        }
+        .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.s)
+        .frame(minHeight: 60)
+        .accessibilityElement(children: .contain)
+    }
     private func pickFolder() { Self.pickFolder(build) }
 
     static func pickFolder(_ build: BuildStore) {

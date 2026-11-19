@@ -199,29 +199,42 @@ package struct CardDisclosure: View {
 }
 
 /// The scrolling column of a page of cards. A controller's focus on one of its `set.` targets scrolls into view.
-package struct LauncherPageScroll<Content: View>: View {
+package struct LauncherPageScroll<Header: View, Content: View>: View {
+    let header: Header
     let content: Content
     let memoryKey: String?
     @EnvironmentObject private var padFocus: PadFocus
 
     /// `memoryKey` names the scroll position this page keeps (ScrollMemory): a page with several parts gives each its own.
-    package init(memoryKey: String? = nil, @ViewBuilder _ content: () -> Content) { self.content = content(); self.memoryKey = memoryKey }
+    /// `header` spans the full width above the content column and scrolls away with it (the build wizard's hero, #1458).
+    package init(memoryKey: String? = nil, @ViewBuilder header: () -> Header, @ViewBuilder _ content: () -> Content) {
+        self.header = header(); self.content = content(); self.memoryKey = memoryKey
+    }
 
     package var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: DS.Space.xl) { content }
-                    .padding(.horizontal, DS.Space.xl).padding(.top, DS.Space.xl).padding(.bottom, DS.Space.xl + DS.Space.m)
-                    .frame(maxWidth: DS.Control.contentWidth)
-                    .frame(maxWidth: .infinity)
-                    .background { if let memoryKey { ScrollMemory(key: memoryKey) } }
-                    .environment(\.launcherScrollTo, { id in withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .top) } })
+                VStack(spacing: 0) {
+                    header
+                    VStack(alignment: .leading, spacing: DS.Space.xl) { content }
+                        .padding(.horizontal, DS.Space.xl).padding(.top, DS.Space.xl).padding(.bottom, DS.Space.xl + DS.Space.m)
+                        .frame(maxWidth: DS.Control.contentWidth)
+                        .frame(maxWidth: .infinity)
+                }
+                .background { if let memoryKey { ScrollMemory(key: memoryKey) } }
+                .environment(\.launcherScrollTo, { id in withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .top) } })
             }
             .onChange(of: padFocus.focused) { id in   // a controller's focus on this page scrolls into view
                 if let id, padFocus.scope == "main" { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } }
             }
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
+    }
+}
+
+extension LauncherPageScroll where Header == EmptyView {
+    package init(memoryKey: String? = nil, @ViewBuilder _ content: () -> Content) {
+        self.init(memoryKey: memoryKey, header: { EmptyView() }, content)
     }
 }
 
