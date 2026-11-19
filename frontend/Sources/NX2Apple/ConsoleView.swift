@@ -50,6 +50,7 @@ enum ConsoleInput: Equatable {
     /// Where the focus was under each open sheet, so closing one puts it back there (the menu button, the game, a menu row).
     @State private var returnFocus: [String?] = []
     @State private var sheetDepth = 0
+    @State private var homeReturn: String?   // the home row's tile the top bar was reached from: down goes back to it
     /// The slider A picked: only it takes left and right, until A or B lets it go or the focus moves on.
     @State private var editingOption: String?
 
@@ -664,24 +665,28 @@ enum ConsoleInput: Equatable {
         guard state.startingGameID == nil else { return }
         pad.show(default: pad.focused)
         let home = state.presentedSheet == nil
-        let onTile = home && pad.focused?.hasPrefix("console.game.") == true
+        let onTile = home && pad.focused.map(ConsoleHomeScreen<Driver>.isRowTile) == true
         switch input {
         case .left, .right:
-            // on the home screen left and right stay in the focused game's row (ConsoleHome.move), elsewhere the nearest target
+            // on the home screen left and right walk the one row (ConsoleHome.move), elsewhere (the top bar too) the nearest target
             let step = input == .left ? -1 : 1
-            if onTile, let id = state.focusedGame?.id, let next = ConsoleHome.move(from: id, dx: step, dy: 0, in: state.homeSections) {
-                driver.focus(next); pad.focused = "console.game." + next
+            let current = pad.focused == ConsoleHomeScreen<Driver>.allGamesPad ? ConsoleHome.allGamesID : state.focusedGame?.id
+            if onTile, let current, let next = ConsoleHome.move(from: current, by: step, in: state.homeOrder) {
+                if next == ConsoleHome.allGamesID { pad.focused = ConsoleHomeScreen<Driver>.allGamesPad }
+                else { driver.focus(next); pad.focused = "console.game." + next }
             } else { pad.horizontal(step) }
         case .up, .down:
-            // from row to row at the same place, up from the first row to the top bar's Search, and back down to the focused game
+            // up from the row to the nearest control of the top bar, down from the top bar or the hints back to the same tile. Down
+            // from the row does nothing: nothing under it can be focused unseen (#1458).
             let dy = input == .up ? -1 : 1
-            if onTile, let id = state.focusedGame?.id {
-                if let next = ConsoleHome.move(from: id, dx: 0, dy: dy, in: state.homeSections) { driver.focus(next); pad.focused = "console.game." + next }
-                else if dy < 0 { pad.focused = "console.searchButton" }
-                else { pad.move(dx: 0, dy: 1) }
-            } else if home, let focused = pad.focused, let id = state.focusedGame?.id,
+            if onTile, let tile = pad.focused {
+                guard dy < 0 else { return }
+                homeReturn = tile
+                pad.move(dx: 0, dy: -1)
+                if pad.focused.map(ConsoleHomeScreen<Driver>.isTopBar) != true { pad.focused = "console.searchButton" }
+            } else if home, let focused = pad.focused,
                       dy > 0 ? ConsoleHomeScreen<Driver>.isTopBar(focused) : ConsoleHomeScreen<Driver>.hintIDs.contains(focused) {
-                pad.focused = "console.game." + id
+                pad.focused = homeTile
             } else { pad.move(dx: 0, dy: CGFloat(dy)) }
         case .activate: pad.activate()
         case .play:
@@ -703,6 +708,12 @@ enum ConsoleInput: Equatable {
             else if case .gamePage = state.presentedSheet { driver.openQuickMenu() }
         case .back, .typed, .deleteBackward: break
         }
+    }
+
+    /// The tile the top bar and the hints go back down to: the one they were reached from, else the focused game.
+    private var homeTile: String {
+        if let homeReturn, homeReturn == ConsoleHomeScreen<Driver>.allGamesPad || homeReturn == state.focusedGame.map({ "console.game." + $0.id }) { return homeReturn }
+        return state.focusedGame.map { "console.game." + $0.id } ?? ConsoleHomeScreen<Driver>.allGamesPad
     }
 
     /// The game X plays: the focused one on the home screen, the focused tile of all games or of the search, the page's game.

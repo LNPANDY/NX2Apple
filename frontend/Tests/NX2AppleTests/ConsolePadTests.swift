@@ -80,8 +80,11 @@ import NXModel
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.15)); host.layoutSubtreeIfNeeded() }
         settle()
         XCTAssertEqual(driver.state.focusedGameID, "demo.0")
+        let order = driver.state.homeOrder
+        let start = order.firstIndex(of: "demo.0") ?? 0
+        XCTAssertLessThan(start + 1, order.count)
         gamepad.perform(.right); settle()
-        XCTAssertEqual(driver.state.focusedGameID, "demo.1", "D-pad right moves focus")
+        XCTAssertEqual(driver.state.focusedGameID, order[start + 1], "D-pad right moves to the next tile of the one row")
         gamepad.perform(.left); settle()
         XCTAssertEqual(driver.state.focusedGameID, "demo.0")
         gamepad.perform(.y); settle()
@@ -99,15 +102,13 @@ import NXModel
         XCTAssertEqual(driver.state.presentedSheet, .menu, "B goes back to the menu")
         gamepad.perform(.plus); settle()
         XCTAssertNil(driver.state.presentedSheet, "the menu button again closes the menu")
-        // Up from a game goes to the row above at the same place, up from the first row to Search in the top bar, right to the menu
-        // button. A opens the menu from there, and closing it with the menu button puts the focus back on the button, not on a game.
+        // Down from the one row does nothing (#1458). Up reaches the top bar, right walks it to the menu button at its end. A opens the
+        // menu from there, and closing it with the menu button puts the focus back on the button, not on a game.
+        gamepad.perform(.down); settle()
+        XCTAssertNil(driver.state.presentedSheet)
+        XCTAssertEqual(driver.state.focusedGameID, "demo.0", "down from the row moves nothing")
         gamepad.perform(.up); settle()
-        XCTAssertEqual(driver.state.focusedGameID, "demo.2", "up goes to the Continue playing row, the game played last")
-        gamepad.perform(.up); settle()
-        gamepad.perform(.a); settle()
-        XCTAssertEqual(driver.state.presentedSheet, .search, "up from the first row reaches Search")
-        gamepad.perform(.b); settle()
-        gamepad.perform(.right); settle()
+        for _ in 0..<6 { gamepad.perform(.right); settle() }
         gamepad.perform(.a); settle()
         XCTAssertEqual(driver.state.presentedSheet, .menu, "A on the menu button opens the menu")
         gamepad.perform(.down); settle()
@@ -121,7 +122,7 @@ import NXModel
         // Activating a ready tile now launches directly. Resume navigation after the simulated launch.
         gamepad.perform(.down); settle()
         gamepad.perform(.a); settle()
-        XCTAssertEqual(driver.state.startingGameID, "demo.2")
+        XCTAssertEqual(driver.state.startingGameID, "demo.0", "down from the top bar goes back to the same tile")
         XCTAssertNil(driver.state.presentedSheet)
         driver.state.startingGameID = nil
         settle()

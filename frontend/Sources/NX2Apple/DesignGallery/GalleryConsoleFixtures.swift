@@ -90,6 +90,11 @@ extension GalleryFixtures {
             driver.state.builds = builds(driver, "queued")
         case .consoleHomeTV, .consoleHome, .consoleEmpty:
             break
+        case .consoleHomeAttention:   // in the one row, its chip says what it needs (#1458)
+            driver.focus(unbuilt)
+        case .consoleHomeAllGames:   // the row's last tile
+            if let last = driver.state.homeOrder.last { driver.focus(last) }
+            return console(driver, focus: ConsoleHome.allGamesID)
         case .consoleGamePage: page(played, .overview)
         case .consoleGameOverviewEmpty: page(unbuilt, .overview)
         case .consoleGameSaves: page(played, .saves) { $0.lastSave = driver.state.time.addingTimeInterval(-7200) }

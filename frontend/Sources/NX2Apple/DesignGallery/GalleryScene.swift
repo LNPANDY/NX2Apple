@@ -22,7 +22,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     // The first run
     case onboarding(MockOnboardingDriver.Scenario), onboardingState(OnboardingGalleryState)
     // Console mode
-    case consoleHome, consoleHomeTV, consoleHomeBuilding, consoleEmpty
+    case consoleHome, consoleHomeTV, consoleHomeBuilding, consoleHomeAttention, consoleHomeAllGames, consoleEmpty
     case consoleGamePage, consoleGameOverviewEmpty, consoleGameSaves, consoleGameSavesEmpty, consoleGameBuild, consoleGameBuildEmpty, consoleGameCheats, consoleGameCheatsEmpty
     case consoleOptions, consoleOptionsMin, consoleOptionsMax, consoleOptionsStepperFocus, consoleOptionsNavFocus, consoleOptionsSingleLanguage
     case consoleBuilds, consoleBuildsQueued, consoleBuildsFinished, consoleBuildsFailed, consoleBuildsEmpty
@@ -33,7 +33,8 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
 
     /// Console mode's scenes, in the gallery's order, with their titles.
     static let consoleScenes: [(scene: GalleryScene, title: String)] = [
-        (.consoleHome, "Home"), (.consoleHomeTV, "Home at 1600 x 1000"), (.consoleHomeBuilding, "Home, a build running"), (.consoleEmpty, "Empty"),
+        (.consoleHome, "Home"), (.consoleHomeTV, "Home at 1600 x 1000"), (.consoleHomeBuilding, "Home, a build running"),
+        (.consoleHomeAttention, "Home, a game that needs a build"), (.consoleHomeAllGames, "Home, All games at the row's end"), (.consoleEmpty, "Empty"),
         (.consoleGamePage, "Game page: Overview"), (.consoleGameOverviewEmpty, "Game page: Overview, not built"),
         (.consoleGameSaves, "Game page: Saves"), (.consoleGameSavesEmpty, "Game page: Saves, none yet"),
         (.consoleGameBuild, "Game page: Build"), (.consoleGameBuildEmpty, "Game page: Build, not built"),

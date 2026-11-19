@@ -292,17 +292,44 @@ import XCTest
         XCTAssertNil(driver.state.presentedSheet)
     }
 
-    func testHomeUpReachesHeaderAndDownReturnsToGame() throws {
+    /// The home row (#1458): left and right walk it to All games, down from it does nothing, up reaches the nearest control of the
+    /// top bar, left and right walk the bar to the players chip, which A opens, and down goes back to the same tile.
+    func testHomeRowTopBarAndPlayersChip() throws {
         let driver = MockConsoleDriver(scenario: .full, animated: false), pad = PadFocus(), gamepad = LauncherGamepad()
-        host(driver, pad, gamepad)
-        let first = try XCTUnwrap(driver.state.homeSections.first?.gameIDs.first)
-        driver.focus(first); pad.focused = "console.game." + first; settle()
-        gamepad.perform(.up); settle()
-        XCTAssertEqual(pad.focused, "console.searchButton")
-        gamepad.perform(.left); settle()
-        XCTAssertEqual(pad.focused, "console.chip.controllers")
+        host(driver, pad, gamepad, width: 1600)
+        XCTAssertFalse(driver.state.controllers.isEmpty, "the scenario has a controller, so the players chip shows")
+        let order = driver.state.homeOrder
+        XCTAssertGreaterThan(order.count, 2)
+        driver.focus(order[0]); pad.show(default: "console.game." + order[0]); pad.focused = "console.game." + order[0]; settle()
+        gamepad.perform(.right); settle()
+        XCTAssertEqual(pad.focused, "console.game." + order[1])
+        XCTAssertEqual(driver.state.focusedGame?.id, order[1], "the hero follows the focused tile")
+        let frame = try XCTUnwrap(pad.frame(of: "console.game." + order[1]))
+        XCTAssertGreaterThanOrEqual(frame.minX, 0, "the focused tile is whole, not scrolled off to the left")
+        XCTAssertLessThanOrEqual(frame.maxX, 1600)
         gamepad.perform(.down); settle()
-        XCTAssertEqual(pad.focused, "console.game." + first)
+        XCTAssertEqual(pad.focused, "console.game." + order[1], "down from the row does nothing")
+        for _ in 0..<order.count { gamepad.perform(.right) }
+        settle()
+        XCTAssertEqual(pad.focused, ConsoleHome.allGamesID, "the row ends on All games")
+        gamepad.perform(.left); settle()
+        XCTAssertEqual(pad.focused, "console.game." + order[order.count - 1])
+        let tile = try XCTUnwrap(pad.focused)
+        func walkToPlayers() {   // to the bar's leading end, then right until the players chip
+            for _ in 0..<6 { gamepad.perform(.left); settle() }
+            for _ in 0..<6 where pad.focused != ConsolePlayersChip.id { gamepad.perform(.right); settle() }
+        }
+        gamepad.perform(.up); settle()
+        let bar = try XCTUnwrap(pad.focused)
+        XCTAssertTrue(ConsoleHomeScreen<MockConsoleDriver>.isTopBar(bar), "up from the row reaches the top bar: \(bar)")
+        walkToPlayers()
+        XCTAssertEqual(pad.focused, ConsolePlayersChip.id, "left and right walk the top bar to the players chip")
+        gamepad.perform(.down); settle()
+        XCTAssertEqual(pad.focused, tile, "down goes back to the same tile")
+        gamepad.perform(.up); settle()
+        walkToPlayers()
+        gamepad.perform(.a); settle()
+        XCTAssertEqual(driver.state.presentedSheet, .controllers, "A on the players chip opens the Controllers page")
     }
 
     func testHomeShowsTheQuickMenuAndAGamesPageShowsItsButtons() {

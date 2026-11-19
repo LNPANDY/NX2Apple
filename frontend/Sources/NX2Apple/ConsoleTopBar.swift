@@ -75,13 +75,16 @@ struct ConsoleControllerButton: View {
     }
 }
 
-/// The players, left of Controllers: "P1 76 %" per controller in one glass capsule. A click opens the Controllers page, the
-/// controller reaches it through Controllers (it is no extra focus stop).
+/// The players, left of Controllers: "P1 76 %" per controller in one glass capsule. A click or A opens the Controllers page. It is a
+/// focus stop of the top bar like the others, left of Controllers (#1458).
 struct ConsolePlayersChip: View {
+    static let id = "console.chip.players"
     let controllers: [ConsoleController]
     let merged: Bool
     let lang: Lang
     let open: () -> Void
+    @EnvironmentObject private var pad: PadFocus
+    private var focused: Bool { pad.visible && pad.focused == Self.id }
     var body: some View {
         Button(action: open) {
             HStack(spacing: DS.Console.Space.m) {
@@ -96,10 +99,12 @@ struct ConsolePlayersChip: View {
             }
             .padding(.horizontal, DS.Console.Space.l)
             .frame(height: DS.Console.Control.topBar)
-            .modifier(ConsoleTopSurface(shape: Capsule(), focused: false))
+            .modifier(ConsoleTopSurface(shape: Capsule(), focused: focused))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .padTarget(Self.id, scope: "console", activate: open)
+        .environment(\.padRingStyle, .none)
         .accessibilityHidden(true)   // Controllers carries the same summary for VoiceOver
     }
 }

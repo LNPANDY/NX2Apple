@@ -42,8 +42,8 @@ struct ConsoleClock: View {
 }
 
 /// The home screen (#816): the top bar (the activity, the controllers, the clock, Search and the menu), the focused game's title, and
-/// its history and availability groups, each scrolling sideways. Up and down go from row to row (ConsoleView
-/// handles the presses, ConsoleHome.move decides), the row in focus sits at the top of the rows' area and the next one shows under it.
+/// one row of every game with All games as its last tile, as a PlayStation 5 home (#1458). Left and right walk the row (ConsoleView
+/// handles the presses, ConsoleHome.move decides), up goes to the top bar and down from it back to the same tile.
 @MainActor struct ConsoleHomeScreen<Driver: ConsoleDriver>: View {
     @ObservedObject var driver: Driver
     let lang: Lang
@@ -56,19 +56,20 @@ struct ConsoleClock: View {
     var showBuild = false
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var tileFrames: [String: CGRect] = [:]
 
     private var state: ConsoleState { driver.state }
     private var panelOpen: Bool { state.presentedSheet != nil }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
     private var inset: CGFloat { compact ? 24 : 70 }
     private var tileWidth: CGFloat { compact ? size.width - inset * 2 - 16 : min(420, size.width * 0.28) }
-    /// A row: its heading, the tiles with their room for the ring, and the captions.
-    private var sectionHeight: CGFloat { tileWidth / 1.8 + (compact ? 92 : 104) }
+    /// The pad id of the row's last tile, All games.
+    static var allGamesPad: String { ConsoleHome.allGamesID }
     /// The pad ids of the hint strip, so up from it goes back to the focused game.
     static var hintIDs: Set<String> { ["console.open", "console.options", "console.menu", "console.quickMenuHint", "console.desktop"] }
     /// The top bar's targets: the controller chips, Search and the menu button.
     static func isTopBar(_ id: String) -> Bool { id == "console.build.activity" || id.hasPrefix("console.chip.") || id == "console.searchButton" || id == "console.menuButton" }
+    /// A tile of the home row: a game or All games.
+    static func isRowTile(_ id: String) -> Bool { id.hasPrefix("console.game.") || id == allGamesPad }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -76,13 +77,14 @@ struct ConsoleClock: View {
             if state.games.isEmpty {
                 empty.frame(maxWidth: .infinity, maxHeight: .infinity).blur(radius: panelOpen ? 14 : 0)
             } else {
-                // The title and the rows sit at the bottom, above the hints, so the artwork has the screen above them. A short window scrolls.
+                // The title and the row sit at the bottom, above the hints, so the artwork has the screen above them. A short window
+                // scrolls, so the top bar never moves.
                 GeometryReader { area in
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: compact || size.height < 900 ? 16 : 24) {
                             Spacer(minLength: 0)
                             if let game = state.focusedGame { title(game) }
-                            rows(available: area.size.height - titleHeight - 40 - (compact || size.height < 900 ? 16 : 24))
+                            homeRow
                         }
                         .padding(.top, 24).padding(.bottom, 16)
                         .frame(minHeight: area.size.height, alignment: .bottomLeading)
@@ -163,92 +165,66 @@ struct ConsoleClock: View {
 
     private var titleHeight: CGFloat { compact ? 130 : 54 + 2.4 * DS.Console.Font.largeTitleSize }
 
-    // MARK: Rows
+    // MARK: Row
 
-    /// The focused row at the top of the rows' area, and the next row under it only when it fits whole: a row is never cut, so no
-    /// cover, chip or caption is clipped at the bottom. The rows above it are not drawn, so the layout never depends on a scroll
-    /// position: up and down change which row leads, with a short fade.
-    private func rows(available: CGFloat) -> some View {
-        let sections = state.homeSections
-        let focusedIndex = sections.firstIndex { $0.gameIDs.contains(state.focusedGame?.id ?? "") } ?? 0
-        let spacing: CGFloat = compact ? 8 : 12
-        let shown = sections.count > focusedIndex + 1 && available >= 2 * sectionHeight + spacing ? 2 : 1
-        let height = CGFloat(shown) * sectionHeight + CGFloat(shown - 1) * spacing
-        return VStack(alignment: .leading, spacing: spacing) {
-            ForEach(sections.dropFirst(focusedIndex).prefix(shown)) { section in row(section).transition(.opacity) }
+    private var cellWidth: CGFloat { tileWidth + 24 }   // a tile with its 12 pt of room for the ring and the focus scale on each side
+    private var cellSpacing: CGFloat { (compact ? 22 : 28) - 16 }
+    /// The row's focus: All games while the pad is on it, else the focused game.
+    private var rowFocus: String? { pad.focused == Self.allGamesPad ? ConsoleHome.allGamesID : state.focusedGame?.id }
+    /// The focused tile's place in the row (All games after the games).
+    private var rowIndex: Int { rowFocus.flatMap { (state.homeOrder + [ConsoleHome.allGamesID]).firstIndex(of: $0) } ?? 0 }
+
+    /// The one row: the focused tile stands whole at the row's leading edge, the tiles already passed fan behind it, the next ones
+    /// follow. The row moves by an offset from the focused tile's place, never by a scroll position, so the focused tile is whole
+    /// from the first frame on, in the app and in a capture (#1458).
+    private var homeRow: some View {
+        let games = state.homeOrder.compactMap { id in state.games.first { $0.id == id } }
+        let index = rowIndex
+        let leading = inset - 12 + (reduceMotion ? 0 : tileWidth * 0.02)
+        let step = cellWidth + cellSpacing
+        return HStack(alignment: .top, spacing: cellSpacing) {
+            ForEach(Array(games.enumerated()), id: \.element.id) { place, game in
+                tile(game, place: place - index, captionVisible: place >= index && leading + CGFloat(place - index) * step + cellWidth <= size.width + 1)
+            }
+            allGamesTile(captionVisible: leading + CGFloat(games.count - index) * step + cellWidth <= size.width + 1)
         }
-        .fixedSize(horizontal: false, vertical: true)   // each row at its own height: the area clips the next one, it never squeezes a tile
-        .frame(height: height, alignment: .top)
+        .fixedSize()
+        .padding(.vertical, 20)
+        .padding(.leading, leading)
+        .offset(x: -CGFloat(index) * step)
+        .frame(width: size.width, alignment: .leading)
         .clipped()
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: index)
         .background(ConsoleHomeWheelView { step in moveRow(step) })
         .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { gesture in
             if let step = ConsoleHomePointerInput.drag(gesture.translation) { moveRow(step) }
         })
-        .animation(.easeOut(duration: reduceMotion ? 0 : 0.18), value: focusedIndex)
-    }
-
-    private func moveRow(_ step: Int) {
-        guard let id = state.focusedGame?.id,
-              let next = ConsoleHome.move(from: id, dx: 0, dy: step, in: state.homeSections) else { return }
-        driver.focus(next)
-        pad.focused = "console.game." + next
-    }
-
-    /// A caption shows only while its tile is fully inside the row, so a clipped tile never leaves a fragment of text at the margin.
-    private func tileVisible(_ id: String, rowWidth: CGFloat) -> Bool {
-        guard let frame = tileFrames[id] else { return true }
-        return frame.minX >= -1 && frame.maxX <= rowWidth + 1
-    }
-
-    private func row(_ section: ConsoleHomeSection) -> some View {
-        let games = section.gameIDs.compactMap { id in state.games.first { $0.id == id } }
-        let rowWidth = size.width
-        let cellWidth = tileWidth + 24
-        // Align the visible stroke after the active artwork scales about its center.
-        let leading = inset - 12 + (reduceMotion ? 0 : tileWidth * 0.02)
-        let anchor = UnitPoint(x: leading / max(1, rowWidth - cellWidth), y: 0.5)
-        let space = "console.row." + section.id
-        return VStack(alignment: .leading, spacing: compact ? 6 : 8) {
-            if section.row == .continuePlaying {
-                ConsoleSectionHeading(title: t(section.row.titleKey), compact: compact).padding(.horizontal, inset)
-            }
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: (compact ? 22 : 28) - 16) {
-                        ForEach(games) { game in tile(game, games: games, rowWidth: rowWidth, space: space) }
-                    }
-                    .padding(.vertical, 20)
-                    .padding(.leading, leading)
-                    .padding(.trailing, max(0, rowWidth - leading - cellWidth))
+        .overlay(alignment: .trailing) {
+            if leading + CGFloat(games.count - index) * step + cellWidth > size.width + 1 {   // a tile is beyond the edge
+                Button { moveRow(1) } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 18, weight: .semibold)).frame(width: 44, height: 44)
+                        .background(.black, in: Circle()).contentShape(Circle())
                 }
-                .coordinateSpace(name: space)
-                .onPreferenceChange(ConsoleTileFramesKey.self) { frames in tileFrames.merge(frames) { _, new in new } }
-                .onChange(of: state.focusedGame?.id) { id in
-                    guard let id, section.gameIDs.contains(id) else { return }
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
-                        proxy.scrollTo(Self.rowCell(id), anchor: anchor)
-                    }
-                }
-                .onChange(of: size.width) { _ in
-                    if let id = state.focusedGame?.id, section.gameIDs.contains(id) {
-                        proxy.scrollTo(Self.rowCell(id), anchor: anchor)
-                    }
-                }
-                .onAppear { if let id = state.focusedGame?.id, section.gameIDs.contains(id) { proxy.scrollTo(Self.rowCell(id), anchor: anchor) } }
-                .overlay {
-                    HStack {
-                        Spacer(minLength: 0)
-                        edgeArrow(games, rowWidth: rowWidth, anchor: anchor, proxy: proxy)
-                    }
-                    .padding(.horizontal, max(4, inset - 34))
-                    .padding(.bottom, 28)
-                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(t("library.scrollForward"))
+                .padTarget("console.edge.home.right", scope: "console", activate: { moveRow(1) })
+                .padding(.trailing, max(4, inset - 34)).padding(.bottom, 28)
             }
         }
     }
 
-    private func tile(_ game: ConsoleGame, games: [ConsoleGame], rowWidth: CGFloat, space: String) -> some View {
-        let selected = state.focusedGame?.id == game.id
+    /// One step left or right through the row (a wheel notch, a swipe, the edge arrow), stopping at its ends.
+    private func moveRow(_ step: Int) {
+        guard let focus = rowFocus, let next = ConsoleHome.move(from: focus, by: step, in: state.homeOrder) else { return }
+        if next == ConsoleHome.allGamesID { pad.focused = Self.allGamesPad; return }
+        driver.focus(next)
+        pad.focused = "console.game." + next
+    }
+
+    /// `place`: the tile's place from the focused one, negative for a tile already passed.
+    private func tile(_ game: ConsoleGame, place: Int, captionVisible: Bool) -> some View {
+        let selected = state.focusedGame?.id == game.id && rowFocus == game.id
         let paused = game.id == state.pausedGameID
         let open = {
             driver.focus(game.id)
@@ -261,8 +237,9 @@ struct ConsoleClock: View {
                 driver.focus(game.id); pad.focused = "console.game." + game.id
             }, open: open)
         } label: {
-            ConsoleGameTile(game: game, selected: selected, compact: compact, lang: lang, captionVisible: tileVisible(game.id, rowWidth: rowWidth), paused: paused,
-                            coverflow: true, tilt: tilt(game, games: games), rearOffset: tileWidth * 0.3, showsSelection: !pad.visible || pad.focused == "console.game." + game.id, launchNamespace: selected ? launchNamespace : nil)
+            ConsoleGameTile(game: game, selected: selected, compact: compact, lang: lang, captionVisible: captionVisible, paused: paused,
+                            coverflow: true, tilt: place < 0 ? 25 : (place == 0 ? 0 : -10), rearOffset: tileWidth * 0.3,
+                            showsSelection: !pad.visible || pad.focused == "console.game." + game.id, launchNamespace: selected ? launchNamespace : nil)
                 .frame(width: tileWidth)
                 .contentShape(RoundedRectangle(cornerRadius: 16))
         }
@@ -270,45 +247,44 @@ struct ConsoleClock: View {
         .padTarget("console.game." + game.id, scope: "console", radius: 16, activate: open)
         .environment(\.padRingStyle, .none)
         .zIndex(selected ? 1 : 0)
-        .background(GeometryReader { g in Color.clear.preference(key: ConsoleTileFramesKey.self, value: [game.id: g.frame(in: .named(space))]) })
         .accessibilityLabel(game.title + ", " + t(paused ? "console.paused" : game.status.labelKey))
         .accessibilityHint(t(paused ? "console.resumeHint" : (game.status == .ready ? "console.play" : "console.options")))
         .accessibilityAddTraits(selected ? .isSelected : [])
-        // every tile carries its own 12 pt of room for the ring and the focus scale, and the scroll target is this padded
-        // cell, so a scroll to the first or last tile never pushes that room out of the clip
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 12)   // the tile's room for the ring and the focus scale
         .id(Self.rowCell(game.id))
     }
 
-    private func tilt(_ game: ConsoleGame, games: [ConsoleGame]) -> Double {
-        guard let selected = state.focusedGame?.id,
-              let active = games.firstIndex(where: { $0.id == selected }),
-              let index = games.firstIndex(where: { $0.id == game.id }) else { return 0 }
-        return index == active ? 0 : (index < active ? 25 : -10)
-    }
-
-    @ViewBuilder private func edgeArrow(_ games: [ConsoleGame], rowWidth: CGFloat, anchor: UnitPoint, proxy: ScrollViewProxy) -> some View {
-        let hidden = games.filter { game in
-            guard let frame = tileFrames[game.id] else { return false }
-            return frame.maxX > rowWidth + 1
-        }
-        if let target = hidden.first {
-            let select = {
-                driver.focus(target.id)
-                pad.focused = "console.game." + target.id
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
-                    proxy.scrollTo(Self.rowCell(target.id), anchor: anchor)
+    /// The row's last tile: All games, so the whole library stays one press away.
+    private func allGamesTile(captionVisible: Bool) -> some View {
+        let selected = rowFocus == ConsoleHome.allGamesID
+        let open = { driver.openAllGames() }
+        return Button(action: open) {
+            VStack(alignment: .leading, spacing: 12) {
+                ZStack {
+                    DS.Color.surfaceRaised
+                    Image(systemName: "square.grid.2x2").font(.system(size: compact ? 34 : 44, weight: .light)).foregroundStyle(DS.Color.symbolDefault)
                 }
+                .aspectRatio(1.8, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Console.Radius.art))
+                .overlay(RoundedRectangle(cornerRadius: DS.Console.Radius.art).strokeBorder(selected ? DS.Color.accent : DS.Color.separator,
+                                                                                        lineWidth: selected ? DS.Console.Control.focusRing : 1))
+                .scaleEffect(selected && !reduceMotion ? DS.Console.Scale.focus : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: selected)
+                Text(t("console.allGames")).opacity(captionVisible ? 1 : 0)
+                    .font(DS.Console.Font.callout).lineLimit(1)
+                    .foregroundStyle(selected ? DS.Color.textPrimary : DS.Color.textSecondary)
+                    .padding(.horizontal, DS.Space.xxs).accessibilityHidden(true)
             }
-            Button(action: select) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 18, weight: .semibold)).frame(width: 44, height: 44)
-                    .background(.black, in: Circle()).contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(t("library.scrollForward"))
-            .padTarget("console.edge." + (games.first?.id ?? "") + ".right", scope: "console", activate: select)
+            .frame(width: tileWidth)
+            .contentShape(RoundedRectangle(cornerRadius: 16))
         }
+        .buttonStyle(.plain)
+        .padTarget(Self.allGamesPad, scope: "console", radius: 16, activate: open)
+        .environment(\.padRingStyle, .none)
+        .zIndex(selected ? 1 : 0)
+        .accessibilityLabel(t("console.allGames"))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .padding(.horizontal, 12)
     }
 
     static func rowCell(_ id: String) -> String { "console.row." + id }
@@ -318,8 +294,11 @@ struct ConsoleClock: View {
     private var hintBar: some View {
         let focused = state.focusedGame
         let paused = focused != nil && focused?.id == state.pausedGameID
+        let onAllGames = pad.focused == Self.allGamesPad
         let primary = {
-            hint(.activate, paused ? "console.resume" : (focused?.status == .ready ? "console.play" : "console.options"), "console.open", primary: true) {
+            hint(.activate, onAllGames ? "console.allGames" : (paused ? "console.resume" : (focused?.status == .ready ? "console.play" : "console.options")),
+                 "console.open", primary: true) {
+                if onAllGames { driver.openAllGames(); return }   // A on the row's last tile opens All games
                 if let id = focused?.id { paused ? driver.resume(id) : (focused?.status == .ready ? driver.play(id) : driver.openOptions(id)) }
             }
         }
@@ -376,7 +355,8 @@ struct ConsoleClock: View {
     }
 }
 
-/// Pointer input on the clipped home rows. Trackpad phases form one gesture, while a wheel notch is one step.
+/// Pointer input on the home row: a wheel or a swipe on either axis is one step through the row. Trackpad phases form one gesture,
+/// while a wheel notch is one step.
 struct ConsoleHomePointerInput {
     private var accumulated: CGFloat = 0
     private var moved = false
@@ -387,8 +367,9 @@ struct ConsoleHomePointerInput {
     }
 
     static func drag(_ translation: CGSize) -> Int? {
-        guard abs(translation.height) >= 24, abs(translation.height) > abs(translation.width) else { return nil }
-        return translation.height < 0 ? 1 : -1
+        let along = abs(translation.height) > abs(translation.width) ? translation.height : translation.width
+        guard abs(along) >= 24 else { return nil }
+        return along < 0 ? 1 : -1
     }
 
     mutating func wheel(deltaY: CGFloat, deltaX: CGFloat = 0, phase: NSEvent.Phase = [], momentum: Bool = false) -> Int? {
@@ -396,17 +377,18 @@ struct ConsoleHomePointerInput {
         defer {
             if phase.contains(.ended) || phase.contains(.cancelled) { accumulated = 0; moved = false }
         }
-        guard !momentum, abs(deltaY) > abs(deltaX), deltaY != 0 else { return nil }
-        if phase == [] { return deltaY > 0 ? -1 : 1 }
+        let delta = abs(deltaY) >= abs(deltaX) ? deltaY : deltaX
+        guard !momentum, delta != 0 else { return nil }
+        if phase == [] { return delta > 0 ? -1 : 1 }
         guard !moved else { return nil }
-        accumulated += deltaY
+        accumulated += delta
         guard abs(accumulated) >= 18 else { return nil }
         moved = true
         return accumulated > 0 ? -1 : 1
     }
 }
 
-/// Observes scrolls within the row window without covering tiles or consuming horizontal row scrolling.
+/// Observes scrolls over the home row without covering its tiles: each becomes a step through the row.
 private struct ConsoleHomeWheelView: NSViewRepresentable {
     let move: (Int) -> Void
 
@@ -429,8 +411,7 @@ private struct ConsoleHomeWheelView: NSViewRepresentable {
                 let phase = event.phase, momentum = event.momentumPhase != []
                 let handled = MainActor.assumeIsolated { [weak self] in
                     guard let self, self.window?.windowNumber == windowNumber,
-                          self.bounds.contains(self.convert(location, from: nil)),
-                          abs(deltaY) > abs(deltaX) else { return false }
+                          self.bounds.contains(self.convert(location, from: nil)) else { return false }
                     if let step = self.input.wheel(deltaY: deltaY, deltaX: deltaX, phase: phase, momentum: momentum) { self.move?(step) }
                     return true
                 }

@@ -61,7 +61,7 @@ import SwiftUI
     func testAReadyGameWithOlderToolsSaysWhyItNeedsAttention() {
         var mario = ConsoleGame(id: "m", title: "Mario", version: "", platforms: [.mac], artwork: nil, status: .ready)
         mario.olderTools = true
-        XCTAssertEqual(ConsoleHome.sections([mario]).first?.row, .attention)
+        XCTAssertEqual(ConsoleHome.order([mario]), ["m"], "in the one row, its chip says why")
         XCTAssertNotNil(L10n.table["library.olderToolsShort"])
         XCTAssertNotNil(L10n.table["library.olderTools"])
     }
