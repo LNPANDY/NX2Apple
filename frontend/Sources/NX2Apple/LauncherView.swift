@@ -227,7 +227,6 @@ struct LauncherView: View {
                 topBar.background(LauncherPalette.background).zIndex(1)
                 LauncherTopBarRule()
                 EngineSyncBanner(engine: engine, m: m)
-                if page == .builds && buildEditorVisible { buildWizardBar }
             }
             if page == .library {
                 VStack(spacing: 0) {
@@ -256,6 +255,7 @@ struct LauncherView: View {
                           onChooseLibraryFolder: chooseLibraryFolder, onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
                           padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }), buildFiles: stores.buildFiles, buildingID: m.running ? activeBuildID : nil, onBuildFileDetails: { freeSpaceFor = $0 }, settingsCategory: $settingsCategory)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .top) { if page == .builds && buildEditorVisible { buildWizardBar } }   // in the hero's top, above the title (#1458)
                 }
             }
             if (m.running || stores.queue.active || completedActivityVisible) && (page != .builds || !buildEditorVisible) {

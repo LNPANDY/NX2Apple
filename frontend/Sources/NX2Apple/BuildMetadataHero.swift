@@ -57,7 +57,7 @@ struct BuildMetadataHero: View {
                 Text(platformLine).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.top, 28).padding(.bottom, 28).padding(.horizontal, 40).frame(maxWidth: 900, alignment: .leading)
+        .padding(.top, DS.Space.xl * 2).padding(.bottom, DS.Space.l).padding(.horizontal, DS.Space.xl).frame(maxWidth: DS.Control.contentWidth, alignment: .leading)
         .frame(maxWidth: .infinity, minHeight: 176)
         .foregroundStyle(.white)
         .background {
@@ -128,7 +128,7 @@ struct BuildQueueHero: View {
                 .buttonStyle(LauncherSecondaryButtonStyle())
                 .padTarget("set.build.queue.select", scope: "main", activate: onSelectGames)
         }
-        .padding(.horizontal, 40).padding(.vertical, 28).frame(maxWidth: 900)
+        .padding(.horizontal, DS.Space.xl).padding(.top, DS.Space.xl * 2).padding(.bottom, DS.Space.l).frame(maxWidth: DS.Control.contentWidth)
         .frame(maxWidth: .infinity, minHeight: 176)
         .background {
             GeometryReader { box in

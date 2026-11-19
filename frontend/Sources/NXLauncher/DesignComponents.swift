@@ -67,6 +67,53 @@ package struct DSWizardFooter<Leading: View, Trailing: View>: View {
     }
 }
 
+/// The "…" beside a row's control column: the row's second and further actions, in the launcher's menu, so the column keeps one
+/// button. A controller's A on it runs `padDefault` (the first option), as the menu cannot be walked with the pad.
+package struct DSOverflowMenu: View {
+    package init(label: String, options: [(value: String, label: String)], padID: String, choose: @escaping (String) -> Void) {
+        self.label = label; self.options = options; self.padID = padID; self.choose = choose
+    }
+    let label: String
+    let options: [(value: String, label: String)]
+    let padID: String
+    let choose: (String) -> Void
+    @Environment(\.launcherDropdownHost) private var dropdowns
+    @EnvironmentObject private var pad: PadFocus
+    @State private var menuID = UUID()
+
+    package var body: some View {
+        Button(action: open) { Image(systemName: "ellipsis") }
+            .buttonStyle(LauncherIconButtonStyle())
+            .help(label).accessibilityLabel(label)
+            .anchorPreference(key: LauncherDropdownAnchorKey.self, value: .bounds) { [menuID: $0] }
+            .padTarget(padID, scope: "main") { if let first = options.first { choose(first.value) } }
+    }
+
+    private func open() {
+        dropdowns?.request = LauncherDropdownRequest(id: menuID, options: options, selection: "", label: label) { value in
+            dropdowns?.close(); pad.scope = "main"
+            choose(value)
+        }
+    }
+}
+
+/// A warning inside a card, under the row it is about: a symbol in the warning colour and the text in the row's secondary style.
+package struct DSInlineWarning: View {
+    package init(_ text: String) { self.text = text }
+    let text: String
+    package var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
+            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12, weight: .semibold)).foregroundStyle(DS.Color.statusWarning)
+                .accessibilityHidden(true)
+            Text(text).font(DS.Font.callout).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, DS.Space.s).padding(.vertical, DS.Space.xs)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DS.Color.statusWarning.opacity(0.08), in: RoundedRectangle(cornerRadius: DS.Radius.chip))
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Where a row's title starts inside its card: a note under a row lines up with it.
 package enum DSRowInset {
     package static let title = DS.Space.xs + DS.Control.leadingSlot + DS.Space.s
