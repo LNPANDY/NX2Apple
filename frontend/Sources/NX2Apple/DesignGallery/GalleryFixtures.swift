@@ -52,7 +52,12 @@ import NXLauncher
 
     private var built: [String: AnyView] = [:]
 
-    /// The gallery's live view of a scene: built once per scene and size, so redraws of the window keep its stores and state.
+    /// Forgets the live views: choosing a scene again builds it fresh from its fixture, so nothing done in it before (a tile clicked,
+    /// a game started in console mode) is still there (#1459).
+    func forgetLiveViews() { built = [:] }
+
+    /// The gallery's live view of a scene: built once per scene and size while it is shown, so redraws of the window keep its stores
+    /// and state.
     func liveView(_ scene: GalleryScene, size: CGSize) -> AnyView {
         let key = "\(scene.id)-\(Int(size.width))x\(Int(size.height))"
         if let view = built[key] { return view }

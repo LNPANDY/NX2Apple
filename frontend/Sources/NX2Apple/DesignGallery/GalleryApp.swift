@@ -168,6 +168,7 @@ struct GalleryWindow: View {
                     .padding(DS.Space.xs).frame(maxWidth: .infinity, alignment: .leading).background(DS.Color.background)
             }
         }
+        .onChange(of: selection) { _ in fixtures.forgetLiveViews() }   // a scene chosen again starts from its fixture
         .onChange(of: langCode) { _ in fixtures = GalleryFixtures.make(lang: lang, realCovers: realCovers) }
         .onChange(of: realCovers) { real in fixtures = GalleryFixtures.make(lang: lang, realCovers: real) }
     }
