@@ -22,6 +22,7 @@ public final class ShellSettingsStore: @unchecked Sendable {
     public static let touchStickPlaces = ["corner", "higher", "inward"]
     public static let touchModeKey = "touchMode" // 2d/3d, separate from saved positions
     public static let touchLayoutKey = "touchLayout"             // the player's arrangement: DM_TOUCH_LAYOUT for every game
+    public static let touchGroupsKey = "touchGroups"             // the groups a game's layout editor placed and sized: DM_TOUCH_GROUPS for every game
 
     /// The store the app reads and writes. Tests and previews swap it.
     nonisolated(unsafe) public static var current = ShellSettingsStore()
@@ -94,6 +95,23 @@ public final class ShellSettingsStore: @unchecked Sendable {
         storeTouchLayout(layout)
     }
 
+    /// Every game's groups of the touch controls, as the game's layout editor (the gear › Controller layout › Adjust Gamepad Layout) saves
+    /// them for all games: stored as the value the engine reads, beside the arrangement, so the shell's layout editor shows them and a game
+    /// gets them. A stored value the engine would ignore reads as the built-in layout. A game's own value is kept in its suite
+    /// (`TouchGroupsStore` in ShellHost).
+    public var touchGroups: TouchGroups {
+        defaults.string(forKey: Self.touchGroupsKey).flatMap { TouchGroups(encoded: $0) } ?? TouchGroups()
+    }
+    /// Every game's value as stored, nil when none is (a game then gets none, and an env file may set one). The built-in layout the player
+    /// chose (the game editor's Reset to default saved for all games, the shell editor's Reset all) is stored as "" and passed as such, so an
+    /// env file does not undo that choice. A stored value the engine would ignore counts as none.
+    public var touchGroupsStored: String? {
+        defaults.string(forKey: Self.touchGroupsKey).flatMap { TouchGroups(encoded: $0)?.encoded }
+    }
+    public func storeTouchGroups(_ groups: TouchGroups) { defaults.set(groups.encoded, forKey: Self.touchGroupsKey) }
+    /// Nothing stored for every game any more (the game editor's self-test puts back "nothing" this way).
+    public func forgetTouchGroups() { defaults.removeObject(forKey: Self.touchGroupsKey) }
+
     public var padMap: PadMap { PadMap(defaults.dictionary(forKey: Self.padMapKey) as? [String: String] ?? [:]) }
     public func setPadButton(_ button: String, to output: String) {
         var map = padMap
@@ -141,6 +159,7 @@ public final class ShellSettingsStore: @unchecked Sendable {
         }
         let layout = touchLayout.encoded
         if !layout.isEmpty { values["DM_TOUCH_LAYOUT"] = layout }
+        if let groups = touchGroupsStored { values["DM_TOUCH_GROUPS"] = groups }
         return values
     }
 }

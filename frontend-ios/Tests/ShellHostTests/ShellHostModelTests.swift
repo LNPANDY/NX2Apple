@@ -92,7 +92,8 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(lines.count == 5 && lines.allSatisfy { !$0.isEmpty } && lines[1].contains(name))
     }
 
-    /// #1129: the in-game menu's own words go to the engine with every launch, two lines in the engine's order (patch 0124).
+    /// #1129: the in-game menu's own words go to the engine with every launch, three lines in the engine's order (patch 0124, and Adjust
+    /// Gamepad Layout last).
     @Test func theInGameMenuWordsGoWithEveryLaunch() async throws {
         let box = try Sandbox()
         try box.giveAppData()
@@ -102,7 +103,130 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         let text = try #require(launcher.launched.last?.environment["DM_GAME_MENU_TEXT"])
         #expect(text == ShellHostModel.gameMenuText)
         let lines = text.components(separatedBy: "\n")
-        #expect(lines.count == 2 && lines.allSatisfy { !$0.isEmpty && !$0.contains(";") })
+        #expect(lines.count == 3 && lines.allSatisfy { !$0.isEmpty && !$0.contains(";") })
+        #expect(lines.last == "Adjust Gamepad Layout")
+    }
+
+    /// The game's layout editor (Adjust Gamepad Layout) gets its words with every launch: twenty-seven lines in DmPadEditing.h's order.
+    @Test func theLayoutEditorWordsGoWithEveryLaunch() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shellSettings())
+        await model.playNow(Fixtures.orbit)
+        let text = try #require(launcher.launched.last?.environment["DM_PAD_EDIT_TEXT"])
+        #expect(text == ShellHostModel.padEditText)
+        let lines = text.components(separatedBy: "\n")
+        #expect(lines.count == 27 && lines.allSatisfy { !$0.isEmpty && !$0.contains("\\n") })
+        #expect(lines.first == "Adjust Gamepad Layout" && lines[4] == "Move left and right groups" && lines[9] == "Cancel" && lines[10] == "Done"
+                && lines[19] == "Move right")
+        #expect(lines[20] == "No more room to grow" && lines[21] == "No room there while mirrored" && lines[22] == "Built-in layout"
+                && lines[23] == "Same as All games")
+        #expect(lines[24] == "Both sides together" && lines[25] == "Each side on its own"
+                && lines.last == "This group has no matching group on the other side.")
+    }
+
+    /// The layout editor's texts in every language: one line each (the engine splits the value at a line break or a backslash and n).
+    @Test func theLayoutEditorTextsFollowTheTextRules() throws {
+        let l10n = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("frontend/l10n")
+        let keys = ["ios.host.menuAdjustLayout", "ios.host.padEditHint", "ios.host.padEditChoose", "ios.host.padEditAll", "ios.host.padEditMirror",
+                    "ios.host.padEditSaveFor", "ios.host.padEditAllGames", "ios.host.padEditThisGame", "ios.host.padEditReset",
+                    "ios.host.padEditNoRoom", "ios.host.padEditStick", "ios.host.padEditDpad", "ios.host.padEditSmaller", "ios.host.padEditLarger",
+                    "ios.host.padEditUp", "ios.host.padEditDown", "ios.host.padEditLeft", "ios.host.padEditRight", "ios.host.padEditMateFull",
+                    "ios.host.padEditMateNoRoom", "ios.host.padEditBuiltIn", "ios.host.padEditFollow", "ios.host.padEditTogether",
+                    "ios.host.padEditOnItsOwn", "ios.host.padEditNoMirror"]
+        for file in try FileManager.default.contentsOfDirectory(at: l10n, includingPropertiesForKeys: nil) where file.pathExtension == "json" {
+            let strings = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+            for key in keys {
+                let text = try #require(strings[key] as? String, "\(file.lastPathComponent) lacks \(key)")
+                #expect(!text.isEmpty && !text.contains("\n") && !text.contains("\\n"), "\(file.lastPathComponent) \(key): \(text)")
+            }
+        }
+    }
+
+    /// The touch controls' groups the game's layout editor saves (ShellMain.m's hooks, through TouchGroupsStore): every game's value
+    /// reaches each game as DM_TOUCH_GROUPS, a game's own wins (DM_TOUCH_GROUPS_OWN=1: the editor then saves for this game by default),
+    /// and the game's row, Reset to defaults and a save for every game switch between them.
+    @Test func touchGroupsReachEveryGameAndAGamesOwnWins() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        func row() throws -> SettingRow { try #require(detail(model).sections.flatMap(\.rows).first { $0.id == TouchGroupsStore.rowID }) }
+        func env() -> [String: String] { launcher.launched.last?.environment ?? [:] }
+        await model.playNow(Fixtures.orbit)
+        #expect(env()["DM_TOUCH_GROUPS"] == nil && env()["DM_TOUCH_GROUPS_OWN"] == nil)
+        #expect(try row().value == "follow" && row().fromShell && !detail(model).hasModifiedSettings)
+        // The game's editor saves for every game.
+        let store = TouchGroupsStore(shell: shell, game: box.defaults(Fixtures.orbit))
+        #expect(store.save(scope: 0, value: "1;3d/face:800,900,110"))
+        await model.playNow(Fixtures.orbit)
+        #expect(env()["DM_TOUCH_GROUPS"] == "1;3d/face:800,900,110" && env()["DM_TOUCH_GROUPS_OWN"] == nil)
+        #expect(store.load(scope: 0) == "1;3d/face:800,900,110" && store.load(scope: 1) == nil)
+        // This game's own starts from every game's; then the editor saves for this game.
+        model.change(Fixtures.orbit, setting: TouchGroupsStore.rowID, value: "own")
+        #expect(try row().value == "own" && !row().fromShell && row().changed && detail(model).hasModifiedSettings)
+        #expect(store.load(scope: 1) == "1;3d/face:800,900,110")
+        #expect(store.save(scope: 1, value: ""))
+        await model.playNow(Fixtures.orbit)
+        #expect(env()["DM_TOUCH_GROUPS"] == "" && env()["DM_TOUCH_GROUPS_OWN"] == "1", "this game's own built-in layout wins over every game's")
+        #expect(store.save(scope: 1, value: "1;3d/stick:0,1000,120"))
+        await model.playNow(Fixtures.orbit)
+        #expect(env()["DM_TOUCH_GROUPS"] == "1;3d/stick:0,1000,120" && env()["DM_TOUCH_GROUPS_OWN"] == "1")
+        #expect(TouchGroupsStore(shell: shell, game: box.defaults(Fixtures.chain)).own == nil, "another game follows every game's")
+        // A value the engine would not read is not stored, nor a game's value with no game.
+        #expect(!store.save(scope: 1, value: "1;3d/stick:0,1001,120") && store.load(scope: 1) == "1;3d/stick:0,1000,120")
+        #expect(!TouchGroupsStore(shell: shell, game: nil).save(scope: 1, value: ""))
+        // Back to every game's: the row, Reset to defaults, or the editor saving for every game.
+        model.change(Fixtures.orbit, setting: TouchGroupsStore.rowID, value: "follow")
+        #expect(try store.own == nil && row().value == "follow")
+        model.change(Fixtures.orbit, setting: TouchGroupsStore.rowID, value: "own")
+        model.actions.onResetDefaults(Fixtures.orbit)
+        #expect(try store.own == nil && !detail(model).hasModifiedSettings)
+        model.change(Fixtures.orbit, setting: TouchGroupsStore.rowID, value: "own")
+        #expect(store.save(scope: 0, value: "1;2d/all:120"))
+        #expect(store.own == nil && shell.touchGroups.encoded == "1;2d/all:120", "saving for every game makes this game follow it again")
+        await model.playNow(Fixtures.orbit)
+        #expect(env()["DM_TOUCH_GROUPS"] == "1;2d/all:120" && env()["DM_TOUCH_GROUPS_OWN"] == nil)
+    }
+
+    /// The game's editor saves whole values but keeps what it neither showed nor changed: from a game with a layout of its own it loads every
+    /// game's value, changes only the layout it shows and saves that for every game; every game's other layouts stay, and the game follows
+    /// every game's again. "Same as All games" forgets the game's own (dm_shell_touch_groups_forget) and leaves every game's as it is. The
+    /// built-in layout saved for every game reaches each game as "" (an env file does not undo it); forgotten, nothing does.
+    @Test func touchGroupsScopesKeepWhatTheEditorDidNotChange() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        func env() -> [String: String] { launcher.launched.last?.environment ?? [:] }
+        let store = TouchGroupsStore(shell: shell, game: box.defaults(Fixtures.orbit))
+        let tuned = "1;2d/face:900,900,120;3d/lshoulder:0,300,100/rshoulder:1000,300,100;3s/stick:0,1000,120"
+        #expect(store.save(scope: 0, value: tuned))
+        #expect(store.save(scope: 1, value: "1;2d/face:500,500,100;3d/lshoulder:0,600,100/rshoulder:1000,600,100;3s/stick:0,1000,100"))
+        // In the game, the editor shows 3D and saves for every game: what every game's holds, with 3D changed.
+        var all = try #require(store.load(scope: 0).flatMap { TouchGroups(encoded: $0) })
+        all[.threeD, .lshoulder] = TouchGroups.Place(x: 0, y: 450, size: 100)
+        all[.threeD, .rshoulder] = TouchGroups.Place(x: 1000, y: 450, size: 100)
+        #expect(store.save(scope: 0, value: all.encoded))
+        let saved = "1;2d/face:900,900,120;3d/lshoulder:0,450,100/rshoulder:1000,450,100;3s/stick:0,1000,120"
+        #expect(shell.touchGroups.encoded == saved, "every game's 2D and portrait stay")
+        #expect(store.own == nil, "the game follows every game's again")
+        // Same as All games: the game's own forgotten, every game's untouched.
+        #expect(store.save(scope: 1, value: "1;3d/face:800,900,110") && store.own != nil)
+        #expect(store.forget(scope: 1) && store.own == nil && store.load(scope: 1) == nil)
+        #expect(shell.touchGroups.encoded == saved)
+        #expect(!TouchGroupsStore(shell: shell, game: nil).forget(scope: 1), "with no game there is no game's own to forget")
+        // The built-in layout for every game reaches each game as ""; forgotten, nothing is passed.
+        #expect(store.save(scope: 0, value: "") && store.load(scope: 0) == "")
+        await model.playNow(Fixtures.orbit)
+        #expect(env()["DM_TOUCH_GROUPS"] == "" && env()["DM_TOUCH_GROUPS_OWN"] == nil)
+        #expect(store.forget(scope: 0) && store.load(scope: 0) == nil)
+        await model.playNow(Fixtures.orbit)
+        #expect(env()["DM_TOUCH_GROUPS"] == nil)
     }
 
     /// BUG-23: Quit returns the player to the shell library rather than force-closing the whole app.
@@ -255,7 +379,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         let orbit = try detail(model)
         #expect(orbit.game.title == "Orbit Fixture" && orbit.game.subtitle == "Version 1.0.0" && orbit.game.recentlyPlayed == nil)
         #expect(orbit.game.state == .needsGameData)
-        #expect(orbit.sections.map(\.title) == ["Game", "Performance", "Controller"])
+        #expect(orbit.sections.map(\.title) == ["Game", "Performance", "Controller", "Touch controls"])
         #expect(orbit.dataSource == "" && !orbit.dataNote.isEmpty)
         #expect(orbit.cloudSaves == nil && orbit.dlc == "No additional content")
         #expect(try detail(model, Fixtures.chain).game.state == .needsAppUpdate)

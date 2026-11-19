@@ -57,3 +57,9 @@
 0064-older-devices-decode-bc-textures-across-the-cpu.patch
 0065-tools-tests-stub-dmsh-rewrite-in-the-mesh-target.patch
 0066-tools-tests-a-changed-nso-syms-py-rewrites-again.patch
+0069-ios-pad-place-and-size-the-touch-controls-by-gro.patch
+0070-ios-pad-adjust-gamepad-layout-an-in-game-editor.patch
+0071-ios-pad-a-self-test-for-the-layout-editor.patch
+0072-ios-pad-on-a-phone-the-layout-editor-s-panel-is.patch
+0073-ios-tests-walk-the-layout-editor-step-by-step-on.patch
+0074-ios-pad-the-editor-s-two-choices-pick-in-the-car.patch

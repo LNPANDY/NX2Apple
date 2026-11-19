@@ -148,6 +148,15 @@ import Testing
         #expect(EngineLaunchPlan.parseEnvFile("").isEmpty)
     }
 
+    /// The built-in touch-groups layout the player chose for every game (the shell passes DM_TOUCH_GROUPS empty) wins over an env file's value,
+    /// as every launch value does; with nothing passed the env file's applies.
+    @Test func anEmptyTouchGroupsValueFromTheShellWinsOverTheEnvFile() throws {
+        let file = "DM_TOUCH_GROUPS=1;3d/face:0,0,120\n"
+        let passed = try Rig(environment: ["DM_TOUCH_GROUPS": ""]), none = try Rig()
+        #expect(passed.plan(envFile: file).environment["DM_TOUCH_GROUPS"] == "")
+        #expect(none.plan(envFile: file).environment["DM_TOUCH_GROUPS"] == "1;3d/face:0,0,120")
+    }
+
     @Test func envFileNeverOverridesAndListsItsKeys() throws {
         let rig = try Rig(environment: ["DM_LANG": "de"])
         let env = rig.plan(envFile: "DM_LANG=fr\nDM_SAVE=/elsewhere\nDM_LAUNCHER=1\nDM_TRACE=2\nDM_OTHER=3\n").environment

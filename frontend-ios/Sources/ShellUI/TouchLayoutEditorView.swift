@@ -231,6 +231,12 @@ struct TouchLayoutEditorView: View {
                         .accessibilityIdentifier("touchLayout.orientation")
                     Text(ShellStrings.text(model.kind.split ? "Positions are saved for portrait and tabletop controls." : "Positions are shared across landscape views."))
                         .font(.footnote).foregroundStyle(.secondary)
+                    if model.hasGroups {
+                        // Groups a game's layout editor moved or resized: drawn as the game draws them, changed there.
+                        Text(ShellStrings.text("Groups moved or resized in a game (Adjust Gamepad Layout) show here. Change them in the game."))
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("touchLayout.groupsNote")
+                    }
                     NativeChoiceControl(row: sizeRow, targetPrefix: "lay.row.") { model.setSize($0) }
                     NativeChoiceControl(row: layoutChoiceRow, targetPrefix: "lay.row.") { value in
                         model.setKind(.of(full: value == "3d", split: model.kind.split))
@@ -376,8 +382,8 @@ struct TouchLayoutEditorView: View {
     /// Where the active control is drawn beyond its kept place: under the finger on a refused spot, or on its way back.
     private func activeOffset(_ g: PadGeo) -> CGSize {
         if let drag, let refused = drag.refused {
-            let kept = model.dragOffset(drag.control)
-            return CGSize(width: CGFloat(refused.dx - kept.dx) * g.step + bounce.width, height: CGFloat(refused.dy - kept.dy) * g.step + bounce.height)
+            let kept = model.dragOffset(drag.control), step = g.screenStep(model.editing.mover(drag.control))
+            return CGSize(width: CGFloat(refused.dx - kept.dx) * step + bounce.width, height: CGFloat(refused.dy - kept.dy) * step + bounce.height)
         }
         return bounce
     }
@@ -455,8 +461,8 @@ struct TouchLayoutEditorView: View {
         case .dpad: [.dpad(g.dpad, g.dpadR)]
         case .zl, .l, .zr, .r:
             [.drop(g.drop[PadGeo.dropIndex(c)], g.dropR[PadGeo.dropIndex(c)], tipRight: c == .zr || c == .r, label: c.title)]
-        case .l3: [.circle(g.click[0], g.clickR, label: "L3")]
-        case .r3: [.circle(g.click[1], g.clickR, label: "R3")]
+        case .l3: [.circle(g.click[0], g.clickR[0], label: "L3")]
+        case .r3: [.circle(g.click[1], g.clickR[1], label: "R3")]
         case .minus: [.pill(g.pill[0], label: "−")]
         case .plus: [.pill(g.pill[1], label: "+")]
         }
@@ -501,8 +507,8 @@ struct TouchLayoutEditorView: View {
                 guard let d = drag else { return }
                 if let refused = d.refused {
                     // Back to its kept place, from under the finger.
-                    let g = model.geo, kept = model.dragOffset(d.control)
-                    bounce = CGSize(width: CGFloat(refused.dx - kept.dx) * g.step, height: CGFloat(refused.dy - kept.dy) * g.step)
+                    let kept = model.dragOffset(d.control), step = model.geo.screenStep(model.editing.mover(d.control))
+                    bounce = CGSize(width: CGFloat(refused.dx - kept.dx) * step, height: CGFloat(refused.dy - kept.dy) * step)
                     drag = nil
                     withAnimation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.25)) { bounce = .zero }
                     model.dragEnded(rejected: true)

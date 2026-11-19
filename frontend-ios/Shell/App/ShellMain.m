@@ -136,6 +136,39 @@ void dm_shell_return_to_library(void) {
     else dispatch_async(dispatch_get_main_queue(), work);
 }
 
+// The touch controls' groups the game's layout editor saves (the gear › Controller layout › Adjust Gamepad Layout, the engine's DmGamepad.m),
+// which finds these three with dlsym and calls them on the main thread: scope 0 is every game's value, kept in the shell settings beside the
+// arrangement the library's own layout editor shows, scope 1 the running game's own, kept in its settings (ShellApp.swift's ShellTouchGroups,
+// frontend-ios TouchGroupsStore). Each start passes the value in effect as DM_TOUCH_GROUPS. Save: 1 when stored, 0 for a value the engine
+// would not read.
+__attribute__((used, visibility("default")))
+int dm_shell_touch_groups_save(int scope, const char *value) {
+    NSString *v = value ? [NSString stringWithUTF8String:value] : nil;
+    if (!v) return 0;
+    BOOL ok = [ShellTouchGroups saveWithScope:scope value:v];
+    fprintf(stderr, "shell: touch control groups %s for %s: %s\n", ok ? "saved" : "not saved", scope == 1 ? "this game" : "every game", *value ? value : "the built-in layout");
+    return ok ? 1 : 0;
+}
+// Load: 1 and the stored value in out (with its NUL, at most cap bytes), 0 for none or one longer than cap.
+__attribute__((used, visibility("default")))
+int dm_shell_touch_groups_load(int scope, char *out, int cap) {
+    if (!out || cap <= 0) return 0;
+    out[0] = '\0';
+    NSString *v = [ShellTouchGroups loadWithScope:scope];
+    const char *s = v.UTF8String;
+    if (!s || strlen(s) + 1 > (size_t)cap) return 0;
+    memcpy(out, s, strlen(s) + 1);
+    return 1;
+}
+// Forget: nothing stored for the scope any more. 1, the running game's own: it follows every game's layout again (the editor's "Same as All
+// games"); 0, every game's: no value, a game gets none. 1 when done, 0 for this game's with no game running.
+__attribute__((used, visibility("default")))
+int dm_shell_touch_groups_forget(int scope) {
+    BOOL ok = [ShellTouchGroups forgetWithScope:scope];
+    fprintf(stderr, "shell: touch control groups %s for %s\n", ok ? "forgotten" : "not forgotten", scope == 1 ? "this game (it follows every game's)" : "every game");
+    return ok ? 1 : 0;
+}
+
 // One log file per run, the previous one kept beside it (<name>.prev.txt): the shell's own lines go to Documents/shell-log.txt until a
 // game starts, the game's (the host's stderr) to Documents/log.txt, the file the per-game app writes and the issue forms ask for.
 static void log_to(NSString *log) {
