@@ -72,7 +72,7 @@ index 8fa6cd8..bcb1eb2 100644
  } }
  #pragma clang attribute pop
 diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
-index 658e15b..b7fe96a 100644
+index c93d64e..4c61eb3 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
 @@ -13,6 +13,7 @@
@@ -91,8 +91,8 @@ index 658e15b..b7fe96a 100644
 +static _Atomic int g_haptics_down __attribute__((section("__DATA,__dm_keep")));
  static NSMutableArray<DmRumbleChannel *> *channels[DM_PLAYERS];
  static GCController *controllers[DM_PLAYERS];
- static GCHapticsLocality controllerLocalities[DM_PLAYERS];
-@@ -128,8 +131,9 @@ - (void)halt {
+ static id outputOwners[DM_PLAYERS]; // protected by routeLock
+@@ -127,8 +130,9 @@ - (void)halt {
          self.pattern = nil; self.previous = nil; self.level = (dm_haptic_level){0, 0};
          NSTimeInterval left = self.engine ? self.pulseEnd - self.engine.currentTime : 0;
          if (left > 0) {
@@ -103,7 +103,7 @@ index 658e15b..b7fe96a 100644
                  DmRumbleChannel *c = weak; if (c && c.engine == engine && c.pattern) return;   // a new effect took the engine meanwhile
                  @try { [engine stopWithCompletionHandler:nil]; }
                  @catch (NSException *x) { if (c && c.engine == engine) [c stoppedEngine:x stage:"stop engine"]; }   // one no channel holds is gone anyway
-@@ -147,9 +151,10 @@ - (BOOL)pulse:(NSError **)error {
+@@ -146,9 +150,10 @@ - (BOOL)pulse:(NSError **)error {
      NSTimeInterval at = MAX(self.engine.currentTime, self.pulseEnd);
      if (!next || ![next startAtTime:at error:error]) return NO;
      self.previous = self.pattern; self.pattern = next; self.pulseEnd = at + PULSE;
@@ -115,7 +115,7 @@ index 658e15b..b7fe96a 100644
          DmRumbleChannel *c = weak;
          if (!c || c.generation != generation || c.pattern != next || c.level.intensity == 0) return;   // stopped, replaced or silent
          [c guarded:"pulse" work:^{ NSError *e = nil; if (![c pulse:&e]) [c failed:e stage:"pulse"]; }];
-@@ -178,8 +183,12 @@ - (BOOL)startEngine {
+@@ -177,8 +182,12 @@ - (BOOL)startEngine {
      }
      __weak DmRumbleChannel *weak = self;
      uint64_t generation = ++self.generation;
@@ -129,7 +129,7 @@ index 658e15b..b7fe96a 100644
              DmRumbleChannel *c = weak; if (!c || c.generation != generation) return;
              [c stop];
              dm_haptics_clear(c.player);   // queued effects from before an interruption cannot restart
-@@ -250,8 +259,9 @@ - (void)applyLevel:(dm_haptic_level)level {
+@@ -249,8 +258,9 @@ - (void)applyLevel:(dm_haptic_level)level {
      if (!self.simple) ((id<CHHapticAdvancedPatternPlayer>)self.pattern).isMuted = NO;
      if (level.intensity == 0) {
          // Reuse a warm player for nearby pulses, then release idle hardware. This never times out an active effect.
@@ -140,7 +140,7 @@ index 658e15b..b7fe96a 100644
              DmRumbleChannel *c = weak; if (c && c.silenceGeneration == silence) [c stop];
          });
      }
-@@ -351,18 +361,23 @@ static void native_stop(int p) {
+@@ -350,18 +360,23 @@ static void native_stop(int p) {
      outputGeneration[p]++;
      if (nativeOutputs[p]) nativeOutputs[p]((dm_haptic_state){.player=p}, gain);
  }
@@ -168,7 +168,7 @@ index 658e15b..b7fe96a 100644
          NSArray<DmRumbleChannel *> *out = channels[s.player];
  #if !TARGET_OS_IPHONE
          if ([out.firstObject isKindOfClass:DmDs4Channel.class]) { ds4_apply(s); return; }
-@@ -532,12 +547,16 @@ static void suspend(unsigned reason, BOOL on) {
+@@ -497,12 +512,16 @@ static void suspend(unsigned reason, BOOL on) {
  }
  void dm_haptics_apple_focus(int active) { if(queue) suspend(DM_HAPTICS_UNFOCUSED,!active); }
  void dm_haptics_apple_shutdown(void) {
@@ -185,7 +185,7 @@ index 658e15b..b7fe96a 100644
      NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
      for (int i = 0; i < 5; i++) {
          if (g_haptics_obs[i]) {
-@@ -582,6 +601,8 @@ void dm_haptics_apple_init(void) {
+@@ -546,6 +565,8 @@ void dm_haptics_apple_init(void) {
          pthread_mutex_unlock(&routeLock);
          return;
      }
@@ -504,10 +504,10 @@ index f7eb193..e52c024 100644
      if (system(rmcmd)) fprintf(stderr, "cannot remove %s\n", root);   // NOLINT(bugprone-command-processor): a fixed rm of the folder mkdtemp made above, no outside input
      printf("%d / %d checks passed\n", checks - fails, checks);
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index 506d711..8e6adb0 100644
+index 5e30043..347076a 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
-@@ -185,6 +185,7 @@ static IOReturn fake_write(IOHIDDeviceRef d, IOHIDReportType type, CFIndex id, c
+@@ -165,6 +165,7 @@ static IOReturn fake_write(IOHIDDeviceRef d, IOHIDReportType type, CFIndex id, c
  void dm_motion_clear_joy(int p, int side) { assert(p >= 0 && p < DM_PLAYERS && (side == 0 || side == 1)); ++joy_motion_clears[p][side]; }
  void dm_haptics_apple_set_sink(int p, void (*s)(const dm_haptic_state *)) { (void)p; (void)s; }
  int dm_switch2_start(const dm_switch2_front *f) { (void)f; return 0; }
@@ -516,10 +516,10 @@ index 506d711..8e6adb0 100644
  void dm_switch2_rumble(const dm_haptic_state *s) { (void)s; }
  static dm_motion motions[DM_PLAYERS]; static int motion_present[DM_PLAYERS];
 diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
-index 1932833..894f7a6 100644
+index cf2d35b..6dccf6f 100644
 --- a/dm/host/tests/t_haptics_apple.m
 +++ b/dm/host/tests/t_haptics_apple.m
-@@ -699,5 +699,53 @@ int main(void) { @autoreleasepool {
+@@ -665,5 +665,53 @@ int main(void) { @autoreleasepool {
      assert(gain == 1 && rumble_min == 0 && dm_haptics_apple_controller_intensity(0.4f) == 0.4f);
      dm_haptics_apple_shutdown();
      dm_haptics_apple_teardown();

@@ -14,7 +14,6 @@ second one.
 Upstream-Status: forwarded seedds/nxnative#3029
 Reason: Tool tests fail on upstream main: the NRO pack test expects no rewrite after an nso_syms.py change
 Issue: LNPANDY/NX2Apple#1448
-
 ---
  dm/tools/tests/test_nro_pack.py | 8 ++++----
  1 file changed, 4 insertions(+), 4 deletions(-)

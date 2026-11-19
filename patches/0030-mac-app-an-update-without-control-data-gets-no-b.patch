@@ -121,7 +121,7 @@ index dbe2f9e..2b5391d 100644
          self.assertIn('CONTROL=str(control)', (REPO / 'scripts/build_ipa_from_nsp.py').read_text(encoding='utf-8'))
          script = (REPO / 'dm/ios/tools/build_ipa.sh').read_text(encoding='utf-8')
 diff --git a/docs/development.md b/docs/development.md
-index a2e9a0c..8f2311a 100644
+index 3a74244..50e54a5 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -599,7 +599,7 @@ The bundle holds what the IPA holds, with the Mac's shader libraries:

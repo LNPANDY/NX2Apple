@@ -22,7 +22,7 @@ Issue: LNPANDY/NX2Apple#1025
  3 files changed, 147 insertions(+), 8 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index dd97a72..c9f0294 100644
+index afc09ad..4dfd213 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -64,12 +64,16 @@ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t
@@ -47,7 +47,7 @@ index dd97a72..c9f0294 100644
  }
  void dm_pad_set_player(int p, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
      if (p < 0 || p >= DM_PLAYERS) return;
-@@ -442,6 +446,7 @@ void dm_joy_attach(int p, uint32_t sides) {
+@@ -438,6 +442,7 @@ void dm_joy_attach(int p, uint32_t sides) {
  }
  void dm_joy_set(int p, int side, uint64_t buttons, int32_t sx, int32_t sy) {
      if (p < 0 || p >= DM_PLAYERS || (side != 0 && side != 1)) return;
@@ -56,7 +56,7 @@ index dd97a72..c9f0294 100644
      atomic_store(&g_joy_axes[p][side], pack(sx, sy, 0, 0));
  }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 723d074..6c8ef6d 100644
+index 251c0b7..8c91362 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -95,6 +95,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz

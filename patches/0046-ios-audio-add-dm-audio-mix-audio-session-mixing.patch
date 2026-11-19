@@ -142,11 +142,11 @@ index 21ddc86..1fef932 100644
  }
  // The channels the route takes now (hle_audio.c decides the output from it: six only when the session has six)
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 87b3b10..643c8b5 100644
+index b1869b8..e4f3ad1 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -107,6 +107,8 @@ void dm_haptics_apple_init(void) {}
- void dm_haptics_apple_controller_locality(int player, GCController *controller, GCHapticsLocality locality) { (void)player; (void)controller; (void)locality; }
+@@ -106,6 +106,8 @@ void dm_haptics_apple_init(void) {}
+ void dm_haptics_apple_controller(int player, GCController *controller) { (void)player; (void)controller; }
  
  int front_web_touch(void) { return 0; }   // no offline web page above the synthetic game
 +void front_web_close(void) {}
