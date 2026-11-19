@@ -13,14 +13,17 @@ import os
 import plistlib
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import uuid
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from .. import known_banners as _kb
 from .. import platform_util as pu
 from . import fix_ipa_modes, macho_sign, toolchain as tc
 
@@ -428,13 +431,163 @@ def leave_out_incomplete(
     return notes, None
 
 
+def _png_chunk(tag: bytes, payload: bytes) -> bytes:
+    crc = zlib.crc32(tag + payload) & 0xFFFFFFFF
+    return struct.pack('>I', len(payload)) + tag + payload + struct.pack('>I', crc)
+
+
+def _square_png_fallback_pure_python(src_path: Path, size: int = 512) -> bytes | None:
+    """Pure-Python center-crop + nearest resize for 8-bit non-interlaced RGB/RGBA PNGs when Pillow is unavailable."""
+    try:
+        raw = src_path.read_bytes()
+    except OSError:
+        return None
+    if len(raw) < 33 or raw[:8] != b'\x89PNG\r\n\x1a\n':
+        return None
+    pos = 8
+    width = height = bit_depth = color_type = interlace = 0
+    idat_parts: list[bytes] = []
+    while pos + 8 <= len(raw):
+        length = struct.unpack_from('>I', raw, pos)[0]
+        tag = raw[pos + 4:pos + 8]
+        data_start = pos + 8
+        data_end = data_start + length
+        if data_end + 4 > len(raw):
+            return None
+        chunk = raw[data_start:data_end]
+        pos = data_end + 4
+        if tag == b'IHDR' and length == 13:
+            width, height, bit_depth, color_type, comp, filt, interlace = struct.unpack('>IIBBBBB', chunk)
+            if comp != 0 or filt != 0 or interlace != 0 or bit_depth != 8 or color_type not in (2, 6):
+                return None
+        elif tag == b'IDAT':
+            idat_parts.append(chunk)
+        elif tag == b'IEND':
+            break
+    if width <= 0 or height <= 0 or not idat_parts:
+        return None
+    bpp = 3 if color_type == 2 else 4
+    stride = width * bpp
+    try:
+        decompressed = zlib.decompress(b''.join(idat_parts))
+    except zlib.error:
+        return None
+    if len(decompressed) < height * (stride + 1):
+        return None
+
+    rows: list[bytearray] = []
+    prev = bytearray(stride)
+    offset = 0
+    for _y in range(height):
+        ftype = decompressed[offset]
+        offset += 1
+        cur = bytearray(decompressed[offset:offset + stride])
+        offset += stride
+        if ftype == 0:
+            pass
+        elif ftype == 1:
+            for i in range(bpp, stride):
+                cur[i] = (cur[i] + cur[i - bpp]) & 0xFF
+        elif ftype == 2:
+            for i in range(stride):
+                cur[i] = (cur[i] + prev[i]) & 0xFF
+        elif ftype == 3:
+            for i in range(stride):
+                left = cur[i - bpp] if i >= bpp else 0
+                cur[i] = (cur[i] + ((left + prev[i]) >> 1)) & 0xFF
+        elif ftype == 4:
+            for i in range(stride):
+                a = cur[i - bpp] if i >= bpp else 0
+                b = prev[i]
+                c = prev[i - bpp] if i >= bpp else 0
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                cur[i] = (cur[i] + pr) & 0xFF
+        else:
+            return None
+        rows.append(cur)
+        prev = cur
+
+    side = min(width, height)
+    x0 = (width - side) // 2
+    y0 = (height - side) // 2
+    out_rows = bytearray()
+    for dy in range(size):
+        sy = y0 + (dy * side) // size
+        src_row = rows[sy]
+        out_rows.append(0)  # filter type None
+        for dx in range(size):
+            sx = x0 + (dx * side) // size
+            p = sx * bpp
+            out_rows.extend(src_row[p:p + bpp])
+
+    ihdr = struct.pack('>IIBBBBB', size, size, 8, color_type, 0, 0, 0)
+    compressed = zlib.compress(bytes(out_rows), level=6)
+    return b'\x89PNG\r\n\x1a\n' + _png_chunk(b'IHDR', ihdr) + _png_chunk(b'IDAT', compressed) + _png_chunk(b'IEND', b'')
+
+
+def _ensure_fallback_icon(framework: Path, banner_path: Path, *, size: int = 512) -> bool:
+    """Create `<framework>/icon.png` (512×512 PNG center-cropped from `banner_path`) when missing.
+
+    Never overwrites an existing game `icon.png`. Uses Pillow when installed and falls back to a
+    pure-Python PNG cropper (or safely skips) so headless / Pillow-free environments never crash.
+    """
+    icon_dest = framework / 'icon.png'
+    if icon_dest.is_file() or not banner_path.is_file():
+        return False
+    tmp_icon = framework / f'.icon.{uuid.uuid4().hex[:8]}.png.tmp'
+    try:
+        try:
+            from PIL import Image
+        except Exception:
+            Image = None  # type: ignore[assignment]
+        if Image is not None:
+            with Image.open(banner_path) as img:
+                w, h = img.size
+                side = min(w, h)
+                if side <= 0:
+                    return False
+                left = (w - side) // 2
+                top = (h - side) // 2
+                cropped = img.crop((left, top, left + side, top + side))
+                resampling = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS', 1)
+                resized = cropped.convert('RGBA').resize((size, size), resampling)
+                resized.save(tmp_icon, format='PNG')
+            os.replace(tmp_icon, icon_dest)
+            return True
+
+        png_bytes = _square_png_fallback_pure_python(banner_path, size=size)
+        if png_bytes:
+            tmp_icon.write_bytes(png_bytes)
+            os.replace(tmp_icon, icon_dest)
+            return True
+        return False
+    except Exception:
+        return False
+    finally:
+        if tmp_icon.exists():
+            try:
+                tmp_icon.unlink()
+            except OSError:
+                pass
+
+
 def place_banner(
     title_id: str,
     framework: str | os.PathLike,
     banners_dir: str | os.PathLike | None = None,
     picked: str | None = None,
+    *,
+    fetch_missing: bool = True,
+    opener: Callable | None = None,
 ) -> str | None:
-    """Copy the game's 16:9 banner into `<framework>/banner.<ext>`, or remove stale banners."""
+    """Copy the game's 16:9 banner into `<framework>/banner.<ext>`, or remove stale banners.
+
+    When neither `picked` nor a local cached banner exists and `fetch_missing` is True, attempts an
+    on-demand single-banner fetch into `banners_dir`. Also creates a 512×512 square `icon.png`
+    fallback from the placed banner whenever `<framework>/icon.png` is missing.
+    """
     fw = Path(framework)
     exts = ('png', 'jpg', 'jpeg', 'heic', 'webp')
     for ext in exts:
@@ -451,6 +604,10 @@ def place_banner(
         for ext in exts:
             cands.append(bdir / f'{tid_up}.{ext}')
     source = next((p for p in cands if p.is_file()), None)
+    if source is None and fetch_missing and banners_dir:
+        fetched = _kb.ensure_cached_banner(title_id, banners_dir, opener=opener)
+        if fetched and Path(fetched).is_file():
+            source = Path(fetched)
     if source is None:
         return None
     ext = source.suffix.lstrip('.').lower()
@@ -459,6 +616,7 @@ def place_banner(
     dest = fw / f'banner.{ext}'
     try:
         shutil.copy2(source, dest)
+        _ensure_fallback_icon(fw, dest, size=512)
         return str(source)
     except OSError:
         return None

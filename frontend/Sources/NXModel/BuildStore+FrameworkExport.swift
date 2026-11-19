@@ -57,7 +57,7 @@ extension BuildStore {
         }
     }
 
-    nonisolated private static func stageAndReplaceFramework(
+    nonisolated package static func stageAndReplaceFramework(
         framework: String,
         titleID: String,
         outFolder: String,
@@ -65,7 +65,8 @@ extension BuildStore {
         runner: ProcessRunner,
         banners: URL,
         pickedBanner: String?,
-        workDir: String
+        workDir: String,
+        ensureBanner: @escaping (String, URL) -> URL? = { BannerCache.ensureCachedBanner(titleID: $0, banners: $1) }
     ) -> (destPath: String?, error: String?) {
         let fm = FileManager.default
         guard !framework.isEmpty, fm.fileExists(atPath: framework) else {
@@ -87,7 +88,7 @@ extension BuildStore {
         do {
             try fm.createDirectory(at: outURL, withIntermediateDirectories: true)
             try fm.copyItem(at: URL(fileURLWithPath: framework, isDirectory: true), to: tmpURL)
-            _ = ShellInstall.placeBanner(titleID: titleID, framework: tmpURL.path, banners: banners, picked: pickedBanner, fm: fm)
+            _ = ShellInstall.placeBanner(titleID: titleID, framework: tmpURL.path, banners: banners, picked: pickedBanner, fm: fm, ensureCached: ensureBanner)
 
             let plistURL = tmpURL.appendingPathComponent("Info.plist")
             guard fm.fileExists(atPath: plistURL.path),

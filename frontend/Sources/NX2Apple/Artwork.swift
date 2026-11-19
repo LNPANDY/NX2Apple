@@ -24,7 +24,7 @@ actor ArtworkStore {
     }()
 
     static let titleListURL = URL(string: "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json")!
-    static let imageHosts: Set<String> = ["img-eshop.cdn.nintendo.net", "cdn2.steamgriddb.com", "www.nintendo.com"]
+    static let imageHosts: Set<String> = KnownGameBanners.imageHosts
     /// The index format. An index written by an older launcher (no version: the first product per title ID won) is fetched
     /// again once, so its picks are made by `BannerPick`. Version 4 adds square metadata icons.
     static let indexVersion = 4
@@ -46,6 +46,8 @@ actor ArtworkStore {
     private let allowsFileURLs: Bool   // tests serve the list and the images from disk
     private let now: () -> Date
     private let retryCooldown: TimeInterval
+    private let knownBanners: [String: String]
+    private let directBannerURL: @Sendable (String) -> String?
     private var index: Index?
     private var listFailedAt: Date?   // cools down instead of locking the entire session after a transient outage
     private var running = false
@@ -100,16 +102,20 @@ actor ArtworkStore {
     private var seen: Set<String> = []   // the title IDs asked for since launch: the media to keep when the list is read again
 
     init(directory: URL, titleList: URL = ArtworkStore.titleListURL, allowsFileURLs: Bool = false, regional: [String: URL]? = nil,
-         catalogue: CleanArt.Lookup? = nil, now: @escaping () -> Date = Date.init, retryCooldown: TimeInterval = ArtworkStore.listRetryCooldown) {
+         catalogue: CleanArt.Lookup? = nil, knownBanners: [String: String]? = nil,
+         directBannerURL: (@Sendable (String) -> String?)? = nil,
+         now: @escaping () -> Date = Date.init, retryCooldown: TimeInterval = ArtworkStore.listRetryCooldown) {
         self.directory = directory
         self.titleList = titleList
         self.allowsFileURLs = allowsFileURLs
         self.now = now
         self.retryCooldown = max(0, retryCooldown)
+        self.knownBanners = knownBanners ?? (allowsFileURLs ? [:] : KnownGameBanners.urls)
+        self.directBannerURL = directBannerURL ?? (allowsFileURLs ? { _ in nil } : { KnownGameBanners.nlibBannerURL(for: $0) })
         self.regional = regional ?? Dictionary(uniqueKeysWithValues: Self.regionalLists.keys.compactMap { code in Self.titleListURL(for: code).map { (code, $0) } })
-        // Tests that serve their images from disk get no catalogue unless they pass one: it is on the network
+        // searching.nintendo-europe.com times out at TLS; skip the dead live lookup unless a caller injects one.
         let emptyLookup: CleanArt.Lookup = { _, _ in [:] }
-        self.catalogue = catalogue ?? (allowsFileURLs ? emptyLookup : CleanArt.live)
+        self.catalogue = catalogue ?? emptyLookup
     }
 
     private var listFailed: Bool {
@@ -244,30 +250,56 @@ actor ArtworkStore {
             idle = []
             for caller in waiting { caller.resume() }
         }
-        if lacksMedia, !listFailed {
+        var refreshedList = false
+        if lacksMedia {
             await refresh(language: lang, generation: generation)
+            refreshedList = true
             guard languageGeneration == generation else { return [] }
         }
         guard !wanted.isEmpty else {
             if languageGeneration == generation { writeSources(sources) }
             return []
         }
-        // A title on the clean list (or, in lightweight network mode, in SupportedBanners) needs no 90 MB title list.
-        let useShippedBanners = lightweight && !allowsFileURLs
-        let fromList = wanted.filter { clean(for: $0) == nil && !(useShippedBanners && SupportedBanners.urls[$0] != nil) }
+        // Tier 1: KnownGameBanners / clean catalogue. Tier 2: single-title nlib.cc endpoint (8s timeout) before fetching the 90 MB title list.
+        let useShippedBanners = !knownBanners.isEmpty
+        var fromList = wanted.filter { clean(for: $0) == nil && !(useShippedBanners && knownBanners[$0] != nil) }
+        var added: [String] = []
+        var directHandled: Set<String> = []
+        if !fromList.isEmpty {
+            for id in fromList.sorted() {
+                guard languageGeneration == generation else { return added }
+                guard Self.cachedBanner(id, in: directory) == nil,
+                      index?.banners[id] == nil,
+                      let directLink = directBannerURL(id) else { continue }
+                do {
+                    let data = try await fetchImageData(directLink, timeout: 8)
+                    guard languageGeneration == generation else { return added }
+                    try writeImageData(data, to: directory.appendingPathComponent(id + ".jpg"))
+                    sources[id] = directLink
+                    added.append(id)
+                    directHandled.insert(id)
+                } catch {
+                    fputs("artwork: \(id): direct \(directLink): \(error.localizedDescription)\n", stderr)
+                }
+            }
+            if !directHandled.isEmpty { fromList.subtract(directHandled) }
+        }
         let resolvedIndex: Index?
         if fromList.isEmpty {
-            resolvedIndex = nil
-        } else if useShippedBanners {
+            resolvedIndex = index
+        } else if lightweight && !allowsFileURLs {
             resolvedIndex = index   // never download the 90 MB regional list merely to browse uncached supported titles
         } else {
-            resolvedIndex = await index(for: fromList, language: lang, generation: generation)
+            resolvedIndex = await index(for: fromList, language: lang, generation: generation, alreadyRefreshed: refreshedList)
         }
-        guard languageGeneration == generation else { return [] }
-        guard useShippedBanners || fromList.isEmpty || resolvedIndex != nil else { writeSources(sources); return [] }
+        guard languageGeneration == generation else { return added }
+        guard !added.isEmpty || useShippedBanners || fromList.isEmpty || resolvedIndex != nil
+                || wanted.contains(where: { clean(for: $0) != nil || fallbackBanner(for: $0) != nil }) else {
+            writeSources(sources); return added
+        }
         let current = resolvedIndex.map { $0.version == Self.indexVersion && $0.language == lang } ?? true
-        var added: [String] = []
         for id in wanted.sorted() {
+            if directHandled.contains(id) { continue }
             guard languageGeneration == generation else { return added }
             let cached = Self.cachedBanner(id, in: directory) != nil
             if let link = clean(for: id) {
@@ -315,8 +347,25 @@ actor ArtworkStore {
                     continue
                 }
             }
-            let shipped = useShippedBanners ? SupportedBanners.urls[id] : nil
-            guard let link = resolvedIndex?.banners[id] ?? shipped ?? fallbackBanner(for: id) else {
+            if resolvedIndex?.banners[id] == nil, useShippedBanners, let shipped = knownBanners[id] {
+                if cached && (lightweight || sources[id] != nil) { continue }
+                let candidates = KnownGameBanners.downloadCandidates(for: shipped, lightweight: lightweight)
+                for candidate in candidates {
+                    if cached && sources[id] == candidate { break }
+                    do {
+                        let data = try await fetchImageData(candidate)
+                        guard languageGeneration == generation else { return added }
+                        try writeImageData(data, to: directory.appendingPathComponent(id + ".jpg"))
+                        sources[id] = candidate
+                        added.append(id)
+                        break
+                    } catch {
+                        fputs("artwork: \(id): \(candidate): \(error.localizedDescription)\n", stderr)
+                    }
+                }
+                continue
+            }
+            guard let link = resolvedIndex?.banners[id] ?? fallbackBanner(for: id) else {
                 if cached && current && resolvedIndex != nil { sources[id] = "" }   // the list no longer has it: keep the banner, check it no more
                 continue
             }
@@ -369,7 +418,7 @@ actor ArtworkStore {
         loadIndex()
         let indexLang = index?.language ?? "en"
         let hasRecord = index?.media?[id] != nil || (index?.missed?.contains(id) ?? false)
-        if index == nil || index?.version != Self.indexVersion || indexLang != lang || !hasRecord, !listFailed {
+        if index == nil || index?.version != Self.indexVersion || indexLang != lang || !hasRecord || retrying, !listFailed {
             await refresh(language: lang, generation: generation)
         }
         if let media = index?.media?[id] {
@@ -417,15 +466,17 @@ actor ArtworkStore {
         }
     }
 
-    /// Fetch and validate an image from Nintendo's CDN: at most 20 MB, and one that decodes.
+    /// Fetch and validate an image from an allowed host: at most 20 MB, and one that decodes.
     /// Transient network errors retry once after a brief backoff; permanent 404/refused/unreadable errors fail immediately.
-    private func fetchImageData(_ link: String?) async throws -> Data {
+    private func fetchImageData(_ link: String?, timeout: TimeInterval? = nil) async throws -> Data {
         guard let link, let url = URL(string: link), allowed(url) else { throw ArtworkError.refused }
+        var request = URLRequest(url: url)
+        if let timeout { request.timeoutInterval = timeout }
         var lastError: Error?
-        let maxAttempts = url.isFileURL ? 1 : 2
+        let maxAttempts = (url.isFileURL || timeout != nil) ? 1 : 2
         for attempt in 0..<maxAttempts {
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
+                let (data, response) = try await URLSession.shared.data(for: request)
                 if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw URLError(.badServerResponse) }
                 guard data.count < 20 << 20, NSImage(data: data) != nil else { throw ArtworkError.unreadable }
                 return data
@@ -453,10 +504,10 @@ actor ArtworkStore {
     }
 
     /// The title ID → banner URL index: the saved one while it is current and fresh or knows every wanted title, else the list again.
-    private func index(for wanted: Set<String>, language: String, generation: Int) async -> Index? {
+    private func index(for wanted: Set<String>, language: String, generation: Int, alreadyRefreshed: Bool = false) async -> Index? {
         loadIndex()
-        if let index, listFailed || index.version == Self.indexVersion && (index.language ?? "en") == language
-            && (wanted.isSubset(of: index.banners.keys) || now().timeIntervalSince(index.fetched) < 7 * 86400) {
+        if let index, alreadyRefreshed || listFailed || (index.version == Self.indexVersion && (index.language ?? "en") == language
+            && (wanted.isSubset(of: index.banners.keys) || now().timeIntervalSince(index.fetched) < 7 * 86400)) {
             return index
         }
         await refresh(language: language, generation: generation)
@@ -534,27 +585,20 @@ actor ArtworkStore {
         try? JSONEncoder().encode(sources).write(to: directory.appendingPathComponent("sources.json"), options: .atomic)
     }
 
-    /// Switch 2 and Nintendo Classics titles that blawar/titledb's regional lists do not carry yet: verified 16:9 key art
-    /// with the official logo on SteamGridDB's CDN, used only while the title list has no entry for the ID.
-    static let fallbackBanners: [String: String] = [
-        "0400245021D2C000": "https://cdn2.steamgriddb.com/grid/4019460f699df3ca57bb36a6cc8b1ce5.png",   // Yoshi and the Mysterious Book
-        "0400380020056000": "https://cdn2.steamgriddb.com/grid/220a08c045f283231e519ed83cd21466.png",   // Splatoon Raiders
-        "04003F40232DE000": "https://cdn2.steamgriddb.com/grid/30430599d3640690ebddef63609c5f31.png",   // Hyrule Warriors: Age of Imprisonment
-        "0400486024DEC000": "https://cdn2.steamgriddb.com/grid/925526bdfb5910517494acb4db2537d5.png",   // The Legend of Zelda: Ocarina of Time
-        "04007EF01F8AE000": "https://cdn2.steamgriddb.com/grid/f73cc1e0813d90b30a22ca9af2e9c8b0.png",   // Fire Emblem: Fortune's Weave
-        "0400A3A01EE4C000": "https://cdn2.steamgriddb.com/grid/00b97e285bef52b2826cfbeecd4d30f7.png",   // Pokémon Pokopia
-        "0400D4201C6EA000": "https://cdn2.steamgriddb.com/grid/eb3353d1afeb0b6b1c6507bb5d39c757.png",   // Mario Tennis Fever
-        "0400E88025B1A000": "https://cdn2.steamgriddb.com/grid/a82908cc940793dc1d63acfc0218b2f9.jpg",   // Star Fox
-    ]
+    /// Switch 2 and Nintendo Classics titles that blawar/titledb's regional lists do not carry yet.
+    static let fallbackBanners: [String: String] = KnownGameBanners.switch2Fallbacks
     private var customFallbacks: [String: String]?
 
     init(directory: URL, titleList: URL, fallbacks: [String: String], catalogue: CleanArt.Lookup? = nil,
+         knownBanners: [String: String] = [:], directBannerURL: (@Sendable (String) -> String?)? = nil,
          now: @escaping () -> Date = Date.init, retryCooldown: TimeInterval = ArtworkStore.listRetryCooldown) {
         self.directory = directory
         self.titleList = titleList
         self.allowsFileURLs = true
         self.now = now
         self.retryCooldown = max(0, retryCooldown)
+        self.knownBanners = knownBanners
+        self.directBannerURL = directBannerURL ?? { _ in nil }
         self.regional = [:]
         self.catalogue = catalogue ?? { _, _ in [:] }
         self.customFallbacks = fallbacks

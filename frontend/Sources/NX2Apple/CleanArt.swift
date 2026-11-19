@@ -105,11 +105,16 @@ enum CleanArt {
     }
 
     static let live: Lookup = { language, titleIDs in
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 3
+        config.timeoutIntervalForResource = 5
+        let session = URLSession(configuration: config)
+        defer { session.finishTasksAndInvalidate() }
         var found: [String: String] = [:]
         for start in stride(from: 0, to: titleIDs.count, by: 40) {
             let chunk = Array(titleIDs[start..<min(start + 40, titleIDs.count)])
             guard let url = query(language: language, titleIDs: chunk) else { continue }
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await session.data(from: url)
             if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw URLError(.badServerResponse) }
             found.merge(try images(from: data)) { first, _ in first }
         }

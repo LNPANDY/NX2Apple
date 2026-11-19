@@ -225,7 +225,7 @@ extension ShellInstaller {
         let pickedByID = Dictionary(uniqueKeysWithValues: games.map { ($0.titleID.uppercased(), $0.pickedArtwork) })
         for game in library.games {
             let picked = pickedByID[game.titleID.uppercased()] ?? nil
-            _ = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked)
+            _ = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked, ensureCached: ensureBanner)
         }
 
         let stageDir = NSTemporaryDirectory() + "nspb-hot-fw-\(UUID().uuidString.prefix(8))"

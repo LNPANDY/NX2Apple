@@ -82,7 +82,7 @@ extension ShellInstaller {
         for game in games.dropLast() {
             library.add(.init(titleID: game.titleID, name: game.name, framework: game.framework))
             if let picked = game.pickedArtwork {
-                _ = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked)
+                _ = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked, ensureCached: ensureBanner)
             }
         }
         do {
@@ -104,7 +104,7 @@ extension ShellInstaller {
         for game in games.dropLast() {
             if let picked = game.pickedArtwork,
                let entry = mirrored.games.first(where: { $0.titleID.caseInsensitiveCompare(game.titleID) == .orderedSame }) {
-                _ = ShellInstall.placeBanner(titleID: entry.titleID, framework: entry.framework, banners: banners, picked: picked)
+                _ = ShellInstall.placeBanner(titleID: entry.titleID, framework: entry.framework, banners: banners, picked: picked, ensureCached: ensureBanner)
             }
         }
 
