@@ -66,7 +66,13 @@ package enum DependencyCheck {
     }
 
     /// The rows. `needsIOS`: the xcode row asks for the iOS SDK. `repo`: the checkout whose lock pins the Metal compiler ("" for none).
-    package static func detect(needsIOS: Bool, repo: String = "", customApp: String? = nil) -> [Dep] {
+    package static func detect(
+        needsIOS: Bool,
+        repo: String = "",
+        customApp: String? = nil,
+        upstream: EngineUpstreamKind = .nxnative,
+        s2armPath: String = ""
+    ) -> [Dep] {
         let runner = SystemProcessRunner(xcodeApp: customApp)
         let macMetal = Toolchain.firstOutputLine("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"], runner: runner)
         let macSDK = Toolchain.runOK("/usr/bin/xcrun", ["--sdk", "macosx", "--show-sdk-version"], runner: runner)
@@ -80,28 +86,64 @@ package enum DependencyCheck {
                         installed: { Toolchain.firstExisting(["/opt/homebrew/bin/\($0)", "/usr/local/bin/\($0)"]) },
                         brew: Toolchain.firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]))
 
-        let (dn, dnOK) = Toolchain.findDotnet()
-        out.append(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint",
-                       present: dnOK, detail: dnOK ? dn : "dep.dotnet.missing",
-                       installCmd: dotnetInstallCmd))
+        let isS2Arm = upstream == .s2arm
+        if isS2Arm {
+            let dnRes = S2ArmBuilder.findDotnet(tree: s2armPath, runner: runner)
+            let dnDetail: String
+            if dnRes.ok {
+                dnDetail = dnRes.path
+            } else if let old = dnRes.foundOldVersion {
+                dnDetail = "dep.dotnet.s2armOld" + ":" + old + ":" + dnRes.requiredVersion
+            } else {
+                dnDetail = "dep.dotnet.s2armMissing" + ":" + dnRes.requiredVersion
+            }
+            out.append(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint",
+                           present: dnRes.ok, detail: dnDetail, installCmd: dotnetInstallCmd))
+        } else {
+            let (dn, dnOK) = Toolchain.findDotnet()
+            out.append(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint",
+                           present: dnOK, detail: dnOK ? dn : "dep.dotnet.missing",
+                           installCmd: dotnetInstallCmd))
+        }
 
-        let (py, pyOK) = Toolchain.findPython()
+        let (py, pyOK) = Toolchain.findPython(includeS2Arm: isS2Arm)
         // A too-old interpreter is a different problem from a missing package: say which one it is,
         // because the fix differs (install a newer Python vs pip install into this one).
         // A version we cannot read means no interpreter ran at all (py is then the venv
         // that does not exist yet), which is not the same as one that is too old.
-        let pyDetail = Toolchain.pythonDetail(py: py, ok: pyOK)
+        let pyDetail: String
+        let pyInstallCmd: [String]
+        if isS2Arm && !pyOK,
+           let pyVer = Toolchain.pythonVersion(py, runner: runner),
+           pyVer >= Toolchain.minPython,
+           Toolchain.importsOK(py, includeS2Arm: false, runner: runner) {
+            let missing = S2ArmBuilder.missingPythonPackages(python: py, runner: runner)
+            let list = missing.isEmpty ? S2ArmBuilder.pipPackages : missing
+            pyDetail = "dep.python.s2armMissing" + ":" + list.joined(separator: ", ")
+            pyInstallCmd = [py, "-m", "pip", "install", "--user"] + list
+        } else {
+            pyDetail = Toolchain.pythonDetail(py: py, ok: pyOK)
+            let pkgs = Toolchain.pipPackages(Toolchain.pythonVersion(py, runner: runner) ?? Toolchain.minPython, includeS2Arm: isS2Arm)
+            pyInstallCmd = [py, "-m", "pip", "install", "--user"] + pkgs
+        }
         out.append(Dep(id: "python", name: "dep.python", hint: "dep.python.hint",
                        present: pyOK, detail: pyDetail,
-                       installCmd: [py, "-m", "pip", "install", "--user", "lz4", "capstone", "fonttools", "zbic", "backports.zstd"]))
+                       installCmd: pyInstallCmd))
         return out
     }
 
     /// The rows and the paths of the interpreter and of dotnet the build runs under.
-    package static func scan(needsIOS: Bool, repo: String, customApp: String? = nil) -> Result {
-        let deps = detect(needsIOS: needsIOS, repo: repo, customApp: customApp)
-        let (py, _) = Toolchain.findPython()
-        let (dn, _) = Toolchain.findDotnet()
+    package static func scan(
+        needsIOS: Bool,
+        repo: String,
+        customApp: String? = nil,
+        upstream: EngineUpstreamKind = .nxnative,
+        s2armPath: String = ""
+    ) -> Result {
+        let isS2Arm = upstream == .s2arm
+        let deps = detect(needsIOS: needsIOS, repo: repo, customApp: customApp, upstream: upstream, s2armPath: s2armPath)
+        let (py, _) = Toolchain.findPython(includeS2Arm: isS2Arm)
+        let dn = isS2Arm ? S2ArmBuilder.findDotnet(tree: s2armPath).path : Toolchain.findDotnet().path
         return Result(deps: deps, python: py, dotnet: FileManager.default.isExecutableFile(atPath: dn) ? dn : "")
     }
 

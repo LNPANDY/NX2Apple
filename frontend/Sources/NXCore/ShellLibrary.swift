@@ -24,9 +24,40 @@ package struct ShellLibrary: Codable, Equatable {
     /// per-game install uses). Once stored in shell.json it stays: the app's Documents (game data, saves) belong to the identifier.
     package static func teamVariant(team: String) -> String { defaultBundleID + "." + team }
 
+    /// Normalizes a game title written to `shell.json`, preferring `game.manifest.json` when `raw` is a raw package filename or blank,
+    /// and stripping `[0100...][v0]` dump tags and `.nsp`/`.xci` extensions.
+    package static func cleanGameName(
+        _ raw: String,
+        framework: String = "",
+        titleID: String = "",
+        fm: FileManager = .default
+    ) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleaned = RomFSArchive.cleanPackageGameName(trimmed)
+        let looksRawOrEmpty = trimmed.isEmpty
+            || cleaned != trimmed
+            || trimmed.caseInsensitiveCompare(titleID) == .orderedSame
+        if looksRawOrEmpty,
+           !framework.isEmpty,
+           let data = fm.contents(atPath: framework + "/game.manifest.json"),
+           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let manifestName = (obj["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !manifestName.isEmpty,
+           manifestName.caseInsensitiveCompare(titleID) != .orderedSame {
+            return manifestName
+        }
+        if !cleaned.isEmpty {
+            return cleaned
+        }
+        let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return tid.isEmpty ? trimmed : tid
+    }
+
     /// Adding a game replaces the entry with the same title ID (a rebuilt game has a new framework folder), otherwise appends.
     package mutating func add(_ game: Game) {
-        if let i = games.firstIndex(where: { $0.titleID == game.titleID }) { games[i] = game } else { games.append(game) }
+        var normalized = game
+        normalized.name = Self.cleanGameName(game.name, framework: game.framework, titleID: game.titleID)
+        if let i = games.firstIndex(where: { $0.titleID == normalized.titleID }) { games[i] = normalized } else { games.append(normalized) }
     }
 
     /// Drops the games whose framework folder is gone, so the shell is never built against a missing one.

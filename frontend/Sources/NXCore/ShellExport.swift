@@ -38,6 +38,36 @@ extension ShellInstall {
     /// codesign refuses a file with a resource fork or Finder information.
     package static func cleanAttributesCommand(app: String) -> [String] { ["/usr/bin/xattr", "-cr", app + "/" + scheme] }
 
+    /// Byte size of an exported artifact: for a regular file (such as `.ipa`) its file size, and for a bundle directory (such as
+    /// `.framework` or `.app`) the overflow-safe recursive sum of regular files inside it (skipping symlinks and directory inodes).
+    package static func artifactSizeBytes(atPath path: String, fm: FileManager = .default) -> Int64 {
+        guard !path.isEmpty else { return 0 }
+        guard let attrs = try? fm.attributesOfItem(atPath: path),
+              let fileType = attrs[.type] as? FileAttributeType else {
+            return 0
+        }
+        if fileType == .typeRegular {
+            return max(0, (attrs[.size] as? NSNumber)?.int64Value ?? 0)
+        }
+        guard fileType == .typeDirectory else { return 0 }
+        let rootURL = URL(fileURLWithPath: path, isDirectory: true)
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+        guard let enumerator = fm.enumerator(at: rootURL, includingPropertiesForKeys: keys) else { return 0 }
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let vals = try? fileURL.resourceValues(forKeys: Set(keys)),
+                  vals.isSymbolicLink != true,
+                  vals.isRegularFile == true,
+                  let sz = vals.fileSize,
+                  sz > 0 else {
+                continue
+            }
+            let (next, overflow) = total.addingReportingOverflow(Int64(sz))
+            total = overflow ? Int64.max : next
+        }
+        return total
+    }
+
     /// The IPA: the stage folder holds `Payload/<app>.app`, and ditto writes it with Payload as the root (see `BuildCommands.ipaCommand`).
     package static func zipCommand(root: String) -> [String] {
         BuildCommands.ipaCommand(payload: exportStage(root: root) + "/Payload", ipa: ipaPath(root: root))

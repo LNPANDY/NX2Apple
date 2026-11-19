@@ -340,6 +340,8 @@ class Model(QObject):
         self.ipa_path = ''
         self.archive_path = ''
         self.mac_app_path = ''
+        self.needs_replace_old_img_reminder = False
+        self.updated_img_path = ''
         self.target = 'ios'   # 'ios' (an IPA) or 'mac-app' (a double-clickable Mac app; macOS only)
         self.bc_on_cpu = False
         self.ipa_kind = 'shared'   # 'shared' (shell.ipaShared), 'oneGame' (shell.ipaOneGame), or 'framework' (shell.ipaFramework)
@@ -719,13 +721,29 @@ class Model(QObject):
         put a literal %@ on screen. A missing interpreter is its own state, and on Windows its
         fix is the in-app installer.
         """
+        is_s2arm = self.is_s2arm_selected
+        if py_ok and is_s2arm:
+            missing_s2a = s2arm_builder.missing_python_packages(py)
+            if missing_s2a:
+                return Dep(
+                    'python',
+                    'dep.python',
+                    'dep.python.hint',
+                    DepState.MISSING,
+                    'dep.python.s2armMissing:' + ', '.join(missing_s2a),
+                    install=[py, '-m', 'pip', 'install', *missing_s2a],
+                )
         if py_ok:
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.OK, py)
         if py_ver and pu._ver_tuple(py_ver) >= pu.MIN_PYTHON:
+            pkgs = ['lz4', 'capstone', 'unicorn', 'fonttools', 'zbic', 'backports.zstd', 'nsz']
+            if is_s2arm:
+                for p in s2arm_builder.PIP_PACKAGES:
+                    if p.lower() not in {x.lower() for x in pkgs}:
+                        pkgs.append(p)
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
                        f'dep.python.missing:{py} ({py_ver})',
-                       install=[py, '-m', 'pip', 'install', 'lz4', 'capstone', 'unicorn',
-                                'fonttools', 'zbic', 'backports.zstd', 'nsz'])
+                       install=[py, '-m', 'pip', 'install', *pkgs])
         if pu.IS_WIN:
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
                        f'dep.python.none:{py or "python3"}',
@@ -750,10 +768,27 @@ class Model(QObject):
         # ".NET SDK 10 never appears in the log", came from exactly that gap.
         dn = dn_ok = None
         if not pu.IS_WIN:
-            dn, dn_ok = pu.find_dotnet()
-            deps.append(Dep('dotnet', 'dep.dotnet', 'dep.dotnet.hint',
-                            DepState.OK if dn_ok else DepState.MISSING,
-                            dn if dn_ok else 'dep.dotnet.missing'))
+            if self.is_s2arm_selected:
+                dn, dn_ok, req_ver, old_ver = s2arm_builder.find_dotnet_for_s2arm(tree=getattr(self, 's2arm_path', ''))
+                if dn_ok:
+                    dn_detail = dn
+                    dn_state = DepState.OK
+                elif old_ver:
+                    dn_detail = 'dep.dotnet.s2armOld:' + old_ver + ':' + req_ver
+                    dn_state = DepState.OLD
+                else:
+                    dn_detail = 'dep.dotnet.s2armMissing:' + req_ver
+                    dn_state = DepState.MISSING
+                dn_install = [] if dn_ok else [
+                    '/bin/bash', '-c',
+                    'curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/di.sh && chmod +x /tmp/di.sh && /tmp/di.sh --channel 10.0 --install-dir $HOME/.dotnet',
+                ]
+                deps.append(Dep('dotnet', 'dep.dotnet', 'dep.dotnet.hint', dn_state, dn_detail, install=dn_install))
+            else:
+                dn, dn_ok = pu.find_dotnet()
+                deps.append(Dep('dotnet', 'dep.dotnet', 'dep.dotnet.hint',
+                                DepState.OK if dn_ok else DepState.MISSING,
+                                dn if dn_ok else 'dep.dotnet.missing'))
 
         # Xcode (macOS) or the cross toolchain (Windows)
         if pu.IS_WIN:
@@ -1652,6 +1687,15 @@ class Model(QObject):
         if detail.startswith('dep.python.none:'):
             found = detail.split(':', 1)[1]
             return self.t('dep.python.none', found)
+        if detail.startswith('dep.python.s2armMissing:'):
+            pkgs = detail.split(':', 1)[1]
+            return self.t('dep.python.s2armMissing', pkgs)
+        if detail.startswith('dep.dotnet.s2armOld:'):
+            _, got, need = detail.split(':', 2)
+            return self.t('dep.dotnet.s2armOld', got, need)
+        if detail.startswith('dep.dotnet.s2armMissing:'):
+            need = detail.split(':', 1)[1]
+            return self.t('dep.dotnet.s2armMissing', need)
         if detail.startswith('dep.metal.other:'):
             _, got, tested = detail.split(':', 2)
             return self.t('dep.metal.other', got, tested)
@@ -2559,10 +2603,13 @@ class Model(QObject):
     def select_upstream(self, kind: str) -> bool:
         if self.running:
             return False
+        prev = getattr(self, 'build_upstream', 'nxnative')
         if kind == 'nxnative':
             self.build_upstream = 'nxnative'
             self.settings.setValue('buildUpstream', 'nxnative')
             self.upstreamStateChanged.emit()
+            if prev != 'nxnative':
+                self.check_deps()
             return True
         if kind == 's2arm' and s2arm_builder.feature_enabled() and self.is_upstream_installed('s2arm'):
             if self._upstream_coordinator.is_busy('s2arm'):
@@ -2570,6 +2617,8 @@ class Model(QObject):
             self.build_upstream = 's2arm'
             self.settings.setValue('buildUpstream', 's2arm')
             self.upstreamStateChanged.emit()
+            if prev != 's2arm':
+                self.check_deps()
             return True
         return False
 
@@ -2725,6 +2774,9 @@ class Model(QObject):
         self._fast_refresh_game_name = resolved_game_name
         self._fast_refresh_external_img = ''
         self._defer_shell_export = (not export_shell_at_end) if ipa_kind == 'shared' else False
+        if not self._defer_shell_export:
+            self.needs_replace_old_img_reminder = False
+            self.updated_img_path = ''
         self.mac_app_path = self.ipa_path = self.archive_path = ''
         self.effective_work_dir = work_dir
         self._build_cancelled = False
@@ -3061,6 +3113,8 @@ class Model(QObject):
         queued_ext_img = (getattr(self, '_queued_external_img_path', '') or '').strip()
         self._queued_external_img_path = ''
         self._fast_refresh_external_img = ''
+        self.needs_replace_old_img_reminder = False
+        self.updated_img_path = ''
         self._last_error = ''
         self.failure = None
         if self.is_s2arm_selected:
@@ -4804,6 +4858,18 @@ class Model(QObject):
                     self.log(line)
         return False
 
+    def _with_replace_old_img_reminder(self, note: str) -> str:
+        if not getattr(self, 'needs_replace_old_img_reminder', False):
+            return note
+        if getattr(self, '_defer_shell_export', False):
+            return note
+        img_p = getattr(self, 'updated_img_path', '') or ''
+        img_name = os.path.basename(img_p) if img_p else 'romfs.img'
+        reminder = self.t('imgGuide.replaceOldImgBody', img_name)
+        if reminder in (note or ''):
+            return note
+        return f'{note}\n{reminder}' if note else reminder
+
     def pack_archive(self, title_id: str | None = None, *, export_shell: bool = False) -> tuple[bool, str]:
         """Run the final shared-build step on the build worker."""
         work = getattr(self, 'effective_work_dir', '')
@@ -4861,14 +4927,19 @@ class Model(QObject):
                 ok_ext = self._inject_msl_trailer(Path(ext_img), msl_info)
                 if self.stages:
                     self.stages[-1].state = 'done' if ok_ext else 'failed'
+                    if ok_ext:
+                        self.stages[-1].detail = self.t('prog.externalImgUpdated', os.path.basename(ext_img))
                 self.stagesChanged.emit()
                 pbc.clean_work_dir(work, remove_extracted_romfs=False, remove_shell_framework=False)
                 if not ok_ext:
                     return False, self.t('msg.archiveFailed')
+                self.log(self.t('imgGuide.externalUpdatedLog', ext_img) + '\n')
+                self.needs_replace_old_img_reminder = True
+                self.updated_img_path = str(ext_img)
                 if export_shell:
                     return self._export_shell_after_archive(True, '')
                 self._record_library_ios_completion(tid if (title_id or tid_is_hex) else None)
-                return True, ''
+                return True, self._with_replace_old_img_reminder('')
             pbc.clean_work_dir(work, remove_extracted_romfs=False, remove_shell_framework=False)
             if export_shell:
                 return self._export_shell_after_archive(True, self.t('msg.archiveSkipped', str(extract)))
@@ -4929,6 +5000,9 @@ class Model(QObject):
 
             if ok and out_img.is_file() and msl_info is not None:
                 ok = self._inject_msl_trailer(out_img, msl_info)
+                if ok and (getattr(self, '_is_fast_refresh', False) or bool(ext_img) or not versions):
+                    self.needs_replace_old_img_reminder = True
+                    self.updated_img_path = str(out_img)
             if (
                 ok
                 and ext_img
@@ -4937,7 +5011,9 @@ class Model(QObject):
                 and msl_info is not None
                 and (not out_img.exists() or not pbc._same_location(Path(ext_img), out_img))
             ):
-                self._inject_msl_trailer(Path(ext_img), msl_info)
+                if self._inject_msl_trailer(Path(ext_img), msl_info):
+                    self.needs_replace_old_img_reminder = True
+                    self.updated_img_path = str(ext_img)
 
             aoc_dst = Path(dest, 'aoc')
             aoc_src = Path(work, 'aoc') if work else Path('')
@@ -4963,7 +5039,7 @@ class Model(QObject):
             return self._export_shell_after_archive(True, '')
         if ok:
             self._record_library_ios_completion(tid if (title_id or tid_is_hex) else None)
-        return ok, '' if ok else self.t('msg.archiveFailed')
+        return ok, self._with_replace_old_img_reminder('') if ok else self.t('msg.archiveFailed')
 
     def _export_shell_after_archive(self, archive_ok: bool, archive_note: str) -> tuple[bool, str]:
         if not archive_ok:
@@ -5052,6 +5128,7 @@ class Model(QObject):
             exported_ids = {g.title_id.upper() for g in se.ShellLibrary.load(self.shell_cache_path).games}
             if tid.upper() in exported_ids:
                 pbc.clean_built_framework_container(fw)
+            msg = self._with_replace_old_img_reminder(msg)
         return ok, msg
 
     def _export_standalone_framework(
@@ -5124,7 +5201,7 @@ class Model(QObject):
         self._record_library_ios_completion(tid_up, name=fallback_name)
         pbc.clean_work_dir(work, remove_extracted_romfs=False, remove_shell_framework=False)
         pbc.clean_built_framework_container(fw)
-        return True, self.t('shell.frameworkExportDone', str(dest))
+        return True, self._with_replace_old_img_reminder(self.t('shell.frameworkExportDone', str(dest)))
 
     def _record_library_ios_completion(self, title_id: str | None = None, name: str = '') -> None:
         inputs_map: dict[str, list[str]] = {}

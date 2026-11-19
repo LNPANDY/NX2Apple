@@ -161,6 +161,106 @@ class S2ArmBuilderTests(unittest.TestCase):
         self.assertEqual(s2arm_builder.last_error(plain_log), "step 2 done")
         self.assertEqual(s2arm_builder.last_error(""), "")
 
+    def test_sdk_requirement_and_dotnet_version_gate(self):
+        from unittest import mock
+
+        self.assertEqual(s2arm_builder.sdk_requirement(''), ('10.0.403', 'latestFeature'))
+        tree = self.make_fake_tree()
+        self.assertEqual(s2arm_builder.sdk_requirement(str(tree)), ('10.0.403', 'latestFeature'))
+
+        compat = tree / 'compat' / 'tree'
+        compat.mkdir(parents=True, exist_ok=True)
+        (compat / 'global.json').write_text(
+            '{"sdk": {"version": "10.0.403", "rollForward": "latestFeature"}}',
+            encoding='utf-8',
+        )
+        self.assertFalse(s2arm_builder.sdk_satisfies('10.0.402', '10.0.403', 'latestFeature'))
+        self.assertTrue(s2arm_builder.sdk_satisfies('10.0.403', '10.0.403', 'latestFeature'))
+        self.assertTrue(s2arm_builder.sdk_satisfies('10.0.404', '10.0.403', 'latestFeature'))
+        self.assertTrue(s2arm_builder.sdk_satisfies('10.0.500', '10.0.403', 'latestFeature'))
+
+        def fake_run(cmd, _env):
+            exe = cmd[0]
+            out = '10.0.402 [/sdk]\n' if 'old' in exe else '10.0.403 [/sdk]\n'
+            return 0, out
+
+        path_old, ok_old, req_ver, found_old = s2arm_builder.find_dotnet_for_s2arm(
+            candidates=['/fake/dotnet-old'],
+            tree=str(tree),
+            runner=fake_run,
+        )
+        self.assertFalse(ok_old)
+        self.assertEqual(req_ver, '10.0.403')
+        self.assertEqual(found_old, '10.0.402')
+
+        path_new, ok_new, _, found_old2 = s2arm_builder.find_dotnet_for_s2arm(
+            candidates=['/fake/dotnet-old', '/fake/dotnet-new'],
+            tree=str(tree),
+            runner=fake_run,
+        )
+        self.assertTrue(ok_new)
+        self.assertEqual(path_new, '/fake/dotnet-new')
+        self.assertIsNone(found_old2)
+
+    def test_missing_python_packages_detection(self):
+        self.assertEqual(
+            s2arm_builder.missing_python_packages(
+                '/fake/python3',
+                runner=lambda _cmd: (0, 'Pillow,skia-pathops\n'),
+            ),
+            ['Pillow', 'skia-pathops'],
+        )
+        self.assertEqual(
+            s2arm_builder.missing_python_packages(
+                '/fake/python3',
+                runner=lambda _cmd: (0, '\n'),
+            ),
+            [],
+        )
+
+
+try:
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+    from nspb_qt.i18n import Lang
+    from nspb_qt import library as lib_mod
+    from nspb_qt import model as model_mod
+    from nspb_qt.model import Model
+    HAS_QT = True
+except ImportError:
+    HAS_QT = False
+
+
+if HAS_QT:
+    class S2ArmModelDetailTests(unittest.TestCase):
+        @classmethod
+        def setUpClass(cls) -> None:
+            cls._app = QApplication.instance() or QApplication([])
+
+        def test_format_dep_detail_s2arm_tokens(self) -> None:
+            from unittest import mock
+
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                with mock.patch.object(lib_mod, 'default_state_dir', return_value=root / 'state'), \
+                     mock.patch.object(model_mod, 'QSettings', side_effect=lambda *a, **kw: QSettings(str(root / 's.ini'), QSettings.IniFormat)), \
+                     mock.patch.object(Model, 'check_deps', lambda _self: None), \
+                     mock.patch.object(lib_mod.ArtworkStore, 'request_banner_async'):
+                    m = Model()
+                    m.set_lang(Lang('en'))
+                    py_msg = m.format_dep_detail('dep.python.s2armMissing:Pillow, skia-pathops')
+                    self.assertNotEqual(py_msg, 'dep.python.s2armMissing')
+                    self.assertIn('Pillow, skia-pathops', py_msg)
+                    self.assertEqual(py_msg, 'Missing S2Arm Python packages: Pillow, skia-pathops')
+
+                    old_msg = m.format_dep_detail('dep.dotnet.s2armOld:9.0.100:10.0.403')
+                    self.assertNotEqual(old_msg, 'dep.dotnet.s2armOld')
+                    self.assertEqual(old_msg, 'Found 9.0.100, S2Arm requires .NET SDK 10.0.403 or newer')
+
+                    miss_msg = m.format_dep_detail('dep.dotnet.s2armMissing:10.0.403')
+                    self.assertNotEqual(miss_msg, 'dep.dotnet.s2armMissing')
+                    self.assertEqual(miss_msg, 'S2Arm requires .NET SDK 10.0.403 or newer')
+
 
 if __name__ == '__main__':
     unittest.main()
