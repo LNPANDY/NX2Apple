@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(PhotosUI)
+import PhotosUI
+#endif
 
 /// The library's actions, panels opening and closing, and the focus rules.
 extension LibraryView {
@@ -49,6 +52,12 @@ extension LibraryView {
                 guard !gate.isSystemEcho else { return false }
                 return await addWithGuide(id, floatingGuide)
             }
+        }
+        a.onSaveCustomCover = o.onSaveCustomCover.map { save in
+            { id, data in if !echo() { save(id, data) } }
+        }
+        a.onResetCustomCover = o.onResetCustomCover.map { reset in
+            { id in if !echo() { reset(id) } }
         }
         return a
     }
@@ -145,6 +154,82 @@ extension LibraryView {
         homeScreenGameID = nil
         focus.id = returnFocus
     }
+    var activeCoverCrop: CoverCropSession? {
+        coverCropInSheetSession ?? coverCropSession
+    }
+    func openCoverPicker(_ id: String) {
+        guard noteTouch(), actions.supportsCustomCover else { return }
+        coverPickerGameID = id
+        coverPickerGeneration &+= 1
+        if menuPresented {
+            coverPickerInSheetPresented = true
+        } else {
+            coverPickerPresented = true
+        }
+    }
+    func resetCustomCover(_ id: String) {
+        guard noteTouch() else { return }
+        actions.onResetCustomCover?(id)
+    }
+    func confirmCoverCrop(_ jpegData: Data, for gameID: String) {
+        guard !fromSystemEcho else { return }
+        coverCropSession = nil
+        coverCropInSheetSession = nil
+        focus.id = returnFocus
+        actions.onSaveCustomCover?(gameID, jpegData)
+    }
+    func closeCoverCrop() {
+        guard !fromSystemEcho else { return }
+        coverCropSession = nil
+        coverCropInSheetSession = nil
+        focus.id = returnFocus
+    }
+    #if canImport(PhotosUI)
+    func handlePickedCoverPhoto(_ item: PhotosPickerItem) {
+        guard let gameID = coverPickerGameID else { return }
+        let generation = coverPickerGeneration
+        let inSheet = menuPresented
+        Task {
+            let rawData = try? await item.loadTransferable(type: Data.self)
+            let decoded: CGImage?
+            if let rawData {
+                decoded = await Task.detached(priority: .userInitiated) {
+                    CoverImageProcessor.decodeNormalizedImage(from: rawData)
+                }.value
+            } else {
+                decoded = nil
+            }
+            guard coverPickerGeneration == generation, let decoded else { return }
+            let title = games.first(where: { $0.id == gameID })?.game.title ?? ""
+            let session = CoverCropSession(gameID: gameID, gameTitle: title, image: decoded)
+            returnFocus = focus.id
+            focus.id = "crp.done"
+            if inSheet && menuPresented {
+                coverCropInSheetSession = session
+            } else {
+                coverCropSession = session
+            }
+        }
+    }
+    #endif
+    func coverCropModal(_ session: CoverCropSession) -> some View {
+        CoverCropView(
+            gameTitle: session.gameTitle,
+            image: session.image,
+            allowsPhotoRepick: true,
+            onConfirm: { jpeg in confirmCoverCrop(jpeg, for: session.gameID) },
+            onCancel: { closeCoverCrop() }
+        )
+        .coordinateSpace(name: "shell")
+        .environment(\.shellFocus, focus)
+        .environment(\.shellFocusRefresh, focusRefresh)
+        .environment(\.shellIgnoresPress, { [gate] in gate.isSystemEcho })
+        .onPreferenceChange(FocusTargets.self) { targets.values = visibleTargets($0) }
+        .tint(ShellPalette.cream)
+        .preferredColorScheme(.dark)
+        .interactiveDismissDisabled()
+        .modifier(ShellKeyboardNavigation(active: true) { handle($0, from: .keyboard) })
+    }
     /// The question starts on Cancel, with the saves kept.
     func openDelete(_ id: String) { guard noteTouch() else { return }; returnFocus = focus.id; deleteSaves = false; deleteGameID = id; focus.id = "del.cancel" }
     func closeDelete() { guard !fromSystemEcho else { return }; deleteGameID = nil; focus.id = returnFocus }
@@ -229,7 +314,8 @@ extension LibraryView {
     }
     func back() {
         guard !fromSystemEcho else { return }
-        if buttonTestOpen { closeButtonTest() }
+        if activeCoverCrop != nil { closeCoverCrop() }
+        else if buttonTestOpen { closeButtonTest() }
         else if padMapping?.row != nil { closePadRow() }
         else if padMapping != nil { closePadMapping() }
         else if choice != nil { closeChoice() }
@@ -326,6 +412,7 @@ extension LibraryView {
     }
     /// The dialog or panel on top, in the order of `FocusLayer`.
     var topLayer: FocusLayer? {
+        if activeCoverCrop != nil { return .coverCrop }
         if buttonTestOpen { return .buttonTest }
         if padMapping != nil { return .padMapping }
         if choice != nil { return .choice }
@@ -347,6 +434,7 @@ extension LibraryView {
         if let id = focus.id, id.hasPrefix("lib.tile.") { select(String(id.dropFirst("lib.tile.".count))) }
     }
     var defaultFocus: String? {
+        if activeCoverCrop != nil { return "crp.done" }
         if buttonTestOpen { return "test.close" }
         if let padMapping { return padMapping.row == nil ? "map.close" : "map.back" }
         if let choice { return "pick." + choice.row.value }

@@ -76,6 +76,20 @@ import XCTest
         XCTAssertEqual(frameRate.value as? String, "1")
     }
 
+    func testGameSettingsShowsChangeCoverButtonWithoutResetWhenDefault() {
+        launch(select: "0100000000010000")
+        let settings = app.buttons["settings.open"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        settings.tap()
+        let scroll = app.descendants(matching: .any)["settings.scroll"].firstMatch
+        let changeCover = app.buttons["set.cover"]
+        for _ in 0..<8 where !changeCover.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(changeCover.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["set.cover.reset"].exists)
+    }
+
     func testStrippedFrameworkWithoutShadersShowsUpdateDataAction() {
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["--host", "--select", "0100000000010000", "--omit-msl", "0100000000010000"]

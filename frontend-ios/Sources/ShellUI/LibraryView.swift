@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(PhotosUI)
+import PhotosUI
+#endif
 
 /// How the library arranges itself. Only the available size decides, never the device model or orientation,
 /// so a Stage Manager window, Split View and a foldable opening while the app runs all follow the same rules.
@@ -61,6 +64,16 @@ public struct LibraryView: View {
     @State var restoreBackupLabel = ""
     /// The game whose Add to Home Screen guide is open.
     @State var homeScreenGameID: String?
+    /// The game currently picking or cropping a custom 16:9 cover.
+    @State var coverPickerGameID: String?
+    @State var coverPickerPresented = false
+    @State var coverPickerInSheetPresented = false
+    @State var coverPickerGeneration: UInt64 = 0
+    @State var coverCropSession: CoverCropSession?
+    @State var coverCropInSheetSession: CoverCropSession?
+    #if canImport(PhotosUI)
+    @State var selectedCoverPhotoItem: PhotosPickerItem?
+    #endif
     /// The game whose Delete question is open, and whether its saves go too.
     @State var deleteGameID: String?
     @State var deleteSaves = false
@@ -183,6 +196,18 @@ public struct LibraryView: View {
                         if let touchLayout { editorPage(touchLayout) }
                     }
                     #endif
+                    #if canImport(PhotosUI)
+                    .photosPicker(isPresented: $coverPickerInSheetPresented, selection: $selectedCoverPhotoItem, matching: .images, photoLibrary: .shared())
+                    #endif
+                    #if os(iOS)
+                    .fullScreenCover(item: $coverCropInSheetSession) { session in
+                        coverCropModal(session)
+                    }
+                    #else
+                    .sheet(item: $coverCropInSheetSession) { session in
+                        coverCropModal(session)
+                    }
+                    #endif
                     .presentationSizing(LauncherMenuSizing(mapping: padMapping != nil))
                     // shortcut: cap tabletop sheets until the runtime keeps large detents clear of the fold.
                     .presentationDetents(horizontalDivision ? [.medium] : [.large])
@@ -192,7 +217,7 @@ public struct LibraryView: View {
                     .presentationContentInteraction(touchLayout != nil ? .scrolls : .automatic)
                     .interactiveDismissDisabled(touchLayout != nil)
                     .modifier(MenuPlacement(divided: divisionAxis == .vertical, secondary: controllersOpen || shellSettingsOpen))
-                    .modifier(ShellKeyboardNavigation(active: touchLayout == nil && padMapping?.row == nil) { handle($0, from: .keyboard) })
+                    .modifier(ShellKeyboardNavigation(active: touchLayout == nil && padMapping?.row == nil && coverCropInSheetSession == nil) { handle($0, from: .keyboard) })
             }
 
             .environment(\.shellOpenTouchLayout, { openTouchLayout(whole, insets) })
@@ -227,7 +252,25 @@ public struct LibraryView: View {
         .environment(\.shellShowHelp, { game in openHelp(game.id) })
         .environment(\.shellAskRestoreBackup, { game, label in openRestoreBackup(game.id, label: label) })
         .environment(\.shellAskHomeScreen, actions.supportsHomeScreen ? { game in openHomeScreen(game.id) } : nil)
+        .environment(\.shellAskChangeCover, actions.supportsCustomCover ? { game in openCoverPicker(game.id) } : nil)
         .environment(\.shellAskDelete, { game in openDelete(game.id) })
+        #if canImport(PhotosUI)
+        .photosPicker(isPresented: $coverPickerPresented, selection: $selectedCoverPhotoItem, matching: .images, photoLibrary: .shared())
+        .onChange(of: selectedCoverPhotoItem) { _, item in
+            guard let item else { return }
+            selectedCoverPhotoItem = nil
+            handlePickedCoverPhoto(item)
+        }
+        #endif
+        #if os(iOS)
+        .fullScreenCover(item: $coverCropSession) { session in
+            coverCropModal(session)
+        }
+        #else
+        .sheet(item: $coverCropSession) { session in
+            coverCropModal(session)
+        }
+        #endif
         .environment(\.shellFocus, focus)
         .environment(\.shellFocusRefresh, focusRefresh)
         .environment(\.shellInputDevice, device)
@@ -243,7 +286,7 @@ public struct LibraryView: View {
             inputSeen = log.last
         }
         .onAnyTouch { gate.touch() }
-        .modifier(ShellKeyboardNavigation(active: !menuPresented) { handle($0, from: .keyboard) })
+        .modifier(ShellKeyboardNavigation(active: !menuPresented && activeCoverCrop == nil) { handle($0, from: .keyboard) })
         .onAppear { focusRefresh &+= 1 }
         .onDisappear { targets.values.removeAll(); targets.libraryValues.removeAll() }
         .onChange(of: settingsOpen) { _, open in
@@ -298,6 +341,8 @@ public struct LibraryView: View {
         if buttonTestOpen { closeButtonTest() }
         choice = nil
         padMapping = nil
+        coverPickerInSheetPresented = false
+        coverCropInSheetSession = nil
         helpGameID = nil
         restoreBackupGameID = nil
         homeScreenGameID = nil
@@ -457,17 +502,21 @@ public struct LibraryView: View {
 
     @ViewBuilder func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets) -> some View {
         let homeScreenAction: ((String) -> Void)? = actions.supportsHomeScreen ? { openHomeScreen($0) } : nil
+        let coverPickerAction: ((String) -> Void)? = actions.supportsCustomCover ? { openCoverPicker($0) } : nil
+        let resetCoverAction: ((String) -> Void)? = actions.onResetCustomCover != nil ? { resetCustomCover($0) } : nil
         if layout.isCoverFlow {
             CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, obscured: menuPresented, screenInsets: insets,
                           select: select, primary: { primary($0) }, openSettings: openSettings, openControllers: openControllers,
-                          openShellSettings: openShellSettings, openHomeScreen: homeScreenAction)
+                          openShellSettings: openShellSettings, openHomeScreen: homeScreenAction,
+                          openCoverPicker: coverPickerAction, resetCover: resetCoverAction)
                 .equatable()
                 .transition(.opacity)
         } else {
             PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: insets.top, bottomInset: insets.bottom, obscured: menuPresented,
                             controllers: controllers.count, select: select, primary: { primary($0) },
                             openSettings: openSettings, openControllers: openControllers, openShellSettings: openShellSettings,
-                            openHomeScreen: homeScreenAction, position: $libraryPosition)
+                            openHomeScreen: homeScreenAction, openCoverPicker: coverPickerAction, resetCover: resetCoverAction,
+                            position: $libraryPosition)
                 .equatable()
                 .transition(.opacity)
         }
@@ -666,7 +715,8 @@ public struct LibraryView: View {
 
     var activeTargets: [FocusTarget] {
         let prefix: String
-        if buttonTestOpen { prefix = "test." }
+        if activeCoverCrop != nil { prefix = "crp." }
+        else if buttonTestOpen { prefix = "test." }
         else if padMapping != nil { prefix = "map." }
         else if choice != nil { prefix = "pick." }
         else if touchLayout != nil { prefix = "lay." }
