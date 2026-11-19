@@ -18,7 +18,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     // Settings
     case settings, settingsLibrary, settingsControls, settingsTools, settingsEngineError
     // Sheets
-    case deleteGame, controlsSheet, controllersSheet
+    case sheet(GallerySheet)
     // The first run
     case onboarding(MockOnboardingDriver.Scenario)
     // Console mode
@@ -37,7 +37,8 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
          .addGame, .addGameFound, .addGamePartial, .gamePage, .wizardPlatform, .wizardInstall, .buildsIdle, .buildsRunning,
          .buildOneStage, .buildMultiStage, .buildsQueued, .buildFinishedMac, .buildFinishedIOS, .buildsSetupHint, .buildFailed]
         + BuildFailureKind.allCases.filter { $0 != .diskFull }.map(GalleryScene.buildFailure)
-        + [.settings, .settingsLibrary, .settingsControls, .settingsTools, .settingsEngineError, .deleteGame, .controlsSheet, .controllersSheet]
+        + [.settings, .settingsLibrary, .settingsControls, .settingsTools, .settingsEngineError]
+        + GallerySheet.allCases.map(GalleryScene.sheet)
         + MockOnboardingDriver.Scenario.allCases.map(GalleryScene.onboarding)
         + [.consoleHome, .consoleEmpty, .consoleGamePage, .consoleBuilds, .consoleOptions, .consoleControllers, .consoleStarting]
     }
@@ -47,6 +48,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         switch self {
         case .buildFailure(let kind): return "buildFailure-" + kind.rawValue
         case .onboarding(let scenario): return "onboarding-" + scenario.rawValue
+        case .sheet(let sheet): return sheet.rawValue
         default: return String(describing: self)
         }
     }
@@ -61,7 +63,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
              .addGameFound, .addGamePartial, .buildOneStage, .buildMultiStage, .buildFinishedMac, .buildFinishedIOS: return .builds
         case .buildFailed, .buildFailure: return .failures
         case .settings, .settingsLibrary, .settingsControls, .settingsTools, .settingsEngineError: return .settings
-        case .deleteGame, .controlsSheet, .controllersSheet: return .sheets
+        case .sheet: return .sheets
         case .onboarding: return .onboarding
         case .consoleHome, .consoleEmpty, .consoleGamePage, .consoleBuilds, .consoleOptions, .consoleControllers, .consoleStarting: return .console
         }
@@ -105,9 +107,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .settingsControls: return "Controls"
         case .settingsTools: return "Tools"
         case .settingsEngineError: return "Engine failed"
-        case .deleteGame: return "Delete game"
-        case .controlsSheet: return "Keyboard controls"
-        case .controllersSheet: return "Controllers"
+        case .sheet(let sheet): return sheet.title
         case .onboarding(let scenario): return scenario.rawValue
         case .consoleHome: return "Home"
         case .consoleEmpty: return "Empty"
@@ -125,12 +125,21 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     var size: CGSize {
         switch self {
         case .libraryNarrow: return CGSize(width: 900, height: 680)
-        case .gameOptions, .deleteGame, .controlsSheet, .controllersSheet: return CGSize(width: 680, height: 720)
+        case .gameOptions: return CGSize(width: 680, height: 720)
+        case .sheet(let sheet): return sheet.size ?? CGSize(width: 680, height: 720)
         default: return Self.size
         }
     }
     /// Whether the gallery's size presets apply (a sheet keeps its size).
-    var resizable: Bool { ![.gameOptions, .deleteGame, .controlsSheet, .controllersSheet, .libraryNarrow].contains(self) }
+    var resizable: Bool {
+        if case .sheet = self { return false }
+        return ![.gameOptions, .libraryNarrow].contains(self)
+    }
+    /// A sheet drawn at the size it takes: as wide as its frame, as high as its content (GallerySheet.size nil).
+    var fitsContent: Bool {
+        if case .sheet(let sheet) = self { return sheet.size == nil }
+        return false
+    }
 
     /// How many of the fixture games the scene's library holds.
     var gameCount: Int {

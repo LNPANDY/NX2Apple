@@ -214,14 +214,8 @@ import NXLauncher
         case .settingsEngineError:
             stores.engineSync.failure = BuildFailure(kind: .engineOffline, gameName: nil)
             root = AnyView(launcher(.settings, category: .tools))
-        case .deleteGame:
-            let id = makeMacApp(for: 0, in: library)
-            let game = library.games.first { $0.id == id } ?? LibraryGame(titleID: catalog[0].titleID, name: catalog[0].name)
-            root = AnyView(DeleteGameSheet(game: game, shellRoot: directory.appendingPathComponent("shell").path, finished: { _ in }))
-        case .controlsSheet:
-            root = AnyView(ControlsView(layout: controls))
-        case .controllersSheet:
-            root = AnyView(ConsoleControllersSheet(driver: MockConsoleDriver(scenario: .controllers, lang: lang, animated: false), lang: lang, close: {}))
+        case .sheet(let sheet):
+            root = sheetView(sheet, stores: stores, library: library, controls: controls)
         case .onboarding(let scenario):
             root = AnyView(OnboardingDemoHost(scenario: scenario))
         case .consoleHome: root = console()
@@ -233,9 +227,10 @@ import NXLauncher
         case .consoleControllers: root = console(.controllers) { $0.openControllers() }
         }
         let frame = size ?? scene.size
-        return AnyView(root.environmentObject(PadFocus()).environmentObject(stores.localizer).launcherDropdownHost()
+        let scoped = root.environmentObject(PadFocus()).environmentObject(stores.localizer).launcherDropdownHost()
             .defaultAppStorage(defaults)   // @AppStorage in the views reads and writes the scene's suite, not the app's defaults
-            .frame(width: frame.width, height: frame.height).background(LauncherPalette.background))
+        if scene.fitsContent { return AnyView(scoped.fixedSize().background(LauncherPalette.background)) }   // the sheet's own size
+        return AnyView(scoped.frame(width: frame.width, height: frame.height).background(LauncherPalette.background))
     }
 
     /// What a failure's message adds to its row, as a build would give it.

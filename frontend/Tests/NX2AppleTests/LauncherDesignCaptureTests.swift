@@ -8,7 +8,7 @@ import NXModel
 
 /// Opt-in renders of every GalleryScene for the design review of LNPANDY/NX2Apple#1458, one PNG per scene, drawn by the same
 /// renderer as the state gallery's export (#1459). `NX_LAUNCHER_CAPTURE_DIR=<dir> swift test --filter LauncherDesignCaptureTests`,
-/// `NX_CAPTURE_LANG=de` for another language.
+/// `NX_CAPTURE_LANG=de` for another language, `NX_CAPTURE_GROUP=Sheets` for one group of the gallery.
 @MainActor final class LauncherDesignCaptureTests: IsolatedDefaultsTestCase {
     func testRenderDesignScenes() throws {
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
@@ -24,7 +24,9 @@ import NXModel
             addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
             fixtures = GalleryFixtures(lang: lang, covers: GalleryRealCovers.snapshot(into: folder), coverFolder: folder)
         }
-        for scene in GalleryScene.allCases {
+        // NX_CAPTURE_GROUP=Sheets (a GalleryScene.Group's name) renders that group only
+        let group = ProcessInfo.processInfo.environment["NX_CAPTURE_GROUP"]
+        for scene in GalleryScene.allCases where group == nil || scene.group.rawValue == group {
             let png = try XCTUnwrap(GalleryRenderer.png(scene, fixtures: fixtures), scene.id)
             try png.write(to: output.appendingPathComponent("\(scene.id)-\(lang.code).png"))
         }

@@ -39,7 +39,6 @@ final class DesignTokenGuardTests: XCTestCase {
         "ConsoleView.swift": 20,
         "ControlPresets.swift": 1,
         "Controls.swift": 4,
-        "DeleteGameSheet.swift": 6,
         "FrameTimesView.swift": 1,
         "FreeSpace.swift": 4,
         "GameControllerMappingView.swift": 3,
