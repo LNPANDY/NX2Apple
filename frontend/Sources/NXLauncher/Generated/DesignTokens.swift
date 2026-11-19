@@ -134,4 +134,86 @@ package enum DS {
         package static let quick: Double = 0.12
         package static let standard: Double = 0.2
     }
+
+    /// Console mode, read from across a room: its own type scale and sizes.
+    package enum Console {
+        package enum Font {
+            /// A game's title on its page and on the home screen
+            package static let largeTitle = SwiftUI.Font.manrope(52, .heavy)
+            package static let largeTitleSize: CGFloat = 52
+            package static let largeTitleTracking: CGFloat = -1.2
+            /// An empty state, a question
+            package static let title = SwiftUI.Font.manrope(32, .bold)
+            package static let titleSize: CGFloat = 32
+            package static let titleTracking: CGFloat = -0.6
+            /// A section header over a grouped list, a notice title
+            package static let headline = SwiftUI.Font.manrope(24, .semibold)
+            package static let headlineSize: CGFloat = 24
+            package static let headlineTracking: CGFloat = 0
+            /// Row titles and values
+            package static let body = SwiftUI.Font.manrope(20, .medium)
+            package static let bodySize: CGFloat = 20
+            package static let bodyTracking: CGFloat = 0
+            /// A selected segment, a button label, a stat value
+            package static let bodyStrong = SwiftUI.Font.manrope(20, .semibold)
+            package static let bodyStrongSize: CGFloat = 20
+            package static let bodyStrongTracking: CGFloat = 0
+            /// Row subtitles, the secondary line under a title
+            package static let callout = SwiftUI.Font.manrope(17, .regular)
+            package static let calloutSize: CGFloat = 17
+            package static let calloutTracking: CGFloat = 0
+            /// Stat labels, the hint bar, card captions
+            package static let footnote = SwiftUI.Font.manrope(15, .medium)
+            package static let footnoteSize: CGFloat = 15
+            package static let footnoteTracking: CGFloat = 0
+        }
+        package enum Space {
+            package static let xs: CGFloat = 8
+            package static let s: CGFloat = 12
+            package static let m: CGFloat = 16
+            package static let l: CGFloat = 24
+            package static let xl: CGFloat = 32
+            package static let xxl: CGFloat = 48
+            /// The page's outer margin on a TV
+            package static let gutter: CGFloat = 64
+        }
+        package enum Control {
+            /// Every row of a grouped list, settings and links alike
+            package static let rowHeight: CGFloat = 72
+            /// The segmented control's height
+            package static let segment: CGFloat = 52
+            /// The home screen's top controls: the build, the players, Controllers, Search and the menu
+            package static let topBar: CGFloat = 52
+            /// A controller glyph in the hint bar
+            package static let glyph: CGFloat = 26
+            /// The building game's app icon in the top bar
+            package static let buildIcon: CGFloat = 28
+            /// The game's app icon on the starting screen
+            package static let appIcon: CGFloat = 176
+            /// The focus ring's width
+            package static let focusRing: CGFloat = 4
+            /// The thin bar under a continuous value
+            package static let valueBar: CGFloat = 4
+            /// The value stepper's column, wide enough for every language
+            package static let stepper: CGFloat = 240
+            /// The content column at its widest
+            package static let contentWidth: CGFloat = 860
+            /// The controller hint bar at the bottom of a page
+            package static let hintBar: CGFloat = 72
+        }
+        package enum Radius {
+            /// A grouped list and its rows
+            package static let row: CGFloat = 16
+            /// A stats card, a notice
+            package static let card: CGFloat = 20
+            /// A cover on the home screen
+            package static let art: CGFloat = 16
+        }
+        package enum Scale {
+            /// A focused cover grows by this, nothing else changes size
+            package static let focus: CGFloat = 1.04
+            /// The share of a page the artwork column takes
+            package static let artColumn: CGFloat = 0.45
+        }
+    }
 }

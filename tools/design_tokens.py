@@ -108,8 +108,45 @@ def render(tokens: dict) -> str:
     out += ['    /// Animation durations in seconds.', '    package enum Motion {']
     for path, token in leaves(tokens['motion']):
         out.append(doc(token) + f'        package static let {camel(path)}: Double = {ms(token["$value"])}')
-    out += ['    }', '}', '']
+    out += ['    }']
+    if 'console' in tokens:
+        out += render_console(tokens['console'])
+    out += ['}', '']
     return '\n'.join(line for line in out)
+
+
+def render_console(group: dict) -> list[str]:
+    """The `console` group: console mode's own type scale, spacing, sizes, radii and scales, as `DS.Console`."""
+    out = ['', '    /// Console mode, read from across a room: its own type scale and sizes.', '    package enum Console {']
+    for key, sub in group.items():
+        if key.startswith('$') or not isinstance(sub, dict):
+            continue
+        kind = sub.get('$type')
+        name = 'Font' if kind == 'typography' else key[:1].upper() + key[1:]
+        out.append(f'        package enum {name} {{')
+        for path, token in leaves(sub):
+            ident = camel(path)
+            value = token['$value']
+            text = token.get('$description', '')
+            if text:
+                out.append(f'            /// {text}')
+            if kind == 'typography':
+                size = px(value['fontSize'])
+                weight = WEIGHTS[int(value['fontWeight'])]
+                out.append(f'            package static let {ident} = SwiftUI.Font.manrope({size}, .{weight})')
+                out.append(f'            package static let {ident}Size: CGFloat = {size}')
+                out.append(f'            package static let {ident}Tracking: CGFloat = {px(value.get("letterSpacing", "0px"))}')
+            elif kind == 'dimension':
+                out.append(f'            package static let {ident}: CGFloat = {px(value)}')
+            elif kind == 'number':
+                if not isinstance(value, (int, float)):
+                    raise ValueError(f'not a number: {value!r}')
+                out.append(f'            package static let {ident}: CGFloat = {float(value)!r}')
+            else:
+                raise ValueError(f'console.{key}: unsupported $type {kind!r}')
+        out.append('        }')
+    out.append('    }')
+    return out
 
 
 def expected(path: Path = TOKENS) -> str:

@@ -22,6 +22,15 @@ class DesignTokensTests(unittest.TestCase):
         spaces = {float(t['$value'].rstrip('px')) for _, t in design_tokens.leaves(tokens['spacing'])}
         self.assertEqual(spaces, {4, 8, 12, 16, 24, 32})
 
+    def test_console_mode_has_its_own_ten_foot_scale(self):
+        tokens = json.loads(design_tokens.TOKENS.read_text(encoding='utf-8'))
+        console = tokens['console']
+        sizes = [float(t['$value']['fontSize'].rstrip('px')) for _, t in design_tokens.leaves(console['typography'])]
+        self.assertGreaterEqual(min(sizes), 15, 'nothing in console mode is smaller than 15 pt')
+        swift = design_tokens.expected()
+        self.assertIn('package enum Console {', swift)
+        self.assertIn('package static let focus: CGFloat = 1.04', swift)
+
     def test_a_bad_value_is_refused(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'tokens.json'
