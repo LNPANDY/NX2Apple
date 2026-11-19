@@ -45,6 +45,11 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                 // One action in the column: Pull when behind, else Check, Make updatable or Download. Choose repository, always
                 // offered (a saved path from an earlier session is a state a user cannot leave without it), is in the "…" (#1458).
                 let busy = repo.busy || buildRunning
+                DSOverflowMenu(label: loc.t("repo.choose"),
+                               options: [("choose", loc.t("repo.choose"))] + (repo.isGit && (repo.behind ?? 0) > 0 ? [("check", loc.t("repo.check"))] : []),
+                               padID: "set.repoChoose") { choice in
+                    if choice == "check" { if !busy { repo.checkForUpdates() } } else { pickRepo() }
+                }
                 if repo.isRepo {
                     if repo.isGit {
                         if let n = repo.behind, n > 0 {
@@ -61,11 +66,6 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                 } else {
                     SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.download"), busy: repo.busy) { repo.clone() }.disabled(busy)
                         .padTarget("set.repoDownload", scope: "main", enabled: !busy) { if !busy { repo.clone() } }
-                }
-                DSOverflowMenu(label: loc.t("repo.choose"),
-                               options: [("choose", loc.t("repo.choose"))] + (repo.isGit && (repo.behind ?? 0) > 0 ? [("check", loc.t("repo.check"))] : []),
-                               padID: "set.repoChoose") { choice in
-                    if choice == "check" { if !busy { repo.checkForUpdates() } } else { pickRepo() }
                 }
             }
             if !repo.isRepo {
@@ -103,8 +103,9 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
         CardGroup(loc.t("settings.xcodeGroup")) {
             CardRow(loc.t("xcodeChoice.title"), detail: dependencies.xcodeApp ?? loc.t("xcodeChoice.system")) {
                 if dependencies.xcodeApp != nil {
-                    Button(loc.t("xcodeChoice.reset")) { dependencies.selectXcode(nil) }
-                        .padTarget("set.xcodeReset", scope: "main") { dependencies.selectXcode(nil) }
+                    DSOverflowMenu(label: loc.t("xcodeChoice.reset"), options: [("reset", loc.t("xcodeChoice.reset"))], padID: "set.xcodeReset") { _ in
+                        dependencies.selectXcode(nil)
+                    }
                 }
                 Button(loc.t("xcodeChoice.choose")) { pickXcode() }
                     .padTarget("set.xcodeChoose", scope: "main", activate: pickXcode)
@@ -120,14 +121,29 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
             }
             .onChange(of: invalidXcode) { open in pad.scope = open ? "xcodemessage" : "main" }
             CardDivider()
-            HStack(spacing: 8) {
-                CardDisclosure(loc.t("dep.title"), detail: !dependencies.checked ? loc.t("dep.checking") : (dependencies.allPresent ? loc.t("dep.allReady") : String(format: loc.t("dep.missing"), dependencies.deps.filter { !$0.present }.count)), isOpen: dependencies.open) { dependencies.toggle() }
-                    .padTarget("set.deps.expand", scope: "main", radius: 0) { dependencies.toggle() }
-                SettingsUpdateAction(loc.t(dependencies.checked ? "dep.recheck" : "settings.update.checking"), busy: !dependencies.checked) { _ = dependencies.check() }
-                    .disabled(!dependencies.checked)
-                    .padTarget("set.deps", scope: "main", enabled: dependencies.checked) { if dependencies.checked { _ = dependencies.check() } }
-            }.padding(.trailing, 18)
+            // One pattern for a row that opens more rows (#1458): the whole row is the button, its chevron at the trailing edge of
+            // the control column. Its action (Check again) is inside, under the rows it opens.
+            Button { dependencies.toggle() } label: {
+                CardRow(loc.t("dep.title"), detail: !dependencies.checked ? loc.t("dep.checking") : (dependencies.allPresent ? loc.t("dep.allReady") : String(format: loc.t("dep.missing"), dependencies.deps.filter { !$0.present }.count)),
+                        dot: !dependencies.checked ? nil : (dependencies.allPresent ? DSTone.success.color : DSTone.warning.color)) {
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(DS.Color.symbolDefault)
+                        .rotationEffect(.degrees(dependencies.open ? 90 : 0))
+                        .frame(width: DS.Control.columnWidth, alignment: .trailing).accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).dsRowHover(radius: 0)
+            .accessibilityValue(loc.t(dependencies.open ? "onboarding.expanded" : "onboarding.collapsed"))
+            .padTarget("set.deps.expand", scope: "main", radius: 0) { dependencies.toggle() }
             if dependencies.open {
+                HStack(spacing: DS.Space.xs) {
+                    if !dependencies.checked { DSSpinner() }
+                    Button(loc.t(dependencies.checked ? "dep.recheck" : "settings.update.checking")) { _ = dependencies.check() }
+                        .buttonStyle(DSTextButtonStyle()).disabled(!dependencies.checked)
+                        .padTarget("set.deps", scope: "main", radius: DS.Radius.chip, enabled: dependencies.checked) { if dependencies.checked { _ = dependencies.check() } }
+                }
+                .padding(.leading, DSRowInset.title).padding(.bottom, DS.Space.xs)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 ForEach(dependencies.deps, id: \.id) { d in
                     CardDivider()
                     VStack(alignment: .leading, spacing: 0) {
@@ -171,6 +187,11 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
         CardRow(loc.t("engine.title"), detail: engine.detail,
             dot: engine.selection.engineID.isEmpty ? LauncherPalette.building : LauncherPalette.ready, help: repo.path) {
             if let next = engine.available {
+                // one action in the column: the update. Checking again is the "…" before it (#1458)
+                DSOverflowMenu(label: loc.t("repo.check"), options: [("check", loc.t("repo.check"))], padID: "set.engineCheck") { _ in
+                    if idle { installingEngine = false; engine.checkForUpdate() }
+                }
+                .disabled(!idle)
                 SettingsUpdateAction(engine.busy && installingEngine ? engineBusyTitle : String(format: loc.t("engine.install"), next.version),
                                      busy: engine.busy && installingEngine, prominent: !engine.busy) {
                     installingEngine = true; engine.installAvailable()
@@ -178,13 +199,14 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                     .padTarget("set.engineInstall", scope: "main", enabled: idle || engine.busy && installingEngine) {
                         if idle { installingEngine = true; engine.installAvailable() }
                     }
+            } else {
+                SettingsUpdateAction(engine.busy && !installingEngine ? engineBusyTitle : loc.t("repo.check"), busy: engine.busy && !installingEngine) {
+                    installingEngine = false; engine.checkForUpdate()
+                }.disabled(buildRunning || engine.busy && installingEngine)
+                    .padTarget("set.engineCheck", scope: "main", enabled: idle || engine.busy && !installingEngine) {
+                        if idle { installingEngine = false; engine.checkForUpdate() }
+                    }
             }
-            SettingsUpdateAction(engine.busy && !installingEngine ? engineBusyTitle : loc.t("repo.check"), busy: engine.busy && !installingEngine) {
-                installingEngine = false; engine.checkForUpdate()
-            }.disabled(buildRunning || engine.busy && installingEngine)
-                .padTarget("set.engineCheck", scope: "main", enabled: idle || engine.busy && !installingEngine) {
-                    if idle { installingEngine = false; engine.checkForUpdate() }
-                }
         }.onChange(of: engine.busy) { busy in if !busy { installingEngine = false } }
         CardDivider()
         // A different channel is asked about first (the alert below): the switch can recompile every game's shaders
@@ -192,8 +214,10 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
         let choice = engine.channelChoice
         CardRow(loc.t("engine.update"), detail: choice.noteKey.map { loc.t($0) } ?? "", info: ("set.engineChannel.help", loc.t("engine.channelNote"))) {
             if choice.offersBackToStable {
-                Button(loc.t("engine.backToStable")) { engine.requestChannel(.stable) }.disabled(!idle)
-                    .padTarget("set.engineBack", scope: "main", enabled: idle) { if idle { engine.requestChannel(.stable) } }
+                DSOverflowMenu(label: loc.t("engine.backToStable"), options: [("stable", loc.t("engine.backToStable"))], padID: "set.engineBack") { _ in
+                    if idle { engine.requestChannel(.stable) }
+                }
+                .disabled(!idle)
             }
             LauncherDropdown(options: choice.options.map { (value: $0.rawValue, label: loc.t($0.labelKey)) },
                              selection: engine.selection.channel.rawValue) { v in

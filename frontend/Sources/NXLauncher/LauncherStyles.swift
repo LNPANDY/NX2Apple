@@ -296,9 +296,11 @@ private struct LauncherActionButton: View {
     var body: some View {
         configuration.label
             .lineLimit(1).minimumScaleFactor(columnWidth == nil ? 1 : LauncherControl.minimumLabelScale)
+            .padding(.horizontal, columnWidth == nil ? 0 : 15)   // in a row the style pads, as the secondary style does
             .frame(width: columnWidth)
             .dsButtonContent(enabled ? DSButtonForeground.primary : DSButtonForeground.disabled)   // disabled: the raised surface, tertiary text
             .frame(minHeight: LauncherControl.height)
+            .launcherMeasured(label: configuration.label.font(DS.Font.bodyStrong), room: LauncherControl.buttonLabelWidth)
             .contentShape(Rectangle())
             .modifier(Tinted(shape: shape))
     }

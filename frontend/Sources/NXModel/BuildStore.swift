@@ -156,7 +156,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var doneNote = ""
     /// What the NSP script stopped on, when it is one of the known early stops (BuildFailureClassifier). nil for a build that
     /// succeeded, is running, or failed some other way (the note then shows the last line of the log, as it always did).
-    @Published package var failure: BuildFailure?
+    @Published package var failure: BuildFailure? {
+        didSet { if failure?.titleIDs != oldValue?.titleIDs { failureChoice = nil } }
+    }
+    /// The game picked in a "several games" failure's list (BuildFailureCard), not built yet: the footer's Build game builds it.
+    @Published package var failureChoice: String?
+    /// The failure asks which of several games to build, and the launcher can build one of them.
+    package var choosesTitle: Bool { !(failure?.titleIDs.isEmpty ?? true) && !experimentalBuilder }
     /// "Build anyway" asked for this stop and waiting for the confirmation dialog.
     @Published package var confirmingOverride: BuildFailureKind?
     /// The one-off `--allow-*` of a confirmed "Build anyway": taken by the next build and never stored.

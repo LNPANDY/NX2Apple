@@ -103,7 +103,9 @@ struct BuildPage: View {
                 BuildLogDisclosure(build: build, isOpen: $logOpen)
             } else if failedResult {
                 // The failure is the page's main content, directly under the header, the log last (#1458)
-                BuildFailureCard(m: build, titleNames: titleNames)
+                BuildFailureCard(m: build, titleNames: titleNames) { id in
+                    library.flatMap { NSImage(contentsOf: $0.artworkDirectory.appendingPathComponent(id.uppercased()).appendingPathComponent("icon.jpg")) }
+                }
                 // then the step the player was on, where the fix is often made (another platform, another file)
                 if step == 0 { FilesCard(build: build, library: library, artworkStore: artworkStore, extrasOpen: $extrasOpen) }
                 else if step == 1 { TargetCard(build: build) }

@@ -18,7 +18,14 @@ package struct ActionCard: View {
     }
 
     private var buildDisabled: Bool {
-        build.stopping || (!build.running && !build.canStartBuildOrQueue)
+        build.stopping || (!build.running && (build.choosesTitle ? build.failureChoice == nil || !build.canBuild : !build.canStartBuildOrQueue))
+    }
+
+    /// Build game builds the game picked in the failure's list when the folder held several (BuildFailureCard).
+    private func act() {
+        if build.running { build.stop() }
+        else if build.choosesTitle, let choice = build.failureChoice { build.buildTitle(choice) }
+        else { build.startBuildOrQueue() }
     }
 
     private var buttonLabel: String {
@@ -31,9 +38,7 @@ package struct ActionCard: View {
         HStack(spacing: 18) {
             statusText
             Spacer(minLength: 12)
-            Button {
-                build.running ? build.stop() : build.startBuildOrQueue()
-            } label: {
+            Button(action: act) {
                 Label(buttonLabel,
                       systemImage: build.running ? "stop.fill" : "hammer.fill")
                     .font(DS.Font.bodyStrong).padding(.horizontal, 20).frame(height: LauncherControl.height)
@@ -45,7 +50,7 @@ package struct ActionCard: View {
             .opacity(buildDisabled ? 0.4 : 1)
             .keyboardShortcut(focus.scope == "main" ? KeyboardShortcut(.return, modifiers: .command) : nil)
             .padTarget("set.build.action", scope: "main", focusColor: build.running ? LauncherPalette.onBuilding : LauncherPalette.onCream, enabled: !buildDisabled) {
-                if !buildDisabled { build.running ? build.stop() : build.startBuildOrQueue() }
+                if !buildDisabled { act() }
             }
         }
         .padding(.top, 2)
@@ -53,7 +58,10 @@ package struct ActionCard: View {
     }
 
     @ViewBuilder private var statusText: some View {
-        if !build.doneNote.isEmpty && (build.running || !build.hasQueuedBuilds) {
+        if !build.running && build.choosesTitle {
+            // the one thing missing is the choice: the folder's files are there
+            Text(loc.t(build.failureChoice == nil ? "fail.severalGames.choose" : "status.chosenGame")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+        } else if !build.doneNote.isEmpty && (build.running || !build.hasQueuedBuilds) {
             Text(build.doneNote).font(DS.Font.body)
                 .foregroundStyle(build.done ? LauncherPalette.ready : LauncherPalette.building).lineLimit(3)
         } else if !dependencies.checked {

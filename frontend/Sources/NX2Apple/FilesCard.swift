@@ -31,7 +31,7 @@ struct FilesCard: View {
                         // One primary per screen: the folder is the way forward only while the footer's Continue is disabled
                         // (nothing chosen yet). Then it is a row button and Continue is the primary (frontend/README.md).
                         if folderIsTheWayForward {
-                            Button(action: pickFolder) { Text(loc.t("files.chooseFolder")).font(DS.Font.bodyStrong).padding(.horizontal, 15) }
+                            Button(action: pickFolder) { Text(loc.t("files.chooseFolder")).font(DS.Font.bodyStrong) }
                                 .buttonStyle(DSPrimaryButtonStyle())
                                 .padTarget("set.build.folder", scope: "main", focusColor: LauncherPalette.onCream, enabled: !build.running, activate: pickFolder)
                         } else {

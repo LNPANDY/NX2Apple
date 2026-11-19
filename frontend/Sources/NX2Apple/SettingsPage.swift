@@ -45,6 +45,8 @@ struct SettingsPage: View {
             .accessibilityElement(children: .contain).accessibilityLabel(loc.t("settings.heading"))
             .padTarget("set.category", scope: "main", activate: { move(1) }, adjust: { move($0) })
         } content: {
+            // the page's notice slot: under the title and the tabs, in the column, scrolling with it (#1458)
+            EngineSyncBanner(engine: engine, m: build, inContent: true)
             switch category {
             case .general: general
             case .library: libraryCategory
@@ -158,17 +160,17 @@ struct LibraryFoldersCard: View {
                 let name = (root as NSString).lastPathComponent
                 // The path in the middle-truncating mono line, then the state in words
                 CardRow(name.isEmpty ? root : name, detail: stateText(state), detail2: RepoLayout.shortPath(root), dot: dot(state), help: root) {
-                    if library.scanning { ProgressView().controlSize(.small) }
-                    Button(loc.t("library.rescan")) { library.rescan() }
-                        .disabled(library.scanning || state != .connected)
-                        .accessibilityLabel(String(format: loc.t("library.rescanFolder"), name))
-                        .padTarget("set.rescan.\(index)", scope: "main", enabled: !library.scanning && state == .connected) { if !library.scanning, state == .connected { library.rescan() } }
-                    // the second action of the row: a round icon button beside the column, so the column keeps one width
+                    if library.scanning { DSSpinner() }
+                    // the second action of the row: a round icon button before the column, so the column keeps one width
                     Button { library.removeFolder(root) } label: { Image(systemName: "minus") }
                         .buttonStyle(LauncherIconButtonStyle())
                         .help(loc.t("library.removeFolder"))
                         .accessibilityLabel(String(format: loc.t("library.removeFolderNamed"), name))
                         .padTarget("set.removeFolder.\(index)", scope: "main") { library.removeFolder(root) }
+                    Button(loc.t("library.rescan")) { library.rescan() }
+                        .disabled(library.scanning || state != .connected)
+                        .accessibilityLabel(String(format: loc.t("library.rescanFolder"), name))
+                        .padTarget("set.rescan.\(index)", scope: "main", enabled: !library.scanning && state == .connected) { if !library.scanning, state == .connected { library.rescan() } }
                 }
                 CardDivider()
             }

@@ -18,12 +18,13 @@ package struct SettingsUpdateAction: View {
     package var body: some View {
         Group {
             if prominent {
-                Button(action: action) { label.frame(width: LauncherControl.width, height: LauncherControl.height) }
+                Button(action: action) { label.frame(width: LauncherControl.buttonLabelWidth) }
                     .buttonStyle(LauncherActionButtonStyle())
             } else {
                 Button(action: action) { label.frame(width: LauncherControl.buttonLabelWidth) }
                     .buttonStyle(LauncherSecondaryButtonStyle())
             }
         }.disabled(busy).accessibilityLabel(title)
+        .launcherRowControls()   // a row's control: the column's width in every state, prominent or not
     }
 }

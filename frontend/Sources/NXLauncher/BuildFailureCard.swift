@@ -4,6 +4,47 @@ import NXCore
 import NXModel
 import NXLauncher
 
+/// A game of a folder that holds several, in the failure's list: the game's icon (from the artwork already on disk), its name and
+/// a radio. A game nobody knows reads "Unknown game" with its title ID under it, its only name.
+private struct FailureTitleRow: View {
+    let titleID: String
+    let name: String?
+    let icon: NSImage?
+    let chosen: Bool
+    let choose: () -> Void
+    @EnvironmentObject private var loc: Localizer
+
+    var body: some View {
+        Button(action: choose) {
+            HStack(spacing: DS.Space.s) {
+                ZStack {
+                    if let icon { Image(nsImage: icon).resizable().scaledToFill() }
+                    else { Image(systemName: "gamecontroller").font(.system(size: 16)).foregroundStyle(DS.Color.symbolDefault) }
+                }
+                .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail)
+                .background(DS.Color.surfaceRaised).clipShape(RoundedRectangle(cornerRadius: DS.Radius.chip))
+                .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: DS.Space.xxs / 2) {
+                    Text(name ?? loc.t("fail.unknownGame")).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).lineLimit(1)
+                    if name == nil { Text(titleID).font(DS.Font.mono).foregroundStyle(DS.Color.textSecondary) }
+                }
+                Spacer(minLength: DS.Space.s)
+                Image(systemName: chosen ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 16)).foregroundStyle(chosen ? DS.Color.symbolAccent : DS.Color.symbolDefault)
+                    .frame(width: DS.Control.leadingSlot).accessibilityHidden(true)
+            }
+            .padding(.vertical, DS.Space.xs).padding(.horizontal, DS.Space.xs)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .dsRowHover()
+        .help(titleID)
+        .accessibilityLabel(name ?? loc.t("fail.unknownGame"))
+        .accessibilityValue(titleID)
+        .accessibilityAddTraits(chosen ? [.isSelected] : [])
+    }
+}
+
 /// Under the build button after a stop the script's early checks explain: what happened in plain words, the next step, and the
 /// button that does it (a dependency's own install command, or "Build anyway" for the three stops that have an override).
 package struct BuildFailureCard: View {
@@ -17,12 +58,16 @@ package struct BuildFailureCard: View {
 
     /// Names of games the launcher knows, by upper-case title ID, for the choice of several titles.
     var titleNames: [String: String] = [:]
+    /// A game's icon by title ID, from the artwork already on disk (nil: the placeholder).
+    var titleIcon: (String) -> NSImage? = { _ in nil }
 
-    package init(m: BuildStore, engine: EngineSyncStore? = nil, failure: BuildFailure? = nil, titleNames: [String: String] = [:]) {
+    package init(m: BuildStore, engine: EngineSyncStore? = nil, failure: BuildFailure? = nil, titleNames: [String: String] = [:],
+                 titleIcon: @escaping (String) -> NSImage? = { _ in nil }) {
         self.m = m
         self.engine = engine
         self.failure = failure
         self.titleNames = titleNames
+        self.titleIcon = titleIcon
     }
 
     /// A stop the player fixes with a choice or a file is a warning, a broken input or an unknown failure an error.
@@ -46,21 +91,15 @@ package struct BuildFailureCard: View {
                     Text(loc.t(chooseTitle ? "fail.severalGames.choose" : f.kind.nextKey)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true).padding(.leading, 17)
                     if chooseTitle {
-                        // Side by side, wrapping on a narrow window: the game's name when it is known, its ID in mono under it (#1458)
-                        DSFlowRow(spacing: DS.Space.xs) {
-                            ForEach(f.titleIDs, id: \.self) { id in
-                                Button { m.buildTitle(id) } label: {
-                                    VStack(spacing: 0) {
-                                        if let name = titleNames[id.uppercased()] { Text(name).font(DS.Font.bodyStrong).lineLimit(1) }
-                                        Text(id).font(DS.Font.mono).foregroundStyle(DS.Color.textSecondary)
-                                    }.padding(.vertical, titleNames[id.uppercased()] == nil ? 0 : DS.Space.xxs)
-                                }
-                                .buttonStyle(DSRowButtonStyle(height: titleNames[id.uppercased()] == nil ? DS.Control.height : 48))
-                                .padTarget("set.build.failure.title." + id, scope: "main", enabled: m.canBuild) { if m.canBuild { m.buildTitle(id) } }
+                        // One selectable row per game, as the files list (#1458): its icon, its name, a radio. The title ID is only
+                        // the tooltip and the VoiceOver value, or the subtitle of a game nobody knows. The footer's Build game builds it.
+                        VStack(spacing: 0) {
+                            ForEach(Array(f.titleIDs.enumerated()), id: \.element) { index, id in
+                                if index > 0 { CardDivider() }
+                                FailureTitleRow(titleID: id, name: titleNames[id.uppercased()], icon: titleIcon(id), chosen: m.failureChoice == id) { m.failureChoice = id }
+                                    .padTarget("set.build.failure.title." + id, scope: "main", radius: DS.Radius.chip) { m.failureChoice = id }   // choosing is always open, the footer builds
                             }
                         }
-                        .padding(.leading, 17)
-                        .disabled(!m.canBuild)
                     } else {
                         buttons(f.kind).padding(.leading, 17).padding(.top, 2)
                     }
@@ -159,11 +198,14 @@ package struct BuildFailureCard: View {
 package struct EngineSyncBanner: View {
     @ObservedObject var engine: EngineSyncStore
     let m: BuildStore
+    /// In a page's content column (Settings): no inset of its own, the column gives the width.
+    let inContent: Bool
     @EnvironmentObject var loc: Localizer
 
-    package init(engine: EngineSyncStore, m: BuildStore) {
+    package init(engine: EngineSyncStore, m: BuildStore, inContent: Bool = false) {
         self.engine = engine
         self.m = m
+        self.inContent = inContent
     }
 
     /// The engine being fetched, as a notice (LauncherNotice). The library shows it, and the failure, in its own notice slot.
@@ -171,12 +213,29 @@ package struct EngineSyncBanner: View {
         engine.syncing ? LauncherNoticeItem(id: "engine.syncing", tone: .info, title: t("engine.syncing"), busy: true) : nil
     }
 
+    /// The engine's failure as an error notice with its own title ("The engine could not be downloaded"), not the build failure
+    /// card: no build ran. Try again where that is the fix.
+    package static func failureNotice(_ engine: EngineSyncStore, m: BuildStore, t: (String) -> String) -> LauncherNoticeItem? {
+        guard !engine.syncing, let failure = engine.failure else { return nil }
+        let retry = failure.kind == .engineOffline || failure.kind == .engineSync
+        return LauncherNoticeItem(id: "engine.failure", tone: .error, title: m.failureWhat(failure), detail: t(failure.kind.nextKey),
+                                  action: retry ? .init(title: t("fail.retry"), padID: "set.build.failure.retry") { engine.retrySync() } : nil)
+    }
+
+    /// Both notices, for a page's notice slot: inside its content column, scrolling with it (Settings puts them there).
+    package static func notices(_ engine: EngineSyncStore, m: BuildStore, t: (String) -> String) -> [LauncherNoticeItem] {
+        [notice(engine, t: t), failureNotice(engine, m: m, t: t)].compactMap { $0 }
+    }
+
     package var body: some View {
-        if let notice = Self.notice(engine, t: loc.t) {
-            LauncherNotice(notice).padding(.horizontal, 24).padding(.vertical, 10)
-                .accessibilityIdentifier("engine.syncing")
-        } else if let f = engine.failure {
-            BuildFailureCard(m: m, engine: engine, failure: f).padding(.horizontal, 24).padding(.vertical, 10)
+        let items = Self.notices(engine, m: m, t: loc.t)
+        if !items.isEmpty {
+            // in the content column's width, never across the whole window over the page title
+            LauncherNoticeStack(items)
+                .frame(maxWidth: inContent ? .infinity : DS.Control.contentWidth)
+                .padding(.horizontal, inContent ? 0 : DS.Space.l).padding(.vertical, inContent ? 0 : DS.Space.xs)
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier(engine.syncing ? "engine.syncing" : "engine.failure")
         }
     }
 }

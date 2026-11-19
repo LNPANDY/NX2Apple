@@ -19,39 +19,40 @@ package struct OutcomeCard: View {
     }
     package var body: some View {
         if let status = build.completionStatus {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(loc.t(status == .exported ? "result.exportComplete" : status == .needsData ? "result.remaining" : "result.complete"))
-                    .font(.manrope(30, .bold))
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack(spacing: 14) {
-                        Image(systemName: status == .needsData ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
-                            .font(.system(size: 24)).foregroundStyle(status == .needsData ? LauncherPalette.building : LauncherPalette.ready)
-                            .frame(width: 52, height: 52).background(LauncherPalette.ink(0.08), in: RoundedRectangle(cornerRadius: 10))
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(verdict(status)).font(.manrope(16, .semibold))
-                            if status == .exported { Text(build.completedFramework ? String(format: loc.t("shell.frameworkStep1Done"), build.exportedIPAText) : loc.t(build.completedOneGameIPA ? "result.oneGameIPA" : "result.sharedIPA")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
-                            if status == .needsData { Text(loc.t("result.notReady")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
+            // The success is in the header (the badge on the icon, "Built for Mac"): here only what comes next, without a card,
+            // a heading or a tile that says it again (#1458). Then the files the build made, as rows.
+            VStack(alignment: .leading, spacing: DS.Space.l) {
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: DS.Space.s) { actions(status) }
+                        VStack(alignment: .leading, spacing: DS.Space.s) { actions(status) }
+                    }
+                    if let note = note(status) { DSRowMessageView(note) }
+                    if let openError { DSRowMessageView(.error(openError)).textSelection(.enabled) }
+                }
+                let files = artifacts(status)
+                if !files.isEmpty {
+                    CardGroup(loc.t("result.files")) {
+                        VStack(spacing: 0) {
+                            ForEach(Array(files.enumerated()), id: \.offset) { index, file in
+                                if index > 0 { CardDivider() }
+                                CardRow(URL(fileURLWithPath: file.path).lastPathComponent,
+                                        detail: (file.path as NSString).deletingLastPathComponent, help: file.path) {
+                                    Button(loc.t("install.reveal")) { revealInFinder(file.path) }.buttonStyle(DSRowButtonStyle())
+                                        .padTarget(file.id, scope: "main") { revealInFinder(file.path) }
+                                }
+                            }
                         }
                     }
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 12) { actions(status) }
-                        VStack(alignment: .leading, spacing: 12) { actions(status) }
-                    }
-                    if status == .mac { artifact(build.macAppPath, id: "set.build.done.reveal") }
-                    if status == .exported {
-                        Text(URL(fileURLWithPath: build.exportedIPAPath).lastPathComponent).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).help(build.exportedIPAPath)
-                    } else if status != .mac && !build.archivePath.isEmpty { artifact(build.archivePath, id: "set.build.done.archive") }
-                    if let openError { Text(openError).font(DS.Font.body).foregroundStyle(LauncherPalette.building).textSelection(.enabled) }
-                    if build.needsReplaceOldImgReminder {
-                        Divider()
-                        replaceOldImgRow
-                    }
-                    if status == .installed || status == .needsData { guide }
                 }
-                .padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+                if build.needsReplaceOldImgReminder || status == .installed || status == .needsData {
+                    DSCard {
+                        VStack(alignment: .leading, spacing: DS.Space.s) {
+                            if build.needsReplaceOldImgReminder { replaceOldImgRow }
+                            if status == .installed || status == .needsData { guide }
+                        }
+                    }
+                }
             }
         }
         if build.completionStatus == nil && build.done && build.runningTarget != BuildTarget.mac && build.needsReplaceOldImgReminder && build.installedOn.isEmpty {
@@ -83,23 +84,33 @@ package struct OutcomeCard: View {
             }
         }
     }
-    private func verdict(_ status: BuildCompletionStatus) -> String {
+    /// What the header cannot say: where an exported IPA goes next, or that data is still missing. Nil for a plain success.
+    private func note(_ status: BuildCompletionStatus) -> DSRowMessage? {
         switch status {
-        case .mac: return loc.t("library.ready")
-        case .installed: return String(format: loc.t("dev.installed"), devices.deviceName(build.installedOn))
-        case .exported: return loc.t(build.completedFramework ? "shell.ipaFramework" : "result.ipaExported")
-        case .needsData: return loc.t("result.dataNeeded")
+        case .mac: return nil
+        case .installed: return .success(String(format: loc.t("dev.installed"), devices.deviceName(build.installedOn)))
+        case .exported:
+            return .info(build.completedFramework ? String(format: loc.t("shell.frameworkStep1Done"), build.exportedIPAText)
+                         : loc.t(build.completedOneGameIPA ? "result.oneGameIPA" : "result.sharedIPA"))
+        case .needsData: return .warning(loc.t("result.notReady"))
+        }
+    }
+    /// The files the build made: the Mac app, the exported IPA or the archive, each a row with Reveal in Finder.
+    private func artifacts(_ status: BuildCompletionStatus) -> [(path: String, id: String)] {
+        switch status {
+        case .mac: return build.macAppPath.isEmpty ? [] : [(build.macAppPath, "set.build.done.reveal")]
+        case .exported: return build.exportedIPAPath.isEmpty ? [] : [(build.exportedIPAPath, "set.build.export.reveal")]
+        default: return build.archivePath.isEmpty ? [] : [(build.archivePath, "set.build.done.archive")]
         }
     }
     @ViewBuilder private func actions(_ status: BuildCompletionStatus) -> some View {
         if status == .mac, let onPlayGame {
-            Button(action: onPlayGame) { Label(loc.t("library.play"), systemImage: "play.fill").padding(.horizontal, 18).frame(height: LauncherControl.height) }
+            Button(action: onPlayGame) {
+                Label(loc.t("library.play"), systemImage: "play.fill").font(DS.Font.bodyStrong).padding(.horizontal, DS.Space.m + DS.Space.xxs)
+                    .frame(height: DS.Control.height)
+            }
                 .buttonStyle(LauncherActionButtonStyle())
                 .padTarget("set.build.done.play", scope: "main", focusColor: LauncherPalette.onCream, activate: onPlayGame)
-        }
-        if status == .exported {
-            Button { revealInFinder(build.exportedIPAPath) } label: { Text(loc.t("install.reveal")).font(DS.Font.bodyStrong).padding(.horizontal, 18).frame(height: LauncherControl.height) }.buttonStyle(LauncherActionButtonStyle())
-                .padTarget("set.build.export.reveal", scope: "main", focusColor: LauncherPalette.onCream) { revealInFinder(build.exportedIPAPath) }
         }
         if status == .installed || status == .needsData {
             let button = Button(String(format: loc.t("dev.open"), devices.deviceName(build.installedOn)), action: openDevice)
@@ -117,21 +128,8 @@ package struct OutcomeCard: View {
     private func openDevice() {
         build.openOnDevice(udid: build.installedOn, app: build.installedAppPath) { if let error = $0 { openError = error } }
     }
-    private func artifact(_ path: String, id: String) -> some View {
-        VStack(spacing: 16) {
-            Divider()
-            HStack(spacing: 12) {
-                Image(systemName: "folder.fill").foregroundStyle(.secondary)
-                Text(URL(fileURLWithPath: path).lastPathComponent).font(DS.Font.body).lineLimit(2).help(path)
-                Spacer(minLength: 8)
-                Button(loc.t("install.reveal")) { revealInFinder(path) }.buttonStyle(LauncherSecondaryButtonStyle())
-                    .padTarget(id, scope: "main") { revealInFinder(path) }
-            }
-        }
-    }
     private var guide: some View {
         VStack(spacing: 14) {
-            Divider()
             CardDisclosure(loc.t("dev.firstInstallGuide.title"), isOpen: trustGuideOpen) { trustGuideOpen.toggle() }
                 .padTarget("set.build.done.guide", scope: "main") { trustGuideOpen.toggle() }
             if trustGuideOpen {

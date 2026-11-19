@@ -75,10 +75,13 @@ package struct DSWizardFooter<Leading: View, Trailing: View>: View {
 /// The "…" beside a row's control column: the row's second and further actions, in the launcher's menu, so the column keeps one
 /// button. A controller's A on it runs `padDefault` (the first option), as the menu cannot be walked with the pad.
 package struct DSOverflowMenu: View {
-    package init(label: String, options: [(value: String, label: String)], padID: String, choose: @escaping (String) -> Void) {
-        self.label = label; self.options = options; self.padID = padID; self.choose = choose
+    package init(label: String, options: [(value: String, label: String)], padID: String, destructiveValues: Set<String> = [],
+                 choose: @escaping (String) -> Void) {
+        self.label = label; self.options = options; self.padID = padID; self.destructiveValues = destructiveValues; self.choose = choose
     }
     let label: String
+    /// Options drawn as destructive (red) in the list, a removal or a delete.
+    let destructiveValues: Set<String>
     let options: [(value: String, label: String)]
     let padID: String
     let choose: (String) -> Void
@@ -95,7 +98,7 @@ package struct DSOverflowMenu: View {
     }
 
     private func open() {
-        dropdowns?.request = LauncherDropdownRequest(id: menuID, options: options, selection: "", label: label) { value in
+        dropdowns?.request = LauncherDropdownRequest(id: menuID, options: options, selection: "", label: label, destructiveValues: destructiveValues) { value in
             dropdowns?.close(); pad.scope = "main"
             choose(value)
         }
@@ -212,7 +215,7 @@ package struct DSContinueLabel: View {
 }
 
 /// A capsule (a circle in a square frame) drawn from its own path. Use it for every capsule or round control with a hairline:
-/// SwiftUI turns `Capsule().strokeBorder` into a layer border, and AppKit's bitmap caching (the captures, the gallery's export)
+/// SwiftUI draws a Capsule's strokeBorder as a layer border, and AppKit's bitmap caching (the captures, the gallery's export)
 /// draws that border with straight bars past the round ends, so a button's or a chip's outline looked cut at its left and right.
 package struct DSPill: InsettableShape {
     package init() {}
