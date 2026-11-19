@@ -195,6 +195,19 @@ import Testing
         #expect(source.contains("let value: String ="))
         #expect(source.contains("let traits: AccessibilityTraits ="))
     }
+
+    /// The left stick and the A B X Y diamond trade places (DmPadGeometry.h's check_swap): placed together, not each waiting for the other's place.
+    @Test func theStickAndTheDiamondTradePlaces() {
+        for screen in [PadScreen(size: CGSize(width: 678, height: 457)), PadScreen(size: CGSize(width: 951, height: 669))] {
+            let built = PadGeo.make(screen, full: false)
+            let step = built.faceR / 2
+            var l = TouchLayout()
+            l[.twoD, .face] = .init(dx: Int(((built.stick.x - built.face.x) / step).rounded()), dy: 0)
+            l[.twoD, .stick] = .init(dx: Int(((built.face.x - built.stick.x) / step).rounded()), dy: 0)
+            let g = PadGeo.make(screen, full: false, layout: l)
+            #expect(g.dropped.isEmpty && abs(g.stick.x - built.face.x) <= step && abs(g.face.x - built.stick.x) <= step)
+        }
+    }
 }
 
 import SwiftUI

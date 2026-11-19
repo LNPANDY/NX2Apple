@@ -325,6 +325,20 @@ struct PadGeo: Equatable {
         let want = TouchLayout.Control.allCases.filter { $0.drawn(full: full) && !(offsets[$0]?.isZero ?? true) }
         for round in 0..<2 {
             var todo = want.filter { $0.isFaceKey == (round == 1) }
+            if !todo.isEmpty {   // all of them at once first, as the engine does (DmPadGeometry.h): a swap, or moves that only work together
+                var t = self
+                for c in todo {
+                    let o = offsets[c] ?? .zero
+                    t.move(c, CGFloat(o.dx) * step, CGFloat(o.dy) * step)
+                    let d = t.clamp(c)
+                    t.move(c, d.dx, d.dy)
+                }
+                if todo.allSatisfy({ t.controlFits($0) }) {
+                    self = t; moved.formUnion(todo)
+                    if todo.contains(where: \.isFaceKey) { faceSplit = true }
+                    todo = []
+                }
+            }
             var progress = true
             while !todo.isEmpty && progress {
                 progress = false
