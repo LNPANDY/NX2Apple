@@ -16,7 +16,14 @@ import NXModel
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
         let lang = CaptureLanguage.current(.en)
-        let fixtures = GalleryFixtures(lang: lang)
+        // Generated art by default, so CI and PR images never show a player's library. NX_CAPTURE_REAL_COVERS=1 uses copies of this
+        // Mac's own covers, as the gallery does.
+        var fixtures = GalleryFixtures(lang: lang)
+        if ProcessInfo.processInfo.environment["NX_CAPTURE_REAL_COVERS"] == "1" {
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("nx-capture-covers-" + UUID().uuidString)
+            addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+            fixtures = GalleryFixtures(lang: lang, covers: GalleryRealCovers.snapshot(into: folder), coverFolder: folder)
+        }
         for scene in GalleryScene.allCases {
             let png = try XCTUnwrap(GalleryRenderer.png(scene, fixtures: fixtures), scene.id)
             try png.write(to: output.appendingPathComponent("\(scene.id)-\(lang.code).png"))

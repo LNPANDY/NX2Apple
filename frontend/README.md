@@ -320,6 +320,12 @@ the engine sync and the update check are never made, and the app's own defaults 
 `LauncherDesignCaptureTests` renders the same catalogue, so captures and gallery match. A new view or state gets a
 case in `GalleryScene` and its fixture in `GalleryFixtures`. The gallery's own texts are English only.
 
+The gallery shows your own games' covers (Covers: Real in the toolbar, Generated for the fictional art). At launch it
+reads the launcher's library file and copies the artwork that is already on disk into its temporary folder
+(`GalleryRealCovers`). It never writes to the real artwork, library or defaults and downloads nothing. Games without
+art, and scenes that need more games than you have, get the generated ones. The captures keep the generated art, so
+CI and PR images never show a player's library. `NX_CAPTURE_REAL_COVERS=1` uses this Mac's covers there too.
+
 ## App updates
 
 When the app opens it asks GitHub for the latest release. With **Install updates

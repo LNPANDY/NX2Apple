@@ -42,6 +42,7 @@ final class GalleryAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        GalleryCoverSource.removeCopies()
         guard let domain, let snapshot else { return }
         UserDefaults.standard.setPersistentDomain(snapshot, forName: domain)
     }
@@ -68,7 +69,8 @@ struct GalleryWindow: View {
     @State private var query = ""
     @State private var langCode = Lang.en.code
     @State private var preset: SizePreset = .standard
-    @State private var fixtures = GalleryFixtures(lang: .en)
+    @State private var realCovers = !GalleryCoverSource.covers.isEmpty   // the player's own covers when there are any
+    @State private var fixtures = GalleryFixtures.make(lang: .en, realCovers: !GalleryCoverSource.covers.isEmpty)
     @State private var status = ""
 
     private var lang: Lang { Lang.find(langCode) ?? .en }
@@ -125,6 +127,13 @@ struct GalleryWindow: View {
                 .help("The window size of the scene. A sheet keeps its own size.")
                 Button("Export PNG", action: exportCurrent).disabled(selection == nil)
                 Button("Export all…", action: exportAll)
+                Picker("Covers", selection: $realCovers) {
+                    Text("Real").tag(true)
+                    Text("Generated").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .disabled(GalleryCoverSource.covers.isEmpty)
+                .help(GalleryCoverSource.covers.isEmpty ? "No artwork of your own games is on this Mac" : "Copies of your games' covers, or generated art")
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -133,7 +142,8 @@ struct GalleryWindow: View {
                     .padding(DS.Space.xs).frame(maxWidth: .infinity, alignment: .leading).background(DS.Color.background)
             }
         }
-        .onChange(of: langCode) { _ in fixtures = GalleryFixtures(lang: lang) }
+        .onChange(of: langCode) { _ in fixtures = GalleryFixtures.make(lang: lang, realCovers: realCovers) }
+        .onChange(of: realCovers) { real in fixtures = GalleryFixtures.make(lang: lang, realCovers: real) }
     }
 
     private func exportCurrent() {

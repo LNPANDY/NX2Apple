@@ -14,10 +14,24 @@ import NXLauncher
     let directory: URL
     private var suites: [String] = []
 
-    init(lang: Lang = .en) {
+    /// The scenes' games: the player's own (`covers`, copied by GalleryRealCovers into `coverFolder`) first, then the fictional
+    /// ones up to the catalogue's size. Their states, badges and notices are the fixtures' in both cases.
+    let catalog: [(titleID: String, name: String, hue: Double, cover: GalleryCover?)]
+    /// The artwork every scene's library reads: the copies of the real covers and the generated art. Never the player's folder.
+    let artworkFolder: URL
+
+    init(lang: Lang = .en, covers: [GalleryCover] = [], coverFolder: URL? = nil) {
         self.lang = lang
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("nx-gallery-" + UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let real = coverFolder == nil ? [] : Array(covers.prefix(Self.games.count))
+        artworkFolder = coverFolder ?? directory.appendingPathComponent("artwork", isDirectory: true)
+        try? FileManager.default.createDirectory(at: artworkFolder, withIntermediateDirectories: true)
+        let realIDs = Set(real.map(\.titleID))
+        let fill = Self.games.filter { !realIDs.contains($0.titleID) }.prefix(Self.games.count - real.count)
+        catalog = real.enumerated().map { (index, cover) in (cover.titleID, cover.name, Double(index) / 14, Optional(cover)) }
+            + fill.map { ($0.titleID, $0.name, $0.hue, nil) }
+        for game in catalog where game.cover == nil { Self.writeArtwork(for: game.titleID, hue: game.hue, in: artworkFolder) }
     }
 
     deinit {
@@ -139,8 +153,8 @@ import NXLauncher
             root = AnyView(launcher(.builds, editor: true, step: 1))   // the last step, where the failure card shows
         case .buildFailure(let kind):
             configureBuild(stores, library: library)
-            var failure = BuildFailure(kind: kind, gameName: kind == .a32Program ? Self.games[0].name : nil, detail: Self.detail(for: kind))
-            if kind == .severalGames { failure.titleIDs = [Self.games[0].titleID, Self.games[1].titleID] }
+            var failure = BuildFailure(kind: kind, gameName: kind == .a32Program ? catalog[0].name : nil, detail: Self.detail(for: kind))
+            if kind == .severalGames { failure.titleIDs = [catalog[0].titleID, catalog[1].titleID] }
             stores.build.failure = failure
             root = AnyView(launcher(.builds, editor: true, step: 1))
         case .settings:
@@ -156,7 +170,7 @@ import NXLauncher
             root = AnyView(launcher(.settings, category: .tools))
         case .deleteGame:
             let id = makeMacApp(for: 0, in: library)
-            let game = library.games.first { $0.id == id } ?? LibraryGame(titleID: Self.games[0].titleID, name: Self.games[0].name)
+            let game = library.games.first { $0.id == id } ?? LibraryGame(titleID: catalog[0].titleID, name: catalog[0].name)
             root = AnyView(DeleteGameSheet(game: game, shellRoot: directory.appendingPathComponent("shell").path, finished: { _ in }))
         case .controlsSheet:
             root = AnyView(ControlsView(layout: controls))
@@ -202,7 +216,7 @@ import NXLauncher
         try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? Data().write(to: marker)
         // a verified profile for every fixture game, the first one with a widescreen aspect in the widescreen scene
-        for (index, game) in Self.games.enumerated() {
+        for (index, game) in catalog.enumerated() {
             let folder = engine.appendingPathComponent("dm/games/" + game.titleID, isDirectory: true)
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let aspect = widescreen && index == 0 ? "screen_aspect\tauto\n" : ""
@@ -217,14 +231,18 @@ import NXLauncher
 
     private func makeLibrary(count: Int) -> GameLibrary {
         let folder = directory.appendingPathComponent("library-" + UUID().uuidString, isDirectory: true)
-        let artwork = folder.appendingPathComponent("artwork", isDirectory: true)
-        try? FileManager.default.createDirectory(at: artwork, withIntermediateDirectories: true)
-        let library = GameLibrary(file: folder.appendingPathComponent("library.json"), artwork: artwork)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let library = GameLibrary(file: folder.appendingPathComponent("library.json"), artwork: artworkFolder)
         library.applicationFolders = []
         guard count > 0 else { return library }
-        for (index, game) in Self.games.prefix(count).enumerated() {
-            Self.writeArtwork(for: game.titleID, hue: game.hue, in: artwork)
+        for (index, game) in catalog.prefix(count).enumerated() {
             var entry = LibraryGame(titleID: game.titleID, name: game.name)
+            if let cover = game.cover {   // the player's game: its id (its imported artwork's folder), names and artwork choice
+                entry = LibraryGame(id: cover.id, titleID: cover.titleID, name: cover.name)
+                entry.titleNames = cover.titleNames
+                entry.customName = cover.customName
+                entry.artwork = cover.artwork
+            }
             entry.inputs["base"] = ["/Volumes/Games/\(game.name) [\(game.titleID)].nsp"]
             entry.lastPlayed = Date(timeIntervalSince1970: 1_790_000_000 - Double(index) * 86_400)
             library.upsert(entry)
@@ -235,7 +253,7 @@ import NXLauncher
 
     /// A stand-in Mac build of fixture game `index` (its executables point at /usr/bin/true, nothing runs), with a few launch options.
     private func makeMacApp(for index: Int, in library: GameLibrary) -> UUID? {
-        let game = Self.games[index]
+        let game = catalog[index]
         let app = directory.appendingPathComponent("apps-" + UUID().uuidString + "/\(game.name).app")
         let dm = app.appendingPathComponent("Contents/Resources/dm")
         let fm = FileManager.default
@@ -262,7 +280,7 @@ import NXLauncher
     }
 
     private func configureBuild(_ stores: LauncherStores, library: GameLibrary) {
-        let game = Self.games[0]
+        let game = catalog[0]
         let package = directory.appendingPathComponent("\(game.name) [\(game.titleID)].nsp")
         try? Data().write(to: package)
         stores.build.target = BuildTarget.mac
