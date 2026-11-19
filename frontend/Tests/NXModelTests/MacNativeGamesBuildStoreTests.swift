@@ -279,4 +279,69 @@ import XCTest
         XCTAssertNil(store.failure)
         XCTAssertTrue(store.doneNote.contains("ERROR: missing shared fonts"))
     }
+
+    func testSelectingOrRestoringMacNativeGamesAutoSwitchesTargetToMacAndTriggersUpstreamChanged() throws {
+        let runner = ChunkedRunner()
+        let mngTree = try makeFakeMNGTree()
+        var upstreamChangeCount = 0
+        let store = BuildStore(
+            localizer: localizer,
+            runner: runner,
+            repo: repo,
+            deps: deps,
+            engine: engine,
+            devices: devices,
+            defaults: defaults
+        )
+        store.macNativeGamesPath = mngTree
+        store.upstreamChanged = { upstreamChangeCount += 1 }
+        store.target = BuildTarget.ios
+        XCTAssertEqual(store.target, BuildTarget.ios)
+
+        store.selectUpstream(.macNativeGames)
+        XCTAssertEqual(store.buildUpstream, EngineUpstreamKind.macNativeGames)
+        XCTAssertEqual(store.target, BuildTarget.mac)
+        XCTAssertEqual(upstreamChangeCount, 1)
+
+        // Simulate persisted iOS target alongside MacNativeGames in UserDefaults; init must normalize to Mac.
+        defaults.set(BuildTarget.ios, forKey: BuildStore.targetKey)
+        defaults.set(EngineUpstreamKind.macNativeGames.rawValue, forKey: BuildStore.buildUpstreamKey)
+        let restored = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        XCTAssertEqual(restored.buildUpstream, EngineUpstreamKind.macNativeGames)
+        XCTAssertEqual(restored.target, BuildTarget.mac)
+    }
+
+    func testSharedFontsFailureClassifiesAndFixButtonSwitchesBackToNxnative() throws {
+        repo.isRepo = false
+        let validTree = try makeFakeMNGTree()
+        let runner = ChunkedRunner()
+        runner.chunks = [
+            Data("checking files\nERROR: Standard NSP packages do not include system shared fonts; pass --firmware <dir> or --shared-fonts <dir>\n".utf8)
+        ]
+        runner.exitStatus = 1
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.buildUpstream = .macNativeGames
+        store.macNativeGamesPath = validTree
+        store.target = BuildTarget.mac
+
+        let base = temporary.appendingPathComponent("Zelda [0100F2C0115B6000].nsp")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: base)
+        try Data([0]).write(to: keys)
+        store.updateSlot("base") { $0.paths = [base.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+
+        store.startBuild()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+
+        XCTAssertFalse(store.running)
+        XCTAssertFalse(store.done)
+        XCTAssertEqual(store.failure?.kind, .mngSharedFonts)
+        XCTAssertEqual(store.doneNote, localizer.t("macFail.mngSharedFonts.what"))
+
+        store.fixBuildFailure(.mngSharedFonts)
+        XCTAssertEqual(store.buildUpstream, .nxnative)
+        XCTAssertNil(store.failure)
+    }
 }

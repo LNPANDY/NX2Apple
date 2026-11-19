@@ -289,6 +289,101 @@ private final class JoinGate: @unchecked Sendable {
         let resetOrbit = try #require(model.details.first { $0.id == Fixtures.orbit })
         #expect(!resetOrbit.dataNote.contains("Backups/OrbitDump"))
     }
+
+    @Test func pickingMultiGameParentFolderWithIncompleteOwnSubfolderDoesNotBlameEarlierSiblingGame() async throws {
+        let box = try Sandbox()
+        let stardewID = "0100E65002BB8000"
+        let animalCrossingID = "01006F8002326000"
+        let fm = FileManager.default
+
+        // Install Animal Crossing (sorts before Stardew Valley alphabetically) and Stardew Valley in Sandbox.games.
+        let orbitTemplate = box.games.appendingPathComponent(Fixtures.orbit)
+        for (id, title, indexHex) in [
+            (animalCrossingID, "Animal Crossing: New Horizons", "9da33c3b161c746a"),
+            (stardewID, "Stardew Valley", "90b5abb4d1ea10d2")
+        ] {
+            let dest = box.games.appendingPathComponent(id, isDirectory: true)
+            try fm.copyItem(at: orbitTemplate, to: dest)
+            let manifestURL = dest.appendingPathComponent("game.manifest.json")
+            let manifestText = try String(contentsOf: manifestURL, encoding: .utf8)
+                .replacingOccurrences(of: Fixtures.orbit, with: id)
+                .replacingOccurrences(of: "Orbit Fixture", with: title)
+                .replacingOccurrences(of: "\"DMROMFSID1 fixture\"",
+                                      with: "\"DMROMFSID1 title=\(id) version=1.0 build=v0 size=61 index=\(indexHex)\"")
+            try Data(manifestText.utf8).write(to: manifestURL)
+            let launcherURL = dest.appendingPathComponent("launcher.json")
+            let launcherText = try String(contentsOf: launcherURL, encoding: .utf8)
+                .replacingOccurrences(of: Fixtures.orbit, with: id)
+            try Data(launcherText.utf8).write(to: launcherURL)
+        }
+
+        // Parent `games/` folder has a complete Animal Crossing romfs.img AND an incomplete/truncated Stardew Valley romfs.img.
+        let parentGames = box.root.appendingPathComponent("PickedGamesRoot/games", isDirectory: true)
+        let acFolder = parentGames.appendingPathComponent(animalCrossingID, isDirectory: true)
+        let svFolder = parentGames.appendingPathComponent(stardewID, isDirectory: true)
+        try fm.createDirectory(at: acFolder, withIntermediateDirectories: true)
+        try fm.createDirectory(at: svFolder, withIntermediateDirectories: true)
+        try ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexB).write(to: acFolder.appendingPathComponent("romfs.img"))
+        try Data(ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexA).prefix(24)).write(to: svFolder.appendingPathComponent("romfs.img"))
+
+        let model = ShellHostModel(config: box.config(), picker: FakePicker(url: parentGames))
+        await model.pickGameDataNow(stardewID)
+
+        let stardew = try #require(model.details.first { $0.id == stardewID })
+        #expect(stardew.game.state == .needsGameData)
+        #expect(model.notice?.contains("Animal Crossing") == false, "must never blame earlier sibling game: \(model.notice ?? "nil")")
+        #expect(model.notice?.contains("another game") == false, "truncated own image must not claim wrong game: \(model.notice ?? "nil")")
+        #expect(model.notice?.contains("Stardew Valley") == true)
+
+        // When the target game's own subfolder has an iCloud placeholder alongside Animal Crossing, report iCloud pending.
+        try fm.removeItem(at: svFolder.appendingPathComponent("romfs.img"))
+        try box.write("icloud", to: svFolder.appendingPathComponent(".romfs.img.icloud"))
+        await model.pickGameDataNow(stardewID)
+        #expect(model.notice?.contains("iCloud Drive") == true)
+        #expect(model.notice?.contains("Animal Crossing") == false)
+    }
+
+    @Test func sameGameFolderWithLegacyRomfsImgAndValidNamedImgSelectsValidImage() async throws {
+        let box = try Sandbox()
+        try installRealIdentityManifest(in: box)
+        let fm = FileManager.default
+        // Strip inline msl/ from the Orbit fixture framework so embedded DMMSLTR1 trailer is required for readiness.
+        try fm.removeItem(at: box.games.appendingPathComponent("\(Fixtures.orbit)/DmGame.framework/msl"))
+
+        let baseOrbit = ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexA)
+        let trailedOrbit = ShellDataFolderTests.dmromfsWithTrailer(baseOrbit, chain: "b-3f9a2c")
+
+        // Case 1: App folder holds a legacy/untrailed `romfs.img` AND a trailed `Orbit Fixture.img`.
+        let appDir = box.appData.appendingPathComponent(Fixtures.orbit, isDirectory: true)
+        try fm.createDirectory(at: appDir, withIntermediateDirectories: true)
+        try baseOrbit.write(to: appDir.appendingPathComponent("romfs.img"))
+        let namedAppImg = appDir.appendingPathComponent("Orbit Fixture.img")
+        try trailedOrbit.write(to: namedAppImg)
+
+        let launcher = RecordingLauncher()
+        let appModel = ShellHostModel(config: box.config(), launcher: launcher)
+        await appModel.waitForDataChecks()
+        let readyApp = try #require(appModel.details.first { $0.id == Fixtures.orbit })
+        #expect(readyApp.game.state == .playable, "trailed named image must win over legacy untrailed romfs.img in same folder")
+        await appModel.playNow(Fixtures.orbit)
+        let launchedApp = try #require(launcher.launched.last)
+        let appPlan = EngineLaunchPlan.make(game: launchedApp, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(URL(fileURLWithPath: try #require(appPlan.environment["DM_ROMFS"])).resolvingSymlinksInPath().path == namedAppImg.resolvingSymlinksInPath().path)
+
+        // Case 2: Picked folder holds a truncated/mismatched `romfs.img` AND a valid trailed `Orbit Fixture.img`.
+        try fm.removeItem(at: appDir)
+        let pickedDir = box.root.appendingPathComponent("PickedMixed", isDirectory: true)
+        try fm.createDirectory(at: pickedDir, withIntermediateDirectories: true)
+        try ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexB).write(to: pickedDir.appendingPathComponent("romfs.img"))
+        let namedPickedImg = pickedDir.appendingPathComponent("Orbit Fixture.img")
+        try trailedOrbit.write(to: namedPickedImg)
+
+        let pickedModel = ShellHostModel(config: box.config(), launcher: launcher, picker: FakePicker(url: pickedDir))
+        await pickedModel.pickGameDataNow(Fixtures.orbit)
+        let readyPicked = try #require(pickedModel.details.first { $0.id == Fixtures.orbit })
+        #expect(readyPicked.game.state == .playable)
+        #expect(pickedModel.notice == nil)
+    }
 }
 
 // MARK: - 2. Real-time `.nxpart` join progress and generation protection (UX 3.3.1)

@@ -1487,6 +1487,25 @@ def _locate_pulled_img_file(tmp_path: Path, remote_src: str) -> Path | None:
     return None
 
 
+def localize_pull_error(reason: str, t_func: Callable[..., str]) -> str:
+    """Translate raw `pull_img_from_ios_device` failure tokens into localized UI text."""
+    raw = (reason or '').strip()
+    if not raw or raw.startswith('exit ') or raw in ('devicectl copy failed', 'Device file transfer failed'):
+        return t_func('imgGuide.pullErrTransfer')
+    if raw == 'devicectl unavailable':
+        return t_func('imgGuide.pullErrUnavailable')
+    if raw in ('no device', 'missing device', 'No device selected'):
+        return t_func('imgGuide.pullErrNoDevice')
+    if raw.startswith('no .img found'):
+        return t_func('imgGuide.pullErrNotFound')
+    if raw in ('invalid DMROMFS1 file', 'identity mismatch'):
+        return t_func('imgGuide.pullErrInvalid')
+    lower = raw.lower()
+    if 'timed out' in lower or 'timeoutexpired' in lower:
+        return t_func('imgGuide.pullErrTimedOut')
+    return raw
+
+
 def pull_img_from_ios_device(
     *,
     device_id: str,
@@ -2238,7 +2257,9 @@ if HAS_QT:
                         self.accept()
                     elif info != 'cancelled':
                         _apply_text_color(self.pull_status_lbl, '#ff6161')
-                        self.pull_status_lbl.setText(self.m.t('imgGuide.pullFailed', info))
+                        self.pull_status_lbl.setText(
+                            self.m.t('imgGuide.pullFailed', localize_pull_error(info, self.m.t))
+                        )
 
                 self._bridge.safe_emit(apply)
 

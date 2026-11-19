@@ -425,7 +425,7 @@ struct MissingImgGuideSheet: View {
                     onResolvedImg(pulledPath)
                 case .failure(let err):
                     if err == .cancelled { return }
-                    let reason = err.errorDescription ?? String(describing: err)
+                    let reason = err.localizedReason(loc.t)
                     pullError = String(format: loc.t("imgGuide.pullFailed"), reason)
                 }
             }

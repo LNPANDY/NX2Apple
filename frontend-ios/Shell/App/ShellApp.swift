@@ -66,9 +66,8 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
         // The shader chain the host was compiled with (build_shell.sh writes DMChain): a framework built for another one needs an app update
         let chain = (info["DMChain"] as? String).map { "b-" + $0 }
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        let glueVer = Int(DM_SHELL_GLUE_VERSION)
         Task.detached(priority: .utility) {
-            ShellHostBeacon.write(to: documents, glueVersion: glueVer)
+            ShellHostBeacon.write(to: documents)
         }
         let frameworks = Bundle.main.privateFrameworksURL ?? Bundle.main.bundleURL.appendingPathComponent("Frameworks", isDirectory: true)
         let config = ShellHostConfig(

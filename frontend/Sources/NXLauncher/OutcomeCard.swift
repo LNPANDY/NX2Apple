@@ -43,11 +43,43 @@ package struct OutcomeCard: View {
                         Text(URL(fileURLWithPath: build.exportedIPAPath).lastPathComponent).font(.manrope(13)).foregroundStyle(.secondary).help(build.exportedIPAPath)
                     } else if status != .mac && !build.archivePath.isEmpty { artifact(build.archivePath, id: "set.build.done.archive") }
                     if let openError { Text(openError).font(.manrope(13)).foregroundStyle(LauncherPalette.building).textSelection(.enabled) }
+                    if build.needsReplaceOldImgReminder {
+                        Divider()
+                        replaceOldImgRow
+                    }
                     if status == .installed || status == .needsData { guide }
                 }
                 .padding(20).frame(maxWidth: .infinity, alignment: .leading)
                 .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+            }
+        }
+        if build.completionStatus == nil && build.done && build.runningTarget != BuildTarget.mac && build.needsReplaceOldImgReminder && build.installedOn.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                replaceOldImgRow
+            }
+            .padding(20).frame(maxWidth: .infinity, alignment: .leading)
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+        }
+    }
+
+    @ViewBuilder private var replaceOldImgRow: some View {
+        let imgName = build.updatedImgPath.isEmpty ? "romfs.img" : (build.updatedImgPath as NSString).lastPathComponent
+        HStack(alignment: .top, spacing: 12) {
+            Circle().fill(LauncherPalette.building).frame(width: 7, height: 7).padding(.top, 5)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(loc.t("imgGuide.replaceOldImgTitle")).font(.manrope(13, .semibold))
+                Text(String(format: loc.t("imgGuide.replaceOldImgBody"), imgName))
+                    .font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if !build.updatedImgPath.isEmpty {
+                Button(loc.t("install.reveal")) { revealInFinder(build.updatedImgPath) }
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .help(build.updatedImgPath)
+                    .padTarget("set.build.done.replaceImg", scope: "main") { revealInFinder(build.updatedImgPath) }
             }
         }
     }

@@ -77,6 +77,10 @@ extension BuildStore {
         installedOn = ""
         installedAppPath = ""
         exportedIPAPath = ""
+        if !deferShellPackaging {
+            needsReplaceOldImgReminder = false
+            updatedImgPath = ""
+        }
         send = .idle
         mngRun = false
         s2armRun = false
@@ -447,6 +451,7 @@ extension BuildStore {
                         }
                         self.doneNote = note
                         self.say("✗ " + note)
+                        self.noteFailure()
                     } else if self.nxbRun {
                         // nxb's own exit code and message, as they are: there is no script to run instead (#749)
                         let note = self.experimentalFailureNote(status: status)

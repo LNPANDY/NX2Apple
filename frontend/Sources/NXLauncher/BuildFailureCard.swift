@@ -90,6 +90,10 @@ package struct BuildFailureCard: View {
                 fix(kind, "macFail.updateMismatch.button")
                 Button(loc.t("fail.showFolder")) { m.showFailureFolder() }.disabled(m.running)
                     .padTarget("set.build.failure.folder", scope: "main", enabled: !m.running) { if !m.running { m.showFailureFolder() } }
+            case .mngSharedFonts:
+                fix(kind, "macFail.mngSharedFonts.button")
+                Button(loc.t("fail.showFolder")) { m.showFailureFolder() }.disabled(m.running)
+                    .padTarget("set.build.failure.folder", scope: "main", enabled: !m.running) { if !m.running { m.showFailureFolder() } }
             case .severalGames, .noTitleID, .diskFull, .staleProfile:
                 fix(kind, "fail.showFolder")
             case .cloudFolder, .volumeFormat:

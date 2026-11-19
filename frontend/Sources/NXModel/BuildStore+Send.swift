@@ -138,9 +138,9 @@ extension BuildStore {
     package var canSendToDevice: Bool { canSendGameData && !devices.installDevice.isEmpty }
     package var canCopyToDrive: Bool { canSendGameData && drive != nil && drive?.problem == nil && drive?.volume != nil }
 
-    /// The IPA's file name and size, for step 1.
+    /// The IPA's (or standalone `.framework` bundle's) file name and size, for step 1.
     package var exportedIPAText: String {
-        let size = ((try? FileManager.default.attributesOfItem(atPath: exportedIPAPath)[.size]) as? NSNumber)?.int64Value ?? 0
+        let size = ShellInstall.artifactSizeBytes(atPath: exportedIPAPath)
         return (exportedIPAPath as NSString).lastPathComponent + (size > 0 ? ", " + ShellInstall.sizeText(size) : "")
     }
 

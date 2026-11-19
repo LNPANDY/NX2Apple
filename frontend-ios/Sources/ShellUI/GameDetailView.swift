@@ -51,7 +51,15 @@ public struct GameDetailView: View {
             ScrollView {
                 AddToHomeScreenView(
                     game: detail.game,
-                    saveAndOpen: { await actions.onAddToHomeScreen?(detail.id) ?? false },
+                    supportsFloatingGuide: actions.onAddToHomeScreenWithGuide != nil,
+                    prepareFloatingGuide: { actions.onPrepareHomeScreenGuide?(detail.id) },
+                    cancelPreparedFloatingGuide: { actions.onCancelPreparedHomeScreenGuide?() },
+                    saveAndOpen: { floatingGuide in
+                        if let withGuide = actions.onAddToHomeScreenWithGuide {
+                            return await withGuide(detail.id, floatingGuide)
+                        }
+                        return await actions.onAddToHomeScreen?(detail.id) ?? false
+                    },
                     copyURL: { actions.onCopyShortcutURL?(detail.id) },
                     close: { localHomeScreen = false }
                 )

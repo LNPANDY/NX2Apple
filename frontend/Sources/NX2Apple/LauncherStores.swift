@@ -60,6 +60,7 @@ import NXModel
         let dependencies = DependencyStore(
             localizer: localizer, runner: runner, repo: repo, defaults: defaults,
             needsIOS: { Self.needsIOSPlatform(defaults: defaults) },
+            upstreamContext: { (laterBuild.value?.buildUpstream ?? .nxnative, laterBuild.value?.s2armPath ?? "") },
             openAppStore: { NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/App Store.app")) },
             log: { log.append($0) },
             installFailed: { laterBuild.value?.note($0) })
@@ -86,6 +87,7 @@ import NXModel
                 if defaults.string(forKey: OnboardingDefaults.platform) == "mac" { _ = dependencies.check() }
             })
         laterBuild.value = build
+        build.upstreamChanged = { _ = dependencies.check() }
         if defaults === UserDefaults.standard {
             build.adoptInstalledUpstreams()
         }

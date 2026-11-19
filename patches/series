@@ -55,3 +55,4 @@
 0064-older-devices-decode-bc-textures-across-the-cpu.patch
 0065-tools-tests-stub-dmsh-rewrite-in-the-mesh-target.patch
 0066-tools-tests-a-changed-nso-syms-py-rewrites-again.patch
+0067-ios-a-game-framework-s-copies-are-clones-of-the.patch

@@ -102,6 +102,7 @@ public enum ProvisioningProfile {
 public struct ShellHostBeacon: Codable, Equatable, Sendable {
     public static let fileName = ".shell-host.json"
     public static let currentSchema = 1
+    public static let currentGlueVersion = 2
 
     public var schema: Int
     public var glueVersion: Int
@@ -111,7 +112,7 @@ public struct ShellHostBeacon: Codable, Equatable, Sendable {
     public var version: String
     public var expiresAtEpoch: Int64?
 
-    public init(schema: Int = Self.currentSchema, glueVersion: Int = 1, bundleID: String, teamID: String,
+    public init(schema: Int = Self.currentSchema, glueVersion: Int = Self.currentGlueVersion, bundleID: String, teamID: String,
                 chain: String, version: String, expiresAtEpoch: Int64? = nil) {
         self.schema = schema
         self.glueVersion = glueVersion
@@ -122,7 +123,7 @@ public struct ShellHostBeacon: Codable, Equatable, Sendable {
         self.expiresAtEpoch = expiresAtEpoch
     }
 
-    public static func write(to documents: URL, bundle: Bundle = .main, glueVersion: Int = 1, fileManager fm: FileManager = .default) {
+    public static func write(to documents: URL, bundle: Bundle = .main, glueVersion: Int = Self.currentGlueVersion, fileManager fm: FileManager = .default) {
         let info = bundle.infoDictionary ?? [:]
         let bundleID = (info["CFBundleIdentifier"] as? String) ?? bundle.bundleIdentifier ?? ""
         let rawChain = (info["DMChain"] as? String) ?? ""

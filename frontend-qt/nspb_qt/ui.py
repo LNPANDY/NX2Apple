@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import build_failure as bf
+from . import build_queue as bq
 from . import features as feat
 from . import inputs
 from . import library as lib
@@ -172,7 +173,7 @@ def _cleanup_destroyed_window(
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, model: Model) -> None:
+    def __init__(self, model: Model, *, perform_startup_checks: bool = True) -> None:
         super().__init__()
         self.m = model
         self.m.ask_folder = lambda title: QFileDialog.getExistingDirectory(
@@ -288,6 +289,10 @@ class MainWindow(QMainWindow):
             self.m.driveCopyFinished.connect(self._on_drive_copy_finished)
         if hasattr(self.m, 'upstreamStateChanged'):
             self.m.upstreamStateChanged.connect(self._on_upstream_state_changed)
+        if hasattr(self.m, 'queueChanged'):
+            self.m.queueChanged.connect(self._refresh_queue_card)
+        if hasattr(self.m, 'queueBatchCompleted'):
+            self.m.queueBatchCompleted.connect(self._on_queue_batch_completed)
 
         if self.m.log_path:
             self._append_log(self.m.t('log.at', str(self.m.log_path)) + '\n\n')
@@ -295,13 +300,15 @@ class MainWindow(QMainWindow):
         self._switch_page('builds')
 
         self._refresh_all()
-        for g in self.m.library.games:
-            self.m.artwork.request_banner_async(g.title_id)
+        if perform_startup_checks:
+            for g in self.m.library.games:
+                self.m.artwork.request_banner_async(g.title_id)
 
         self._init_timer = QTimer(self)
         self._init_timer.setSingleShot(True)
         self._init_timer.timeout.connect(self.m.check_deps)
-        self._init_timer.start(50)
+        if perform_startup_checks:
+            self._init_timer.start(50)
 
     # ================================================================ Top Bar & Window Controls
 
@@ -1188,6 +1195,11 @@ class MainWindow(QMainWindow):
 
     def _cancel_active_and_queued_builds(self) -> None:
         self.refresh_queue.cancel_all()
+        bq_store = getattr(self.m, 'build_queue', None)
+        if bq_store is not None and (
+            bq_store.active or bq_store.running_entry is not None or bq_store.finalizing_shell
+        ):
+            bq_store.stop_queue()
         if self.m.running:
             self.m.cancel_build()
 
@@ -1339,6 +1351,11 @@ class MainWindow(QMainWindow):
         # Card 4: Action + BuildFailureCard + OutcomeCard
         self.action_group = self._build_action_card()
         self.body_col.addWidget(self.action_group)
+
+        # Card 4.5: Build Queue Card
+        self.queue_card = bq.BuildQueueCard(self.m, self.m.build_queue)
+        self.queue_card.selectGamesRequested.connect(self._open_queue_select_dialog)
+        self.body_col.addWidget(self.queue_card)
 
         # Card 5: Progress Card
         self.stages_card = self._build_stages_card()
@@ -2244,6 +2261,11 @@ class MainWindow(QMainWindow):
         self.build_btn.clicked.connect(self._build_clicked)
         act.addWidget(self.build_btn)
 
+        self.add_queue_btn = QPushButton(self.m.t('queue.add'))
+        self.add_queue_btn.setCursor(Qt.PointingHandCursor)
+        self.add_queue_btn.clicked.connect(self._add_current_to_queue)
+        act.addWidget(self.add_queue_btn)
+
         self.footer = QLabel('')
         self.footer.setObjectName('muted')
         self.footer.setWordWrap(True)
@@ -2907,7 +2929,13 @@ class MainWindow(QMainWindow):
         self.activity_bar.setVisible(not self.m.running or self._current_page != 'builds')
         if self.m.running:
             self.act_dot.set_color(style.AMBER)
-            self.act_title.setText(self.m.t('activity.ios' if self.m.target == 'ios' else 'activity.mac'))
+            act_lbl = self.m.t('activity.ios' if self.m.target == 'ios' else 'activity.mac')
+            bq_store = getattr(self.m, 'build_queue', None)
+            if bq_store is not None and not bq_store.is_empty:
+                cur, total = bq_store.progress_counts()
+                if total > 0:
+                    act_lbl = f'{act_lbl} ({cur} / {total})'
+            self.act_title.setText(act_lbl)
             curr_stage = next((s for s in self.m.stages if s.state == 'running'), None)
             done_cnt = sum(1 for s in self.m.stages if s.state == 'done')
             total_cnt = max(7, len(self.m.stages))
@@ -2931,6 +2959,63 @@ class MainWindow(QMainWindow):
             self.act_progress.hide()
             self.act_view_btn.hide()
             self.act_stop_btn.hide()
+
+    def _add_current_to_queue(self) -> None:
+        if not hasattr(self.m, 'enqueue_current_game'):
+            return
+        if self.m.enqueue_current_game():
+            if self.m.base_path:
+                g = self.m.library.remember_inputs(
+                    base_path=self.m.base_path,
+                    update_path=self.m.update_path,
+                    dlc_paths=self.m.dlc_paths,
+                    keys_path=self.m.keys_path,
+                    output_dir=self.m.out_dir,
+                    repo_path=self.m.engine_path,
+                )
+                if g:
+                    self.m.artwork.request_banner_async(g.title_id)
+            self._refresh_queue_card()
+
+    def _open_queue_select_dialog(self, discovered: list[bq.DiscoveredGame] | None = None) -> None:
+        dlg = bq.QueueSelectGamesDialog(self.m, self.m.build_queue, discovered=discovered, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        chosen = dlg.chosen_entries()
+        if chosen:
+            self.m.build_queue.enqueue(chosen)
+            self._refresh_queue_card()
+
+    def _refresh_queue_card(self) -> None:
+        if hasattr(self, 'queue_card'):
+            self.queue_card.refresh()
+        if hasattr(self, 'add_queue_btn'):
+            self.add_queue_btn.setText(self.m.t('queue.add'))
+            snap = self.m.snapshot_current_queue_entry() if hasattr(self.m, 'snapshot_current_queue_entry') else None
+            can_add = (
+                snap is not None
+                and not self.m.running
+                and self.m.build_queue.can_enqueue(snap)
+            )
+            self.add_queue_btn.setEnabled(can_add)
+        self._refresh_activity_bar()
+
+    def _on_queue_batch_completed(self, done_c: int, fail_c: int, skip_c: int) -> None:
+        self._refresh_library()
+        self._refresh_install_card()
+        self._refresh_queue_card()
+        parts: list[str] = []
+        if done_c:
+            parts.append(f"{self.m.t('queue.status.done')}: {done_c}")
+        if fail_c:
+            parts.append(f"{self.m.t('queue.status.failed')}: {fail_c}")
+        if skip_c:
+            parts.append(f"{self.m.t('queue.status.skipped')}: {skip_c}")
+        if parts:
+            self.footer.setStyleSheet(f'color: {style.AMBER if fail_c else style.GREEN}; font-size: 12.5px;')
+            self.footer.setText(f"{self.m.t('queue.title')} · " + ' · '.join(parts))
+        if self.m.settings_value('notifyOnComplete', True) and not self.isActiveWindow():
+            QApplication.beep()
 
     # ================================================================ Refresh Logic
 
@@ -3071,6 +3156,7 @@ class MainWindow(QMainWindow):
         self._refresh_install_card()
         self._refresh_stages()
         self._refresh_running()
+        self._refresh_queue_card()
         self._show_failure()
         self._refresh_library()
         self._refresh_activity_bar()
@@ -3508,7 +3594,7 @@ class MainWindow(QMainWindow):
 
         self.build_btn.style().unpolish(self.build_btn)
         self.build_btn.style().polish(self.build_btn)
-        self._refresh_activity_bar()
+        self._refresh_queue_card()
 
     def _append_log(self, s: str) -> None:
         c = self.log.textCursor()
@@ -3839,6 +3925,30 @@ class MainWindow(QMainWindow):
             return
         event.acceptProposedAction()
 
+        discovered = bq.discover_game_groups(
+            paths,
+            keys_path=self.m.keys_path,
+            engine_path=self.m.engine_path,
+            library=self.m.library,
+        )
+        if discovered.keys_path and not self.m.keys_path:
+            self.m.keys_path = discovered.keys_path
+
+        # Multi-game drop: group by Title ID and confirm batch enqueue without disrupting running builds
+        if len(discovered.games) > 1:
+            self._switch_page('builds')
+            self._open_queue_select_dialog(discovered=discovered.games)
+            self._refresh_all()
+            return
+
+        # Single-game drop while a build is running: append directly to queue without interrupting it
+        if self.m.running:
+            if discovered.games:
+                self.m.enqueue_discovered_games(discovered.games)
+                self._switch_page('builds')
+                self._refresh_queue_card()
+            return
+
         pkg_files: list[Path] = []
         for p in paths:
             if os.path.isdir(p):
@@ -3856,7 +3966,7 @@ class MainWindow(QMainWindow):
 
         if pkg_files:
             self.m.leave_game_folder()
-            classified = inputs.classify(pkg_files)
+            classified = inputs.classify(pkg_files, keys_path=self.m.keys_path)
             if classified.get('base'):
                 self.m.base_path = str(classified['base'])
             if classified.get('update'):
