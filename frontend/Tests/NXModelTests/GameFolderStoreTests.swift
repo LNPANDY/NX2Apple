@@ -47,14 +47,12 @@ import XCTest
     private let runner = FakeProcessRunner()
 
     override func setUpWithError() throws {
-        ExperimentalBuilder.featureEnabled = true   // the toggle is off in the app for now, these tests are about the builder
         root = NSTemporaryDirectory() + "gamefolder-store-" + UUID().uuidString
         defaults = TestDefaults.make("nxmodel-gamefolder")
         try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        ExperimentalBuilder.featureEnabled = false
         try? FileManager.default.removeItem(atPath: root)
     }
 
@@ -120,23 +118,6 @@ import XCTest
         XCTAssertEqual(args.firstIndex(of: "--work-dir").map { args[$0 + 1] }, game + "/040074A01BF12000_build")
         XCTAssertEqual(args.firstIndex(of: "-o").map { args[$0 + 1] }, game + "/040074A01BF12000_build/040074A01BF12000.app")
         XCTAssertTrue(args.contains("mac-app"))
-    }
-
-    /// #749: with the experimental builder on, the same arguments go to `nxb build` and the script is not run.
-    func testTheExperimentalBuilderGivesTheScriptsArgumentsToNxbBuildAndIsNamedInTheLog() {
-        let (store, game) = makeStore()
-        store.scan(folder: game)
-        store.startBuild()
-        let standard = store.lastBuildCommand
-        XCTAssertFalse(store.log.text.contains("nxb"))
-        let nxb = root + "/nxbuild/nxb"
-        write(nxb)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
-        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.6.3\n") }
-        store.experimentalBuilder = true; store.experimentalBuilderPath = nxb
-        store.startBuild()
-        XCTAssertEqual(store.lastBuildCommand, [nxb, "build"] + standard.dropFirst(2), "nxb build in place of the interpreter and the script, the same options after")
-        XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
     }
 
     func testWithoutAProfileTheFolderIsRefusedWithTheTitleID() {

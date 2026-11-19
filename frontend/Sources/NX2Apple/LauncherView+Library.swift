@@ -150,8 +150,20 @@ extension LauncherView {
                                         .help(loc.t("widescreen.help"))
                                         .accessibilityIdentifier("hero.widescreen")
                                 }
+                                if game.playableMacBundle?.upstream == .nxkit {
+                                    // A quiet property as the widescreen line (#1460): nxkit (Beta) built this app
+                                    Label(loc.t("nxkit.builtWith"), systemImage: "hammer")
+                                        .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                                        .help(m.nxkitRecord(game.titleID).map { String(format: loc.t("nxkit.version"), $0.version) } ?? loc.t("nxkit.builtWith"))
+                                        .accessibilityIdentifier("hero.nxkit")
+                                }
                             }
                             heroActions(game, compact: width < 760)
+                            if let prompt = nxkitLaunchPrompt(game) {
+                                // "Did it work?" after the first start of an app nxkit built, once (#1460)
+                                NxkitFeedbackRow(prompt: prompt) { m.markNxkitFeedbackAsked(prompt.id) }
+                                    .frame(maxWidth: 620, alignment: .leading)
+                            }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.horizontal, 34).padding(.bottom, 24)
@@ -165,6 +177,15 @@ extension LauncherView {
             guard let game, performStartupChecks else { return }
             if await artworkStore.fetchIcon(game.titleID, language: loc.lang.code) != nil { refreshHeroArtwork() }
         }
+    }
+
+    /// The question after the first start of an app nxkit built: it was played after the build nxkit recorded, and not asked yet.
+    func nxkitLaunchPrompt(_ game: LibraryGame) -> NxkitFeedbackPrompt? {
+        guard let record = m.nxkitRecord(game.titleID), let played = game.lastPlayed, played >= record.date,
+              !m.nxkitFeedbackAsked(record.buildID + "." + NxkitFeedbackPrompt.Moment.firstLaunch.rawValue),
+              let app = game.playableMacBundle, app.upstream == .nxkit else { return nil }
+        return NxkitFeedbackPrompt(buildID: record.buildID, moment: .firstLaunch, titleID: game.titleID, gameName: game.displayName(loc.lang),
+                                   gameVersion: app.version ?? "", nxkitVersion: record.version, engineBuild: record.hostBuild)
     }
 
     private func heroBadges(_ game: LibraryGame) -> some View {

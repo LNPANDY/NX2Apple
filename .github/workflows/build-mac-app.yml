@@ -345,8 +345,8 @@ jobs:
           # The build tools and the Python go into Resources before the bundle is signed (bundle_tools.sh signs each nested Mach-O file
           # itself: --deep below does not reach code that sits in Resources).
           tools/bundle_tools.sh "$APP/Contents/Resources" "$RUNNER_TEMP/bundle-tools-work"
-          # The experimental builder (#749): the nxbuild release nxbuild.pin names, its SHA-256 checked before it is unpacked, nxb signed ad hoc into
-          # Resources/nxbuild. A placeholder digest (no release yet) bundles nothing: the launcher's setting then needs a chosen nxb.
+          # nxkit (Beta), #1460: the nxkit release nxbuild.pin names, the zip checked against the pin and its SHA256SUMS before it is unpacked,
+          # nxb and nxkit-host checked against MANIFEST.json and SHA256SUMS and signed ad hoc into Resources/nxbuild (check_bundle.sh checks both).
           python3 tools/nxbuild.py fetch "$APP/Contents/Resources" "$RUNNER_TEMP/nxbuild-work"
           # The engine tree (Contents/ is read-only once signed: the launcher copies it to ~/Library/Application Support/NX2Apple/ on first
           # use). --deep does not reach code in Resources, but its Mach-O files (the shader translator, spirv-cross) are kept as upstream built

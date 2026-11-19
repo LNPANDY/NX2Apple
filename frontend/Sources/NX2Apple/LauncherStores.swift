@@ -91,6 +91,7 @@ import NXModel
             })
         laterBuild.value = build
         build.upstreamChanged = { _ = dependencies.check() }
+        build.nxkitAutoUpdate = { repo.autoUpdate }   // nxkit's own update follows "Update automatically when the app opens" (#1460)
         if defaults === UserDefaults.standard {
             build.adoptInstalledUpstreams()
         }

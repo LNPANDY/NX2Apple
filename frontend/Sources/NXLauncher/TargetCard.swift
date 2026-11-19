@@ -54,9 +54,9 @@ package struct TargetCard: View {
     }
 
     private func targetCard(_ value: String, symbol: String, title: String, note: String) -> some View {
-        let macOnlyBlocked = value == BuildTarget.ios && build.isMacNativeGamesSelected
+        let macOnlyBlocked = value == BuildTarget.ios && build.isMacOnlyUpstreamSelected
         let selected = build.target == value && !macOnlyBlocked
-        let displayNote = macOnlyBlocked ? "upstream.mngMacOnly" : note
+        let displayNote = macOnlyBlocked ? build.macOnlyNoteKey : note
         return Button { build.target = value } label: {
             LauncherTargetOptionLabel(title: loc.t(title), symbol: symbol, note: loc.t(displayNote), selected: selected)
         }

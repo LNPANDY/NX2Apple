@@ -23,6 +23,7 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
         "launch.opt.DM_FPS_TARGET.30", "launch.opt.DM_FPS_TARGET.60", "launch.opt.DM_FPS_TARGET.120", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx",
         "launch.opt.DM_SCREEN_ASPECT.0",   // 16:9 (Switch) reads the same in every language
         "switch2.badge",   // the console's name
+        "nxkit.name", "nxkit.version",   // the engine's name and its version number
         "ios.ui.switch2Badge", "appearance.system", "settings.language.system", "sort.name", "launch.opt.DM_PRESENT_INTERVAL.display", "launch.opt.DM_PRESENT_INTERVAL.game",   // the console's name, System, Name, the frame rates
         // Steam Controller names and button labels, and Touchscreen, read the same in German.
         "controls.steam.title", "controls.steam.Guide", "controls.steam.mode.4", "controls.steam.L4", "controls.steam.L5", "controls.steam.R4", "controls.steam.R5",

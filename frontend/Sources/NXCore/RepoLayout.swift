@@ -36,7 +36,7 @@ package enum RepoLayout {
             let root = EngineLayout.root(dir)
             let prefix = root.hasSuffix("/") ? root : root + "/"
             return descriptor.requiredTools.filter { !fm.fileExists(atPath: prefix + $0) }
-        case .s2arm, .macNativeGames:
+        case .s2arm, .macNativeGames, .nxkit:
             let prefix = dir.hasSuffix("/") ? dir : dir + "/"
             return descriptor.requiredTools.filter { !fm.fileExists(atPath: prefix + $0) }
         }

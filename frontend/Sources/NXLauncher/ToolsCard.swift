@@ -6,8 +6,8 @@ import NXModel
 
 /// Settings, "Tools": the repository or the release app's engine, the dependency rows and the diagnostics row.
 /// Observes the repository, engine sync and dependency stores. What it needs from the build store comes as values:
-/// whether a build runs. The cache row (ShellCacheRow, which observes the build store), the experimental builder's rows (ExperimentalBuilderRow, the same)
-/// and the diagnostics button come as views.
+/// whether a build runs. The cache row (ShellCacheRow, which observes the build store), the engine row (UpstreamBuilderRow, the same)
+/// and the diagnostics button come as views, the Build engine row's nxkit (Beta) parts as a value (BuildEngineRow).
 package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View, Upstream: View>: View {
     @ObservedObject var repo: RepoStore
     @ObservedObject var engine: EngineSyncStore
@@ -20,12 +20,14 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View, Ups
     let builder: Builder
     /// The engine pop-up (UpstreamPicker): the Build engine row's control when more than one engine can build.
     let upstream: Upstream?
+    /// What the Build engine row takes from the chosen engine when it is not nxnative (UpstreamBuilderRow.engineRow).
+    let engineRow: BuildEngineRow
     let diagnostics: Diagnostics
     @EnvironmentObject var loc: Localizer
 
     package init(repo: RepoStore, engine: EngineSyncStore, dependencies: DependencyStore, buildRunning: Bool,
                  @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder builder: () -> Builder, upstream: (() -> Upstream)?,
-                 @ViewBuilder diagnostics: () -> Diagnostics) {
+                 engineRow: BuildEngineRow = BuildEngineRow(), @ViewBuilder diagnostics: () -> Diagnostics) {
         self.repo = repo
         self.engine = engine
         self.dependencies = dependencies
@@ -33,6 +35,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View, Ups
         self.shellCache = shellCache()
         self.builder = builder()
         self.upstream = upstream?()
+        self.engineRow = engineRow
         self.diagnostics = diagnostics()
     }
 
@@ -102,7 +105,10 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View, Ups
             }
             if !engine.usesEngineStore, let upstream {   // a checkout: the engine pop-up has a row of its own
                 CardDivider()
-                CardRow(loc.t("engine.title")) { upstream }
+                CardRow(loc.t("engine.title"), detail: engineRow.detail ?? "", message: engineRow.message) {
+                    if let menu = engineRow.menu { menu.view }
+                    upstream
+                }
             }
             builder   // the build source rows belong to the build tools (#1458)
         }.onChange(of: engine.available?.version) { version in
@@ -194,9 +200,14 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View, Ups
     /// The release app's engine (EngineSyncStore): which one the build uses, its channel, and the automatic update.
     @ViewBuilder private var engineRows: some View {
         let idle = !(engine.busy || buildRunning)
-        CardRow(loc.t("engine.title"), detail: engine.busy ? engineBusyTitle : engine.detail,
-            dot: engine.selection.engineID.isEmpty ? LauncherPalette.building : LauncherPalette.ready, help: repo.path) {
-            if let upstream {
+        CardRow(loc.t("engine.title"), detail: engineRow.detail ?? (engine.busy ? engineBusyTitle : engine.detail),
+            dot: engineRow.detail != nil || !engine.selection.engineID.isEmpty ? LauncherPalette.ready : LauncherPalette.building,
+            help: engineRow.detail != nil ? "" : repo.path, message: engineRow.message) {
+            if let upstream, let menu = engineRow.menu {
+                // nxkit (Beta) chosen (#1460): its own actions in the "…", the engine pop-up beside it
+                menu.view
+                upstream
+            } else if let upstream {
                 // One row for the engine (#1458): its state in the subtitle, the engine pop-up in the column, Install and Check
                 // for updates in the "…" before it.
                 let install = engine.available.map { [("install", String(format: loc.t("engine.install"), $0.version))] } ?? []
@@ -287,11 +298,48 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View, Ups
     }
 }
 
+/// The Build engine row's parts from an engine other than nxnative (nxkit (Beta), #1460). Empty: the row shows nxnative's state.
+package struct BuildEngineRow {
+    /// The "…" before the engine pop-up with that engine's actions.
+    package struct Menu {
+        let label: String
+        let options: [(value: String, label: String)]
+        let padID: String
+        let disabled: Bool
+        let choose: (String) -> Void
+
+        package init(label: String, options: [(value: String, label: String)], padID: String, disabled: Bool, choose: @escaping (String) -> Void) {
+            self.label = label
+            self.options = options
+            self.padID = padID
+            self.disabled = disabled
+            self.choose = choose
+        }
+
+        @MainActor var view: some View {
+            DSOverflowMenu(label: label, options: options, padID: padID) { value in if !disabled { choose(value) } }.disabled(disabled)
+        }
+    }
+
+    /// The subtitle in place of nxnative's version and update state.
+    let detail: String?
+    /// The row's message: the engine's note or problem, or why nxkit cannot be chosen on this Mac.
+    let message: DSRowMessage?
+    let menu: Menu?
+
+    package init(detail: String? = nil, message: DSRowMessage? = nil, menu: Menu? = nil) {
+        self.detail = detail
+        self.message = message
+        self.menu = menu
+    }
+}
+
 extension ToolsCard where Upstream == EmptyView {
     /// Without the engine pop-up: one engine builds, so the Build engine row's column keeps its update action.
     package init(repo: RepoStore, engine: EngineSyncStore, dependencies: DependencyStore, buildRunning: Bool,
-                 @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder builder: () -> Builder, @ViewBuilder diagnostics: () -> Diagnostics) {
+                 @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder builder: () -> Builder, engineRow: BuildEngineRow = BuildEngineRow(),
+                 @ViewBuilder diagnostics: () -> Diagnostics) {
         self.init(repo: repo, engine: engine, dependencies: dependencies, buildRunning: buildRunning, shellCache: shellCache, builder: builder,
-                  upstream: nil, diagnostics: diagnostics)
+                  upstream: nil, engineRow: engineRow, diagnostics: diagnostics)
     }
 }

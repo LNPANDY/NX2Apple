@@ -44,6 +44,18 @@ if [ -d "$APP/Contents" ]; then
         v=$(clean "$PY" -I -c "import json, sys; d = json.load(open(sys.argv[1], encoding='utf-8')); assert isinstance(d, dict) and len(d) > 1 and '_language' in d" "$RES/l10n/$c.json" 2>&1) \
             && ok "l10n/$c.json is in the bundle and reads as JSON" || bad "l10n/$c.json is missing or broken: $v"
     done
+    # nxkit (Beta), LNPANDY/NX2Apple#1460: nxb and nxkit-host side by side in Resources/nxbuild, executable, signed, with the release's MANIFEST.json
+    # naming both. nxb runs only on macOS 26 and later (MANIFEST.json macos_min), so it is started only on such a runner.
+    N="$RES/nxbuild"
+    for p in nxb nxkit-host; do
+        [ -x "$N/$p" ] && ok "nxbuild/$p is in the bundle" || bad "nxbuild/$p is missing or not executable"
+        codesign -v "$N/$p" 2>/dev/null && ok "nxbuild/$p is signed" || bad "nxbuild/$p has no valid signature"
+    done
+    v=$(clean "$PY" -I -c "import json, sys; m = json.load(open(sys.argv[1])); assert m['format'] == 1 and m['arch'] == 'arm64' and set(m['files']) >= {'nxb', 'nxkit-host'}; print(m['version'])" "$N/MANIFEST.json" 2>&1) \
+        && ok "nxbuild/MANIFEST.json names nxb and nxkit-host of nxkit $v" || bad "nxbuild/MANIFEST.json is missing or does not name both programs: $v"
+    if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ] 2>/dev/null; then
+        v=$(clean "$N/nxb" version 2>&1) && ok "nxbuild/nxb runs: $v" || bad "nxbuild/nxb version: $v"
+    fi
     for k in CFBundleIconName CFBundleIconFile; do
         v=$(/usr/libexec/PlistBuddy -c "Print :$k" "$APP/Contents/Info.plist" 2>&1)
         [ "$v" = AppIcon ] && ok "Info.plist $k = $v" || bad "Info.plist $k is '$v', not AppIcon"

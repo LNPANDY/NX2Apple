@@ -83,12 +83,20 @@ struct BuildPage: View {
             }
         }
     }
+    /// nxkit (Beta), #1460: the quiet question after an nxkit build, finished or failed, asked once.
+    @ViewBuilder private var nxkitFeedback: some View {
+        if let prompt = build.nxkitFeedback, !running {
+            NxkitFeedbackRow(prompt: prompt) { build.markNxkitFeedbackAsked(prompt.id) }
+        }
+    }
+
     var body: some View {
         // A task page (#1458): the compact header, then the work, in one column. No artwork hero.
         LauncherPageScroll(memoryKey: "builds.flow.\(step)") {
             header
             if completionActive {
                 OutcomeCard(build: build, devices: devices, onViewGame: onViewGame, onPlayGame: onPlayGame)
+                nxkitFeedback   // nxkit (Beta), #1460: "Did it work?" once per build, under the result's actions
                 if build.completionStatus == .exported || build.completionStatus == .needsData {
                     CardGroup(loc.t("result.next")) { ExportSteps(build: build, devices: devices, resultOnly: true) }
                 }
@@ -106,6 +114,7 @@ struct BuildPage: View {
                 BuildFailureCard(m: build, titleNames: titleNames) { id in
                     library.flatMap { NSImage(contentsOf: $0.artworkDirectory.appendingPathComponent(id.uppercased()).appendingPathComponent("icon.jpg")) }
                 }
+                nxkitFeedback
                 // then the step the player was on, where the fix is often made (another platform, another file)
                 if step == 0 { FilesCard(build: build, library: library, artworkStore: artworkStore, extrasOpen: $extrasOpen) }
                 else if step == 1 { TargetCard(build: build) }

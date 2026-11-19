@@ -87,6 +87,8 @@ package enum DependencyCheck {
                         brew: Toolchain.firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]))
 
         let isS2Arm = upstream == .s2arm
+        // nxkit is a native tool: it runs without Python and .NET
+        guard upstream.needsPythonAndDotnet else { return out }
         if isS2Arm {
             let dnRes = S2ArmBuilder.findDotnet(tree: s2armPath, runner: runner)
             let dnDetail: String
@@ -142,6 +144,7 @@ package enum DependencyCheck {
     ) -> Result {
         let isS2Arm = upstream == .s2arm
         let deps = detect(needsIOS: needsIOS, repo: repo, customApp: customApp, upstream: upstream, s2armPath: s2armPath)
+        guard upstream.needsPythonAndDotnet else { return Result(deps: deps, python: "", dotnet: "") }
         let (py, _) = Toolchain.findPython(includeS2Arm: isS2Arm)
         let dn = isS2Arm ? S2ArmBuilder.findDotnet(tree: s2armPath).path : Toolchain.findDotnet().path
         return Result(deps: deps, python: py, dotnet: FileManager.default.isExecutableFile(atPath: dn) ? dn : "")

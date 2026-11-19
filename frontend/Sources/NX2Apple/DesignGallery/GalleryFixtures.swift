@@ -201,6 +201,7 @@ import NXLauncher
             configureBuild(stores, library: library)
             var failure = BuildFailure(kind: kind, gameName: kind == .a32Program ? catalog[0].name : nil, detail: Self.detail(for: kind))
             if kind == .severalGames { failure.titleIDs = [catalog[0].titleID, catalog[1].titleID] }
+            if kind == .nxkit { failure.lines = Self.nxkitFailureLines }
             stores.build.failure = failure
             root = AnyView(launcher(.builds, editor: true, step: 1))
         case .settings:
@@ -222,6 +223,10 @@ import NXLauncher
             root = onboardingView(scenario)
         case .onboardingState(let state):
             root = onboardingView(state)
+        case .nxkitEngine, .nxkitUnavailable, .nxkitUnsigned, .nxkitRunning, .nxkitFinished, .nxkitFailed, .nxkitLibrary:
+            root = nxkitView(scene, stores: stores, library: library) { page, step, category in
+                AnyView(launcher(page, editor: page == .builds, category: category, step: step))
+            }   // GalleryNxkit.swift
         case .cardStates: root = AnyView(GalleryCardStates())
         default: root = consoleView(scene)   // console mode's scenes, GalleryConsoleFixtures.swift
         }
@@ -254,6 +259,7 @@ import NXLauncher
         case .diskFull, .psoDiskFull: return "12"
         case .driveMissing: return "Games"
         case .noTitleID: return "/Volumes/Games/Unknown"
+        case .nxkit: return "3"
         default: return nil
         }
     }
@@ -282,6 +288,7 @@ import NXLauncher
         stores.dependencies.checked = true
         stores.dependencies.deps = [Dep(id: "xcode", name: "Xcode", hint: "", present: true, installCmd: [])]
         stores.deviceStore.checked = true
+        configureNxkit(stores.build)   // a stand-in of the bundled pair, never run (GalleryNxkit.swift)
         return (stores, defaults)
     }
 
@@ -308,7 +315,7 @@ import NXLauncher
     }
 
     /// A stand-in Mac build of fixture game `index` (its executables point at /usr/bin/true, nothing runs), with a few launch options.
-    private func makeMacApp(for index: Int, in library: GameLibrary) -> UUID? {
+    func makeMacApp(for index: Int, in library: GameLibrary) -> UUID? {
         let game = catalog[index]
         let app = directory.appendingPathComponent("apps-" + UUID().uuidString + "/\(game.name).app")
         let dm = app.appendingPathComponent("Contents/Resources/dm")
@@ -335,7 +342,7 @@ import NXLauncher
         return entry.id
     }
 
-    private func configureBuild(_ stores: LauncherStores, library: GameLibrary) {
+    func configureBuild(_ stores: LauncherStores, library: GameLibrary) {
         let game = catalog[0]
         let package = directory.appendingPathComponent("\(game.name) [\(game.titleID)].nsp")
         try? Data().write(to: package)
