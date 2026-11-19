@@ -17,6 +17,7 @@ enum GallerySheet: String, CaseIterable {
     case confirmUninstall, confirmEngineChannel, confirmStaleFrameworks, confirmBuildAnyway, confirmRemovePlayer
     case confirmCancelQueue, confirmCancelDraft, confirmTestedValues
     case rename, renameCustom, buildSelected, buildSelectedEmpty, supportedGames, supportedGamesExpanded
+    case batchRefresh, batchRefreshEmpty, imgGuide, imgGuideNoPackage
 
     var title: String {
         switch self {
@@ -51,6 +52,10 @@ enum GallerySheet: String, CaseIterable {
         case .buildSelectedEmpty: return "Build selected games: none"
         case .supportedGames: return "Supported games"
         case .supportedGamesExpanded: return "Supported games: notes open"
+        case .batchRefresh: return "Refresh games: fast and full"
+        case .batchRefreshEmpty: return "Refresh games: nothing to refresh"
+        case .imgGuide: return "Game data for iOS missing"
+        case .imgGuideNoPackage: return "Game data for iOS missing: no package"
         }
     }
 
@@ -61,7 +66,7 @@ enum GallerySheet: String, CaseIterable {
         case .controlsSheet: return CGSize(width: 600, height: 700)
         case .freeSpace, .freeSpaceMeasuring: return CGSize(width: 560, height: 690)
         case .buildSelected, .buildSelectedEmpty: return CGSize(width: 680, height: 720)
-        case .supportedGames, .supportedGamesExpanded: return CGSize(width: 680, height: 720)
+        case .supportedGames, .supportedGamesExpanded, .batchRefresh: return CGSize(width: 680, height: 720)
         default: return nil
         }
     }
@@ -173,6 +178,22 @@ extension GalleryFixtures {
             return AnyView(SupportedGamesSheet(games: supported, owned: { id in library.games.first { $0.titleID.uppercased() == id.uppercased() } },
                                                covers: .saved(in: library.artworkDirectory, maxPixel: SupportedGamesSheet.coverPixels), showInLibrary: { _ in },
                                                expanded: sheet == .supportedGamesExpanded ? supported.first?.titleID : nil))
+        case .batchRefresh, .batchRefreshEmpty:
+            var assessments: [UUID: GameRefreshAssessment] = [:]
+            if sheet == .batchRefresh {
+                for (index, entry) in library.games.prefix(5).enumerated() {
+                    assessments[entry.id] = GameRefreshAssessment(heroState: .generalSync(fast: index < 2), hasSpecificUpdate: index == 2, versionLabel: "1.2.0",
+                                                                  canFastRefreshMac: index < 2, canFastRefreshIOS: index == 0, needsMissingImgGuideIOS: index == 3,
+                                                                  missingOriginalPackage: index == 4, hasUsableSeed: index < 2)
+                }
+            }
+            return AnyView(BatchRefreshSheet(library: library, toolsAge: ToolsAge(assessments: assessments), stores: stores, onConfirmed: {}, close: {}))
+        case .imgGuide, .imgGuideNoPackage:
+            let assessment = GameRefreshAssessment(heroState: .generalSync(fast: false), hasSpecificUpdate: false, versionLabel: "1.2.0",
+                                                   canFastRefreshMac: false, canFastRefreshIOS: false, needsMissingImgGuideIOS: true,
+                                                   missingOriginalPackage: sheet == .imgGuideNoPackage)
+            return AnyView(MissingImgGuideSheet(context: MissingImgGuideContext(game: game, assessment: assessment), stores: stores, devices: stores.deviceStore,
+                                                libraryFolder: library.folder, onResolvedImg: { _ in }, onFallbackFullRebuild: {}, close: {}, icon: icon))
         case .confirmTestedValues:
             return confirm(subject: .game(icon), t("launch.useTested"), subtitle: name, note: String(format: t("launch.useTestedMany"), 3), t("launch.useTested"), destructive: false)
         }

@@ -12,7 +12,6 @@ final class DesignTokenGuardTests: XCTestCase {
     private static let allowed: [String: Int] = [
         "ArtworkImport.swift": 1,
         "ArtworkPanel.swift": 7,
-        "BatchRefreshSheet.swift": 8,
         "BuildActivityFooter.swift": 1,
         "BuildInventoryView.swift": 2,
         "CheatsView.swift": 9,
@@ -50,7 +49,6 @@ final class DesignTokenGuardTests: XCTestCase {
         "LiveConsoleDriver+Identify.swift": 2,
         "LiveConsoleDriver.swift": 1,
         "ManageMenu.swift": 1,
-        "MissingImgGuideSheet.swift": 4,
         "OnboardingGamesContent.swift": 1,
         "OnboardingKeysContent.swift": 1,
         "OnboardingView.swift": 12,
