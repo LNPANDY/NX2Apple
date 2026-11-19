@@ -252,6 +252,11 @@ enum ConsoleInput: Equatable {
             return (game.status == .ready ? [play] : []) + [selectHint, hint(.quickMenu, "console.quickMenu") { driver.openQuickMenu() }]
         case .options, .advanced, .gamePad:
             return [ConsoleHintItem(glyph: ConsoleGlyphs.adjustGlyph, label: t("console.hint.adjust"), action: {}), selectHint]
+        case .allGames:
+            // the page's own buttons in the hint bar, never over its tiles (#1458): X plays the focused game, Y changes the order
+            let sort = String(format: t("console.sortBy"), t(state.librarySort.labelKey))
+            return [hint(.play, "console.play") { if let id = playTarget { driver.play(id) } },
+                    ConsoleHintItem(glyph: glyphs.hintGlyph(.options, swapAB: state.menuSwapAB), label: sort) { driver.toggleLibrarySort() }]
         case .builds:
             guard state.builds.running else { return [] }
             return [hint(.play, state.builds.stopping ? "library.stopping" : "console.hint.stopBuild") { if !state.builds.stopping { driver.askStopBuild() } }]

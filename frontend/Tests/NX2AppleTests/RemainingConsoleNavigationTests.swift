@@ -96,7 +96,9 @@ import Combine
             var previousIndex = 0
             for _ in 0..<(driver.state.libraryGames.count * 2) {
                 if focus.focused == "console.lib." + last.id { settle(0.3); break }
+                let before = focus.focused
                 pad.perform(.down); settle(0.08)
+                if focus.focused == before { pad.perform(.right); settle(0.08) }   // the grid's last row: along it to the last game
                 for _ in 0..<50 where focus.focused.flatMap({ focus.frame(of: $0) }) == nil { settle(0.02) }
                 if let index = driver.state.libraryGames.firstIndex(where: { "console.lib." + $0.id == focus.focused }) {
                     XCTAssertGreaterThanOrEqual(index, previousIndex, "Scrolling must never reset focus to the top")

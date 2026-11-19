@@ -90,6 +90,9 @@ extension GalleryFixtures {
             driver.state.builds = builds(driver, "queued")
         case .consoleHomeTV, .consoleHome, .consoleEmpty:
             break
+        case .consoleAllGames:
+            driver.openAllGames()
+            return console(driver, focus: "console.lib." + (driver.state.libraryGames.first?.id ?? ""))
         case .consoleHomeAttention:   // in the one row, its chip says what it needs (#1458)
             driver.focus(unbuilt)
         case .consoleHomeAllGames:   // the row's last tile

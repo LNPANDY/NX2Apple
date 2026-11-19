@@ -56,9 +56,17 @@ import NXLauncher
                 ConsolePageHeader(title: t("console.allGames"), subtitle: Self.count(games.count, lang: lang), compact: compact,
                                   closeLabel: t("console.close"), closeID: "console.allGames.close", scope: Self.scope) { driver.back() }
             }
-            bar.padding(.horizontal, inset).padding(.bottom, compact ? 16 : 24)
+            if embedded {
+                // the game page's segmented control: centred over the content, equal segments, L and R at its ends (#1458)
+                filters.padding(.horizontal, inset).padding(.bottom, 24)
+            } else {
+                bar.padding(.horizontal, inset).padding(.bottom, compact ? 16 : 24)
+            }
             GeometryReader { area in
-                let width = Self.tileWidth(area.size.width - 2 * inset, compact: compact)
+                let available = area.size.width - 2 * inset
+                let width = embedded ? Self.gridTileWidth(available) : Self.tileWidth(available, compact: compact)
+                // in a page a fixed count of columns, so up and down move by exactly one row
+                let fixedColumns = embedded ? Self.gridColumns(available) : nil
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 0) {
@@ -66,12 +74,13 @@ import NXLauncher
                                 Text(t("console.allGames.empty")).font(.manrope(compact ? 17 : 21)).foregroundStyle(LauncherPalette.secondaryText)
                                     .padding(.top, 24)
                             } else {
-                                LazyVGrid(columns: [GridItem(.adaptive(minimum: width, maximum: width + 40), spacing: 12, alignment: .topLeading)],
+                                LazyVGrid(columns: fixedColumns.map { Array(repeating: GridItem(.fixed(width + 16), spacing: 12, alignment: .topLeading), count: $0) }
+                                            ?? [GridItem(.adaptive(minimum: width, maximum: width + 40), spacing: 12, alignment: .topLeading)],
                                           alignment: .leading, spacing: compact ? 16 : 24) {
                                     ForEach(games) { game in
                                         ConsoleGridTile(driver: driver, game: game, prefix: "console.lib.", scope: Self.scope, width: width, lang: lang, compact: compact, vertical: { direction in
                                             guard let index = games.firstIndex(where: { $0.id == game.id }) else { return false }
-                                            let columns = max(1, Int((area.size.width - 2 * (inset - 8) + 12) / (width + 12)))
+                                            let columns = fixedColumns ?? max(1, Int((area.size.width - 2 * (inset - 8) + 12) / (width + 12)))
                                             if direction > 0, index / columns == (games.count - 1) / columns { return false }
                                             let next = min(games.count - 1, index + direction * columns)
                                             guard next >= 0 else { return false }
@@ -85,7 +94,8 @@ import NXLauncher
                                 }
                             }
                         }
-                        .padding(.horizontal, inset - 8).padding(.bottom, 24)
+                        // in a page, room under the last row, so the focused last row can scroll up to the middle, clear of the hints
+                        .padding(.horizontal, inset - 8).padding(.bottom, embedded ? max(24, area.size.height / 3) : 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .consoleScrollContent()
                     }
@@ -96,12 +106,21 @@ import NXLauncher
                     }
                 }
             }
-            hints.padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32)
+            // embedded in a page, Sort and Play are the page's hint bar (ConsoleView.hints), never over the tiles
+            if !embedded { hints.padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LauncherPalette.background)
         .onChange(of: state.libraryFilter) { _ in focusFirst() }
         .onChange(of: state.librarySort) { _ in focusFirst() }
+    }
+
+    /// In a page beside the menu: three tiles a row, two on a narrow page, each with its title under it as on the home screen.
+    static func gridColumns(_ available: CGFloat) -> Int { available >= 760 ? 3 : 2 }
+    /// The tile's width for `gridColumns`: each cell is the tile and 8 pt of room on each side, 12 pt between cells.
+    static func gridTileWidth(_ available: CGFloat) -> CGFloat {
+        let columns = CGFloat(gridColumns(available))
+        return max(140, (available + 16 - (columns - 1) * 12) / columns - 16)
     }
 
     /// Four tiles a row on a wide screen, fewer on a narrow one, never wider than the home screen's.
@@ -117,6 +136,18 @@ import NXLauncher
     }
 
     private func focusFirst() { pad.focused = state.libraryGames.first.map { "console.lib." + $0.id } ?? "console.allGames.close" }
+
+    /// The filters as the game page's tabs: one segmented control, the chosen one filled, L and R at its ends.
+    private var filters: some View {
+        let all = ConsoleLibraryFilter.allCases
+        return ConsoleSegmentedControl(segments: all.map { ($0.rawValue, t($0.titleKey)) }, selected: all.firstIndex(of: state.libraryFilter) ?? 0,
+                                       previousGlyph: glyphs.hintGlyph(.previousTab, swapAB: state.menuSwapAB),
+                                       nextGlyph: glyphs.hintGlyph(.nextTab, swapAB: state.menuSwapAB),
+                                       scope: Self.scope, idPrefix: "console.allGames.filter.") { index in
+            driver.stepLibraryFilter(index - (all.firstIndex(of: state.libraryFilter) ?? 0))
+        }
+        .frame(maxWidth: .infinity)
+    }
 
     /// The filters between L and R, the chosen one cream, then the order (Y) and Search.
     private var bar: some View {
