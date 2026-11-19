@@ -1,3 +1,4 @@
+import CoreHaptics
 import Foundation
 import GameController
 import ShellUI
@@ -40,6 +41,11 @@ public struct ConnectedController: Equatable, Sendable {
     private var repeatTask: Task<Void, Never>?
     private var repeating: (action: ShellInput.Action, controller: String)?
     private var batteryTask: Task<Void, Never>?
+    private var rumbleTest: (controller: String, engine: CHHapticEngine, player: any CHHapticPatternPlayer)?
+    private var rumbleStop: Task<Void, Never>?
+    #if os(iOS)
+    private var accessoryRumble: GameSirRumble?
+    #endif
 
     public init() {}
 
@@ -56,6 +62,7 @@ public struct ConnectedController: Equatable, Sendable {
                     if let id {
                         self?.mapper.reset(controller: id)
                         if self?.repeating?.controller == id { self?.stopRepeat() }
+                        if self?.rumbleTest?.controller == id { self?.stopRumbleTest() }
                     }
                     self?.attach()
                 }
@@ -76,8 +83,76 @@ public struct ConnectedController: Equatable, Sendable {
         observers.removeAll()
         for pad in GCController.controllers() { pad.physicalInputProfile.valueDidChangeHandler = nil }
         stopRepeat()
+        stopRumbleTest()
         batteryTask?.cancel()
         batteryTask = nil
+    }
+
+    public func testRumble(controllerID: String, target: ControllerRumbleTarget) async -> ControllerRumbleResult {
+        stopRumbleTest()
+        let locality: GCHapticsLocality = switch target {
+        case .leftHandle: .leftHandle
+        case .rightHandle: .rightHandle
+        case .systemDefault: .default
+        case .handles: .handles
+        case .all: .all
+        }
+        guard let pad = GCController.controllers().first(where: { Self.id(of: $0) == controllerID }) else {
+            return .disconnected
+        }
+        #if os(iOS)
+        if GameSirRumble.handles(pad) {
+            let left: UInt8 = target == .rightHandle ? 0 : 255
+            let right: UInt8 = target == .leftHandle ? 0 : 255
+            let accessory = GameSirRumble.shared
+            accessoryRumble = accessory
+            let written = await accessory.test(pad, left: left, right: right)
+            return written ? .started : .failed
+        }
+        #endif
+        return testCoreHaptics(pad, controllerID: controllerID, locality: locality)
+    }
+
+    private func testCoreHaptics(_ pad: GCController, controllerID: String, locality: GCHapticsLocality) -> ControllerRumbleResult {
+        // Keep the test on the selected output, even if a broader locality is available.
+        guard let haptics = pad.haptics, haptics.supportedLocalities.contains(locality) else { return .unsupported }
+
+        let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
+            CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
+            CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.6)
+        ], relativeTime: 0, duration: 0.55)
+        guard let engine = haptics.createEngine(withLocality: locality) else {
+            return .engineUnavailable
+        }
+        do {
+            let pattern = try CHHapticPattern(events: [event], parameters: [])
+            try engine.start()
+            let player = try engine.makePlayer(with: pattern)
+            try player.start(atTime: CHHapticTimeImmediate)
+            rumbleTest = (controllerID, engine, player)
+            rumbleStop = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(650))
+                guard !Task.isCancelled else { return }
+                self?.stopRumbleTest()
+            }
+            return .started
+        } catch {
+            engine.stop(completionHandler: nil)
+            return .failed
+        }
+    }
+
+    private func stopRumbleTest() {
+        #if os(iOS)
+        accessoryRumble?.cancelTest()
+        #endif
+        rumbleStop?.cancel()
+        rumbleStop = nil
+        if let rumbleTest {
+            try? rumbleTest.player.stop(atTime: CHHapticTimeImmediate)
+            rumbleTest.engine.stop(completionHandler: nil)
+        }
+        rumbleTest = nil
     }
 
     private nonisolated static func id(of controller: GCController) -> String {

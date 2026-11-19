@@ -40,6 +40,7 @@ targets:
       properties:
         CFBundleLocalizations: [en, de, es, fr, it, ja, ko, pt-BR, sv, zh-Hans]   # every file of frontend/l10n (tools/l10n_shell_catalogs.py), so iOS offers them to the package bundles
         NSPhotoLibraryAddUsageDescription: "Saves square game icons to Photos so you can use them on the Home Screen."
+        UISupportedExternalAccessoryProtocols: [com.xiaoji.M2boot]
     dependencies:
       - package: ShellUI
         product: ShellUI

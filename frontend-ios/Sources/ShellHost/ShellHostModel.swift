@@ -745,6 +745,9 @@ public struct ShellHostConfig: Sendable {
             },
             onGlobalPadMapReset: { [weak self] in self?.shellSettings.resetPadMap(); self?.refreshAll() },
             onButtonTest: { [weak self] open in self?.buttonTest(open) },
+            onRumbleTest: { [weak self] id, target in
+                await self?.adapter.testRumble(controllerID: id, target: target) ?? .disconnected
+            },
             onPadMergeChange: { [weak self] on in self?.setPadMerge(on) },
             onRestoreSaveBackup: { [weak self] id in self?.restoreLatestSaveBackup(id) },
             onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) },

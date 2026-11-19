@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Leezard <lfj200411@163.com>
+Date: Thu, 19 Nov 2026 18:12:51 +0800
+Subject: [PATCH] ios: route GameSir G8+ MFi rumble through the shell
+
+Upstream-Status: fork-only
+Reason: The iOS shell owns the ExternalAccessory session used for G8+ MFi grip motors.
+Issue: lfj200411/NX2Apple feat/g8-mfi-rumble
+
+---
+ dm/host/haptics_apple.m | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
+index ce6153b..9ab73a9 100644
+--- a/dm/host/haptics_apple.m
++++ b/dm/host/haptics_apple.m
+@@ -532,7 +532,28 @@ void dm_haptics_apple_output(int p, id owner, dm_haptics_output output) {
+     }
+     pthread_mutex_unlock(&routeLock);
+ }
++#if TARGET_OS_IOS && (defined(DM_SHELL_FRAMEWORK) || defined(DM_FRAMEWORK_BUILD))
++// Optional accessory transport supplied by the shell. Older shells use the GameController route.
++@protocol DmShellControllerRumble <NSObject>
+++ (BOOL)handlesController:(GCController *)controller;
+++ (void)setController:(GCController *)controller left:(float)left right:(float)right;
++@end
++#endif
++
+ void dm_haptics_apple_controller(int p, GCController *controller) {
++#if TARGET_OS_IOS && (defined(DM_SHELL_FRAMEWORK) || defined(DM_FRAMEWORK_BUILD))
++    static Class<DmShellControllerRumble> bridge;
++    static dispatch_once_t once;
++    dispatch_once(&once, ^{ bridge = (Class<DmShellControllerRumble>)NSClassFromString(@"NXShellControllerRumble"); });
++    if (controller && [bridge handlesController:controller]) {
++        dm_haptics_apple_output(p, controller, ^(dm_haptic_state state, float gain) {
++            float left = dm_haptics_apple_controller_intensity(dm_haptics_level(&state.motor[0], 1, gain).intensity);
++            float right = dm_haptics_apple_controller_intensity(dm_haptics_level(&state.motor[1], 1, gain).intensity);
++            [bridge setController:controller left:left right:right];
++        });
++        return;
++    }
++#endif
+     dm_haptics_apple_controller_locality(p, controller, nil);
+ }
+ static void suspend(unsigned reason, BOOL on) {

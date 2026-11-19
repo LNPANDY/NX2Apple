@@ -33,5 +33,9 @@
 	<string>1</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Saves square game icons to Photos so you can use them on the Home Screen.</string>
+	<key>UISupportedExternalAccessoryProtocols</key>
+	<array>
+		<string>com.xiaoji.M2boot</string>
+	</array>
 </dict>
 </plist>
