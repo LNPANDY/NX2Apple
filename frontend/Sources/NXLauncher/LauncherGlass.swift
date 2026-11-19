@@ -7,10 +7,13 @@ package enum LauncherGlass {
     /// Whether the live material is drawn: macOS 26 and later, outside the test runner. AppKit's bitmap caching (`cacheDisplay`,
     /// which every render test and capture uses) cannot rasterize Liquid Glass and leaves the window blank, so tests draw the
     /// static stand-in below, which is also what macOS before 26 shows.
-    package static let live: Bool = {
+    package static var live: Bool { supported && !forceStatic }
+    private static let supported: Bool = {
         guard #available(macOS 26, *) else { return false }
         return NSClassFromString("XCTestCase") == nil && ProcessInfo.processInfo.environment["NX_LAUNCHER_STATIC_GLASS"] == nil
     }()
+    /// Set while the state gallery renders a PNG (GalleryRenderer): views built then draw the stand-in.
+    package static var forceStatic = false
     /// The stand-in of clear glass on the dark page: a light veil, brighter at the top edge as the material catches light.
     package static let veil = LauncherPalette.ink(0.08)
     package static let rim = LinearGradient(colors: [LauncherPalette.ink(0.22), LauncherPalette.ink(0.06)], startPoint: .top, endPoint: .bottom)

@@ -309,6 +309,17 @@ and those may only shrink. `LauncherPalette` is kept as aliases to `DS` while th
 
 The JSON has no Swift in it, so the Qt and iOS front ends can get their own writer from the same file later.
 
+### State gallery
+
+`NX2Apple --gallery` (or `NX_GALLERY=1`, for example `open -n NX2Apple.app --args --gallery`) opens a developer window
+with every view and state of the launcher instead of the launcher: the scenes of `GalleryScene` by group on the left,
+the chosen one live on the right, with a language, a window size and a PNG export of one scene or all of them. Each
+scene runs on fixture stores (`GalleryFixtures`): a private defaults suite, a library in a temporary folder,
+generated artwork, a process runner that starts nothing and no release source. The launcher's window, its session,
+the engine sync and the update check are never made, and the app's own defaults are put back when the gallery quits.
+`LauncherDesignCaptureTests` renders the same catalogue, so captures and gallery match. A new view or state gets a
+case in `GalleryScene` and its fixture in `GalleryFixtures`. The gallery's own texts are English only.
+
 ## App updates
 
 When the app opens it asks GitHub for the latest release. With **Install updates

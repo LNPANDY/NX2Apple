@@ -49,6 +49,8 @@ import NXCore
 
     /// A sync runs: the launcher shows a status line with a spinner.
     @Published package private(set) var syncing = false
+    /// The state gallery (#1459) shows the syncing notice without running a sync.
+    package func showSyncingForGallery() { syncing = true }
     /// How the last sync stopped (no network or GitHub unreachable, or another stop), as a failure row with a retry button. nil: none.
     @Published package var failure: BuildFailure?
 
