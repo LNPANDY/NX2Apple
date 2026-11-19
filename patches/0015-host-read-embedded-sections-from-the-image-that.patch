@@ -10,23 +10,24 @@ Upstream-Status: pending
 Reason: Let the host read its Mach-O sections when linked into a dynamic framework as well as the main executable
 Issue: LNPANDY/NX2Apple#451
 ---
- dm/gfx/gl/hle_gl.m          | 5 ++---
- dm/gfx/nvn/hle_nvn.c        | 5 ++---
- dm/gfx/tests/t_gl_imports.m | 2 +-
- dm/gfx/vk/hle_vk.m          | 5 ++---
- dm/host/hle.c               | 5 ++---
- dm/host/hle_jit.c           | 5 ++---
- dm/host/hle_sf.c            | 5 ++---
- dm/host/host_image.h        | 8 ++++++++
- dm/host/loader.c            | 7 +++----
- 9 files changed, 24 insertions(+), 23 deletions(-)
+ dm/gfx/gl/hle_gl.m            | 5 ++---
+ dm/gfx/nvn/hle_nvn.c          | 5 ++---
+ dm/gfx/tests/t_gl_imports.m   | 2 +-
+ dm/gfx/tests/t_registration.m | 2 +-
+ dm/gfx/vk/hle_vk.m            | 5 ++---
+ dm/host/hle.c                 | 5 ++---
+ dm/host/hle_jit.c             | 5 ++---
+ dm/host/hle_sf.c              | 5 ++---
+ dm/host/host_image.h          | 8 ++++++++
+ dm/host/loader.c              | 7 +++----
+ 10 files changed, 25 insertions(+), 24 deletions(-)
  create mode 100644 dm/host/host_image.h
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index 10b5730e..31f6970f 100644
+index b26fb53..0cec3d9 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
-@@ -23,8 +23,7 @@
+@@ -25,8 +25,7 @@
  #import <Metal/Metal.h>
  #include <CommonCrypto/CommonDigest.h>
  #include <mach/mach.h>
@@ -36,9 +37,9 @@ index 10b5730e..31f6970f 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -2161,7 +2160,7 @@ static void frame_end(void) {
- // eglGetProcAddress: GL names from the same table as direct imports; anything else is null (the game's loader asks for every GL name it knows)
- static void *gl_lookup(const char *name) {
+@@ -2746,7 +2745,7 @@ static void renderprogs_job(void) {
+ // glVertexAttribPointerNV takes other arguments than glVertexAttribPointer, glGetProgramivARB asks about an ARB assembly program
+ static void *gl_entry(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
 -    if (!sec) sec = (const hle_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swhle", &sz);
 +    if (!sec) sec = (const hle_ent *)getsectiondata(DM_HOST_IMAGE, "__DATA", "swhle", &sz);
@@ -46,10 +47,10 @@ index 10b5730e..31f6970f 100644
      return NULL;
  }
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 6a14ac4b..f826c693 100644
+index d78cd34..42da3e5 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
-@@ -39,8 +39,7 @@
+@@ -40,8 +40,7 @@
  #include <mach/thread_policy.h>
  #include <assert.h>
  #include <stdatomic.h>
@@ -59,7 +60,7 @@ index 6a14ac4b..f826c693 100644
  
  // ---------- Slot table, thunks, unimplemented stubs ----------
  typedef struct { _Atomic uint64_t cnt; void *fn; } nvn_slot_t;
-@@ -96,7 +95,7 @@ static void nvn_init_slots(void) {
+@@ -97,7 +96,7 @@ static void nvn_init_slots(void) {
      static int done; if (done) return; done = 1;
      g_log = getenv("DM_NVN_LOG") != NULL;
      unsigned long sz;
@@ -69,11 +70,11 @@ index 6a14ac4b..f826c693 100644
      for (unsigned i = 0; i < NVN_NFUNC; i++) nvn_slot[i].fn = (void *)nvn_unimpl_entry;
      for (unsigned k = 0; k < nim; k++) {
 diff --git a/dm/gfx/tests/t_gl_imports.m b/dm/gfx/tests/t_gl_imports.m
-index 09e5c632..ef78c7ad 100644
+index e0944e4..b65c561 100644
 --- a/dm/gfx/tests/t_gl_imports.m
 +++ b/dm/gfx/tests/t_gl_imports.m
-@@ -297,7 +297,7 @@ int main(int argc, char **argv) {
-     test_uniform_buffer();
+@@ -817,7 +817,7 @@ int main(int argc, char **argv) {
+     if (fixture) test_argument_buffers(fixture);
  
      unsigned long sz;
 -    const hle_ent *sec = (const hle_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swhle", &sz);
@@ -81,8 +82,21 @@ index 09e5c632..ef78c7ad 100644
      unsigned count = 0;
      for (unsigned long i = 0; i < sz / sizeof *sec; i++)
          if (!strncmp(sec[i].name, "gl", 2)) {
+diff --git a/dm/gfx/tests/t_registration.m b/dm/gfx/tests/t_registration.m
+index 17521a0..47820d2 100644
+--- a/dm/gfx/tests/t_registration.m
++++ b/dm/gfx/tests/t_registration.m
+@@ -45,7 +45,7 @@ void thr_svc_leave(void) {}
+ 
+ static const void *section(const char *name, size_t size, size_t align, unsigned long *count) {
+     unsigned long bytes = 0;
+-    const void *p = getsectiondata(&_mh_execute_header, "__DATA", name, &bytes);
++    const void *p = getsectiondata(DM_HOST_IMAGE, "__DATA", name, &bytes);
+     assert(p && bytes && bytes % size == 0 && (uintptr_t)p % align == 0);
+     *count = bytes / size; return p;
+ }
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 09f8f9c5..3df71062 100644
+index 8810721..a360193 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
 @@ -22,8 +22,7 @@
@@ -95,7 +109,7 @@ index 09f8f9c5..3df71062 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -1872,7 +1871,7 @@ static void frame_end(void) {
+@@ -1885,7 +1884,7 @@ static void frame_end(void) {
  static void *vk_lookup(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
      if (!name || strncmp(name, "vk", 2)) return NULL;
@@ -105,7 +119,7 @@ index 09f8f9c5..3df71062 100644
      for (int pass = 0; pass < 2 && !fn; pass++) {
          size_t len = pass ? n - 3 : n;
 diff --git a/dm/host/hle.c b/dm/host/hle.c
-index 8096e689..621a7d4e 100644
+index 8096e68..621a7d4 100644
 --- a/dm/host/hle.c
 +++ b/dm/host/hle.c
 @@ -1,7 +1,6 @@
@@ -127,7 +141,7 @@ index 8096e689..621a7d4e 100644
          unsigned cap = 16; while (cap < n * 2) cap <<= 1;
          g_hle_idx = calloc(cap, sizeof *g_hle_idx); g_hle_mask = cap - 1;
 diff --git a/dm/host/hle_jit.c b/dm/host/hle_jit.c
-index fcfb4b21..9643caa6 100644
+index fcfb4b2..9643caa 100644
 --- a/dm/host/hle_jit.c
 +++ b/dm/host/hle_jit.c
 @@ -146,15 +146,14 @@ static const jit_req *jit_find(const char *key) { for (int i = 0; i < g_nreq; i+
@@ -149,7 +163,7 @@ index fcfb4b21..9643caa6 100644
      vm_address_t a = (vm_address_t)at; vm_prot_t cur = 0, max = 0;
      if (vm_remap(mach_task_self(), &a, g_img_size, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE, mach_task_self(), (vm_address_t)sec, FALSE, &cur, &max, VM_INHERIT_NONE) != KERN_SUCCESS || a != (vm_address_t)at || !(cur & VM_PROT_EXECUTE))
 diff --git a/dm/host/hle_sf.c b/dm/host/hle_sf.c
-index 13349f4f..a1d1f01d 100644
+index 5470a99..10dbf91 100644
 --- a/dm/host/hle_sf.c
 +++ b/dm/host/hle_sf.c
 @@ -9,8 +9,7 @@
@@ -162,7 +176,7 @@ index 13349f4f..a1d1f01d 100644
  #include <pthread.h>
  
  #define SF_H0 0xd0000u   // session handles: outside the kernel handle table (0x1000 + slot, 4096 slots, hle_thread.c)
-@@ -26,7 +25,7 @@ static const struct { const char *name; sf_answer answer; } sf_served[] = {
+@@ -29,7 +28,7 @@ static const struct { const char *name; sf_answer answer; } sf_served[] = {
  };
  // The services other files serve (SF_SERVICE, hle.h): audren:u (hle_audren_sv.c)
  static const sf_service_ent *sf_registered(unsigned long *n) {
@@ -173,7 +187,7 @@ index 13349f4f..a1d1f01d 100644
  
 diff --git a/dm/host/host_image.h b/dm/host/host_image.h
 new file mode 100644
-index 00000000..9dde8501
+index 0000000..9dde850
 --- /dev/null
 +++ b/dm/host/host_image.h
 @@ -0,0 +1,8 @@
@@ -186,7 +200,7 @@ index 00000000..9dde8501
 +extern const struct mach_header_64 __dso_handle;
 +#define DM_HOST_IMAGE (&__dso_handle)
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 5a92e88b..cf44db51 100644
+index 19ed028..f241663 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -8,9 +8,8 @@
@@ -209,7 +223,7 @@ index 5a92e88b..cf44db51 100644
      g_nforce = g_force ? (unsigned)(sz / sizeof *g_force) : 0;
      g_force_hits = calloc(g_nforce + 1, sizeof *g_force_hits);
      unsigned cap = 16; while (cap < g_nforce * 2) cap <<= 1;
-@@ -759,7 +758,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
+@@ -760,7 +759,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
  }
  // The image the module sections are read from (front.h dm_set_game_image_header). getsectiondata takes any loaded image's header and applies its slide
  #include "front.h"

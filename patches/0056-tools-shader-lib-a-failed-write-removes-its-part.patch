@@ -19,12 +19,12 @@ Issue: #1265
 ---
  dm/tools/shader_cache.py            |  9 +++++++--
  dm/tools/shader_lib.py              | 12 ++++++++++--
- dm/tools/tests/test_shader_cache.py | 21 ++++++++++++++++++++-
+ dm/tools/tests/test_shader_cache.py | 20 +++++++++++++++++++-
  dm/tools/tests/test_shader_lib.py   | 20 +++++++++++++++++++-
- 4 files changed, 56 insertions(+), 6 deletions(-)
+ 4 files changed, 55 insertions(+), 6 deletions(-)
 
 diff --git a/dm/tools/shader_cache.py b/dm/tools/shader_cache.py
-index 900e1092..aec1fff2 100644
+index 065d364..73a0453 100644
 --- a/dm/tools/shader_cache.py
 +++ b/dm/tools/shader_cache.py
 @@ -92,8 +92,13 @@ class _Files:   # an entry from or to a file, by get and put
@@ -44,10 +44,10 @@ index 900e1092..aec1fff2 100644
  
  
 diff --git a/dm/tools/shader_lib.py b/dm/tools/shader_lib.py
-index 1cdc3e73..445c6ae9 100644
+index c5791ba..fd9db26 100644
 --- a/dm/tools/shader_lib.py
 +++ b/dm/tools/shader_lib.py
-@@ -73,8 +73,17 @@ def _names(folder):
+@@ -74,8 +74,17 @@ def _names(folder):
  
  def write(files, dst):
      """files: {name: path to read (a romfs path may name a file inside an image), the bytes, or a function returning them (read only when its file is written: dmsh_build.py's outputs staged in the
@@ -65,8 +65,8 @@ index 1cdc3e73..445c6ae9 100644
 +def _write_part(files, part):   # write()'s image, at part
      names = sorted((n.encode() for n in files))
      ents, off = [], romfs.HEAD.size
-     with builtins.open(part, 'wb') as out:
-@@ -98,7 +107,6 @@ def write(files, dst):
+     # The sources given as functions are called on a few threads, up to 4 * READERS entries ahead of the writer, which takes them in order: one after the other, the 300,000 outputs of
+@@ -111,7 +120,6 @@ def write(files, dst):
          out.write(idx); out.write(pool)
          out.seek(0); out.write(romfs.HEAD.pack(romfs.MAGIC, off, len(idx) + len(pool), len(names) + 1))
      romfs.Image(part)   # a read of it, as the host's check: nothing is published that a reader refuses
@@ -75,21 +75,21 @@ index 1cdc3e73..445c6ae9 100644
  
  def pack(lib, say=print, leave_out=False):
 diff --git a/dm/tools/tests/test_shader_cache.py b/dm/tools/tests/test_shader_cache.py
-index e99ca2f4..e174b6e3 100644
+index 4b22ebd..ae4e451 100644
 --- a/dm/tools/tests/test_shader_cache.py
 +++ b/dm/tools/tests/test_shader_cache.py
 @@ -1,6 +1,6 @@
  #!/usr/bin/env python3
  # The compile cache as one file (dm/tools/shader_cache.py): entries in and out, bytes stored once, several threads and processes, a damaged file, pruning, and taking in a cache from before it.
--import hashlib, os, sqlite3, subprocess, sys, tarfile, tempfile, threading, time, unittest
-+import contextlib, errno, hashlib, os, sqlite3, subprocess, sys, tarfile, tempfile, threading, time, unittest
+-import concurrent.futures as cf, hashlib, os, sqlite3, subprocess, sys, tarfile, tempfile, threading, time, unittest
++import concurrent.futures as cf, contextlib, errno, hashlib, os, sqlite3, subprocess, sys, tarfile, tempfile, threading, time, unittest
  from pathlib import Path
  from unittest import mock
  
-@@ -135,6 +135,25 @@ class Entries(Base):
-         self.assertTrue(self.store.to_file('f', dst)); self.assertEqual(dst.read_bytes(), b'data')
-         self.assertFalse(self.store.to_file('absent', self.root / 'none')); self.assertFalse((self.root / 'none').exists())
- 
+@@ -217,6 +217,24 @@ class Entries(Base):
+         with mock.patch.object(shader_cache.sqlite3, 'connect', opening), cf.ThreadPoolExecutor(2) as pool:
+             reads = [pool.submit(self.store.get, 'entry') for _ in range(2)]
+             self.assertEqual([r.result(10) for r in reads], [b'parallel', b'parallel'])
 +    def test_to_file_removes_tmp_after_failed_write_or_rename(self):
 +        dst = self.root / 'dst'; dst.write_bytes(b'old')
 +        self.store.put('f', b'new data')
@@ -108,12 +108,11 @@ index e99ca2f4..e174b6e3 100644
 +                self.assertEqual(raised.exception.errno, errno.ENOSPC)
 +                self.assertEqual(dst.read_bytes(), b'old')
 +                self.assertEqual(list(self.root.glob('dst.tmp-*')), [])
-+
+ 
      def test_one_file_is_left(self):
          self.store.put('x', b'1'); self.store.close()
-         self.assertEqual(os.listdir(self.root), ['cas.db'])
 diff --git a/dm/tools/tests/test_shader_lib.py b/dm/tools/tests/test_shader_lib.py
-index 0fe8eb4d..cffe7ad0 100644
+index 53d1b14..12ed2e1 100644
 --- a/dm/tools/tests/test_shader_lib.py
 +++ b/dm/tools/tests/test_shader_lib.py
 @@ -1,7 +1,8 @@
