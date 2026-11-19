@@ -97,17 +97,23 @@ package enum MacNativeGamesBuilder {
         outputAppPath: String,
         workDir: String
     ) -> [String] {
+        // Unencrypted inputs (.nup or unpacked Switch 2 dump folders) bundle their updates and DLCs inside gameInput;
+        // passing --update or --dlc makes MacNativeGames reject the build.
+        let unencrypted = isUnencryptedInput || (gameInput as NSString).pathExtension.lowercased() == "nup"
+        let includesUpdate = !unencrypted && !updatePath.isEmpty && !isContainedOrSamePath(updatePath, in: gameInput)
+        let externalDLCs = unencrypted ? [] : dlcPaths.filter { !$0.isEmpty && !isContainedOrSamePath($0, in: gameInput) }
+
         var args = [scriptPath(for: route, in: tree), gameInput]
-        if !isUnencryptedInput && !keysPath.isEmpty {
+        if !unencrypted && !keysPath.isEmpty {
             args += ["-k", keysPath]
         }
         switch route {
         case .unifiedBuildApp:
             args += ["--platform", "macos", "-o", outputAppPath, "--work", workDir]
-            if !updatePath.isEmpty {
+            if includesUpdate {
                 args += ["--update", updatePath]
             }
-            for dlc in dlcPaths where !dlc.isEmpty {
+            for dlc in externalDLCs {
                 args += ["--dlc", dlc]
             }
         case .perGameScript(_, let supportsPlatformFlag, let supportsUpdateFlag):
@@ -115,11 +121,32 @@ package enum MacNativeGamesBuilder {
                 args += ["--platform", "macos"]
             }
             args += ["-o", outputAppPath, "--work", workDir]
-            if supportsUpdateFlag && !updatePath.isEmpty {
+            if supportsUpdateFlag && includesUpdate {
                 args += ["--update", updatePath]
             }
         }
         return args
+    }
+
+    private static func isContainedOrSamePath(_ candidate: String, in parentOrSame: String) -> Bool {
+        let base = normalizedPath(parentOrSame)
+        let target = normalizedPath(candidate)
+        guard !base.isEmpty, !target.isEmpty else { return false }
+        if target == base {
+            return true
+        }
+        let prefix = base == "/" ? "/" : base + "/"
+        return target.hasPrefix(prefix)
+    }
+
+    private static func normalizedPath(_ path: String) -> String {
+        guard !path.isEmpty else { return "" }
+        let expanded = (path as NSString).expandingTildeInPath
+        let standardized = URL(fileURLWithPath: expanded).standardized.path
+        if standardized.count > 1 && standardized.hasSuffix("/") {
+            return String(standardized.dropLast())
+        }
+        return standardized
     }
 
     package static func environment(languageCode: String) -> [String: String] {
