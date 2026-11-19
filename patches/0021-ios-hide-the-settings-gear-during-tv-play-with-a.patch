@@ -100,12 +100,12 @@ index bfc19b7..3301c55 100644
  // Fill covers the full view only in the overlay layout (landscape). A portrait or tabletop split keeps the picture fitted in its
  // area above the controls, where cropping a small picture would cost more than the bars.
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 500e86f..418d0ec 100644
+index 2b64998..44d6551 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -105,6 +105,13 @@ void dm_haptics_apple_init(void) {}
+@@ -104,6 +104,13 @@ void dm_motion_clear(int player) {
+ void dm_haptics_apple_init(void) {}
  void dm_haptics_apple_controller(int player, GCController *controller) { (void)player; (void)controller; }
- void dm_haptics_apple_controller_locality(int player, GCController *controller, GCHapticsLocality locality) { (void)player; (void)controller; (void)locality; }
  
 +int front_web_touch(void) { return 0; }   // no offline web page above the synthetic game
 +int dm_locate_game_data(void) { return 1; }

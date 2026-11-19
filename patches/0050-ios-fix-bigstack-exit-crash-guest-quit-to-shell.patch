@@ -1176,7 +1176,7 @@ index 8acb4a5..d807b94 100644
  // "system" (the system keeps Home whatever the app asks), "app" (the app decides), "off" (the system does nothing with Home in apps),
  // "unavailable" (could not be read)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 6c8ef6d..89d1659 100644
+index 8c91362..4fe1b83 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -194,7 +194,7 @@ save-sync: $(B)/t_save_sync $(B)/t_save_sync_metadata

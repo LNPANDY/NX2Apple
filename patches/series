@@ -12,7 +12,6 @@
 0011-ios-apply-controller-button-mappings-to-physical.patch
 0012-ios-quit-a-game-from-the-in-game-menu-or-by-hold.patch
 0013-nsp-script-hand-the-extraction-and-the-shader-sp.patch
-0014-mac-split-a-joy-con-pair-into-two-sideways-contr.patch
 0015-host-read-embedded-sections-from-the-image-that.patch
 0016-keep-the-selected-python-when-generating-the-mac.patch
 0017-support-steam-controller-and-shared-mac-control.patch
@@ -37,7 +36,6 @@
 0039-ios-game-framework.patch
 0040-ios-support-standalone-touch-settings-and.patch
 0041-ios-host-teardown.patch
-0044-host-haptics-drive-joycon-l-and-joycon-r-on-sepa.patch
 0046-ios-audio-add-dm-audio-mix-audio-session-mixing.patch
 0047-ios-scripts-append-developer-team-id-to-default.patch
 0048-host-guard-async-callbacks-across-shell-teardown.patch

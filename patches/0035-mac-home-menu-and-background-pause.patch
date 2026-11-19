@@ -34,18 +34,18 @@ index bd852c4..991a422 100644
  
  // Called on the main thread when mapped input reaches the game.
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
-index c127455..8cad868 100644
+index 8fa01c0..166bd87 100644
 --- a/dm/host/controllers_mac.m
 +++ b/dm/host/controllers_mac.m
 @@ -16,6 +16,7 @@
  #include "pad_hid_mac.h"
- #include "pad_joycon_mac.h"
+ #include "pad_jc1_mac.h"
  #include "pad_switch2_apple.h"
 +#include "home_quit.h"
  #include <math.h>
  
  enum { PAD_OFF, PAD_DPAD, PAD_LEFT_STICK, PAD_RIGHT_STICK, PAD_TOUCH };
-@@ -348,6 +349,21 @@ static void joycon_pad_buttons(const joycon_pad *p, int *home, int *a, int *b) {
+@@ -322,6 +323,21 @@ static void controller_reset_motion(DMController *d) {
      }
      return holder;
  }
@@ -577,10 +577,10 @@ index ffc3ab5..be83949 100644
  static NSView *hq_hold_view(NSRect bounds, NSString *label, CAShapeLayer **ring_out) {
      CGFloat k = hq_scale(bounds.size), d = 26 * k, line = 3.5 * k;
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index 42252b5..45fe7d0 100644
+index dfd8fe7..84380db 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
-@@ -835,6 +835,15 @@ static void test_home_quit_routing(void) {
+@@ -797,6 +797,15 @@ static void test_home_quit_routing(void) {
      assert(q.phase==HQ_IDLE && received[gc_slot]);
      report(0,1); now+=HQ_HOLD_S; front_home_poll(); report(1,1);
      assert(q.phase==HQ_QUIT && !received[raw_slot]); // wire A quits, regardless of its guest mapping

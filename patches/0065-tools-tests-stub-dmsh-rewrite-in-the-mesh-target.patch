@@ -7,7 +7,6 @@ Subject: [PATCH] tools/tests: stub dmsh_rewrite in the mesh target selection
 Upstream-Status: forwarded seedds/nxnative#2953
 Reason: Tool tests fail on upstream main: the mesh target selection test lacks dmsh_rewrite
 Issue: LNPANDY/NX2Apple#1448
-
 ---
  dm/tools/tests/test_shader_toolchain_cache.py | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)

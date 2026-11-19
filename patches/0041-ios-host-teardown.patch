@@ -27,7 +27,7 @@ Issue: LNPANDY/NX2Apple#980
  dm/gfx/vk/hle_vk.m                  | 152 +++++--
  dm/host/crash.c                     |   4 +-
  dm/host/dm.h                        |   2 +
- dm/host/haptics_apple.m             | 120 +++--
+ dm/host/haptics_apple.m             | 119 +++--
  dm/host/hle.h                       |   1 +
  dm/host/hle_audio.c                 |  44 +-
  dm/host/hle_audren.c                |  30 +-
@@ -70,7 +70,7 @@ Issue: LNPANDY/NX2Apple#980
  dm/ios/tools/build_ipa.sh           |  12 +-
  dm/ios/tools/compile_check.py       |  16 +-
  dm/ios/tools/gen_objc_namespace.py  | 381 ++++++++++++++++
- 63 files changed, 3359 insertions(+), 460 deletions(-)
+ 63 files changed, 3358 insertions(+), 460 deletions(-)
  create mode 100644 dm/ios/tests/test_objc_namespace.py
  create mode 100644 dm/ios/tools/gen_objc_namespace.py
 
@@ -2593,10 +2593,10 @@ index 23fe896..7f1ebd3 100644
 +int dm_teardown_is_parking(void);
 +void dm_teardown_check_current_thread(void);
 diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
-index b4ff095..7f7f6c1 100644
+index e8c884e..c93d64e 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
-@@ -47,7 +47,7 @@ - (void)stop;
+@@ -46,7 +46,7 @@ - (void)stop;
  static BOOL phoneSupported;
  #endif
  static float gain = 1;
@@ -2605,7 +2605,7 @@ index b4ff095..7f7f6c1 100644
  static unsigned errors;
  static NSTimeInterval now(void) {
      struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
-@@ -437,7 +437,20 @@ static void configure(int p, GCController *controller, GCHapticsLocality localit
+@@ -423,7 +423,20 @@ static void configure(int p, GCController *controller) {
                  channels[p] = [NSMutableArray new];
                  GCHapticsLocality both = [localities containsObject:GCHapticsLocalityHandles] ? GCHapticsLocalityHandles : GCHapticsLocalityDefault;
                  add_engine(p, -1, @"controller handles", ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:both]; });
@@ -2627,7 +2627,7 @@ index b4ff095..7f7f6c1 100644
                  dm_haptics_route(p, 1);
                  fprintf(stderr, "haptics: player %d plays both motors on one engine (%s)\n", p + 1, both.UTF8String);
              };
-@@ -505,37 +518,86 @@ static void suspend(unsigned reason, BOOL on) {
+@@ -486,37 +499,85 @@ static void suspend(unsigned reason, BOOL on) {
  void dm_haptics_apple_shutdown(void) {
      if (queue) suspend(DM_HAPTICS_INACTIVE, YES);
  }
@@ -2661,7 +2661,6 @@ index b4ff095..7f7f6c1 100644
 +        else dispatch_sync(queue, clean);
 +        for (int p = 0; p < DM_PLAYERS; p++) {
 +            controllers[p] = nil;
-+            controllerLocalities[p] = nil;
 +            outputOwners[p] = nil;
 +        }
 +        queue = nil;
@@ -2705,9 +2704,9 @@ index b4ff095..7f7f6c1 100644
 -        phoneSupported = CHHapticEngine.capabilitiesForHardware.supportsHaptics;
 +    phoneSupported = CHHapticEngine.capabilitiesForHardware.supportsHaptics;
  #endif
--        dispatch_sync(queue, ^{ configure(0, nil, nil); });
+-        dispatch_sync(queue, ^{ configure(0, nil); });
 -        NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
-+    dispatch_sync(queue, ^{ configure(0, nil, nil); });
++    dispatch_sync(queue, ^{ configure(0, nil); });
 +    NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
  #if TARGET_OS_IPHONE
 -        [nc addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *n) { (void)n; suspend(DM_HAPTICS_INACTIVE, YES); }];
@@ -3304,10 +3303,10 @@ index 9d3d590..ca8c6f1 100644
 +    pthread_mutex_unlock(&g_lock);
 +}
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index c9f0294..f32171f 100644
+index 4dfd213..442da5f 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -1827,6 +1827,13 @@ static int touch_read(void *s, int N, int want) {
+@@ -1815,6 +1815,13 @@ static int touch_read(void *s, int N, int want) {
      pthread_mutex_unlock(&g_touch_mu);
      return cnt;
  }
@@ -4734,7 +4733,7 @@ index 8d5980d..fee8b46 100644
  #ifndef DM_TEST_THREAD_ENTER
  void dm_thread_enter(uint64_t entry, uint64_t arg, uint64_t sp) { (void)entry; (void)arg; (void)sp; abort(); }
 diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
-index 288d12e..d6403ed 100644
+index 3080fcb..cf2d35b 100644
 --- a/dm/host/tests/t_haptics_apple.m
 +++ b/dm/host/tests/t_haptics_apple.m
 @@ -131,6 +131,7 @@ - (void)stopWithCompletionHandler:(CHHapticCompletionHandler)handler { self.stop
@@ -4772,9 +4771,9 @@ index 288d12e..d6403ed 100644
      // A DualSense keeps its handle route when advanced players are refused: each handle moves to plain players on a new engine of its own
      // locality, at its own level
      TestController *sense = [TestController new]; sense.haptics = [TestHaptics new]; sense.haptics.noAdvanced = YES;
-@@ -645,6 +659,21 @@ int main(void) { @autoreleasepool {
-     assert(nativeStops && !outputOwners[0] && !nativeOutputs[0] && channels[0].count==1 && [controllerLocalities[0] isEqual:GCHapticsLocalityLeftHandle]);
-     dm_haptics_apple_controller(0, nil); dm_haptics_apple_controller(1, nil); drain();
+@@ -635,6 +649,21 @@ int main(void) { @autoreleasepool {
+     assert(nativeStops && !outputOwners[0] && !nativeOutputs[0] && channels[0].count==2);
+     dm_haptics_apple_controller(0, nil); drain();
      assert(ds4_crc((const uint8_t *)"123456789", 9) == 0xCBF43926u);   // the report's CRC32 (IEEE, reflected)
 +    // Shell game switch: teardown resets gain and rumble_min and allows the next game to re-read or clear DM_RUMBLE_GAIN / DM_RUMBLE_MIN
 +    dm_haptics_apple_teardown();
