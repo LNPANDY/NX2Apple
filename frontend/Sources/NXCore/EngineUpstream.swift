@@ -4,6 +4,7 @@ package enum EngineUpstreamKind: String, Codable, CaseIterable, Equatable, Senda
     case nxnative
     case s2arm
     case macNativeGames = "macnativegames"
+    case nxkit
 
     package var displayName: String {
         switch self {
@@ -13,6 +14,8 @@ package enum EngineUpstreamKind: String, Codable, CaseIterable, Equatable, Senda
             return "MacNativeGames"
         case .s2arm:
             return "S2Arm"
+        case .nxkit:
+            return "nxkit"
         }
     }
 
@@ -24,11 +27,32 @@ package enum EngineUpstreamKind: String, Codable, CaseIterable, Equatable, Senda
             return "upstream.mngCardNote"
         case .s2arm:
             return "upstream.s2armCardNote"
+        case .nxkit:
+            return "upstream.nxkitCardNote"
         }
     }
 
     package var isBuiltIn: Bool {
         self == .nxnative
+    }
+
+    /// The engine makes Mac apps only: the iPhone and iPad target is not offered with it.
+    package var buildsMacOnly: Bool {
+        self == .macNativeGames || self == .nxkit
+    }
+
+    /// The text that says so.
+    package var macOnlyNoteKey: String? {
+        switch self {
+        case .macNativeGames: return "upstream.mngMacOnly"
+        case .nxkit: return "upstream.nxkitMacOnly"
+        case .nxnative, .s2arm: return nil
+        }
+    }
+
+    /// The engine needs no Python and no .NET: the dependency list leaves them out.
+    package var needsPythonAndDotnet: Bool {
+        self != .nxkit
     }
 }
 
@@ -65,13 +89,20 @@ package enum EngineUpstream {
             markerPaths: ["build_app.py", "games/totk"],
             requiredTools: ["build_app.py"],
             environmentPrefixes: ["MNG_", "TOTK_"]
+        ),
+        EngineUpstreamDescriptor(
+            kind: .nxkit,
+            markerPaths: [NxkitBuilder.builderName],
+            requiredTools: [NxkitBuilder.builderName, NxkitBuilder.hostName],
+            environmentPrefixes: ["NXB_", "NXKIT_"]
         )
     ]
 
     /// Ordered list of build engines offered on macOS, filtered by feature availability.
     package static func availableOnMac(
         macNativeGamesEnabled: Bool = MacNativeGamesBuilder.featureEnabled,
-        s2armEnabled: Bool = S2ArmBuilder.featureEnabled
+        s2armEnabled: Bool = S2ArmBuilder.featureEnabled,
+        nxkitEnabled: Bool = NxkitBuilder.featureEnabled
     ) -> [EngineUpstreamKind] {
         var result: [EngineUpstreamKind] = [.nxnative]
         if macNativeGamesEnabled {
@@ -79,6 +110,9 @@ package enum EngineUpstream {
         }
         if s2armEnabled {
             result.append(.s2arm)
+        }
+        if nxkitEnabled {
+            result.append(.nxkit)
         }
         return result
     }

@@ -47,7 +47,7 @@ package struct MacGameBundle {
         switch upstream {
         case .nxnative:
             return fm.isExecutableFile(atPath: bundleURL.appendingPathComponent("Contents/MacOS/dmhost").path)
-        case .macNativeGames:
+        case .macNativeGames, .nxkit:
             return true
         case .s2arm:
             if executable == "s2arm-host" {

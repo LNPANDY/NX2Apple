@@ -476,7 +476,7 @@ package struct EngineDropdownPanel: View {
     }
 
     private func failedRow(kind: EngineUpstreamKind, reason: UpstreamInstallState.FailureReason) -> some View {
-        let messageKey = reason == .download ? "upstream.downloadFailed" : "upstream.extractFailed"
+        let messageKey = reason == .download ? "upstream.downloadFailed" : (reason == .verify ? "upstream.verifyFailed" : "upstream.extractFailed")
         return HStack(alignment: .center, spacing: 10) {
             Circle()
                 .fill(LauncherPalette.building)

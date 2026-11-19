@@ -29,14 +29,14 @@ extension BuildStore {
             fastRefreshExternalImgPath = nil
             return
         }
-        if isMacNativeGamesSelected, target != BuildTarget.mac {
+        if isMacOnlyUpstreamSelected, target != BuildTarget.mac {
             fastRefreshExternalImgPath = nil
-            doneNote = t("upstream.mngMacOnly")
+            doneNote = t(macOnlyNoteKey)
             done = false
             return
         }
         // The shared app needs a device this Mac knows. Found out here, before an hour of building, not after it.
-        if target != BuildTarget.mac, !isS2ArmSelected, !shellDeviceChecked, !exportsShell {
+        if target != BuildTarget.mac, !isS2ArmSelected, !isNxkitSelected, !shellDeviceChecked, !exportsShell {
             guard installsDirectly else {
                 fastRefreshExternalImgPath = nil
                 doneNote = t("shell.needsDevice")
@@ -49,7 +49,7 @@ extension BuildStore {
         shellDeviceChecked = false
         let skipStale = skipStaleCheckForQueuedEntry
         skipStaleCheckForQueuedEntry = false
-        if target != BuildTarget.mac, !isS2ArmSelected, !exportsOneGame, !exportsFramework, !skipStale, askAboutStaleFrameworks() {
+        if target != BuildTarget.mac, !isS2ArmSelected, !isNxkitSelected, !exportsOneGame, !exportsFramework, !skipStale, askAboutStaleFrameworks() {
             fastRefreshExternalImgPath = nil
             return
         }   // StaleFrameworksPrompt.swift (#449)
@@ -86,6 +86,7 @@ extension BuildStore {
         s2armRun = false
         s2armEventsPath = ""
         nxbRun = false
+        nxkitRun = false
         if isMacNativeGamesSelected {
             if let why = macNativeGamesProblem() {
                 fail(why)
@@ -127,6 +128,41 @@ extension BuildStore {
                 fail(String(format: t("upstream.mngUnsupportedGame"), gameTitleID ?? ""))
                 return
             }
+            startBuildProcess(launch: launch, envCleanup: nil, macOutput: macOutput)
+            return
+        }
+        if isNxkitSelected {
+            if let why = nxkitProblem() {
+                fail(why)
+                return
+            }
+            nxkitRun = true
+            let tidHex = buildKey
+            // The work folder is a cache of the game (a second build reuses its stages). The app is built in the output folder's `<id>_build` and placed beside it.
+            let workDir = NxkitBuilder.workDirectory(home: home, key: tidHex)
+            let appFolder = (outDir.isEmpty ? inputFolder : outDir) + "/" + tidHex + "_build"
+            if cloudFolderCheck(appFolder) {
+                failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: appFolder)
+                fail(failureWhat(failure!))
+                return
+            }
+            let fm = FileManager.default
+            try? fm.createDirectory(atPath: workDir, withIntermediateDirectories: true)
+            try? fm.createDirectory(atPath: appFolder, withIntermediateDirectories: true)
+            let nup = gameFolder?.nup
+            var input = inputFolder
+            if nup == nil {
+                guard let folder = nxkitSourceFolder(workDir: workDir) else {
+                    fail(t("msg.stagingFailed"))
+                    return
+                }
+                input = folder
+            }
+            let macOutput = MacAppOutput(workDir: URL(fileURLWithPath: appFolder), key: tidHex, titleID: gameTitleID, preferred: macAppPath)
+            oneGameIPAPath = ""
+            macAppPath = ""
+            effectiveWorkDir = workDir
+            let launch = nxkitLaunch(input: input, nup: nup, workDir: workDir, outputAppPath: macOutput.builderURL.path)
             startBuildProcess(launch: launch, envCleanup: nil, macOutput: macOutput)
             return
         }
@@ -452,7 +488,7 @@ extension BuildStore {
                         self.doneNote = note
                         self.say("✗ " + note)
                         self.noteFailure()
-                    } else if self.nxbRun {
+                    } else if self.nxbRun || self.nxkitRun {
                         // nxb's own exit code and message, as they are: there is no script to run instead (#749)
                         let note = self.experimentalFailureNote(status: status)
                         if let i = self.stages.lastIndex(where: { $0.state == .running }) {
@@ -497,7 +533,8 @@ extension BuildStore {
     @discardableResult
     func finishMacApp(_ output: MacAppOutput) -> Task<Void, Never> {
         let workDir = effectiveWorkDir.isEmpty ? output.workDirectoryURL.path : effectiveWorkDir
-        let preserveExternalWork = mngRun
+        let preserveExternalWork = mngRun || nxkitRun   // nxkit's work folder is a cache of the game
+        let appFolderToTidy = nxkitRun ? output.workDirectoryURL : nil
         archiveGeneration &+= 1
         let generation = archiveGeneration
         return Task {
@@ -506,6 +543,10 @@ extension BuildStore {
                     let placed = try output.finish()
                     if !preserveExternalWork {
                         PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: true, removeShellFramework: true)
+                    }
+                    // nxb built the app in `<id>_build` and the output placed it beside: that folder is empty now
+                    if let appFolderToTidy, ((try? FileManager.default.contentsOfDirectory(atPath: appFolderToTidy.path)) ?? ["-"]).isEmpty {
+                        try? FileManager.default.removeItem(at: appFolderToTidy)
                     }
                     return placed
                 }.value

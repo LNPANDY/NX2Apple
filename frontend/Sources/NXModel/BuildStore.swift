@@ -222,7 +222,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var buildUpstream: EngineUpstreamKind {
         didSet {
             defaults.set(buildUpstream.rawValue, forKey: Self.buildUpstreamKey)
-            if MacNativeGamesBuilder.featureEnabled && buildUpstream == .macNativeGames && target != BuildTarget.mac {
+            if buildUpstream.buildsMacOnly && isUpstreamEnabled(buildUpstream) && target != BuildTarget.mac {
                 target = BuildTarget.mac
             }
             if oldValue != buildUpstream {
@@ -255,6 +255,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var upstreamTransport: EngineTransport = URLSessionEngineTransport()
     package var s2armRun = false
     package var s2armEventsPath = ""
+    /// nxkit's binaries are in `upstreams/nxkit/` (nxb runs), and the release the install came from (`BuildStore+Nxkit.swift`).
+    @Published package internal(set) var nxkitInstalled = false
+    @Published package internal(set) var nxkitInfo: NxkitBuilder.InstallInfo?
+    @Published package internal(set) var nxkitUpdate: NxkitUpdateState = .unknown
+    package var nxkitRun = false
     @Published package var archivePath = ""  // the romfs folder the pack wrote
     /// True after an iOS fast refresh embedded `DMMSLTR1` shaders into `.img`, reminding the player to replace older `.img` copies.
     @Published package var needsReplaceOldImgReminder = false
@@ -449,11 +454,14 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                 buildUpstream = MacNativeGamesBuilder.featureEnabled ? .macNativeGames : .nxnative
             case .s2arm:
                 buildUpstream = S2ArmBuilder.featureEnabled ? .s2arm : .nxnative
+            case .nxkit:
+                buildUpstream = NxkitBuilder.featureEnabled ? .nxkit : .nxnative
             }
         } else {
             buildUpstream = .nxnative
         }
-        if buildUpstream == .macNativeGames && target != BuildTarget.mac {
+        refreshNxkit()
+        if buildUpstream.buildsMacOnly && target != BuildTarget.mac {
             target = BuildTarget.mac
             runningTarget = BuildTarget.mac
             defaults.set(BuildTarget.mac, forKey: Self.targetKey)
@@ -519,7 +527,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         archiveGeneration &+= 1
         stopping = true
         stopPSOPoll()
-        ProcessGroups.endGroup(proc.processIdentifier)   // the script and every tool it started
+        if nxkitRun { endNxkitProcess(proc.processIdentifier) } else { ProcessGroups.endGroup(proc.processIdentifier) }   // the script and every tool it started
     }
 
     package func cleanupStaging() {

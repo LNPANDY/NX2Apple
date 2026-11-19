@@ -10,6 +10,7 @@ package struct UpstreamEngineStore: Sendable {
         case download
         case unpack
         case incomplete
+        case checksum   // the download does not match its SHA256SUMS entry, or has none (nxkit)
     }
 
     package let root: URL
@@ -36,6 +37,8 @@ package struct UpstreamEngineStore: Sendable {
             return URL(string: "https://codeload.github.com/ly05010419/MacNativeGames/zip/refs/heads/main")
         case .s2arm:
             return URL(string: "https://codeload.github.com/jhaizhou-ops/S2Arm/zip/refs/heads/main")
+        case .nxkit:
+            return nil   // the latest release is looked up first (NxkitInstall.swift)
         }
     }
 
@@ -47,6 +50,8 @@ package struct UpstreamEngineStore: Sendable {
             return MacNativeGamesBuilder.isUsableTree(path, fileManager: fm)
         case .s2arm:
             return S2ArmBuilder.isUsableTree(path, fileManager: fm)
+        case .nxkit:
+            return NxkitBuilder.isUsableTree(path, fileManager: fm)
         }
     }
 
@@ -54,7 +59,7 @@ package struct UpstreamEngineStore: Sendable {
         switch kind {
         case .nxnative:
             return nil
-        case .macNativeGames, .s2arm:
+        case .macNativeGames, .s2arm, .nxkit:
             return root.appendingPathComponent(kind.rawValue, isDirectory: true)
         }
     }
@@ -87,6 +92,56 @@ package struct UpstreamEngineStore: Sendable {
         }
         defer { try? fm.removeItem(at: tmp) }
 
+        try Self.unpack(zip: zip, into: tmp, shouldCancel: shouldCancel)
+
+        var source = tmp
+        for _ in 0..<2 where !Self.isUsableTree(source.path, kind: kind, fileManager: fm) {
+            let children = ((try? fm.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
+                .filter { url in
+                    let name = url.lastPathComponent
+                    guard name != "__MACOSX" && !name.hasPrefix(".") else { return false }
+                    return (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                }
+            guard children.count == 1, let only = children.first else { break }
+            source = only
+        }
+
+        guard Self.isUsableTree(source.path, kind: kind, fileManager: fm) else {
+            throw Failure.incomplete
+        }
+
+        let scriptsToMarkExecutable: [String]
+        switch kind {
+        case .nxnative:
+            scriptsToMarkExecutable = []
+        case .macNativeGames:
+            scriptsToMarkExecutable = ["build_app.py"]
+        case .s2arm:
+            scriptsToMarkExecutable = [S2ArmBuilder.macOneClickScript, "pack/jobs/main.py"]
+        case .nxkit:
+            scriptsToMarkExecutable = [NxkitBuilder.builderName, NxkitBuilder.hostName]
+        }
+        for rel in scriptsToMarkExecutable {
+            let scriptPath = source.appendingPathComponent(rel).path
+            if fm.fileExists(atPath: scriptPath) {
+                try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptPath)
+            }
+        }
+
+        if shouldCancel?() == true {
+            throw Failure.cancelled
+        }
+
+        try replace(dest: dest, with: source, kind: kind)
+        guard Self.isUsableTree(dest.path, kind: kind, fileManager: fm) else {
+            try? fm.removeItem(at: dest)
+            throw Failure.incomplete
+        }
+        return dest
+    }
+
+    /// `ditto -x -k`: the ZIP unpacked into an existing folder. Ends early when `shouldCancel` says so.
+    static func unpack(zip: URL, into tmp: URL, shouldCancel: (@Sendable () -> Bool)?) throws {
         let ditto = Process()
         ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
         ditto.arguments = ["-x", "-k", zip.path, tmp.path]
@@ -114,43 +169,11 @@ package struct UpstreamEngineStore: Sendable {
         guard ditto.terminationStatus == 0 else {
             throw Failure.unpack
         }
+    }
 
-        var source = tmp
-        for _ in 0..<2 where !Self.isUsableTree(source.path, kind: kind, fileManager: fm) {
-            let children = ((try? fm.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
-                .filter { url in
-                    let name = url.lastPathComponent
-                    guard name != "__MACOSX" && !name.hasPrefix(".") else { return false }
-                    return (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-                }
-            guard children.count == 1, let only = children.first else { break }
-            source = only
-        }
-
-        guard Self.isUsableTree(source.path, kind: kind, fileManager: fm) else {
-            throw Failure.incomplete
-        }
-
-        let scriptsToMarkExecutable: [String]
-        switch kind {
-        case .nxnative:
-            scriptsToMarkExecutable = []
-        case .macNativeGames:
-            scriptsToMarkExecutable = ["build_app.py"]
-        case .s2arm:
-            scriptsToMarkExecutable = [S2ArmBuilder.macOneClickScript, "pack/jobs/main.py"]
-        }
-        for rel in scriptsToMarkExecutable {
-            let scriptPath = source.appendingPathComponent(rel).path
-            if fm.fileExists(atPath: scriptPath) {
-                try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptPath)
-            }
-        }
-
-        if shouldCancel?() == true {
-            throw Failure.cancelled
-        }
-
+    /// `source` takes the place of `dest`. The old folder is kept until the new one is in, and put back when the move fails.
+    func replace(dest: URL, with source: URL, kind: EngineUpstreamKind) throws {
+        let fm = FileManager.default
         try? fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         let backup = root.appendingPathComponent(".old-" + kind.rawValue + "-" + UUID().uuidString, isDirectory: true)
         let hadExisting = fm.fileExists(atPath: dest.path)
@@ -173,11 +196,6 @@ package struct UpstreamEngineStore: Sendable {
         if fm.fileExists(atPath: backup.path) {
             try? fm.removeItem(at: backup)
         }
-        guard Self.isUsableTree(dest.path, kind: kind, fileManager: fm) else {
-            try? fm.removeItem(at: dest)
-            throw Failure.incomplete
-        }
-        return dest
     }
 
     package func downloadAndInstall(

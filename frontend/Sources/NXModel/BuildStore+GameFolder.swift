@@ -50,8 +50,8 @@ extension BuildStore {
             }
             return nil
         }
-        if isS2ArmSelected {
-            return nil
+        if isS2ArmSelected || isNxkitSelected {
+            return nil   // nxkit says what it lacks itself (nxkitProblem)
         }
         let engine = EngineLayout.root(repo.path)
         guard !engine.isEmpty, FileManager.default.fileExists(atPath: engine + "/dm") else { return nil }

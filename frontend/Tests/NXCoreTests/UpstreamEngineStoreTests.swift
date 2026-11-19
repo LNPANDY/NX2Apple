@@ -195,15 +195,15 @@ final class UpstreamEngineStoreTests: XCTestCase {
         XCTAssertEqual(EngineUpstreamKind.s2arm.cardNoteKey, "upstream.s2armCardNote")
 
         XCTAssertEqual(
-            EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: true),
+            EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: true, nxkitEnabled: false),
             [.nxnative, .macNativeGames, .s2arm]
         )
         XCTAssertEqual(
-            EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: true),
+            EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: true, nxkitEnabled: false),
             [.nxnative, .s2arm]
         )
         XCTAssertEqual(
-            EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false),
+            EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false, nxkitEnabled: false),
             [.nxnative]
         )
     }
