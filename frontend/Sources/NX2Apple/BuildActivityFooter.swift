@@ -102,12 +102,8 @@ struct BuildActivityFooter: View {
             .padTarget("build.activity", scope: "main", radius: 0, activate: open)
             if completed {
                 HStack(spacing: 12) {
-                    Button(action: dismiss) {
-                        Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
-                            .frame(width: LauncherControl.height, height: LauncherControl.height)
-                            .background(LauncherPalette.secondaryFill, in: Circle())
-                            .overlay(Circle().strokeBorder(LauncherPalette.secondaryBorder)).contentShape(Circle())
-                    }.buttonStyle(.plain).launcherHover()
+                    Button(action: dismiss) { Image(systemName: "xmark") }
+                        .buttonStyle(LauncherIconButtonStyle())
                         .accessibilityLabel(loc.t("build.dismissActivity")).help(loc.t("build.dismissActivity"))
                         .padTarget("build.activity.dismiss", scope: "main", activate: dismiss)
                     if onPlay != nil {
