@@ -24,7 +24,8 @@ struct SupportedGamesSheet: View {
     static let coverPixels = 224
 
     init(games: [SupportedGame], owned: @escaping (String) -> LibraryGame?, covers: @escaping @autoclosure () -> SupportedCovers,
-         showInLibrary: @escaping (UUID) -> Void, appVersion: String = AppUpdateStore.appVersion) {
+         showInLibrary: @escaping (UUID) -> Void, appVersion: String = AppUpdateStore.appVersion, expanded: String? = nil) {
+        _selected = State(initialValue: expanded)   // visual QA: a row with its notes open
         self.games = games
         self.owned = owned
         _covers = StateObject(wrappedValue: covers())
@@ -79,19 +80,19 @@ struct SupportedGamesSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(loc.t("supported.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .medium)).foregroundStyle(LauncherPalette.secondaryText)
+            VStack(alignment: .leading, spacing: DSSheetInsets.gap) {
+                DSSheetHeader(title: loc.t("supported.title"))
+                HStack(spacing: DS.Space.xs) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.symbolDefault)
                     TextField(loc.t("supported.search"), text: $search).textFieldStyle(.plain).font(DS.Font.body)
                         .focused($searchFocused).accessibilityLabel(loc.t("supported.search"))
                 }
-                .padding(.horizontal, 12).frame(height: 36)
-                .background(LauncherPalette.menuFill, in: Capsule())
-                .overlay(Capsule().strokeBorder(LauncherPalette.ink(searchFocused ? 0.22 : 0.10)))
+                .padding(.horizontal, DS.Space.s).frame(height: DS.Control.height)
+                .background(DS.Color.surfaceRaised, in: Capsule())
+                .overlay(Capsule().strokeBorder(searchFocused ? DS.Color.accent : DS.Color.separator))
             }
-            .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 16)
-            Divider().opacity(0.3)
+            .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
+            DS.Color.separator.frame(height: 1)   // the top edge of the full-width list
             if shown.isEmpty {
                 Text(loc.t("supported.none")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     .frame(maxWidth: .infinity, minHeight: 120)
@@ -114,32 +115,28 @@ struct SupportedGamesSheet: View {
                             })
                                 .onAppear { covers.appear(game.titleID) }
                                 .onDisappear { covers.disappear(game.titleID) }
-                            Divider().opacity(0.25).padding(.leading, 30)
+                            DS.Color.separator.frame(height: 1).padding(.leading, DSSheetInsets.horizontal)
                         }
                     }
                  }
                  .onChange(of: focus.focused) { id in if let id { proxy.scrollTo(id, anchor: .center) } }
                 }
             }
-            Divider().opacity(0.3)
-            HStack {
+            DSSheetButtonRow {
                 Text(String(format: loc.t("supported.count"), shown.count)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
-                Spacer()
-                Button(loc.t("free.done")) { dismiss() }
-                    .buttonStyle(LauncherSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
-                    .padTarget("supported.close", scope: "supported") { dismiss() }
+            } buttons: {
+                Button { dismiss() } label: { Text(loc.t("free.done")).font(DS.Font.bodyStrong).padding(.horizontal, DS.Space.m) }
+                    .buttonStyle(DSPrimaryButtonStyle()).keyboardShortcut(.cancelAction)   // Escape closes, Return stays with the search
+                    .padTarget("supported.close", scope: "supported", focusColor: DS.Color.accentOn) { dismiss() }
             }
-            .padding(.horizontal, 30).padding(.vertical, 14)
+            .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.gap).padding(.bottom, DSSheetInsets.vertical)
         }
         .background(Button("") { searchFocused = true }.keyboardShortcut("f", modifiers: .command)
             .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true))   // Cmd+F, as in the library: the search of this list
         .padScope("supported", focus)
         .frame(width: 680)
         .frame(maxHeight: Self.height(screen: NSScreen.main?.visibleFrame.height ?? 800))
-        .background(LauncherPalette.background)
-        .font(DS.Font.body)
-        .launcherAppearance()
-        .tint(LauncherPalette.accent)
+        .dsSheetSurface()
         .onAppear {
             searchFocused = true
             focus.scope = "supported"
@@ -166,52 +163,35 @@ private struct SupportedGameRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: toggle) {
-                HStack(spacing: 16) {
+                HStack(spacing: DS.Space.m) {
                     ZStack {
-                        LauncherPalette.surface
+                        DS.Color.surfaceRaised
                         if let cover { Image(nsImage: cover).resizable().scaledToFill() }
-                        else { Image(systemName: "gamecontroller").font(.system(size: 18, weight: .light)).foregroundStyle(LauncherPalette.secondaryText) }
+                        else { Image(systemName: "gamecontroller").font(.system(size: 18, weight: .light)).foregroundStyle(DS.Color.symbolDefault) }
                     }
                     .frame(width: 112, height: 63)
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(LauncherPalette.cardBorder))
+                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.chip))
+                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.chip).strokeBorder(DS.Color.separator))
                     .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(alignment: .center, spacing: 8) {
-                            Text(game.name).font(.manrope(14.5, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
-                            if game.fullScreen {
-                                Text(loc.t("widescreen.badge"))
-                                    .font(.manrope(10.5, .bold))
-                                    .foregroundStyle(LauncherPalette.ready)
-                                    .lineLimit(1)
-                                    .fixedSize()
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 2)
-                                    .background(LauncherPalette.ready.opacity(0.12), in: Capsule())
-                                    .overlay(Capsule().strokeBorder(LauncherPalette.ready.opacity(0.38)))
-                                    .help(loc.t("widescreen.help"))
-                            }
-                            if isCurrentUpdate {
-                                Text(loc.t("supported.updatedCurrent"))
-                                    .font(.manrope(10.5, .semibold))
-                                    .foregroundStyle(LauncherPalette.accent)
-                                    .lineLimit(1)
-                                    .fixedSize()
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 2)
-                                    .background(LauncherPalette.accent.opacity(0.14), in: Capsule())
-                            }
+                    VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                        HStack(alignment: .center, spacing: DS.Space.xs) {
+                            Text(game.name).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
+                            if game.fullScreen { SupportedTag(loc.t("widescreen.badge")).help(loc.t("widescreen.help")) }
+                            if isCurrentUpdate { SupportedTag(loc.t("supported.updatedCurrent")) }
                         }
                         Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).multilineTextAlignment(.leading)
                     }
-                    Spacer(minLength: 12)
+                    Spacer(minLength: DS.Space.s)
                     if owned != nil {
-                        Text(loc.t("supported.owned")).font(.manrope(12.5, .semibold)).foregroundStyle(LauncherPalette.ready)
+                        HStack(spacing: DS.Space.xs) {
+                            Circle().fill(DS.Color.statusReady).frame(width: 7, height: 7).accessibilityHidden(true)
+                            Text(loc.t("supported.owned")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                        }
                     }
-                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(DS.Color.symbolDefault)
                         .rotationEffect(.degrees(expanded ? 90 : 0)).accessibilityHidden(true)
                 }
-                .padding(.horizontal, 30).padding(.vertical, 14).frame(minHeight: 91)
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.vertical, DS.Space.s).frame(minHeight: 91)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain).launcherHover()
@@ -221,17 +201,30 @@ private struct SupportedGameRow: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(game.notes.isEmpty ? loc.t("supported.noNotes") : game.notes).font(DS.Font.body)
-                        .foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                     if let owned {
-                        Button(loc.t("supported.show")) { show(owned.id) }.buttonStyle(LauncherSecondaryButtonStyle())
+                        Button(loc.t("supported.show")) { show(owned.id) }.buttonStyle(DSRowButtonStyle())
                             .padTarget("supported.show." + game.titleID, scope: "supported") { show(owned.id) }
                     }
                 }
-                .padding(.leading, 158).padding(.trailing, 30).padding(.bottom, 16)
+                .padding(.leading, DSSheetInsets.horizontal + 112 + DS.Space.m).padding(.trailing, DSSheetInsets.horizontal).padding(.bottom, DS.Space.m)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(reduceMotion ? .identity : .opacity)
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: expanded)
+    }
+}
+
+/// A quiet property of a supported game (Widescreen, Updated in this version): footnote text in a raised capsule. Not a DSChip,
+/// which is for a state that needs attention.
+private struct SupportedTag: View {
+    init(_ title: String) { self.title = title }
+    let title: String
+    var body: some View {
+        Text(title).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary).lineLimit(1).fixedSize()
+            .padding(.horizontal, DS.Space.xs).padding(.vertical, 2)
+            .background(DS.Color.surfaceRaised, in: Capsule())
+            .overlay(Capsule().strokeBorder(DS.Color.separator))
     }
 }

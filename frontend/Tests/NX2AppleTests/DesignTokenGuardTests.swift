@@ -15,7 +15,6 @@ final class DesignTokenGuardTests: XCTestCase {
         "BatchRefreshSheet.swift": 8,
         "BuildActivityFooter.swift": 1,
         "BuildInventoryView.swift": 2,
-        "BuildSelectedSheet.swift": 3,
         "CheatsView.swift": 9,
         "CloudSavesCard.swift": 8,
         "ConsoleBuildIndicator.swift": 1,
@@ -55,10 +54,8 @@ final class DesignTokenGuardTests: XCTestCase {
         "OnboardingGamesContent.swift": 1,
         "OnboardingKeysContent.swift": 1,
         "OnboardingView.swift": 12,
-        "RenameGameSheet.swift": 3,
         "SaveTransfer.swift": 6,
         "StickDeadzoneCard.swift": 1,
-        "SupportedGamesSheet.swift": 5,
     ]
 
     func testScreensUseTheDesignTokens() throws {
