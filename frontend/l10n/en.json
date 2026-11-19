@@ -104,6 +104,7 @@
   "build.outDir": "Output folder…",
   "build.saveDefault": "Next to the game files",
   "build.saveTo": "Save to",
+  "build.destination": "Destination",
   "build.setup": "Finish setup",
   "build.start": "Start build",
   "build.startGame": "Build game",

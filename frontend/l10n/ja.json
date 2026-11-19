@@ -104,6 +104,7 @@
   "build.outDir": "出力フォルダ…",
   "build.saveDefault": "ゲームファイルと同じ場所",
   "build.saveTo": "保存先",
+  "build.destination": "出力先",
   "build.setup": "セットアップを完了",
   "build.start": "ビルドを開始",
   "build.startGame": "ゲームをビルド",

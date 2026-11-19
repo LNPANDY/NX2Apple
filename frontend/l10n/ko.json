@@ -105,6 +105,7 @@
   "build.outDir": "출력 폴더…",
   "build.saveDefault": "게임 파일 옆",
   "build.saveTo": "저장 위치",
+  "build.destination": "대상",
   "build.setup": "설정 마치기",
   "build.start": "빌드 시작",
   "build.startGame": "게임 빌드",

@@ -105,6 +105,7 @@
   "build.outDir": "输出目录…",
   "build.saveDefault": "游戏文件旁边",
   "build.saveTo": "保存到",
+  "build.destination": "目标位置",
   "build.setup": "完成设置",
   "build.start": "开始构建",
   "build.startGame": "构建游戏",

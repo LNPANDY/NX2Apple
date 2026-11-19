@@ -5,28 +5,8 @@ import SwiftUI
 /// tone's colour, a title, at most one line of detail, at most one action and an optional dismiss. Notices sit in one slot under
 /// the top bar (LauncherNoticeStack), the most serious first.
 package struct LauncherNoticeItem: Identifiable {
-    package enum Tone: Int, Comparable {
-        case error, warning, info, success
-        package static func < (a: Tone, b: Tone) -> Bool { a.rawValue < b.rawValue }
-        /// The tone's status token. A notice's symbol is always in it (#1458).
-        var color: Color {
-            switch self {
-            case .error: return DS.Color.statusError
-            case .warning: return DS.Color.statusWarning
-            case .info: return DS.Color.statusInfo
-            case .success: return DS.Color.statusSuccess
-            }
-        }
-        /// One fixed symbol per tone: no notice brings its own (#1458).
-        package var symbol: String {
-            switch self {
-            case .error: return "xmark.octagon.fill"
-            case .warning: return "exclamationmark.triangle.fill"
-            case .info: return "info.circle.fill"
-            case .success: return "checkmark.circle.fill"
-            }
-        }
-    }
+    /// The design system's tone: one fixed symbol and its status colour each, no notice brings its own (#1458).
+    package typealias Tone = DSTone
     package struct Action {
         package init(title: String, padID: String? = nil, perform: @escaping () -> Void) { self.title = title; self.padID = padID; self.perform = perform }
         package let title: String
@@ -67,7 +47,7 @@ package struct LauncherNotice: View {
     package var body: some View {
         HStack(spacing: 12) {
             Group {
-                if item.busy { ProgressView().controlSize(.small) }
+                if item.busy { DSSpinner(size: 15) }
                 else { Image(systemName: item.symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(item.tone.color) }
             }
             .frame(width: 20).accessibilityHidden(true)

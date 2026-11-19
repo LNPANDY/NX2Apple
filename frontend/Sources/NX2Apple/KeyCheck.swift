@@ -326,28 +326,16 @@ enum KeyCheck {
     }
 }
 
-/// The key check's result, set in under the prod.keys row it is about.
-struct KeyCheckLine: View {
-    let outcome: KeyCheck.Outcome
-    var detailed: KeyCheck.DetailedOutcome? = nil
-    let t: (String) -> String
 
-    var body: some View {
-        let (symbol, color): (String, Color) = {
-            switch outcome {
-            case .fits: return ("checkmark.circle.fill", LauncherPalette.ready)
-            case .cannotCheck: return ("questionmark.circle", .secondary)
-            default: return ("exclamationmark.triangle.fill", LauncherPalette.building)
-            }
-        }()
-        let lineText = detailed.map { KeyCheck.detailedMessage($0, t) } ?? KeyCheck.message(outcome, t)
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
-            Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(color)
-            Text(lineText).font(DS.Font.callout).foregroundStyle(outcome == .fits ? Color.secondary : color)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+/// The key check's result as the prod.keys row's own message (DSRow's `message`): a fit is a success note, a file that cannot be
+/// checked a plain note, anything else a warning.
+enum KeyCheckMessage {
+    static func row(_ detailed: KeyCheck.DetailedOutcome, t: (String) -> String) -> DSRowMessage {
+        let text = KeyCheck.detailedMessage(detailed, t)
+        switch detailed.outcome {
+        case .fits: return .success(text)
+        case .cannotCheck: return .info(text)
+        default: return .warning(text)
         }
-        // under the row's title: past its padding and its dot's place
-        .padding(.leading, 37).padding(.trailing, 18).padding(.top, -6).padding(.bottom, 13)
     }
 }

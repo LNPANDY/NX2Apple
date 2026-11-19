@@ -102,21 +102,94 @@ package struct DSOverflowMenu: View {
     }
 }
 
-/// A warning inside a card, under the row it is about: a symbol in the warning colour and the text in the row's secondary style.
+/// A link-like action inside a line of text ("Built with nxnative · Change"): callout, semibold, text.primary, underlined under
+/// the pointer. Give it a padTarget for the controller's ring.
+package struct DSTextButtonStyle: ButtonStyle {
+    package init() {}
+    package func makeBody(configuration: Configuration) -> some View { DSTextButton(configuration: configuration) }
+}
+
+private struct DSTextButton: View {
+    let configuration: ButtonStyleConfiguration
+    @Environment(\.isEnabled) private var enabled
+    @State private var hovered = false
+    var body: some View {
+        configuration.label
+            .font(DS.Font.callout.weight(.semibold))
+            .underline(hovered && enabled)
+            .dsButtonContent(enabled ? DSButtonForeground.flat : DSButtonForeground.disabled)
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .padding(.vertical, DS.Space.xxs)
+            .contentShape(Rectangle())
+            .onHover { hovered = $0 }
+            .launcherHover()
+    }
+}
+
+/// The tone of anything that tells the player something: a notice (DSNotice), a row's message (DSRowMessage), a status dot. Each
+/// tone has one fixed symbol and its status colour, and nothing brings its own (#1458).
+package enum DSTone: Int, Comparable {
+    case error, warning, info, success
+    package static func < (a: DSTone, b: DSTone) -> Bool { a.rawValue < b.rawValue }
+    package var symbol: String {
+        switch self {
+        case .error: return "xmark.octagon"
+        case .warning: return "exclamationmark.triangle"
+        case .info: return "info.circle"
+        case .success: return "checkmark.circle"
+        }
+    }
+    package var color: Color {
+        switch self {
+        case .error: return DS.Color.statusError
+        case .warning: return DS.Color.statusWarning
+        case .info: return DS.Color.statusInfo
+        case .success: return DS.Color.statusSuccess
+        }
+    }
+}
+
+/// A row's own message under its title and subtitle (DSRow's `message`): the tone's symbol at the title's leading edge, 4 pt to
+/// the text, both in callout, the text wrapping under itself.
+package struct DSRowMessage {
+    package let tone: DSTone
+    package let text: String
+    package init(_ tone: DSTone, _ text: String) { self.tone = tone; self.text = text }
+    package static func warning(_ text: String) -> DSRowMessage { DSRowMessage(.warning, text) }
+    package static func error(_ text: String) -> DSRowMessage { DSRowMessage(.error, text) }
+    package static func info(_ text: String) -> DSRowMessage { DSRowMessage(.info, text) }
+    package static func success(_ text: String) -> DSRowMessage { DSRowMessage(.success, text) }
+}
+
+/// The face of a DSRowMessage, also for a message under a row that is not a DSRow (DSRowInset.title lines it up).
+package struct DSRowMessageView: View {
+    package init(_ message: DSRowMessage) { self.message = message }
+    let message: DSRowMessage
+    package var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: DS.Space.xxs) {
+            Image(systemName: message.tone.symbol).font(.system(size: DS.Font.calloutSize, weight: .semibold)).foregroundStyle(message.tone.color)
+                .accessibilityHidden(true)
+            Text(message.text).font(DS.Font.callout).foregroundStyle(message.tone < .info ? message.tone.color : DS.Color.textSecondary)   // a warning or an error in its colour
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A warning under a row that is not a DSRow: DSRowMessageView with the warning tone. A DSRow takes `message: .warning(…)`.
 package struct DSInlineWarning: View {
     package init(_ text: String) { self.text = text }
     let text: String
-    package var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
-            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12, weight: .semibold)).foregroundStyle(DS.Color.statusWarning)
-                .accessibilityHidden(true)
-            Text(text).font(DS.Font.callout).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, DS.Space.s).padding(.vertical, DS.Space.xs)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DS.Color.statusWarning.opacity(0.08), in: RoundedRectangle(cornerRadius: DS.Radius.chip))
-        .accessibilityElement(children: .combine)
+    package var body: some View { DSRowMessageView(.warning(text)) }
+}
+
+extension VerticalAlignment {
+    private enum DSTitleLine: AlignmentID {
+        static func defaultValue(in d: ViewDimensions) -> CGFloat { d[VerticalAlignment.center] }
     }
+    /// The centre of a row's title line: the status dot sits on it.
+    package static let dsTitleLine = VerticalAlignment(DSTitleLine.self)
 }
 
 /// Where a row's title starts inside its card: a note under a row lines up with it.

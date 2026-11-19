@@ -290,9 +290,13 @@ private struct LauncherActionButton: View {
     let configuration: ButtonStyleConfiguration
     let shape: LauncherActionButtonStyle.Outline
     @Environment(\.isEnabled) private var enabled
+    /// In a row's control column the primary is as wide as every other control there (DS.Control.columnWidth), never wider.
+    @Environment(\.launcherControlWidth) private var columnWidth
 
     var body: some View {
         configuration.label
+            .lineLimit(1).minimumScaleFactor(columnWidth == nil ? 1 : LauncherControl.minimumLabelScale)
+            .frame(width: columnWidth)
             .dsButtonContent(enabled ? DSButtonForeground.primary : DSButtonForeground.disabled)   // disabled: the raised surface, tertiary text
             .frame(minHeight: LauncherControl.height)
             .contentShape(Rectangle())

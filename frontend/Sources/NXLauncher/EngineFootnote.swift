@@ -13,11 +13,13 @@ package struct EngineFootnote: View {
         HStack(spacing: DS.Space.xs) {
             Text(String(format: loc.t("build.builtWith"), build.buildUpstream.displayName))
                 .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
-            Text("·").font(DS.Font.callout).foregroundStyle(DS.Color.textTertiary).accessibilityHidden(true)
+            Text("·").font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).accessibilityHidden(true)
             Button(loc.t("engine.changeLink"), action: change)
-                .buttonStyle(.plain).font(DS.Font.callout.weight(.semibold)).foregroundStyle(DS.Color.textPrimary)
-                .padTarget("set.build.engine.change", scope: "main", activate: change)
+                .buttonStyle(DSTextButtonStyle())
+                .padTarget("set.build.engine.change", scope: "main", radius: DS.Radius.chip, activate: change)
         }
+        // under the last section, its leading edge on the section headers' (CardGroup's heading is inset 4 pt)
+        .padding(.leading, DS.Space.xxs)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

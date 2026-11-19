@@ -105,6 +105,7 @@
   "build.outDir": "Carpeta de salida…",
   "build.saveDefault": "Con los archivos del juego",
   "build.saveTo": "Guardar en",
+  "build.destination": "Destino",
   "build.setup": "Terminar configuración",
   "build.start": "Iniciar compilación",
   "build.startGame": "Compilar juego",

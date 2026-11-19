@@ -105,6 +105,7 @@
   "build.outDir": "Utdatamapp …",
   "build.saveDefault": "Bredvid spelfilerna",
   "build.saveTo": "Spara till",
+  "build.destination": "Mål",
   "build.setup": "Slutför inställningen",
   "build.start": "Starta bygget",
   "build.startGame": "Bygg spel",
