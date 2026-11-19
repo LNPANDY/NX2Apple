@@ -90,14 +90,24 @@ package enum RomFSArchive {
         return collapsed
     }
 
-    /// Strips dump tags such as `[0100...]`, `[v0]`, `(1.2 GB)`, and bare 16-hex title ID tokens from a package stem.
+    private static let packageExtensions: Set<String> = [
+        "nsp", "xci", "nsz", "xcz", "nup",
+    ]
+
+    /// Strips package extensions, dump tags such as `[0100...]`, `[v0]`, `(1.2 GB)`, and bare 16-hex title ID tokens from a package name.
     package nonisolated static func cleanPackageGameName(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
-        let cleaned = trimmed
+        let ext = (trimmed as NSString).pathExtension.lowercased()
+        let stem: String = {
+            guard packageExtensions.contains(ext) else { return trimmed }
+            let withoutExt = (trimmed as NSString).deletingPathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+            return withoutExt.isEmpty ? trimmed : withoutExt
+        }()
+        let cleaned = stem
             .replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
             .replacingOccurrences(
-                of: "\\(\\s*[0-9]+([.,][0-9]+)?\\s*(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB|v\\d+)\\s*\\)",
+                of: "\\(\\s*(?:[0-9]+(?:[.,][0-9]+)?\\s*(?:B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)|v\\d+(?:\\.\\d+)*)\\s*\\)",
                 with: "",
                 options: [.regularExpression, .caseInsensitive]
             )
@@ -108,7 +118,7 @@ package enum RomFSArchive {
             )
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: " -._\t\n\r"))
-        return cleaned.isEmpty ? trimmed : cleaned
+        return cleaned.isEmpty ? stem : cleaned
     }
 
     /// Resolves the archive subdirectory name under `gamesRoot` (`<SafeName>`, or `<SafeName> (<TitleID>)` on collision).

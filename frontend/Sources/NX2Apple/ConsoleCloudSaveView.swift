@@ -38,7 +38,7 @@ struct ConsoleCloudSaveView: View {
                 Text(t("cloudCheck.cancel")).font(.manrope(21, .semibold)).foregroundStyle(.white.opacity(0.85))
                     .frame(maxWidth: .infinity, minHeight: 60).background(.white.opacity(0.08), in: Capsule()).contentShape(Capsule())
             }
-            .buttonStyle(.plain).padTarget("console.cloudSave.cancel", scope: Self.scope, radius: 32, activate: cancel)
+            .buttonStyle(.plain).padTarget("console.cloudSave.cancel", scope: Self.scope, activate: cancel)
         }
         .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
     }

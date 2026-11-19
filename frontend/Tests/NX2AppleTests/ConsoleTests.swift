@@ -53,12 +53,13 @@ import NXModel
         XCTAssertNil(driver.state.startingGameID)
         driver.play("demo.0")
         XCTAssertEqual(driver.state.startingGameID, "demo.0")
-        driver.back() // Starting ends only through the driver, not a second launch or a timeout
+        driver.back() // Back cancels simulated startup so a different title can launch.
+        XCTAssertNil(driver.state.startingGameID)
         driver.play("demo.1")
-        XCTAssertEqual(driver.state.startingGameID, "demo.0")
+        XCTAssertEqual(driver.state.startingGameID, "demo.1")
         driver.returnFromGame()
         XCTAssertNil(driver.state.startingGameID)
-        XCTAssertEqual(driver.state.focusedGameID, "demo.0")
+        XCTAssertEqual(driver.state.focusedGameID, "demo.0", "Direct Play does not change the browsing selection")
     }
 
     @MainActor func testSheetStackAndBackExitRestoration() {

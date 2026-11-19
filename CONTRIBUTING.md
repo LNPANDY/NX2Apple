@@ -4,17 +4,19 @@ Issues and pull requests are welcome. NX2Apple is the launcher (`frontend/`, `fr
 
 ## Reporting a problem
 
-Game problems, build problems and launcher problems each have an issue form (`.github/ISSUE_TEMPLATE/`). The form asks for what a report needs — versions, device, Copy diagnostics, the build log's game profile lines, the game's log and the crash report. Use it from the Issues page. A report without those is usually unactionable.
+Everything about the launcher belongs here: the app, a build that fails, an install to a device. Build problems and launcher problems each have an issue form (`.github/ISSUE_TEMPLATE/`). The form asks for what a report needs, such as versions, device, Copy diagnostics and the Build log. Use it from the Issues page. A report without those is usually unactionable.
+
+A game that crashes, freezes, hangs, runs slowly, looks or sounds wrong, or whose controls misbehave once it runs goes to [seedds/nxnative](https://github.com/seedds/nxnative/issues), not here.
 
 ## Where an issue goes
 
-- **Here:** the app, a build or install that fails, and a game that does not run well on your Mac or iPhone or iPad.
+- **Here:** the launcher (the Mac app, the Windows app, the iOS shell), its settings, library and updates, translations, a build or install that fails, and this repository's docs and CI.
 - **[Discussions](https://github.com/LNPANDY/NX2Apple/discussions):** questions (Q&A) and ideas (Ideas). Bugs stay issues.
-- **[seedds/nxnative](https://github.com/seedds/nxnative/issues):** how the engine works, porting a new game (its profile goes there as a pull request, see "Helping with games"), a rendering fault you have traced into the engine itself.
+- **[seedds/nxnative](https://github.com/seedds/nxnative/issues):** a game that crashes, freezes, hangs, runs slowly, looks or sounds wrong, or whose controls misbehave once it runs. Also how the engine works and porting a new game. Engine fixes and game profiles go there as a pull request, see "Helping with games".
 
 ## What a report needs
 
-Pick a form: **Game problem**, **Build problem** or **Launcher problem or idea**. Each asks for what the problem is traced with: the game, its title ID and versions, the target, the device and OS, the NX2Apple version, **Settings > Copy diagnostics**, and the log (a game's log, or the Build log on the Builds page). A report without them gets a request for them first. Where a game's log is: a Mac game in a library folder writes `log/<title ID>.log` beside its app, otherwise `~/Library/Logs/nxnative/<title ID>.log`. On an iPhone or iPad it is `log.txt` in the Files app.
+Pick a form: **Build problem** or **Launcher problem or idea**. Each asks for what the problem is traced with: the NX2Apple version, the computer and OS, **Settings > Copy diagnostics**, and for a build the game, its title ID and versions and the Build log on the Builds page. A report without them gets a request for them first.
 
 **Never attach keys, game files or anything extracted from a game.** Logs, screenshots, title IDs and build IDs are fine.
 
@@ -28,19 +30,13 @@ useful:**
 - **Report a game that works** — if you got a title outside the verified list running, open an issue
   with the title ID, the update version, and what you did. It becomes an entry in [GAMES.md](GAMES.md)
   that others can use.
-- **Send a new game profile, or a fix to the engine, to seedds/nxnative first.** Open the pull request
-  there and follow their [CONTRIBUTING.md](https://github.com/seedds/nxnative/blob/main/CONTRIBUTING.md)
-  (a new game takes its profile, its note and its row in the games table). If the game also matters for
-  Apple devices here, link your pull request in a Game problem issue here, or in a comment on the issue
-  that already exists. Please do not send it here as a patch. If upstream is slow and the game is
-  verified here, a maintainer may carry it in `patches/` as a bridge (`Upstream-Status: forwarded`)
-  and credit you. If you cannot open the upstream pull request, a maintainer sends it.
+- **Send a new game profile, or a fix to the engine, to seedds/nxnative.** We no longer take patches for
+  the engine here. Open the pull request there and follow their [CONTRIBUTING.md](https://github.com/seedds/nxnative/blob/main/CONTRIBUTING.md)
+  (a new game takes its profile, its note and its row in the games table). A PR here that adds or changes a file in `patches/` from outside is closed with a
+  pointer to seedds/nxnative.
 - **Send the shaders that are missing** — if a game runs but stutters on first use of an effect, its
   shader variants are missing from the map. The host can dump what it cannot find
   (`DM_NVN_SHDUMP=<dir>`). Attach those and we add them to `shader_map.tsv` for everyone.
-
-Issues with a full `Documents/log.txt` get looked at first — that log usually names the exact
-missing piece.
 
 ## A pull request
 
@@ -48,9 +44,9 @@ missing piece.
 - One change per PR, off `main`. Commit messages say what changed and why, in plain English, as `git log` does.
 - Fill in the PR template: what and why, what was checked, screenshots for UI changes.
 - A PR that changes anything visible in the launcher attaches before and after screenshots to the PR, under Screenshots. Show every view the PR changes, in each language it touches. A PR without them is not reviewed. A PR with no visible change writes "None, no visible change".
-- **A fix comes with a test for the bug.** The test fails without the fix and passes with it. When a bug cannot be tested (it needs a real device, iCloud, a real game or hardware), the PR says why under Checked. A patch to the engine follows the same rule when the engine has a test target for the area (`dm/host/tests`), and otherwise says so.
+- **A fix comes with a test for the bug.** The test fails without the fix and passes with it. When a bug cannot be tested (it needs a real device, iCloud, a real game or hardware), the PR says why under Checked. A fix to the engine has the same rule, and it goes to seedds/nxnative, see their CONTRIBUTING.md.
 - **`frontend/` and `frontend-qt/` are the fork's own:** change them freely. Run `cd frontend && swift test`. For a UI change also capture the views for visual QA (`NX_LAUNCHER_CAPTURE_DIR`, see [frontend/README.md](frontend/README.md#verification)).
-- **The engine is not in this repository.** `dm/`, `scripts/`, `docs/` and `ref/` are seedds/nxnative at the commit in `.upstream-ref` with the patches in `patches/` applied, built into `engine/` by `python3 tools/engine.py sync` (a git repository that git ignores here, #214). A PR that adds files under those paths fails the `pr-scope` check, because the next sync would not carry them. A fix to the engine or to a game profile lands here first, as a patch, and goes to seedds/nxnative as a pull request in parallel, as [patches/README.md](patches/README.md#here-first-upstream-in-parallel) states. If you cannot open the upstream pull request, a maintainer sends it. To make the patch, commit the change in `engine/`, run `python3 tools/engine.py export`, fill in the header of the new patch (`Upstream-Status`, `Reason`, `Issue`), run `python3 tools/engine.py check`, and commit `patches/` with it. That page walks through the steps and states the patch policy (what a patch may and may not change). Everything else in the repository root and under `.github/` (this file, `CLAUDE.md`, `AGENTS.md`, the README) is the fork's.
+- **The engine is not in this repository, and we take no patches for it.** `dm/`, `scripts/`, `docs/` and `ref/` are seedds/nxnative at the commit in `.upstream-ref` with the maintainers' patches in `patches/` applied, built into `engine/` by `python3 tools/engine.py sync` (a git repository that git ignores here, #214). A PR that adds files under those paths fails the `pr-scope` check, because the next sync would not carry them. A PR from outside that adds or changes a file in `patches/` is closed with a pointer to seedds/nxnative. Send engine fixes, game profiles and changes to upstream's docs as a pull request to [seedds/nxnative](https://github.com/seedds/nxnative) directly, and follow their [CONTRIBUTING.md](https://github.com/seedds/nxnative/blob/main/CONTRIBUTING.md). The queue in `patches/` is kept by the maintainers, and [patches/README.md](patches/README.md) states how. Everything else in the repository root and under `.github/` (this file, `CLAUDE.md`, `AGENTS.md`, the README) is the fork's.
 
 ### Fixes, features and ideas
 
@@ -63,7 +59,7 @@ We want to help you build what fits and to spare you work that cannot go in. The
 
 If it is unclear whether something is a fix, ask in an issue. The maintainers decide.
 
-A new game profile or an engine fix goes to seedds/nxnative first, see "Helping with games".
+A new game profile or an engine fix is not a PR here. It goes to seedds/nxnative as a pull request, see "Helping with games".
 
 PRs opened before this rule keep the old path: an issue within 48 hours of the first reply from a maintainer, and one maintainer agrees to the idea before the PR merges.
 
@@ -75,7 +71,7 @@ The [milestones](https://github.com/LNPANDY/NX2Apple/milestones) are the plan, a
 - Start from the problem, not the solution. Say what you want to do and what is in the way, which is what the form asks. The maintainers may point to a planned way to do it.
 - If a maintainer cannot take an idea, they say so early and explain why, see [What happens to your PR](#what-happens-to-your-pr).
 
-We are looking for one or two more developers to work with the maintainers. There is no interview. Take an open issue from a milestone, build it well and send a pull request with tests and a clear description. People who deliver good work again and again are asked to help with reviews and triage. We need the most help with the launcher in SwiftUI, engine patches and game bring-up, Metal and GPU debugging, tests on real iPhones and iPads, and translations.
+We are looking for one or two more developers to work with the maintainers. There is no interview. Take an open issue from a milestone, build it well and send a pull request with tests and a clear description. People who deliver good work again and again are asked to help with reviews and triage. We need the most help with the launcher in SwiftUI, Metal and GPU debugging, tests on real iPhones and iPads, and translations.
 
 ### What happens to your PR
 
@@ -95,7 +91,7 @@ An unanswered review with changes requested from a maintainer blocks the merge. 
 
 A feature from the maintainers (v0lumehi and LNPANDY) merges after 48 hours. A feature from outside never merges by waiting. It merges after a maintainer agreed to the idea, tried the app and reviewed the code.
 
-A patch in `patches/` takes the next free number from `patches/series` on `main` at merge time. Whoever merges renumbers the patch and notes it in the PR. You do not need to rebase to chase free numbers.
+A maintainer's patch in `patches/` takes the next free number from `patches/series` on `main` at merge time. Whoever merges renumbers the patch and notes it in the PR. Patches from outside are not taken, see "A pull request".
 
 ### CI on stacks
 
@@ -119,10 +115,10 @@ Issue forms and the PR template apply in the browser only. `gh issue create`, th
   - Keep the main text under 150 words. Put evidence in `<details><summary>Details</summary> ... </details>` below it: the full cause analysis, logs and traces, the list of tests run, the commands.
   - Say once and plainly what you did not check or could not run.
   - A PR does not repeat its issue. Link it and add only what is new.
-- **Problem reports.** Write the body as `###` headings with the same names as the form's fields (for example `### Game and title ID`, `### Copy diagnostics`, `### The game's log`) and fill every required field from [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). Ask the user for what you cannot read yourself: the Copy diagnostics output, the log, the versions. If a required field is missing, do not open the issue.
+- **Problem reports.** Write the body as `###` headings with the same names as the form's fields (for example `### Which step failed`, `### Copy diagnostics`, `### Build log`) and fill every required field from [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). A game that crashes, freezes or looks wrong is not a report here, it goes to seedds/nxnative. Ask the user for what you cannot read yourself: the Copy diagnostics output, the log, the versions. If a required field is missing, do not open the issue.
 - **Ideas and plans.** These have no form. Write plain sections that fit the content, for example `### Idea`, `### Plan` and `### Done when`. Leave out the problem fields (`This is`, `NX2Apple version`, `Computer and OS`, `Copy diagnostics`). Open it with the labels `idea` and `no-triage`.
-- **Before you build.** If you work for an outside contributor, a feature or a proposal needs an issue in a milestone (see "Fixes, features and ideas"). Check that it exists or ask the user. A new game profile or an engine fix goes to seedds/nxnative first (see "Helping with games").
-- **Pull requests.** Use the sections of [.github/pull_request_template.md](.github/pull_request_template.md): `gh pr create --template .github/pull_request_template.md`, or the same headings in `--body`. Answer each section and remove the `<!-- -->` hints. Under Fix or feature, tick one box. A feature from outside links the issue with the go. A change to the engine follows the rule above.
+- **Before you build.** If you work for an outside contributor, a feature or a proposal needs an issue in a milestone (see "Fixes, features and ideas"). Check that it exists or ask the user. A new game profile or an engine fix is not a PR here. It goes to seedds/nxnative (see "Helping with games").
+- **Pull requests.** Use the sections of [.github/pull_request_template.md](.github/pull_request_template.md): `gh pr create --template .github/pull_request_template.md`, or the same headings in `--body`. Answer each section and remove the `<!-- -->` hints. Under Fix or feature, tick one box. A feature from outside links the issue with the go. A change to the engine does not belong in a PR here, see "A pull request".
 - **Tests for a fix.** Add a test for the bug along with the fix. See "A pull request" for when no test can exist.
 - **Screenshots.** A PR that changes the launcher needs before and after images in its body (see "A pull request"). On a Mac, capture the changed views of `frontend/` with `NX_LAUNCHER_CAPTURE_DIR=<dir> swift test` and `NX_CAPTURE_LANG` for the language (`de`, `sv` or `zh`, English is the default). `frontend-qt/` has no capture, so take its screenshots by hand. Attach the images with `gh pr create --attach` or `gh pr edit --attach`, once per file. Write `![before](./before.png)` in the body and pass `--attach ./before.png`. `gh` uploads the file and rewrites the path to a `https://github.com/user-attachments/assets/...` URL. This needs `gh` 2.99.0 or newer, push access to the repository, and an OAuth or personal access token (a GitHub App token is rejected). Afterwards, read the body back and check that it holds the asset URLs and no local paths. If your `gh` or token cannot attach, say so under Screenshots, give the paths of the captures, and ask the user to attach them. An agent without a Mac (a Linux runner) says under Screenshots that it could not capture the views and asks for screenshots in the PR.
 - **Release notes.** They follow `.github/release_notes_template.md`, English first, then Chinese, no emojis.

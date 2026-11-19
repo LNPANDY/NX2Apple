@@ -262,39 +262,54 @@ public final class ShellDataIndex: @unchecked Sendable {
     }
 
     /// The exact image URL that matches `want`: `size == want.size` (or `size > want.size` with a valid trailer whose
-    /// `baseRomfsSize == want.size`) and `RomfsIdentity.ofImage` equal to `want`.
-    public func imageURL(matching want: RomfsIdentity) -> URL? {
+    /// `baseRomfsSize == want.size`) and `RomfsIdentity.ofImage` equal to `want`. When multiple images in the folder
+    /// share the same `RomfsIdentity`, prefers one carrying an embedded `DMMSLTR1` trailer matching `preferredChain`.
+    public func imageURL(matching want: RomfsIdentity, preferredChain: String = "", explicitGfxAPI: String? = nil) -> URL? {
+        var bestMatch: (url: URL, score: Int)?
         for image in images where image.size >= want.size {
             lock.lock()
             let knownIdentity = identities[image.url]
             lock.unlock()
+            let matched: Bool
             if let knownIdentity {
-                if knownIdentity == want { return image.url }
-                continue
-            }
-            if image.size > want.size {
-                lock.lock()
-                let knownTrailer = trailers[image.url]
-                lock.unlock()
-                let trailer: RomfsTrailer?
-                if let knownTrailer {
-                    trailer = knownTrailer
-                } else {
-                    trailer = RomfsTrailer.inspect(at: image.url)
+                matched = (knownIdentity == want)
+            } else {
+                if image.size > want.size {
                     lock.lock()
-                    trailers[image.url] = .some(trailer)
-                    if trailer == nil { identities[image.url] = .some(nil) }
+                    let knownTrailer = trailers[image.url]
                     lock.unlock()
+                    let trailer: RomfsTrailer?
+                    if let knownTrailer {
+                        trailer = knownTrailer
+                    } else {
+                        trailer = RomfsTrailer.inspect(at: image.url)
+                        lock.lock()
+                        trailers[image.url] = .some(trailer)
+                        if trailer == nil { identities[image.url] = .some(nil) }
+                        lock.unlock()
+                    }
+                    guard let trailer, trailer.baseRomfsSize == want.size else { continue }
                 }
-                guard let trailer, trailer.baseRomfsSize == want.size else { continue }
+                let identity = RomfsIdentity.ofImage(at: image.url)
+                lock.lock()
+                identities[image.url] = .some(identity)
+                lock.unlock()
+                matched = (identity == want)
             }
-            let identity = RomfsIdentity.ofImage(at: image.url)
-            lock.lock()
-            identities[image.url] = .some(identity)
-            lock.unlock()
-            if identity == want { return image.url }
+            guard matched else { continue }
+            let score = ShaderResources.embeddedTrailerPreference(
+                at: image.url,
+                expectedChain: preferredChain,
+                explicitGfxAPI: explicitGfxAPI
+            )
+            if score == 2 {
+                return image.url
+            }
+            if bestMatch == nil || score > bestMatch!.score {
+                bestMatch = (image.url, score)
+            }
         }
-        return nil
+        return bestMatch?.url
     }
 
     /// The folder of the image that is this game's.

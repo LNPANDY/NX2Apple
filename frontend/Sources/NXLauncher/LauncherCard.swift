@@ -35,29 +35,54 @@ package struct CardPageHeading: View {
     }
 }
 
-/// A titled group: a small tracked label over one card of rows.
+private struct LauncherSectionTitleFontKey: EnvironmentKey {
+    static let defaultValue: Font = .manrope(15, .semibold)
+}
+
+extension EnvironmentValues {
+    package var launcherSectionTitleFont: Font {
+        get { self[LauncherSectionTitleFontKey.self] }
+        set { self[LauncherSectionTitleFontKey.self] = newValue }
+    }
+}
+
+private struct LauncherSettingsLayoutKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    package var launcherSettingsLayout: Bool {
+        get { self[LauncherSettingsLayoutKey.self] }
+        set { self[LauncherSettingsLayoutKey.self] = newValue }
+    }
+}
+
+/// A titled group: a label over one card of rows.
 package struct CardGroup<Content: View>: View {
+    @Environment(\.launcherSectionTitleFont) private var titleFont
     let label: String
+    let insetTitle: Bool
+    let qualifier: String
     let footnote: String
+    let help: (id: String, text: String)?
     /// A status at the label's trailing edge (the build queue's "Paused"), empty for none.
     let trailing: String
     let content: Content
 
-    package init(_ label: String, footnote: String = "", trailing: String = "", @ViewBuilder _ content: () -> Content) {
+    package init(_ label: String, footnote: String = "", help: (id: String, text: String)? = nil, trailing: String = "", qualifier: String = "", insetTitle: Bool = false, @ViewBuilder _ content: () -> Content) {
         self.label = label
+        self.insetTitle = insetTitle
+        self.qualifier = qualifier
         self.footnote = footnote
+        self.help = help
         self.trailing = trailing
         self.content = content()
     }
 
     package var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(label).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
-                Spacer(minLength: 8)
-                if !trailing.isEmpty { Text(trailing).font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.building) }
+            if !insetTitle && !label.isEmpty { heading }
+            VStack(spacing: 0) {
+                if insetTitle && !label.isEmpty { heading.padding(.horizontal, 18).padding(.top, 16) }
+                content
             }
-            VStack(spacing: 0) { content }
                 .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             if !footnote.isEmpty {
@@ -66,11 +91,22 @@ package struct CardGroup<Content: View>: View {
             }
         }
     }
+    private var heading: some View {
+        HStack(spacing: 6) {
+            Text(label).font(insetTitle ? .manrope(14, .semibold) : titleFont)
+                .foregroundStyle(insetTitle ? LauncherPalette.text : LauncherPalette.secondaryText).padding(.leading, 2)
+            if !qualifier.isEmpty { Text(qualifier).font(.manrope(12)).foregroundStyle(.secondary) }
+            if let help { LauncherInfoHelp(id: help.id, label: label, text: help.text) }
+            Spacer(minLength: 8)
+            if !trailing.isEmpty { Text(trailing).font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.building) }
+        }
+    }
+
 }
 
 /// One line of a card: a status dot (its place kept when there is none, so every title starts on one line),
 /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls.
-/// Its buttons and dropdowns are all LauncherControl.width wide, so they line up in one column across the cards.
+/// Dropdowns align in one column; content-sized actions stay grouped at the trailing edge.
 package struct CardRow<Trailing: View>: View {
     let title: String
     let detail: String
@@ -79,10 +115,13 @@ package struct CardRow<Trailing: View>: View {
     let help: String
     let open: Bool?
     let trailing: Trailing
+    let info: (id: String, text: String)?
+    @Environment(\.launcherSettingsLayout) private var settingsLayout
 
-    package init(_ title: String, detail: String = "", detail2: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil,
+    package init(_ title: String, detail: String = "", detail2: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil, info: (id: String, text: String)? = nil,
                  @ViewBuilder trailing: () -> Trailing) {
         self.title = title
+        self.info = info
         self.detail = detail
         self.detail2 = detail2
         self.dot = dot
@@ -96,7 +135,8 @@ package struct CardRow<Trailing: View>: View {
             Circle().fill(dot ?? .clear).frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(title).font(.manrope(14)).fixedSize(horizontal: false, vertical: true)
+                    Text(title).font(.manrope(14, settingsLayout ? .medium : .regular)).fixedSize(horizontal: false, vertical: true)
+                    if let info { LauncherInfoHelp(id: info.id, label: title, text: info.text) }
                     if let open {
                         Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
                             .rotationEffect(.degrees(open ? 90 : 0))
@@ -119,10 +159,10 @@ package struct CardRow<Trailing: View>: View {
                 }
             }
             Spacer(minLength: 12)
-            trailing.launcherRowControls()
+            HStack(spacing: 8) { trailing }.launcherRowControls()
         }
         .padding(.horizontal, 18).padding(.vertical, 13)
-        .frame(minHeight: 52)
+        .frame(minHeight: settingsLayout ? 64 : 52)
     }
 }
 
@@ -175,7 +215,7 @@ package struct LauncherPageScroll<Content: View>: View {
                     .environment(\.launcherScrollTo, { id in withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .top) } })
             }
             .onChange(of: padFocus.focused) { id in   // a controller's focus on this page scrolls into view
-                if let id, id.hasPrefix("set.") { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } }
+                if let id, padFocus.scope == "main" { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } }
             }
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
@@ -193,6 +233,7 @@ package struct LauncherStickyPageScroll<Heading: View, Bar: View, Content: View>
     @State private var headingHeight: CGFloat = 132
     @State private var viewportHeight: CGFloat = 720
     @State private var pinned = false
+    @Environment(\.launcherSettingsLayout) private var settingsLayout
 
     package init(memoryKey: String? = nil, scrollRequest: Binding<String?> = .constant(nil),
                  @ViewBuilder heading: () -> Heading, @ViewBuilder bar: () -> Bar, @ViewBuilder content: () -> Content) {
@@ -220,7 +261,7 @@ package struct LauncherStickyPageScroll<Heading: View, Bar: View, Content: View>
                             }
                         })
                     Section {
-                        VStack(alignment: .leading, spacing: 34) { content }
+                        VStack(alignment: .leading, spacing: settingsLayout ? 32 : 34) { content }
                             .padding(.horizontal, 40).padding(.top, 22).padding(.bottom, 48)
                             .frame(maxWidth: 900, alignment: .leading)
                             .frame(maxWidth: .infinity, minHeight: max(0, viewportHeight - 62), alignment: .top)
@@ -234,7 +275,7 @@ package struct LauncherStickyPageScroll<Heading: View, Bar: View, Content: View>
                         }
                         .background {
                             ZStack {
-                                Rectangle().fill(.ultraThinMaterial)
+                                if !settingsLayout { Rectangle().fill(.ultraThinMaterial) }
                                 LauncherPalette.background.opacity(pinned ? 0.94 : 0.98)
                             }
                         }
@@ -258,7 +299,7 @@ package struct LauncherStickyPageScroll<Heading: View, Bar: View, Content: View>
                 }
             })
             .onChange(of: padFocus.focused) { id in
-                if let id, id.hasPrefix("set.") { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } }
+                if let id, padFocus.scope == "main" { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } }
             }
             .onChange(of: scrollRequest) { id in
                 guard let id else { return }

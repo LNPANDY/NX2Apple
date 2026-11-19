@@ -30,11 +30,11 @@ import NXModel
         let mac = BuildNotice.text(.finished, game: "Metroid Dread", target: "mac-app", device: nil, en)
         XCTAssertEqual(mac.title, "Metroid Dread is built")
         XCTAssertEqual(mac.body, "For this Mac, in your library")
-        XCTAssertEqual(BuildNotice.text(.finished, game: "Hades", target: "ios", device: nil, en).body, "For iPhone / iPad")
+        XCTAssertEqual(BuildNotice.text(.finished, game: "Hades", target: "ios", device: nil, en).body, "For iOS")
         XCTAssertEqual(BuildNotice.text(.finished, game: "Hades", target: "ios", device: "Jo’s iPhone", en).body, "Installed on Jo’s iPhone")
         let failed = BuildNotice.text(.failed(reason: "Extract · exit code 3"), game: "Hades", target: "ios", device: nil, en)
         XCTAssertEqual(failed.title, "Hades couldn’t be built")
-        XCTAssertEqual(failed.body, "For iPhone / iPad\nExtract · exit code 3")
+        XCTAssertEqual(failed.body, "For iOS\nExtract · exit code 3")
         let zh = BuildNotice.text(.failed(reason: ""), game: "Hades", target: "mac-app", device: nil) { L10n.string($0, .zh) }
         XCTAssertTrue(zh.title.contains("Hades") && !zh.title.contains("notify.") && !zh.body.contains("notify."), zh.title)
     }

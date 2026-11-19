@@ -168,7 +168,13 @@ import XCTest
             out_app = val('-o')
             if out_app:
                 os.makedirs(out_app + '/Contents/MacOS', exist_ok=True)
-                open(out_app + '/Contents/Info.plist', 'w').write('<plist/>')
+                import plistlib, shutil
+                with open(out_app + '/Contents/Info.plist', 'wb') as info:
+                    plistlib.dump({'DMTitleID': tid, 'CFBundleExecutable': 'game', 'CFBundleDisplayName': tid}, info)
+                for executable in ['game', 'dmhost']:
+                    destination = out_app + '/Contents/MacOS/' + executable
+                    shutil.copyfile('/usr/bin/true', destination)
+                    os.chmod(destination, 0o755)
         """, executable: true)
 
         try write(repo + "/frontend-ios/Shell/build_shell.sh", """
@@ -198,6 +204,14 @@ import XCTest
     }
 
     func testQueueWaitsForManualStartAppliesChosenIOSTargetAndSignsShellOnceAtTheEnd() throws {
+        try runBatch(includeMac: false)
+    }
+
+    func testBothBuildsMacThenIOSAndRetainsBothLibraryArtifacts() throws {
+        try runBatch(includeMac: true)
+    }
+
+    private func runBatch(includeMac: Bool) throws {
         let env = try makeStandIns()
         let nspA = try write(path("romsA/Hades [\(idA)].nsp"), String(repeating: "a", count: 64))
         let nspB = try write(path("romsB/BotW [\(idB)].nsp"), String(repeating: "b", count: 64))
@@ -218,6 +232,7 @@ import XCTest
         stores.deviceStore.teams = [SigningTeam(id: teamID, identity: "Apple Development: Player")]
         stores.deviceStore.checked = true
         stores.build.outDir = outDir
+        stores.build.preflightApp = nil
         stores.build.slots[3].paths = [env.keys]
         var copyPromptCount = 0
         let copyPromptSub = stores.deviceStore.$shellCopy.compactMap { $0 }.sink { _ in
@@ -233,23 +248,28 @@ import XCTest
 
         // 1. Adding selected games to the queue stages them as waiting and does NOT start building automatically.
         let initialBatch = UUID()
+        if includeMac {
+            stores.queue.enqueue([QueueEntry(gameID: gameA.id, titleID: idA, name: "Hades", target: BuildTarget.mac,
+                inputs: ["base": [nspA], "keys": [env.keys]], outputDirectory: outDir,
+                engineID: stores.engineSync.selection.engineID, batch: initialBatch)])
+        }
         stores.queue.enqueue([
-            QueueEntry(gameID: gameA.id, titleID: idA, name: "Hades", target: BuildTarget.mac,
+            QueueEntry(gameID: gameA.id, titleID: idA, name: "Hades", target: BuildTarget.ios,
                        inputs: ["base": [nspA], "keys": [env.keys]], outputDirectory: outDir,
                        engineID: stores.engineSync.selection.engineID, batch: initialBatch, packageAfter: false),
-            QueueEntry(gameID: gameB.id, titleID: idB, name: "BotW", target: BuildTarget.mac,
+            QueueEntry(gameID: gameB.id, titleID: idB, name: "BotW", target: BuildTarget.ios,
                        inputs: ["base": [nspB], "keys": [env.keys]], outputDirectory: outDir,
                        engineID: stores.engineSync.selection.engineID, batch: initialBatch, packageAfter: false),
         ])
         RunLoop.main.run(until: Date().addingTimeInterval(0.15))
         XCTAssertFalse(stores.build.running, "Selecting games must show the waiting queue without starting")
         let initialStatuses: [QueueEntry.Status] = stores.queue.entries.map { $0.status }
-        XCTAssertEqual(initialStatuses, [.queued, .queued])
+        XCTAssertEqual(initialStatuses, Array(repeating: .queued, count: includeMac ? 3 : 2))
         XCTAssertEqual(lines(in: "build-calls.txt"), [])
 
-        // 2. Choose iPhone/iPad + Install on a device on the Build page (with no single-game file chosen), then press Start build.
+        // Queue platforms stay fixed even when the single-game form still targets Mac.
         stores.build.slots[0].paths = []
-        stores.build.target = BuildTarget.ios
+        stores.build.target = BuildTarget.mac
         stores.deviceStore.exportIPA = false
         stores.deviceStore.installDevice = ""
         stores.deviceStore.signingTeam = ""
@@ -262,16 +282,17 @@ import XCTest
         XCTAssertTrue(stores.build.canStartBuildOrQueue)
 
         stores.build.startBuildOrQueue()
-        waitUntil { !stores.build.running && !stores.queue.hasWaiting && stores.queue.running == nil }
+        waitUntil { !stores.build.running && !stores.queue.hasWaiting && stores.queue.running == nil && stores.queue.packaging.isEmpty }
 
         // 3. Both games built for iOS (--shell-framework), and the shared app was prepared, signed and installed ONLY ONCE at the end.
         let finalStatuses: [QueueEntry.Status] = stores.queue.entries.map { $0.status }
-        XCTAssertEqual(finalStatuses, [.done, .done], stores.build.doneNote)
+        XCTAssertEqual(finalStatuses, Array(repeating: .done, count: includeMac ? 3 : 2), stores.build.doneNote)
         XCTAssertTrue(stores.build.done, stores.build.doneNote)
 
         let buildCalls = lines(in: "build-calls.txt")
-        XCTAssertEqual(buildCalls.count, 2, "Both queued games must run the build pipeline")
-        XCTAssertTrue(buildCalls.allSatisfy { $0.contains("--shell-framework") && $0.contains("--team-id " + teamID) },
+        XCTAssertEqual(buildCalls.count, includeMac ? 3 : 2)
+        if includeMac { XCTAssertFalse(buildCalls[0].contains("--shell-framework")) }
+        XCTAssertTrue(buildCalls.suffix(2).allSatisfy { $0.contains("--shell-framework") && $0.contains("--team-id " + teamID) },
                       "Both games must follow the chosen iPhone/iPad target rather than their old Mac target: \(buildCalls)")
 
         let shellCalls = lines(in: "shell-calls.txt")
@@ -294,6 +315,10 @@ import XCTest
 
         let libA = try XCTUnwrap(library.games.first { $0.titleID == idA })
         let libB = try XCTUnwrap(library.games.first { $0.titleID == idB })
+        if includeMac {
+            XCTAssertFalse(libA.appPath.isEmpty)
+            XCTAssertTrue(fm.fileExists(atPath: libA.appPath))
+        }
         XCTAssertEqual(libA.archivePath, "\(outDir)/games/Hades")
         XCTAssertEqual(libB.archivePath, "\(outDir)/games/BotW")
         XCTAssertTrue(fm.fileExists(atPath: "\(outDir)/games/Hades/Hades.img"))
@@ -530,10 +555,10 @@ import XCTest
             stores.deviceStore.exportIPA = false
             try render("build-page-staged-queue-ios-\(lang.code).png", width: 820, localizer: stores.localizer,
                        VStack(alignment: .leading, spacing: 20) {
-                           BuildPage(build: stores.build, running: false, repo: stores.repo,
+                           BuildPage(step: .constant(1), build: stores.build, running: false, repo: stores.repo,
                                      dependencies: stores.dependencies, devices: stores.deviceStore,
                                      queue: stores.queue, transfers: stores.transfers, onSelectGames: {},
-                                     extrasOpen: .constant(false), logOpen: .constant(false))
+                                     extrasOpen: .constant(false), logOpen: .constant(false), confirmingCancel: .constant(false))
                        })
         }
 
@@ -563,10 +588,10 @@ import XCTest
             beforeStores.build.beginOperation(.building, game: "Super Mario Odyssey", titleID: idA, destination: .target)
             try render("build-page-before-\(lang.code).png", width: 820, localizer: beforeStores.localizer,
                        VStack(alignment: .leading, spacing: 20) {
-                           BuildPage(build: beforeStores.build, running: true, repo: beforeStores.repo,
+                           BuildPage(step: .constant(0), build: beforeStores.build, running: true, repo: beforeStores.repo,
                                      dependencies: beforeStores.dependencies, devices: beforeStores.deviceStore,
                                      queue: runningQueue, transfers: beforeStores.transfers, onSelectGames: {},
-                                     extrasOpen: .constant(false), logOpen: .constant(false))
+                                     extrasOpen: .constant(false), logOpen: .constant(false), confirmingCancel: .constant(false))
                        })
         }
     }

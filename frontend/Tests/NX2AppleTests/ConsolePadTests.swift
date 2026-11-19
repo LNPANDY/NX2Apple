@@ -118,16 +118,13 @@ import NXModel
         XCTAssertNil(driver.state.startingGameID, "and not to a game")
         gamepad.perform(.b); settle()
         XCTAssertNil(driver.state.presentedSheet)
-        // Down from the top bar goes back to the focused game. A opens its page, L and R switch its tabs (stopping at the ends).
+        // Activating a ready tile now launches directly. Resume navigation after the simulated launch.
         gamepad.perform(.down); settle()
         gamepad.perform(.a); settle()
-        XCTAssertEqual(driver.state.presentedSheet, .gamePage("demo.2"), "A on a tile opens the game's page")
-        gamepad.perform(.r); settle()
-        XCTAssertEqual(driver.state.gameTab, .saves)
-        gamepad.perform(.l); gamepad.perform(.l); settle()
-        XCTAssertEqual(driver.state.gameTab, .overview, "the tabs stop at the ends")
-        gamepad.perform(.b); settle()
+        XCTAssertEqual(driver.state.startingGameID, "demo.2")
         XCTAssertNil(driver.state.presentedSheet)
+        driver.state.startingGameID = nil
+        settle()
         gamepad.perform(.select); settle()
         XCTAssertEqual(driver.state.presentedSheet, .quickMenu, "− opens the quick menu")
         gamepad.perform(.select); settle()

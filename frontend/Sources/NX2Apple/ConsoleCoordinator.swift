@@ -175,7 +175,7 @@ enum ConsolePrompt {
     static func shouldStartInConsole(setting: Bool, handled: Bool) -> Bool { setting && !handled }
     private(set) static var shownThisSession = false
     static var enabled: Bool { UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true }
-    static func shouldShow(enabled: Bool, shown: Bool) -> Bool { enabled && !shown }
+    static func shouldShow(enabled: Bool, shown: Bool, surfaceAvailable: Bool = true) -> Bool { enabled && !shown && surfaceAvailable }
     static func didShow() { shownThisSession = true }
     static func resetSessionForTests() { shownThisSession = false }
 }

@@ -9,6 +9,7 @@ package struct ActionCard: View {
     @ObservedObject var dependencies: DependencyStore
     @ObservedObject var repo: RepoStore
     @EnvironmentObject var loc: Localizer
+    @EnvironmentObject private var focus: PadFocus
 
     package init(build: BuildStore, dependencies: DependencyStore, repo: RepoStore) {
         self.build = build
@@ -22,7 +23,7 @@ package struct ActionCard: View {
 
     private var buttonLabel: String {
         if build.running { return loc.t(build.stopping ? "library.stopping" : "btn.stop") }
-        if build.hasQueuedBuilds { return loc.t("build.start") }
+        if build.hasQueuedBuilds { return loc.t("queue.start") }
         return build.done ? loc.t("btn.rebuild") : loc.t("build.startGame")
     }
 
@@ -35,35 +36,35 @@ package struct ActionCard: View {
             } label: {
                 Label(buttonLabel,
                       systemImage: build.running ? "stop.fill" : "hammer.fill")
-                    .font(.manrope(15, .semibold)).padding(.horizontal, 24).padding(.vertical, 13)
+                    .font(.manrope(13, .semibold)).padding(.horizontal, 20).frame(height: LauncherControl.height)
                     .foregroundStyle(build.running ? LauncherPalette.onBuilding : LauncherPalette.onCream).background(build.running ? LauncherPalette.building : LauncherPalette.cream, in: Capsule())
                     .overlay(Capsule().strokeBorder(LauncherPalette.actionBorder))
             }
             .buttonStyle(.plain)
             .disabled(buildDisabled)
             .opacity(buildDisabled ? 0.4 : 1)
-            .keyboardShortcut(.return, modifiers: .command)
+            .keyboardShortcut(focus.scope == "main" ? KeyboardShortcut(.return, modifiers: .command) : nil)
+            .padTarget("set.build.action", scope: "main", focusColor: build.running ? LauncherPalette.onBuilding : LauncherPalette.onCream, enabled: !buildDisabled) {
+                if !buildDisabled { build.running ? build.stop() : build.startBuildOrQueue() }
+            }
         }
         .padding(.top, 2)
         .staleFrameworksPrompt(build)
     }
 
     @ViewBuilder private var statusText: some View {
-        if !build.doneNote.isEmpty {
+        if !build.doneNote.isEmpty && (build.running || !build.hasQueuedBuilds) {
             Text(build.doneNote).font(.manrope(13))
                 .foregroundStyle(build.done ? LauncherPalette.ready : LauncherPalette.building).lineLimit(3)
         } else if !dependencies.checked {
             Text(loc.t("status.checkingDeps")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
         } else if !dependencies.allPresent {
             Text(loc.t("status.installFirst")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
-        } else if !repo.isRepo {
+        } else if !repo.isRepo && !build.usesExternalUpstreamRepo {
             Text(loc.t("status.chooseRepo")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
         } else if build.hasQueuedBuilds {
             if build.queueNeedsDevice {
                 Text(loc.t("shell.needsDevice")).font(.manrope(13)).foregroundStyle(LauncherPalette.building).lineLimit(3)
-            } else {
-                Text(String(format: loc.t("queue.readyStatus"), build.queuedCount))
-                    .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
             }
         } else if build.gameFolderRefused {
             Text(loc.t("status.fixFolder")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)

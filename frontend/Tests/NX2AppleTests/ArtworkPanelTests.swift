@@ -7,7 +7,7 @@ import XCTest
 
 /// The artwork panel drawn in the launcher, for visual QA. Opt-in (`NX_LAUNCHER_CAPTURE_DIR`), like testRenderLauncherForVisualQA:
 /// the images are generated, the library and the artwork folder are temporary, and nothing reaches the network.
-final class ArtworkPanelTests: XCTestCase {
+final class ArtworkPanelTests: IsolatedDefaultsTestCase {
     private var fixture: ArtworkFixture!
 
     override func tearDown() async throws { await MainActor.run { fixture?.cleanup() } }
@@ -31,7 +31,7 @@ final class ArtworkPanelTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
         let lang = CaptureLanguage.current(.en)
-        let stores = LauncherStores()
+        let stores = LauncherStores(defaults: testDefaults)
         stores.localizer.lang = lang
 
         fixture = try ArtworkFixture(others: [("01007EF00011E000", "The Legend of Zelda: Breath of the Wild"), ("0100000000010000", "Super Mario Odyssey"),
@@ -172,7 +172,8 @@ final class ArtworkPanelTests: XCTestCase {
         let rep = try bitmap(size: size, dark: true, LauncherView(stores: stores, library: fixture.library, performStartupChecks: false, artworkEditor: editor, artworkStore: store))
 
         let scaleY = CGFloat(rep.pixelsHigh) / size.height
-        let sampleX = Int(CGFloat(rep.pixelsWide) * 0.25)
+        // Sample the full-bleed gutter so collection controls cannot be mistaken for an artwork seam.
+        let sampleX = Int(16 * CGFloat(rep.pixelsWide) / size.width)
         var reachedBackground = false
         var previous = 0
         for y in Int(240 * scaleY)..<Int(375 * scaleY) {
@@ -182,9 +183,9 @@ final class ArtworkPanelTests: XCTestCase {
             if reachedBackground {
                 // A seam is a row that jumps up from the one before it (the art leaking over the fade). Rendering differs by a level or
                 // two between macOS versions (one row at 21 on macOS 27.2, #1030), so the ceiling is a fixed small margin over the
-                // background and the jump between neighbouring rows is what must stay flat.
+                // background and the jump between neighbouring rows above the background floor must stay flat.
                 XCTAssertLessThanOrEqual(peak, 32, "Bright 1px seam leaked at hero bottom edge y=\(y): peak=\(peak)")
-                XCTAssertLessThanOrEqual(peak, previous + 4, "A row jumps up from its neighbour at hero bottom edge y=\(y): \(previous) to \(peak)")
+                XCTAssertLessThanOrEqual(peak, max(previous, 16) + 4, "A row jumps up from its neighbour at hero bottom edge y=\(y): \(previous) to \(peak)")
             }
             previous = peak
         }

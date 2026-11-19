@@ -11,6 +11,7 @@ package struct BuildFailureCard: View {
     /// Where the engine's failure row retries. nil for a failure of a build.
     var engine: EngineSyncStore?
     @EnvironmentObject var loc: Localizer
+    @EnvironmentObject private var focus: PadFocus
     /// The failure to show: the build's (`m.failure`) unless the caller passes another one, such as the engine sync's.
     var failure: BuildFailure?
 
@@ -36,6 +37,7 @@ package struct BuildFailureCard: View {
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(f.titleIDs, id: \.self) { id in
                                 Button(id) { m.buildTitle(id) }
+                                    .padTarget("set.build.failure.title." + id, scope: "main", enabled: m.canBuild) { if m.canBuild { m.buildTitle(id) } }
                             }
                         }
                         .buttonStyle(LauncherSecondaryButtonStyle()).padding(.leading, 17)
@@ -52,12 +54,13 @@ package struct BuildFailureCard: View {
                 .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             }
-            .alert(loc.t("fail.confirm.title"), isPresented: Binding(get: { m.confirmingOverride != nil }, set: { if !$0 { m.cancelBuildAnyway() } })) {
-                Button(loc.t("fail.confirm.go")) { m.confirmBuildAnyway() }
-                Button(loc.t("fail.confirm.cancel"), role: .cancel) { m.cancelBuildAnyway() }
-            } message: {
-                Text(m.confirmingOverride.map { loc.t("fail.\($0.rawValue).risk") } ?? "")
+            .sheet(isPresented: Binding(get: { m.confirmingOverride != nil }, set: { if !$0 { m.cancelBuildAnyway() } })) {
+                LauncherConfirmSheet(title: loc.t("fail.confirm.title"), subtitle: "",
+                    note: m.confirmingOverride.map { loc.t("fail.\($0.rawValue).risk") } ?? "",
+                    cancelTitle: loc.t("fail.confirm.cancel"), confirmTitle: loc.t("fail.confirm.go"), scope: "buildoverride",
+                    cancel: { m.cancelBuildAnyway() }, confirm: { m.confirmBuildAnyway() }).environmentObject(focus)
             }
+            .onChange(of: m.confirmingOverride) { value in focus.scope = value == nil ? "main" : "buildoverride" }
         }
     }
 
@@ -76,6 +79,9 @@ package struct BuildFailureCard: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString("xcodebuild -downloadComponent MetalToolchain", forType: .string)
                 }
+                .padTarget("set.build.failure.copyMetal", scope: "main") {
+                    NSPasteboard.general.clearContents(); NSPasteboard.general.setString("xcodebuild -downloadComponent MetalToolchain", forType: .string)
+                }
             case .cltSelected:
                 if m.installedXcode != nil { fix(kind, "fail.cltSelected.button") }
             case .keys, .keysOld:
@@ -83,6 +89,11 @@ package struct BuildFailureCard: View {
             case .updateMismatch:
                 fix(kind, "macFail.updateMismatch.button")
                 Button(loc.t("fail.showFolder")) { m.showFailureFolder() }.disabled(m.running)
+                    .padTarget("set.build.failure.folder", scope: "main", enabled: !m.running) { if !m.running { m.showFailureFolder() } }
+            case .mngSharedFonts:
+                fix(kind, "macFail.mngSharedFonts.button")
+                Button(loc.t("fail.showFolder")) { m.showFailureFolder() }.disabled(m.running)
+                    .padTarget("set.build.failure.folder", scope: "main", enabled: !m.running) { if !m.running { m.showFailureFolder() } }
             case .severalGames, .noTitleID, .diskFull, .staleProfile:
                 fix(kind, "fail.showFolder")
             case .cloudFolder, .volumeFormat:
@@ -97,13 +108,16 @@ package struct BuildFailureCard: View {
                     Button(loc.t("shell.sendFinder")) {
                         withAnimation(.easeInOut(duration: 0.18)) { m.copyWithFinder(oneGame: false) }
                     }.disabled(m.running)
+                    .padTarget("set.build.failure.finder", scope: "main", enabled: !m.running) { if !m.running { m.copyWithFinder(oneGame: false) } }
                 }
             case .engineOffline, .engineSync:
                 Button(loc.t("fail.retry")) { engine?.retrySync() }.disabled(engine?.syncing ?? false)
+                    .padTarget("set.build.failure.retry", scope: "main", enabled: !(engine?.syncing ?? false)) { engine?.retrySync() }
             default: EmptyView()
             }
             if kind.overrideFlag != nil {
                 Button(loc.t("fail.buildAnyway")) { m.requestBuildAnyway() }.disabled(m.running)
+                    .padTarget("set.build.failure.override", scope: "main", enabled: !m.running) { if !m.running { m.requestBuildAnyway() } }
             }
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
@@ -115,6 +129,7 @@ package struct BuildFailureCard: View {
                 HStack(spacing: 8) { ProgressView().controlSize(.small); Text(loc.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building) }
             } else {
                 Button(loc.t(key)) { m.fixBuildFailure(kind) }.disabled(m.running)
+                    .padTarget("set.build.failure.fix." + kind.rawValue, scope: "main", enabled: !m.running) { if !m.running { m.fixBuildFailure(kind) } }
             }
         }
     }

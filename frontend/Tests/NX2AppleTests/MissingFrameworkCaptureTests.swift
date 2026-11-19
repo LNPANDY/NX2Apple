@@ -24,7 +24,7 @@ final class MissingFrameworkCaptureTests: IsolatedDefaultsTestCase {
         model.doneNote = ProcessInfo.processInfo.environment["NX_CAPTURE_NOTE"]
             ?? installer.export(framework: missing, titleID: "0100000000010000", name: "Super Mario Odyssey").message
         let card = ActionCard(build: model, dependencies: stores.dependencies, repo: stores.repo)
-            .environmentObject(stores.localizer).padding(24).frame(width: 760)
+            .environmentObject(stores.localizer).environmentObject(PadFocus()).padding(24).frame(width: 760)
             .background(Color(white: 0.09)).environment(\.colorScheme, .dark)
         NSApplication.shared.setActivationPolicy(.accessory)
         let host = NSHostingView(rootView: card)

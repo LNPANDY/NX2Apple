@@ -49,7 +49,7 @@ struct ConsoleOptionRow: View {
             }
         }
         .padding(.horizontal, 20).padding(.vertical, compact ? 14 : 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: setting.kind == "toggle" ? (compact ? 84 : 96) : nil, alignment: .leading)
         .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
         .contentShape(RoundedRectangle(cornerRadius: 14))
         .padTarget("console.option." + setting.env, scope: scope, radius: 14, activate: activate, adjust: step)
@@ -86,13 +86,13 @@ struct ConsoleOptionRow: View {
                 Text(option.label).font(.manrope(compact ? 14 : 16, chosen ? .bold : .medium)).lineLimit(1).fixedSize()
                     .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: compact ? 38 : 42)
                     .foregroundStyle(chosen ? LauncherPalette.background : .white.opacity(0.8))
-                    .background(chosen ? LauncherPalette.cream : .white.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
-                    .contentShape(RoundedRectangle(cornerRadius: 9))
+                    .background(chosen ? LauncherPalette.cream : .white.opacity(0.06), in: Capsule())
+                    .contentShape(Capsule())
                     .onTapGesture { set(option.value) }
             }
         }
         .padding(4)
-        .background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
+        .background(.black.opacity(0.25), in: Capsule())
     }
 
     private func stepper(_ options: [(value: String, label: String)]) -> some View {
@@ -113,7 +113,7 @@ struct ConsoleOptionRow: View {
             }
         }
         .padding(.vertical, 6)
-        .background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
+        .background(.black.opacity(0.25), in: Capsule())
     }
 
     // MARK: Range

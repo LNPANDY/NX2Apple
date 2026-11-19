@@ -89,7 +89,7 @@ import NXModel
         }
     }
 
-    func testHeroShowsBuiltMacVersionBesidePlayInEveryLanguage() throws {
+    func testHeroOmitsVersionAndBuildsRetainsBuiltVersionInEveryLanguage() throws {
         let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
         let previous = NSApplication.shared.accessibilityAttributeValue(enhanced)
         NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
@@ -116,7 +116,7 @@ import NXModel
                 repeat {
                     RunLoop.main.run(until: Date().addingTimeInterval(0.02))
                     host.layoutSubtreeIfNeeded()
-                } while !texts(in: host).contains(expected) && Date() < deadline
+                } while !texts(in: host).contains(stores.localizer.t("library.play")) && Date() < deadline
                 if let capture = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] {
                     let output = URL(fileURLWithPath: capture)
                     try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
@@ -127,7 +127,8 @@ import NXModel
                 }
                 let visible = texts(in: host)
                 XCTAssertTrue(visible.contains(stores.localizer.t("library.play")), "Play in \(code)")
-                XCTAssertTrue(visible.contains(expected), "Built version in \(code): \(visible.sorted())")
+                XCTAssertFalse(visible.contains(expected), "Version belongs in Builds, not the Library hero")
+                XCTAssertEqual(BuildInventoryEntry(game).version, "1.2.3", "Builds retains the actual built version")
                 XCTAssertFalse(visible.contains { $0.contains("9.9.9") || $0.contains("999") }, "Never show source or build-number versions")
             }
         }

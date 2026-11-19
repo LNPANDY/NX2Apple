@@ -40,6 +40,23 @@ package enum LauncherDropdownLayout {
         return (CGPoint(x: x, y: max(y, margin)), CGSize(width: width, height: height))
     }
 
+    /// Places a custom panel of fixed `width` and bounded `maxHeight` below (or above when tight) the trigger button.
+    package static func placeCustom(
+        button: CGRect,
+        container: CGSize,
+        maxHeight: CGFloat,
+        width: CGFloat
+    ) -> (x: CGFloat, topY: CGFloat, bottomY: CGFloat, maxHeight: CGFloat, opensBelow: Bool) {
+        let clampedWidth = min(width, max(minWidth, container.width - margin * 2))
+        let below = container.height - margin - (button.maxY + gap)
+        let above = button.minY - gap - margin
+        let opensBelow = below >= maxHeight || below >= above
+        let available = max(min(maxHeight, opensBelow ? below : above), rowHeight + padding * 2)
+        let preferredX = button.midX > container.width / 2 ? button.maxX - clampedWidth : button.minX
+        let x = min(max(preferredX, margin), max(margin, container.width - clampedWidth - margin))
+        return (x: x, topY: max(button.maxY + gap, margin), bottomY: max(button.minY - gap, margin), maxHeight: available, opensBelow: opensBelow)
+    }
+
     /// The row an arrow key lands on, wrapping at the ends. Without a highlighted row Down takes the first, Up the last.
     package static func step(from current: Int?, by delta: Int, count: Int) -> Int? {
         guard count > 0 else { return nil }
@@ -50,9 +67,11 @@ package enum LauncherDropdownLayout {
 
 /// One dropdown being open: what its list shows and what a pick does.
 package struct LauncherDropdownRequest {
-    package init(id: UUID, options: [(value: String, label: String)], selection: String, label: String, choose: @escaping (String) -> Void) {
+    package init(id: UUID, options: [(value: String, label: String)], selection: String, label: String, destructiveValues: Set<String> = [], choose: @escaping (String) -> Void) {
         self.id = id; self.options = options; self.selection = selection; self.label = label; self.choose = choose
+        self.destructiveValues = destructiveValues
     }
+    package let destructiveValues: Set<String>
     package let id: UUID
     package let options: [(value: String, label: String)]
     package let selection: String
@@ -60,10 +79,44 @@ package struct LauncherDropdownRequest {
     package let choose: (String) -> Void
 }
 
+/// A custom interactive dropdown panel (such as the Build engine switcher) hosted above scroll clipping.
+package struct LauncherCustomDropdown {
+    package let id: UUID
+    package let width: CGFloat
+    package let maxHeight: CGFloat
+    package let label: String
+    package let content: (@escaping () -> Void) -> AnyView
+
+    package init(
+        id: UUID,
+        width: CGFloat = 368,
+        maxHeight: CGFloat = 260,
+        label: String = "",
+        content: @escaping (@escaping () -> Void) -> AnyView
+    ) {
+        self.id = id
+        self.width = width
+        self.maxHeight = maxHeight
+        self.label = label
+        self.content = content
+    }
+}
+
 /// The open dropdown of one window or sheet, shared by the host (which draws the list) and the buttons (which open it).
 package final class LauncherDropdownState: ObservableObject {
-    @Published package var request: LauncherDropdownRequest?
-    package func close() { withAnimation(.easeOut(duration: 0.12)) { request = nil } }
+    package init() {}
+    @Published package var request: LauncherDropdownRequest? {
+        didSet { if request != nil, custom != nil { custom = nil } }
+    }
+    @Published package var custom: LauncherCustomDropdown? {
+        didSet { if custom != nil, request != nil { request = nil } }
+    }
+    package func close() {
+        withAnimation(.easeOut(duration: 0.12)) {
+            request = nil
+            custom = nil
+        }
+    }
 }
 
 private struct LauncherDropdownHostKey: EnvironmentKey { static let defaultValue: LauncherDropdownState? = nil }
@@ -87,7 +140,9 @@ extension View {
     /// Draws the open LauncherDropdown's list over this view, outside the clipping of the scroll view the button sits in.
     /// Every window and sheet with dropdowns needs one at its root, because a sheet is a window of its own.
     /// A dropdown without a host opens its list as a popover.
-    package func launcherDropdownHost() -> some View { modifier(LauncherDropdownHost()) }
+    package func launcherDropdownHost(_ state: LauncherDropdownState? = nil, pad: PadFocus? = nil) -> some View {
+        modifier(LauncherDropdownHost(state: state, pad: pad))
+    }
 }
 
 extension View {
@@ -100,19 +155,63 @@ extension View {
 }
 
 private struct LauncherDropdownHost: ViewModifier {
-    @StateObject private var state = LauncherDropdownState()
+    @StateObject private var state: LauncherDropdownState
+    let pad: PadFocus?
+    init(state: LauncherDropdownState?, pad: PadFocus?) {
+        _state = StateObject(wrappedValue: state ?? LauncherDropdownState())
+        self.pad = pad
+    }
     func body(content: Content) -> some View {
         content
             .environment(\.launcherDropdownHost, state)
             .overlayPreferenceValue(LauncherDropdownAnchorKey.self) { anchors in
-                LauncherDropdownLayer(state: state, anchors: anchors)
+                LauncherDropdownLayer(state: state, anchors: anchors, pad: pad)
             }
+    }
+}
+
+private struct LauncherCustomDropdownBox: View {
+    let custom: LauncherCustomDropdown
+    let maxHeight: CGFloat
+    let close: () -> Void
+    @State private var monitor: Any?
+
+    var body: some View {
+        custom.content(close)
+            .environment(\.launcherControlWidth, nil)
+            .frame(width: custom.width)
+            .frame(maxHeight: maxHeight)
+            .fixedSize(horizontal: false, vertical: true)
+            .launcherDropdownSurface()
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(custom.label)
+            .accessibilityAddTraits(.isModal)
+            .accessibilityAction(.escape, close)
+            .onAppear {
+                stopKeys()
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    if event.keyCode == 53 {
+                        close()
+                        return nil
+                    }
+                    return event
+                }
+            }
+            .onDisappear {
+                stopKeys()
+            }
+    }
+
+    private func stopKeys() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 }
 
 private struct LauncherDropdownLayer: View {
     @ObservedObject var state: LauncherDropdownState
     let anchors: [UUID: Anchor<CGRect>]
+    let pad: PadFocus?
     var body: some View {
         GeometryReader { g in
             if let request = state.request, let anchor = anchors[request.id] {
@@ -123,12 +222,34 @@ private struct LauncherDropdownLayer: View {
                     Color.black.opacity(0.001).contentShape(Rectangle())
                         .onTapGesture { state.close() }
                         .accessibilityHidden(true)
-                    LauncherDropdownList(options: request.options, selection: request.selection, label: request.label,
-                                         choose: { value in request.choose(value); state.close() }, close: { state.close() })
+                    LauncherDropdownList(options: request.options, selection: request.selection, label: request.label, destructiveValues: request.destructiveValues,
+                                         choose: { value in request.choose(value); state.close() }, close: { state.close() }, pad: pad)
                         .frame(width: spot.size.width, height: spot.size.height)
                         .launcherDropdownSurface()
                         .offset(x: spot.origin.x, y: spot.origin.y)
                         .transition(.opacity)
+                }
+            } else if let custom = state.custom, let anchor = anchors[custom.id] {
+                let button = g[anchor]
+                let width = min(custom.width, max(LauncherDropdownLayout.minWidth, g.size.width - LauncherDropdownLayout.margin * 2))
+                let spot = LauncherDropdownLayout.placeCustom(button: button, container: g.size, maxHeight: custom.maxHeight, width: width)
+                ZStack(alignment: .topLeading) {
+                    Color.black.opacity(0.001).contentShape(Rectangle())
+                        .onTapGesture { state.close() }
+                        .accessibilityHidden(true)
+                    if spot.opensBelow {
+                        LauncherCustomDropdownBox(custom: custom, maxHeight: spot.maxHeight, close: { state.close() })
+                            .offset(x: spot.x, y: spot.topY)
+                            .transition(.opacity)
+                    } else {
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            LauncherCustomDropdownBox(custom: custom, maxHeight: spot.maxHeight, close: { state.close() })
+                        }
+                        .frame(width: width, height: max(spot.bottomY - LauncherDropdownLayout.margin, 0), alignment: .bottomLeading)
+                        .offset(x: spot.x, y: LauncherDropdownLayout.margin)
+                        .transition(.opacity)
+                    }
                 }
             }
         }
@@ -138,19 +259,33 @@ private struct LauncherDropdownLayer: View {
 /// The rows of an open dropdown: the chosen one with a checkmark, the one under the pointer or the arrow keys lit.
 /// Arrow keys move, Return or Space pick, Esc closes (a local key monitor while it is open, as in the Manage menu).
 package struct LauncherDropdownList: View {
-    package init(options: [(value: String, label: String)], selection: String, label: String, choose: @escaping (String) -> Void, close: @escaping () -> Void) {
+    package init(options: [(value: String, label: String)], selection: String, label: String, destructiveValues: Set<String> = [], choose: @escaping (String) -> Void, close: @escaping () -> Void, pad: PadFocus? = nil) {
         self.options = options; self.selection = selection; self.label = label; self.choose = choose; self.close = close
+        self.pad = pad
+        self.destructiveValues = destructiveValues
     }
+    package let destructiveValues: Set<String>
     package let options: [(value: String, label: String)]
     package let selection: String
     package let label: String
     package let choose: (String) -> Void
     package let close: () -> Void
+    let pad: PadFocus?
     @State private var highlighted: Int?
     @State private var monitor: Any?
     @AccessibilityFocusState private var spoken: Int?
 
-    package var body: some View {
+    @ViewBuilder package var body: some View {
+        if let pad {
+            list.padScope("dropdown", pad).environmentObject(pad)
+                .onAppear { pad.focused = "dropdown.\(options.firstIndex { $0.value == selection } ?? 0)" }
+                .onChange(of: pad.focused) { id in
+                    if let id, id.hasPrefix("dropdown."), let index = Int(id.dropFirst(9)) { highlighted = index }
+                }
+        } else { list }
+    }
+
+    private var list: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: LauncherDropdownLayout.rowSpacing) {
@@ -174,16 +309,16 @@ package struct LauncherDropdownList: View {
         .accessibilityAction(.escape, close)
     }
 
-    private func row(_ option: (value: String, label: String), index: Int) -> some View {
+    @ViewBuilder private func row(_ option: (value: String, label: String), index: Int) -> some View {
         let selected = option.value == selection
-        return Button { choose(option.value) } label: {
+        let button = Button(role: destructiveValues.contains(option.value) ? .destructive : nil) { choose(option.value) } label: {
             HStack(spacing: 10) {
                 Text(option.label).font(.manrope(13, selected ? .bold : .medium)).lineLimit(1)
                 Spacer(minLength: 16)
                 Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(LauncherPalette.accent)
                     .opacity(selected ? 1 : 0)
             }
-            .foregroundStyle(LauncherPalette.text)
+            .foregroundStyle(destructiveValues.contains(option.value) ? LauncherPalette.danger : LauncherPalette.text)
             .padding(.horizontal, 12).frame(height: LauncherDropdownLayout.rowHeight)
             .background(highlighted == index ? LauncherPalette.ink(0.09) : (selected ? LauncherPalette.ink(0.045) : .clear),
                         in: RoundedRectangle(cornerRadius: 8))
@@ -196,6 +331,9 @@ package struct LauncherDropdownList: View {
         .accessibilityLabel(option.label)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityFocused($spoken, equals: index)
+        if pad != nil {
+            button.padTarget("dropdown.\(index)", scope: "dropdown", radius: 8) { choose(option.value) }
+        } else { button }
     }
 
     private func startKeys() {
@@ -225,7 +363,7 @@ package struct LauncherDropdownList: View {
 /// the left and the chevron at the right, the choice a little smaller when it does not fit.
 /// `label` names the setting for VoiceOver, which then reads the choice as the value.
 package struct LauncherDropdown: View {
-    package init(options: [(value: String, label: String)], selection: String, label: String = "", style: LauncherDropdownStyle = .pill,
+    package init(options: [(value: String, label: String)], selection: String, label: String = "", style: LauncherDropdownStyle = .button,
                   fill: Bool = false, leading: Bool = false, choose: @escaping (String) -> Void) {
         self.options = options; self.selection = selection; self.label = label; self.style = style; self.fill = fill; self.leading = leading
         self.choose = choose
@@ -233,7 +371,7 @@ package struct LauncherDropdown: View {
     package let options: [(value: String, label: String)]
     package let selection: String
     package var label = ""
-    package var style: LauncherDropdownStyle = .pill
+    package var style: LauncherDropdownStyle = .button
     package var fill = false
     /// With `fill`: the choice starts at the left, like the text of a field (the export's device, LNPANDY/NX2Apple#416).
     package var leading = false
@@ -253,7 +391,7 @@ package struct LauncherDropdown: View {
 
     fileprivate func face(open: Bool, rowWidth: CGFloat?) -> some View {
         let rounded = style == .button
-        let shape = RoundedRectangle(cornerRadius: rounded ? 9 : 99)
+        let shape = Capsule()
         let width = fill ? nil : rowWidth
         return HStack(spacing: 0) {
             Text(current).font(.manrope(rounded ? 13 : 12.5, .semibold)).lineLimit(1)
@@ -270,7 +408,7 @@ package struct LauncherDropdown: View {
             }
         }
         .padding(.horizontal, rounded ? 15 : 14).padding(.vertical, rounded ? 9 : 7)
-        .frame(width: width, height: width != nil || (fill && rounded) ? LauncherControl.height : nil)   // a filling button as high as a row's buttons
+        .frame(width: width, height: LauncherControl.height)
         .frame(maxWidth: fill ? .infinity : nil)
         .background(open ? LauncherPalette.secondaryPressed : (rounded ? LauncherPalette.secondaryFill : LauncherPalette.dropdownFill), in: shape)
         .overlay(shape.strokeBorder(open ? LauncherPalette.dropdownOpenBorder : LauncherPalette.secondaryBorder))

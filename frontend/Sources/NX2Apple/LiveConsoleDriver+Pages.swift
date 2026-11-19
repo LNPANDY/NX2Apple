@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Combine
 import NXCore
 import NXModel
@@ -82,7 +83,13 @@ extension LiveConsoleDriver {
     func stepLibraryFilter(_ step: Int) { state.stepLibraryFilter(step) }
     func openBuilds() { state.openBuilds() }
     func askStopBuild() { state.askStopBuild() }
-    func openQuickMenu() { state.openQuickMenu() }
+    func openQuickMenu() {
+        if let id = (state.pausedGame ?? state.focusedGame)?.id,
+           let game = libraryGame(id), let index = state.games.firstIndex(where: { $0.id == id }) {
+            state.games[index].icon = GameLibrary.appIcon(for: game, banners: library.artworkDirectory)
+        }
+        state.openQuickMenu()
+    }
     func openManage(_ gameID: String) { loadDetails(gameID); state.openManage(gameID) }
 
     /// Stop, once asked: the build store ends the running build (and only it, the queue waits), as the desktop's Stop does.
@@ -97,10 +104,43 @@ extension LiveConsoleDriver {
     func bindBuilds(_ build: BuildStore, queue: BuildQueueStore) {
         builds = build
         buildQueue = queue
+        var icons: [String: NSImage] = [:]
+        var artwork: [String: NSImage] = [:]
+        let standaloneID = UUID()
+        var pendingSnapshot: ConsoleBuilds?
+        var settling: Task<Void, Never>?
         let update: () -> Void = { [weak self, weak build, weak queue] in
             guard let self, let build else { return }
-            self.state.builds = Self.builds(running: build.running, stopping: build.stopping,
-                                            title: build.operationTitle ?? build.t("library.preparing"), stages: build.stages, queue: queue?.entries ?? [])
+            let currentID = build.operation?.titleID ?? build.gameTitleID
+            let titleIDs = Set((queue?.entries ?? []).map(\.titleID) + [currentID].compactMap { $0 })
+            for id in titleIDs where icons[id] == nil {
+                if let game = self.library.games.first(where: { $0.titleID.caseInsensitiveCompare(id) == .orderedSame }) {
+                    icons[id] = GameLibrary.appIcon(for: game, banners: self.library.artworkDirectory)
+                    artwork[id] = GameLibrary.artwork(for: game, repo: self.repo(), banners: self.library.artworkDirectory)
+                }
+            }
+            let progress = build.buildingGame ? build.overallProgress : build.stages.first { $0.state == .running }?.percent.map { $0 / 100 }
+            var snapshot = Self.builds(running: build.running, stopping: build.stopping,
+                                      title: build.operationTitle ?? build.t("library.preparing"), stages: build.stages,
+                                      queue: queue?.entries ?? [], icons: icons, artwork: artwork, progress: progress)
+            if build.running && !snapshot.queue.contains(where: \.active) || !build.running && snapshot.queue.isEmpty && build.completionStatus != nil {
+                snapshot.queue.insert(.init(id: standaloneID, name: build.gameName, statusKey: build.running ? "queue.status.running" : build.completionStatus == .needsData ? "result.dataNeeded" : "queue.status.done",
+                    platformKey: build.runningTarget == BuildTarget.mac ? "library.section.mac" : "build.ios",
+                    icon: currentID.flatMap { icons[$0] }, outcome: build.running ? nil : build.completionStatus == .needsData ? .warning : .success,
+                    artwork: currentID.flatMap { artwork[$0] }, active: build.running,
+                    progress: progress.flatMap { $0.isFinite ? min(max($0, 0), 1) : nil }), at: 0)
+            }
+            snapshot.retainCompletionOrder(from: pendingSnapshot ?? self.state.builds)
+            if settling != nil { pendingSnapshot = snapshot; return }
+            if let finishing = ConsoleBuilds.completionFrame(from: self.state.builds, to: snapshot) {
+                pendingSnapshot = snapshot
+                self.state.builds = finishing
+                settling = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(220))
+                    if let latest = pendingSnapshot { self?.state.builds = latest }
+                    pendingSnapshot = nil; settling = nil
+                }
+            } else { self.state.builds = snapshot }
             if !build.running, self.state.presentedSheet == .confirmStopBuild { self.state.back() }   // it ended meanwhile: nothing to stop
         }
         build.objectWillChange.merge(with: queue.objectWillChange)
@@ -138,11 +178,28 @@ extension LiveConsoleDriver {
         showToast(String(format: t("console.build.missingFile"), (missing as NSString).lastPathComponent))
     }
 
-    static func builds(running: Bool, stopping: Bool, title: String, stages: [Stage], queue: [QueueEntry]) -> ConsoleBuilds {
+    static func builds(running: Bool, stopping: Bool, title: String, stages: [Stage], queue: [QueueEntry], icons: [String: NSImage] = [:], artwork: [String: NSImage] = [:], progress: Double? = nil) -> ConsoleBuilds {
         ConsoleBuilds(running: running, stopping: stopping, title: title,
                       stages: running ? stages.map { ConsoleBuilds.StageRow(id: $0.id, name: $0.name, nameKey: $0.nameKey, nameArgument: $0.nameArgument,
                                                                             state: $0.state, progress: $0.percent.map { min(max($0 / 100, 0), 1) }) } : [],
-                      queue: queue.filter { $0.status == .queued || $0.status == .running }
-                          .map { ConsoleBuilds.QueueRow(id: $0.id, name: $0.name, statusKey: "queue.status." + $0.status.rawValue) })
+                      queue: QueueGame.grouped(queue)
+                          .map { game in
+                              let current = game.entries.first { $0.status == .running || $0.packagePending == true }
+                              let failed = game.entries.contains { $0.status == .failed }
+                              let skipped = game.entries.contains { $0.status == .skipped }
+                              let stopped = game.entries.contains { $0.status == .stopped }
+                              let done = game.entries.allSatisfy { $0.status == .done && $0.packagePending == nil }
+                              let status = failed ? "failed" : skipped ? "skipped" : stopped ? "stopped" : done ? "done" : current?.status.rawValue ?? "queued"
+                              let active = running && current != nil
+                              let reported = progress.flatMap { $0.isFinite ? min(max($0, 0), 1) : nil }
+                              let completed = game.entries.filter { $0.status == .done }.count
+                              let units = game.entries.count + (game.entries.contains { $0.target == BuildTarget.ios && $0.packageAfter } ? 1 : 0)
+                              let overall = reported.map { min((Double(completed) + $0) / Double(units), 1) }
+                              return ConsoleBuilds.QueueRow(id: game.id, name: game.name,
+                                  statusKey: current?.packagePending == true ? "queue.packaging" : game.entries.contains { $0.packagePending == false } && current == nil ? "queue.awaitingPackage" : "queue.status." + status,
+                                  platformKey: game.both ? "library.chip.both" : game.entries[0].target == BuildTarget.mac ? "library.section.mac" : "build.ios",
+                                  icon: icons[game.entries[0].titleID], outcome: (failed || stopped) ? .failure : skipped ? .warning : done ? .success : nil,
+                                  artwork: artwork[game.entries[0].titleID], active: active, progress: active ? overall : nil)
+                          })
     }
 }

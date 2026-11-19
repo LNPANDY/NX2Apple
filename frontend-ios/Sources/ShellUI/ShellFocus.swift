@@ -155,7 +155,9 @@ extension EnvironmentValues {
 struct ShellKeyboardNavigation: ViewModifier {
     let active: Bool
     let handle: (ShellInput.Action) -> Void
+    #if !os(iOS)
     @FocusState private var focused: Bool
+    #endif
     func body(content: Content) -> some View {
         #if os(iOS)
         content.background { ShellKeyCommands(active: active, handle: handle).frame(width: 0, height: 0) }

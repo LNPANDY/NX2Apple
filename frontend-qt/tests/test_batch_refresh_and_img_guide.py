@@ -505,6 +505,112 @@ class DetectBuiltGameOlderTests(unittest.TestCase):
         g_bad = lib_mod.LibraryGame(title_id=tid, name='Game', ios_app_path=str(app_bad))
         self.assertEqual(rf.detect_built_game_older(g_bad, str(repo)), (False, ''))
 
+    def test_localize_pull_error_translates_all_device_failure_reasons(self) -> None:
+        from nspb_qt.i18n import Lang
+        from nspb_qt.l10n import TABLE
+
+        def make_t(code: str):
+            lang = Lang(code)
+            def _t(key: str, *args) -> str:
+                row = TABLE.get(key)
+                txt = row.get(lang.code, row.get('en', key)) if row else key
+                for arg in args:
+                    txt = txt.replace('%@', str(arg), 1)
+                return txt
+            return _t
+
+        raw_reasons = [
+            'devicectl unavailable',
+            'no device',
+            'no .img found on device',
+            'Command timed out after 120s',
+            'invalid DMROMFS1 file',
+            'devicectl copy failed',
+        ]
+        for code in ('en', 'zh', 'de'):
+            t_fn = make_t(code)
+            for reason in raw_reasons:
+                localized = rf.localize_pull_error(reason, t_fn)
+                self.assertTrue(localized, f'{code}: {reason}')
+                self.assertNotIn(';', localized)
+                self.assertNotIn('；', localized)
+                if code == 'zh' and reason == 'no device':
+                    self.assertNotIn('no device', localized)
+
+    def test_clean_shell_game_name_and_shell_library_add_strip_package_tags(self) -> None:
+        from nspb_qt.win import shell_export as se
+
+        self.assertEqual(
+            se.clean_shell_game_name('Super Mario Wonder [010015100B514000][v0].nsp'),
+            'Super Mario Wonder',
+        )
+        self.assertEqual(
+            se.clean_shell_game_name('Zelda [01007EF00011E000] (v65536).xci'),
+            'Zelda',
+        )
+
+        fw_plain = self.tmp / 'DmGame010015100B514000.framework'
+        fw_plain.mkdir(parents=True, exist_ok=True)
+        lib = se.ShellLibrary()
+        lib.add(se.ShellGame(
+            title_id='010015100B514000',
+            name='Super Mario Wonder [010015100B514000][v0].nsp',
+            framework=str(fw_plain),
+        ))
+        self.assertEqual(lib.games[0].name, 'Super Mario Wonder')
+
+        fw_manifest = self.tmp / 'DmGame01007EF00011E000.framework'
+        fw_manifest.mkdir(parents=True, exist_ok=True)
+        (fw_manifest / 'game.manifest.json').write_text(
+            json.dumps({'name': 'The Legend of Zelda: Breath of the Wild'}),
+            encoding='utf-8',
+        )
+        lib.add(se.ShellGame(
+            title_id='01007EF00011E000',
+            name='01007EF00011E000 [01007EF00011E000][v0].nsp',
+            framework=str(fw_manifest),
+        ))
+        by_tid = {g.title_id: g.name for g in lib.games}
+        self.assertEqual(by_tid['01007EF00011E000'], 'The Legend of Zelda: Breath of the Wild')
+
+    def test_pr3_fixes_run_with_pyside6_masked_on_all_meta_path_finders(self) -> None:
+        guard_script = self.tmp / 'verify_no_pyside6.py'
+        guard_script.write_text(
+            f"""import importlib.util
+import sys
+
+class _BlockingFinderWrapper:
+    def __init__(self, inner):
+        self._inner = inner
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == 'PySide6' or fullname.startswith('PySide6.'):
+            return None
+        fn = getattr(self._inner, 'find_spec', None)
+        return fn(fullname, path, target) if fn is not None else None
+
+for k in list(sys.modules):
+    if k == 'PySide6' or k.startswith('PySide6.'):
+        del sys.modules[k]
+sys.meta_path[:] = [_BlockingFinderWrapper(f) for f in sys.meta_path]
+assert importlib.util.find_spec('PySide6') is None
+
+sys.path.insert(0, {str(QT)!r})
+from nspb_qt import refresh_flow as rf
+from nspb_qt import s2arm_builder as sb
+from nspb_qt.win import shell_export as se
+
+assert rf.HAS_QT is False
+assert sb.sdk_satisfies('10.0.402', '10.0.403', 'latestFeature') is False
+assert sb.sdk_satisfies('10.0.403', '10.0.403', 'latestFeature') is True
+assert se.clean_shell_game_name('Kirby [01004D300C5AE000][v0].nsp') == 'Kirby'
+assert rf.localize_pull_error('Device transfer timed out.', lambda k, *a: f'LOC:{{k}}') == 'LOC:imgGuide.pullErrTimedOut'
+""",
+            encoding='utf-8',
+        )
+        proc = subprocess.run([sys.executable, str(guard_script)], capture_output=True, text=True, check=False)
+        self.assertEqual(proc.returncode, 0, f'{proc.stdout}\n{proc.stderr}')
+
 
 if rf.HAS_QT:
     from PySide6.QtWidgets import QApplication, QDialog, QFileDialog

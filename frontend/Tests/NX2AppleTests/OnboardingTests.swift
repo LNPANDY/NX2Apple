@@ -57,6 +57,18 @@ final class OnboardingTests: IsolatedDefaultsTestCase {
         XCTAssertFalse(s.canAdvance)
     }
 
+    func testXcodeCannotAdvanceWhileAdditionalSupportTransferIsActive() {
+        var state = OnboardingState()
+        state.step = .xcode; state.xcode = .ready
+        state.background = Dictionary(uniqueKeysWithValues: OnboardingBackgroundTask.allCases.map { ($0, .done) })
+        state.engineTransfer = .init(fraction: 0.9, detail: "Downloading")
+        XCTAssertFalse(state.canAdvance)
+        state.next(); XCTAssertEqual(state.step, .xcode)
+        state.engineTransfer = nil
+        XCTAssertTrue(state.canAdvance)
+        state.next(); XCTAssertEqual(state.step, .keys)
+    }
+
     func testKeysAndGamesNeverAdvanceBeforeValidation() {
         var s = OnboardingState()
         s.step = .keys
@@ -66,9 +78,12 @@ final class OnboardingTests: IsolatedDefaultsTestCase {
             s.next(); XCTAssertEqual(s.step, .keys)
         }
         s.keys = .found(URL(fileURLWithPath: "/Demo/prod.keys"))
+        XCTAssertEqual(s.primary, .waiting)
+        XCTAssertFalse(s.primaryEnabled)
+        XCTAssertFalse(s.canAdvance, "A found file must verify before explicit confirmation")
+        s.keys = .valid
         XCTAssertEqual(s.primary, .confirmKeys)
         XCTAssertTrue(s.primaryEnabled)
-        XCTAssertFalse(s.canAdvance, "Confirming a found file still needs validation")
         s.step = .games
         for value: OnboardingState.Games in [.empty, .scanning, .none, .found([])] {
             s.games = value
@@ -213,7 +228,7 @@ final class OnboardingTests: IsolatedDefaultsTestCase {
                 window.orderOut(nil)
             }
         }
-        // The Xcode step keeps one card size across its states: capture each to compare.
+        // Closed setup summaries keep their row size across status changes.
         let failure = OnboardingFailure(message: "The Metal Toolchain could not be downloaded.", details: "HTTP 503")
         let states: [(String, OnboardingState.Xcode)] = [("checking", .checking), ("missing", .missing), ("downloading", .downloading),
             ("needsSetup", .needsSetup), ("settingUp", .settingUp), ("ready", .ready), ("failed", .failed(failure))]

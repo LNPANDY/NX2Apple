@@ -27,118 +27,98 @@ import NXCore
     @Published package private(set) var paused: Bool
 
     /// True once the player explicitly starts or resumes the queue, until the batch finishes, pauses, or is cancelled.
-    private var active = false
+    @Published package private(set) var active = false
     private let file: URL?
     private let engineID: () -> String
     /// Starts the entry's build. nil: started. A string: why it cannot, which becomes the entry's reason.
     private let start: (QueueEntry) -> String?
     /// A shared-app batch ended with these successful entries: package them once.
-    private let packageBatch: ([QueueEntry]) -> Void
+    private let packageBatch: ([QueueEntry]) -> Bool
     /// A build or another operation is running, so nothing starts.
     private let busy: () -> Bool
     private let engineChangedReason: () -> String
+    private let packageFailureReason: () -> String
 
-    package init(
-        file: URL?,
-        engineID: @escaping () -> String,
-        busy: @escaping () -> Bool,
-        start: @escaping (QueueEntry) -> String?,
-        packageBatch: @escaping ([QueueEntry]) -> Void = { _ in },
-        engineChangedReason: @escaping () -> String = { "The engine changed since this game was queued" }
-    ) {
-        self.file = file
-        self.engineID = engineID
-        self.busy = busy
-        self.start = start
-        self.packageBatch = packageBatch
+    package init(file: URL?, engineID: @escaping () -> String, busy: @escaping () -> Bool,
+                 start: @escaping (QueueEntry) -> String?, packageBatch: @escaping ([QueueEntry]) -> Bool = { _ in false },
+                 engineChangedReason: @escaping () -> String = { "The engine changed since this game was queued" },
+                 packageFailureReason: @escaping () -> String = { L10n.string("queue.cannotPackage", .en) }) {
+        self.file = file; self.engineID = engineID; self.busy = busy; self.start = start; self.packageBatch = packageBatch
         self.engineChangedReason = engineChangedReason
+        self.packageFailureReason = packageFailureReason
         let stored = file.map(BuildQueueFile.load) ?? (entries: [QueueEntry](), paused: false)
         var loaded = stored.entries
+        for index in loaded.indices { loaded[index].target = BuildTarget.normalized(loaded[index].target) }
         let wasRunning = loaded.contains { $0.status == .running }
-        // A build that was running when the app quit goes first again. Its folder keeps the finished stages.
-        for index in loaded.indices where loaded[index].status == .running {
+        let wasPackaging = loaded.contains { $0.packagePending != nil }
+        for index in loaded.indices where loaded[index].packagePending != nil {
+            loaded[index].packagePending = nil
             loaded[index].status = .queued
+            loaded[index].reason = nil
         }
+        // A build that was running when the app quit goes first again. Its folder keeps the finished stages.
+        for index in loaded.indices where loaded[index].status == .running { loaded[index].status = .queued }
         let waiting = loaded.contains { $0.status == .queued }
         entries = loaded
         paused = stored.paused && waiting
-        awaitingResume = !stored.paused && wasRunning
+        awaitingResume = !stored.paused && (wasRunning || wasPackaging)
     }
 
+    package var games: [QueueGame] { QueueGame.grouped(entries) }
+    package var packaging: [QueueEntry] { entries.filter { $0.packagePending == true } }
+    package var hasIOS: Bool { queued.contains { BuildTarget.normalized($0.target) != BuildTarget.mac } }
     package var queued: [QueueEntry] { entries.filter { $0.status == .queued } }
     package var running: QueueEntry? { entries.first { $0.status == .running } }
     package var isEmpty: Bool { entries.isEmpty }
     package var hasWaiting: Bool { !queued.isEmpty }
-    package var hasFinished: Bool { entries.contains(where: \.finished) }
+    private var settledEntryIDs: Set<UUID> {
+        Set(games.filter { $0.entries.allSatisfy { $0.finished && $0.packagePending == nil } }
+            .flatMap(\.entries).map(\.id))
+    }
+    package var hasFinished: Bool { !settledEntryIDs.isEmpty }
+    /// Includes the gap between automatically advancing jobs, but not a staged or paused queue.
+    package var isAdvancing: Bool { active && !paused && !awaitingResume }
 
     // MARK: Changing the queue
 
     /// Adds entries without starting an idle queue: the player reviews the queue and target settings, then starts it explicitly.
-    /// Entries added while a batch is already running join the active batch.
+    /// Duplicate game/platform requests merge without changing the running job.
+    package func canEnqueue(_ titleID: String, target: String) -> Bool {
+        let key = QueueKey(titleID: titleID, target: target)
+        let group = entries.filter { $0.titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == key.titleID }
+        guard let entry = group.first(where: { QueueKey(titleID: $0.titleID, target: $0.target) == key }) else { return true }
+        return entry.finished && entry.packagePending == nil &&
+            (entry.status != .done || group.allSatisfy { $0.status == .done && $0.packagePending == nil })
+    }
+
     package func enqueue(_ new: [QueueEntry]) {
         guard !new.isEmpty else { return }
-        if running == nil, !paused, !awaitingResume {
-            entries.removeAll { $0.finished }
-        }
-        let currentBatch = running
-        let joinsActiveBatch = active && !paused && !awaitingResume && currentBatch != nil
-        let activeIOSReference: QueueEntry? = {
-            guard joinsActiveBatch else { return nil }
-            if let runningIOS = currentBatch, BuildTarget.normalized(runningIOS.target) != BuildTarget.mac {
-                return runningIOS
-            }
-            return entries.first { !$0.finished && BuildTarget.normalized($0.target) != BuildTarget.mac }
-        }()
-        // Deduplicate by (uppercased titleID, normalized target) so Mac and iPhone refreshes of one title can coexist.
-        let waiting = Set(
-            queued.map { QueueKey(titleID: $0.titleID, target: $0.target) }
-            + (running.map { [QueueKey(titleID: $0.titleID, target: $0.target)] } ?? [])
-        )
-        var seen = waiting
         for var entry in new {
-            let effectiveTarget: String
-            if entry.locksTarget {
-                effectiveTarget = BuildTarget.normalized(entry.target)
-            } else if joinsActiveBatch, let currentBatch {
-                effectiveTarget = BuildTarget.normalized(currentBatch.target)
+            entry.target = BuildTarget.normalized(entry.target)
+            entry.status = .queued; entry.reason = nil
+            let key = QueueKey(titleID: entry.titleID, target: entry.target)
+            let group = entries.filter { QueueKey(titleID: $0.titleID, target: $0.target).titleID == key.titleID }
+            if let index = entries.firstIndex(where: { QueueKey(titleID: $0.titleID, target: $0.target) == key }) {
+                let existing = entries[index]
+                guard canEnqueue(entry.titleID, target: entry.target) else { continue }
+                entry.id = existing.id
+                entries[index] = entry
+            } else if let first = entries.firstIndex(where: { QueueKey(titleID: $0.titleID, target: $0.target).titleID == key.titleID }) {
+                let last = entries.lastIndex(where: { QueueKey(titleID: $0.titleID, target: $0.target).titleID == key.titleID })!
+                let macFirst = entry.target == BuildTarget.mac && group.allSatisfy { $0.status == .queued }
+                entries.insert(entry, at: macFirst ? first : last + 1)
             } else {
-                effectiveTarget = BuildTarget.normalized(entry.target)
+                entries.append(entry)
             }
-            let key = QueueKey(titleID: entry.titleID, target: effectiveTarget)
-            guard !seen.contains(key) else { continue }
-            seen.insert(key)
-            entry.status = .queued
-            entry.reason = nil
-            entry.target = effectiveTarget
-            if entry.locksTarget {
-                if effectiveTarget == BuildTarget.mac {
-                    entry.packageAfter = false
-                    entry.exportIPA = nil
-                    entry.destinationName = nil
-                } else if joinsActiveBatch, let iosRef = activeIOSReference {
-                    entry.packageAfter = iosRef.packageAfter
-                    entry.exportIPA = iosRef.exportIPA
-                    entry.destinationName = iosRef.destinationName
-                }
-                if joinsActiveBatch, let currentBatch {
-                    entry.batch = currentBatch.batch
-                }
-            } else if joinsActiveBatch, let currentBatch {
-                entry.target = currentBatch.target
-                entry.batch = currentBatch.batch
-                entry.packageAfter = currentBatch.packageAfter
-                entry.exportIPA = currentBatch.exportIPA
-                entry.destinationName = currentBatch.destinationName
-            }
-            entries.append(entry)
         }
         persist()
         if active { processNext() }
     }
 
     package func remove(_ id: UUID) {
-        guard let entry = entries.first(where: { $0.id == id }), entry.status != .running else { return }
-        entries.removeAll { $0.id == id }
+        guard let group = games.first(where: { $0.entries.contains { $0.id == id } }), !group.running else { return }
+        let ids = Set(group.entries.filter { $0.packagePending == nil && (group.waiting ? $0.status == .queued : true) }.map(\.id))
+        entries.removeAll { ids.contains($0.id) }
         if !hasWaiting {
             awaitingResume = false
             paused = false
@@ -147,156 +127,114 @@ import NXCore
         persist()
     }
 
-    package func canMoveUp(_ id: UUID) -> Bool { queuedIndex(id).map { $0 > 0 } ?? false }
-    package func canMoveDown(_ id: UUID) -> Bool { queuedIndex(id).map { $0 < queued.count - 1 } ?? false }
-
+    private var movable: [QueueGame] { games.filter { $0.waiting && !$0.running } }
+    package func canMoveUp(_ id: UUID) -> Bool { movable.firstIndex { $0.id == id }.map { $0 > 0 } ?? false }
+    package func canMoveDown(_ id: UUID) -> Bool { movable.firstIndex { $0.id == id }.map { $0 < movable.count - 1 } ?? false }
     package func moveUp(_ id: UUID) { move(id, by: -1) }
     package func moveDown(_ id: UUID) { move(id, by: 1) }
-
-    private func queuedIndex(_ id: UUID) -> Int? { queued.firstIndex { $0.id == id } }
-
     private func move(_ id: UUID, by step: Int) {
-        guard let q = queuedIndex(id), (0..<queued.count).contains(q + step) else { return }
-        let other = queued[q + step].id
-        guard let a = entries.firstIndex(where: { $0.id == id }),
-              let b = entries.firstIndex(where: { $0.id == other }) else { return }
-        entries.swapAt(a, b)
+        guard let q = movable.firstIndex(where: { $0.id == id }), movable.indices.contains(q + step) else { return }
+        let other = movable[q + step].id
+        var groups = games
+        guard let a = groups.firstIndex(where: { $0.id == id }), let b = groups.firstIndex(where: { $0.id == other }) else { return }
+        groups.swapAt(a, b)
+        entries = groups.flatMap(\.entries)
         persist()
     }
 
-    /// "Cancel queued builds": the waiting entries go, the running one and the results stay.
+    /// Insert one waiting game beside another, preserving platform pairs and every non-movable row's position.
+    package func move(_ id: UUID, relativeTo target: UUID, after: Bool) {
+        var waiting = movable
+        guard id != target, let from = waiting.firstIndex(where: { $0.id == id }),
+              waiting.contains(where: { $0.id == target }) else { return }
+        let source = waiting.remove(at: from)
+        guard let destination = waiting.firstIndex(where: { $0.id == target }) else { return }
+        waiting.insert(source, at: destination + (after ? 1 : 0))
+        let ids = Set(waiting.map(\.id))
+        var next = waiting.makeIterator()
+        let reordered = games.map { ids.contains($0.id) ? (next.next() ?? $0) : $0 }
+        entries = reordered.flatMap(\.entries)
+        persist()
+    }
+
+    /// Retry failed, skipped, or stopped platform jobs under the current engine, keeping successful work intact.
+    package func retry(_ id: UUID) {
+        guard let group = games.first(where: { $0.id == id }), group.retryable else { return }
+        let ids = Set(group.entries.filter { $0.status == .failed || $0.status == .skipped || $0.status == .stopped }.map(\.id))
+        for index in entries.indices where ids.contains(entries[index].id) {
+            entries[index].status = .queued; entries[index].reason = nil
+            entries[index].engineID = engineID()
+            entries[index].target = BuildTarget.normalized(entries[index].target)
+        }
+        persist()
+    }
+
+    /// Clears settled history without removing queued or shared-app packaging work.
+    package func clearFinished() {
+        let settled = settledEntryIDs
+        entries.removeAll { settled.contains($0.id) }
+        if !hasWaiting && running == nil && packaging.isEmpty {
+            awaitingResume = false
+            paused = false
+            active = false
+        }
+        persist()
+    }
+
+    /// "Cancel queued builds": the waiting entries go, the running one and the results stay. When nothing runs, a shared-app batch
+    /// has no job left, so its built games are packaged now, as Stop does (`buildEnded(stopped:)`). The build store holds them in
+    /// `deferredShell` and would package them with the next batch otherwise. A running batch packages them when its build ends.
     package func cancelQueued() {
         entries.removeAll { $0.status == .queued }
         awaitingResume = false
         paused = false
-        if running == nil { active = false }
+        guard running == nil else { persist(); return }
+        active = false
         persist()
-    }
-
-    /// Removes every completed, failed, skipped or stopped history entry while preserving the running and waiting entries.
-    package func clearFinished() {
-        entries.removeAll { $0.finished }
-        if !hasWaiting {
-            awaitingResume = false
-            paused = false
-            if running == nil { active = false }
-        }
-        persist()
-    }
-
-    /// Re-queues a failed, skipped or stopped entry at the end with the current engine identity.
-    package func retry(_ id: UUID) {
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        let existing = entries[index]
-        guard existing.finished, existing.status != .done else { return }
-        entries.remove(at: index)
-        let currentBatch = running
-        let joinsActiveBatch = active && !paused && !awaitingResume && currentBatch != nil
-        let activeIOSReference: QueueEntry? = {
-            guard joinsActiveBatch else { return nil }
-            if let runningIOS = currentBatch, BuildTarget.normalized(runningIOS.target) != BuildTarget.mac {
-                return runningIOS
-            }
-            return entries.first { !$0.finished && BuildTarget.normalized($0.target) != BuildTarget.mac }
-        }()
-        let effectiveTarget: String
-        if existing.locksTarget {
-            effectiveTarget = BuildTarget.normalized(existing.target)
-        } else if joinsActiveBatch, let currentBatch {
-            effectiveTarget = BuildTarget.normalized(currentBatch.target)
-        } else {
-            effectiveTarget = BuildTarget.normalized(existing.target)
-        }
-        let targetKey = QueueKey(titleID: existing.titleID, target: effectiveTarget)
-        let alreadyActive = queued.contains { QueueKey(titleID: $0.titleID, target: $0.target) == targetKey }
-            || running.map { QueueKey(titleID: $0.titleID, target: $0.target) == targetKey } == true
-        if alreadyActive {
-            if !hasWaiting {
-                awaitingResume = false
-                paused = false
-                if running == nil { active = false }
-            }
-            persist()
-            return
-        }
-        var requeued = existing
-        requeued.status = .queued
-        requeued.reason = nil
-        requeued.engineID = engineID()
-        requeued.target = effectiveTarget
-        if requeued.locksTarget {
-            if effectiveTarget == BuildTarget.mac {
-                requeued.packageAfter = false
-                requeued.exportIPA = nil
-                requeued.destinationName = nil
-            } else if joinsActiveBatch, let iosRef = activeIOSReference {
-                requeued.packageAfter = iosRef.packageAfter
-                requeued.exportIPA = iosRef.exportIPA
-                requeued.destinationName = iosRef.destinationName
-            }
-            if joinsActiveBatch, let currentBatch {
-                requeued.batch = currentBatch.batch
-            }
-        } else if joinsActiveBatch, let currentBatch {
-            requeued.target = currentBatch.target
-            requeued.batch = currentBatch.batch
-            requeued.packageAfter = currentBatch.packageAfter
-            requeued.exportIPA = currentBatch.exportIPA
-            requeued.destinationName = currentBatch.destinationName
-        }
-        entries.append(requeued)
-        persist()
-        if active { processNext() }
+        var ended: [UUID] = []
+        for entry in entries where entry.packagePending == false && !ended.contains(entry.batch) { ended.append(entry.batch) }
+        for batch in ended { batchEnded(batch) }
     }
 
     // MARK: Running
 
-    /// Starts the waiting queue, optionally applying the player's current target and shared-app packaging choice to the queued batch.
-    package func start(
-        target: String? = nil,
-        packageAfter: Bool? = nil,
-        exportIPA: Bool? = nil,
-        destinationName: String? = nil
-    ) {
+    /// Starts each job on its own platform, applying shared iOS delivery options to waiting iOS jobs.
+    package func start(target: String? = nil, packageAfter: Bool? = nil, exportIPA: Bool? = nil, exportFramework: Bool? = nil, destinationName: String? = nil) {
         guard hasWaiting else { return }
         let normalizedStartTarget = target.map(BuildTarget.normalized)
-        let hasSharedParams = target != nil || packageAfter != nil || exportIPA != nil || destinationName != nil
-        if hasSharedParams {
-            let existingDoneBatch = entries.last(where: { $0.status == .done })?.batch
-            let batch = existingDoneBatch ?? UUID()
-            let callerPassedMacOnlyDefaults = (normalizedStartTarget == BuildTarget.mac)
+        if target != nil || packageAfter != nil || exportIPA != nil || exportFramework != nil || destinationName != nil {
+            let batch = UUID()
+            let callerPassedMacOnlyDefaults = normalizedStartTarget == BuildTarget.mac
                 && (packageAfter == nil || packageAfter == false)
                 && exportIPA == nil
+                && exportFramework == nil
                 && destinationName == nil
             for index in entries.indices where entries[index].status == .queued {
-                if entries[index].locksTarget {
-                    let locked = BuildTarget.normalized(entries[index].target)
-                    entries[index].target = locked
-                    entries[index].batch = batch
-                    if locked == BuildTarget.mac {
-                        entries[index].packageAfter = false
-                        entries[index].exportIPA = nil
-                        entries[index].destinationName = nil
-                    } else if !callerPassedMacOnlyDefaults {
-                        if let packageAfter { entries[index].packageAfter = packageAfter }
-                        if let exportIPA { entries[index].exportIPA = exportIPA }
-                        entries[index].destinationName = destinationName
-                    }
-                } else {
-                    if let target { entries[index].target = target }
-                    if let packageAfter { entries[index].packageAfter = packageAfter }
-                    if let exportIPA { entries[index].exportIPA = exportIPA }
-                    entries[index].destinationName = destinationName
-                    entries[index].batch = batch
+                if !entries[index].locksTarget, let normalizedStartTarget {
+                    entries[index].target = normalizedStartTarget
                 }
-            }
-        } else {
-            for index in entries.indices where entries[index].status == .queued && entries[index].locksTarget {
-                let locked = BuildTarget.normalized(entries[index].target)
-                entries[index].target = locked
-                if locked == BuildTarget.mac {
+                entries[index].target = BuildTarget.normalized(entries[index].target)
+                entries[index].batch = batch
+                guard entries[index].target != BuildTarget.mac else {
                     entries[index].packageAfter = false
                     entries[index].exportIPA = nil
+                    entries[index].exportFramework = nil
+                    entries[index].destinationName = nil
+                    continue
+                }
+                if callerPassedMacOnlyDefaults && entries[index].locksTarget { continue }
+                if let packageAfter { entries[index].packageAfter = packageAfter }
+                if let exportIPA { entries[index].exportIPA = exportIPA }
+                if let exportFramework { entries[index].exportFramework = exportFramework }
+                entries[index].destinationName = destinationName
+            }
+        } else {
+            for index in entries.indices where entries[index].status == .queued {
+                entries[index].target = BuildTarget.normalized(entries[index].target)
+                if entries[index].target == BuildTarget.mac {
+                    entries[index].packageAfter = false
+                    entries[index].exportIPA = nil
+                    entries[index].exportFramework = nil
                     entries[index].destinationName = nil
                 }
             }
@@ -321,34 +259,32 @@ import NXCore
     /// build and pauses the queue, so the next game does not start by itself.
     package func buildEnded(succeeded: Bool, reason: String? = nil, stopped: Bool = false) {
         guard let index = entries.firstIndex(where: { $0.status == .running }) else { return }
-        if succeeded {
-            entries[index].status = .done
-            entries[index].reason = nil
-        } else if stopped {
-            entries[index].status = .stopped
-            entries[index].reason = nil
-        } else {
-            entries[index].status = .failed
-            entries[index].reason = reason
+        entries[index].status = succeeded ? .done : (stopped ? .stopped : .failed)
+        entries[index].reason = succeeded || stopped ? nil : reason
+        if succeeded && entries[index].target != BuildTarget.mac && entries[index].packageAfter {
+            entries[index].packagePending = false
         }
         let batch = entries[index].batch
-        if stopped && !succeeded && hasWaiting {
-            paused = true
+        let titleID = entries[index].titleID
+        if stopped && !succeeded {
+            paused = hasWaiting
             active = false
         }
         persist()
-        if !entries.contains(where: { $0.batch == batch && ($0.status == .queued || $0.status == .running) }) {
-            batchEnded(batch)
-        }
-        processNext()
-        if running == nil && !hasWaiting { active = false }
+        if stopped || !entries.contains(where: { $0.batch == batch && ($0.status == .queued || $0.status == .running) }) { batchEnded(batch) }
+        processNext(preferredTitleID: titleID)
+        if running == nil && !hasWaiting && packaging.isEmpty { active = false }
     }
 
     /// The next waiting entry starts when nothing runs. An entry that cannot start is skipped with its reason, and the next one tries.
-    package func processNext() {
-        guard active, !awaitingResume, !paused, running == nil, !busy() else { return }
-        while let index = entries.firstIndex(where: { $0.status == .queued }) {
+    package func processNext(preferredTitleID: String? = nil) {
+        var preferred = preferredTitleID
+        guard active, !awaitingResume, !paused, running == nil, packaging.isEmpty, !busy() else { return }
+        while let index = entries.firstIndex(where: { $0.status == .queued && $0.titleID.caseInsensitiveCompare(preferred ?? "") == .orderedSame })
+            ?? entries.firstIndex(where: { $0.status == .queued }) {
+            guard !busy(), packaging.isEmpty else { return }
             let entry = entries[index]
+            preferred = entry.titleID
             if entry.engineID != engineID() {
                 skip(index, engineChangedReason())
                 continue
@@ -362,7 +298,7 @@ import NXCore
             }
             return
         }
-        if running == nil && !hasWaiting { active = false }
+        if running == nil && !hasWaiting && packaging.isEmpty { active = false }
     }
 
     private func skip(_ index: Int, _ reason: String) {
@@ -370,23 +306,29 @@ import NXCore
         entries[index].reason = reason
         let batch = entries[index].batch
         persist()
-        if !entries.contains(where: { $0.batch == batch && ($0.status == .queued || $0.status == .running) }) {
-            batchEnded(batch)
-        }
+        if !entries.contains(where: { $0.batch == batch && ($0.status == .queued || $0.status == .running) }) { batchEnded(batch) }
     }
 
     private func batchEnded(_ batch: UUID) {
-        let members = entries.filter { $0.batch == batch }
-        let good = members.filter {
-            $0.status == .done && $0.packageAfter && (!$0.locksTarget || BuildTarget.normalized($0.target) != BuildTarget.mac)
-        }
+        let good = entries.filter { $0.batch == batch && $0.status == .done && $0.packagePending == false }
         guard !good.isEmpty else { return }
-        packageBatch(good)
+        let ids = Set(good.map(\.id))
+        for index in entries.indices where ids.contains(entries[index].id) { entries[index].packagePending = true }
+        persist()
+        if !packageBatch(good) { packageEnded(succeeded: false) }
     }
 
-    private func persist() {
-        if let file {
-            BuildQueueFile.save(entries, paused: paused, to: file)
+    package func packageEnded(succeeded: Bool, reason: String? = nil, stopped: Bool = false) {
+        for index in entries.indices where entries[index].packagePending == true {
+            entries[index].packagePending = nil
+            entries[index].status = succeeded ? .done : (stopped ? .stopped : .failed)
+            entries[index].reason = succeeded || stopped ? nil : (reason ?? packageFailureReason())
         }
+        if stopped { paused = hasWaiting; active = false }
+        persist()
+        processNext()
+        if running == nil && !hasWaiting && packaging.isEmpty { active = false }
     }
+
+    private func persist() { if let file { BuildQueueFile.save(entries, paused: paused, to: file) } }
 }

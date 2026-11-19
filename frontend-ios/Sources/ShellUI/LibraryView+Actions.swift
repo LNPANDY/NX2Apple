@@ -35,6 +35,21 @@ extension LibraryView {
         a.onRestoreSaveBackup = { if !echo() { o.onRestoreSaveBackup($0) } }
         a.onDeleteGame = { if !echo() { o.onDeleteGame($0, $1) } }
         a.onOpenHomeButtonSettings = { if !echo() { o.onOpenHomeButtonSettings() } }
+        a.onCopyShortcutURL = o.onCopyShortcutURL.map { copy in
+            { if !echo() { copy($0) } }
+        }
+        if let add = o.onAddToHomeScreen {
+            a.onAddToHomeScreen = { @MainActor id in
+                guard !gate.isSystemEcho else { return false }
+                return await add(id)
+            }
+        }
+        if let addWithGuide = o.onAddToHomeScreenWithGuide {
+            a.onAddToHomeScreenWithGuide = { @MainActor id, floatingGuide in
+                guard !gate.isSystemEcho else { return false }
+                return await addWithGuide(id, floatingGuide)
+            }
+        }
         return a
     }
     /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when
@@ -118,6 +133,17 @@ extension LibraryView {
         guard !fromSystemEcho else { return }
         restoreBackupGameID = nil
         menuActions.onRestoreSaveBackup(id)
+    }
+    func openHomeScreen(_ id: String) {
+        guard noteTouch() else { return }
+        returnFocus = focus.id
+        homeScreenGameID = id
+        focus.id = "hsc.save"
+    }
+    func closeHomeScreen() {
+        guard !fromSystemEcho else { return }
+        homeScreenGameID = nil
+        focus.id = returnFocus
     }
     /// The question starts on Cancel, with the saves kept.
     func openDelete(_ id: String) { guard noteTouch() else { return }; returnFocus = focus.id; deleteSaves = false; deleteGameID = id; focus.id = "del.cancel" }
@@ -212,6 +238,7 @@ extension LibraryView {
         }
         else if helpGameID != nil { closeHelp() }
         else if restoreBackupGameID != nil { closeRestoreBackup() }
+        else if homeScreenGameID != nil { closeHomeScreen() }
         else if deleteGameID != nil { closeDelete() }
         else if controllersOpen { controllersOpen = false; retention.closed(.controllers, sheetStaysOpen: menuPresented); focus.id = settingsOpen ? "set.back" : "lib.controllers" }
         else if shellSettingsOpen { closeShellSettings() }
@@ -307,6 +334,7 @@ extension LibraryView {
         if shellSettingsOpen { return .shellSettings }
         if helpGameID != nil { return .help }
         if restoreBackupGameID != nil { return .restoreBackup }
+        if homeScreenGameID != nil { return .homeScreen }
         if deleteGameID != nil { return .delete }
         if settingsOpen { return .settings }
         return nil
@@ -325,6 +353,7 @@ extension LibraryView {
         if touchLayout != nil { return activeTargets.contains { $0.id == "lay.done" } ? "lay.done" : "lay.options" }
         if helpGameID != nil { return "help.done" }
         if restoreBackupGameID != nil { return "rst.cancel" }
+        if homeScreenGameID != nil { return "hsc.save" }
         if deleteGameID != nil { return "del.cancel" }
         if controllersOpen { return "ctl.close" }
         if shellSettingsOpen { return "shs.close" }

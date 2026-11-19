@@ -27,15 +27,10 @@ package struct ControlsCard: View {
     }
 
     package var body: some View {
-        CardGroup(loc.t("section.controls"), footnote: loc.t("controls.settingsHint")) {
+        CardGroup(loc.t("settings.controllerGroup"), footnote: loc.t("controls.settingsHint")) {
             CardRow(loc.t("controls.row"), detail: controlChanges == 0 ? loc.t("controls.defaultLayout") : String(format: loc.t("controls.changes"), controlChanges)) {
                 Button(loc.t("controls.customize"), action: onOpenControls)
                     .padTarget("set.controls", scope: "main") { onOpenControls() }
-            }
-            CardDivider()
-            CardRow(loc.t("console.mergeAll"), detail: loc.t("console.mergeNote")) {
-                Toggle(loc.t("console.mergeAll"), isOn: padMerge).labelsHidden().toggleStyle(LauncherSwitchStyle())
-                    .padTarget("set.padMerge", scope: "main") { padMerge.wrappedValue.toggle() }
             }
             CardDivider()
             CardRow(loc.t("console.controllers"), detail: loc.t("console.controllersRowNote")) {
@@ -43,17 +38,24 @@ package struct ControlsCard: View {
                     .padTarget("set.controllers", scope: "main") { onOpenControllers() }
             }
             CardDivider()
-            CardRow(loc.t("console.promptSetting"), detail: loc.t("console.promptSettingNote")) {
+            CardRow(loc.t("console.mergeAll"), info: ("set.padMerge.help", loc.t("console.mergeNote"))) {
+                Toggle(loc.t("console.mergeAll"), isOn: padMerge).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                    .padTarget("set.padMerge", scope: "main") { padMerge.wrappedValue.toggle() }
+            }
+
+        }
+        CardGroup(loc.t("settings.consoleGroup")) {
+            CardRow(loc.t("console.promptSetting"), info: ("set.consolePrompt.help", loc.t("console.promptSettingNote"))) {
                 Toggle(loc.t("console.promptSetting"), isOn: consolePrompt).labelsHidden().toggleStyle(LauncherSwitchStyle())
                     .padTarget("set.consolePrompt", scope: "main") { consolePrompt.wrappedValue.toggle() }
             }
             CardDivider()
-            CardRow(loc.t("console.startInConsole"), detail: loc.t("console.startInConsoleNote")) {
+            CardRow(loc.t("console.startInConsole"), info: ("set.consoleStart.help", loc.t("console.startInConsoleNote"))) {
                 Toggle(loc.t("console.startInConsole"), isOn: startInConsole).labelsHidden().toggleStyle(LauncherSwitchStyle())
                     .padTarget("set.consoleStart", scope: "main") { startInConsole.wrappedValue.toggle() }
             }
             CardDivider()
-            CardRow(loc.t("controls.homeQuit"), detail: loc.t(onOpenHomeSettings == nil ? "controls.homeQuitOld" : "controls.homeQuitNote")) {
+            CardRow(loc.t("controls.homeQuit"), detail: onOpenHomeSettings == nil ? loc.t("controls.homeQuitOld") : "", info: onOpenHomeSettings == nil ? nil : ("set.homeQuit.help", loc.t("controls.homeQuitNote"))) {
                 if let onOpenHomeSettings {
                     Button(loc.t("console.homeHint.open"), action: onOpenHomeSettings)
                         .padTarget("set.homeQuit", scope: "main") { onOpenHomeSettings() }

@@ -1309,7 +1309,7 @@ class RefreshQueueManager:
 
     def should_export_shared_shell_for_current(self, item: RefreshQueueItem, *, ipa_kind: str = 'shared') -> bool:
         """Return True only when `item` is an iOS shared-shell build with no later iOS items in the queue."""
-        if item.target != 'ios' or ipa_kind == 'oneGame':
+        if item.target != 'ios' or ipa_kind != 'shared':
             return False
         with self._lock:
             has_later_ios = any(later.target == 'ios' for later in self._items)
@@ -1324,7 +1324,7 @@ class RefreshQueueManager:
             nxt = self._items.pop(0)
             self._active_item = nxt
             has_later_ios = any(later.target == 'ios' for later in self._items)
-        export_now = (nxt.target == 'ios' and ipa_kind != 'oneGame' and not has_later_ios)
+        export_now = (nxt.target == 'ios' and ipa_kind == 'shared' and not has_later_ios)
         return nxt, export_now
 
     def start_if_idle(self) -> bool:
@@ -1376,7 +1376,7 @@ class RefreshQueueManager:
         if nxt.out_dir:
             m.out_dir = nxt.out_dir
         m.target = nxt.target
-        m._defer_shell_export = (nxt.target == 'ios' and ipa_kind != 'oneGame' and not export_now)
+        m._defer_shell_export = (nxt.target == 'ios' and ipa_kind == 'shared' and not export_now)
         m._queued_external_img_path = nxt.external_img_path or ''
         m.start_build(title_id=nxt.title_id)
         return True
@@ -1396,7 +1396,7 @@ class RefreshQueueManager:
 
         m = self._model
         ipa_kind = getattr(m, 'ipa_kind', 'shared') if m is not None else 'shared'
-        if finished_item.target == 'ios' and ipa_kind != 'oneGame':
+        if finished_item.target == 'ios' and ipa_kind == 'shared':
             with self._lock:
                 still_has_ios = any(it.target == 'ios' for it in self._items)
             if ok and still_has_ios:
@@ -1485,6 +1485,25 @@ def _locate_pulled_img_file(tmp_path: Path, remote_src: str) -> Path | None:
         if len(found) == 1:
             return found[0]
     return None
+
+
+def localize_pull_error(reason: str, t_func: Callable[..., str]) -> str:
+    """Translate raw `pull_img_from_ios_device` failure tokens into localized UI text."""
+    raw = (reason or '').strip()
+    if not raw or raw.startswith('exit ') or raw in ('devicectl copy failed', 'Device file transfer failed'):
+        return t_func('imgGuide.pullErrTransfer')
+    if raw == 'devicectl unavailable':
+        return t_func('imgGuide.pullErrUnavailable')
+    if raw in ('no device', 'missing device', 'No device selected'):
+        return t_func('imgGuide.pullErrNoDevice')
+    if raw.startswith('no .img found'):
+        return t_func('imgGuide.pullErrNotFound')
+    if raw in ('invalid DMROMFS1 file', 'identity mismatch'):
+        return t_func('imgGuide.pullErrInvalid')
+    lower = raw.lower()
+    if 'timed out' in lower or 'timeoutexpired' in lower:
+        return t_func('imgGuide.pullErrTimedOut')
+    return raw
 
 
 def pull_img_from_ios_device(
@@ -2238,7 +2257,9 @@ if HAS_QT:
                         self.accept()
                     elif info != 'cancelled':
                         _apply_text_color(self.pull_status_lbl, '#ff6161')
-                        self.pull_status_lbl.setText(self.m.t('imgGuide.pullFailed', info))
+                        self.pull_status_lbl.setText(
+                            self.m.t('imgGuide.pullFailed', localize_pull_error(info, self.m.t))
+                        )
 
                 self._bridge.safe_emit(apply)
 

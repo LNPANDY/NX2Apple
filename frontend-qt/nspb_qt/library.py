@@ -319,6 +319,13 @@ def one_game_ipa_path(out_dir: str, build_key: str) -> str:
     return os.path.join(out_dir, f'{build_key}.ipa')
 
 
+def game_framework_path(out_dir: str, title_id: str) -> str:
+    """Where `ipa_kind == 'framework'` writes its bundle: `<out dir>/DmGame<title ID>.framework`."""
+    if not out_dir or not title_id:
+        return ''
+    return os.path.join(out_dir, f'DmGame{title_id.upper()}.framework')
+
+
 @lru_cache(maxsize=128)
 def _ipa_kind(path: str, signature: tuple[int, ...]) -> str:
     """Read only the ZIP directory, cached until the file's stat signature changes.
@@ -336,6 +343,38 @@ def _ipa_kind(path: str, signature: tuple[int, ...]) -> str:
     return kinds[0] if len(kinds) == 1 else ''
 
 
+def is_framework_path(path: str) -> bool:
+    """True when `path` is a `.framework` bundle directory on disk."""
+    return bool(path) and path.rstrip('/\\').lower().endswith('.framework') and os.path.isdir(path)
+
+
+def _is_valid_ios_output(path: str) -> bool:
+    """True for either an `.ipa` file or a standalone `.framework` directory."""
+    return bool(path) and (os.path.isfile(path) or is_framework_path(path))
+
+
+def _framework_matches_key(resolved_dir: str, build_key: str) -> bool:
+    """Verify `resolved_dir` belongs to `build_key` when `build_key` is known, so stale last_ipa never crosses games."""
+    key = (build_key or '').strip().upper()
+    if not key:
+        return True
+    plist_path = os.path.join(resolved_dir, 'Info.plist')
+    if os.path.isfile(plist_path):
+        try:
+            import plistlib
+            with open(plist_path, 'rb') as pf:
+                data = plistlib.load(pf)
+            dm_tid = str(data.get('DMTitleID') or '').strip().upper()
+            if dm_tid:
+                return dm_tid == key
+        except Exception:
+            pass
+    base = os.path.basename(resolved_dir.rstrip('/\\')).upper()
+    if base.startswith('DMGAME') and base.endswith('.FRAMEWORK'):
+        return base[6:-10] == key
+    return False
+
+
 def reveal_ipa_path(*, ipa_kind: str, shell_cache: str, out_dir: str, build_key: str,
                     last_ipa: str = '', library_ipa: str = '') -> str:
     """The IPA that the selected kind produced, for "Show in folder".
@@ -346,7 +385,27 @@ def reveal_ipa_path(*, ipa_kind: str, shell_cache: str, out_dir: str, build_key:
     record. Check the app bundle in every candidate so profile-named one-game outputs and moved
     files still work without mistaking a remembered shared IPA for a one-game output.
     """
-    if ipa_kind not in ('shared', 'oneGame'):
+    if ipa_kind not in ('shared', 'oneGame', 'framework'):
+        return ''
+    if ipa_kind == 'framework':
+        want = game_framework_path(out_dir, build_key)
+        for candidate in (want, last_ipa, library_ipa):
+            if not candidate or not candidate.rstrip('/\\').lower().endswith('.framework'):
+                continue
+            try:
+                path = os.path.realpath(candidate)
+                info = os.stat(path)
+            except OSError:
+                continue
+            if (
+                stat.S_ISDIR(info.st_mode)
+                and _framework_matches_key(path, build_key)
+                and (
+                    os.path.isfile(os.path.join(path, 'Info.plist'))
+                    or os.path.isfile(os.path.join(path, 'game.manifest.json'))
+                )
+            ):
+                return candidate
         return ''
     shared = shell_ipa_path(shell_cache) if shell_cache else ''
     want = shared if ipa_kind == 'shared' else one_game_ipa_path(out_dir, build_key)
@@ -725,7 +784,7 @@ class LibraryGame:
 
     @property
     def has_ipa(self) -> bool:
-        return bool(self.ipa_path and os.path.isfile(self.ipa_path))
+        return _is_valid_ios_output(self.ipa_path)
 
     @property
     def has_ios_app(self) -> bool:
@@ -1145,14 +1204,18 @@ class GameLibrary:
 
         resolved_name = name.strip() or GameFolder.profile_name(tid, repo_path)
         if not resolved_name:
-            if ipa_path and os.path.basename(ipa_path).lower() != 'nx2apple.ipa':
+            if (
+                ipa_path
+                and os.path.basename(ipa_path).lower() != 'nx2apple.ipa'
+                and not ipa_path.rstrip('/\\').lower().endswith('.framework')
+            ):
                 resolved_name = clean_game_name(ipa_path)
             elif base_path:
                 resolved_name = clean_game_name(base_path)
             else:
                 resolved_name = tid
 
-        resolved_ipa = ipa_path if (ipa_path and os.path.isfile(ipa_path)) else ''
+        resolved_ipa = ipa_path if _is_valid_ios_output(ipa_path) else ''
         resolved_ios_app = ''
         resolved_installed = ''
         s_root = shell_root or str(self.state_dir / 'shell')

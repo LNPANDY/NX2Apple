@@ -15,6 +15,8 @@ package enum BuildFailureKind: String, CaseIterable {
     case staleProfile
     /// The selected update or game build does not match the versions registered by the game profile.
     case updateMismatch
+    /// MacNativeGames requires unpacked system firmware or shared fonts when building from standard NSP dumps.
+    case mngSharedFonts
     /// The build's and the install's own steps.
     /// The offline Metal archive ran out of space or stopped at its own space estimate.
     case psoDiskFull
@@ -47,6 +49,7 @@ package enum BuildFailureKind: String, CaseIterable {
         switch self {
         case .metalToolchain: return "macFail.metalToolchain.what"
         case .updateMismatch: return "macFail.updateMismatch.what"
+        case .mngSharedFonts: return "macFail.mngSharedFonts.what"
         case .freeAccountLimit: return "macFail.freeAccountLimit.what"
         default: return "fail.\(rawValue).what"
         }
@@ -56,6 +59,7 @@ package enum BuildFailureKind: String, CaseIterable {
         switch self {
         case .metalToolchain: return "macFail.metalToolchain.next"
         case .updateMismatch: return "macFail.updateMismatch.next"
+        case .mngSharedFonts: return "macFail.mngSharedFonts.next"
         case .freeAccountLimit: return "macFail.freeAccountLimit.next"
         default: return "fail.\(rawValue).next"
         }

@@ -72,14 +72,9 @@ extension LauncherView {
             .frame(height: LauncherControl.height - 18)
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
-        .overlay {
-            if count > 0 {
-                RoundedRectangle(cornerRadius: 9).strokeBorder(LauncherPalette.notice.opacity(0.45))
-            }
-        }
         .help(loc.t("batchRefresh.title"))
         .accessibilityLabel(a11y)
-        .padTarget("hero.rebuildAll", scope: "main", radius: 9, activate: openBatchRefresh)
+        .padTarget("hero.rebuildAll", scope: "main", radius: 100, activate: openBatchRefresh)
     }
 
     /// Scheme A: high-contrast platform-aware single-game refresh CTA next to heroPrimary.
@@ -91,8 +86,6 @@ extension LauncherView {
         } ?? false
         let title = singleRefreshButtonTitle(assessment: assessment, hasMac: hasMac, hasIOS: hasIOS, isFast: isFast)
         let symbol = isFast ? "bolt.fill" : "arrow.clockwise"
-        let accentColor = isFast ? LauncherPalette.ready : LauncherPalette.notice
-        let versionText = assessment?.versionLabel ?? GameUpdateCatalog.releaseBaseVersion(AppUpdateStore.appVersion)
         let isProbing = toolsAge.singleRefreshProbingGameID != nil
         let isProbingThis = toolsAge.singleRefreshProbingGameID == game.id
         let perform = {
@@ -107,32 +100,14 @@ extension LauncherView {
                 } else {
                     Image(systemName: symbol)
                         .font(.system(size: 13.5, weight: .bold))
-                        .foregroundStyle(accentColor)
                 }
                 Text(title)
-                    .font(.manrope(14.5, .bold))
-                    .foregroundStyle(LauncherPalette.textStrong)
+                    .font(.manrope(16, .semibold))
                     .lineLimit(1)
-                if !compact && !versionText.isEmpty {
-                    Text(versionText)
-                        .font(.manrope(11.5, .bold))
-                        .foregroundStyle(accentColor)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(accentColor.opacity(lightHero ? 0.14 : 0.18), in: Capsule())
-                        .lineLimit(1)
-                }
+
             }
-            .padding(.horizontal, compact ? 16 : 20)
-            .frame(height: 48)
-            .background {
-                Capsule().fill(lightHero ? Color.white.opacity(0.88) : Color.white.opacity(0.12))
-            }
-            .overlay(Capsule().strokeBorder(accentColor.opacity(lightHero ? 0.45 : 0.55), lineWidth: 1.2))
-            .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
-        .launcherHover(enabled: artworkEditor == nil && !isProbing)
+        .buttonStyle(LauncherSecondaryButtonStyle(height: LauncherHeroAction.height))
         .disabled(m.running || isProbing)
         .help(loc.t("library.olderToolsHelp"))
         .accessibilityLabel(title)
@@ -193,7 +168,7 @@ extension LauncherView {
 
     func triggerSingleRefresh(_ game: LibraryGame) {
         guard !stores.build.running else {
-            page = .builds
+            page = .builds; buildEditorOpen = true
             return
         }
         guard toolsAge.singleRefreshProbingGameID == nil else { return }
@@ -282,7 +257,9 @@ extension LauncherView {
                     engineID: stores.engineSync.selection.engineID,
                     target: m.target,
                     batch: batch,
-                    packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame
+                    packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame && !m.exportsFramework,
+                    exportIPA: (m.target != BuildTarget.mac && m.exportsShell) ? true : nil,
+                    exportFramework: m.exportsFramework ? true : nil
                 ))
             }
         }
@@ -293,7 +270,7 @@ extension LauncherView {
             return
         }
         stores.queue.enqueue(ordered)
-        page = .builds
+        page = .builds; buildEditorOpen = true
         if !m.running && m.canStartBuildOrQueue {
             m.startBuildOrQueue()
         }

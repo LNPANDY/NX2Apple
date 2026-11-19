@@ -162,7 +162,8 @@ def py(*args, env=None, capture=True) -> str:
 #: file to either line, silently missing it here would produce a link error or a subtly
 #: incomplete host.
 WANT_SRC = ('SRC=main.c loader.c hle.c crash.c probe.c thread.c save_sync.c memstat.m '
-            'haptics_apple.m pad_switch2_apple.m $(sort $(wildcard hle_*.c)) front_mac.m controllers_mac.m web_apple.m entry.S')
+            'haptics_apple.m audio_input.c audio_input_mac.m pad_switch2_apple.m $(sort $(wildcard hle_*.c)) '
+            'front_mac.m controllers_mac.m web_apple.m entry.S')
 WANT_GFX = ('GFX=$(sort $(wildcard ../gfx/*.c ../gfx/nvn/*.c ../gfx/nvn/*.m ../gfx/nvn/*.S '
             '../gfx/tex/*.c ../gfx/tex/*.m ../gfx/vk/*.m ../gfx/gl/*.m))')
 _GFX_PATS = ('../gfx/*.c', '../gfx/nvn/*.c', '../gfx/nvn/*.m', '../gfx/nvn/*.S',
@@ -191,7 +192,7 @@ def host_sources(repo: Path, game_h_dir: Path) -> tuple[list[Path], list[Path]]:
                 f'frontend-qt/nspb_qt/win/build_app.py to match')
 
     src = [host / n for n in 'main.c loader.c hle.c crash.c probe.c thread.c save_sync.c '
-                            'memstat.m haptics_apple.m pad_switch2_apple.m'.split()]
+                            'memstat.m haptics_apple.m audio_input.c audio_input_mac.m pad_switch2_apple.m'.split()]
     src += sorted(host.glob('hle_*.c'), key=lambda p: p.name)
     src += [host / 'front_mac.m', host / 'controllers_mac.m', host / 'web_apple.m', host / 'entry.S']
     gfx: list[Path] = []
@@ -677,15 +678,17 @@ def make_framework_icon(src: Path, dst: Path) -> bool:
 
 
 def framework_info_plist(*, bundle_id: str, fw_name: str, display_name: str, version: str,
-                         sdk_ver: str, sdk_build: str, deployment: str) -> dict:
+                         sdk_ver: str, sdk_build: str, deployment: str,
+                         title_id: str = '') -> dict:
     """`Info.plist` for `DmGame<title ID>.framework` (`project-framework.yml` `DmShellGame`)."""
-    return {
+    plist: dict = {
         'CFBundleDevelopmentRegion': 'en',
         'CFBundleExecutable': fw_name,
         'CFBundleIdentifier': bundle_id,
         'CFBundleInfoDictionaryVersion': '6.0',
         'CFBundleName': fw_name,
         'CFBundleDisplayName': display_name,
+        'CFBundleIconFile': 'AppIcon.png',
         'CFBundlePackageType': 'FMWK',
         'CFBundleShortVersionString': version,
         'CFBundleVersion': version,
@@ -697,6 +700,9 @@ def framework_info_plist(*, bundle_id: str, fw_name: str, display_name: str, ver
         'MinimumOSVersion': deployment,
         'UIDeviceFamily': [1, 2],
     }
+    if title_id:
+        plist['DMTitleID'] = title_id
+    return plist
 
 
 def shader_lib_real_path(repo: Path, lib: Path) -> Path:
@@ -1227,7 +1233,7 @@ def main(argv: list[str] | None = None) -> int:
         out_fw = Path(framework_only) / f'{fw_name}.framework'
         out_fw.mkdir(parents=True, exist_ok=True)
         for child in list(out_fw.iterdir()):
-            if child.name in ('pso', 'icon.png') or child.name.startswith('banner.'):
+            if child.name in ('pso', 'icon.png', 'AppIcon.png') or child.name.startswith('banner.'):
                 continue
             if child.is_dir():
                 shutil.rmtree(child, ignore_errors=True)
@@ -1274,7 +1280,7 @@ def main(argv: list[str] | None = None) -> int:
             plistlib.dump(framework_info_plist(bundle_id=f'{bundle_id}.DmGame', fw_name=fw_name,
                                                display_name=name, version=version,
                                                sdk_ver=sdk_ver, sdk_build=sdk_build,
-                                               deployment=deployment),
+                                               deployment=deployment, title_id=game),
                           f, fmt=plistlib.FMT_BINARY)
 
         shutil.rmtree(out_fw / 'msl', ignore_errors=True)
@@ -1297,8 +1303,10 @@ def main(argv: list[str] | None = None) -> int:
             shutil.rmtree(out_fw / 'pso', ignore_errors=True)
 
         if icon.is_file():
-            make_framework_icon(icon, out_fw / 'icon.png')
+            if make_framework_icon(icon, out_fw / 'AppIcon.png'):
+                shutil.copy2(out_fw / 'AppIcon.png', out_fw / 'icon.png')
         else:
+            (out_fw / 'AppIcon.png').unlink(missing_ok=True)
             (out_fw / 'icon.png').unlink(missing_ok=True)
 
         t(f'done: {out_fw} (build_shell.sh embeds it in the shell)')

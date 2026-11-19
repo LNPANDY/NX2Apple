@@ -39,6 +39,8 @@ package struct FilePick: Equatable {
     var exportIPA: Bool { get }
     /// The export makes one game's own IPA with its game data inside (#540).
     var exportOneGame: Bool { get }
+    /// The export makes a standalone `.framework` for the shared app without repacking the shell IPA.
+    var exportFramework: Bool { get }
     /// The folder the game data is copied to (a drive), empty when none is chosen.
     var driveFolder: String { get set }
     var xcrun: String { get }
@@ -54,6 +56,7 @@ package struct FilePick: Equatable {
 }
 
 extension InstallTarget {
+    package var exportFramework: Bool { false }
     package func cancelCopy() {}
     package func refreshDevices() async {}
 }
@@ -88,6 +91,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let experimentalBuilderKey = "experimentalBuilder"
     nonisolated package static let experimentalBuilderPathKey = "experimentalBuilderPath"
     nonisolated package static let savedKeysKey = "savedKeysPath"
+    nonisolated package static let buildUpstreamKey = "buildUpstream"
+    nonisolated package static let macNativeGamesPathKey = "macNativeGamesPath"
+    nonisolated package static let s2armPathKey = "s2armPath"
 
     @Published package var gameDir = ""
     @Published package var slots: [Slot] = [
@@ -130,12 +136,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var running = false {
         didSet {
             if !running, !buildingGame { runningTarget = target }
-            if !running { operation = nil }
+            if !running { completedOperation = operation?.kind; operation = nil }
         }
     }
     /// What runs right now: operation, game and destination, taken when the work starts and independent of the Build form
     /// (BuildStore+Operation.swift). nil when nothing runs.
     @Published package internal(set) var operation: ActiveOperation?
+    package var completedOperation: ActiveOperation.Kind?
     @Published package var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
     // The shell folder (shellCachePath, shellRoot, shellRootProblem): BuildStore+ShellRoot.swift.
     @Published package var stopping = false
@@ -206,7 +213,46 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The app's own nxb (Contents/Resources/nxbuild/nxb, frontend/nxbuild.pin), nil in tests and in a build without a pinned release.
     package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
     package var nxbRun = false   // the running build is `nxb build`, not the script: its exit code has its own messages
+    @Published package var buildUpstream: EngineUpstreamKind {
+        didSet {
+            defaults.set(buildUpstream.rawValue, forKey: Self.buildUpstreamKey)
+            if MacNativeGamesBuilder.featureEnabled && buildUpstream == .macNativeGames && target != BuildTarget.mac {
+                target = BuildTarget.mac
+            }
+            if oldValue != buildUpstream {
+                upstreamChanged()
+            }
+        }
+    }
+    @Published package var macNativeGamesPath: String {
+        didSet {
+            defaults.set(macNativeGamesPath, forKey: Self.macNativeGamesPathKey)
+            macNativeGamesInstalled = MacNativeGamesBuilder.isUsableTree(macNativeGamesPath)
+        }
+    }
+    @Published package internal(set) var macNativeGamesInstalled = false
+    package var mngRun = false
+    @Published package var s2armPath: String {
+        didSet {
+            defaults.set(s2armPath, forKey: Self.s2armPathKey)
+            s2armInstalled = S2ArmBuilder.isUsableTree(s2armPath)
+            if oldValue != s2armPath && buildUpstream == .s2arm {
+                upstreamChanged()
+            }
+        }
+    }
+    @Published package internal(set) var s2armInstalled = false
+    @Published package internal(set) var upstreamDownloads: [EngineUpstreamKind: UpstreamInstallState] = [:]
+    package var upstreamDownloadTasks: [EngineUpstreamKind: Task<Void, Never>] = [:]
+    package var upstreamDownloadGeneration: [EngineUpstreamKind: UInt64] = [:]
+    @Published package internal(set) var upstreamAutoSwitchRevision: UInt64 = 0
+    package var upstreamTransport: EngineTransport = URLSessionEngineTransport()
+    package var s2armRun = false
+    package var s2armEventsPath = ""
     @Published package var archivePath = ""  // the romfs folder the pack wrote
+    /// True after an iOS fast refresh embedded `DMMSLTR1` shaders into `.img`, reminding the player to replace older `.img` copies.
+    @Published package var needsReplaceOldImgReminder = false
+    @Published package var updatedImgPath = ""
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
     package var effectiveWorkDir = ""
@@ -217,11 +263,20 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     // (--prepare-xcode, the route its README gives developers), xcodebuild signs it for that device with the
     // team (Xcode makes the provisioning profile) without the game files, devicectl installs it and copies the game's
     // folder (romfs.img, aoc/) into its Documents, as a sideloaded copy has it. Without a device or a team the build stays an unsigned IPA, as before.
-    @Published package var installedOn = ""       // the device the last build went to (its UDID)
+    @Published package var installedDataComplete: Bool?
+    @Published package var installedOn = "" { didSet { installedDataComplete = nil } }       // the device the last build went to (its UDID)
     @Published package var installedAppPath = ""  // the signed app that went there
     @Published package var exportedIPAPath = ""   // the unsigned IPA of an export (#416)
     @Published package var send: DataSend = .idle {  // step 3 of the export: the game data on its way (BuildStore+Send.swift)
-        didSet { if send != oldValue { finderShown = false } }
+        didSet {
+            if send != oldValue { finderShown = false }
+            guard devices.installDevice == installedOn else { return }
+            switch send {
+            case .sent: installedDataComplete = true
+            case .sending: installedDataComplete = false
+            default: break
+            }
+        }
     }
     /// The player chose the Finder way after the copy to the device did not work: step 3 shows its three steps (#491).
     @Published package var finderShown = false
@@ -262,14 +317,17 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The build queue (#943), wired by the app so the Build page's start actions can run a staged queue batch.
     package weak var queue: BuildQueueStore? {
         didSet {
-            let count = queue?.queued.count ?? 0
+            queueHasIOS = queue?.hasIOS ?? false
+            let count = queue?.games.filter(\.waiting).count ?? 0
             if queuedCount != count { queuedCount = count }
             queueSubscription = queue?.$entries.sink { [weak self] entries in
-                let next = entries.filter { $0.status == .queued }.count
+                self?.queueHasIOS = entries.contains { $0.status == .queued && $0.target != BuildTarget.mac }
+                let next = QueueGame.grouped(entries).filter(\.waiting).count
                 if self?.queuedCount != next { self?.queuedCount = next }
             }
         }
     }
+    @Published package private(set) var queueHasIOS = false
     @Published package private(set) var queuedCount = 0
     private var queueSubscription: AnyCancellable?
     /// The running send of each transfer asks this flag whether it was cancelled.
@@ -279,6 +337,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     var deferredExportsIPA = false
     package var queuedExportIPA: Bool?
     package var queuedExportOneGame: Bool?
+    package var queuedExportFramework: Bool?
     var skipStaleCheckForQueuedEntry = false
     var afterStaleFrameworks: (() -> Void)?
     package var activeQueuedGameID: UUID?
@@ -322,6 +381,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var appReplaceCheck: (String) -> Bool? = { OutputVolume.supportsAppReplace(at: $0) }
     /// The target changed: the app checks the tools again when a Mac-only setup now needs, or no longer needs, the iOS SDK.
     package var targetChanged: () -> Void
+    /// Active builder upstream or S2Arm path changed: re-runs dependency checks for upstream-specific requirements.
+    package var upstreamChanged: () -> Void = {}
 
     // ---- What it works with ----
     package let localizer: Localizer
@@ -367,6 +428,30 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         experimentalBuilder = ExperimentalBuilder.featureEnabled && defaults.bool(forKey: Self.experimentalBuilderKey)
         experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
         savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
+        let savedMNGPath = defaults.string(forKey: Self.macNativeGamesPathKey) ?? ""
+        let savedS2ArmPath = defaults.string(forKey: Self.s2armPathKey) ?? ""
+        macNativeGamesPath = savedMNGPath
+        s2armPath = savedS2ArmPath
+        macNativeGamesInstalled = MacNativeGamesBuilder.isUsableTree(savedMNGPath)
+        s2armInstalled = S2ArmBuilder.isUsableTree(savedS2ArmPath)
+        if let rawUpstream = defaults.string(forKey: Self.buildUpstreamKey),
+           let parsedUpstream = EngineUpstreamKind(rawValue: rawUpstream) {
+            switch parsedUpstream {
+            case .nxnative:
+                buildUpstream = .nxnative
+            case .macNativeGames:
+                buildUpstream = MacNativeGamesBuilder.featureEnabled ? .macNativeGames : .nxnative
+            case .s2arm:
+                buildUpstream = S2ArmBuilder.featureEnabled ? .s2arm : .nxnative
+            }
+        } else {
+            buildUpstream = .nxnative
+        }
+        if buildUpstream == .macNativeGames && target != BuildTarget.mac {
+            target = BuildTarget.mac
+            runningTarget = BuildTarget.mac
+            defaults.set(BuildTarget.mac, forKey: Self.targetKey)
+        }
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.
@@ -378,6 +463,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var exportsShell: Bool { target != BuildTarget.mac && (queuedExportIPA ?? devices.exportIPA) }
     /// An export of one game's own IPA with the game data inside (#540): the engine's one-game app, no shared app, nothing to send.
     package var exportsOneGame: Bool { exportsShell && (queuedExportOneGame ?? devices.exportOneGame) }
+    /// An export of a standalone `.framework` for the shared app: no shell IPA build or repack, game data still sent separately.
+    package var exportsFramework: Bool { exportsShell && !exportsOneGame && (queuedExportFramework ?? devices.exportFramework) }
     package var installsDirectly: Bool { target != BuildTarget.mac && !devices.installDevice.isEmpty && !devices.signingTeam.isEmpty }
 
     /// Home shown as ~ (shorter in a one-line row, and it keeps the account name out of screenshots).
@@ -394,7 +481,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     /// A build may start: the repository is usable, the base game and the keys are there (a game folder needs no keys), the tools
     /// are all present and none runs.
-    package var canBuild: Bool { repo.isRepo && inputsReady && deps.allPresent && !running }
+    package var canBuild: Bool { (usesExternalUpstreamRepo || repo.isRepo) && inputsReady && deps.allPresent && !running }
 
     /// A line for the build card's note, from a store that has no card of its own (the dependency store's failed install).
     package func note(_ text: String) { doneNote = text }
@@ -439,6 +526,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package func resetProgress() {
         archiveGeneration &+= 1
         fastRefreshExternalImgPath = nil
+        needsReplaceOldImgReminder = false
+        updatedImgPath = ""
         stopPSOPoll()
         stages = []
         log.clear()

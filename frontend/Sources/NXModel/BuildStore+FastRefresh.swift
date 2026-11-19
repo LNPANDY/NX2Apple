@@ -150,7 +150,7 @@ extension BuildStore {
             return
         }
 
-        if !isMac, !exportsOneGame, let why = shellRootProblem() {
+        if !isMac, !exportsOneGame, !exportsFramework, let why = shellRootProblem() {
             fail(why)
             clearFastRefreshContext()
             return
@@ -171,6 +171,10 @@ extension BuildStore {
         installedOn = ""
         installedAppPath = ""
         exportedIPAPath = ""
+        if !deferShellPackaging {
+            needsReplaceOldImgReminder = false
+            updatedImgPath = ""
+        }
         send = .idle
 
         if let message = preflightSpaceProblem() {
@@ -436,9 +440,11 @@ extension BuildStore {
                         let fw = ShellInstall.builtFramework(workDir: self.effectiveWorkDir)
                             ?? ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: key)
                         let outTID = ShellInstall.titleID(ofFramework: fw)
-                        self.packArchive(workDir: self.effectiveWorkDir, titleID: outTID) { archive in
+                        self.packArchive(workDir: self.effectiveWorkDir, titleID: outTID, isFastRefresh: true) { archive in
                             if self.deferShellPackaging {
                                 self.deferShellPackage(framework: fw, titleID: outTID, name: name, archive: archive)
+                            } else if self.exportsFramework {
+                                self.exportFrameworkBundle(framework: fw, titleID: outTID, name: name)
                             } else if self.exportsShell {
                                 self.exportShell(framework: fw, titleID: outTID, name: name)
                             } else {

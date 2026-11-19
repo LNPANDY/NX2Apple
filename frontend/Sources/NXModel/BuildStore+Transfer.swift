@@ -43,7 +43,7 @@ extension BuildStore {
     }
 
     /// The IPA of the frameworks that are built can be made again: an IPA target, a built game, and nothing running.
-    package var canExportBuiltGames: Bool { !running && exportsShell && !exportsOneGame && !builtShellGames().isEmpty }
+    package var canExportBuiltGames: Bool { !running && exportsShell && !exportsOneGame && !exportsFramework && !builtShellGames().isEmpty }
 
     /// The shared app can be signed and installed from the frameworks already built: direct install mode with device and team ready.
     package var canInstallBuiltGames: Bool { !running && installsDirectly && !devices.exportIPA && !builtShellGames().isEmpty }
@@ -91,9 +91,11 @@ extension BuildStore {
 
     /// The batch ended: the shared app is exported or signed and installed once from the games that were built. A game that failed is not in it.
     package func packageDeferred() {
+        guard !running, let last = deferredShell.last else { return }
         let games = deferredShell
         deferredShell = []
-        guard let last = games.last, !running else { return }
+        target = BuildTarget.ios
+        failure = nil; stoppedByPlayer = false; done = false; doneNote = ""
         if deferredExportsIPA {
             var library = ShellLibrary.load(root: shellRoot)
             for game in games.dropLast() { library.add(.init(titleID: game.titleID, name: game.name, framework: game.framework)) }

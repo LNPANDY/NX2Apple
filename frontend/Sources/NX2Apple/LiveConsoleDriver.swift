@@ -87,6 +87,9 @@ struct ConsolePadSnapshot: Equatable {
     var cloudGameID: String?
     var cloudWatch: AnyCancellable?
     var timeoutTask: Task<Void, Never>?
+    private var launchGeneration: UInt64 = 0
+    private var pendingLaunch: Task<Void, Never>?
+    private let launchGracePeriod: TimeInterval
     private var toastTask: Task<Void, Never>?
     private var notices = ConsoleNoticeQueue()
     private var clock: Timer?
@@ -98,7 +101,7 @@ struct ConsolePadSnapshot: Equatable {
     let tracking = ConsoleGameTracking()
     let toolsAge = ToolsAge()
 
-    init(library: GameLibrary, controls: ControlLayout, repo: @escaping () -> String, lang: @escaping () -> Lang, labels: @escaping (String) -> String,
+    init(launchGracePeriod: TimeInterval = 1.75, library: GameLibrary, controls: ControlLayout, repo: @escaping () -> String, lang: @escaping () -> Lang, labels: @escaping (String) -> String,
          pads: (() -> [ConsolePadSnapshot])? = nil, steamPads: (() -> [ConsolePadSnapshot])? = nil,
          launch: ((LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void)? = nil,
          artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, playerOutput: ((String, Int) -> Void)? = nil,
@@ -112,6 +115,7 @@ struct ConsolePadSnapshot: Equatable {
         self.sticks = sticks
         self.shellRoot = shellRoot
         self.sendPlayerOutput = playerOutput
+        self.launchGracePeriod = launchGracePeriod
         self.player = player
         self.library = library; self.controls = controls; self.repo = repo; self.lang = lang; self.labels = labels
         self.startingTimeout = startingTimeout
@@ -164,6 +168,7 @@ struct ConsolePadSnapshot: Equatable {
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0); NSWorkspace.shared.notificationCenter.removeObserver($0) }
         clock?.invalidate()
+        pendingLaunch?.cancel()
         primeTask?.cancel()
         batteryRereadTask?.cancel()
     }
@@ -238,37 +243,75 @@ struct ConsolePadSnapshot: Equatable {
 
     func play(_ gameID: String) {
         if state.pausedGameID == gameID { resume(gameID); return }   // the paused game plays on where it was (#952)
+        guard state.startingGameID == nil else { return }
         state.play(gameID)
-        guard state.startingGameID == gameID, let game = library.games.first(where: { $0.id.uuidString == gameID }) else { return }
+        guard state.startingGameID == gameID, library.games.contains(where: { $0.id.uuidString == gameID }) else { return }
+        launchGeneration &+= 1
+        let generation = launchGeneration
+        state.launchCancellable = launchGracePeriod > 0
+        pendingLaunch?.cancel()
+        if launchGracePeriod <= 0 { beginLaunch(gameID, generation: generation); return }
+        pendingLaunch = Task { [weak self] in
+            guard let delay = self?.launchGracePeriod else { return }
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, let self, self.launchGeneration == generation, self.state.startingGameID == gameID else { return }
+            self.state.launchCancellable = false
+            self.beginLaunch(gameID, generation: generation)
+        }
+    }
+
+    func cancelPendingLaunch() -> Bool {
+        guard state.startingGameID != nil else { return false }
+        pendingLaunch?.cancel(); pendingLaunch = nil
+        timeoutTask?.cancel()
+        if launchedPID == nil || launchedGame?.id.uuidString != state.startingGameID {
+            launchGeneration &+= 1
+            cloudGate.cancel()
+            state.returnFromGame()
+            gameEnded()
+        } else {
+            state.returnFromGame()
+        }
+        return true
+    }
+
+    private func beginLaunch(_ gameID: String, generation: UInt64) {
+        guard launchGeneration == generation, state.startingGameID == gameID, let game = library.games.first(where: { $0.id.uuidString == gameID }) else { return }
         let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, lang: lang(), fullscreen: true, player: player(), saves: saves(game.titleID), sticks: sticks(), homeMenu: true)   // the Home menu's way back here (#952)
             .merging(pointerHidden() ? ["DM_CURSOR_HIDDEN": "1"] : [:]) { $1 }   // the game is a new process: without this its pointer shows until its own idle wait ends
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
         cloudGameID = gameID
         cloudGate.begin(game, proceed: { [weak self] choice in   // the cloud's save first (LiveConsoleDriver+CloudSave.swift, #957)
-            guard let self, self.state.startingGameID == gameID else { return }
+            guard let self, self.launchGeneration == generation, self.state.startingGameID == gameID else { return }
             self.state.starting = .preparing
             self.prepareLaunch { [weak self] in
                 guard let self else { return }
-                guard self.state.startingGameID == gameID else { self.gameEnded(); return }
+                guard self.launchGeneration == generation, self.state.startingGameID == gameID else { return }
                 let latest = self.library.games.first(where: { $0.id == game.id }) ?? game
                 MacGameMode.shared.prepareForLaunch(enabled: latest.macGameModeDesired, forApp: latest.appPath) { [weak self] error in
                     MainActor.assumeIsolated {
                         guard let self else { return }
-                        guard self.state.startingGameID == gameID else { self.gameEnded(); return }
+                        guard self.launchGeneration == generation, self.state.startingGameID == gameID else { return }
                         if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription, kind: "error"); return }
-                        self.openGame(latest, environment: environment.merging(choice) { $1 }, gameID: gameID)
+                        self.openGame(latest, environment: environment.merging(choice) { $1 }, gameID: gameID, generation: generation)
                     }
                 }
             }
-        }, ended: { [weak self] in self?.state.returnFromGame() })
+        }, ended: { [weak self] in
+            guard let self, self.launchGeneration == generation else { return }
+            self.state.returnFromGame()
+        })
     }
 
-    private func openGame(_ game: LibraryGame, environment: [String: String], gameID: String) {
+    private func openGame(_ game: LibraryGame, environment: [String: String], gameID: String, generation: UInt64) {
         launch(game, environment) { [weak self] pid, error in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self, self.state.startingGameID == gameID else { return }
+                    guard let self else { return }
+                    // LaunchServices may return an app started elsewhere. A stale callback does not own that process.
+                    guard self.launchGeneration == generation else { return }
+                    guard self.state.startingGameID == gameID else { return }
                     if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription, kind: "error"); return }
                     self.launchedPID = pid
                     self.library.recordPlayed(game.id)   // the Recently played order (#937)
@@ -279,7 +322,7 @@ struct ConsolePadSnapshot: Equatable {
                     self.timeoutTask?.cancel()
                     self.timeoutTask = Task { [weak self] in
                         try? await Task.sleep(nanoseconds: UInt64((self?.startingTimeout ?? 20) * 1_000_000_000))
-                        guard !Task.isCancelled else { return }
+                        guard !Task.isCancelled, self?.launchGeneration == generation else { return }
                         self?.gameWindowAppeared()
                     }
                 }
@@ -309,7 +352,7 @@ struct ConsolePadSnapshot: Equatable {
 
     /// The game's window took the front (or the wait ran out): Starting ends, the console stays selected on the game.
     func gameWindowAppeared() {
-        guard state.startingGameID != nil, launchedPID != nil || !devicePads else { return }
+        guard let id = state.startingGameID, launchedPID == nil ? !devicePads : launchedGame?.id.uuidString == id else { return }
         timeoutTask?.cancel()
         state.returnFromGame()
     }

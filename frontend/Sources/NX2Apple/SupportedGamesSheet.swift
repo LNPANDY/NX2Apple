@@ -39,11 +39,19 @@ struct SupportedGamesSheet: View {
         GameUpdateCatalog.catalogVersion(for: titleID) == GameUpdateCatalog.releaseBaseVersion(appVersion)
     }
 
-    static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String) -> Bool {
+    static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String, badgeName: String = "") -> Bool {
         let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
         let updated = GameUpdateCatalog.catalogVersion(for: game.titleID) ?? ""
-        return [game.name, game.titleID, ownedName, updated].contains {
+        var fields = [game.name, game.titleID, ownedName, updated]
+        if game.fullScreen {
+            if badgeName.isEmpty {
+                fields.append(contentsOf: Lang.all.map { L10n.string("widescreen.badge", $0) })
+            } else {
+                fields.append(badgeName)
+            }
+        }
+        return fields.contains {
             $0.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
         }
     }
@@ -59,8 +67,9 @@ struct SupportedGamesSheet: View {
     }
 
     var shown: [SupportedGame] {
-        games.filter { game in
-            Self.matchesSearch(game, needle: search, ownedName: owned(game.titleID)?.displayName(loc.lang) ?? "")
+        let badge = loc.t("widescreen.badge")
+        return games.filter { game in
+            Self.matchesSearch(game, needle: search, ownedName: owned(game.titleID)?.displayName(loc.lang) ?? "", badgeName: badge)
         }
     }
 
@@ -87,7 +96,8 @@ struct SupportedGamesSheet: View {
                 Text(loc.t("supported.none")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText)
                     .frame(maxWidth: .infinity, minHeight: 120)
             } else {
-                ScrollView {
+                ScrollViewReader { proxy in
+                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(shown) { game in
                             SupportedGameRow(game: game, detail: detail(game),
@@ -95,12 +105,20 @@ struct SupportedGamesSheet: View {
                                              owned: owned(game.titleID), cover: covers.image(game.titleID),
                                              expanded: selected == game.titleID,
                                              toggle: { selected = selected == game.titleID ? nil : game.titleID },
-                                             show: { id in showInLibrary(id); dismiss() })
+                                             show: { id in showInLibrary(id); dismiss() }, move: { direction in
+                                guard let index = shown.firstIndex(where: { $0.titleID == game.titleID }), shown.indices.contains(index + direction) else { return false }
+                                let id = "supported.row." + shown[index + direction].titleID
+                                proxy.scrollTo(id, anchor: .center)
+                                focus.focused = id
+                                return true
+                            })
                                 .onAppear { covers.appear(game.titleID) }
                                 .onDisappear { covers.disappear(game.titleID) }
                             Divider().opacity(0.25).padding(.leading, 30)
                         }
                     }
+                 }
+                 .onChange(of: focus.focused) { id in if let id { proxy.scrollTo(id, anchor: .center) } }
                 }
             }
             Divider().opacity(0.3)
@@ -122,7 +140,11 @@ struct SupportedGamesSheet: View {
         .font(.manrope(13))
         .launcherAppearance()
         .tint(LauncherPalette.accent)
-        .onAppear { searchFocused = true }
+        .onAppear {
+            searchFocused = true
+            focus.scope = "supported"
+            focus.focused = shown.first.map { "supported.row." + $0.titleID } ?? "supported.close"
+        }
         .onDisappear { covers.stop() }
     }
 }
@@ -137,6 +159,7 @@ private struct SupportedGameRow: View {
     let expanded: Bool
     let toggle: () -> Void
     let show: (UUID) -> Void
+    let move: (Int) -> Bool
     @EnvironmentObject var loc: Localizer
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -156,6 +179,18 @@ private struct SupportedGameRow: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .center, spacing: 8) {
                             Text(game.name).font(.manrope(14.5, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                            if game.fullScreen {
+                                Text(loc.t("widescreen.badge"))
+                                    .font(.manrope(10.5, .bold))
+                                    .foregroundStyle(LauncherPalette.ready)
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(LauncherPalette.ready.opacity(0.12), in: Capsule())
+                                    .overlay(Capsule().strokeBorder(LauncherPalette.ready.opacity(0.38)))
+                                    .help(loc.t("widescreen.help"))
+                            }
                             if isCurrentUpdate {
                                 Text(loc.t("supported.updatedCurrent"))
                                     .font(.manrope(10.5, .semibold))
@@ -180,7 +215,7 @@ private struct SupportedGameRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain).launcherHover()
-            .padTarget("supported.row." + game.titleID, scope: "supported", radius: 6, activate: toggle)   // a controller opens the notes too
+            .padTarget("supported.row." + game.titleID, scope: "supported", radius: 6, activate: toggle, vertical: move)
             .accessibilityAddTraits(expanded ? .isSelected : [])
             .accessibilityHint(loc.t(expanded ? "supported.hideNotes" : "supported.showNotes"))
             if expanded {

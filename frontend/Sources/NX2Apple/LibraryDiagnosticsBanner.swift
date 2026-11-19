@@ -152,20 +152,20 @@ struct SkippedLibraryItemsOverlay: View {
                         }
                         .buttonStyle(.plain)
                         .launcherHover()
-                        .padTarget("skipped.keys", scope: "skipped", radius: 14, activate: openKeysSettings)
+                        .padTarget("skipped.keys", scope: "skipped", activate: openKeysSettings)
                     }
                     Button(action: close) {
                         Text(loc.t("free.done"))
                             .font(.manrope(13, .semibold))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 7)
-                            .background(LauncherPalette.menuFill, in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(LauncherPalette.secondaryBorder))
+                            .background(LauncherPalette.menuFill, in: Capsule())
+                            .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
                     }
                     .buttonStyle(.plain)
                     .launcherHover()
                     .keyboardShortcut(.cancelAction)
-                    .padTarget("skipped.close", scope: "skipped", radius: 8, activate: close)
+                    .padTarget("skipped.close", scope: "skipped", activate: close)
                 }
                 .padding(.horizontal, 28)
                 .padding(.vertical, 14)

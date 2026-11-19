@@ -27,19 +27,22 @@ extension View {
 /// without a push/pop stack that could leave the wrong cursor after a menu or search button disappears.
 struct LauncherHoverRegion: NSViewRepresentable {
     let enabled: Bool
+    var cursor: NSCursor = .pointingHand
     let hover: (Bool) -> Void
 
     func makeNSView(context: Context) -> TrackingView { TrackingView() }
     func updateNSView(_ view: TrackingView, context: Context) {
         view.hover = hover
-        if view.enabled != enabled {
+        if view.enabled != enabled || view.cursor !== cursor {
             view.enabled = enabled
+            view.cursor = cursor
             view.window?.invalidateCursorRects(for: view)
         }
     }
 
     class TrackingView: NSView {
         var enabled = true
+        var cursor: NSCursor = .pointingHand
         var hover: (Bool) -> Void = { _ in }
         private var area: NSTrackingArea?
 
@@ -58,7 +61,7 @@ struct LauncherHoverRegion: NSViewRepresentable {
 
         override func resetCursorRects() {
             super.resetCursorRects()
-            if enabled { addCursorRect(visibleRect.intersection(bounds), cursor: .pointingHand) }
+            if enabled { addCursorRect(visibleRect.intersection(bounds), cursor: cursor) }
         }
 
         override func updateTrackingAreas() {

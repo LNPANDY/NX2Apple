@@ -171,14 +171,64 @@ import XCTest
         return fw
     }
 
-    private func writeDeviceBeacon(bundleID: String = ShellLibrary.defaultBundleID, teamID: String, expiresIn: Int64?, nowEpoch: Int64) throws {
+    private func writeDeviceBeacon(bundleID: String = ShellLibrary.defaultBundleID, teamID: String,
+                                   glueVersion: Int = ShellHotInstall.glueVersion,
+                                   expiresIn: Int64?, nowEpoch: Int64) throws {
         let beacon = ShellHotInstall.HostBeacon(
-            schema: 1, glueVersion: 1, bundleID: bundleID, teamID: teamID,
+            schema: 1, glueVersion: glueVersion, bundleID: bundleID, teamID: teamID,
             chain: "b-3f9a2c", version: "1.4.0", expiresAtEpoch: expiresIn.map { nowEpoch + $0 }
         )
         let dest = container + "/\(bundleID)/" + ShellHotInstall.beaconRemotePath
         try fm.createDirectory(atPath: (dest as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         try JSONEncoder().encode(beacon).write(to: URL(fileURLWithPath: dest), options: .atomic)
+    }
+
+    func testLegacyGlueVersionOneBeaconFallsBackToFullAppUpgradeThenResumesHotPush() throws {
+        XCTAssertEqual(ShellHotInstall.glueVersion, 2)
+        let legacyBeacon = ShellHotInstall.HostBeacon(
+            schema: 1, glueVersion: 1, bundleID: ShellLibrary.defaultBundleID,
+            teamID: team, chain: "b-3f9a2c", version: "1.4.0", expiresAtEpoch: 1_800_500_000
+        )
+        let legacyData = try JSONEncoder().encode(legacyBeacon)
+        XCTAssertEqual(
+            ShellHotInstall.evaluateBeacon(legacyData, expectedBundleID: ShellLibrary.defaultBundleID, team: team, nowEpoch: 1_800_000_000),
+            .incompatible("glue 1")
+        )
+
+        let xcrun = try makeXcrun()
+        let repo = try makeRepo()
+        let root = path("shell-root")
+        let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
+        let nowEpoch = Int64(fixedNow.timeIntervalSince1970)
+
+        let fw1 = try makeSignableFramework(id: firstID, name: "First Game")
+        let fw2 = try makeSignableFramework(id: secondID, name: "Second Game")
+        let arch1 = path("archives", firstID)
+        try write(arch1 + "/romfs.img", "romfs-one")
+
+        var inst = ShellInstaller(xcrun: xcrun, repo: repo, python: "/usr/bin/python3", root: root, device: device, team: team)
+        inst.resources = nil
+        inst.defaults = testDefaults
+        inst.now = { fixedNow }
+        inst.signingIdentity = { _, _ in "-" }
+
+        XCTAssertTrue(inst.install(framework: fw1, titleID: firstID, name: "First Game", archive: arch1).ok)
+
+        // Old DmShell.app on device wrote glueVersion == 1 -> must fall back to full xcodebuild + app install.
+        try writeDeviceBeacon(teamID: team, glueVersion: 1, expiresIn: 5 * 86400, nowEpoch: nowEpoch)
+        try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+        let upgradeOut = inst.installBuilt(framework: fw2, titleID: secondID, name: "Second Game")
+        XCTAssertTrue(upgradeOut.ok, upgradeOut.message)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1, "legacy glueVersion 1 shell must trigger full app rebuild")
+        XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
+
+        // Upgraded DmShell.app writes glueVersion == 2 -> subsequent installs resume ~2s hot push.
+        try writeDeviceBeacon(teamID: team, glueVersion: 2, expiresIn: 5 * 86400, nowEpoch: nowEpoch)
+        try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+        let hotOut = inst.installBuilt(framework: fw2, titleID: secondID, name: "Second Game")
+        XCTAssertTrue(hotOut.ok, hotOut.message)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 0)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 0)
     }
 
     func testHotInstallSignsFrameworkSkipsXcodebuildAndWritesReadyMarkerLast() throws {

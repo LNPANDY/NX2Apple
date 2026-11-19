@@ -14,12 +14,31 @@ enum LauncherPage: String, CaseIterable {
 
 /// The library's filter: every game in the games folder, or only those with a build. Remembered between launches.
 enum LibraryFilter: String, CaseIterable, Identifiable {
-    case owned, built
+    case owned, built, mac, ios
     var id: String { rawValue }
-    var labelKey: String { "filter." + rawValue }
+    static let libraryOptions: [LibraryFilter] = [.owned, .mac, .ios]
+    var labelKey: String {
+        switch self {
+        case .owned: return "builds.allGames"
+        case .built: return "filter.built"
+        case .mac: return "library.section.mac"
+        case .ios: return "library.section.mobile"
+        }
+    }
+    func adjusted(_ direction: Int) -> Self {
+        let index = Self.libraryOptions.firstIndex(of: self) ?? 0
+        return Self.libraryOptions[min(max(index + direction, 0), Self.libraryOptions.count - 1)]
+    }
 
     /// Owned shows every game without reading its build, so the default filter costs nothing per card.
-    func includes(_ game: LibraryGame) -> Bool { self == .owned || game.isReady || game.hasIOSBuild }
+    func includes(_ game: LibraryGame) -> Bool {
+        switch self {
+        case .owned: return true
+        case .built: return game.isReady || game.hasIOSBuild
+        case .mac: return game.isReady
+        case .ios: return game.hasIOSBuild
+        }
+    }
 
     /// The games this filter shows that match `search` (any name the game answers to), in `sort` order.
     func visibleGames(_ games: [LibraryGame], matching search: String = "", lang: Lang = Lang.initial(), sort: LibrarySort = .name) -> [LibraryGame] {
@@ -50,17 +69,18 @@ enum LibrarySort: String, CaseIterable, Identifiable {
     var labelKey: String { "sort." + rawValue }
 
     func ordered(_ games: [LibraryGame], lang: Lang) -> [LibraryGame] {
-        games.sorted { left, right in
-            if self == .recent, left.lastPlayed != right.lastPlayed {
-                switch (left.lastPlayed, right.lastPlayed) {
+        // The name shown cleans the file name with regular expressions: work it out once per game, not twice per comparison.
+        games.map { (game: $0, name: $0.displayName(lang)) }.sorted { left, right in
+            if self == .recent, left.game.lastPlayed != right.game.lastPlayed {
+                switch (left.game.lastPlayed, right.game.lastPlayed) {
                 case let (l?, r?): return l > r
                 case (_?, nil): return true
                 default: return false
                 }
             }
-            let order = left.displayName(lang).localizedStandardCompare(right.displayName(lang))
-            return order == .orderedSame ? left.titleID < right.titleID : order == .orderedAscending
-        }
+            let order = left.name.localizedStandardCompare(right.name)
+            return order == .orderedSame ? left.game.titleID < right.game.titleID : order == .orderedAscending
+        }.map(\.game)
     }
 
     static func load(_ defaults: UserDefaults = .standard) -> LibrarySort {

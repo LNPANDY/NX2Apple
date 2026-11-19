@@ -1,0 +1,889 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNP <90243050+LNPANDY@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 12:51:48 +0000
+Subject: [PATCH] host, games: support full-screen and wide aspect ratios for
+ ACNH, Pokopia and Ocarina
+
+Upstream-Status: forwarded seedds/nxnative#2891
+Reason: Support full-screen aspect ratios on iPhone and wide Mac displays for supported game profiles
+Issue: none
+---
+ dm/games/01006F8002326000/game.tsv   |   5 +-
+ dm/games/01006F8002326000/patches.py |  72 +++++---
+ dm/games/0400486024DEC000/game.tsv   |   2 +
+ dm/games/0400486024DEC000/patches.py | 194 ++++++++++++++++++--
+ dm/games/0400A3A01EE4C000/game.tsv   |   6 +
+ dm/games/0400A3A01EE4C000/patches.py | 255 +++++++++++++++++++++++++++
+ dm/games/game.py                     |   2 +-
+ dm/games/settings.py                 |   1 +
+ dm/games/settings.tsv                |   2 +-
+ dm/gfx/hle_vi.c                      |   4 +-
+ dm/host/dm.h                         |   1 +
+ dm/host/front_mac.m                  |  10 ++
+ dm/host/hle_touch.c                  |  17 +-
+ dm/host/loader.c                     |  46 +++--
+ dm/ios/Sources/front_ios.m           |   8 +-
+ 15 files changed, 553 insertions(+), 72 deletions(-)
+ create mode 100644 dm/games/0400A3A01EE4C000/patches.py
+
+diff --git a/dm/games/01006F8002326000/game.tsv b/dm/games/01006F8002326000/game.tsv
+index 9c745e5..fdb082e 100644
+--- a/dm/games/01006F8002326000/game.tsv
++++ b/dm/games/01006F8002326000/game.tsv
+@@ -47,6 +47,5 @@ shader_groups	/Shader/=shader /System/=system /Effect/=effect /Model/=model /Lay
+ shader_note	Animal Crossing: New Horizons shaders
+ 
+ # ---- Graphics ----
+-# Screen shape (patches.py, duo_anchor.c): DM_SCREEN_ASPECT renders a screen taller than 16:9 in its own shape, the iPhone Duo's 1.43:1 as 1920x1344 with the layouts in
+-# their own shape, centred, their edge widgets at the taller screen's edges and 16:9's sides in view (more above and below); the iOS launcher offers it
+-screen_aspect	on
++# Screen shape (patches.py, duo_anchor.c): DM_SCREEN_ASPECT renders taller (1.3..1.77) and wider (1.8..4.0) screens in their own shape with centered 16:9 layouts
++screen_aspect	both
+diff --git a/dm/games/01006F8002326000/patches.py b/dm/games/01006F8002326000/patches.py
+index a489278..aab4c07 100644
+--- a/dm/games/01006F8002326000/patches.py
++++ b/dm/games/01006F8002326000/patches.py
+@@ -193,34 +193,54 @@ def screen_shape(ctx):
+     # DrawInfo's projection into another, and the title's layouts came out divided twice (0.65 of their height); another shape (a square render target) is left
+     # alone. Bit 6 of the sites. At the return s0..s4 are free
+     site(0x265140, 'c0035fd6')
+-    start = here(); emit(ADRP(16, here(), STATE))
+-    emit(0xb9404a11)   # ldr w17, [x16, #0x48]   the output's height (0 = 16:9)
+-    emit(0x34000511)   # cbz w17, ret (+41)
+-    emit(0xb9405611)   # ldr w17, [x16, #0x54]
+-    emit(0x363004d1)   # tbz w17, #6, ret (+39)
+-    emit(0xbd401001)   # ldr s1, [x0, #0x10]
+-    emit(0x1e20c021)   # fabs s1, s1
+-    emit(0xbd402402)   # ldr s2, [x0, #0x24]
+-    emit(0x1e20c042)   # fabs s2, s2
+-    emit(0x5291c731)   # mov w17, #0x8e39
+-    emit(0x72a7fc71)   # movk w17, #0x3fe3, lsl #16
+-    emit(0x1e270223)   # fmov s3, w17
+-    emit(0x1e230823)   # fmul s3, s1, s3
+-    emit(0x7ea3d443)   # fabd s3, s2, s3
+-    emit(0x529999b1)   # mov w17, #0xcccd
+-    emit(0x72a7a991)   # movk w17, #0x3d4c, lsl #16
+-    emit(0x1e270224)   # fmov s4, w17
+-    emit(0x1e240824)   # fmul s4, s1, s4
+-    emit(0x1e242060)   # fcmp s3, s4
+-    emit(0x540002ec)   # b.gt ret (+23)   not 16:9: as it is
+-    emit(0xbd408600)   # ldr s0, [x16, #0x84]
++    start = here()
++    w = [
++        ADRP(16, start, STATE),
++        0xb9404a11,   # ldr w17, [x16, #0x48]   the output's height (0 = 16:9)
++        0,            # cbz w17, ret_end
++        0xb9405611,   # ldr w17, [x16, #0x54]
++        0,            # tbz w17, #6, ret_end
++        0xbd401001,   # ldr s1, [x0, #0x10]     m0
++        0x1e20c021,   # fabs s1, s1
++        0xbd402402,   # ldr s2, [x0, #0x24]     m5
++        0x1e20c042,   # fabs s2, s2
++        0x5291c731,   # mov w17, #0x8e39
++        0x72a7fc71,   # movk w17, #0x3fe3, lsl #16   16/9
++        0x1e270223,   # fmov s3, w17
++        0x1e230823,   # fmul s3, s1, s3
++        0x7ea3d443,   # fabd s3, s2, s3
++        0x529999b1,   # mov w17, #0xcccd
++        0x72a7a991,   # movk w17, #0x3d4c, lsl #16   0.05
++        0x1e270224,   # fmov s4, w17
++        0x1e240824,   # fmul s4, s1, s4
++        0x1e242060,   # fcmp s3, s4
++        0,            # b.gt ret_end            not 16:9: as it is
++        0x5291c731,   # mov w17, #0x8e39
++        0x72a7fc71,   # movk w17, #0x3fe3, lsl #16   s3 = 16/9
++        0x1e270223,   # fmov s3, w17
++        0xbd405a00,   # ldr s0, [x16, #0x58]    r = 1920 / oh
++        0x1e232000,   # fcmp s0, s3
++        0,            # b.gt wide_path
++        0xbd408600,   # ldr s0, [x16, #0x84]    taller: anc[1] = lh / 720
++    ]
+     for i in (1, 4, 5, 6, 7, 9, 13):
+         o = (0x10 + 4 * i) // 4
+-        emit(0xbd400001 | (o << 10))   # ldr s1, [x0, #0x10 + 4 i]
+-        emit(0x1e201821)               # fdiv s1, s1, s0
+-        emit(0xbd000001 | (o << 10))   # str s1, [x0, #0x10 + 4 i]
+-    emit(0xd65f03c0)   # ret
+-    put(0x265140, [B(0x265140, start)], 'nn::ui2d::DrawInfo::SetProjectionMtx: the y row divided by the vertical stretch, layouts in their own shape (bit 6)')
++        w += [0xbd400001 | (o << 10), 0x1e201821, 0xbd000001 | (o << 10)]
++    w.append(0xd65f03c0)   # ret
++    wide_idx = len(w)
++    w.append(0x1e201860)   # wide: fdiv s0, s3, s0   (16/9) / r
++    for i in (0, 1, 2, 3, 4, 8, 12):
++        o = (0x10 + 4 * i) // 4
++        w += [0xbd400001 | (o << 10), 0x1e200821, 0xbd000001 | (o << 10)]
++    ret_idx = len(w)
++    w.append(0xd65f03c0)   # ret_end: ret
++    w[2] = 0x34000011 | (((ret_idx - 2) & 0x7ffff) << 5)    # cbz w17, ret_end
++    w[4] = 0x36300011 | (((ret_idx - 4) & 0x3fff) << 5)     # tbz w17, #6, ret_end
++    w[19] = 0x5400000c | (((ret_idx - 19) & 0x7ffff) << 5)  # b.gt ret_end
++    w[25] = 0x5400000c | (((wide_idx - 25) & 0x7ffff) << 5) # b.gt wide_path
++    for insn in w: emit(insn)
++    put(0x265140, [B(0x265140, start)], 'nn::ui2d::DrawInfo::SetProjectionMtx: y row divided on taller screens, x row scaled on wider screens (bit 6)')
++    ctx.capabilities.add('HEIGHT_WIDE_ASPECT')
+ 
+ 
+ 
+diff --git a/dm/games/0400486024DEC000/game.tsv b/dm/games/0400486024DEC000/game.tsv
+index 45ccc5e..94ef875 100644
+--- a/dm/games/0400486024DEC000/game.tsv
++++ b/dm/games/0400486024DEC000/game.tsv
+@@ -46,3 +46,5 @@ draw_barriers	game
+ # As Tears of the Kingdom: the terrain's height, blend and hole maps are written by the CPU into textures after they are created. Without these keys they stay zero: holes in the ground and the wrong materials
+ tex_flush_upload	on
+ tex_dirty_upload	on
++# patches.py (v131072 main): DM_SCREEN_ASPECT wider than 16:9 widens 16:9 cameras (Hor+) and keeps 2D layouts and movies centered at 16:9
++screen_aspect	wide
+diff --git a/dm/games/0400486024DEC000/patches.py b/dm/games/0400486024DEC000/patches.py
+index 2e7727a..94ade22 100644
+--- a/dm/games/0400486024DEC000/patches.py
++++ b/dm/games/0400486024DEC000/patches.py
+@@ -1,7 +1,168 @@
+ # The Legend of Zelda: Ocarina of Time (0400486024DEC000): the rewriter's patches of this game's own code. dm/tools/patch_nso.py loads every profile's patches.py;
+ # MATCH_FRAME_STEP as described there ("Registered patches"). Patches of Nintendo SDK module builds are in dm/tools/sdk_patches.py
++import struct
+ from nso_asm import ADRP, B
+ 
++_aspect_state = 0xa4    # loader.c writes float ow / 1080.0f here when DM_SCREEN_ASPECT >= 1.8 (0 = 16:9)
++_aspect_ack = 0x284
++_projection_ack = 0x288   # one last-applied aspect per camera site
++
++
++def _f32(value): return struct.unpack('<I', struct.pack('<f', value))[0]
++def _addi(rd, rn, imm): return 0x91000000 | ((imm & 0xfff) << 10) | (rn << 5) | rd
++def _movz(wd, imm): return 0x52800000 | ((imm & 0xffff) << 5) | wd
++def _movk16(wd, imm): return 0x72a00000 | ((imm & 0xffff) << 5) | wd
++def _fmov_sw(sd, wn): return 0x1e270000 | (wn << 5) | sd
++def _fsub(sd, sn, sm): return 0x1e203800 | (sm << 16) | (sn << 5) | sd
++def _fabs(sd, sn): return 0x1e20c000 | (sn << 5) | sd
++def _fcmp(sn, sm): return 0x1e202000 | (sm << 16) | (sn << 5)
++def _ldr_s(st, xn, off=0): return 0xbd400000 | ((off // 4) << 10) | (xn << 5) | st
++def _ldar_w(wt, xn): return 0x88dffc00 | (xn << 5) | wt
++def _stlr_w(wt, xn): return 0x889ffc00 | (xn << 5) | wt
++def _str_s(st, xn, off): return 0xbd000000 | ((off // 4) << 10) | (xn << 5) | st
++def _cbz_w(wt, frm, to): return 0x34000000 | ((((to - frm) >> 2) & 0x7ffff) << 5) | wt
++def _b_cond(frm, to, cond): return 0x54000000 | ((((to - frm) >> 2) & 0x7ffff) << 5) | cond
++
++
++def _load_f32(words, reg, value):
++    bits = _f32(value)
++    words.extend((_movz(16, bits), _movk16(16, bits >> 16), _fmov_sw(reg, 16)))
++
++
++def _state_addr(ctx, words, reg, off):
++    pc = ctx.here() + len(words) * 4
++    words.extend((ADRP(reg, pc, ctx.state + off), _addi(reg, reg, (ctx.state + off) & 0xfff)))
++
++
++def _append_stub(ctx, site, original, words, reason):
++    start = ctx.here()
++    for w in words: ctx.emit(w)
++    ctx.emit(B(ctx.here(), site + 4 * len(original)))
++    ctx.put(site, [B(site, start)] + [0xd503201f] * (len(original) - 1), reason)
++
++
++def _projection(ctx, site, original, base, aspect_reg, projection_ack):
++    ctx.site(site, struct.pack('<I', original).hex())
++    w = [original]
++    _load_f32(w, 16, 16.0 / 9.0)
++    w.extend((_fsub(17, aspect_reg, 16), _fabs(17, 17)))
++    _load_f32(w, 16, 0.01)
++    w.append(_fcmp(17, 16))
++    stock = len(w); w.append(0)
++    _state_addr(ctx, w, 17, projection_ack)
++    w.append(_ldar_w(16, 17))
++    no_ack = len(w); w.append(0)
++    w.append(_fmov_sw(16, 16))
++    w.extend((_fsub(17, aspect_reg, 16), _fabs(17, 17)))
++    _load_f32(w, 16, 0.01)
++    w.append(_fcmp(17, 16))
++    stale = len(w); w.append(0)
++    apply = len(w)
++    _state_addr(ctx, w, 17, _aspect_state)
++    w.append(_ldar_w(16, 17))
++    disabled = len(w); w.append(0)
++    w.append(_fmov_sw(aspect_reg, 16))
++    w.append(_str_s(aspect_reg, base, 176))
++    _state_addr(ctx, w, 17, _aspect_ack)
++    w.append(_stlr_w(16, 17))
++    _state_addr(ctx, w, 17, projection_ack)
++    w.append(_stlr_w(16, 17))
++    skip_restore = len(w); w.append(0)
++    disabled_at = len(w)
++    _load_f32(w, aspect_reg, 16.0 / 9.0)
++    w.append(_str_s(aspect_reg, base, 176))
++    w.append(0x2a1f03f0)
++    _state_addr(ctx, w, 17, _aspect_ack)
++    w.append(_stlr_w(16, 17))
++    _state_addr(ctx, w, 17, projection_ack)
++    w.append(_stlr_w(16, 17))
++    end = len(w)
++    w[stock] = _b_cond(ctx.here() + stock * 4, ctx.here() + apply * 4, 3)
++    w[no_ack] = _cbz_w(16, ctx.here() + no_ack * 4, ctx.here() + end * 4)
++    w[stale] = _b_cond(ctx.here() + stale * 4, ctx.here() + end * 4, 2)
++    w[disabled] = _cbz_w(16, ctx.here() + disabled * 4, ctx.here() + disabled_at * 4)
++    w[skip_restore] = B(ctx.here() + skip_restore * 4, ctx.here() + end * 4)
++    _append_stub(ctx, site, [original], w, 'camera projection: use drawable aspect for 16:9 views, restore stock ratio when disabled')
++
++
++def _camera_aspect(ctx):
++    # Adapted from craftycorvid/oot-mod (MIT) for 0400486024DEC000 v131072 main.
++    for i, (site, original, base, areg) in enumerate(((0x3485cc0, 0x2d558400, 0, 1),
++                                                      (0x004f1e8, 0x2d558ea0, 21, 3),
++                                                      (0x023b9a8, 0x2d558c00, 0, 3),
++                                                      (0x033b82c, 0x2d558440, 2, 1))):
++        _projection(ctx, site, original, base, areg, _projection_ack + i * 4)
++
++    site = 0x025d76c; orig = [0x1e2202a1, 0x1e221821]
++    ctx.site(site, struct.pack('<II', *orig).hex())
++    w = list(orig); _load_f32(w, 16, 16.0 / 9.0); w.extend((_fsub(17, 1, 16), _fabs(17, 17)))
++    _load_f32(w, 16, 0.01); w.append(_fcmp(17, 16))
++    skip_view = len(w); w.append(0)
++    _state_addr(ctx, w, 17, _aspect_state); w.append(_ldar_w(16, 17))
++    skip_off = len(w); w.append(0); w.append(_fmov_sw(1, 16)); end = len(w)
++    w[skip_view] = _b_cond(ctx.here() + skip_view * 4, ctx.here() + end * 4, 2)
++    w[skip_off] = _cbz_w(16, ctx.here() + skip_off * 4, ctx.here() + end * 4)
++    _append_stub(ctx, site, orig, w, 'render-view aspect: match the widened camera on the output view')
++
++    site = 0x0774368; orig_w = 0xad401041
++    ctx.site(site, struct.pack('<I', orig_w).hex())
++    w = [orig_w, 0x1e260030, _movz(17, _f32(2 / 3840)), _movk16(17, _f32(2 / 3840) >> 16), 0x6b11021f]
++    ne_x = len(w); w.append(0)
++    w.extend((0x0e0c3c00 | (4 << 5) | 16, 0x12007800 | (16 << 5) | 16,
++              _movz(17, _f32(2 / 2160)), _movk16(17, _f32(2 / 2160) >> 16), 0x6b11021f))
++    ne_y = len(w); w.append(0)
++    w.extend((0xd1000000 | (0x1b8 << 10) | 17, 0xf9400000 | (17 << 5) | 16))
++    bg_branches = []
++    for vt in (0x4bed098, 0x4be4fb0, 0x4be7b30, 0x4be61c8):
++        pc = ctx.here() + len(w) * 4
++        w.extend((ADRP(17, pc, vt), _addi(17, 17, vt & 0xfff), 0xeb00001f | (17 << 16) | (16 << 5), 0x54000000))
++        bg_branches.append(len(w) - 1)
++    _state_addr(ctx, w, 17, _aspect_state); w.append(_ldar_w(16, 17))
++    zero = len(w); w.append(0)
++    bits = _f32(16.0 / 9.0)
++    w.extend((_movz(17, bits), _movk16(17, bits >> 16), _fmov_sw(17, 17), _fmov_sw(18, 16),
++              0x1e201800 | (18 << 16) | (17 << 5) | 18, 0x1e260000 | (18 << 5) | 16,
++              0x4e040c00 | (16 << 5) | 17, 0x6e20dc00 | (17 << 16) | (1 << 5) | 1))
++    end = len(w)
++    w[ne_x] = _b_cond(ctx.here() + ne_x * 4, ctx.here() + end * 4, 1)
++    w[ne_y] = _b_cond(ctx.here() + ne_y * 4, ctx.here() + end * 4, 1)
++    w[zero] = _cbz_w(16, ctx.here() + zero * 4, ctx.here() + end * 4)
++    for at in bg_branches: w[at] = _b_cond(ctx.here() + at * 4, ctx.here() + end * 4, 0)
++    _append_stub(ctx, site, [orig_w], w, 'full-screen 2D layout: keep the HUD at 16:9 when the picture fills a wider drawable')
++
++    site = 0x3b5c758; orig_w = 0xa941a269
++    ctx.site(site, struct.pack('<I', orig_w).hex())
++    w = [0xd1000000 | (40 << 10) | (29 << 5) | 14, _ldr_s(22, 14, 8), _ldr_s(23, 14, 16),
++         0x1e203800 | (22 << 16) | (23 << 5) | 18]
++    _state_addr(ctx, w, 17, _aspect_state); w.append(_ldar_w(16, 17))
++    no_wide = len(w); w.append(0)
++    w.extend((_fmov_sw(19, 16),))
++    _load_f32(w, 20, 16.0 / 9.0)
++    w.extend((0x1e201800 | (19 << 16) | (20 << 5) | 20,))
++    _load_f32(w, 21, 1.0)
++    w.extend((_fsub(20, 21, 20),))
++    _load_f32(w, 21, 0.5)
++    w.extend((0x1e200800 | (21 << 16) | (20 << 5) | 20,
++              0x1e200800 | (20 << 16) | (18 << 5) | 18,
++              0x1e202800 | (18 << 16) | (22 << 5) | 22, 0x1e203800 | (18 << 16) | (23 << 5) | 23,
++              _str_s(22, 14, 8), _str_s(23, 14, 16)))
++    end = len(w); w[no_wide] = _cbz_w(16, ctx.here() + no_wide * 4, ctx.here() + end * 4)
++    w.append(orig_w)
++    _append_stub(ctx, site, [orig_w], w, 'movie viewport: letterbox pre-rendered movies within the centred 16:9 HUD')
++
++    site = 0x020c2b0; orig_w = 0x52a89e08
++    ctx.site(site, struct.pack('<I', orig_w).hex())
++    w = []; _state_addr(ctx, w, 17, _aspect_state); w.append(_ldar_w(16, 17))
++    no_wide = len(w); w.append(0)
++    w.append(_fmov_sw(16, 16)); _load_f32(w, 17, 1080.0)
++    w.extend((0x1e200800 | (17 << 16) | (16 << 5) | 16, 0x1e260000 | (16 << 5) | 8))
++    end = len(w); w[no_wide] = _cbz_w(16, ctx.here() + no_wide * 4, ctx.here() + end * 4)
++    w.append(orig_w)
++    _append_stub(ctx, site, [orig_w], w, 'speech bubble anchor: keep the bubble over the speaker when the HUD is centred')
++
++    ctx.capabilities.add('ANAMORPHIC_ASPECT')
++
++
+ # The game's frame ratio. Once a frame the function at main+0x6e6be0 (v131072) divides its base rate (60.0, or 30.0 while bit 0 of [x21+0x24f] is set) by the int frame rate at
+ # [x21+0x2c8] (fdiv s8,s1,s0 at +0xe4) and hands the result to the time object (main+0x3b4e300: ratio at +0x10, 1 / ratio at +0x14, round(60 / ratio) at +0x1c), which the game
+ # steps by; the frame's own time never enters it, so a frame that takes two vsyncs at rate 60 plays at half speed. The stub gives the ratio the host's step instead: step × base / 60
+@@ -34,23 +195,7 @@ def frame_step(ctx):
+     dynamic_resolution(ctx)
+ 
+ # The game's dynamic resolution (game__gfx__DynamicResolutionParam: LoadThreshold, ReduceCounterMax, IncreaseCounterMax and a list of levels, each a ResolutionReduceScale and a
+-# Priority; on v131072 levels 0..9 at 0.75..0.333 of 2048x1152, 1536x864 to 683x384). Its update (main+0x805aa0) reads the frame's GPU load (about 0.2 ms a unit) into +0x8, subtracts
+-# its small model of the fixed costs and divides the rest by the square of the current scale: it takes the rest of the frame's cost to grow with the pixel count, as on the Switch 2
+-# its constants were tuned for. The level function (main+0x8065e0) adds that back times each level's scale squared and returns the best level under the threshold (+0x10, 83 = about
+-# 16.4 ms). On Apple GPUs this game's cost hardly depends on the resolution (mesh, compute and the upscaler's fixed 2048x1152 dominate): 683x384 cost 14.3 ms and 1536x864 14.7 ms on
+-# an M4 Pro, yet at 683x384 the extrapolation put 1536x864 at about 300 units against the 83 it allows, so the controller sat at its floor for good (game note, Dynamic resolution).
+-# The stub replaces the level function. With DM_DYNAMIC_RESOLUTION 0 (the default; state +0x40 0) it returns 0: full resolution. With 1 it climbs on what was measured at each
+-# level, with no model of how the cost grows: one level down when the load (+0x8) has been over the threshold for 8 calls in a row, and that level is marked as not fitting; one level
+-# up when the load fits and the level above was never measured, fitted when it was last measured, or was measured more than 600 calls (about 10 s) ago; else the current level
+-# (+0x174). Nothing is decided or recorded until a level has held 8 calls: the load is read a few frames late, so before that it may be the previous level's. The 8 calls over in a
+-# row keep a single slow frame, or the first frames at a new size (its render targets), from marking a level that fits (on the full library at level 1: one burst to 90 against loads
+-# of 77-80 at levels 2 and 1). The game's counters still pace the steps (down after ReduceCounterMax frames, up after IncreaseCounterMax); its level count (+0x1a0) is the floor.
+-# The memory is in the state page: +0x200 calls, +0x204 the last call's level, +0x208 calls at it, +0x20c calls over in a row, +0x210 the load measured at each level (16 floats),
+-# +0x250 the call it was measured at (0 = never). Run against a model of the update (a level moves after the stub asked 5 times up or 2 times down; the load two frames late): a load
+-# of 70 at every level climbs from the floor to full size in 9 steps, as does Ocarina's measured 72-80 with a spike every 37 frames and a burst after each change; a load that grows
+-# with the pixel count settles at the highest level that fits and tries the one above once per 600 calls; a scene that gets lighter climbs again, a heavier one steps down.
+-# The function is a leaf: x2..x11, x16, x17 and s0..s2 are free, w0 its only result (the original also stores its predicted cost at +0x18, which only it and the update's own
+-# decision read). The update's fingerprint is required too: +0x8 and +0x174 are its fields
++# Priority; on v131072 levels 0..9 at 0.75..0.333 of 2048x1152, 1536x864 to 683x384).
+ drs_controller = (   # drs_stub.s, assembled with clang; x0 the controller, x16 the state page (the ADRP before it)
+     0xb9404211, 0x35000071, 0x2a1f03e0, 0xd65f03c0,                                                   # off (state +0x40 0): level 0
+     0xbd400800, 0xbd401001, 0xb9417402, 0xb941a003, 0x7100005f, 0x1a9fa042, 0x528001e9, 0x6b09005f,   # load, threshold, level (0..15), count
+@@ -71,6 +216,18 @@ def dynamic_resolution(ctx):
+     fs_put(site, [B(site, start)], 'dynamic resolution level: 0 (full resolution), or with state +0x40 (DM_DYNAMIC_RESOLUTION) a climb on the load measured at each level')
+     ctx.capabilities.add('DYNAMIC_RESOLUTION')
+ 
++
++def frame_step_v131072(ctx):
++    ctx.base = 0x6e6be0
++    ctx.others = {'dynamic resolution': 0x8065e0, 'dynamic resolution update': 0x805aa0}
++    frame_step(ctx)
++    _camera_aspect(ctx)
++
++
++FRAME_STEP = {
++    'e0f3ccfaf50065ae4ea01eb5aeb13b1a': frame_step_v131072,   # v131072 main
++}
++
+ MATCH_FRAME_STEP = {'main': [
+     {'name': 'frame ratio from the host\'s step', 'size': 0x9b4, 'fingerprints': ['6ae2aff5344d14568e4dbaf93455e2d8278384bf892ed6c6eca87fef98fbcd1d'], 'stub': frame_step,   # v131072 main+0x6e6be0
+      'others': {'dynamic resolution': {'size': 0x294, 'fingerprints': ['7af6ceb0aedf8e0c17dc08ce17fcd6a7cba6d394a0d09e3b504c6d668dc418e7']},   # v131072 main+0x8065e0
+@@ -133,4 +290,7 @@ BINDING = [
+     {'what': 'dynamic resolution: full size, or a climb on the load measured at each level', 'now': 'game', 'goal': 'game', 'purpose': 'rendering',
+      'why': "the game's own dynamic-resolution level function and update, found by their functions' fingerprints on any build that keeps both; switchable (DM_DYNAMIC_RESOLUTION)",
+      'checked': 'v131072 main: one function with each fingerprint (the level function a leaf, x2..x11 / x16 / x17 / s0..s2 free), its callers, the update and the controller fields read by disassembly, the fields read in play (2026-11-08); the climb run natively against a model of the update and in play to full size (2026-11-09)'},
++    {'what': 'screen shape wider than 16:9: Hor+ camera projections, render-view aspect, centered 16:9 2D layouts and letterboxed movies (DM_SCREEN_ASPECT)', 'now': 'build', 'goal': 'game', 'purpose': 'rendering',
++     'why': "the output aspect is the host's, but the projection, render-view and layout sites are v131072 main's fixed offsets",
++     'blocked': 'the stubs have no function-matched form yet'},
+ ]
+diff --git a/dm/games/0400A3A01EE4C000/game.tsv b/dm/games/0400A3A01EE4C000/game.tsv
+index 46fe391..fcb3702 100644
+--- a/dm/games/0400A3A01EE4C000/game.tsv
++++ b/dm/games/0400A3A01EE4C000/game.tsv
+@@ -14,6 +14,8 @@ pad_layout	full
+ 
+ # ---- Versions ----
+ # v655360 is the update's title version; a dump has no control data to name a display version
++# v327680: base + update in one NUP; its main has the wide screen-shape stubs of patches.py
++build	v327680	v327680	main=816c5358e8178d802fcec4a7ce5a741a	subsdk0=9646a69cb1024ba919fddaa4265e6bc5	sdk=cc7da00d672399efe7958790d17fae39
+ build	v655360	v655360	main=76a489f3bd3642fa5e18bd83d32c98ba	subsdk0=9646a69cb1024ba919fddaa4265e6bc5	sdk=cc7da00d672399efe7958790d17fae39
+ package	v655360
+ shader_versions	v655360
+@@ -34,6 +36,10 @@ sys_resource	0x0
+ # nninitStartup asks for pool - used memory and does not check the answer; the rewritten modules take 82 MB, more than the default 64 MB SetHeapSize checks the request against
+ mem_used	0x5600000
+ 
++# ---- Screen shape ----
++# patches.py (v327680 main): DM_SCREEN_ASPECT wider than 16:9 renders the screen's shape, 1080 tall, with Hor+ cameras and centered 16:9 layouts
++screen_aspect	wide
++
+ # ---- Pipelines ----
+ # the game sets near = 0 (the log's depth mode line): the pipeline bases made before it runs are made for that mode
+ depth_mode	zero
+diff --git a/dm/games/0400A3A01EE4C000/patches.py b/dm/games/0400A3A01EE4C000/patches.py
+new file mode 100644
+index 0000000..d4b1bc4
+--- /dev/null
++++ b/dm/games/0400A3A01EE4C000/patches.py
+@@ -0,0 +1,255 @@
++# Pokemon Pokopia (0400A3A01EE4C000): the rewriter's patches of this game's own builds. dm/tools/patch_nso.py loads every profile's patches.py and applies those of a module's NSO build
++# ID (FRAME_STEP as described there, "Registered patches"). The game has no frame step stubs: FRAME_STEP only gives its main the state page that the screen shape stubs read
++# (DM_SCREEN_ASPECT wider than 16:9, loader.c); with DM_SCREEN_ASPECT unset the page stays zero and every stub runs the original instructions.
++from nso_asm import ADRP, B
++
++# Screen shape, wider than 16:9 (DM_SCREEN_ASPECT, loader.c): the output keeps its height (1080) and takes the width of the screen's ratio (state +0xa0 u32, 2560 at 64:27; 0 = 16:9),
++# and the cameras take that ratio (+0xa4, the float bits of width / 1080). KTGL (v327680 main) takes its sizes from four places, each widened by the output width / 1920 when it is 16:9:
++#   main+0x16ae780 makes every render target from a descriptor (+0 width, +4 height): the scene's targets and their 1/2, 1/4, 1/8 .. chains (1920x1080 .. 80x45)
++#   main+0x105c0bc makes a texture from a descriptor (+0x14 width, +0x18 height): the swap chain's three 1920x1080 textures (from main+0x105bb24)
++#   main+0x103a1c0 / 0x103a1d0 the render width: the dynamic resolution table main+0x2756530 (34 widths, 960 .. 1920 in steps of 32, 2560, 3840, 7680; heights at main+0x27565b8,
++#     540 .. 1080, 1440, 2160, 4320), 1920 out of range; the frame's viewports and the window crop follow it (with the targets alone the scene filled 1920 of the 2560 and the
++#     rest of the targets showed other passes' contents)
++#   main+0x1e225d4 builds a camera's projection (camera +0x140 near, +0x144 far, +0x148 fovy, +0x14c aspect, +0x158 flags; setter main+0x1e22828): every 3D camera has 16:9's
++#     ratio, so a camera of exactly 16/9 takes the screen's; the vertical angle stays and the sides widen (Hor+). The ratio is stored back, so culling and shadows that read
++#     +0x14c see the view as drawn
++# The HUD at the screen's edges: every KTGL layout is a 1920x1080 canvas centred on the screen, and its panes are placed from the centre (each pane's anchor byte
++# +0x10d is 0x11), so a wider screen leaves them in the middle 16:9 band. main+0x1e822a0 computes a pane's global matrix (pane +0xc0 name hash, +0xd0 parent, +0xd8 its
++# layout, +0xe0 global matrix, +0xe8 local matrix, translations at +0x30, centre-origin layout pixels, +0xf0 / +0xf2 i16 size); at main+0x1e82690 the global matrix is
++# stored and x8 is the parent's, x9 the pane's. A listed pane's global x moves out by (output width - 1920) / 2 towards its side; its children follow, being computed
++# from it, and the translation-only update path (main+0x1e823e8) keeps the shift, as it adds deltas to the stored matrix. Registers there: x10 / x11 / x16 / x17 and
++# s3 / s6 / s7 are free (x10 and the vector registers are written before they are read again)
++# Registers: at main+0x16ae7a8 and main+0x105c0e0 x9..x13 are not yet set (only x0..x5 carry arguments); at main+0x1e225ec w8 is loaded by the original instruction, which runs
++# last, and x16 / x17 are free; the width getters are leaves that return in w0
++_wide_w, _wide_a = 0xa0, 0xa4   # state page offsets (loader.c)
++_widen = [   # w9 width, w10 height, w11 the output width: w9 x w11 / 1920, rounded up to even, when w9 x 9 == w10 x 16
++    0x5280020c,   # mov w12, #16
++    0x1b0c7d4c,   # mul w12, w10, w12
++    0x5280012d,   # mov w13, #9
++    0x1b0d7d2d,   # mul w13, w9, w13
++    0x6b0d019f,   # cmp w12, w13
++    0x54000101,   # b.ne done (+8)
++    0x1b0b7d2c,   # mul w12, w9, w11
++    0x111dfd8c,   # add w12, w12, #1919
++    0x5280f00d,   # mov w13, #1920
++    0x1acd098c,   # udiv w12, w12, w13
++    0x1100058c,   # add w12, w12, #1
++    0x121f798c,   # and w12, w12, #~1
++]
++_stubs = {
++    'rt': (0x16ae7a8, 'render target descriptor: a 16:9 size takes the screen\'s width', [
++        0xb9401037,   # orig: ldr w23, [x1, #0x10]
++        'adrp9',
++        0xb940a12b,   # ldr w11, [x9, #0xa0]   the output width (0 = 16:9)
++        0x3400024b,   # cbz w11, done
++        0xb940ad2c,   # ldr w12, [x9, #0xac]   set while the album makes its photo textures ('album_on' / 'album_off')
++        0x3500020c,   # cbnz w12, done
++        0x29402829,   # ldp w9, w10, [x1]
++        0x340001ca,   # cbz w10, done
++        *_widen,
++        0xb900002c,   # str w12, [x1]
++    ]),
++    'win': (0x105c0e0, 'texture descriptor (the swap chain): a 16:9 size takes the screen\'s width', [
++        0xf9400021,   # orig: ldr x1, [x1]
++        'adrp9',
++        0xb940a12b,   # ldr w11, [x9, #0xa0]
++        0x3400020b,   # cbz w11, done
++        0x2942a849,   # ldp w9, w10, [x2, #0x14]
++        0x340001ca,   # cbz w10, done
++        *_widen,
++        0xb900144c,   # str w12, [x2, #0x14]
++    ]),
++    'album_on': (0x100dec4, 'the album\'s photo textures keep their size (state +0xac set)', [
++        0xaa0003f3,   # orig: mov x19, x0
++        'adrp9',
++        0x5280002a,   # mov w10, #1
++        0xb900ad2a,   # str w10, [x9, #0xac]
++    ]),
++    'album_off': (0x100e478, 'the album\'s photo textures keep their size (state +0xac cleared)', [
++        0x2a1303e0,   # orig: mov w0, w19
++        'adrp8',
++        0xb900ad1f,   # str wzr, [x8, #0xac]
++    ]),
++    'cam': (0x1e225ec, 'camera projection: a 16:9 camera takes the screen\'s ratio (Hor+)', [
++        'adrp16',
++        0xb940a611,   # ldr w17, [x16, #0xa4]  the screen's ratio (0 = 16:9)
++        0x340000f1,   # cbz w17, orig
++        0xb9414c08,   # ldr w8, [x0, #0x14c]   the camera's ratio
++        0x5291c730,   # mov w16, #0x8e39
++        0x72a7fc70,   # movk w16, #0x3fe3, lsl #16   16/9
++        0x6b10011f,   # cmp w8, w16
++        0x54000041,   # b.ne orig
++        0xb9014c11,   # str w17, [x0, #0x14c]
++        0x39456008,   # orig: ldrb w8, [x0, #0x158]
++    ]),
++    'anchor': (0x100c6b4, 'a point in the world lands where the wider camera draws it, in the canvas\'s coordinates', [
++        'adrp9',
++        0xb940a129,   # ldr w9, [x9, #0xa0]
++        0x34000129,   # cbz w9, orig
++        0x1e230123,   # ucvtf s3, w9
++        0x1e2c1004,   # fmov s4, #0.5
++        0x1e243821,   # fsub s1, s1, s4     (x_ndc + 1) / 2 - 0.5
++        0x1e230821,   # fmul s1, s1, s3
++        0x52a88e09,   # mov w9, #0x44700000  960.0
++        0x1e270124,   # fmov s4, w9
++        0x1e242821,   # fadd s1, s1, s4
++        0x14000002,   # b done
++        0x1e220821,   # orig: fmul s1, s1, s2   x 1920.0
++    ]),
++    'rect_w': (0xdea6ac, 'a full-canvas screen rect spans the screen\'s width (the door wipe\'s black)', [
++        'adrp16',
++        0xb940a211,   # ldr w17, [x16, #0xa0]   the output width (0 = 16:9)
++        0x34000111,   # cbz w17, orig
++        0xb9401a70,   # ldr w16, [x19, #0x18]   the rect's width in the canvas
++        0x711e021f,   # cmp w16, #1920
++        0x540000a1,   # b.ne orig
++        0xb9401e70,   # ldr w16, [x19, #0x1c]   its height
++        0x7110e21f,   # cmp w16, #1080
++        0x54000041,   # b.ne orig
++        0x1e230222,   # ucvtf s2, w17          the screen's width
++        0x1e38004a,   # orig: fcvtzs w10, s2
++    ]),
++    'rect_x': (0xdea6bc, 'a screen rect\'s centre is placed in the canvas in the middle of the screen', [
++        0x1e210901,   # orig: fmul s1, s8, s1   x scale
++        'adrp16',
++        0xb940a211,   # ldr w17, [x16, #0xa0]
++        0x34000111,   # cbz w17, done
++        0x1e230223,   # ucvtf s3, w17
++        0x1e2c1004,   # fmov s4, #0.5
++        0x1e240863,   # fmul s3, s3, s4        width / 2
++        0x52a88e10,   # mov w16, #0x44700000   960.0
++        0x1e270204,   # fmov s4, w16
++        0x1f088c83,   # fmsub s3, s4, s8, s3   width / 2 - 960 x scale
++        0x1e232821,   # fadd s1, s1, s3
++    ]),
++    'hud': (0x1e82690, 'full-screen pictures stretch to the screen\'s width; the gameplay HUD\'s listed panes move out by the extra half-width', [
++        'adrp16',
++        0xb940a210,   # ldr w16, [x16, #0xa0]   the output width (0 = 16:9)
++        0x340004f0,   # cbz w16, orig
++        0x39444a6a,   # ldrb w10, [x19, #0x112]
++        0x7100055f,   # cmp w10, #1
++        0x54000060,   # b.eq size
++        0x71000d5f,   # cmp w10, #3
++        0x54000261,   # b.ne listed
++        0x79c1e26a,   # size: ldrsh w10, [x19, #0xf0]
++        0x711e015f,   # cmp w10, #1920
++        0x5400020b,   # b.lt listed
++        0xd503201f,   # nop
++        0xd503201f,   # nop
++        0xd503201f,   # nop
++        0xf9406a6b,   # ldr x11, [x19, #0xd0]   the parent
++        0xb400016b,   # cbz x11, listed
++        0x3944496a,   # ldrb w10, [x11, #0x112]
++        0x3500012a,   # cbnz w10, listed
++        0x1e220206,   # scvtf s6, w16
++        0x5280f00a,   # mov w10, #1920
++        0x1e220147,   # scvtf s7, w10
++        0x1e2718c6,   # fdiv s6, s6, s7
++        0x3dc00123,   # ldr q3, [x9]            the global matrix's x axis
++        0x4f869063,   # fmul v3.4s, v3.4s, v6.s[0]
++        0x3d800123,   # str q3, [x9]
++        0x14000010,   # b orig
++        0xb940c26a,   # listed: ldr w10, [x19, #0xc0]   the pane's name hash
++        0x10000211,   # adr x17, list
++        0xb840462b,   # 1: ldr w11, [x17], #4
++        0x3400018b,   # cbz w11, orig           not listed
++        0x6b0a017f,   # cmp w11, w10
++        0x54ffffa1,   # b.ne 1b
++        0xbd403123,   # ldr s3, [x9, #0x30]     the global x the matrix calc just stored
++        0x511e0210,   # sub w16, w16, #1920
++        0x13017e10,   # asr w16, w16, #1        the extra half-width
++        0x1e220206,   # scvtf s6, w16
++        0x1e2140c7,   # fneg s7, s6
++        0x1e202068,   # fcmp s3, #0.0
++        0x1e264ce6,   # fcsel s6, s7, s6, mi    towards the pane's side
++        0x1e262863,   # fadd s3, s3, s6
++        0xbd003123,   # str s3, [x9, #0x30]
++        0xf9401909,   # orig: ldr x9, [x8, #0x30]
++        0x1400000b,   # b over the list
++        0xd81f3cb5, 0xf13b1a7c, 0x0623e2bd, 0x1b0caafe, 0x1569295d, 0x31d72b49, 0xe75fc20a, 0x2074df4f, 0x78801aae, 0,
++    ]),
++}
++_get = [
++    'adrp9',
++    0xb940a129,   # ldr w9, [x9, #0xa0]
++    0x340000e9,   # cbz w9, ret
++    0x1b097c00,   # mul w0, w0, w9
++    0x111dfc00,   # add w0, w0, #1919
++    0x5280f00a,   # mov w10, #1920
++    0x1aca0800,   # udiv w0, w0, w10
++    0x11000400,   # add w0, w0, #1
++    0x121f7800,   # and w0, w0, #~1
++    0xd65f03c0,   # ret
++]
++_float_sites = [(0x104f364, 8), (0x104f61c, 8), (0xfff1c4, 8), (0xfff450, 8), (0xd3aac, 9), (0x100edd4, 9), (0x1018bac, 8), (0x1018c08, 8)]
++_get_sites = [(0x103a1c4, 'render width (1920)'), (0x103a1ec, 'render width of a dynamic resolution level (the table)'), (0x103a1f4, 'render width of a level out of range (1920)')]
++_canvas_sites = [0x86bf88, 0x9bc69c, 0x9bc8d0, 0x9bced4, 0x9c0ee0, 0x9c1630, 0x9c1658, 0x9c29c4, 0x9c29ec, 0x9c3344, 0x9c44e0, 0x9c4500, 0x9c4b08, 0x9c4b30,
++                 0x9f3ff4, 0x9f4050, 0x9f407c, 0x9f4190, 0x9f41bc, 0x9f41e4, 0xdbf458, 0xdda9e4, 0xddab50, 0xde5064, 0xdea66c, 0xe0c3e4, 0xe8d438, 0xe8d62c,
++                 0xe8e7a8, 0xe8ef98, 0xe8f320, 0xe8fab0, 0xe8fd20, 0xe902b0, 0xeb5ce0, 0xf0f45c, 0xf10074]
++_canvas = [
++    0xf941a908,   # ldr x8, [x8, #0x350]
++    0xb4000128,   # cbz x8, none
++    0xb9404900,   # ldr w0, [x8, #0x48]
++    0xb9404d09,   # ldr w9, [x8, #0x4c]
++    0x531c6d29,   # lsl w9, w9, #4
++    0x5280012a,   # mov w10, #9
++    0x1aca0929,   # udiv w9, w9, w10
++    0x6b09001f,   # cmp w0, w9
++    0x1a808120,   # csel w0, w9, w0, hi
++    0xd65f03c0,   # ret
++    0x5280f000,   # none: mov w0, #1920
++    0xd65f03c0,   # ret
++]
++
++
++def _bl(frm, to):
++    off = to - frm; assert -(1 << 27) <= off < (1 << 27) and off % 4 == 0
++    return 0x94000000 | ((off >> 2) & 0x3FFFFFF)
++
++
++_orig = {'anchor': '2108221e', 'rect_w': '4a00381e', 'rect_x': '0109211e', 'rt': '371040b9', 'win': '210040f9', 'cam': '08604539', 'album_on': 'f30300aa', 'album_off': 'e003132a', 'hud': '091940f9'}
++
++
++def _emit(ctx, words):
++    for w in words:
++        if w == 'adrp9': ctx.emit(ADRP(9, ctx.here(), ctx.state))
++        elif w == 'adrp16': ctx.emit(ADRP(16, ctx.here(), ctx.state))
++        elif w == 'adrp8': ctx.emit(ADRP(8, ctx.here(), ctx.state))
++        else: ctx.emit(w)
++
++
++def screen_shape_v327680(ctx):
++    for name, (site, why, words) in _stubs.items():
++        ctx.site(site, _orig[name])
++        start = ctx.here(); _emit(ctx, words); ctx.emit(B(ctx.here(), site + 4))
++        ctx.put(site, [B(site, start)], 'screen shape: ' + why + f' (DM_SCREEN_ASPECT, state +{_wide_w:#x} / +{_wide_a:#x})')
++    for site, n in _float_sites:
++        orig = (0xd2800000 if site == 0x1018c08 else 0x52800000) | 0x44f0 << 5 | 1 << 21 | n
++        ctx.site(site, orig.to_bytes(4, 'little').hex())
++        start = ctx.here(); ctx.emit(ADRP(n, ctx.here(), ctx.state))
++        ctx.emit(0xb940a800 | n << 5 | n)
++        ctx.emit(0x35000040 | n)
++        ctx.emit(orig)
++        ctx.emit(B(ctx.here(), site + 4))
++        ctx.put(site, [B(site, start)], 'screen shape: the renderer\'s 1920.0 becomes the output width (DM_SCREEN_ASPECT, state +0xa8)')
++    for site, why in _get_sites:
++        ctx.site(site, 'c0035fd6')
++        start = ctx.here(); _emit(ctx, _get)
++        ctx.put(site, [B(site, start)], f'screen shape: {why} takes the screen\'s width (DM_SCREEN_ASPECT, state +{_wide_w:#x})')
++    start = ctx.here(); ctx.emit(ADRP(8, ctx.here(), 0x3451000))
++    for w in _canvas: ctx.emit(w)
++    for site in _canvas_sites:
++        ctx.site(site, _bl(site, 0xd3ca0).to_bytes(4, 'little').hex())
++        ctx.put(site, [_bl(site, start)], 'screen shape: the UI\'s text and map scale takes the 16:9 canvas\'s width, min(width, height x 16 / 9) (DM_SCREEN_ASPECT)')
++    ctx.capabilities.add('WIDE_ASPECT')
++
++
++FRAME_STEP = {
++    '816c5358e8178d802fcec4a7ce5a741a': screen_shape_v327680,   # v327680 main
++}
++
++BINDING = [
++    {'what': 'screen shape wider than 16:9: the render sizes, the swap chain, the renderer\'s 1920.0 constants, the cameras\' ratio and the gameplay HUD at the edges (DM_SCREEN_ASPECT)', 'now': 'build', 'goal': 'game', 'purpose': 'rendering',
++     'why': "the output size is the host's, but where KTGL takes its sizes and its cameras' ratio is this build's code",
++     'blocked': 'the stubs have no function-matched form yet'},
++]
+diff --git a/dm/games/game.py b/dm/games/game.py
+index 4db679f..ae07d54 100644
+--- a/dm/games/game.py
++++ b/dm/games/game.py
+@@ -244,7 +244,7 @@ def header_one(g):
+          f'#define DM_GAME_LAUNCH_PARAM {q(g.get("launch_param", ""))}',   # what oe::TryPopLaunchParameter hands over once (hle_oe.c; a program another program of the application launches: Super Mario 3D All-Stars)
+          f'#define DM_GAME_MEM_MAP_LIMIT {int(mml == "on")}',
+          f'#define DM_GAME_STDALLOC_CAP {int(g.get("stdalloc_cap", "0"), 0):#x}ull',   # StandardAllocator's address space with virtual address memory (hle_svc.c); 0 = what the alias region has room for
+-         f'#define DM_GAME_SCREEN_ASPECT {("off", "on").index(g.get("screen_aspect", "off"))}',   # stubs that follow a screen taller than 16:9 (DM_SCREEN_ASPECT): off / on
++         f'#define DM_GAME_SCREEN_ASPECT {("off", "on", "wide", "both").index(g.get("screen_aspect", "off"))}',   # stubs that follow a screen of another shape (DM_SCREEN_ASPECT): off / on (taller) / wide (wider) / both
+          f'#define DM_GAME_DISPLAY_VERSIONS {vers}',
+          f'#define DM_GAME_PRESENT_DISPLAY {int(pi == "display")}',
+          f'#define DM_GAME_CORE_PREEMPT {int(cp == "on")}',
+diff --git a/dm/games/settings.py b/dm/games/settings.py
+index bd17f67..18177f6 100644
+--- a/dm/games/settings.py
++++ b/dm/games/settings.py
+@@ -120,6 +120,7 @@ def build(gid, patched, control, other_programs=()):
+         if kind == 'choice':
+             opts = [list(l) for l in langs] if values == 'languages' else [v.split('?', 1)[0].split('=', 1) for v in values.split(',') if offered(v, n)]
+             if any(len(o) != 2 for o in opts): sys.exit(f'settings.tsv:{n}: choice values are value=label,...')
++            if len(opts) < 2 and values != 'languages': continue   # one option left on this platform: nothing to choose
+             if s['default'] not in [o[0] for o in opts]: s['default'] = opts[0][0]   # a default the game does not offer (a language it lacks): its first
+             s['options'] = opts
+             if values == 'languages' and not have: s['note'] = UNKNOWN_LANGUAGES
+diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
+index 10af37e..22f5ae8 100644
+--- a/dm/games/settings.tsv
++++ b/dm/games/settings.tsv
+@@ -37,7 +37,7 @@ DM_PAD_PRESS_TO_JOIN	toggle	-	0	always	Controls	Press a button to join
+ DM_SW2	toggle	-	0	platform:mac	Controls	Switch 2 controllers	Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access.
+ DM_MIC	toggle	-	0	mac-mic	Controls	Microphone	Lets the game hear your microphone. macOS asks for access when you launch with this enabled.	level=basic
+ DM_MIC_GAIN	range	1:8:0.5	4	mac-mic	Controls	Microphone gain		needs=DM_MIC=1
+-DM_SCREEN_ASPECT	choice	auto=Match screen?platform:ios,1.43=iPhone Duo screen (1.43:1),0=16:9 (Switch)	auto|0	DM_GAME_SCREEN_ASPECT!=0	Game	Picture shape	Renders about a quarter more pixels: a little slower and warmer.
++DM_SCREEN_ASPECT	choice	auto=Match screen,1.43=iPhone Duo screen (1.43:1)?DM_GAME_SCREEN_ASPECT!=2,0=16:9 (Switch)	auto|0	DM_GAME_SCREEN_ASPECT!=0	Game	Picture shape	Renders about a quarter more pixels: a little slower and warmer.
+ DM_PRESENT_SNAP	toggle	-	DM_GAME_PRESENT_SNAP	gfxapi:nvn	Performance	Frame buffering	Up to one frame more display latency.
+ DM_PSO_MTL4	toggle	-	DM_GAME_PSO_MTL4|1	gfxapi:nvn	Performance	Metal 4 pipelines	Keeps a pipeline archive; uses more memory.
+ DM_PSO_PREBUILD	toggle	-	1	gfxapi:nvn	Performance	Pipeline prebuild	The first start waits a few minutes for it, once.	needs=DM_PSO_MTL4=1
+diff --git a/dm/gfx/hle_vi.c b/dm/gfx/hle_vi.c
+index c39b304..5c10295 100644
+--- a/dm/gfx/hle_vi.c
++++ b/dm/gfx/hle_vi.c
+@@ -29,10 +29,12 @@ HLE_FORCE("_ZN2nn2vi11CreateLayerEPPNS0_5LayerEPNS0_7DisplayE", "create layer; t
+ // The present shows the picture in the layer's shape (nvn_mtl.m present_shape)
+ void mtl_present_layer(uint32_t w, uint32_t h);
+ static _Atomic uint32_t g_layer_wh;   // w | h << 16 of the last sized CreateLayer, 0 = none
++static _Atomic int g_layer_override;  // 1 when loader.c fixed an anamorphic widescreen present shape
++void dm_vi_override_layer(uint32_t w, uint32_t h) { g_layer_override = w > 0 && h > 0; mtl_present_layer(w, h); }
+ void dm_vi_layer_size(int *w, int *h) { uint32_t v = g_layer_wh; *w = (int)(v & 0xffff); *h = (int)(v >> 16); }
+ HLE_FORCE("_ZN2nn2vi11CreateLayerEPPNS0_5LayerEPNS0_7DisplayEii", "create layer of a given size; the host returns a static object", Result, h_vi_CreateLayerWH, void **out, void *disp, int w, int h) {
+     (void)disp; LOG("vi::CreateLayer %dx%d", w, h); *out = &g_layer;
+-    if (w > 0 && h > 0 && w < 0x10000 && h < 0x10000) { g_layer_wh = (uint32_t)w | (uint32_t)h << 16; mtl_present_layer((uint32_t)w, (uint32_t)h); }
++    if (w > 0 && h > 0 && w < 0x10000 && h < 0x10000) { g_layer_wh = (uint32_t)w | (uint32_t)h << 16; if (!g_layer_override) mtl_present_layer((uint32_t)w, (uint32_t)h); }
+     return RES_OK;
+ }
+ // SDK 22's overload with a LayerCreationSettings, which its constructor LayerCreationSettings(int w, int h) fills as {w, h, 2} (sdk+0x4526a0 in EA SPORTS FC 27; the SDK's own
+diff --git a/dm/host/dm.h b/dm/host/dm.h
+index 4a56b3f..5f548d7 100644
+--- a/dm/host/dm.h
++++ b/dm/host/dm.h
+@@ -80,6 +80,7 @@ typedef struct {
+     uint32_t step_max;         // the largest step the frame step stubs give the game (the fixups table's STEP_MAX, patch_nso.py ctx.step_max); 0 = FSTEP_MAX
+     uint32_t render_scale_max; // a render-scale stub's largest scale (the fixups table's RENDER_SCALE, patch_nso.py): DM_RENDER_SCALE is held to it; 0 = no such stub
+     int movie_native_color_keys; // the movie SDK's MediaData uses the native buffer's colour index directly (MOVIE_NATIVE_COLOR_KEYS)
++    int aspect_wide, aspect_anamorphic, aspect_height_wide;   // wide / anamorphic / height-adjusted wide screen-shape stubs in main.fixups.tsv
+     int64_t patch_off;         // patch area relative to the base; negative = before the base (image too large, see patch_nso.py FAR), and size does not include it
+     uint64_t image_size, file_image_len, patch_len;   // only with the patch area before the base: whole image (with bss and key page), length of the image part of the file, patch area length
+     uint64_t back_off, back_len;   // a second patch area after the image (patch_nso.py TWO: a text longer than a B reaches), inside size; 0 = none
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 38cbf2a..cf87bff 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -31,6 +31,7 @@
+ #include <sys/stat.h>
+ 
+ static CAMetalLayer *g_layer;
++__attribute__((weak)) void dm_fps_state_apply(void) {}   // loader.c; standalone front-end tests have no loader
+ static uint64_t g_btn;
+ static key_state g_key_state;
+ static int g_input_on = 1;   // main thread: the game window is key, so its keyboard, mouse and controllers reach the game (input_release / input_resume)
+@@ -1454,6 +1455,15 @@ void front_run(void (*guest)(void)) {
+         }
+         [win makeKeyAndOrderFront:nil];
+         screen_refresh(win.screen ?: NSScreen.mainScreen);
++        {   // Picture shape "auto" (Match screen): the target screen's shape when taller (1.3..1.77, e.g. MacBook 16:10) or wider (1.8..4.0, e.g. 21:9 / 32:9) than 16:9
++            const char *as = getenv("DM_SCREEN_ASPECT");
++            if (as && !strcmp(as, "auto")) {
++                NSSize sz = (win.screen ?: NSScreen.mainScreen).frame.size; double sr = sz.height > 0 ? sz.width / sz.height : 0;
++                char sv[16]; if ((sr >= 1.3 && sr < 1.77) || (sr >= 1.8 && sr <= 4.0)) snprintf(sv, sizeof sv, "%.3f", sr); else strcpy(sv, "0");
++                setenv("DM_SCREEN_ASPECT", sv, 1); LOG("front end: picture shape auto: screen %.0fx%.0f points (%.3f:1) -> DM_SCREEN_ASPECT=%s", sz.width, sz.height, sr, sv);
++                if (strcmp(sv, "0")) dm_fps_state_apply();
++            }
++        }
+         g_win = win;
+         // Activated once the run loop below runs, not here: an app that takes the front while its main thread is still busy with the setup below can show
+         // the pointer for a frame although it hid it (DM_CURSOR_HIDDEN, issue #380)
+diff --git a/dm/host/hle_touch.c b/dm/host/hle_touch.c
+index d28c15d..877e028 100644
+--- a/dm/host/hle_touch.c
++++ b/dm/host/hle_touch.c
+@@ -17,18 +17,29 @@ static struct { int down, pend; float x, y; } g_gf[16];   // the gesture recogni
+ static pthread_mutex_t g_tl = PTHREAD_MUTEX_INITIALIZER;
+ static int64_t g_tsamp; static uint64_t g_tlast_ns;
+ 
++// On a picture wider than 16:9 whose UI keeps a centered 16:9 projection (state +0x58 > 16/9), map normalized touch X onto that centered band
++// so controls are hit where they are drawn; 16:9 and taller pictures keep X unchanged.
++__attribute__((weak)) uint8_t *dm_fps_state;
++static float ui_x(float x) {
++    if (!dm_fps_state) return x;
++    float r; memcpy(&r, dm_fps_state + 0x58, 4);
++    if (!(r > 16.0f / 9.0f)) return x;
++    float v = 0.5f + (x - 0.5f) / ((16.0f / 9.0f) / r);
++    return v < 0 ? 0 : v > 1 ? 1 : v;
++}
+ static void touch_apply(const dm_touch *t, int n) {
+     pthread_mutex_lock(&g_tl);
+     int seen[16] = {0};
+     for (int i = 0; i < n; i++) {
+         uint32_t id = t[i].id; if (id >= 16) continue;
++        float tx = ui_x(t[i].x), ty = t[i].y;
+         seen[id] = 1;
+         if (!g_gf[id].down) g_gf[id].pend = 1;
+-        g_gf[id].down = 1; g_gf[id].x = t[i].x; g_gf[id].y = t[i].y;
+-        if (g_f[id].st == F_LIFTED && g_f[id].reported) { g_f[id].again = 1; g_f[id].ax = t[i].x; g_f[id].ay = t[i].y; continue; }
++        g_gf[id].down = 1; g_gf[id].x = tx; g_gf[id].y = ty;
++        if (g_f[id].st == F_LIFTED && g_f[id].reported) { g_f[id].again = 1; g_f[id].ax = tx; g_f[id].ay = ty; continue; }
+         if (g_f[id].st == F_EMPTY) { g_f[id].st = F_DOWN; g_f[id].reported = 0; }
+         else if (g_f[id].st == F_LIFTED) g_f[id].st = F_DOWN;              // Pressed again before the lift was reported: treat it as held down all along
+-        g_f[id].x = t[i].x; g_f[id].y = t[i].y;
++        g_f[id].x = tx; g_f[id].y = ty;
+     }
+     for (int id = 0; id < 16; id++) {
+         if (!seen[id]) g_gf[id].down = 0;
+diff --git a/dm/host/loader.c b/dm/host/loader.c
+index ed64a01..04a2800 100644
+--- a/dm/host/loader.c
++++ b/dm/host/loader.c
+@@ -284,6 +284,9 @@ static void read_layout(module_t *m, const char *dir) {
+         else if (!strcmp(key, "RENDER_SCALE")) m->render_scale_max = (uint32_t)v;
+         else if (!strcmp(key, "MOVIE_NATIVE_COLOR_KEYS")) m->movie_native_color_keys = v == 1;
+         else if (!strcmp(key, "STEP_MAX")) m->step_max = (uint32_t)v;
++        else if (!strcmp(key, "WIDE_ASPECT")) m->aspect_wide = v != 0;
++        else if (!strcmp(key, "ANAMORPHIC_ASPECT")) m->aspect_anamorphic = v != 0;
++        else if (!strcmp(key, "HEIGHT_WIDE_ASPECT")) m->aspect_height_wide = v != 0;
+         else if (!strcmp(key, "UE_MALLOC_VT")) m->ue_malloc_vt = v;
+         else if (!strcmp(key, "UE_MALLOC_SLOT")) m->ue_malloc_slot = (unsigned)v;
+         else if (!strcmp(key, "FPS_TARGET_PTR")) m->fps_target_ptr = v;
+@@ -328,10 +331,13 @@ uint8_t *dm_fps_state;
+ int dm_fps_step_max;   // the largest step the stubs give the game (STEP_MAX in its fixups table; 0 = FSTEP_MAX): the frame step holds frames and pays back within it (hle_nvn.c)
+ static const char *g_fps_mod;   // the module holding the state page (for the log)
+ static float g_render_scale_max = 1.0f;   // the render-scale stub's largest scale (RENDER_SCALE in its fixups table; 1 for a stub that only lowers the game's size)
++static int g_aspect_wide, g_aspect_anamorphic, g_aspect_height_wide;
++__attribute__((weak)) void dm_vi_override_layer(uint32_t w, uint32_t h) { (void)w; (void)h; }   // dm/gfx/hle_vi.c; host unit tests have no vi layer
+ static void install_fps_state(module_t *m) {
+     if (m->fps_state_off + 0x40 > m->size || m->fps_state_off < m->key_page_off + m->key_page_size) die("%s: frame step state page out of range", m->name);
+     dm_fps_state = m->base + m->fps_state_off; g_fps_mod = m->name; dm_fps_step_max = (int)m->step_max;
+     if (m->render_scale_max > 1) g_render_scale_max = (float)m->render_scale_max;
++    g_aspect_wide = m->aspect_wide; g_aspect_anamorphic = m->aspect_anamorphic; g_aspect_height_wide = m->aspect_height_wide;
+ }
+ // The settings in the state page, written when the game starts (main.c, after host loading): on iOS the loading runs at app launch, before the launcher has set DM_FPS_TARGET and
+ // DM_RENDER_SCALE (Launcher.swift), and nothing reads the page before the game runs
+@@ -351,35 +357,43 @@ void dm_fps_state_apply(void) {
+     const char *dr = getenv("DM_DYNAMIC_RESOLUTION"); uint32_t dyn = dr && !strcmp(dr, "1");
+     if (dr && strcmp(dr, "0") && strcmp(dr, "1")) LOG("[RED] DM_DYNAMIC_RESOLUTION=%s: must be 0 or 1; keeping full resolution", dr);
+     memcpy(dm_fps_state + 0x40, &dyn, sizeof dyn);
+-    // Screen shape: DM_SCREEN_ASPECT, the screen's width / height between 1.3 and 1.77, makes the builds with screen-shape stubs
+-    // (Breath of the Wild 1.9.0's patches.py) render that shape: the output keeps its width (1920) and takes the height that gives the ratio, a multiple of 48 so the
+-    // 2/3-size layout space (1280 wide) stays whole: 1.43 → 1920x1344 and 1280x896. State +0x48 u32 output height, +0x4c u32 layout height, +0x50 its float; 0 = 16:9
++    // Screen shape: DM_SCREEN_ASPECT, the screen's width / height between 1.3 and 1.77 (taller) or 1.8 and 4.0 (wider), makes builds with screen-shape stubs render that shape.
++    // Taller builds (Breath of the Wild 1.9.0, Animal Crossing: New Horizons 3.0.3) keep width 1920 and adjust height (+0x48..+0x98); wider swapchain/anamorphic builds (Pokemon
++    // Pokopia, Ocarina of Time) keep height 1080 and adjust width (+0xa0 u32 output width, +0xa4 float ratio, +0xa8 float output width); Animal Crossing's HEIGHT_WIDE_ASPECT
++    // keeps width 1920 and 720-tall centered layouts on wider screens too
+     const char *as = getenv("DM_SCREEN_ASPECT");
+-    if (as && *as && strcmp(as, "0") && strcmp(as, "auto")) {   // 0: 16:9; auto: the iOS front end resolves it to the screen's shape (a Mac window has none)
++    if (as && *as && strcmp(as, "0") && strcmp(as, "auto")) {   // 0: 16:9; auto: the iOS and Mac front ends resolve it to the screen's shape
+         char *end; float a = strtof(as, &end);
+-        if (end == as || *end || !(a >= 1.3f && a < 1.77f)) LOG("[RED] DM_SCREEN_ASPECT=%s: a width / height from 1.3 to 1.77; keeping 16:9", as);
+-        else {
+-            uint32_t oh = (uint32_t)(1920.0f / a / 48.0f + 0.5f) * 48, lh = oh * 2 / 3; float lf = (float)lh;
++        if (end == as || *end || !((a >= 1.3f && a < 1.77f) || (a >= 1.8f && a <= 4.0f))) {
++            LOG("[RED] DM_SCREEN_ASPECT=%s: a width / height from 1.3 to 1.77 (taller) or 1.8 to 4 (wider); keeping 16:9", as);
++        } else if (a >= 1.8f && (g_aspect_wide || g_aspect_anamorphic)) {
++            uint32_t ow = (uint32_t)(1080.0f * a / 8.0f + 0.5f) * 8; float r = (float)ow / 1080.0f, owf = (float)ow;
++            memcpy(dm_fps_state + 0xa0, &ow, 4); memcpy(dm_fps_state + 0xa4, &r, 4); memcpy(dm_fps_state + 0xa8, &owf, 4);
++            if (g_aspect_anamorphic) dm_vi_override_layer(ow, 1080);
++            else { extern void mtl_present_screen(uint32_t w, uint32_t h); mtl_present_screen(ow, 1080); }
++            LOG("%s: screen shape %.3f: output %ux1080, cameras %.4f:1 (DM_SCREEN_ASPECT)", g_fps_mod, a, ow, r);
++        } else if (a >= 1.8f && !g_aspect_height_wide) {
++            LOG("%s: screen shape %.3f: build has no wider screen-shape stubs, keeping 16:9", g_fps_mod, a);
++        } else if (a < 1.77f && (g_aspect_wide || g_aspect_anamorphic) && !g_aspect_height_wide) {
++            LOG("%s: screen shape %.3f: build has only wider screen-shape stubs, keeping 16:9", g_fps_mod, a);
++        } else {
++            uint32_t oh = a >= 1.8f ? (uint32_t)(1920.0f / a / 8.0f + 0.5f) * 8 : (uint32_t)(1920.0f / a / 48.0f + 0.5f) * 48;
++            uint32_t lh = oh >= 1080 ? oh * 2 / 3 : 720;
++            float lf = (float)lh;
+             memcpy(dm_fps_state + 0x48, &oh, 4); memcpy(dm_fps_state + 0x4c, &lh, 4); memcpy(dm_fps_state + 0x50, &lf, 4);
+             extern void mtl_present_screen(uint32_t w, uint32_t h); mtl_present_screen(1920, oh);   // the picture's shape for a texture that follows it (nvn_mtl.m present_shape)
+             const char *ms = getenv("DM_SCREEN_ASPECT_SITES"); uint32_t mask = ms ? (uint32_t)strtoul(ms, NULL, 0) : 0xffffffffu;   // the stubs of the game's own conversions, one bit each (+0x54)
+             memcpy(dm_fps_state + 0x54, &mask, 4);
+             if (ms) LOG("%s: screen shape: conversion sites %#x (DM_SCREEN_ASPECT_SITES)", g_fps_mod, mask);
+-            // The field of view: views of the screen's ratio (the scene, the HUD's camera) keep 16:9's sides and show more above and below (patches.py's sead::PerspectiveProjection stubs)
+             float r = 1920.0f / (float)oh, k = (16.0f / 9.0f) / r, tol = 0.01f;
++            if (k < 1.0f) k = 1.0f;   // a wider screen keeps the vertical angle and widens horizontally via aspect r
+             const char *fo = getenv("DM_SCREEN_FOV"); if (fo && !strcmp(fo, "off")) tol = -1.0f;   // trials: the scene keeps the game's vertical angle (no view matches); the HUD camera still widens
+             memcpy(dm_fps_state + 0x58, &r, 4); memcpy(dm_fps_state + 0x5c, &k, 4); memcpy(dm_fps_state + 0x60, &tol, 4);
+             float wide = 16.0f / 9.0f, wtol = 0.001f, far = 10000.0f;   // the HUD camera's projection: 16:9, near 1, far 10000 (+0x74 / +0x78 / +0x7c)
+             memcpy(dm_fps_state + 0x74, &wide, 4); memcpy(dm_fps_state + 0x78, &wtol, 4); memcpy(dm_fps_state + 0x7c, &far, 4);
+-            // The HUD at the taller edges (patches.py duo_anchor.c, +0x80..+0x98): the shift (half the layout height over 360), the stretch of full-screen panes, the edge rule's
+-            // distance, the listed corner widgets' distance, a full-screen pane's width and height in the 1280x720 space, and the tallest one still stretched (a menu's
+-            // background is about 720 tall, the weapon wheel's gradient 1280; the map's tiles are left alone anyway)
+-            // (Mac, a Master Mode save: an edge distance of 280 takes the menus' title bars (286 to 320), the map's frame pieces (284 to 360) and the bottom guides (-318) along
+-            // as whole rows; 330 left the title bars and the rupee count in the middle while the hearts moved. Text moves with its widget since the rule runs where global
+-            // matrices are computed. Only panes as wide and as tall as the screen are stretched: a width of 0 stretched the inventory's half-width side panel past its top
+-            // and bottom bars). DM_SCREEN_HUD=<edge>,<listed>,<full-screen width>,<full-screen height>[,<tallest>]
+-            // overrides them for trials
+             float anc[7] = {(float)lh / 2 - 360.0f, (float)lh / 720.0f, 280.0f, 100.0f, 1270.0f, 710.0f, 1300.0f};
++            if (anc[0] < 0.0f) anc[0] = 0.0f;
++            if (anc[1] < 1.0f) anc[1] = 1.0f;
+             const char *hv = getenv("DM_SCREEN_HUD");
+             if (hv && sscanf(hv, "%f,%f,%f,%f,%f", &anc[2], &anc[3], &anc[4], &anc[5], &anc[6]) < 4) LOG("[RED] DM_SCREEN_HUD=%s: <edge>,<listed>,<full width>,<full height>[,<tallest>]; keeping the rest", hv);
+             memcpy(dm_fps_state + 0x80, anc, sizeof anc);
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index 4f34c05..c63f0e8 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -177,13 +177,13 @@ - (void)startGame {
+     front_hud_env();   // before the process's first Metal device, which reads MTL_HUD_ENABLED (an env file's DM_METAL_HUD sets it in main.m already; GitHub issue #840)
+     const char *dev = front_ios_device_check();   // that first device: a GPU without BC textures is refused here, not at launch, so the launcher's HUD switch counts
+     if (dev) { [self showHint:[NSString stringWithFormat:@"This device is not supported.\n%s", dev]]; return; }   // the host does not start
+-    {   // Picture shape "auto" (the launcher's Match screen): the app window's own shape when it is taller than 16:9 (an iPad's 4:3, an unfolded iPhone Duo's 1.43:1; loader.c
+-        // takes 1.3 to 1.77), else 16:9. The window's, not the screen's: on an iPad under Stage Manager or Split View the app does not fill the screen. Resolved here, before the
+-        // host writes the state page (main.c dm_fps_state_apply)
++    {   // Picture shape "auto" (the launcher's Match screen): the app window's own shape when it is taller or wider than 16:9 (an iPad's 4:3, an unfolded iPhone Duo's 1.43:1,
++        // a 19.5:9 phone in landscape at 2.17:1; loader.c applies only shapes the build's stubs support), else 16:9. The window's, not the screen's: on an iPad under Stage
++        // Manager or Split View the app does not fill the screen. Resolved here, before the host writes the state page (main.c dm_fps_state_apply)
+         const char *a = getenv("DM_SCREEN_ASPECT");
+         if (a && !strcmp(a, "auto")) {
+             CGSize sz = self.view.window ? self.view.window.bounds.size : UIScreen.mainScreen.bounds.size; double r = MAX(sz.width, sz.height) / MAX(MIN(sz.width, sz.height), 1);
+-            char v[16]; if (r >= 1.3 && r < 1.77) snprintf(v, sizeof v, "%.3f", r); else strcpy(v, "0");
++            char v[16]; if ((r >= 1.3 && r < 1.77) || (r >= 1.8 && r <= 4.0)) snprintf(v, sizeof v, "%.3f", r); else strcpy(v, "0");
+             setenv("DM_SCREEN_ASPECT", v, 1); LOG("front end: picture shape auto: window %.0fx%.0f points (%.3f:1) → DM_SCREEN_ASPECT=%s", sz.width, sz.height, r, v);
+         }
+     }

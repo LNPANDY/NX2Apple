@@ -44,6 +44,7 @@ package enum BuildFailureClassifier {
         (id: "update.missing", kind: .updateMismatch, pattern: "no NSP for update v[0-9]+ \\(the game profile needs these versions:"),
         (id: "profile.tables", kind: .updateMismatch, pattern: "Either these game files are not the versions the profile registers, or shader_split\\.py now reads them differently"),
         (id: "profile.builds", kind: .updateMismatch, pattern: "not the builds provisional game profile [0-9A-Fa-f]+ registers:"),
+        (id: "mng.sharedFonts", kind: .mngSharedFonts, pattern: "(?:--firmware[^\\n]*--shared-fonts|--shared-fonts[^\\n]*--firmware|do not include system shared fonts|no valid shared fonts are cached|missing shared-font data NCAs)"),
         (id: "signing.appIDLimit", kind: .appIDLimit, pattern: appIDLimitPattern),
         (id: "signing.freeLimit", kind: .freeAccountLimit, pattern: "(?i)(?:maximum number of (?:provisioning profiles|installed apps|apps for free development profiles|provisioned iOS devices)|code -36607)"),
     ]

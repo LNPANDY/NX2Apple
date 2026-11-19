@@ -5,6 +5,7 @@ import SwiftUI
 enum ShellSettingsRows {
     static let gameID = "shell"
     static let hud = "shell.hud"
+    static let showFPS = "shell.showFPS"
     static let audioMix = "shell.audioMix"
     static let touchSize = "shell.touchSize"
     static let touchStick = "shell.touchStick"
@@ -13,6 +14,11 @@ enum ShellSettingsRows {
     static func hudRow(_ store: ShellSettingsStore) -> SettingRow {
         SettingRow(id: hud, label: ShellStrings.text("Performance overlay"), note: ShellStrings.text("Used by games that have no choice of their own."),
                    kind: .toggle(on: "1", off: "0"), value: store.performanceHUD == true ? "1" : "0")
+    }
+
+    static func showFPSRow(_ store: ShellSettingsStore) -> SettingRow {
+        SettingRow(id: showFPS, label: ShellStrings.text("Frame-rate counter"), note: ShellStrings.text("Used by games that have no choice of their own."),
+                   kind: .toggle(on: "1", off: "0"), value: store.showFPS == true ? "1" : "0")
     }
 
     static func audioMixRow(_ store: ShellSettingsStore) -> SettingRow {
@@ -44,6 +50,7 @@ enum ShellSettingsRows {
     static func apply(_ id: String, value: String, to store: ShellSettingsStore) {
         switch id {
         case hud: store.storePerformanceHUD(value == "1")
+        case showFPS: store.storeShowFPS(value == "1")
         case audioMix: store.storeAudioMix(value == "1")
         case touchSize: store.storeTouchSize(value)
         case touchStick: store.storeTouchStick(value)
@@ -153,6 +160,16 @@ struct ShellSettingsView: View {
                     .accessibilityIdentifier("setting.shell.hud")
                     .shellTarget("shs.row.\(ShellSettingsRows.hud)") {
                         store.storePerformanceHUD(store.performanceHUD != true)
+                        revision += 1
+                    }
+                    Toggle(isOn: Binding(get: { store.showFPS == true }, set: { store.storeShowFPS($0); revision += 1 })) {
+                        Label(ShellStrings.text("Frame-rate counter"), systemImage: "number")
+                            .labelStyle(SettingsRowLabelStyle())
+                    }
+                    .toggleStyle(NativeCreamToggleStyle())
+                    .accessibilityIdentifier("setting.shell.showFPS")
+                    .shellTarget("shs.row.\(ShellSettingsRows.showFPS)") {
+                        store.storeShowFPS(store.showFPS != true)
                         revision += 1
                     }
                 } header: {

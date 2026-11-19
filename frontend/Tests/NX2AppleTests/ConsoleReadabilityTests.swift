@@ -5,7 +5,7 @@ import SwiftUI
 @testable import NXLauncher
 
 /// Console mode over bright art: every hint has a real glyph for every controller family, the top bar keeps its contrast, unplayable
-/// tiles are darkened rather than see-through, and a ready game in Needs attention says why.
+/// tiles are monochrome rather than see-through, and a ready game in Needs attention says why.
 @MainActor final class ConsoleReadabilityTests: IsolatedDefaultsTestCase {
     private let roles: [ConsoleGlyphs.Role] = [.activate, .back, .options, .menu, .launchOptions, .manage, .select, .play, .previousTab, .nextTab, .quickMenu]
     private let families: [ConsoleGlyphs.Family] = [.xbox, .playStation, .nintendo, .keyboard, .neutral]
@@ -40,14 +40,22 @@ import SwiftUI
                        .symbol("line.3.horizontal.circle.fill"), "a symbol that says what the button is stays the controller's own")
     }
 
-    /// White text on the bar's fill keeps 4.5:1 over pure white art, with the top scrim and even without it.
-    func testTheTopBarKeepsItsContrastOnWhiteArt() {
-        func luminance(_ v: Double) -> Double { let c = v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4); return c }
-        func contrast(over background: Double) -> Double { 1.05 / (luminance(background) + 0.05) }
-        let scrimAtBar = 0.55 * (1 - 66 / ConsoleBackdrop.scrimHeight)   // the bar's middle, 66 pt down
-        let underScrim = 1 - scrimAtBar
-        XCTAssertGreaterThanOrEqual(contrast(over: underScrim * (1 - ConsoleBarFill.opacity)), 4.5)
-        XCTAssertGreaterThanOrEqual(contrast(over: 1 - ConsoleBarFill.opacity), 4.5, "the fill alone")
+    func testHeaderCircleHasAnOpaqueBlackFaceOverBrightArtwork() throws {
+        let view = NSHostingView(rootView: ConsoleHeaderButton(symbol: "gamecontroller", id: "console.chip.controllers", label: "Controllers", compact: false, action: {})
+            .environmentObject(PadFocus()).frame(width: 52, height: 52).background(.white))
+        let window = OffscreenWindow(size: NSSize(width: 52, height: 52), styleMask: [.borderless])
+        window.contentView = view; window.orderBack(nil)
+        defer { window.contentView = nil; window.orderOut(nil); window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / 52
+        let face = try XCTUnwrap(rep.colorAt(x: Int(7 * scale), y: Int(26 * scale))?.usingColorSpace(.deviceRGB))
+        XCTAssertLessThan(face.redComponent, 0.02)
+        XCTAssertLessThan(face.greenComponent, 0.02)
+        XCTAssertLessThan(face.blueComponent, 0.02)
+        let corner = try XCTUnwrap(rep.colorAt(x: 0, y: 0)?.usingColorSpace(.deviceRGB))
+        XCTAssertGreaterThan(corner.redComponent, 0.98, "The circular face leaves its square corners clear")
     }
 
     func testAReadyGameWithOlderToolsSaysWhyItNeedsAttention() {

@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import NXCore
 
 // The structure of LNPANDY/NX2Apple#816 (Koshindai's console mode concept) in console mode's own look: the home screen's rows, a
@@ -101,17 +102,52 @@ struct ConsoleBuilds: Equatable {
         /// The share of this stage, 0 to 1, when the stage reports one.
         var progress: Double?
     }
+    enum ArtworkOutcome: Equatable { case success, warning, failure }
     struct QueueRow: Equatable, Identifiable {
         var id: UUID
         var name: String
         /// queue.status.<status>
         var statusKey: String
+        var platformKey: String? = nil
+        var icon: NSImage? = nil
+        var outcome: ArtworkOutcome? = nil
+        var artwork: NSImage? = nil
+        var active = false
+        var progress: Double? = nil
+        var platformSymbol: String { platformKey == "library.chip.both" ? "laptopcomputer.and.iphone" : platformKey == "build.ios" ? "iphone" : "desktopcomputer" }
     }
     var running = false
     var stopping = false
     var title = ""
     var stages: [StageRow] = []
     var queue: [QueueRow] = []
+    /// A completed game settles visibly at 100% before the next snapshot is presented.
+    static func completionFrame(from old: Self, to next: Self) -> Self? {
+        guard let index = old.queue.firstIndex(where: \.active),
+              next.queue.first(where: \.active)?.id != old.queue[index].id,
+              next.queue.first(where: { $0.id == old.queue[index].id })?.outcome == .success else { return nil }
+        var frame = old
+        frame.queue[index].progress = 1
+        return frame
+    }
+    var completionOrder: [UUID] = []
+    mutating func retainCompletionOrder(from previous: Self) {
+        let completed = queue.filter { $0.outcome == .success }.map(\.id)
+        completionOrder = previous.completionOrder.filter { completed.contains($0) }
+        completionOrder += completed.filter { !completionOrder.contains($0) }
+    }
+    var indicatorRow: QueueRow? {
+        if let active = queue.first(where: \.active) { return active }
+        if running { return queue.first { $0.outcome == nil } }
+        return queue.last { $0.outcome == .failure || $0.outcome == .warning }
+            ?? orderedQueue.first { $0.outcome == .success }
+    }
+    var hasActivity: Bool { running || !queue.isEmpty }
+    var orderedQueue: [QueueRow] {
+        let completed = queue.filter { $0.outcome == .success }
+        let order = completionOrder.isEmpty ? completed.map(\.id) : completionOrder
+        return queue.filter { $0.outcome != .success } + order.reversed().compactMap { id in completed.first { $0.id == id } }
+    }
 }
 
 /// What happens once the paused game has quit: another game starts, console mode is left (for the desktop, with a game to select),
@@ -264,11 +300,39 @@ extension ConsoleState {
 enum ConsoleSearchBack {
     static func deletes(_ state: ConsoleState) -> Bool {
         switch state.presentedSheet {
-        case .search?: return !state.searchText.isEmpty
+        case .search?: return false
         case .supportedGames?: return !state.supportedText.isEmpty
         default: return false
         }
     }
     /// The hint's words for B.
     static func labelKey(_ text: String) -> String { text.isEmpty ? "console.back" : "console.search.deleteLetter" }
+}
+
+extension ConsoleState {
+    /// A game panel keeps its context through nested settings and save pages.
+    var gameContextID: String? {
+        for sheet in sheets.reversed() {
+            switch sheet {
+            case let .options(id), let .gamePad(id), let .advanced(id), let .manage(id), let .gamePage(id): return id
+            case .mapping: if let mappingGameID { return mappingGameID }
+            default: break
+            }
+        }
+        return nil
+    }
+}
+
+
+extension ConsoleState {
+    /// Utility submenus retain the context they were opened from, including beneath a confirmation.
+    func titleParent(of sheet: ConsoleSheet) -> ConsoleSheet? {
+        switch sheet {
+        case .mapping, .language, .cloudSaves, .supportedGames, .advanced, .manage, .gamePad:
+            guard let index = sheets.lastIndex(of: sheet), index > 0 else { return nil }
+            let parent = sheets[index - 1]
+            return parent == .menu || parent == .quickMenu ? nil : parent
+        default: return nil
+        }
+    }
 }

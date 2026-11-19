@@ -42,6 +42,17 @@ extension BuildStore {
     /// profile, a newer one builds a game with no profile from a provisional one. nil without an engine yet: the build asks again
     /// before it starts.
     package func gameFolderEngineProblem(_ contents: GameFolder.Contents) -> String? {
+        if isMacNativeGamesSelected {
+            guard target == BuildTarget.mac else { return t("upstream.mngMacOnly") }
+            guard MacNativeGamesBuilder.isUsableTree(macNativeGamesPath) else { return nil }
+            if contents.hasTitleID, MacNativeGamesBuilder.route(forTitleID: contents.titleIDHex, in: macNativeGamesPath) == nil {
+                return String(format: t("upstream.mngUnsupportedGame"), contents.titleIDHex)
+            }
+            return nil
+        }
+        if isS2ArmSelected {
+            return nil
+        }
         let engine = EngineLayout.root(repo.path)
         guard !engine.isEmpty, FileManager.default.fileExists(atPath: engine + "/dm") else { return nil }
         if contents.nup != nil ? !GameFolder.engineBuildsNUPs(engine) : !GameFolder.engineBuildsFolders(engine) {
@@ -125,9 +136,13 @@ extension BuildStore {
             return GameFolder.profileName(tid, engineRoot: EngineLayout.root(repo.path)) ?? selectedTitleID
         }
         if let f = gameFolder {
-            let fallback = f.nup.map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension } ?? (f.folder as NSString).lastPathComponent
-            return f.hasTitleID ? GameFolder.profileName(f.titleID, engineRoot: EngineLayout.root(repo.path)) ?? fallback : fallback
+            let rawFallback = f.nup.map { ($0 as NSString).lastPathComponent } ?? (f.folder as NSString).lastPathComponent
+            let fallback = RomFSArchive.cleanPackageGameName(rawFallback)
+            let resolvedFallback = fallback.isEmpty ? ((rawFallback as NSString).deletingPathExtension) : fallback
+            return f.hasTitleID ? GameFolder.profileName(f.titleID, engineRoot: EngineLayout.root(repo.path)) ?? resolvedFallback : resolvedFallback
         }
-        return ((basePath as NSString).lastPathComponent as NSString).deletingPathExtension
+        let rawBase = (basePath as NSString).lastPathComponent
+        let cleanedBase = RomFSArchive.cleanPackageGameName(rawBase)
+        return cleanedBase.isEmpty ? (rawBase as NSString).deletingPathExtension : cleanedBase
     }
 }

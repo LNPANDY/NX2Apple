@@ -309,13 +309,13 @@ struct FreeSpaceView: View {
                 Button(loc.t("free.remove")) { confirming = true }
                     .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.building))
                     .disabled(chosen.isEmpty || m.running || working)
-                    .padTarget("free.remove", scope: "free") { if !chosen.isEmpty && !m.running && !working { confirming = true } }
+                    .padTarget("free.remove", scope: "free", enabled: !chosen.isEmpty && !m.running && !working) { if !chosen.isEmpty && !m.running && !working { confirming = true } }
                 Button { dismiss() } label: {
                     Text(loc.t("free.done")).font(.manrope(13.5, .bold))
                         .padding(.horizontal, 22).padding(.vertical, 9)
                 }
                 .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(.defaultAction)
-                .padTarget("free.done", scope: "free", radius: 20) { dismiss() }
+                .padTarget("free.done", scope: "free", focusColor: LauncherPalette.onCream) { dismiss() }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
         }
@@ -326,11 +326,14 @@ struct FreeSpaceView: View {
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .onAppear { if survey == nil { measure() } }
-        .confirmationDialog(String(format: loc.t("free.confirm"), Self.bytes(chosenBytes)), isPresented: $confirming, titleVisibility: .visible) {
-            Button(loc.t("free.confirmButton"), role: .destructive) { removeChosen() }
-        } message: {
-            Text(([loc.t("free.confirmNote")] + BuildFolderPart.allCases.filter { chosen.contains($0) && !($0 == .oldShaders && chosen.contains(.shaders)) }.map { loc.t("free.cost." + $0.rawValue) }).joined(separator: "\n"))
+        .sheet(isPresented: $confirming) {
+            LauncherConfirmSheet(title: String(format: loc.t("free.confirm"), Self.bytes(chosenBytes)), subtitle: game.displayName(loc.lang),
+                note: ([loc.t("free.confirmNote")] + BuildFolderPart.allCases.filter { chosen.contains($0) && !($0 == .oldShaders && chosen.contains(.shaders)) }.map { loc.t("free.cost." + $0.rawValue) }).joined(separator: "\n"),
+                cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("free.confirmButton"), destructive: true, scope: "freeconfirm",
+                cancel: { confirming = false }, confirm: { confirming = false; removeChosen() })
+                .environmentObject(focus)
         }
+        .onChange(of: confirming) { open in focus.scope = open ? "freeconfirm" : "free" }
     }
 
     private func row(_ part: BuildFolderPart, bytes: Int64) -> some View {
@@ -351,7 +354,7 @@ struct FreeSpaceView: View {
             Toggle(loc.t("free.part." + part.rawValue), isOn: on).labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(working)
         }
         .padding(.horizontal, 18).padding(.vertical, 13).frame(minHeight: 52)
-        .padTarget("free." + part.rawValue, scope: "free", radius: 10,
+        .padTarget("free." + part.rawValue, scope: "free", radius: 10, enabled: !working,
                    activate: { on.wrappedValue.toggle() }, adjust: { _ in on.wrappedValue.toggle() })
     }
 

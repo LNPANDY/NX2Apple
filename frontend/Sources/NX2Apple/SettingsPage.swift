@@ -43,7 +43,7 @@ struct SettingsPage: View {
                 category = SettingsCategory(rawValue: $0) ?? .general
             }
             .accessibilityElement(children: .contain).accessibilityLabel(loc.t("settings.heading"))
-            .padTarget("set.category", scope: "main", radius: 17, activate: { move(1) }, adjust: { move($0) })
+            .padTarget("set.category", scope: "main", activate: { move(1) }, adjust: { move($0) })
         } content: {
             switch category {
             case .general: general
@@ -52,6 +52,8 @@ struct SettingsPage: View {
             case .tools: tools
             }
         }
+        .environment(\.launcherSettingsLayout, true)
+        .environment(\.launcherSectionTitleFont, .manrope(18, .semibold))
     }
 
     private func move(_ by: Int) {
@@ -95,7 +97,15 @@ struct SettingsPage: View {
     @ViewBuilder private var tools: some View {
         KeysCard(build: build)
         ToolsCard(repo: repo, engine: engine, dependencies: dependencies, buildRunning: build.running,
-                  shellCache: { ShellCacheRow(build: build) }, builder: { if ExperimentalBuilder.featureEnabled { ExperimentalBuilderRow(build: build) } }) {
+                  shellCache: { ShellCacheRow(build: build) }, builder: {
+            if ExperimentalBuilder.featureEnabled || MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled {
+                CardGroup("") {
+                    if ExperimentalBuilder.featureEnabled { ExperimentalBuilderRow(build: build) }
+                    if ExperimentalBuilder.featureEnabled && (MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled) { CardDivider() }
+                    if MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled { UpstreamBuilderRow(build: build) }
+                }
+            }
+        }) {
             DiagnosticsButton(report: diagnostics, game: library.selected)
         }
         .id("set.deps")
@@ -152,7 +162,7 @@ struct LibraryFoldersCard: View {
                     Button(loc.t("library.rescan")) { library.rescan() }
                         .disabled(library.scanning || state != .connected)
                         .accessibilityLabel(String(format: loc.t("library.rescanFolder"), name))
-                        .padTarget("set.rescan.\(index)", scope: "main") { if !library.scanning, state == .connected { library.rescan() } }
+                        .padTarget("set.rescan.\(index)", scope: "main", enabled: !library.scanning && state == .connected) { if !library.scanning, state == .connected { library.rescan() } }
                     Button(loc.t("library.removeFolder")) { library.removeFolder(root) }
                         .accessibilityLabel(String(format: loc.t("library.removeFolderNamed"), name))
                         .padTarget("set.removeFolder.\(index)", scope: "main") { library.removeFolder(root) }

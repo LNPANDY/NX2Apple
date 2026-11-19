@@ -14,6 +14,7 @@ package struct ExperimentalBuilderRow: View {
     package var body: some View {
         CardRow(loc.t("builder.title"), detail: loc.t("builder.note")) {
             Toggle(loc.t("builder.title"), isOn: $build.experimentalBuilder).labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(build.running)
+                .padTarget("set.builder", scope: "main", enabled: !build.running) { if !build.running { build.experimentalBuilder.toggle() } }
         }
         if build.experimentalBuilder {
             CardDivider()
@@ -21,7 +22,7 @@ package struct ExperimentalBuilderRow: View {
             CardRow(loc.t("builder.program"), detail: nxb.map { RepoLayout.shortPath($0) } ?? loc.t("builder.notFound"),
                     dot: nxb == nil ? LauncherPalette.building : LauncherPalette.ready, help: nxb ?? "") {
                 Button(loc.t("builder.choose")) { pick() }.disabled(build.running)
-                    .padTarget("set.builderChoose", scope: "main") { if !build.running { pick() } }
+                    .padTarget("set.builderChoose", scope: "main", enabled: !build.running) { if !build.running { pick() } }
             }
         }
     }

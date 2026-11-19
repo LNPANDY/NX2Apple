@@ -55,21 +55,21 @@ package enum LauncherPalette {
     package static let actionBorder = dynamic(dark: .clear, light: .clear)
 
     // A secondary button, a menu button or a pop-up.
-    package static let secondaryFill = dynamic(dark: white(0.055), light: rgb(0xF4F3F0))
-    package static let secondaryHover = dynamic(dark: white(0.055), light: rgb(0xECEBE7))
-    package static let secondaryPressed = dynamic(dark: white(0.13), light: rgb(0xE4E3DF))
+    package static let secondaryFill = dynamic(dark: rgb(0x202023), light: rgb(0xF4F3F0))
+    package static let secondaryHover = dynamic(dark: rgb(0x2A2A2E), light: rgb(0xECEBE7))
+    package static let secondaryPressed = dynamic(dark: rgb(0x353539), light: rgb(0xE4E3DF))
     package static let secondaryBorder = dynamic(dark: white(0.10), light: black(0.10))
     /// The top bar's buttons (New build, the player chip) and a closed pop-up: their own Dark fills, the secondary fill in Light.
-    package static let menuFill = dynamic(dark: white(0.07), light: rgb(0xF4F3F0))
-    package static let dropdownFill = dynamic(dark: white(0.06), light: rgb(0xF4F3F0))
+    package static let menuFill = dynamic(dark: rgb(0x202023), light: rgb(0xF4F3F0))
+    package static let dropdownFill = dynamic(dark: rgb(0x202023), light: rgb(0xF4F3F0))
     package static let dropdownOpenBorder = dynamic(dark: white(0.18), light: black(0.10))
 
     // LauncherSegmented: the track, the chosen pill and the texts.
-    package static let segmentTrack = dynamic(dark: white(0.06), light: rgb(0xE9E8E4))
+    package static let segmentTrack = dynamic(dark: rgb(0x242427), light: rgb(0xE9E8E4))
     package static let segmentTrackBorder = dynamic(dark: white(0.08), light: .clear)
-    package static let segmentSelected = dynamic(dark: darkCream, light: rgb(0xFFFFFF))
+    package static let segmentSelected = dynamic(dark: darkCream, light: rgb(0x18181B))
     package static let segmentSelectedBorder = dynamic(dark: .clear, light: black(0.10))
-    package static let segmentSelectedText = dynamic(dark: .black, light: rgb(0x18181B))
+    package static let segmentSelectedText = dynamic(dark: .black, light: rgb(0xFFFFFF))
     package static let segmentText = dynamic(dark: white(0.75), light: rgb(0x5F6068))
 
     // The 40 x 24 switch.
@@ -89,6 +89,7 @@ package enum LauncherPalette {
     package static let radioOn = accent
 
     // Status. Always shown with words.
+    package static let advisory = Color(nsColor: .systemBlue)
     package static let ready = dynamic(dark: NSColor(srgbRed: 0.25, green: 0.84, blue: 0.47, alpha: 1), light: rgb(0x167646))
     package static let building = dynamic(dark: NSColor(srgbRed: 1, green: 0.78, blue: 0.24, alpha: 1), light: rgb(0x875600))
     package static let danger = dynamic(dark: NSColor(srgbRed: 1, green: 0.42, blue: 0.40, alpha: 1), light: rgb(0xB42328))

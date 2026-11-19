@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import build_failure as bf
+from . import build_queue as bq
 from . import features as feat
 from . import inputs
 from . import library as lib
@@ -172,7 +173,7 @@ def _cleanup_destroyed_window(
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, model: Model) -> None:
+    def __init__(self, model: Model, *, perform_startup_checks: bool = True) -> None:
         super().__init__()
         self.m = model
         self.m.ask_folder = lambda title: QFileDialog.getExistingDirectory(
@@ -286,6 +287,12 @@ class MainWindow(QMainWindow):
             self.m.driveCopyProgress.connect(self._on_drive_copy_progress)
         if hasattr(self.m, 'driveCopyFinished'):
             self.m.driveCopyFinished.connect(self._on_drive_copy_finished)
+        if hasattr(self.m, 'upstreamStateChanged'):
+            self.m.upstreamStateChanged.connect(self._on_upstream_state_changed)
+        if hasattr(self.m, 'queueChanged'):
+            self.m.queueChanged.connect(self._refresh_queue_card)
+        if hasattr(self.m, 'queueBatchCompleted'):
+            self.m.queueBatchCompleted.connect(self._on_queue_batch_completed)
 
         if self.m.log_path:
             self._append_log(self.m.t('log.at', str(self.m.log_path)) + '\n\n')
@@ -293,13 +300,15 @@ class MainWindow(QMainWindow):
         self._switch_page('builds')
 
         self._refresh_all()
-        for g in self.m.library.games:
-            self.m.artwork.request_banner_async(g.title_id)
+        if perform_startup_checks:
+            for g in self.m.library.games:
+                self.m.artwork.request_banner_async(g.title_id)
 
         self._init_timer = QTimer(self)
         self._init_timer.setSingleShot(True)
         self._init_timer.timeout.connect(self.m.check_deps)
-        self._init_timer.start(50)
+        if perform_startup_checks:
+            self._init_timer.start(50)
 
     # ================================================================ Top Bar & Window Controls
 
@@ -319,7 +328,7 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(24, 0, 16, 0)
         row.setSpacing(10)
 
-        # Brand (App Icon + NX2Apple — by nxnative)
+        # Brand (App Icon + NX2Apple)
         brand_row = QHBoxLayout()
         brand_row.setSpacing(10)
         self.app_icon_lbl = QLabel()
@@ -334,10 +343,7 @@ class MainWindow(QMainWindow):
         brand_row.addWidget(self.app_icon_lbl)
         self.title_label = QLabel('NX2Apple')
         self.title_label.setStyleSheet('font-size: 23px; font-weight: 800; color: #ffffff;')
-        self.sub_label = QLabel('— by nxnative')
-        self.sub_label.setObjectName('faint')
         brand_row.addWidget(self.title_label)
-        brand_row.addWidget(self.sub_label)
         row.addLayout(brand_row)
 
         row.addStretch(1)
@@ -1189,6 +1195,11 @@ class MainWindow(QMainWindow):
 
     def _cancel_active_and_queued_builds(self) -> None:
         self.refresh_queue.cancel_all()
+        bq_store = getattr(self.m, 'build_queue', None)
+        if bq_store is not None and (
+            bq_store.active or bq_store.running_entry is not None or bq_store.finalizing_shell
+        ):
+            bq_store.stop_queue()
         if self.m.running:
             self.m.cancel_build()
 
@@ -1317,6 +1328,10 @@ class MainWindow(QMainWindow):
         self.running_setup.toggled.connect(self._refresh_build_inputs)
         self.body_col.addWidget(self.running_setup, 0, Qt.AlignLeft)
 
+        # Engine Switcher Card at the top of Builds (nxnative built-in + downloadable upstreams)
+        self.engine_group = self._build_engine_switcher_card()
+        self.body_col.addWidget(self.engine_group)
+
         # Setup Hint Card (shown when repo or required deps are not ready)
         self.setup_hint_card = self._build_setup_hint_card()
         self.body_col.addWidget(self.setup_hint_card)
@@ -1337,6 +1352,11 @@ class MainWindow(QMainWindow):
         self.action_group = self._build_action_card()
         self.body_col.addWidget(self.action_group)
 
+        # Card 4.5: Build Queue Card
+        self.queue_card = bq.BuildQueueCard(self.m, self.m.build_queue)
+        self.queue_card.selectGamesRequested.connect(self._open_queue_select_dialog)
+        self.body_col.addWidget(self.queue_card)
+
         # Card 5: Progress Card
         self.stages_card = self._build_stages_card()
         self.body_col.addWidget(self.stages_card)
@@ -1347,6 +1367,272 @@ class MainWindow(QMainWindow):
 
         self.body_col.addStretch(1)
         return body
+
+    def _build_engine_switcher_card(self) -> CardGroup:
+        grp = CardGroup(title=self.m.t('engine.title'))
+        self._eng_last_auto_rev = getattr(self.m, 'upstream_auto_switch_revision', 0)
+        self._eng_popup: QFrame | None = None
+        self._eng_popup_rows: dict[str, dict[str, object]] = {}
+
+        row = QWidget()
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(18, 13, 18, 13)
+        lay.setSpacing(12)
+        self.eng_active_dot = _dot(style.GREEN)
+        lay.addWidget(self.eng_active_dot)
+
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        self.eng_active_title = QLabel('nxnative · ' + self.m.t('upstream.builtinBadge'))
+        self.eng_active_title.setObjectName('rowTitle')
+        self.eng_active_sub = QLabel(self.m.t('upstream.nxnativeCardNote'))
+        self.eng_active_sub.setObjectName('muted')
+        self.eng_active_sub.setWordWrap(True)
+        col.addWidget(self.eng_active_title)
+        col.addWidget(self.eng_active_sub)
+        lay.addLayout(col, 1)
+
+        self.eng_dropdown_btn = QPushButton('nxnative  ▾')
+        self.eng_dropdown_btn.setFixedWidth(168)
+        self.eng_dropdown_btn.setCursor(Qt.PointingHandCursor)
+        self.eng_dropdown_btn.clicked.connect(self._toggle_engine_dropdown)
+        lay.addWidget(self.eng_dropdown_btn)
+        grp.add_row(row)
+        return grp
+
+    def _ensure_engine_popup(self) -> QFrame:
+        from . import upstream_store
+        kinds = upstream_store.available_upstreams()
+        if self._eng_popup is not None and tuple(self._eng_popup_rows.keys()) == kinds:
+            return self._eng_popup
+
+        if self._eng_popup is not None:
+            self._eng_popup.close()
+            self._eng_popup.deleteLater()
+        self._eng_popup_rows.clear()
+
+        popup = QFrame(self, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        popup.setObjectName('engineDropdownPopup')
+        popup.setFixedWidth(376)
+        popup.setStyleSheet(
+            f'QFrame#engineDropdownPopup {{ background: {style.SURFACE}; border: 1px solid {style.BORDER}; border-radius: 12px; }}'
+            f'QFrame#engPopupRow {{ background: transparent; border-radius: 8px; }}'
+            f'QFrame#engPopupRow[active="true"] {{ background: {style.CARD_HOVER}; border: 1px solid {style.BORDER}; border-radius: 8px; }}'
+        )
+        outer = QVBoxLayout(popup)
+        outer.setContentsMargins(6, 6, 6, 6)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea(popup)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setMaximumHeight(260)
+
+        inner = QWidget()
+        inner.setStyleSheet('background: transparent;')
+        inner_lay = QVBoxLayout(inner)
+        inner_lay.setContentsMargins(2, 2, 2, 2)
+        inner_lay.setSpacing(4)
+
+        for kind in kinds:
+            item_frame = QFrame(inner)
+            item_frame.setObjectName('engPopupRow')
+            rlay = QHBoxLayout(item_frame)
+            rlay.setContentsMargins(12, 9, 12, 9)
+            rlay.setSpacing(10)
+
+            dot = _dot(style.NEUTRAL_DOT)
+            rlay.addWidget(dot)
+
+            tcol = QVBoxLayout()
+            tcol.setSpacing(3)
+            title_lbl = QLabel(upstream_store.upstream_display_name(kind))
+            title_lbl.setObjectName('rowTitle')
+            pbar = QProgressBar()
+            pbar.setFixedHeight(6)
+            pbar.setTextVisible(False)
+            pbar.setVisible(False)
+            sub_lbl = QLabel(self.m.t(upstream_store.upstream_note_key(kind)))
+            sub_lbl.setObjectName('muted')
+            sub_lbl.setWordWrap(True)
+            tcol.addWidget(title_lbl)
+            tcol.addWidget(pbar)
+            tcol.addWidget(sub_lbl)
+            rlay.addLayout(tcol, 1)
+
+            act_btn = QPushButton()
+            act_btn.setFixedWidth(104)
+            act_btn.setCursor(Qt.PointingHandCursor)
+            act_btn.clicked.connect(lambda _=False, k=kind: self._on_engine_popup_action(k))
+            rlay.addWidget(act_btn)
+
+            def _row_mouse_press(ev: QMouseEvent, k: str = kind) -> None:
+                if ev.button() == Qt.LeftButton:
+                    st_k, _f, _d = self.m.upstream_state(k)
+                    if st_k in ('builtin', 'installed') and not self.m.running:
+                        if self.m.select_upstream(k) and self._eng_popup is not None:
+                            self._eng_popup.close()
+                QFrame.mousePressEvent(item_frame, ev)
+
+            item_frame.mousePressEvent = _row_mouse_press  # type: ignore[method-assign]
+            inner_lay.addWidget(item_frame)
+            self._eng_popup_rows[kind] = {
+                'frame': item_frame,
+                'dot': dot,
+                'title': title_lbl,
+                'bar': pbar,
+                'sub': sub_lbl,
+                'btn': act_btn,
+            }
+
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
+        self._eng_popup = popup
+        return popup
+
+    def _toggle_engine_dropdown(self) -> None:
+        if self.m.running:
+            return
+        popup = self._ensure_engine_popup()
+        if popup.isVisible():
+            popup.close()
+            return
+        self._refresh_engine_popup()
+        popup.adjustSize()
+        content_h = sum(
+            w['frame'].sizeHint().height()  # type: ignore[union-attr]
+            for w in self._eng_popup_rows.values()
+        ) + max(0, len(self._eng_popup_rows) - 1) * 4 + 20
+        popup.setFixedHeight(min(max(content_h, 64), 260))
+        btn_bl = self.eng_dropdown_btn.mapToGlobal(QPoint(self.eng_dropdown_btn.width() - popup.width(), self.eng_dropdown_btn.height() + 6))
+        popup.move(btn_bl)
+        popup.show()
+
+    def _on_engine_popup_action(self, kind: str) -> None:
+        state_kind, _frac, _detail = self.m.upstream_state(kind)
+        if state_kind in ('builtin', 'installed'):
+            if self.m.select_upstream(kind) and self._eng_popup is not None:
+                self._eng_popup.close()
+        elif state_kind == 'not_installed' or state_kind == 'failed':
+            self.m.download_upstream(kind)
+        elif state_kind in ('downloading', 'extracting'):
+            self.m.cancel_upstream_download(kind)
+
+    def _on_upstream_state_changed(self) -> None:
+        cur_rev = getattr(self.m, 'upstream_auto_switch_revision', 0)
+        auto_switched = cur_rev != getattr(self, '_eng_last_auto_rev', 0)
+        self._eng_last_auto_rev = cur_rev
+        self._refresh_engine_switcher()
+        self._refresh_running()
+        if auto_switched and self._eng_popup is not None and self._eng_popup.isVisible():
+            self._eng_popup.close()
+
+    def _refresh_engine_popup(self) -> None:
+        if self._eng_popup is None or not self._eng_popup_rows:
+            return
+        from . import upstream_store
+        t = self.m.t
+        active_kind = getattr(self.m, 'build_upstream', 'nxnative')
+        for kind, refs in self._eng_popup_rows.items():
+            frame: QFrame = refs['frame']  # type: ignore[assignment]
+            dot: StatusDot = refs['dot']  # type: ignore[assignment]
+            title_lbl: QLabel = refs['title']  # type: ignore[assignment]
+            pbar: QProgressBar = refs['bar']  # type: ignore[assignment]
+            sub_lbl: QLabel = refs['sub']  # type: ignore[assignment]
+            btn: QPushButton = refs['btn']  # type: ignore[assignment]
+
+            disp = upstream_store.upstream_display_name(kind)
+            is_builtin = upstream_store.upstream_is_builtin(kind)
+            is_active = active_kind == kind
+            st_kind, frac, detail = self.m.upstream_state(kind)
+
+            frame.setProperty('active', 'true' if is_active else 'false')
+            frame.style().unpolish(frame)
+            frame.style().polish(frame)
+
+            if st_kind in ('builtin', 'installed'):
+                badge = t('upstream.builtinBadge' if is_builtin else 'upstream.installedBadge')
+                title_lbl.setText(f'{disp} · {badge}')
+                _set_dot(dot, style.GREEN if is_active else style.NEUTRAL_DOT)
+                pbar.setVisible(False)
+                sub_lbl.setText(t(upstream_store.upstream_note_key(kind)))
+                btn.setText('✓  ' + t('upstream.activeBadge') if is_active else t('upstream.switchBtn'))
+                btn.setEnabled((not is_active) and (not self.m.running))
+                frame.setCursor(Qt.PointingHandCursor if (not is_active and not self.m.running) else Qt.ArrowCursor)
+            elif st_kind == 'downloading':
+                title_lbl.setText(disp)
+                _set_dot(dot, style.AMBER)
+                pbar.setVisible(True)
+                if frac is not None:
+                    pbar.setRange(0, 1000)
+                    pbar.setValue(int(round(max(0.0, min(frac, 1.0)) * 1000)))
+                else:
+                    pbar.setRange(0, 0)
+                sub_lbl.setText(t('upstream.downloadingProgress', detail) if detail else t('upstream.downloading'))
+                btn.setText(t('upstream.cancel'))
+                btn.setEnabled(True)
+                frame.setCursor(Qt.ArrowCursor)
+            elif st_kind == 'extracting':
+                title_lbl.setText(disp)
+                _set_dot(dot, style.AMBER)
+                pbar.setVisible(True)
+                pbar.setRange(0, 0)
+                sub_lbl.setText(t('upstream.extracting'))
+                btn.setText(t('upstream.cancel'))
+                btn.setEnabled(True)
+                frame.setCursor(Qt.ArrowCursor)
+            elif st_kind == 'failed':
+                title_lbl.setText(disp)
+                _set_dot(dot, style.AMBER)
+                pbar.setVisible(False)
+                sub_lbl.setText(t('upstream.downloadFailed' if detail == 'download' else 'upstream.extractFailed'))
+                btn.setText(t('upstream.retry'))
+                btn.setEnabled(not self.m.running)
+                frame.setCursor(Qt.ArrowCursor)
+            else:
+                title_lbl.setText(disp)
+                _set_dot(dot, style.NEUTRAL_DOT)
+                pbar.setVisible(False)
+                sub_lbl.setText(t(upstream_store.upstream_note_key(kind)))
+                btn.setText(t('upstream.download'))
+                btn.setEnabled(not self.m.running)
+                frame.setCursor(Qt.ArrowCursor)
+
+    def _refresh_engine_switcher(self) -> None:
+        from . import upstream_store
+        t = self.m.t
+        self.engine_group.set_title(t('engine.title'))
+        active_kind = getattr(self.m, 'build_upstream', 'nxnative')
+        disp = upstream_store.upstream_display_name(active_kind)
+        badge = t('upstream.builtinBadge' if upstream_store.upstream_is_builtin(active_kind) else 'upstream.installedBadge')
+        self.eng_active_title.setText(f'{disp} · {badge}')
+
+        busy_line = ''
+        for kind in upstream_store.available_upstreams():
+            st_kind, _frac, detail = self.m.upstream_state(kind)
+            if st_kind == 'downloading':
+                prog = t('upstream.downloadingProgress', detail) if detail else t('upstream.downloading')
+                busy_line = f'{upstream_store.upstream_display_name(kind)} · {prog}'
+                break
+            if st_kind == 'extracting':
+                busy_line = f"{upstream_store.upstream_display_name(kind)} · {t('upstream.extracting')}"
+                break
+
+        _set_dot(self.eng_active_dot, style.AMBER if busy_line else style.GREEN)
+        self.eng_active_sub.setText(busy_line if busy_line else t(upstream_store.upstream_note_key(active_kind)))
+        self.eng_dropdown_btn.setText(f'{disp}  ▾')
+        self.eng_dropdown_btn.setEnabled(not self.m.running)
+        if self.m.running and self._eng_popup is not None and self._eng_popup.isVisible():
+            self._eng_popup.close()
+        if self._eng_popup is not None:
+            self._refresh_engine_popup()
+            if self._eng_popup.isVisible():
+                content_h = sum(
+                    w['frame'].sizeHint().height()  # type: ignore[union-attr]
+                    for w in self._eng_popup_rows.values()
+                ) + max(0, len(self._eng_popup_rows) - 1) * 4 + 20
+                self._eng_popup.setFixedHeight(min(max(content_h, 64), 260))
 
     def _build_setup_hint_card(self) -> CardGroup:
         grp = CardGroup(title=self.m.t('section.setup'))
@@ -1598,6 +1884,7 @@ class MainWindow(QMainWindow):
             [
                 ('shared', self.m.t('shell.ipaShared')),
                 ('oneGame', self.m.t('shell.ipaOneGame')),
+                ('framework', self.m.t('shell.ipaFramework')),
             ],
             selected=self.m.ipa_kind,
         )
@@ -1754,24 +2041,29 @@ class MainWindow(QMainWindow):
             [
                 ('shared', self.m.t('shell.ipaShared')),
                 ('oneGame', self.m.t('shell.ipaOneGame')),
+                ('framework', self.m.t('shell.ipaFramework')),
             ],
             selected=self.m.ipa_kind,
         )
         one = self.m.ipa_kind == 'oneGame'
-        self.ipa_kind_note.setText(self.m.t('shell.ipaOneGameNote' if one else 'shell.ipaSharedNote'))
-        self.step1_title.setText('①  ' + self.m.t('shell.step1Title'))
-        self.step1_sub.setText(self.m.t('shell.oneGameSub' if one else 'shell.step1Sub'))
+        fw = self.m.ipa_kind == 'framework'
+        note_key = 'shell.ipaOneGameNote' if one else ('shell.ipaFrameworkNote' if fw else 'shell.ipaSharedNote')
+        self.ipa_kind_note.setText(self.m.t(note_key))
+        self.step1_title.setText('①  ' + self.m.t('shell.frameworkStep1Title' if fw else 'shell.step1Title'))
+        s1_sub_key = 'shell.oneGameSub' if one else ('shell.frameworkStep1Sub' if fw else 'shell.step1Sub')
+        self.step1_sub.setText(self.m.t(s1_sub_key))
         ipa_p = self._effective_ipa_path()
         has_ipa = bool(ipa_p and os.path.exists(ipa_p))
         built_games = (
             self.m.built_shell_games()
-            if not one and hasattr(self.m, 'built_shell_games')
+            if not one and not fw and hasattr(self.m, 'built_shell_games')
             else []
         )
         built_count = len(built_games)
         has_built_shell = built_count > 0
         can_repack = (
             not one
+            and not fw
             and hasattr(self.m, 'can_export_built_games')
             and bool(self.m.can_export_built_games())
         )
@@ -1786,8 +2078,9 @@ class MainWindow(QMainWindow):
         self.step1_reveal_btn.setText(self.m.t('shell.showInFinder'))
         self.step1_reveal_btn.setToolTip(self.m.t('msg.ipaAt', ipa_p) if has_ipa else '')
         self.step1_reveal_btn.setVisible(has_ipa)
-        self.step2_title.setText('②  ' + self.m.t('shell.step2Title'))
-        self.step2_sub.setText(self.m.t('shell.oneGameStep2Sub' if one else 'shell.step2Sub'))
+        self.step2_title.setText('②  ' + self.m.t('shell.frameworkStep2Title' if fw else 'shell.step2Title'))
+        s2_sub_key = 'shell.oneGameStep2Sub' if one else ('shell.frameworkStep2Sub' if fw else 'shell.step2Sub')
+        self.step2_sub.setText(self.m.t(s2_sub_key))
         self.step3_title.setText('③  ' + self.m.t('shell.step3Title') + ' · ' + self.m.t('shell.whereDrive'))
         self.drive_path_lbl.setText(self._drive_folder or self.m.t('shell.driveNone'))
         self.step3_open_romfs_btn.setText(self.m.t('shell.showInFinder'))
@@ -1967,6 +2260,11 @@ class MainWindow(QMainWindow):
         self.build_btn.setMinimumWidth(190)
         self.build_btn.clicked.connect(self._build_clicked)
         act.addWidget(self.build_btn)
+
+        self.add_queue_btn = QPushButton(self.m.t('queue.add'))
+        self.add_queue_btn.setCursor(Qt.PointingHandCursor)
+        self.add_queue_btn.clicked.connect(self._add_current_to_queue)
+        act.addWidget(self.add_queue_btn)
 
         self.footer = QLabel('')
         self.footer.setObjectName('muted')
@@ -2631,7 +2929,13 @@ class MainWindow(QMainWindow):
         self.activity_bar.setVisible(not self.m.running or self._current_page != 'builds')
         if self.m.running:
             self.act_dot.set_color(style.AMBER)
-            self.act_title.setText(self.m.t('activity.ios' if self.m.target == 'ios' else 'activity.mac'))
+            act_lbl = self.m.t('activity.ios' if self.m.target == 'ios' else 'activity.mac')
+            bq_store = getattr(self.m, 'build_queue', None)
+            if bq_store is not None and not bq_store.is_empty:
+                cur, total = bq_store.progress_counts()
+                if total > 0:
+                    act_lbl = f'{act_lbl} ({cur} / {total})'
+            self.act_title.setText(act_lbl)
             curr_stage = next((s for s in self.m.stages if s.state == 'running'), None)
             done_cnt = sum(1 for s in self.m.stages if s.state == 'done')
             total_cnt = max(7, len(self.m.stages))
@@ -2656,6 +2960,63 @@ class MainWindow(QMainWindow):
             self.act_view_btn.hide()
             self.act_stop_btn.hide()
 
+    def _add_current_to_queue(self) -> None:
+        if not hasattr(self.m, 'enqueue_current_game'):
+            return
+        if self.m.enqueue_current_game():
+            if self.m.base_path:
+                g = self.m.library.remember_inputs(
+                    base_path=self.m.base_path,
+                    update_path=self.m.update_path,
+                    dlc_paths=self.m.dlc_paths,
+                    keys_path=self.m.keys_path,
+                    output_dir=self.m.out_dir,
+                    repo_path=self.m.engine_path,
+                )
+                if g:
+                    self.m.artwork.request_banner_async(g.title_id)
+            self._refresh_queue_card()
+
+    def _open_queue_select_dialog(self, discovered: list[bq.DiscoveredGame] | None = None) -> None:
+        dlg = bq.QueueSelectGamesDialog(self.m, self.m.build_queue, discovered=discovered, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        chosen = dlg.chosen_entries()
+        if chosen:
+            self.m.build_queue.enqueue(chosen)
+            self._refresh_queue_card()
+
+    def _refresh_queue_card(self) -> None:
+        if hasattr(self, 'queue_card'):
+            self.queue_card.refresh()
+        if hasattr(self, 'add_queue_btn'):
+            self.add_queue_btn.setText(self.m.t('queue.add'))
+            snap = self.m.snapshot_current_queue_entry() if hasattr(self.m, 'snapshot_current_queue_entry') else None
+            can_add = (
+                snap is not None
+                and not self.m.running
+                and self.m.build_queue.can_enqueue(snap)
+            )
+            self.add_queue_btn.setEnabled(can_add)
+        self._refresh_activity_bar()
+
+    def _on_queue_batch_completed(self, done_c: int, fail_c: int, skip_c: int) -> None:
+        self._refresh_library()
+        self._refresh_install_card()
+        self._refresh_queue_card()
+        parts: list[str] = []
+        if done_c:
+            parts.append(f"{self.m.t('queue.status.done')}: {done_c}")
+        if fail_c:
+            parts.append(f"{self.m.t('queue.status.failed')}: {fail_c}")
+        if skip_c:
+            parts.append(f"{self.m.t('queue.status.skipped')}: {skip_c}")
+        if parts:
+            self.footer.setStyleSheet(f'color: {style.AMBER if fail_c else style.GREEN}; font-size: 12.5px;')
+            self.footer.setText(f"{self.m.t('queue.title')} · " + ' · '.join(parts))
+        if self.m.settings_value('notifyOnComplete', True) and not self.isActiveWindow():
+            QApplication.beep()
+
     # ================================================================ Refresh Logic
 
     def _refresh_all(self) -> None:
@@ -2677,6 +3038,7 @@ class MainWindow(QMainWindow):
         # Headings & Cards
         self.running_setup.setText(t('section.setup'))
         self.preparing.setText(t('library.preparing'))
+        self._refresh_engine_switcher()
         self.files_group.set_title(t('section.files'))
         self.files_group.set_footer(t('msg.workdirHint'))
         self.folder_cta_title.setText(t('build.folderCTA') + ' · ' + t('data.note'))
@@ -2794,6 +3156,7 @@ class MainWindow(QMainWindow):
         self._refresh_install_card()
         self._refresh_stages()
         self._refresh_running()
+        self._refresh_queue_card()
         self._show_failure()
         self._refresh_library()
         self._refresh_activity_bar()
@@ -3170,16 +3533,20 @@ class MainWindow(QMainWindow):
         expanded = not running or self.running_setup.isChecked()
         self.running_setup.setVisible(running)
         self.running_setup.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        self.engine_group.setVisible(expanded)
+        self.engine_group.setEnabled(not running)
         self.files_group.setVisible(expanded)
         self.target_group.setVisible(expanded)
         self.files_group.setEnabled(not running)
         self.target_group.setEnabled(not running)
         self.ipa_kind_seg.setEnabled(not running)
         # A previous export can still be revealed or copied to a drive.
-        self.install_group.setVisible(expanded or os.path.isfile(self._effective_ipa_path())
+        self.install_group.setVisible(expanded or os.path.exists(self._effective_ipa_path())
                                       or os.path.isdir(self._effective_archive_path()))
-        setup_needed = not self.m.repo_ok or (self.m.deps_checked and not self.m.all_deps_ok)
+        repo_ready = self.m.repo_ok or getattr(self.m, 'uses_external_upstream_repo', False)
+        setup_needed = not repo_ready or (self.m.deps_checked and not self.m.all_deps_ok)
         self.setup_hint_card.setVisible(expanded and setup_needed)
+        self._refresh_engine_switcher()
 
     def _refresh_running(self) -> None:
         self._show_failure()
@@ -3194,7 +3561,8 @@ class MainWindow(QMainWindow):
             self.build_btn.setEnabled(self.m.can_build)
             if not self.m.can_build and not self._failed:
                 is_prebuild_block = False
-                if not self.m.repo_ok:
+                repo_ready = self.m.repo_ok or getattr(self.m, 'uses_external_upstream_repo', False)
+                if not repo_ready:
                     why = t('status.chooseRepo')
                 elif not self.m.deps_checked:
                     why = t('status.checkingDeps')
@@ -3226,7 +3594,7 @@ class MainWindow(QMainWindow):
 
         self.build_btn.style().unpolish(self.build_btn)
         self.build_btn.style().polish(self.build_btn)
-        self._refresh_activity_bar()
+        self._refresh_queue_card()
 
     def _append_log(self, s: str) -> None:
         c = self.log.textCursor()
@@ -3557,6 +3925,30 @@ class MainWindow(QMainWindow):
             return
         event.acceptProposedAction()
 
+        discovered = bq.discover_game_groups(
+            paths,
+            keys_path=self.m.keys_path,
+            engine_path=self.m.engine_path,
+            library=self.m.library,
+        )
+        if discovered.keys_path and not self.m.keys_path:
+            self.m.keys_path = discovered.keys_path
+
+        # Multi-game drop: group by Title ID and confirm batch enqueue without disrupting running builds
+        if len(discovered.games) > 1:
+            self._switch_page('builds')
+            self._open_queue_select_dialog(discovered=discovered.games)
+            self._refresh_all()
+            return
+
+        # Single-game drop while a build is running: append directly to queue without interrupting it
+        if self.m.running:
+            if discovered.games:
+                self.m.enqueue_discovered_games(discovered.games)
+                self._switch_page('builds')
+                self._refresh_queue_card()
+            return
+
         pkg_files: list[Path] = []
         for p in paths:
             if os.path.isdir(p):
@@ -3574,7 +3966,7 @@ class MainWindow(QMainWindow):
 
         if pkg_files:
             self.m.leave_game_folder()
-            classified = inputs.classify(pkg_files)
+            classified = inputs.classify(pkg_files, keys_path=self.m.keys_path)
             if classified.get('base'):
                 self.m.base_path = str(classified['base'])
             if classified.get('update'):
