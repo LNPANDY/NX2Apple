@@ -36,19 +36,16 @@ enum CloudSaveText {
 }
 
 /// The desktop's check before a start: the wait for the cloud's save with Cancel, and the question when the two saves differ or
-/// the cloud's cannot be read, on the sheet layout with the game's icon over the title. Each answer is a button the keyboard and a
+/// the cloud's cannot be read, on the sheet layout. Each answer is a button the keyboard and a
 /// controller reach (scope `cloudsave`). Choosing a save is never the Return key's: the other save is only a backup then.
 struct CloudSaveSheet: View {
     @ObservedObject var gate: CloudSaveGate
-    /// The icon of the game the gate checks, by title ID.
-    var icon: (String) -> NSImage? = { _ in nil }
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var focus: PadFocus
     @State private var picked: CloudSaveCheck.Choice?   // no row is preselected: the other save is backed up, so the player has to say which one
 
-    init(gate: CloudSaveGate, icon: @escaping (String) -> NSImage? = { _ in nil }, picked: CloudSaveCheck.Choice? = nil) {
+    init(gate: CloudSaveGate, picked: CloudSaveCheck.Choice? = nil) {
         self.gate = gate
-        self.icon = icon
         _picked = State(initialValue: picked)   // visual QA: a row already chosen
     }
 
@@ -141,9 +138,9 @@ struct CloudSaveSheet: View {
 
 extension View {
     /// The check before a start, over the launcher while the gate has a step.
-    func cloudSaveSheet(_ gate: CloudSaveGate, pad: PadFocus, icon: @escaping (String) -> NSImage? = { _ in nil }, scope: @escaping () -> String) -> some View {
+    func cloudSaveSheet(_ gate: CloudSaveGate, pad: PadFocus, scope: @escaping () -> String) -> some View {
         sheet(isPresented: Binding(get: { gate.isActive }, set: { if !$0 { gate.cancel() } })) {
-            CloudSaveSheet(gate: gate, icon: icon).environmentObject(pad)
+            CloudSaveSheet(gate: gate).environmentObject(pad)
         }
         .onChange(of: gate.isActive) { active in pad.scope = active ? "cloudsave" : scope() }
     }

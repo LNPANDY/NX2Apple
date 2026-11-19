@@ -22,8 +22,6 @@ struct MissingImgGuideSheet: View {
     let onResolvedImg: (String) -> Void
     let onFallbackFullRebuild: () -> Void
     let close: () -> Void
-    /// The game's square icon over the title.
-    var icon: NSImage? = nil
 
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var pad: PadFocus
@@ -454,8 +452,7 @@ extension View {
                             buildEditorOpen: buildEditorOpen
                         )
                     },
-                    close: { imgGuide.wrappedValue = nil },
-                    icon: GameLibrary.appIcon(for: context.game, banners: library.artworkDirectory)
+                    close: { imgGuide.wrappedValue = nil }
                 )
                 .environmentObject(stores.localizer)
                 .environmentObject(pad)

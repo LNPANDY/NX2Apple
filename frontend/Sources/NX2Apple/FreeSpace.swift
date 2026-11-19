@@ -237,8 +237,6 @@ struct FreeSpaceView: View {
     @ObservedObject var m: BuildStore
     @EnvironmentObject var loc: Localizer
     let game: LibraryGame
-    /// The game's square icon over the title.
-    let icon: NSImage?
     /// Off only for the gallery's "measuring" state, which keeps the spinner.
     private let measures: Bool
     @Environment(\.dismiss) private var dismiss
@@ -249,9 +247,8 @@ struct FreeSpaceView: View {
     @State private var working = false
     @State private var outcome: String?
 
-    init(m: BuildStore, game: LibraryGame, icon: NSImage? = nil, survey: BuildFolderSurvey? = nil, chosen: Set<BuildFolderPart> = [], measures: Bool = true) {
+    init(m: BuildStore, game: LibraryGame, survey: BuildFolderSurvey? = nil, chosen: Set<BuildFolderPart> = [], measures: Bool = true) {
         self.measures = measures
-        self.icon = icon
         self.m = m
         self.game = game
         _survey = State(initialValue: survey)   // visual QA: a measured folder without one on disk

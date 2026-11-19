@@ -10,8 +10,6 @@ import NXLauncher
 struct DeleteGameSheet: View {
     let game: LibraryGame
     let shellRoot: String
-    /// The game's square icon (GameLibrary.appIcon), nil for the stand-in tile.
-    let icon: NSImage?
     /// The library entry goes once the files are gone. Called with the paths that could not be moved.
     let finished: ([String]) -> Void
     @EnvironmentObject var loc: Localizer
@@ -23,12 +21,11 @@ struct DeleteGameSheet: View {
     /// Off only for the gallery's "measuring" state, which keeps the spinner.
     private let measures: Bool
 
-    init(game: LibraryGame, shellRoot: String, icon: NSImage? = nil, plan: GameDeletion? = nil, saves: Bool = false, measures: Bool = true,
+    init(game: LibraryGame, shellRoot: String, plan: GameDeletion? = nil, saves: Bool = false, measures: Bool = true,
          finished: @escaping ([String]) -> Void = { _ in }) {
         self.measures = measures
         self.game = game
         self.shellRoot = shellRoot
-        self.icon = icon
         self.finished = finished
         _plan = State(initialValue: plan)   // visual QA: a measured plan without files on disk
         _saves = State(initialValue: saves)
@@ -142,7 +139,7 @@ extension View {
     func deleteGameSheet(_ game: Binding<LibraryGame?>, shellRoot: String, library: GameLibrary, loc: Localizer, pad: PadFocus,
                          scope: @escaping () -> String) -> some View {
         sheet(item: game) { game in
-            DeleteGameSheet(game: game, shellRoot: shellRoot, icon: GameLibrary.appIcon(for: game, banners: library.artworkDirectory)) { failed in
+            DeleteGameSheet(game: game, shellRoot: shellRoot) { failed in
                 library.remove(game.id)
                 if !failed.isEmpty { library.error = String(format: loc.t("delete.failed"), failed.joined(separator: "\n")) }
             }

@@ -10,16 +10,13 @@ import NXLauncher
 struct RenameGameSheet: View {
     let game: LibraryGame
     let save: (String) -> Void
-    /// The game's square icon over the title.
-    let icon: NSImage?
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var focus: PadFocus
     @Environment(\.dismiss) private var dismiss
     @State private var text: String
     @FocusState private var fieldFocused: Bool
 
-    init(game: LibraryGame, icon: NSImage? = nil, save: @escaping (String) -> Void = { _ in }) {
-        self.icon = icon
+    init(game: LibraryGame, save: @escaping (String) -> Void = { _ in }) {
         self.game = game
         self.save = save
         _text = State(initialValue: game.customName)
@@ -67,7 +64,7 @@ extension View {
     /// The Rename sheet of `game`, and the controller's scope while it is open.
     func renameGameSheet(_ game: Binding<LibraryGame?>, library: GameLibrary, pad: PadFocus, scope: @escaping () -> String) -> some View {
         sheet(item: game) { game in
-            RenameGameSheet(game: game, icon: GameLibrary.appIcon(for: game, banners: library.artworkDirectory)) { library.rename(game.id, to: $0) }.environmentObject(pad)
+            RenameGameSheet(game: game) { library.rename(game.id, to: $0) }.environmentObject(pad)
         }
         .onChange(of: game.wrappedValue?.id) { id in pad.scope = id != nil ? "rename" : scope() }
     }

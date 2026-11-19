@@ -119,7 +119,6 @@ extension GalleryFixtures {
     func sheetView(_ sheet: GallerySheet, stores: LauncherStores, library: GameLibrary, controls: ControlLayout) -> AnyView {
         let game = library.games.first ?? LibraryGame(titleID: catalog[0].titleID, name: catalog[0].name)
         let name = game.displayName(lang)
-        let icon = GameLibrary.appIcon(for: game, banners: library.artworkDirectory)
         let t = stores.localizer.t
         func confirm(_ title: String, subtitle: String = "", note: String = "", cancel: String = "saves.cancel",
                      _ action: String, destructive: Bool = true) -> AnyView {
@@ -134,11 +133,11 @@ extension GalleryFixtures {
                                            reason: "The Internet connection appears to be offline.", backups: directory)
         switch sheet {
         case .deleteGame, .deleteGameSaves:
-            return AnyView(DeleteGameSheet(game: game, shellRoot: "", icon: icon, plan: deletionPlan(game), saves: sheet == .deleteGameSaves))
+            return AnyView(DeleteGameSheet(game: game, shellRoot: "", plan: deletionPlan(game), saves: sheet == .deleteGameSaves))
         case .deleteGameNothing:
-            return AnyView(DeleteGameSheet(game: game, shellRoot: "", icon: icon, plan: GameDeletion(titleID: game.titleID, items: [], saves: nil, shellRoot: nil)))
+            return AnyView(DeleteGameSheet(game: game, shellRoot: "", plan: GameDeletion(titleID: game.titleID, items: [], saves: nil, shellRoot: nil)))
         case .deleteGameMeasuring:
-            return AnyView(DeleteGameSheet(game: game, shellRoot: "", icon: icon, measures: false))
+            return AnyView(DeleteGameSheet(game: game, shellRoot: "", measures: false))
         case .removeGame:
             return confirm(t("library.removeQuestion"), subtitle: name, note: t("library.removeNote"), t("library.remove"))
         case .controllersSheet:
@@ -148,15 +147,15 @@ extension GalleryFixtures {
         case .controlsDiscard:
             return confirm(t("controls.discardTitle"), note: t("controls.discardNote"), cancel: "controls.keepEditing", t("controls.discard"))
         case .cloudFetching, .cloudFetchingLong:
-            return AnyView(CloudSaveSheet(gate: cloudGate(.fetching(gameName: name, long: sheet == .cloudFetchingLong), titleID: game.titleID), icon: { _ in icon }))
+            return AnyView(CloudSaveSheet(gate: cloudGate(.fetching(gameName: name, long: sheet == .cloudFetchingLong), titleID: game.titleID)))
         case .cloudChoose, .cloudChosen:
-            return AnyView(CloudSaveSheet(gate: cloudGate(.asking(differ), titleID: game.titleID), icon: { _ in icon }, picked: sheet == .cloudChosen ? .cloud : nil))
+            return AnyView(CloudSaveSheet(gate: cloudGate(.asking(differ), titleID: game.titleID), picked: sheet == .cloudChosen ? .cloud : nil))
         case .cloudUnreadable:
-            return AnyView(CloudSaveSheet(gate: cloudGate(.asking(unreadable), titleID: game.titleID), icon: { _ in icon }))
+            return AnyView(CloudSaveSheet(gate: cloudGate(.asking(unreadable), titleID: game.titleID)))
         case .freeSpace:
-            return AnyView(FreeSpaceView(m: stores.build, game: game, icon: icon, survey: survey(game), chosen: [.extracted, .oldShaders]))
+            return AnyView(FreeSpaceView(m: stores.build, game: game, survey: survey(game), chosen: [.extracted, .oldShaders]))
         case .freeSpaceMeasuring:
-            return AnyView(FreeSpaceView(m: stores.build, game: game, icon: icon, survey: nil, measures: false))
+            return AnyView(FreeSpaceView(m: stores.build, game: game, survey: nil, measures: false))
         case .freeSpaceConfirm:
             return confirm(String(format: t("free.confirm"), FreeSpaceView.bytes(14_200_000_000)), subtitle: name,
                            note: [t("free.confirmNote"), t("free.cost.extracted"), t("free.cost.oldShaders")].joined(separator: "\n"), t("free.confirmButton"))
@@ -181,7 +180,7 @@ extension GalleryFixtures {
         case .rename, .renameCustom:
             var named = game
             if sheet == .renameCustom { named.customName = "Orchard" }
-            return AnyView(RenameGameSheet(game: named, icon: icon))
+            return AnyView(RenameGameSheet(game: named))
         case .buildSelected, .buildSelectedEmpty:
             let source = sheet == .buildSelectedEmpty ? GameLibrary(file: directory.appendingPathComponent("empty-\(UUID().uuidString).json"), artwork: artworkFolder) : library
             return AnyView(BuildSelectedSheet(library: source, queue: stores.queue, engineID: stores.engineSync.selection.engineID, close: {}))
@@ -211,13 +210,13 @@ extension GalleryFixtures {
                                                    canFastRefreshMac: false, canFastRefreshIOS: false, needsMissingImgGuideIOS: true,
                                                    missingOriginalPackage: sheet == .imgGuideNoPackage)
             return AnyView(MissingImgGuideSheet(context: MissingImgGuideContext(game: game, assessment: assessment), stores: stores, devices: stores.deviceStore,
-                                                libraryFolder: library.folder, onResolvedImg: { _ in }, onFallbackFullRebuild: {}, close: {}, icon: icon))
+                                                libraryFolder: library.folder, onResolvedImg: { _ in }, onFallbackFullRebuild: {}, close: {}))
         case .saves:   // no device is asked: a devicectl stand-in that answers nothing and the devices the launcher knows (none)
             return AnyView(SavesView(m: stores.build, library: library, gameID: game.id, devicectl: DeviceControl { _ in (false, "") },
                                      support: directory.appendingPathComponent("support", isDirectory: true), listDevices: { [] }))
         case .saveImport:
             return AnyView(SaveImportSheet(gameName: name, source: "/Users/Shared/Exports/\(game.name) save.zip",
-                                           target: "/Volumes/Games/\(game.name)/save/\(game.titleID)", icon: icon, cancel: {}, confirm: {}))
+                                           target: "/Volumes/Games/\(game.name)/save/\(game.titleID)", cancel: {}, confirm: {}))
         case .skippedItems:
             let items = [
                 SkippedLibraryItem(path: "/Volumes/Games/Update v3.nsp", name: "Update v3.nsp", rootPath: "/Volumes/Games", reason: .orphanSupplement(titleID: "0100000000990800")),

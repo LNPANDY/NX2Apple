@@ -402,7 +402,7 @@ struct LauncherView: View {
         .sheet(isPresented: $controlsOpen) { ControlsView(layout: controls, cancelRequest: controlsCancelRequest).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
             if let id = freeSpaceFor, let game = BuildFiles.freeSpaceGame(id: id, in: library.games, store: stores.buildFiles) {
-                FreeSpaceView(m: m, game: game, icon: GameLibrary.appIcon(for: game, banners: library.artworkDirectory)).environmentObject(padFocus)
+                FreeSpaceView(m: m, game: game).environmentObject(padFocus)
             }
         }
         .onChange(of: freeSpaceFor) { id in
@@ -420,7 +420,7 @@ struct LauncherView: View {
             }
         }
         .buildFilesWiring(stores.buildFiles, library: library, build: m, recorded: recorder.recorded, buildingID: m.running ? activeBuildID : nil, pad: padFocus, scope: { currentPadScope })
-        .cloudSaveSheet(cloudGate, pad: padFocus, icon: { id in library.games.first { $0.titleID == id }.flatMap { GameLibrary.appIcon(for: $0, banners: library.artworkDirectory) } }, scope: { currentPadScope })
+        .cloudSaveSheet(cloudGate, pad: padFocus, scope: { currentPadScope })
         .syncControllerLayouts(library: library, controls: controls)
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
         .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)

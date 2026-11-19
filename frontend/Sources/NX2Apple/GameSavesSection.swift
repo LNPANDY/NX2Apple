@@ -71,7 +71,6 @@ struct GameSavesSection: View {
         }
         .sheet(item: Binding(get: { importing.map { PendingImport(preview: $0) } }, set: { if $0 == nil { importing = nil } })) { pending in
             SaveImportSheet(gameName: game.name, source: pending.preview.source.path, target: save.path.path,
-                            icon: GameLibrary.appIcon(for: game, banners: ArtworkStore.shared.directory),
                             cancel: { importing = nil }, confirm: { performImport(pending.preview, into: save.path) })
                 .environmentObject(loc).environmentObject(pad)
         }
@@ -189,13 +188,12 @@ enum SaveLocationText {
     static func shown(_ path: String) -> String { (path as NSString).abbreviatingWithTildeInPath }
 }
 
-/// The confirmation of an import, on the sheet layout: the game's icon, where the files come from, where they go, and that the
+/// The confirmation of an import, on the sheet layout: where the files come from, where they go, and that the
 /// current save is backed up. Import replaces the save, so it is the destructive button: Return and Escape cancel.
 struct SaveImportSheet: View {
     let gameName: String
     let source: String
     let target: String
-    var icon: NSImage? = nil
     let cancel: () -> Void
     let confirm: () -> Void
     @EnvironmentObject var loc: Localizer
