@@ -365,7 +365,9 @@ chosen). After that it is a row button ("Change…").
 underlined under the pointer) with the controller's ring, its leading edge on the section headers'.
 
 Symbols take `symbol.default`, or `symbol.accent` when selected. Status dots and notice symbols take the status colours. A
-notice has one symbol per tone (info, warning, error, success), never its own. `DesignRulesTests` also checks the contrast
+notice has one symbol per tone (info, warning, error, success), never its own. A notice's detail wraps and is never cut, keep
+it to one or two sentences. The notice grows in height, its symbol and action stay centred on the title and detail, as in a
+row. `DesignRulesTests` also checks the contrast
 of the text, symbol and status colours on every surface from `tokens.json`, refuses raw SwiftUI colours outside a short list,
 and refuses dashes and semicolons in the language files.
 

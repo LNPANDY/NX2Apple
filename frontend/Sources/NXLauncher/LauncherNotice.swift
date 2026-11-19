@@ -2,7 +2,8 @@ import SwiftUI
 
 /// One notice of the launcher (LNPANDY/NX2Apple#1458): what the library and the game page tell the player outside a sheet, the
 /// engine update, skipped files, a signature that runs out, a first launch that takes long. Each is a single row: a symbol in its
-/// tone's colour, a title, at most one line of detail, at most one action and an optional dismiss. Notices sit in one slot under
+/// tone's colour, a title, a detail that wraps (never cut, keep it to one or two sentences), at most one action and an optional
+/// dismiss. Symbol and action are centred on the title and detail, the notice grows in height. Notices sit in one slot under
 /// the top bar (LauncherNoticeStack), the most serious first.
 package struct LauncherNoticeItem: Identifiable {
     /// The design system's tone: one fixed symbol and its status colour each, no notice brings its own (#1458).
@@ -59,8 +60,8 @@ package struct LauncherNotice: View {
                 Text(item.title).font(.manrope(13.5, .semibold)).foregroundStyle(LauncherPalette.text)
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 if let detail = item.detail {
-                    Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1).truncationMode(.tail)
-                        .help(detail)
+                    Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)   // wraps: important text is never cut (#1458)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

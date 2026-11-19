@@ -77,4 +77,24 @@ final class DSRowAlignmentTests: IsolatedDefaultsTestCase {
         try assertCentred("long message", detail: "Not set",
                           message: .error(String(repeating: "This message wraps onto several lines under the row. ", count: 5)), width: 520)
     }
+
+    /// A notice's detail wraps (never cut), the notice grows, and its symbol stays centred on the title and detail.
+    @MainActor func testANoticeWrapsItsDetailAndKeepsItsSymbolCentred() throws {
+        let tone = try XCTUnwrap(NSColor(DSTone.error.color).usingColorSpace(.sRGB))
+        func isTone(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Bool {
+            abs(r - tone.redComponent) < 0.08 && abs(g - tone.greenComponent) < 0.08 && abs(b - tone.blueComponent) < 0.08
+        }
+        func notice(_ detail: String) -> LauncherNotice {
+            LauncherNotice(LauncherNoticeItem(id: "test", tone: .error, title: "The engine could not be downloaded from GitHub.", detail: detail,
+                                              action: .init(title: "Try again") {}))
+        }
+        let short = try Self.render(notice("Check your connection."), width: 640)
+        let long = try Self.render(notice(String(repeating: "Check your internet connection and that github.com can be reached, then press Try again. ", count: 3)
+                                          + "Games cannot be built without the engine."), width: 640)
+        XCTAssertGreaterThan(long.size.height, short.size.height + 30, "the detail wraps onto more lines")
+        for (name, rep) in [("short", short), ("long", long)] {
+            let symbol = try XCTUnwrap(Self.span(in: rep, where: isTone), "\(name): no symbol")
+            XCTAssertEqual(symbol.centre, rep.size.height / 2, accuracy: 1, "\(name): the symbol is not centred on the notice")
+        }
+    }
 }
