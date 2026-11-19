@@ -145,7 +145,7 @@ import NXModel
                 s.deviceStore.signingTeam = team.id
             },
             // The single-game FilesCard is hidden while a queue is staged, leaving the engine switcher and InstallCard row controls.
-            Scenario(name: "builds with a waiting queue for an iPhone", page: .builds, atLeast: 2) { s, _, directory in
+            Scenario(name: "builds with a waiting queue for an iPhone", page: .builds, atLeast: 1) { s, _, directory in   // the install mode: the engine is a footnote here (#1458)
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "ios"
                 MainActor.assumeIsolated { s.deviceStore.checked = true }
