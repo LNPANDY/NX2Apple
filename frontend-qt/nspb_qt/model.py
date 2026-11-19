@@ -50,6 +50,7 @@ class _IsolatedTestSettings:
 from . import app_update
 from . import build_failure as bf
 from . import build_notes
+from . import build_queue as bq
 from . import engine
 from . import input_staging
 from . import inputs
@@ -267,6 +268,8 @@ class Model(QObject):
     driveCopyProgress = Signal(object, object)   # done_bytes, total_bytes
     driveCopyFinished = Signal(bool, bool, str)  # ok, cancelled, info
     upstreamStateChanged = Signal()
+    queueChanged = Signal()
+    queueBatchCompleted = Signal(int, int, int)  # done, failed, skipped
 
     #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
     #: path, or '' when the user cancelled. `pick_dep_folder` calls it, so the model stays UI-free.
@@ -277,7 +280,7 @@ class Model(QObject):
     _metal_zip: Path | None = None
     _sdk_archive: Path | None = None
 
-    def __init__(self) -> None:
+    def __init__(self, *, queue_file: str | os.PathLike | None = None) -> None:
         super().__init__()
         if 'unittest' in sys.modules and QSettings is _REAL_QSETTINGS:
             self.settings = _IsolatedTestSettings()
@@ -395,6 +398,24 @@ class Model(QObject):
             self.log_path.write_text('', encoding='utf-8')
         except OSError:
             self.log_path = None
+
+        if queue_file is not None:
+            resolved_qfile: Path | None = Path(queue_file)
+        elif 'unittest' in sys.modules and not os.environ.get('NSPB_STATE_DIR'):
+            resolved_qfile = None
+        else:
+            resolved_qfile = bq.default_queue_file()
+        self.build_queue = bq.BuildQueueStore(
+            file_path=resolved_qfile,
+            busy=lambda: bool(self.running or self.engine_syncing),
+            start_entry=self.start_build_from_queue_entry,
+            cancel_running=self.cancel_build,
+            repack_shared_shell=self.start_repack_shell_ipa,
+            on_changed=self._emit_queue_changed,
+            on_batch_completed=self._emit_queue_batch_completed,
+            schedule_next=self._schedule_queue_next,
+        )
+        self.finished.connect(self._on_finished_for_queue)
 
     # ---- strings
 
@@ -527,6 +548,197 @@ class Model(QObject):
                 QMetaObject.invokeMethod(self, '_emit_repo_changed', Qt.QueuedConnection)
         except RuntimeError:
             pass
+
+    @Slot()
+    def _emit_queue_changed(self) -> None:
+        try:
+            if QThread.currentThread() is self.thread():
+                self.queueChanged.emit()
+            else:
+                QMetaObject.invokeMethod(self, '_emit_queue_changed', Qt.QueuedConnection)
+        except RuntimeError:
+            pass
+
+    @Slot(int, int, int)
+    def _emit_queue_batch_completed(self, done_c: int, fail_c: int, skip_c: int) -> None:
+        try:
+            if QThread.currentThread() is self.thread():
+                self.queueBatchCompleted.emit(done_c, fail_c, skip_c)
+            else:
+                QMetaObject.invokeMethod(
+                    self,
+                    '_emit_queue_batch_completed',
+                    Qt.QueuedConnection,
+                    Q_ARG(int, done_c),
+                    Q_ARG(int, fail_c),
+                    Q_ARG(int, skip_c),
+                )
+        except RuntimeError:
+            pass
+
+    def _schedule_queue_next(self, _fn: Callable[[], None]) -> None:
+        try:
+            QMetaObject.invokeMethod(self, '_run_queue_next', Qt.QueuedConnection)
+        except RuntimeError:
+            pass
+
+    @Slot()
+    def _run_queue_next(self) -> None:
+        self.build_queue.process_next()
+
+    @Slot(bool, str)
+    def _on_finished_for_queue(self, ok: bool, note: str) -> None:
+        self.build_queue.on_build_finished(
+            ok,
+            note,
+            stopped=bool(getattr(self, '_build_cancelled', False)),
+        )
+
+    def can_enqueue_current_game(self) -> bool:
+        if self.game_folder is not None:
+            return not bool(self.game_folder_problem)
+        return bool(self.base_path)
+
+    def snapshot_current_queue_entry(self) -> bq.QueueEntry | None:
+        """Take an immutable queue snapshot of the Builds form's current game selection."""
+        folder = self.game_folder
+        if folder is not None:
+            if self.game_folder_problem:
+                return None
+            tid = folder.title_id_hex if folder.has_title_id else inputs.build_key(folder.script_input, self.keys_path)
+            newest = folder.newest_update
+            name = bq._resolve_display_name(
+                tid,
+                folder.script_input,
+                engine_path=self.engine_path,
+                library=self.library,
+            )
+            return bq.QueueEntry(
+                title_id=tid,
+                name=name,
+                base_path=folder.base_path,
+                update_path=newest[1] if newest else '',
+                dlc_paths=[p for _, p in folder.dlc],
+                keys_path='',
+                game_dir=folder.script_input,
+                is_game_folder=True,
+                out_dir=self.out_dir,
+                target=self.target,
+                ipa_kind=self.ipa_kind,
+                upstream=self.build_upstream,
+                bc_on_cpu=self.bc_on_cpu,
+            )
+        if not self.base_path:
+            return None
+        tid = inputs.build_key(self.base_path, self.keys_path)
+        name = bq._resolve_display_name(
+            tid,
+            self.base_path,
+            engine_path=self.engine_path,
+            library=self.library,
+        )
+        return bq.QueueEntry(
+            title_id=tid,
+            name=name,
+            base_path=self.base_path,
+            update_path=self.update_path,
+            dlc_paths=list(self.dlc_paths),
+            keys_path=self.keys_path,
+            game_dir=self.game_dir or str(Path(self.base_path).parent),
+            is_game_folder=False,
+            out_dir=self.out_dir,
+            target=self.target,
+            ipa_kind=self.ipa_kind,
+            upstream=self.build_upstream,
+            bc_on_cpu=self.bc_on_cpu,
+        )
+
+    def enqueue_current_game(self, *, auto_start: bool = False) -> bool:
+        entry = self.snapshot_current_queue_entry()
+        if entry is None:
+            return False
+        return self.build_queue.enqueue([entry], auto_start=auto_start) > 0
+
+    def enqueue_discovered_games(self, games: list[bq.DiscoveredGame], *, auto_start: bool = False) -> int:
+        if not games:
+            return 0
+        import uuid as _uuid
+        batch_id = _uuid.uuid4().hex
+        entries = [
+            g.to_queue_entry(
+                out_dir=self.out_dir,
+                target=self.target,
+                ipa_kind=self.ipa_kind,
+                upstream=self.build_upstream,
+                bc_on_cpu=self.bc_on_cpu,
+                keys_path=self.keys_path,
+                batch_id=batch_id,
+            )
+            for g in games
+        ]
+        return self.build_queue.enqueue(entries, auto_start=auto_start)
+
+    def start_build_from_queue_entry(
+        self,
+        entry: bq.QueueEntry,
+        defer_shell_export: bool = False,
+    ) -> str | None:
+        """Apply a queued entry's snapshot and launch its build. Returns None on launch, or a failure reason."""
+        if self.running or self.engine_syncing:
+            return self.t('queue.cannotStart')
+        if self.deps_checked and not self.all_deps_ok:
+            return self.t('status.installFirst')
+        if entry.upstream == 's2arm':
+            if not s2arm_builder.feature_enabled() or not s2arm_builder.is_usable_tree(self.s2arm_path):
+                return self.t('upstream.s2armMissing')
+        elif not self.repo_ok:
+            return self.t('msg.repoInvalidEmpty')
+
+        self.build_upstream = entry.upstream
+        self.target = entry.target
+        self.ipa_kind = entry.ipa_kind
+        self.bc_on_cpu = entry.bc_on_cpu
+        self.out_dir = entry.out_dir
+
+        if entry.is_game_folder:
+            src = entry.game_dir or entry.base_path
+            if not src or os.path.islink(src) or not os.path.exists(src):
+                return self.t('queue.cannotStart')
+            self.take_game_folder(src)
+            if self.game_folder_problem:
+                return self.game_folder_problem
+            if self.game_folder is None:
+                return self.t('queue.cannotStart')
+        else:
+            if not entry.base_path or os.path.islink(entry.base_path) or not os.path.isfile(entry.base_path):
+                return self.t('status.needInputs')
+            eff_keys = entry.keys_path or self.keys_path
+            if not eff_keys or os.path.islink(eff_keys) or not os.path.isfile(eff_keys):
+                return self.t('status.needInputs')
+            if entry.update_path and os.path.islink(entry.update_path):
+                return self.t('queue.cannotStart')
+            if any(dp and os.path.islink(dp) for dp in entry.dlc_paths):
+                return self.t('queue.cannotStart')
+            self.leave_game_folder()
+            self.base_path = entry.base_path
+            self.update_path = entry.update_path
+            self.dlc_paths = list(entry.dlc_paths)
+            self.keys_path = eff_keys
+            self.game_dir = entry.game_dir or str(Path(entry.base_path).parent)
+            self._emit_repo_changed()
+
+        self._defer_shell_export = bool(defer_shell_export and entry.target == 'ios' and entry.ipa_kind == 'shared')
+        started_async = False
+        try:
+            self.start_build()
+            started_async = bool(self.running or self.engine_syncing)
+        finally:
+            if not started_async:
+                self._defer_shell_export = False
+        if not started_async and self.build_queue.running_entry is not None:
+            if self.build_queue.running_entry.id == entry.id:
+                return self.t('queue.cannotStart')
+        return None
 
     def load_game_from_library(self, game: lib.LibraryGame) -> None:
         base = (game.inputs.get('base') or [''])[0]
@@ -3057,6 +3269,7 @@ class Model(QObject):
     def start_build(self, *, title_id: str | None = None) -> None:
         if self.running or (title_id is not None and title_id not in self.selectable_titles):
             return
+        self._build_cancelled = False
         self._fast_refresh_gen = getattr(self, '_fast_refresh_gen', 0) + 1
         queued_ext_img = (getattr(self, '_queued_external_img_path', '') or '').strip()
         self._queued_external_img_path = ''
@@ -4285,6 +4498,7 @@ class Model(QObject):
         """Repack the shared IPA on a background thread and report via `runningChanged` / `finished`."""
         if not self.can_export_built_games():
             return False
+        self._build_cancelled = False
         self._last_error = ''
         self.failure = None
         self.stages = []
