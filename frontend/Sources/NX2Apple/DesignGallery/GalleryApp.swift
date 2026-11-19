@@ -109,6 +109,9 @@ struct GalleryWindow: View {
                         .padding(DS.Space.l)
                         .id(scene.id + lang.code + preset.rawValue)
                 }
+                // every scene its own identity: switching scenes always builds the new one from its fixture, never keeps the last
+                // scene's view state (an onboarding step, a sheet's selection)
+                .id(scene)
                 .background(DS.Color.surface)
                 // The scene starts below the gallery's own toolbar: a solid toolbar, so the ScrollView keeps its top inset
                 // and the scene's top bar never sits under it (#1458)

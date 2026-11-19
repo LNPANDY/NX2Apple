@@ -47,7 +47,7 @@ import NXModel
                 XCTAssertFalse(cards.isEmpty)
                 for card in cards {
                     XCTAssertGreaterThan(card.frame.width, 190)
-                    XCTAssertLessThanOrEqual(card.frame.maxX, size.width - 39)
+                    XCTAssertLessThanOrEqual(card.frame.maxX, size.width - DS.Space.xl + 1, "inside the content column")
                 }
                 if let path = ProcessInfo.processInfo.environment["NX_IMPORT_CAPTURE_DIR"] {
                     let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))

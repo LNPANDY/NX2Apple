@@ -105,7 +105,6 @@ final class DesignRulesTests: XCTestCase {
     private static let rawColourAllowed: [String: Int] = [
         "NX2Apple/ConsoleControllersView.swift": 2,   // a low battery
         "NX2Apple/GameControllerMappingView.swift": 1,
-        "NX2Apple/OnboardingView.swift": 2,
         "NXLauncher/ExportSteps.swift": 1,
         "NXLauncher/TransferCard.swift": 1,
     ]

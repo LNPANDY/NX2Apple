@@ -20,7 +20,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     // Sheets
     case sheet(GallerySheet)
     // The first run
-    case onboarding(MockOnboardingDriver.Scenario)
+    case onboarding(MockOnboardingDriver.Scenario), onboardingState(OnboardingGalleryState)
     // Console mode
     case consoleHome, consoleEmpty, consoleGamePage, consoleBuilds, consoleOptions, consoleControllers, consoleStarting
     // The design system's own check scenes
@@ -41,7 +41,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         + BuildFailureKind.allCases.filter { $0 != .diskFull }.map(GalleryScene.buildFailure)
         + [.settings, .settingsLibrary, .settingsControls, .settingsTools, .settingsEngineError]
         + GallerySheet.allCases.map(GalleryScene.sheet)
-        + MockOnboardingDriver.Scenario.allCases.map(GalleryScene.onboarding)
+        + onboardingScenes
         + [.consoleHome, .consoleEmpty, .consoleGamePage, .consoleBuilds, .consoleOptions, .consoleControllers, .consoleStarting]
         + [.cardStates]
     }
@@ -52,6 +52,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .buildFailure(let kind): return "buildFailure-" + kind.rawValue
         case .onboarding(let scenario): return "onboarding-" + scenario.rawValue
         case .sheet(let sheet): return sheet.rawValue
+        case .onboardingState(let state): return "onboarding-" + state.rawValue
         default: return String(describing: self)
         }
     }
@@ -67,7 +68,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .buildFailed, .buildFailure: return .failures
         case .settings, .settingsLibrary, .settingsControls, .settingsTools, .settingsEngineError: return .settings
         case .sheet: return .sheets
-        case .onboarding: return .onboarding
+        case .onboarding, .onboardingState: return .onboarding
         case .consoleHome, .consoleEmpty, .consoleGamePage, .consoleBuilds, .consoleOptions, .consoleControllers, .consoleStarting: return .console
         case .cardStates: return .design
         }
@@ -112,7 +113,8 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .settingsTools: return "Tools"
         case .settingsEngineError: return "Engine failed"
         case .sheet(let sheet): return sheet.title
-        case .onboarding(let scenario): return scenario.rawValue
+        case .onboarding(let scenario): return scenario.galleryTitle
+        case .onboardingState(let state): return state.title
         case .consoleHome: return "Home"
         case .consoleEmpty: return "Empty"
         case .consoleGamePage: return "Game page"

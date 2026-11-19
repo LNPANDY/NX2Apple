@@ -8,7 +8,7 @@ import XCTest
 final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
     /// Keys whose French text is the English one on purpose: names, units, button letters, codes.
     static let sameAsEnglish: Set<String> = [
-        "library.chip.both", "shell.choiceLauncher", "onboarding.xcode.section",
+        "library.chip.both", "shell.choiceLauncher", "onboarding.xcode.section", "onboarding.step.xcode",
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.background.python",
         "onboarding.background.dotnet", "onboarding.demo.mario",
         "console.platform.mac", "console.platform.iphone", "console.version",

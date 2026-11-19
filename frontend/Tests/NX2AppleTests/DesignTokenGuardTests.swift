@@ -36,9 +36,6 @@ final class DesignTokenGuardTests: XCTestCase {
         "LibraryEmptyState.swift": 1,
         "LiveConsoleDriver+Identify.swift": 2,
         "LiveConsoleDriver.swift": 1,
-        "OnboardingGamesContent.swift": 1,
-        "OnboardingKeysContent.swift": 1,
-        "OnboardingView.swift": 12,
         "StickDeadzoneCard.swift": 1,
     ]
 
