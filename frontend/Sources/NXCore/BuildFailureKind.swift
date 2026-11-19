@@ -31,6 +31,8 @@ package enum BuildFailureKind: String, CaseIterable {
     case devicePairing, shellDataIncomplete
     /// The engine's online sync (tools/engine.py sync, EngineLayout.swift): no network or GitHub unreachable, or any other stop of it.
     case engineOffline, engineSync
+    /// nxkit (Beta), LNPANDY/NX2Apple#1460: `nxb build` stopped. `detail` is its exit code, `lines` its last lines. There is no fallback to the script.
+    case nxkit
     case unknown
 
     /// The script's override for this stop, offered as "Build anyway". Only these three have one that the launcher
@@ -75,9 +77,13 @@ package struct BuildFailure: Equatable {
 
     package var titleIDs: [String] = []  // severalGames: choices the engine offers with --title-id
 
-    package init(kind: BuildFailureKind, gameName: String?, detail: String? = nil) {
+    /// The last lines of the output, shown in the card (nxkit).
+    package var lines: [String] = []
+
+    package init(kind: BuildFailureKind, gameName: String?, detail: String? = nil, lines: [String] = []) {
         self.kind = kind
         self.gameName = gameName
         self.detail = detail
+        self.lines = lines
     }
 }

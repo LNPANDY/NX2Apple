@@ -73,7 +73,7 @@ package struct BuildFailureCard: View {
     /// A stop the player fixes with a choice or a file is a warning, a broken input or an unknown failure an error.
     package static func isError(_ kind: BuildFailureKind) -> Bool {
         switch kind {
-        case .damagedNSP, .a32Program, .shaderRegression, .updateMismatch, .shellDataIncomplete, .engineSync, .unknown: return true
+        case .damagedNSP, .a32Program, .shaderRegression, .updateMismatch, .shellDataIncomplete, .engineSync, .nxkit, .unknown: return true
         default: return false
         }
     }
@@ -87,7 +87,7 @@ package struct BuildFailureCard: View {
                         Circle().fill(Self.isError(f.kind) ? DS.Color.statusError : DS.Color.statusWarning).frame(width: 7, height: 7)
                         Text(m.failureWhat(f)).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
                     }
-                    let chooseTitle = !f.titleIDs.isEmpty && !m.experimentalBuilder
+                    let chooseTitle = !f.titleIDs.isEmpty
                     Text(loc.t(chooseTitle ? "fail.severalGames.choose" : f.kind.nextKey)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true).padding(.leading, 17)
                     if chooseTitle {
@@ -102,6 +102,16 @@ package struct BuildFailureCard: View {
                         }
                     } else {
                         buttons(f.kind).padding(.leading, 17).padding(.top, 2)
+                    }
+                    if f.kind == .nxkit, !f.lines.isEmpty {
+                        // nxb's last lines as it printed them (#1460): there is no script to fall back to, so the card shows what nxkit said
+                        Text(f.lines.joined(separator: "\n")).font(DS.Font.mono).foregroundStyle(DS.Color.textSecondary)
+                            .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(DS.Space.s)
+                            .background(DS.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.chip))
+                            .padding(.leading, 17)
+                            .accessibilityIdentifier("fail.nxkit.lines")
                     }
                     if f.kind == .shellDataIncomplete, m.finderShown, let archive = m.finderArchive {
                         FinderCopySteps(archive: archive).padding(.leading, 17)

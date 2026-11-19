@@ -48,12 +48,13 @@ extension BuildStore {
         if f.kind == .diskFull, let gb = f.detail { return String(format: t("fail.diskFull.whatNeeds"), gb) }
         if f.kind == .psoDiskFull, let gb = f.detail { return String(format: t("fail.psoDiskFull.whatNeeds"), gb) }
         if f.kind == .updateMismatch, let versions = f.detail { return String(format: t("macFail.updateMismatch.whatVersions"), versions) }
+        if f.kind == .nxkit, let code = f.detail { return String(format: t("fail.nxkit.whatCode"), code) }
         if f.kind == .appIDLimit, let date = f.detail, !date.isEmpty { return String(format: t("fail.appIDLimit.whatUntil"), date) }
         return t(f.kind.whatKey)
     }
 
     package func buildTitle(_ titleID: String) {
-        guard canBuild, !experimentalBuilder, failure?.titleIDs.contains(titleID) == true else { return }
+        guard canBuild, failure?.titleIDs.contains(titleID) == true else { return }
         selectedTitleID = titleID
         runBuild()
     }

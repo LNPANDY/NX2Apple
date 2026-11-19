@@ -10,7 +10,6 @@ package struct UpstreamEngineStore: Sendable {
         case download
         case unpack
         case incomplete
-        case checksum   // the download does not match its SHA256SUMS entry, or has none (nxkit)
     }
 
     package let root: URL
@@ -38,7 +37,7 @@ package struct UpstreamEngineStore: Sendable {
         case .s2arm:
             return URL(string: "https://codeload.github.com/jhaizhou-ops/S2Arm/zip/refs/heads/main")
         case .nxkit:
-            return nil   // the latest release is looked up first (NxkitInstall.swift)
+            return nil   // bundled with the app, updated by NxkitUpdate.swift
         }
     }
 
@@ -51,7 +50,7 @@ package struct UpstreamEngineStore: Sendable {
         case .s2arm:
             return S2ArmBuilder.isUsableTree(path, fileManager: fm)
         case .nxkit:
-            return NxkitBuilder.isUsableTree(path, fileManager: fm)
+            return false   // nxkit is bundled and updated by NxkitUpdate, never unpacked here
         }
     }
 
@@ -59,7 +58,9 @@ package struct UpstreamEngineStore: Sendable {
         switch kind {
         case .nxnative:
             return nil
-        case .macNativeGames, .s2arm, .nxkit:
+        case .nxkit:
+            return nil
+        case .macNativeGames, .s2arm:
             return root.appendingPathComponent(kind.rawValue, isDirectory: true)
         }
     }
@@ -119,7 +120,7 @@ package struct UpstreamEngineStore: Sendable {
         case .s2arm:
             scriptsToMarkExecutable = [S2ArmBuilder.macOneClickScript, "pack/jobs/main.py"]
         case .nxkit:
-            scriptsToMarkExecutable = [NxkitBuilder.builderName, NxkitBuilder.hostName]
+            scriptsToMarkExecutable = []
         }
         for rel in scriptsToMarkExecutable {
             let scriptPath = source.appendingPathComponent(rel).path

@@ -5,7 +5,6 @@ package enum UpstreamInstallState: Equatable, Sendable {
     package enum FailureReason: Equatable, Sendable {
         case download
         case extract
-        case verify   // the download did not match its checksum (nxkit)
     }
 
     case builtIn
@@ -44,7 +43,7 @@ private final class UpstreamCancelFlag: @unchecked Sendable {
 
 extension BuildStore {
     package var availableUpstreams: [EngineUpstreamKind] {
-        EngineUpstream.availableOnMac()
+        EngineUpstream.availableOnMac(nxkitEnabled: isUpstreamEnabled(.nxkit))
     }
 
     package var upstreamsRootURL: URL {
@@ -64,7 +63,7 @@ extension BuildStore {
             buildUpstream = .nxnative
         } else if buildUpstream == .s2arm && !s2armInstalled {
             buildUpstream = .nxnative
-        } else if buildUpstream == .nxkit && !nxkitInstalled {
+        } else if buildUpstream == .nxkit && !(isUpstreamEnabled(.nxkit) && nxkitInstalled) {
             buildUpstream = .nxnative
         }
     }
@@ -105,7 +104,7 @@ extension BuildStore {
         case .s2arm:
             return S2ArmBuilder.featureEnabled && s2armInstalled && !(upstreamDownloads[.s2arm]?.isBusy ?? false)
         case .nxkit:
-            return NxkitBuilder.featureEnabled && nxkitInstalled && !(upstreamDownloads[.nxkit]?.isBusy ?? false)
+            return isUpstreamEnabled(.nxkit) && nxkitInstalled
         }
     }
 
@@ -128,7 +127,7 @@ extension BuildStore {
         guard kind != .nxnative, !running else { return Task {} }
         if kind == .macNativeGames && !MacNativeGamesBuilder.featureEnabled { return Task {} }
         if kind == .s2arm && !S2ArmBuilder.featureEnabled { return Task {} }
-        if kind == .nxkit && !NxkitBuilder.featureEnabled { return Task {} }
+        if kind == .nxkit { return Task {} }   // bundled with the app, updated by checkNxkitUpdate (BuildStore+Nxkit.swift)
         if upstreamDownloads[kind]?.isBusy == true {
             return upstreamDownloadTasks[kind] ?? Task {}
         }
@@ -163,16 +162,6 @@ extension BuildStore {
                             self.upstreamDownloads[kind] = .extracting
                         }
                     }
-                    if kind == .nxkit {
-                        // The latest release names the ZIP and its checksums (NxkitInstall.swift)
-                        guard let release = store.latestNxkitRelease(transport: transport) else {
-                            return cancelFlag.isCancelled ? .failure(.cancelled) : .failure(.download)
-                        }
-                        return store.downloadAndInstallNxkit(
-                            release: release, transport: transport,
-                            shouldCancel: { cancelFlag.isCancelled }, onProgress: progress, onExtracting: extracting
-                        )
-                    }
                     return store.downloadAndInstall(
                         kind: kind,
                         transport: transport,
@@ -200,8 +189,7 @@ extension BuildStore {
                 case .s2arm:
                     self.s2armPath = url.path
                 case .nxkit:
-                    self.refreshNxkit()
-                    self.nxkitUpdate = .upToDate
+                    break
                 }
                 self.upstreamDownloads.removeValue(forKey: kind)
                 if !self.running {
@@ -211,7 +199,7 @@ extension BuildStore {
             case .failure(.cancelled):
                 self.upstreamDownloads.removeValue(forKey: kind)
             case .failure(let err):
-                let reason: UpstreamInstallState.FailureReason = err == .download ? .download : (err == .checksum ? .verify : .extract)
+                let reason: UpstreamInstallState.FailureReason = err == .download ? .download : .extract
                 self.upstreamDownloads[kind] = .failed(reason)
             }
         }

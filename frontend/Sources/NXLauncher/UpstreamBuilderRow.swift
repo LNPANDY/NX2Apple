@@ -21,43 +21,47 @@ package struct UpstreamBuilderRow: View {
         if S2ArmBuilder.featureEnabled && (build.s2armInstalled || build.buildUpstream == .s2arm) {
             opts.append((EngineUpstreamKind.s2arm.rawValue, "S2Arm"))
         }
-        if NxkitBuilder.featureEnabled && (build.nxkitInstalled || build.buildUpstream == .nxkit) {
-            opts.append((EngineUpstreamKind.nxkit.rawValue, "nxkit"))
+        if build.nxkitSelectable || build.buildUpstream == .nxkit {
+            opts.append((EngineUpstreamKind.nxkit.rawValue, loc.t("nxkit.name")))
         }
         return opts
     }
 
-    /// nxkit has no folder to choose: its row says which release is installed and updates it.
-    private var nxkitDetail: String {
-        switch build.upstreamState(.nxkit) {
-        case .downloading(_, let progress):
-            return progress.isEmpty ? loc.t("upstream.downloading") : String(format: loc.t("upstream.downloadingProgress"), progress)
-        case .extracting:
-            return loc.t("upstream.extracting")
-        case .failed(let reason):
-            return loc.t(reason == .download ? "upstream.downloadFailed" : (reason == .verify ? "upstream.verifyFailed" : "upstream.extractFailed"))
-        case .builtIn, .notInstalled, .installed:
-            break
+    private var nxkitShown: Bool { build.buildUpstream == .nxkit && build.nxkitSelectable }
+
+    /// The engine row's message: with nxkit (Beta) chosen its note or its update's state, else why this Mac cannot choose nxkit.
+    private var engineMessage: DSRowMessage? {
+        if nxkitShown {
+            let m = build.nxkitStatusMessage
+            switch m.tone {
+            case .info: return .info(m.text)
+            case .warning: return .warning(m.text)
+            case .error: return .error(m.text)
+            }
         }
-        guard build.nxkitInstalled else { return loc.t("upstream.nxkitMissing") }
-        let tag = build.nxkitInfo?.tag ?? ""
-        if !build.nxkitCanBuildApps {
-            return String(format: loc.t("upstream.nxkitNoHost"), tag)
+        guard NxkitBuilder.featureEnabled else { return nil }
+        switch build.nxkitAvailability {
+        case .available: return nil
+        case .needsNewerMacOS: return .info(loc.t("nxkit.needsMacOS26"))
+        case .needsAppleSilicon: return .info(loc.t("nxkit.needsAppleSilicon"))
         }
-        if case .available(let latest) = build.nxkitUpdate {
-            return String(format: loc.t("upstream.nxkitAvailable"), tag, latest)
-        }
-        return String(format: loc.t(build.nxkitUpdate == .upToDate ? "upstream.nxkitUpToDate" : "upstream.nxkitInstalled"), tag)
     }
 
-    private var nxkitUpdateWanted: Bool {
-        if !build.nxkitInstalled || !build.nxkitCanBuildApps { return true }
-        if case .available = build.nxkitUpdate { return true }
-        return false
+    /// "…" beside the engine with nxkit (Beta): Check for updates, Use previous version.
+    private var nxkitMenu: [(value: String, label: String)] {
+        var options = [(value: "check", label: loc.t("nxkit.checkForUpdates"))]
+        if let previous = build.nxkitPreviousVersion { options.append((value: "previous", label: String(format: loc.t("nxkit.usePrevious"), previous))) }
+        return options
     }
 
     package var body: some View {
-        CardRow(loc.t("upstream.title"), detail: loc.t("upstream.note")) {
+        CardRow(loc.t("upstream.title"), detail: nxkitShown ? build.nxkitStatusLine : loc.t("upstream.note"), message: engineMessage) {
+            if nxkitShown {
+                DSOverflowMenu(label: loc.t("nxkit.more"), options: nxkitMenu, padID: "set.upstream.nxkit.more") { value in
+                    if value == "check" { build.checkNxkitUpdate(manual: true) } else if value == "previous" { build.useNxkitPreviousVersion() }
+                }
+                .disabled(build.running || build.nxkitUpdate == .checking)
+            }
             LauncherDropdown(
                 options: availableOptions,
                 selection: build.buildUpstream.rawValue,
@@ -120,33 +124,6 @@ package struct UpstreamBuilderRow: View {
                 .disabled(build.running)
                 .padTarget("set.upstream.s2armFolder", scope: "main", enabled: !build.running) { if !build.running { pickS2Arm() } }
             }
-        }
-        if NxkitBuilder.featureEnabled && (build.nxkitInstalled || build.buildUpstream == .nxkit) {
-            CardDivider()
-            let busy = build.upstreamState(.nxkit).isBusy
-            CardRow(
-                loc.t("upstream.nxkitRow"),
-                detail: nxkitDetail,
-                dot: build.nxkitCanBuildApps ? LauncherPalette.ready : LauncherPalette.building,
-                help: build.nxkitPath
-            ) {
-                Button(loc.t(nxkitUpdateWanted ? (build.nxkitInstalled ? "upstream.nxkitUpdateBtn" : "upstream.download") : "upstream.nxkitCheck")) {
-                    nxkitAction()
-                }
-                .disabled(build.running || busy || build.nxkitUpdate == .checking)
-                .padTarget("set.upstream.nxkit", scope: "main", enabled: !build.running && !busy) { if !build.running && !busy { nxkitAction() } }
-            }
-            .onAppear {
-                if build.nxkitInstalled && build.nxkitUpdate == .unknown { build.checkNxkitUpdate() }
-            }
-        }
-    }
-
-    private func nxkitAction() {
-        if nxkitUpdateWanted {
-            build.downloadUpstream(.nxkit)
-        } else {
-            build.checkNxkitUpdate()
         }
     }
 

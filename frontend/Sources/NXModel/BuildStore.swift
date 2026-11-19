@@ -88,8 +88,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let outputKey = "buildOutputDirectory"
     nonisolated package static let targetKey = "buildTarget"
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
-    nonisolated package static let experimentalBuilderKey = "experimentalBuilder"
-    nonisolated package static let experimentalBuilderPathKey = "experimentalBuilderPath"
     nonisolated package static let savedKeysKey = "savedKeysPath"
     nonisolated package static let buildUpstreamKey = "buildUpstream"
     nonisolated package static let macNativeGamesPathKey = "macNativeGamesPath"
@@ -137,6 +135,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         didSet {
             if !running, !buildingGame { runningTarget = target }
             if !running { completedOperation = operation?.kind; operation = nil }
+            if !running, oldValue { applyPendingNxkitSwitch() }   // an nxkit update waits for the build (BuildStore+Nxkit.swift)
         }
     }
     /// What runs right now: operation, game and destination, taken when the work starts and independent of the Build form
@@ -162,7 +161,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The game picked in a "several games" failure's list (BuildFailureCard), not built yet: the footer's Build game builds it.
     @Published package var failureChoice: String?
     /// The failure asks which of several games to build, and the launcher can build one of them.
-    package var choosesTitle: Bool { !(failure?.titleIDs.isEmpty ?? true) && !experimentalBuilder }
+    package var choosesTitle: Bool { !(failure?.titleIDs.isEmpty ?? true) }
     /// "Build anyway" asked for this stop and waiting for the confirmation dialog.
     @Published package var confirmingOverride: BuildFailureKind?
     /// The one-off `--allow-*` of a confirmed "Build anyway": taken by the next build and never stored.
@@ -199,15 +198,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var bcOnCPU: Bool {
         didSet { defaults.set(bcOnCPU, forKey: Self.bcOnCPUKey) }
     }
-    /// Settings, "Use experimental builder" (#749): the NSP script hands the stages nxbuild supports to it, and runs the rest the standard way.
-    /// Off by default. BuildStore+Builder.swift passes it to the build.
-    @Published package var experimentalBuilder: Bool {
-        didSet { defaults.set(experimentalBuilder, forKey: Self.experimentalBuilderKey) }
-    }
-    /// The `nxb` binary the player chose (or its folder), empty for the app's own copy (ExperimentalBuilder.resolve).
-    @Published package var experimentalBuilderPath: String {
-        didSet { defaults.set(experimentalBuilderPath, forKey: Self.experimentalBuilderPathKey) }
-    }
     /// The prod.keys chosen once for every game (Settings, "Keys", #996): a build whose keys row is empty or names a file that is gone
     /// takes it (BuildStore+SavedKeys.swift). Empty when none is saved.
     @Published package internal(set) var savedKeys: String {
@@ -216,9 +206,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             if savedKeys != oldValue { invalidateKeyProblem() }
         }
     }
-    /// The app's own nxb (Contents/Resources/nxbuild/nxb, frontend/nxbuild.pin), nil in tests and in a build without a pinned release.
-    package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
-    package var nxbRun = false   // the running build is `nxb build`, not the script: its exit code has its own messages
     @Published package var buildUpstream: EngineUpstreamKind {
         didSet {
             defaults.set(buildUpstream.rawValue, forKey: Self.buildUpstreamKey)
@@ -255,11 +242,24 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var upstreamTransport: EngineTransport = URLSessionEngineTransport()
     package var s2armRun = false
     package var s2armEventsPath = ""
-    /// nxkit's binaries are in `upstreams/nxkit/` (nxb runs), and the release the install came from (`BuildStore+Nxkit.swift`).
-    @Published package internal(set) var nxkitInstalled = false
-    @Published package internal(set) var nxkitInfo: NxkitBuilder.InstallInfo?
-    @Published package internal(set) var nxkitUpdate: NxkitUpdateState = .unknown
+    /// nxkit (Beta), BuildStore+Nxkit.swift (#1460): the pair the next build runs, the version before it, the update's state, the question after a build.
+    @Published package internal(set) var nxkitInUse: NxkitVersionStore.Selection?
+    @Published package internal(set) var nxkitPreviousVersion: String?
+    @Published package internal(set) var nxkitUpdate: NxkitUpdateState = .idle
+    @Published package var nxkitFeedback: NxkitFeedbackPrompt?
+    /// The app's own pair (Contents/Resources/nxbuild, frontend/nxbuild.pin), nil under `swift run`. Tests and the gallery set their own.
+    package var nxkitBundledFolder: String? = NxkitBuilder.bundledFolder(resources: Bundle.main.resourcePath)
+    package var nxkitVersions = NxkitVersionStore()
+    package var nxkitAvailability = NxkitBuilder.currentAvailability
+    /// "Update automatically when the app opens" (RepoStore.autoUpdate), wired by LauncherStores.
+    package var nxkitAutoUpdate: () -> Bool = { true }
+    /// The update's key and its ad hoc signing, replaced by tests (NxkitUpdate.swift).
+    package var nxkitPublicKey = NxkitUpdate.publicKey
+    package var nxkitPrepare: @Sendable (URL) -> Bool = NxkitVersionStore.prepare
     package var nxkitRun = false
+    var nxkitRunSelection: NxkitVersionStore.Selection?
+    var nxkitBuildID = ""
+    var nxkitPendingVersion: String?
     @Published package var archivePath = ""  // the romfs folder the pack wrote
     /// True after an iOS fast refresh embedded `DMMSLTR1` shaders into `.img`, reminding the player to replace older `.img` copies.
     @Published package var needsReplaceOldImgReminder = false
@@ -436,8 +436,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         target = savedTarget
         runningTarget = savedTarget
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
-        experimentalBuilder = ExperimentalBuilder.featureEnabled && defaults.bool(forKey: Self.experimentalBuilderKey)
-        experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
         savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
         let savedMNGPath = defaults.string(forKey: Self.macNativeGamesPathKey) ?? ""
         let savedS2ArmPath = defaults.string(forKey: Self.s2armPathKey) ?? ""
@@ -455,7 +453,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             case .s2arm:
                 buildUpstream = S2ArmBuilder.featureEnabled ? .s2arm : .nxnative
             case .nxkit:
-                buildUpstream = NxkitBuilder.featureEnabled ? .nxkit : .nxnative
+                buildUpstream = NxkitBuilder.featureEnabled && NxkitBuilder.currentAvailability == .available ? .nxkit : .nxnative
             }
         } else {
             buildUpstream = .nxnative

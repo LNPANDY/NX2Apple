@@ -15,7 +15,7 @@ package enum EngineUpstreamKind: String, Codable, CaseIterable, Equatable, Senda
         case .s2arm:
             return "S2Arm"
         case .nxkit:
-            return "nxkit"
+            return "nxkit (Beta)"
         }
     }
 
@@ -28,7 +28,7 @@ package enum EngineUpstreamKind: String, Codable, CaseIterable, Equatable, Senda
         case .s2arm:
             return "upstream.s2armCardNote"
         case .nxkit:
-            return "upstream.nxkitCardNote"
+            return "nxkit.betaNote"
         }
     }
 

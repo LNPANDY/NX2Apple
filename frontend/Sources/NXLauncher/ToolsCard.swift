@@ -6,7 +6,7 @@ import NXModel
 
 /// Settings, "Tools": the repository or the release app's engine, the dependency rows and the diagnostics row.
 /// Observes the repository, engine sync and dependency stores. What it needs from the build store comes as values:
-/// whether a build runs. The cache row (ShellCacheRow, which observes the build store), the experimental builder's rows (ExperimentalBuilderRow, the same)
+/// whether a build runs. The cache row (ShellCacheRow, which observes the build store), the engine row (UpstreamBuilderRow, the same)
 /// and the diagnostics button come as views.
 package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: View {
     @ObservedObject var repo: RepoStore

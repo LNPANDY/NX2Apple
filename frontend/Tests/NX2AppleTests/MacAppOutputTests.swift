@@ -12,9 +12,6 @@ import NXLauncher
     private let packer = """
     #!/usr/bin/python3
     import pathlib, plistlib, sys
-    if sys.argv[1:] == ['version']:
-        print('nxb 0.6.3')
-        sys.exit()
     work = pathlib.Path(sys.argv[sys.argv.index('--work-dir') + 1])
     work.mkdir(parents=True, exist_ok=True)
     app = pathlib.Path(sys.argv[sys.argv.index('-o') + 1])
@@ -30,7 +27,7 @@ import NXLauncher
         let fm = FileManager.default
         let stores = LauncherStores(localizer: Localizer(.en), defaults: testDefaults)
         let build = stores.build
-        for path in RepoLayout.requiredTools + [EngineLayout.marker, "nxb"] {
+        for path in RepoLayout.requiredTools + [EngineLayout.marker] {
             let file = root.appendingPathComponent(path)
             try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try packer.write(to: file, atomically: true, encoding: .utf8)
@@ -83,12 +80,25 @@ import NXLauncher
         defer { try? fm.removeItem(at: root) }
         let stores = try buildFixture(at: root)
         let build = stores.build
-        for experimental in [false, true] {
-            let output = root.appendingPathComponent(experimental ? "experimental" : "standard")
+        // nxkit (Beta): the same stand-in as its nxb, beside a nxkit-host and the release's MANIFEST.json (#1460)
+        let pair = root.appendingPathComponent("nxbuild")
+        try fm.createDirectory(at: pair, withIntermediateDirectories: true)
+        for name in ["nxb", "nxkit-host"] {
+            try packer.write(to: pair.appendingPathComponent(name), atomically: true, encoding: .utf8)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pair.appendingPathComponent(name).path)
+        }
+        try Data(#"{"format":1,"version":"0.10.2","arch":"arm64","macos_min":"26.0","files":{"nxb":"a","nxkit-host":"b"}}"#.utf8)
+            .write(to: pair.appendingPathComponent("MANIFEST.json"))
+        build.nxkitBundledFolder = pair.path
+        build.nxkitVersions = NxkitVersionStore(root: root.appendingPathComponent("support"))
+        build.nxkitAvailability = .available
+        build.refreshNxkit()
+        for nxkit in [false, true] {
+            let output = root.appendingPathComponent(nxkit ? "nxkit" : "standard")
             try fm.createDirectory(at: output, withIntermediateDirectories: true)
             build.outDir = output.path
-            build.experimentalBuilderPath = root.appendingPathComponent("nxb").path
-            build.experimentalBuilder = experimental
+            build.selectUpstream(nxkit ? .nxkit : .nxnative)
+            XCTAssertEqual(build.buildUpstream, nxkit ? .nxkit : .nxnative)
             let library = GameLibrary(file: output.appendingPathComponent("library.json"))
             let entry = try XCTUnwrap(library.rememberInputs(build))
             build.startBuild()
@@ -96,7 +106,7 @@ import NXLauncher
             while build.running && Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
             XCTAssertTrue(build.done, build.log.text)
             let path = build.macAppPath
-            if !experimental { try capture(stores, filename: URL(fileURLWithPath: path).lastPathComponent) }
+            if !nxkit { try capture(stores, filename: URL(fileURLWithPath: path).lastPathComponent) }
             XCTAssertEqual(path, output.appendingPathComponent("雪 - The - Journey.app").path)
             XCTAssertTrue(build.log.text.contains(path))
             XCTAssertTrue(fm.fileExists(atPath: output.appendingPathComponent(titleID + "_build").path))

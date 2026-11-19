@@ -2,28 +2,13 @@ import Foundation
 import XCTest
 @testable import NXCore
 
+/// nxkit (Beta), LNPANDY/NX2Apple#1460: the registry, where it runs, the bundled pair, MANIFEST.json, the command line and nxb's output.
 final class NxkitBuilderTests: XCTestCase {
-    private final class FakeTransport: EngineTransport, @unchecked Sendable {
-        var answers: [URL: Data] = [:]
-        var archives: [URL: URL] = [:]
-
-        func data(from url: URL) -> EngineFetch<Data> {
-            answers[url].map { .ok($0) } ?? .missing
-        }
-
-        func download(from url: URL, to destination: URL) -> Bool {
-            guard let src = archives[url], let payload = try? Data(contentsOf: src) else { return false }
-            return (try? payload.write(to: destination)) != nil
-        }
-    }
-
     private var temporary: URL!
-    private var storeRoot: URL!
 
     override func setUpWithError() throws {
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent("nxkit-tests-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
-        storeRoot = temporary.appendingPathComponent("upstreams", isDirectory: true)
     }
 
     override func tearDownWithError() throws {
@@ -34,8 +19,8 @@ final class NxkitBuilderTests: XCTestCase {
 
     func testKindDescriptorAndRegistry() {
         XCTAssertEqual(EngineUpstreamKind(rawValue: "nxkit"), .nxkit)
-        XCTAssertEqual(EngineUpstreamKind.nxkit.displayName, "nxkit")
-        XCTAssertEqual(EngineUpstreamKind.nxkit.cardNoteKey, "upstream.nxkitCardNote")
+        XCTAssertEqual(EngineUpstreamKind.nxkit.displayName, "nxkit (Beta)")
+        XCTAssertEqual(EngineUpstreamKind.nxkit.cardNoteKey, "nxkit.betaNote")
         XCTAssertFalse(EngineUpstreamKind.nxkit.isBuiltIn)
         XCTAssertTrue(EngineUpstreamKind.nxkit.buildsMacOnly)
         XCTAssertTrue(EngineUpstreamKind.macNativeGames.buildsMacOnly)
@@ -45,24 +30,16 @@ final class NxkitBuilderTests: XCTestCase {
         XCTAssertTrue(EngineUpstreamKind.s2arm.needsPythonAndDotnet)
 
         let descriptor = EngineUpstream.descriptor(for: .nxkit)
-        XCTAssertEqual(descriptor.markerPaths, ["nxb"])
         XCTAssertEqual(descriptor.requiredTools, ["nxb", "nxkit-host"])
         XCTAssertEqual(descriptor.environmentPrefixes, ["NXB_", "NXKIT_"])
 
-        XCTAssertEqual(
-            EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: true, nxkitEnabled: true),
-            [.nxnative, .macNativeGames, .s2arm, .nxkit]
-        )
-        XCTAssertEqual(
-            EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false, nxkitEnabled: true),
-            [.nxnative, .nxkit]
-        )
-        XCTAssertEqual(
-            EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false, nxkitEnabled: false),
-            [.nxnative]
-        )
+        XCTAssertEqual(EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: true, nxkitEnabled: true),
+                       [.nxnative, .macNativeGames, .s2arm, .nxkit])
+        XCTAssertEqual(EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false, nxkitEnabled: true), [.nxnative, .nxkit])
+        XCTAssertEqual(EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false, nxkitEnabled: false), [.nxnative])
+        // bundled, never downloaded as an upstream checkout
         XCTAssertNil(UpstreamEngineStore.archiveURL(for: .nxkit))
-        XCTAssertEqual(UpstreamEngineStore(root: storeRoot).directory(for: .nxkit)?.lastPathComponent, "nxkit")
+        XCTAssertNil(UpstreamEngineStore(root: temporary).directory(for: .nxkit))
     }
 
     func testFeatureSwitchIsOnUnlessTheEnvironmentTurnsItOff() {
@@ -70,211 +47,125 @@ final class NxkitBuilderTests: XCTestCase {
         XCTAssertEqual(NxkitBuilder.featureEnabled, !off)
     }
 
-    // MARK: Release
+    // MARK: Where it runs
 
-    private let releaseJSON = """
-    {"tag_name":"v0.10.1","assets":[
-     {"name":"SHA256SUMS","browser_download_url":"https://github.com/v0lumehi/nxkit/releases/download/v0.10.1/SHA256SUMS"},
-     {"name":"nxb-v0.10.1-macos-arm64.zip","browser_download_url":"https://github.com/v0lumehi/nxkit/releases/download/v0.10.1/nxb-v0.10.1-macos-arm64.zip"}]}
+    func testMacOS26AndAppleSiliconOnly() {
+        XCTAssertEqual(NxkitBuilder.availability(macOSMajor: 26, appleSilicon: true), .available)
+        XCTAssertEqual(NxkitBuilder.availability(macOSMajor: 27, appleSilicon: true), .available)
+        XCTAssertEqual(NxkitBuilder.availability(macOSMajor: 15, appleSilicon: true), .needsNewerMacOS)
+        XCTAssertEqual(NxkitBuilder.availability(macOSMajor: 26, appleSilicon: false), .needsAppleSilicon)
+        XCTAssertEqual(NxkitBuilder.availability(macOSMajor: 15, appleSilicon: false), .needsAppleSilicon)
+    }
+
+    // MARK: The bundled pair
+
+    func testTheBundledPairIsNxbAndNxkitHostSideBySide() throws {
+        XCTAssertEqual(NxkitBuilder.bundledFolder(resources: "/Applications/NX2Apple.app/Contents/Resources"),
+                       "/Applications/NX2Apple.app/Contents/Resources/nxbuild")
+        XCTAssertNil(NxkitBuilder.bundledFolder(resources: nil))
+        let fm = FileManager.default
+        let dir = temporary.appendingPathComponent("nxbuild").path
+        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        XCTAssertFalse(NxkitBuilder.canBuildApps(dir))
+        fm.createFile(atPath: dir + "/nxb", contents: Data("x".utf8), attributes: [.posixPermissions: 0o755])
+        XCTAssertFalse(NxkitBuilder.canBuildApps(dir), "nxb alone cannot make an app")
+        fm.createFile(atPath: dir + "/nxkit-host", contents: Data("x".utf8), attributes: [.posixPermissions: 0o644])
+        XCTAssertFalse(NxkitBuilder.canBuildApps(dir), "both must be executable")
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir + "/nxkit-host")
+        XCTAssertTrue(NxkitBuilder.canBuildApps(dir))
+        XCTAssertFalse(NxkitBuilder.canBuildApps(""))
+    }
+
+    // MARK: MANIFEST.json
+
+    private let manifestJSON = """
+    {"format": 1, "version": "0.10.2", "platform": "macos", "arch": "arm64", "macos_min": "26.0",
+     "files": {"nxb": "ba20f1b45d8a5d755bf83b03729cc359d4d6375b704705344cf151dd2ad0f6e3",
+               "nxkit-host": "e01c6312144767845a60021bc69fb597dd0c6f4eec353ae6739e9e586e5e374b"}}
     """
 
-    func testParseRelease() throws {
-        let release = try XCTUnwrap(NxkitBuilder.parseRelease(Data(releaseJSON.utf8)))
-        XCTAssertEqual(release.tag, "v0.10.1")
-        XCTAssertEqual(release.version, "0.10.1")
-        XCTAssertEqual(release.zipName, "nxb-v0.10.1-macos-arm64.zip")
-        XCTAssertEqual(release.zipURL.absoluteString, "https://github.com/v0lumehi/nxkit/releases/download/v0.10.1/nxb-v0.10.1-macos-arm64.zip")
-        XCTAssertEqual(release.sumsURL?.lastPathComponent, "SHA256SUMS")
-        XCTAssertNil(NxkitBuilder.parseRelease(Data("{\"tag_name\":\"v1\",\"assets\":[]}".utf8)))
-        XCTAssertNil(NxkitBuilder.parseRelease(Data("not json".utf8)))
+    func testManifestOfTheRelease() throws {
+        let m = try XCTUnwrap(NxkitBuilder.parseManifest(Data(manifestJSON.utf8)))
+        XCTAssertEqual(m.format, 1)
+        XCTAssertEqual(m.version, "0.10.2")
+        XCTAssertEqual(m.arch, "arm64")
+        XCTAssertEqual(m.macOSMin, "26.0")
+        XCTAssertEqual(m.hostBuild, "e01c6312144767845a60021bc69fb597dd0c6f4eec353ae6739e9e586e5e374b")
+        XCTAssertNil(NxkitBuilder.parseManifest(Data("{}".utf8)))
+        XCTAssertNil(NxkitBuilder.parseManifest(Data("not json".utf8)))
     }
+
+    func testManifestCompatibility() {
+        let os26 = OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+        let os261 = OperatingSystemVersion(majorVersion: 26, minorVersion: 1, patchVersion: 0)
+        let os15 = OperatingSystemVersion(majorVersion: 15, minorVersion: 6, patchVersion: 0)
+        var m = NxkitBuilder.Manifest(format: 1, version: "0.11.0", files: [:])
+        XCTAssertNil(NxkitBuilder.incompatibility(m, running: os26))
+        XCTAssertEqual(NxkitBuilder.incompatibility(m, running: os15), .macOS("26.0"))
+        m.macOSMin = "26.1"
+        XCTAssertEqual(NxkitBuilder.incompatibility(m, running: os26), .macOS("26.1"))
+        XCTAssertNil(NxkitBuilder.incompatibility(m, running: os261))
+        m.macOSMin = "26"
+        XCTAssertNil(NxkitBuilder.incompatibility(m, running: os26))
+        m.format = 2
+        XCTAssertEqual(NxkitBuilder.incompatibility(m, running: os26), .format(2), "a ZIP layout this launcher does not know")
+        m.format = 1; m.arch = "x86_64"
+        XCTAssertEqual(NxkitBuilder.incompatibility(m, running: os26), .arch("x86_64"))
+    }
+
+    // MARK: Versions and checksums
 
     func testVersionComparison() {
-        XCTAssertEqual(NxkitBuilder.normalizedVersion("v0.10.1"), "0.10.1")
-        XCTAssertEqual(NxkitBuilder.normalizedVersion("nxb 0.10.1"), "0.10.1")
-        XCTAssertTrue(NxkitBuilder.isNewer("v0.10.2", than: "v0.10.1"))
-        XCTAssertTrue(NxkitBuilder.isNewer("v0.11.0", than: "v0.9.9"))
-        XCTAssertFalse(NxkitBuilder.isNewer("v0.10.1", than: "v0.10.1"))
-        XCTAssertFalse(NxkitBuilder.isNewer("v0.9.0", than: "v0.10.1"))
-        XCTAssertTrue(NxkitBuilder.isNewer("v0.10.1", than: ""))
+        XCTAssertEqual(NxkitBuilder.normalizedVersion("v0.10.2"), "0.10.2")
+        XCTAssertEqual(NxkitBuilder.normalizedVersion("nxb 0.10.2\n"), "0.10.2")
+        XCTAssertTrue(NxkitBuilder.isNewer("v0.11.0", than: "0.10.2"))
+        XCTAssertTrue(NxkitBuilder.isNewer("0.10.10", than: "0.10.2"))
+        XCTAssertFalse(NxkitBuilder.isNewer("0.10.2", than: "v0.10.2"))
+        XCTAssertFalse(NxkitBuilder.isNewer("0.9.9", than: "0.10.2"))
+        XCTAssertTrue(NxkitBuilder.isNewer("0.10.2", than: ""))
+        XCTAssertFalse(NxkitBuilder.isNewer("", than: "0.10.2"))
     }
 
-    // MARK: Checksums
-
-    func testChecksumVerification() throws {
-        let file = temporary.appendingPathComponent("a.zip")
-        try Data("hello".utf8).write(to: file)
-        let hello = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
-        let sums = NxkitBuilder.parseChecksums("""
-        \(hello)  a.zip
-        \(hello.uppercased()) *dir/b
-        not a line
-        abc  short
-        """)
-        XCTAssertEqual(sums["a.zip"], hello)
-        XCTAssertEqual(sums["dir/b"], hello)
-        XCTAssertNil(sums["short"])
-
-        XCTAssertEqual(NxkitBuilder.verify(file: file, listedAs: "a.zip", in: sums), .ok)
-        XCTAssertEqual(NxkitBuilder.verify(file: file, listedAs: "a.zip", in: ["a.zip": String(repeating: "0", count: 64)]), .mismatch)
-        XCTAssertEqual(NxkitBuilder.verify(file: file, listedAs: "other.zip", in: sums), .missing)
-        XCTAssertEqual(NxkitBuilder.verify(file: temporary.appendingPathComponent("gone.zip"), listedAs: "a.zip", in: sums), .missing)
+    func testChecksumFile() {
+        let a = String(repeating: "a", count: 64), b = String(repeating: "B", count: 64)
+        let sums = NxkitBuilder.parseChecksums("\(a)  nxb-v0.10.2-macos-arm64.zip\n\(b) *nxb-v0.10.2-macos-arm64/nxb\nnot a line\n")
+        XCTAssertEqual(sums["nxb-v0.10.2-macos-arm64.zip"], a)
+        XCTAssertEqual(sums["nxb-v0.10.2-macos-arm64/nxb"], b.lowercased())
+        XCTAssertEqual(sums.count, 2)
     }
 
-    // MARK: Command line
+    // MARK: The build
 
     func testArgumentsForSwitch1() {
-        let args = NxkitBuilder.arguments(input: "/games/zelda", nup: nil, keysPath: "/k/prod.keys",
-                                          outputAppPath: "/out/Zelda.app", workDir: "/work/0100", titleID: "01007ef00011e000")
-        XCTAssertEqual(args, ["build", "/games/zelda", "-k", "/k/prod.keys", "--platform", "mac", "-o", "/out/Zelda.app",
-                              "--work-dir", "/work/0100", "--progress", "json", "--title-id", "01007EF00011E000"])
+        let args = NxkitBuilder.arguments(input: "/g", nup: nil, keysPath: "/k/prod.keys", outputAppPath: "/o/A.app", workDir: "/w", titleID: "0100f2c0115b6000")
+        XCTAssertEqual(args, ["build", "/g", "-k", "/k/prod.keys", "--platform", "mac", "-o", "/o/A.app", "--work-dir", "/w", "--progress", "json",
+                              "--title-id", "0100F2C0115B6000"])
+        XCTAssertFalse(NxkitBuilder.arguments(input: "/g", nup: nil, keysPath: "", outputAppPath: "/o", workDir: "/w", titleID: nil).contains("-k"))
     }
 
     func testArgumentsForSwitch2TakeTheNupAndNoKeys() {
-        let args = NxkitBuilder.arguments(input: "/games/ootbox/ignored", nup: "/games/oot/Oot.nup", keysPath: "/k/prod.keys",
-                                          outputAppPath: "/out/Oot.app", workDir: "/work/0400", titleID: nil)
-        XCTAssertEqual(args, ["build", "/games/oot", "--nup", "/games/oot/Oot.nup", "--platform", "mac", "-o", "/out/Oot.app",
-                              "--work-dir", "/work/0400", "--progress", "json"])
-        XCTAssertFalse(args.contains("-k"))
+        let args = NxkitBuilder.arguments(input: "/g", nup: "/n/game.nup", keysPath: "/k/prod.keys", outputAppPath: "/o/A.app", workDir: "/w", titleID: nil)
+        XCTAssertEqual(args, ["build", "/n", "--nup", "/n/game.nup", "--platform", "mac", "-o", "/o/A.app", "--work-dir", "/w", "--progress", "json"])
     }
 
-    func testEnvironmentNamesTheHostAndTheWorkFolderIsPerGame() {
-        let env = NxkitBuilder.environment(tree: "/s/upstreams/nxkit", base: ["HOME": "/h"])
-        XCTAssertEqual(env["NXB_NXKIT_HOST"], "/s/upstreams/nxkit/nxkit-host")
+    func testEnvironmentNamesTheHostBesideNxbAndTheWorkFolderIsPerGame() {
+        let env = NxkitBuilder.environment(folder: "/A.app/Contents/Resources/nxbuild", base: ["HOME": "/h"])
+        XCTAssertEqual(env["NXB_NXKIT_HOST"], "/A.app/Contents/Resources/nxbuild/nxkit-host")
         XCTAssertEqual(env["HOME"], "/h")
         XCTAssertEqual(NxkitBuilder.workDirectory(home: "/Users/p", key: "0100F2C0115B6000"), "/Users/p/Library/Caches/NX2Apple/nxkit/0100F2C0115B6000")
     }
 
-    func testLastErrorPrefersTheRedLine() {
-        let log = "{\"ev\":\"say\",\"msg\":\"[RED] a key is missing: master_key_0b\",\"t\":1.0}\nnxb: exiting\n"
+    func testExitCodesAndTheLastLines() {
+        XCTAssertEqual([1, 2, 3, 4, 6, 130].map { NxkitBuilder.exitKey($0) }, ["nxb.exit.1", "nxb.exit.2", "nxb.exit.3", "nxb.exit.4", "nxb.exit.6", "nxb.exit.130"])
+        XCTAssertEqual(NxkitBuilder.exitKey(7), "nxb.exit.other")
+        let log = """
+        {"ev":"stage","k":1,"n":3,"name":"extract"}
+        {"ev":"say","msg":"[RED] a key is missing: master_key_0b","t":1.0}
+        nxb: exiting
+        """
         XCTAssertEqual(NxkitBuilder.lastError(in: log), "a key is missing: master_key_0b")
-        XCTAssertEqual(NxkitBuilder.lastError(in: "just a line\n"), "just a line")
-    }
-
-    // MARK: Install
-
-    /// A release ZIP as the tests need it: a folder named like the release with `nxb` and, when asked, `nxkit-host`.
-    private func makeRelease(host: Bool, tamper: Bool = false) throws -> (zip: URL, name: String, sums: [String: String]) {
-        let folderName = "nxb-v0.10.1-macos-arm64"
-        let dir = temporary.appendingPathComponent(folderName, isDirectory: true)
-        let fm = FileManager.default
-        try? fm.removeItem(at: dir)
-        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        try Data("#!/bin/sh\necho nxb 0.10.1\n".utf8).write(to: dir.appendingPathComponent("nxb"))
-        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.appendingPathComponent("nxb").path)
-        if host {
-            try Data("#!/bin/sh\n".utf8).write(to: dir.appendingPathComponent("nxkit-host"))
-            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.appendingPathComponent("nxkit-host").path)
-            try Data("{\"nxb\":\"0.10.1\"}".utf8).write(to: dir.appendingPathComponent("MANIFEST.json"))
-        }
-        let zip = temporary.appendingPathComponent("release-\(host).zip")
-        try? fm.removeItem(at: zip)
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        proc.arguments = ["-c", "-k", "--keepParent", dir.path, zip.path]
-        try proc.run()
-        proc.waitUntilExit()
-        XCTAssertEqual(proc.terminationStatus, 0)
-        let zipName = "nxb-v0.10.1-macos-arm64.zip"
-        var sums = [zipName: try XCTUnwrap(NxkitBuilder.sha256(of: zip)),
-                    folderName + "/nxb": try XCTUnwrap(NxkitBuilder.sha256(of: dir.appendingPathComponent("nxb")))]
-        if host { sums[folderName + "/nxkit-host"] = try XCTUnwrap(NxkitBuilder.sha256(of: dir.appendingPathComponent("nxkit-host"))) }
-        if tamper { sums[zipName] = String(repeating: "0", count: 64) }
-        return (zip, zipName, sums)
-    }
-
-    func testInstallWithHostCanBuildApps() throws {
-        let release = try makeRelease(host: true)
-        let store = UpstreamEngineStore(root: storeRoot)
-        let dest = try store.installNxkit(zip: release.zip, zipName: release.name, tag: "v0.10.1", sums: release.sums)
-        XCTAssertEqual(dest.path, store.directory(for: .nxkit)?.path)
-        XCTAssertTrue(NxkitBuilder.isUsableTree(dest.path))
-        XCTAssertTrue(NxkitBuilder.canBuildApps(dest.path))
-        XCTAssertEqual(NxkitBuilder.readInfo(in: dest.path), NxkitBuilder.InstallInfo(tag: "v0.10.1", hasHost: true))
-        XCTAssertNotNil(store.usableDirectory(for: .nxkit))
-        for name in ["nxb", "nxkit-host"] {
-            let mode = (try FileManager.default.attributesOfItem(atPath: dest.appendingPathComponent(name).path)[.posixPermissions] as? Int) ?? 0
-            XCTAssertEqual(mode & 0o111, 0o111, name + " is executable")
-        }
-    }
-
-    func testInstallOfAZipWithoutNxkitHostIsUsableButCannotBuildApps() throws {
-        let release = try makeRelease(host: false)
-        let store = UpstreamEngineStore(root: storeRoot)
-        let dest = try store.installNxkit(zip: release.zip, zipName: release.name, tag: "v0.10.1", sums: release.sums)
-        XCTAssertTrue(NxkitBuilder.isUsableTree(dest.path))
-        XCTAssertFalse(NxkitBuilder.canBuildApps(dest.path))
-        XCTAssertEqual(NxkitBuilder.readInfo(in: dest.path)?.hasHost, false)
-    }
-
-    func testInstallRefusesAZipThatDoesNotMatchItsChecksum() throws {
-        let release = try makeRelease(host: true, tamper: true)
-        let store = UpstreamEngineStore(root: storeRoot)
-        XCTAssertThrowsError(try store.installNxkit(zip: release.zip, zipName: release.name, tag: "v0.10.1", sums: release.sums)) {
-            XCTAssertEqual($0 as? UpstreamEngineStore.Failure, .checksum)
-        }
-        XCTAssertNil(store.usableDirectory(for: .nxkit))
-    }
-
-    func testInstallRefusesAZipTheChecksumFileDoesNotList() throws {
-        let release = try makeRelease(host: true)
-        let store = UpstreamEngineStore(root: storeRoot)
-        XCTAssertThrowsError(try store.installNxkit(zip: release.zip, zipName: release.name, tag: "v0.10.1", sums: [:])) {
-            XCTAssertEqual($0 as? UpstreamEngineStore.Failure, .checksum)
-        }
-        XCTAssertNil(store.usableDirectory(for: .nxkit))
-    }
-
-    func testInstallRefusesAFileThatDiffersFromItsListedHash() throws {
-        var release = try makeRelease(host: true)
-        release.sums["nxb-v0.10.1-macos-arm64/nxkit-host"] = String(repeating: "f", count: 64)
-        let store = UpstreamEngineStore(root: storeRoot)
-        XCTAssertThrowsError(try store.installNxkit(zip: release.zip, zipName: release.name, tag: "v0.10.1", sums: release.sums)) {
-            XCTAssertEqual($0 as? UpstreamEngineStore.Failure, .checksum)
-        }
-        XCTAssertNil(store.usableDirectory(for: .nxkit))
-    }
-
-    func testUpdateKeepsTheOldInstallWhenTheNewZipIsBad() throws {
-        let store = UpstreamEngineStore(root: storeRoot)
-        let good = try makeRelease(host: true)
-        try store.installNxkit(zip: good.zip, zipName: good.name, tag: "v0.10.1", sums: good.sums)
-        let bad = try makeRelease(host: true, tamper: true)
-        XCTAssertThrowsError(try store.installNxkit(zip: bad.zip, zipName: bad.name, tag: "v0.11.0", sums: bad.sums))
-        let dir = try XCTUnwrap(store.usableDirectory(for: .nxkit))
-        XCTAssertEqual(NxkitBuilder.readInfo(in: dir.path)?.tag, "v0.10.1")
-    }
-
-    func testDownloadAndInstallFromTheLatestRelease() throws {
-        let release = try makeRelease(host: true)
-        let latest = try XCTUnwrap(NxkitBuilder.parseRelease(Data(releaseJSON.utf8)))
-        let transport = FakeTransport()
-        let sumsText = release.sums.map { $0.value + "  " + $0.key }.joined(separator: "\n")
-        transport.answers[try XCTUnwrap(latest.sumsURL)] = Data(sumsText.utf8)
-        transport.archives[latest.zipURL] = release.zip
-        let store = UpstreamEngineStore(root: storeRoot)
-        let result = store.downloadAndInstallNxkit(release: latest, transport: transport)
-        guard case .success(let dir) = result else { return XCTFail("\(result)") }
-        XCTAssertTrue(NxkitBuilder.canBuildApps(dir.path))
-        // the download folder holds no leftovers
-        let leftovers = ((try? FileManager.default.contentsOfDirectory(atPath: storeRoot.path)) ?? []).filter { $0.hasPrefix(".") }
-        XCTAssertEqual(leftovers, [])
-    }
-
-    func testDownloadWithoutChecksumFileInstallsNothing() throws {
-        let release = try makeRelease(host: true)
-        let latest = try XCTUnwrap(NxkitBuilder.parseRelease(Data(releaseJSON.utf8)))
-        let transport = FakeTransport()
-        transport.archives[latest.zipURL] = release.zip   // SHA256SUMS answers 404
-        let store = UpstreamEngineStore(root: storeRoot)
-        XCTAssertEqual(store.downloadAndInstallNxkit(release: latest, transport: transport).nxkitFailure, .checksum)
-        XCTAssertNil(store.usableDirectory(for: .nxkit))
-    }
-}
-
-private extension Result {
-    var nxkitFailure: Failure? {
-        if case .failure(let error) = self { return error }
-        return nil
+        XCTAssertNil(NxkitBuilder.lastError(in: "just a line\n"))
+        XCTAssertEqual(NxkitBuilder.outputTail(log, count: 12), ["[RED] a key is missing: master_key_0b", "nxb: exiting"], "say as its message, other events left out")
+        XCTAssertEqual(NxkitBuilder.outputTail(log, count: 1), ["nxb: exiting"])
     }
 }

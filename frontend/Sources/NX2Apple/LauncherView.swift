@@ -334,6 +334,7 @@ struct LauncherView: View {
                 else { engine.syncEngine() }   // a checkout whose engine/ is missing or older than its pin (#214)
                 if repo.isRepo && repo.isGit { repo.checkForUpdates(silent: true) } else { repo.adoptAtLaunch() }
                 updates.checkForUpdate(silent: true)
+                m.checkNxkitUpdate(manual: false)   // nxkit (Beta) updates itself from signed releases, with "Update automatically" on (#1460)
                 BuildNotifier.shared.watch(m, library: library)   // BuildNotifications.swift
             }
         }
