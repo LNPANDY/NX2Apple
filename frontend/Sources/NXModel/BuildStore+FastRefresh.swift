@@ -109,7 +109,7 @@ extension BuildStore {
         }()
 
         try? FileManager.default.createDirectory(atPath: resolvedOutDir, withIntermediateDirectories: true)
-        let workDir = resolvedOutDir + "/" + tid + "_build"
+        let workDir = BuildFilesFolder.workDir(root: BuildFilesFolder.root(chosen: buildFilesFolder, appFolder: resolvedOutDir), key: tid)
 
         // Configure store state for fast refresh (external image path is set after device verification succeeds)
         fastRefreshActive = true
@@ -143,6 +143,11 @@ extension BuildStore {
         }
         shellDeviceChecked = false
 
+        if let why = buildFilesDriveProblem(workDir: workDir) {
+            fail(why)
+            clearFastRefreshContext()
+            return
+        }
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
             fail(failureWhat(failure!))
@@ -192,7 +197,8 @@ extension BuildStore {
         ]
 
         let macOutput = isMac
-            ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tid, titleID: tid, preferred: existingMacAppPath ?? macAppPath)
+            ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tid, titleID: tid, preferred: existingMacAppPath ?? macAppPath,
+                           appDirectory: buildFilesFolder.isEmpty ? nil : URL(fileURLWithPath: resolvedOutDir))
             : nil
         oneGameIPAPath = ""
 

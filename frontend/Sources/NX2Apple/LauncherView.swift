@@ -410,7 +410,7 @@ struct LauncherView: View {
                     BuildFiles.games(
                         library.games,
                         lang: loc.lang,
-                        extraRoots: [library.folder, m.outDir, m.gameDir],
+                        extraRoots: [library.folder, m.outDir, m.gameDir, m.buildFilesFolder],
                         engineRoot: EngineLayout.root(m.repo.path),
                         t: loc.t
                     )
@@ -608,7 +608,7 @@ struct LauncherView: View {
         }
         m.macAppPath = game.appPath
         m.outDir = game.outputDirectory
-        m.done = false; m.doneNote = ""; m.stages = []
+        m.done = false; m.doneNote = m.buildFilesOfflineNote ?? ""; m.stages = []   // the drive first, then the missing inputs on it
         m.target = game.lastTarget
         page = .builds
     }
