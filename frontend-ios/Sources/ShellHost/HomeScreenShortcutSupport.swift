@@ -1,8 +1,94 @@
 import CoreGraphics
 import CoreText
+import CoreVideo
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+#if os(iOS)
+import Photos
+#endif
+
+/// Saves rendered PNG bytes to Photos entirely from a `nonisolated` context so Swift 6 never infers `@MainActor`
+/// isolation onto PhotoKit's background `changeBlock` or `completionHandler` queues (`_dispatch_assert_queue_fail`).
+public enum PhotoLibraryImageSaver {
+    public typealias PerformChangesHandler = @Sendable (
+        _ changeBlock: @escaping @Sendable () -> Void,
+        _ completionHandler: @escaping @Sendable (Bool, (any Error)?) -> Void
+    ) -> Void
+
+    private final class OnceGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entered = false
+
+        nonisolated init() {}
+
+        nonisolated func tryEnter() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !entered else { return false }
+            entered = true
+            return true
+        }
+    }
+
+    public nonisolated static func savePNGData(
+        _ pngData: Data,
+        requestAccess: @Sendable () async -> Bool,
+        performChanges: PerformChangesHandler,
+        writeAsset: @escaping @Sendable (Data) -> Void
+    ) async -> Bool {
+        guard !pngData.isEmpty else { return false }
+        guard await requestAccess() else { return false }
+        let payload = pngData
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let gate = OnceGate()
+            let changeBlock: @Sendable () -> Void = {
+                writeAsset(payload)
+            }
+            let completion: @Sendable (Bool, (any Error)?) -> Void = { ok, error in
+                if gate.tryEnter() {
+                    continuation.resume(returning: ok && error == nil)
+                }
+            }
+            performChanges(changeBlock, completion)
+        }
+    }
+
+    #if os(iOS)
+    private nonisolated static func requestPhotoAddAuthorization() async -> Bool {
+        let status = await withCheckedContinuation { (continuation: CheckedContinuation<PHAuthorizationStatus, Never>) in
+            let gate = OnceGate()
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                if gate.tryEnter() {
+                    continuation.resume(returning: status)
+                }
+            }
+        }
+        return status == .authorized || status == .limited
+    }
+
+    private nonisolated static func performSystemPhotoChanges(
+        _ changeBlock: @escaping @Sendable () -> Void,
+        completionHandler: @escaping @Sendable (Bool, (any Error)?) -> Void
+    ) {
+        PHPhotoLibrary.shared().performChanges(changeBlock, completionHandler: completionHandler)
+    }
+
+    private nonisolated static func createPhotoAsset(from pngData: Data) {
+        let request = PHAssetCreationRequest.forAsset()
+        request.addResource(with: .photo, data: pngData, options: nil)
+    }
+
+    public nonisolated static func saveToSystemPhotoLibrary(_ pngData: Data) async -> Bool {
+        await savePNGData(
+            pngData,
+            requestAccess: requestPhotoAddAuthorization,
+            performChanges: performSystemPhotoChanges,
+            writeAsset: createPhotoAsset
+        )
+    }
+    #endif
+}
 
 /// Metadata for one installed game exposed to Apple Shortcuts (`AppIntents`) and Home Screen icon generation.
 public struct ShortcutGameItem: Equatable, Sendable, Identifiable {
@@ -182,5 +268,231 @@ public enum HomeScreenShortcutSupport {
         default: (r1, g1, b1) = (c, 0, x)
         }
         return CGColor(srgbRed: r1 + m, green: g1 + m, blue: b1 + m, alpha: a)
+    }
+}
+
+/// Renders high-contrast 16:9 dark step cards as `CGImage` and IOSurface-backed `CVPixelBuffer` frames for PiP.
+public enum HomeScreenGuideCardRenderer {
+    public static let defaultSize = CGSize(width: 960, height: 540)
+    private static let bitmapInfo = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
+
+    public static func renderPixelBuffer(
+        stepper: HomeScreenGuideStepper,
+        iconPNG: Data? = nil,
+        hintText: String = "",
+        size: CGSize = defaultSize
+    ) -> CVPixelBuffer? {
+        let width = max(64, Int(size.width.rounded()))
+        let height = max(64, Int(size.height.rounded()))
+        let attrs: [CFString: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any],
+        ]
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attrs as CFDictionary, &pixelBuffer
+        )
+        guard status == kCVReturnSuccess, let buffer = pixelBuffer else { return nil }
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        guard let base = CVPixelBufferGetBaseAddress(buffer),
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(
+                  data: base,
+                  width: width,
+                  height: height,
+                  bitsPerComponent: 8,
+                  bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+                  space: space,
+                  bitmapInfo: bitmapInfo
+              ) else {
+            return nil
+        }
+        drawCard(in: ctx, size: CGSize(width: width, height: height), stepper: stepper, iconPNG: iconPNG, hintText: hintText)
+        return buffer
+    }
+
+    public static func renderCGImage(
+        stepper: HomeScreenGuideStepper,
+        iconPNG: Data? = nil,
+        hintText: String = "",
+        size: CGSize = defaultSize
+    ) -> CGImage? {
+        let width = max(64, Int(size.width.rounded()))
+        let height = max(64, Int(size.height.rounded()))
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(
+                  data: nil,
+                  width: width,
+                  height: height,
+                  bitsPerComponent: 8,
+                  bytesPerRow: 0,
+                  space: space,
+                  bitmapInfo: bitmapInfo
+              ) else {
+            return nil
+        }
+        drawCard(in: ctx, size: CGSize(width: width, height: height), stepper: stepper, iconPNG: iconPNG, hintText: hintText)
+        return ctx.makeImage()
+    }
+
+    private static func drawCard(
+        in ctx: CGContext,
+        size: CGSize,
+        stepper: HomeScreenGuideStepper,
+        iconPNG: Data?,
+        hintText: String
+    ) {
+        let w = size.width
+        let h = size.height
+        let margin: CGFloat = 44
+        let headerY = h - 98
+        let iconSide: CGFloat = 56
+        let cream = CGColor(srgbRed: 0.96, green: 0.91, blue: 0.80, alpha: 1)
+        let darkInk = CGColor(srgbRed: 0.08, green: 0.09, blue: 0.12, alpha: 1)
+
+        if let space = CGColorSpace(name: CGColorSpace.sRGB),
+           let grad = CGGradient(
+               colorsSpace: space,
+               colors: [
+                   CGColor(srgbRed: 0.055, green: 0.065, blue: 0.09, alpha: 1),
+                   CGColor(srgbRed: 0.105, green: 0.12, blue: 0.165, alpha: 1),
+               ] as CFArray,
+               locations: [0, 1]
+           ) {
+            ctx.drawLinearGradient(grad, start: .zero, end: CGPoint(x: 0, y: h), options: [])
+        }
+        ctx.addPath(CGPath(roundedRect: CGRect(x: 10, y: 10, width: w - 20, height: h - 20), cornerWidth: 26, cornerHeight: 26, transform: nil))
+        ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.12))
+        ctx.setLineWidth(2)
+        ctx.strokePath()
+
+        let iconRect = CGRect(x: margin, y: headerY, width: iconSide, height: iconSide)
+        drawIcon(in: ctx, rect: iconRect, iconPNG: iconPNG, title: stepper.gameTitle)
+
+        let badgeLine = makeLine(stepper.progressText, font: systemFont(size: 25, bold: true), color: darkInk)
+        let badgeW = max(92, CGFloat(CTLineGetTypographicBounds(badgeLine, nil, nil, nil)) + 34)
+        let badgeH: CGFloat = 42
+        let badgeRect = CGRect(x: w - margin - badgeW, y: headerY + (iconSide - badgeH) * 0.5, width: badgeW, height: badgeH)
+        ctx.addPath(CGPath(roundedRect: badgeRect, cornerWidth: badgeH * 0.5, cornerHeight: badgeH * 0.5, transform: nil))
+        ctx.setFillColor(cream)
+        ctx.fillPath()
+        drawCenteredLine(badgeLine, in: badgeRect, ctx: ctx)
+
+        let titleX = iconRect.maxX + 18
+        let titleMaxW = max(40, badgeRect.minX - titleX - 18)
+        let titleFont = systemFont(size: 26, bold: true)
+        let titleColor = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.80)
+        let rawTitle = makeLine(stepper.gameTitle, font: titleFont, color: titleColor)
+        let titleLine = CTLineCreateTruncatedLine(rawTitle, Double(titleMaxW), .end, makeLine("…", font: titleFont, color: titleColor)) ?? rawTitle
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        CTLineGetTypographicBounds(titleLine, &ascent, &descent, nil)
+        ctx.textPosition = CGPoint(x: titleX, y: headerY + (iconSide - (ascent - descent)) * 0.5)
+        CTLineDraw(titleLine, ctx)
+
+        let barY = headerY - 24
+        let segments = max(1, stepper.totalSteps)
+        let gap: CGFloat = 8
+        let segW = (w - margin * 2 - gap * CGFloat(segments - 1)) / CGFloat(segments)
+        for idx in 0..<segments {
+            let segRect = CGRect(x: margin + CGFloat(idx) * (segW + gap), y: barY, width: segW, height: 6)
+            ctx.addPath(CGPath(roundedRect: segRect, cornerWidth: 3, cornerHeight: 3, transform: nil))
+            ctx.setFillColor(idx <= stepper.currentIndex ? cream : CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.16))
+            ctx.fillPath()
+        }
+
+        let bodyRect = CGRect(x: margin + 4, y: 96, width: w - (margin + 4) * 2, height: barY - 116)
+        drawWrappedStep(stepper.currentStepText, in: bodyRect, ctx: ctx)
+
+        if !hintText.isEmpty {
+            let hintLine = makeLine(hintText, font: systemFont(size: 22, bold: false), color: CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.55))
+            drawCenteredLine(hintLine, in: CGRect(x: margin, y: 30, width: w - margin * 2, height: 42), ctx: ctx)
+        }
+    }
+
+    private static func drawIcon(in ctx: CGContext, rect: CGRect, iconPNG: Data?, title: String) {
+        ctx.saveGState()
+        let clip = CGPath(roundedRect: rect, cornerWidth: 13, cornerHeight: 13, transform: nil)
+        ctx.addPath(clip)
+        ctx.clip()
+        if let iconPNG,
+           let src = CGImageSourceCreateWithData(iconPNG as CFData, nil),
+           let img = CGImageSourceCreateImageAtIndex(src, 0, nil) {
+            ctx.interpolationQuality = .high
+            ctx.draw(img, in: rect)
+        } else {
+            ctx.setFillColor(CGColor(srgbRed: 0.18, green: 0.21, blue: 0.28, alpha: 1))
+            ctx.fill(rect)
+            let initials = String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2)).uppercased()
+            let line = makeLine(initials.isEmpty ? "NX" : initials, font: systemFont(size: 22, bold: true),
+                                color: CGColor(srgbRed: 0.96, green: 0.91, blue: 0.80, alpha: 0.95))
+            drawCenteredLine(line, in: rect, ctx: ctx)
+        }
+        ctx.restoreGState()
+        ctx.addPath(clip)
+        ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.18))
+        ctx.setLineWidth(1.5)
+        ctx.strokePath()
+    }
+
+    private static func drawWrappedStep(_ text: String, in rect: CGRect, ctx: CGContext) {
+        guard !text.isEmpty else { return }
+        let white = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.97)
+        let para = makeParagraphStyle(lineSpacing: 10, alignment: .left)
+        var chosen: CTFramesetter?
+        var height = rect.height
+        for fontSize: CGFloat in [44, 38, 32] {
+            let attrs: [NSAttributedString.Key: Any] = [
+                NSAttributedString.Key(kCTFontAttributeName as String): systemFont(size: fontSize, bold: true),
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String): white,
+                NSAttributedString.Key(kCTParagraphStyleAttributeName as String): para,
+            ]
+            let fs = CTFramesetterCreateWithAttributedString(NSAttributedString(string: text, attributes: attrs))
+            let fit = CTFramesetterSuggestFrameSizeWithConstraints(
+                fs, CFRange(location: 0, length: 0), nil, CGSize(width: rect.width, height: .greatestFiniteMagnitude), nil
+            )
+            chosen = fs
+            height = min(rect.height, ceil(fit.height) + 4)
+            if fit.height <= rect.height - 8 { break }
+        }
+        guard let fs = chosen else { return }
+        let frameRect = CGRect(x: rect.minX, y: rect.minY + (rect.height - height) * 0.5, width: rect.width, height: height)
+        CTFrameDraw(CTFramesetterCreateFrame(fs, CFRange(location: 0, length: 0), CGPath(rect: frameRect, transform: nil), nil), ctx)
+    }
+
+    private static func makeParagraphStyle(lineSpacing: CGFloat, alignment: CTTextAlignment) -> CTParagraphStyle {
+        var spacing = lineSpacing
+        var align = alignment
+        return withUnsafePointer(to: &spacing) { spacingPtr in
+            withUnsafePointer(to: &align) { alignPtr in
+                let settings = [
+                    CTParagraphStyleSetting(spec: .lineSpacingAdjustment, valueSize: MemoryLayout<CGFloat>.size, value: spacingPtr),
+                    CTParagraphStyleSetting(spec: .alignment, valueSize: MemoryLayout<CTTextAlignment>.size, value: alignPtr),
+                ]
+                return CTParagraphStyleCreate(settings, settings.count)
+            }
+        }
+    }
+
+    private static func systemFont(size: CGFloat, bold: Bool) -> CTFont {
+        let base = CTFontCreateUIFontForLanguage(.system, size, nil) ?? CTFontCreateWithName("HelveticaNeue" as CFString, size, nil)
+        return bold ? (CTFontCreateCopyWithSymbolicTraits(base, size, nil, .boldTrait, .boldTrait) ?? base) : base
+    }
+
+    private static func makeLine(_ text: String, font: CTFont, color: CGColor) -> CTLine {
+        CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color,
+        ]))
+    }
+
+    private static func drawCenteredLine(_ line: CTLine, in rect: CGRect, ctx: CGContext) {
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        let width = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, nil))
+        ctx.textPosition = CGPoint(x: rect.minX + (rect.width - width) * 0.5, y: rect.minY + (rect.height - (ascent - descent)) * 0.5)
+        CTLineDraw(line, ctx)
     }
 }

@@ -35,10 +35,27 @@ import XCTest
         window.appearance = NSAppearance(named: .aqua)
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         let view = try XCTUnwrap(window.contentView)
-        let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
-        view.cacheDisplay(in: view.bounds, to: rep)
-        let scale = CGFloat(rep.pixelsWide) / view.bounds.width
-        let action = try XCTUnwrap(pad.frames["main"]?.first { $0.id == "hero.play" }?.frame)
+        // On macOS 26, NSScrollView with .scrollEdgeEffectStyle(.soft) renders transparent in parent cacheDisplay;
+        // capture the scroll document's visible rect directly so both macOS 26 and macOS 27 rasterize the hero pixels.
+        func findScrollView(_ root: NSView) -> NSScrollView? {
+            if let sv = root as? NSScrollView { return sv }
+            return root.subviews.lazy.compactMap(findScrollView).first
+        }
+        let target = findScrollView(view)?.documentView ?? view
+        let rect = target === view ? view.bounds : target.visibleRect
+        let rep = try XCTUnwrap(target.bitmapImageRepForCachingDisplay(in: rect))
+        target.cacheDisplay(in: rect, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / rect.width
+        let actionInView = try XCTUnwrap(pad.frames["main"]?.first { $0.id == "hero.play" }?.frame)
+        let action: CGRect
+        if target === view {
+            action = actionInView
+        } else {
+            let inViewAppKit = view.isFlipped ? actionInView : CGRect(x: actionInView.minX, y: view.bounds.height - actionInView.maxY, width: actionInView.width, height: actionInView.height)
+            let inTarget = target.convert(inViewAppKit, from: view)
+            let topY = target.isFlipped ? (inTarget.minY - rect.minY) : (rect.maxY - inTarget.maxY)
+            action = CGRect(x: inTarget.minX - rect.minX, y: topY, width: inTarget.width, height: inTarget.height)
+        }
         let x0 = Int(action.minX * scale), x1 = Int((action.minX + 300) * scale)
         var chipBottom: Int?
         for y in 100..<Int(action.minY * scale) {

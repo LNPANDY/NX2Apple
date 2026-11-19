@@ -51,13 +51,19 @@ import Testing
         let entData = try PropertyListSerialization.data(fromPropertyList: entOnly, format: .binary, options: 0)
         #expect(ProvisioningProfile.teamIdentifier(fromProfile: entData) == "ENT9876543")
 
-        let beacon = ShellHostBeacon(glueVersion: 1, bundleID: "org.nxnative.shell.TEAM123456",
+        let beacon = ShellHostBeacon(bundleID: "org.nxnative.shell.TEAM123456",
                                      teamID: "TEAM123456", chain: "b-3f9a2c", version: "1.4.0",
                                      expiresAtEpoch: Int64(expiry.timeIntervalSince1970))
+        #expect(beacon.glueVersion == 2)
         let encoded = try JSONEncoder().encode(beacon)
         let decoded = try JSONDecoder().decode(ShellHostBeacon.self, from: encoded)
         #expect(decoded == beacon)
-        _ = box
+
+        ShellHostBeacon.write(to: box.documents)
+        let writtenURL = box.documents.appendingPathComponent(ShellHostBeacon.fileName)
+        let writtenBeacon = try JSONDecoder().decode(ShellHostBeacon.self, from: Data(contentsOf: writtenURL))
+        #expect(writtenBeacon.schema == 1)
+        #expect(writtenBeacon.glueVersion == 2)
     }
 
     @Test func stagedFrameworkPromotesOnlyWhenReadyAndFootprintMatch() throws {
@@ -140,6 +146,7 @@ import Testing
         #expect(!ShellHostModel(config: cfg).details.contains { $0.id == Fixtures.orbit }, "stays deleted across relaunch")
     }
 
+    #if os(macOS)
     @Test func frameworkSignatureInspectsRealMachOBinariesAndEnforcesTeamMatch() throws {
         let box = try FrameworkBox()
         let appBundle = box.root.appendingPathComponent("DmShell.app", isDirectory: true)
@@ -185,6 +192,7 @@ import Testing
         #expect(!strippedInfo.hasCodeSignature)
         #expect(FrameworkSignature.preflightExternal(executable: dylib, appBundleURL: appBundle, hostTeamID: nil)?.contains("unsigned") == true)
     }
+    #endif
 
     @Test func reinstallingLegacyBundledFrameworkWithoutBuiltAtDiscardsOlderHotCopy() throws {
         let box = try FrameworkBox()
