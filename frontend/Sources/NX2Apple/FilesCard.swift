@@ -40,9 +40,9 @@ struct FilesCard: View {
                         else { Image(systemName: "gamecontroller.fill").font(.system(size: 22)).frame(maxWidth: .infinity, maxHeight: .infinity).background(LauncherPalette.surface) }
                     }.frame(width: 52, height: 52).clipShape(RoundedRectangle(cornerRadius: 10)).accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(loc.t("data.base")).font(.manrope(14, .semibold))
+                        Text(loc.t("data.base")).font(DS.Font.bodyStrong)
                         Text(game?.displayName(loc.lang) ?? (build.gameName.isEmpty ? build.slot("base").summary(loc.t) : build.gameName))
-                            .font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
+                            .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
                             .help(build.gameFolderRowText("base") ?? build.slot("base").summary(loc.t))
                     }
                     Spacer(minLength: 8)
@@ -60,7 +60,7 @@ struct FilesCard: View {
                             .font(.system(size: 24)).foregroundStyle((!build.keysReady || keyCheckNeedsAttention) ? LauncherPalette.building : LauncherPalette.secondaryText)
                             .frame(width: 52, height: 52).background(LauncherPalette.ink(0.08), in: RoundedRectangle(cornerRadius: 10))
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(build.keysPath.isEmpty ? loc.t("build.keyHint") : URL(fileURLWithPath: build.keysPath).lastPathComponent).font(.manrope(14, .semibold)).multilineTextAlignment(.leading).help((build.keysFromSettings ? loc.t("keys.fromSettings") + "\n" : "") + build.keysPath)
+                            Text(build.keysPath.isEmpty ? loc.t("build.keyHint") : URL(fileURLWithPath: build.keysPath).lastPathComponent).font(DS.Font.bodyStrong).multilineTextAlignment(.leading).help((build.keysFromSettings ? loc.t("keys.fromSettings") + "\n" : "") + build.keysPath)
                             if let keyCheck { KeyCheckLine(outcome: keyCheck.outcome, detailed: keyCheck, t: loc.t) }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                         Button(loc.t(build.keysPath.isEmpty ? "data.choose" : "data.change")) { build.pickFiles(kind: .keys) }
@@ -77,7 +77,7 @@ struct FilesCard: View {
             CardGroup(loc.t("build.saveTo"), help: ("set.build.output.help", loc.t("msg.workdirHint")), insetTitle: true) {
                 HStack(spacing: 12) {
                     if build.outDir.isEmpty && build.inputFolder.isEmpty {
-                        Text(loc.t("build.saveDefault")).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(loc.t("build.saveDefault")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     } else {
                         Button { NSWorkspace.shared.open(destination) } label: {
                             Label("/" + destination.lastPathComponent, systemImage: "folder.fill").lineLimit(1).truncationMode(.middle)
@@ -138,7 +138,7 @@ struct FilesCard: View {
             CardGroup(loc.t(slot.id == "dlc" ? "flow.dlcTitle" : slot.title), qualifier: loc.t("flow.optional"), insetTitle: true) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(build.gameFolderRowText(slot.id) ?? (slot.paths.isEmpty ? loc.t("data.notSelected") : slot.summary(loc.t)))
-                        .font(.manrope(12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
+                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
                         .help(slot.paths.joined(separator: "\n"))
                     if build.gameFolderRowText(slot.id) == nil {
                         HStack(spacing: 12) {

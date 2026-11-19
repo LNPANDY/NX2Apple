@@ -76,12 +76,12 @@ package struct TitlebarDoubleClick: NSViewRepresentable {
 package enum LauncherControl {
     /// Wide enough for the longest everyday label in every language on one line ("Sök efter uppdateringar", 148 pt in 13 pt
     /// Manrope semibold, plus the buttons' 15 pt of padding on each side). LauncherControlWidthTests measures them all.
-    package static let width: CGFloat = 184
+    package static let width: CGFloat = DS.Control.columnWidth
     /// What the label of a button may take.
     package static let buttonLabelWidth: CGFloat = width - 2 * 15
     /// One line of 13 pt Manrope semibold plus 9 pt of padding above and below. A button or dropdown in a row is exactly this
     /// high, so a label can never make one taller than its neighbours.
-    package static let height: CGFloat = 36
+    package static let height: CGFloat = DS.Control.height
     /// A label that is a little too long shrinks to this share of its size before it is cut.
     package static let minimumLabelScale: CGFloat = 0.85
     /// The room a dropdown's choice has beside its chevron and the gap to it.
@@ -204,7 +204,7 @@ private struct LauncherSecondaryButton: View {
             .minimumScaleFactor(width == nil ? 1 : LauncherControl.minimumLabelScale)
             .padding(.horizontal, 15)
             .frame(height: height)
-            .frame(maxWidth: width).fixedSize(horizontal: width != nil, vertical: false)
+            .frame(width: width)   // in a setting row every button is as wide as the control column (DS.Control.columnWidth)
             .contentShape(Capsule())
             .launcherGlass(in: Capsule(), fallback: fill, border: accent?.opacity(0.75))
             .foregroundStyle(enabled ? (accent ?? LauncherPalette.text) : .gray)

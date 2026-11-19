@@ -279,6 +279,36 @@ xcrun actool AppIcon.icon --compile out --platform macosx --minimum-deployment-t
   --app-icon AppIcon --output-partial-info-plist out/partial.plist
 ```
 
+## Design tokens and components
+
+The launcher's look has one source: `frontend/design-tokens/tokens.json`, in the W3C Design Tokens format.
+It holds the colours (the launcher is dark only), the type scale (large title, title, headline, body 13,
+callout 12, footnote 11, nothing smaller), the spacing scale (4, 8, 12, 16, 24, 32), the radii, the control
+sizes and the animation durations. `python3 tools/design_tokens.py` writes
+`Sources/NXLauncher/Generated/DesignTokens.swift` from it (the enums `DS.Color`, `DS.Font`, `DS.Space`,
+`DS.Radius`, `DS.Control` and `DS.Motion`). Commit both. `tools/tests/test_design_tokens.py` fails when the Swift
+file is stale. Do not edit the generated file by hand.
+
+Screens compose the components in `Sources/NXLauncher/DesignComponents.swift` instead of styling text themselves:
+
+| For | Use |
+|---|---|
+| A page title and its subtitle | `DSPageHeading` |
+| A titled group of rows with a footnote | `DSSection` |
+| A row: status slot, title, one secondary line, trailing control | `DSRow` (`DSRowDivider` between rows) |
+| A plain card | `DSCard` |
+| The one primary action of a screen | `DSPrimaryButtonStyle` |
+| Every other button, a round symbol button | `DSSecondaryButtonStyle`, `DSIconButtonStyle` |
+| A state that needs attention on a cover | `DSChip` |
+| Anything the player is told outside a sheet | `DSNotice` (`LauncherNotice`), in the slot under the top bar |
+| The bar under a wizard | `DSWizardFooter` with `DSContinueLabel` |
+
+New UI uses these and the `DS` tokens. `DesignTokenGuardTests` refuses a raw Manrope size, `Color(red:)`,
+`Color(white:)`, `NSColor(srgbRed:)` or a white opacity in `Sources/NX2Apple` outside the files it still lists,
+and those may only shrink. `LauncherPalette` is kept as aliases to `DS` while the screens move.
+
+The JSON has no Swift in it, so the Qt and iOS front ends can get their own writer from the same file later.
+
 ## App updates
 
 When the app opens it asks GitHub for the latest release. With **Install updates

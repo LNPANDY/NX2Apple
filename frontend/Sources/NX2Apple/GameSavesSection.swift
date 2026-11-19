@@ -65,7 +65,7 @@ struct GameSavesSection: View {
             .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             if let result {
-                Text(result.text).font(.manrope(12)).foregroundStyle(result.ok ? Color.secondary : CloudSavesCard.attention)
+                Text(result.text).font(DS.Font.callout).foregroundStyle(result.ok ? Color.secondary : CloudSavesCard.attention)
                     .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -204,7 +204,7 @@ struct SaveImportSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(loc.t("savesloc.importTitle")).font(.manrope(26, .heavy)).tracking(-0.6)
-                Text(gameName).font(.manrope(13)).foregroundStyle(.secondary)
+                Text(gameName).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 18)
             VStack(spacing: 0) {
@@ -214,7 +214,7 @@ struct SaveImportSheet: View {
             }
             .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
             .padding(.horizontal, 30)
-            Text(loc.t("savesloc.importNote")).font(.manrope(12.5)).foregroundStyle(.secondary).padding(.horizontal, 32).padding(.top, 12)
+            Text(loc.t("savesloc.importNote")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).padding(.horizontal, 32).padding(.top, 12)
             Divider().opacity(0.3).padding(.top, 20)
             HStack(spacing: 12) {
                 Spacer(minLength: 8)

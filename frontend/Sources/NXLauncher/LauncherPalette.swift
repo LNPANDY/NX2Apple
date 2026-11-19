@@ -3,6 +3,7 @@ import AppKit
 
 /// The launcher's colors as meanings (LNPANDY/NX2Apple#683). The launcher is dark only (LNPANDY/NX2Apple#1458): every window and
 /// sheet is drawn in Dark, so each token has one value. The cream is the one accent, for the primary action and the focus ring.
+/// The values live in frontend/design-tokens/tokens.json (`DS`): these names are aliases kept while screens move to `DS`.
 package enum LauncherPalette {
     private static func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> NSColor {
         NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
@@ -15,10 +16,10 @@ package enum LauncherPalette {
     private static func black(_ a: CGFloat) -> NSColor { NSColor.black.withAlphaComponent(a) }
 
     // Surfaces
-    package static let background = Color(nsColor: darkBackground)
-    package static let surface = Color(nsColor: darkSurface)
+    package static let background = DS.Color.background
+    package static let surface = DS.Color.surface
     /// The AppKit twin of `background`, for the window itself.
-    package static let backgroundNSColor = darkBackground
+    package static let backgroundNSColor = DS.Color.nsBackground
     /// A card of rows (CardGroup and every card like it): the surface at 0.75.
     package static let card = Color(nsColor: darkSurface.withAlphaComponent(0.75))
     /// A card's hairline.
@@ -27,16 +28,16 @@ package enum LauncherPalette {
     package static let topBarRule = Color(nsColor: white(0.06))
 
     // The primary action: the cream.
-    package static let cream = Color(nsColor: darkCream)
+    package static let cream = DS.Color.accent
     /// Text on the primary action's fill.
-    package static let onCream = Color(nsColor: .black)
+    package static let onCream = DS.Color.accentOn
     /// The primary action under the pointer and pressed: the cream, the glass gives the feedback.
     package static let primaryHover = Color(nsColor: darkCream)
     package static let primaryPressed = Color(nsColor: darkCream)
     /// Text on an amber fill (Stop).
     package static let onBuilding = Color(nsColor: .black)
     /// The cream as a line, a mark or a tint on a surface.
-    package static let accent = Color(nsColor: darkCream)
+    package static let accent = DS.Color.accent
     /// No border around the primary action.
     /// The controller's focus ring (PadFocus) and the underline of the selected tile in the collection: the cream.
     package static let focusRing = Color(nsColor: darkCream)
@@ -81,21 +82,21 @@ package enum LauncherPalette {
 
     // Status. Always shown with words.
     package static let advisory = Color(nsColor: .systemBlue)
-    package static let ready = Color(nsColor: NSColor(srgbRed: 0.25, green: 0.84, blue: 0.47, alpha: 1))
-    package static let building = Color(nsColor: NSColor(srgbRed: 1, green: 0.78, blue: 0.24, alpha: 1))
-    package static let danger = Color(nsColor: NSColor(srgbRed: 1, green: 0.42, blue: 0.40, alpha: 1))
+    package static let ready = DS.Color.statusReady
+    package static let building = DS.Color.statusWarning
+    package static let danger = DS.Color.statusError
     package static let unbuilt = Color(nsColor: NSColor(srgbRed: 0.57, green: 0.58, blue: 0.61, alpha: 1))
     /// A small marked word beside a status (the Switch 2 badge).
     package static let notice = Color(nsColor: darkCream.withAlphaComponent(0.85))
     package static let noticeBorder = Color(nsColor: darkCream.withAlphaComponent(0.35))
 
     // Text
-    package static let text = Color(nsColor: .labelColor)
-    package static let secondaryText = Color(nsColor: .secondaryLabelColor)
+    package static let text = DS.Color.textPrimary
+    package static let secondaryText = DS.Color.textSecondary
     /// Text that is plain white (the onboarding, the controllers sheet).
     package static let textStrong = Color(nsColor: .white)
     /// Placeholders and the quietest notes.
-    package static let tertiaryText = Color(nsColor: .tertiaryLabelColor)
+    package static let tertiaryText = DS.Color.textTertiary
 
     /// A hairline, a hover or a pressed fill, a quiet field: white at `opacity`.
     package static func ink(_ opacity: Double) -> Color {
@@ -105,7 +106,7 @@ package enum LauncherPalette {
     package static let well = Color(nsColor: NSColor.black.withAlphaComponent(0.22))
     /// Floating popovers and menus (LauncherDropdown, ManageMenu): a deep shadow.
     package static let dropdownShadow = Color(nsColor: black(0.5))
-    package static let hairline = ink(0.10)
+    package static let hairline = DS.Color.separator
     package static let hover = ink(0.035)
     package static let pressed = ink(0.07)
 

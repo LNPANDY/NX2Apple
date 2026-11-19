@@ -164,7 +164,7 @@ extension LauncherView {
                                 if verifiedProfiles.supportsFullScreen(game) {
                                     // A quiet property, not a status chip (#1458): the game fills a wide screen
                                     Label(loc.t("widescreen.badge"), systemImage: "aspectratio")
-                                        .font(.manrope(13, .medium)).foregroundStyle(LauncherPalette.secondaryText)
+                                        .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                                         .help(loc.t("widescreen.help"))
                                         .accessibilityIdentifier("hero.widescreen")
                                 }
@@ -225,7 +225,7 @@ extension LauncherView {
                             .padTarget("library.supported", scope: "main", activate: openSupportedGames)
                         HStack(spacing: 8) {
                             // a narrow window keeps the menu without the word before it (the menu's accessible label says Sort)
-                            if !compactHeader { Text(loc.t("sort.label")).font(.manrope(12)).foregroundStyle(.secondary).fixedSize() }
+                            if !compactHeader { Text(loc.t("sort.label")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize() }
                             LauncherDropdown(options: LibrarySort.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: librarySort.rawValue,
                                              label: loc.t("sort.label"), style: .button) { setLibrarySort(LibrarySort(rawValue: $0) ?? .recent) }
                                 .padTarget("library.sort", scope: "main",
@@ -244,7 +244,7 @@ extension LauncherView {
             }.id("library.collection.header")
             if games.isEmpty && !library.games.isEmpty {
                 Text(loc.t(search.isEmpty ? "console.allGames.empty" : "library.noResults"))
-                    .font(.manrope(17)).foregroundStyle(.secondary)
+                    .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 24)
             } else {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: LibraryCardLayout.gridSpacing, alignment: .top), count: columns),

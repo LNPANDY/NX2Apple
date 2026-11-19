@@ -410,8 +410,8 @@ import XCTest
                 try checkCenter()
                 let back = try XCTUnwrap(focus.frames["main"]?.first { $0.id == "builds.back" })
                 let options = try XCTUnwrap(focus.frames["main"]?.first { $0.id == "set.build.options" })
-                XCTAssertLessThanOrEqual(back.frame.maxY, 64)
-                XCTAssertLessThanOrEqual(options.frame.maxY, 64)
+                XCTAssertGreaterThan(back.frame.minY, 64, "the wizard's back sits under the top bar, in the content (#1458)")
+                XCTAssertEqual(options.frame.midY, back.frame.midY, accuracy: 1)
                 XCTAssertLessThan(back.frame.maxX, options.frame.minX)
             }
             window.setContentSize(.init(width: 900, height: 720)); settle()

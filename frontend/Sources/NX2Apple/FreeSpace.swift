@@ -260,17 +260,17 @@ struct FreeSpaceView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(loc.t("free.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText)
+                Text(game.displayName(loc.lang)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 14)
-            Text(loc.t("free.note")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+            Text(loc.t("free.note")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 30).padding(.bottom, 18)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let survey {
                         if survey.parts.isEmpty {
-                            Text(loc.t("free.empty")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText)
+                            Text(loc.t("free.empty")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                         } else {
                             card {
                                 ForEach(survey.parts) { part in
@@ -280,7 +280,7 @@ struct FreeSpaceView: View {
                                 HStack(spacing: 16) {
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(loc.t("free.kept")).font(.manrope(14, .medium)).foregroundStyle(LauncherPalette.secondaryText)
-                                        Text(loc.t("free.keptNote")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                                        Text(loc.t("free.keptNote")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                                             .fixedSize(horizontal: false, vertical: true)
                                     }
                                     Spacer(minLength: 12)
@@ -290,7 +290,7 @@ struct FreeSpaceView: View {
                             }
                         }
                         if game.isReady {   // pack_app.py clones the game files and shaders into the app on the same APFS volume
-                            Text(loc.t("free.clones")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                            Text(loc.t("free.clones")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 2)
                         }
                         Text(survey.folder).font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
@@ -304,7 +304,7 @@ struct FreeSpaceView: View {
             Divider().opacity(0.3)
             HStack(spacing: 14) {
                 Text(outcome ?? (m.running ? loc.t("free.running") : String(format: loc.t("free.selected"), Self.bytes(chosenBytes))))
-                    .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
+                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
                 Spacer(minLength: 8)
                 Button(loc.t("free.remove")) { confirming = true }
                     .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.building))
@@ -322,7 +322,7 @@ struct FreeSpaceView: View {
         .padScope("free", focus)
         .frame(width: 560, height: 690)
         .background(LauncherPalette.background)
-        .font(.manrope(13))
+        .font(DS.Font.body)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .onAppear { if survey == nil { measure() } }
@@ -341,7 +341,7 @@ struct FreeSpaceView: View {
         return HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(loc.t("free.part." + part.rawValue)).font(.manrope(14, .medium))
-                Text(loc.t("free.cost." + part.rawValue)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                Text(loc.t("free.cost." + part.rawValue)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if part == .oldShaders, let versions = survey?.oldShaders {   // which versions, each with its size
                     Text(versions.map { "\($0.name)  \(Self.bytes($0.bytes))" }.joined(separator: "\n"))
@@ -359,7 +359,7 @@ struct FreeSpaceView: View {
     }
 
     private func sizeText(_ bytes: Int64) -> some View {
-        Text(Self.bytes(bytes)).font(.manrope(13, .semibold)).monospacedDigit().frame(minWidth: 70, alignment: .trailing)
+        Text(Self.bytes(bytes)).font(DS.Font.bodyStrong).monospacedDigit().frame(minWidth: 70, alignment: .trailing)
     }
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {

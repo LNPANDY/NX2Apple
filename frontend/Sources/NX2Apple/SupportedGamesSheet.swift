@@ -83,7 +83,7 @@ struct SupportedGamesSheet: View {
                 Text(loc.t("supported.title")).font(.manrope(26, .heavy)).tracking(-0.6)
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .medium)).foregroundStyle(LauncherPalette.secondaryText)
-                    TextField(loc.t("supported.search"), text: $search).textFieldStyle(.plain).font(.manrope(14))
+                    TextField(loc.t("supported.search"), text: $search).textFieldStyle(.plain).font(DS.Font.body)
                         .focused($searchFocused).accessibilityLabel(loc.t("supported.search"))
                 }
                 .padding(.horizontal, 12).frame(height: 36)
@@ -93,7 +93,7 @@ struct SupportedGamesSheet: View {
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 16)
             Divider().opacity(0.3)
             if shown.isEmpty {
-                Text(loc.t("supported.none")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText)
+                Text(loc.t("supported.none")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     .frame(maxWidth: .infinity, minHeight: 120)
             } else {
                 ScrollViewReader { proxy in
@@ -123,7 +123,7 @@ struct SupportedGamesSheet: View {
             }
             Divider().opacity(0.3)
             HStack {
-                Text(String(format: loc.t("supported.count"), shown.count)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                Text(String(format: loc.t("supported.count"), shown.count)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 Spacer()
                 Button(loc.t("free.done")) { dismiss() }
                     .buttonStyle(LauncherSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
@@ -137,7 +137,7 @@ struct SupportedGamesSheet: View {
         .frame(width: 680)
         .frame(maxHeight: Self.height(screen: NSScreen.main?.visibleFrame.height ?? 800))
         .background(LauncherPalette.background)
-        .font(.manrope(13))
+        .font(DS.Font.body)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .onAppear {
@@ -202,7 +202,7 @@ private struct SupportedGameRow: View {
                                     .background(LauncherPalette.accent.opacity(0.14), in: Capsule())
                             }
                         }
-                        Text(detail).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2).multilineTextAlignment(.leading)
+                        Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).multilineTextAlignment(.leading)
                     }
                     Spacer(minLength: 12)
                     if owned != nil {
@@ -220,7 +220,7 @@ private struct SupportedGameRow: View {
             .accessibilityHint(loc.t(expanded ? "supported.hideNotes" : "supported.showNotes"))
             if expanded {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(game.notes.isEmpty ? loc.t("supported.noNotes") : game.notes).font(.manrope(13))
+                    Text(game.notes.isEmpty ? loc.t("supported.noNotes") : game.notes).font(DS.Font.body)
                         .foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                     if let owned {
                         Button(loc.t("supported.show")) { show(owned.id) }.buttonStyle(LauncherSecondaryButtonStyle())

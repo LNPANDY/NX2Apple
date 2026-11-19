@@ -51,6 +51,7 @@
     {"prefix": "stage.", "suffix": "", "why": "the name of each build stage, BuildProgress.swift"},
     {"prefix": "launch.cat.", "suffix": "", "why": "the four parts of the options sheet, LaunchCategory.labelKey in LaunchCategory.swift"},
     {"prefix": "settings.cat.", "suffix": "", "why": "the four parts of Settings, SettingsCategory.labelKey in SettingsCategory.swift"},
+    {"prefix": "settings.note.", "suffix": "", "why": "the subtitle of each part of Settings, SettingsPage.swift"},
     {"prefix": "sort.", "suffix": "", "why": "the library order choices, LibrarySort.labelKey in LauncherPage.swift"}
   ],
   "catalogKeys": [

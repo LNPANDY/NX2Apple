@@ -163,7 +163,7 @@ package struct AppCard: View {
         }
     }
     private func updateStatus(_ text: String) -> some View {
-        Text(text).font(.manrope(12.5)).foregroundStyle(updates.retryAvailable || updates.blocked != nil ? LauncherPalette.building : LauncherPalette.secondaryText)
+        Text(text).font(DS.Font.callout).foregroundStyle(updates.retryAvailable || updates.blocked != nil ? LauncherPalette.building : LauncherPalette.secondaryText)
             .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 37).padding(.bottom, 14)
     }

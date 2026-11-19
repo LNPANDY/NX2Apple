@@ -62,7 +62,7 @@ struct LaunchOptionsView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(loc.t("launch.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                    if let game { Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText) }
+                    if let game { Text(game.displayName(loc.lang)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
                 }
                 Spacer()
                 // One action at the top while a setting differs from its tested value: it asks first and names how many change (#453)
@@ -113,7 +113,7 @@ struct LaunchOptionsView: View {
         }
         .frame(width: LauncherSheet.width, height: LauncherSheet.maxHeight(screen: NSScreen.main?.visibleFrame.height ?? 800))
         .background(LauncherPalette.background)
-        .font(.manrope(13))
+        .font(DS.Font.body)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
     }
@@ -128,7 +128,7 @@ struct LaunchOptionsView: View {
     /// A game with no build for any destination: one explanation, and Build this game… with the game's form filled in.
     private func noBuild(_ game: LibraryGame) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(loc.t("launch.noBuild")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(loc.t("launch.noBuild")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             Button(loc.t("library.setUpBuild")) { dismiss(); onBuild(game) }
                 .buttonStyle(LauncherSecondaryButtonStyle()).launcherRowControls()
                 .disabled(m.running || game.inputs["base", default: []].isEmpty)
@@ -175,7 +175,7 @@ struct LaunchOptionsView: View {
                             Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
                                 .rotationEffect(.degrees(advancedOpen ? 90 : 0))
                             Spacer()
-                            Text(String(format: loc.t("launch.advancedCount"), advanced.count)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                            Text(String(format: loc.t("launch.advancedCount"), advanced.count)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                         }
                         .padding(.horizontal, 18).frame(minHeight: 52).contentShape(Rectangle())
                     }
@@ -185,10 +185,10 @@ struct LaunchOptionsView: View {
                 if advancedOpen { groups(advanced, game, all: settings) }
             }
         } else if category == .game {
-            Text(loc.t("launch.none")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(loc.t("launch.none")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
         }
         if category == .performance, settings?.contains(where: { LaunchCategory.of($0) == .performance }) != true {
-            Text(loc.t("launch.noPerformance")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(loc.t("launch.noPerformance")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -220,7 +220,7 @@ struct LaunchOptionsView: View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.manrope(14, .medium))
-                Text(detail).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
             Button(button, action: action).buttonStyle(LauncherSecondaryButtonStyle()).launcherRowControls()
@@ -233,11 +233,11 @@ struct LaunchOptionsView: View {
     /// Use for new games and Done (Use tested values is at the top of the sheet). Use for new games copies this game's language, display and rumble into the defaults other games start from.
     private func footer(_ game: LibraryGame?, destination: LaunchDestination, category: LaunchCategory) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(loc.t("launch.applied")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
+            Text(loc.t("launch.applied")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
             HStack(spacing: 12) {
                 if destination == .mac, category == .game {
                     Text(defaultsSaved ? loc.t("launch.useForNewDone") : loc.t("defaults.note"))
-                        .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
+                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
                 }
                 Spacer(minLength: 8)
                 if destination == .mac, let game, let settings {
@@ -291,7 +291,7 @@ struct LaunchOptionsView: View {
                         row(s, game, all: all)
                         if widescreen && s.env == "DM_PICTURE_FIT" {
                             Label(loc.t("launch.widescreenNative"), systemImage: "aspectratio")
-                                .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                                .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 18).padding(.top, -6).padding(.bottom, 12)
                                 .help(loc.t("widescreen.help"))
@@ -305,7 +305,7 @@ struct LaunchOptionsView: View {
     }
 
     private func heading(_ text: String) -> some View {
-        Text(text).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+        Text(text).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
     }
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -323,7 +323,7 @@ struct LaunchOptionsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(note.title).font(.manrope(14, .medium))
                 if let detail = note.detail {
-                    Text(detail).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                    Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 0)
@@ -384,9 +384,9 @@ struct LaunchOptionsView: View {
                 if let full = s.kind == "range" ? s.pixels(scale: 1, docked: isDocked) : nil {
                     // The render scale in pixels: the share of the game's own size in the console mode chosen
                     Text(String(format: loc.t(isDocked ? "launch.scaleOfDocked" : "launch.scaleOfHandheld"), Int(((Double(value) ?? 1) * 100).rounded()), full))
-                        .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 } else if !note(s).isEmpty {
-                    Text(note(s)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                    Text(note(s)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 12)
@@ -435,7 +435,7 @@ struct LaunchOptionsView: View {
                 .accessibilityLabel(label(s))
                 .accessibilityValue(pixels ?? "\(Int(((Double(value) ?? 0) * 100).rounded()))%")
                 Text(pixels ?? "\(Int(((Double(value) ?? 0) * 100).rounded()))%")
-                    .font(.manrope(13, .semibold)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText)
+                    .font(DS.Font.bodyStrong).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText)
                     .frame(width: LaunchControl.valueWidth, alignment: .trailing)
                 ZStack {
                     if Double(value) != Double(s.def) {
@@ -475,7 +475,7 @@ struct LaunchOptionsView: View {
                     HStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(loc.t("launch.modsNone")).font(.manrope(14, .medium))
-                            Text(loc.t("launch.modsHow")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                            Text(loc.t("launch.modsHow")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer()
                     }
@@ -486,7 +486,7 @@ struct LaunchOptionsView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(mod.name).font(.manrope(14, .medium)).lineLimit(1)
                                 if !mod.usable {
-                                    Text(loc.t("launch.modCode")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                                    Text(loc.t("launch.modCode")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                                 }
                             }
                             Spacer(minLength: 12)
@@ -514,7 +514,7 @@ struct LaunchOptionsView: View {
                 .buttonStyle(LauncherSecondaryButtonStyle())
                 .padding(.horizontal, 18).padding(.vertical, 12)
             }
-            Text(loc.t(list.count > 1 ? "launch.modsNoteOrder" : "launch.modsNote")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+            Text(loc.t(list.count > 1 ? "launch.modsNoteOrder" : "launch.modsNote")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -541,7 +541,7 @@ struct LaunchOptionsView: View {
                            activate: { on.wrappedValue.toggle() }, adjust: { _ in on.wrappedValue.toggle() })
                 divider
                 if recent.isEmpty {
-                    Text(loc.t("launch.frameTimesNone")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(loc.t("launch.frameTimesNone")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                         .padding(.horizontal, 18).padding(.vertical, 12)
                     divider
                 }
@@ -559,7 +559,7 @@ struct LaunchOptionsView: View {
                 .buttonStyle(LauncherSecondaryButtonStyle())
                 .padding(.horizontal, 18).padding(.vertical, 12)
             }
-            Text(loc.t("launch.frameTimesNote")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+            Text(loc.t("launch.frameTimesNote")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
         }
     }

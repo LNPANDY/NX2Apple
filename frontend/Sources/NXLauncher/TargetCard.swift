@@ -27,7 +27,7 @@ package struct TargetCard: View {
                         Text(loc.t(build.target == BuildTarget.mac ? "switch2.noteMac" : "switch2.noteIOS"))
                         Text(loc.t(build.gameFolder != nil ? "switch2.keysFolder" : "switch2.keysPackage"))   // #696: what the keys row asks for
                     }
-                    .font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 4).padding(.top, 2)
             }
@@ -37,7 +37,7 @@ package struct TargetCard: View {
                     HStack(alignment: .center, spacing: 12) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(loc.t("opt.bc")).font(.manrope(14))
-                            Text(loc.t("opt.bc.note")).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
+                            Text(loc.t("opt.bc.note")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 12)
@@ -82,7 +82,11 @@ package struct LauncherTargetOptionLabel: View {
             HStack(alignment: .top) {
                 Image(systemName: symbol).font(.system(size: 26, weight: .light))
                     .foregroundStyle(selected ? LauncherPalette.accent : .secondary).accessibilityHidden(true)
-                Spacer(minLength: 8)
+                Spacer(minLength: DS.Space.xs)
+                if selected {   // the chosen card says so with a check, not only a border (#1458)
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(DS.Color.accent)
+                        .accessibilityHidden(true)
+                }
                 if let badge {
                     Text(badge).font(.manrope(11.5, .semibold)).padding(.horizontal, 8).padding(.vertical, 4)
                         .background(LauncherPalette.ink(0.06), in: Capsule())
@@ -91,16 +95,16 @@ package struct LauncherTargetOptionLabel: View {
             }.frame(height: 32, alignment: .top)
             if titleAtBottom { Spacer(minLength: 0) }
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.manrope(titleAtBottom ? 18 : 16, .semibold))
+                Text(title).font(titleAtBottom ? DS.Font.headline : DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary)
                 if let note {
-                    Text(note).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(note).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
-        .padding(20).frame(maxWidth: .infinity, alignment: .leading).frame(height: height, alignment: .topLeading)
-        .background(selected ? LauncherPalette.selectedFill : LauncherPalette.selectableFill, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.selectedBorder : LauncherPalette.selectableBorder, lineWidth: selected ? 1.5 : 1))
-        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .padding(DS.Space.l).frame(maxWidth: .infinity, alignment: .leading).frame(height: height, alignment: .topLeading)
+        .background(selected ? LauncherPalette.selectedFill : LauncherPalette.selectableFill, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(selected ? DS.Color.accent : LauncherPalette.selectableBorder, lineWidth: selected ? 2 : 1))
+        .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 }

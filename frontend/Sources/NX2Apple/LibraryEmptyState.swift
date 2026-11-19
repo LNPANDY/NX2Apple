@@ -50,7 +50,7 @@ struct LibraryCarouselPlaceholder: View {
                 .fill(LauncherPalette.ink(0.06))
                 .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(LauncherPalette.ink(0.04)))
                 .frame(width: width, height: width / LibraryCardLayout.aspect)
-            Text(loc.t("library.yourLibrary")).font(.manrope(16, .semibold)).lineLimit(1).hidden()
+            Text(loc.t("library.yourLibrary")).font(DS.Font.headline).lineLimit(1).hidden()
                 .overlay(alignment: .leading) {
                     Capsule().fill(LauncherPalette.ink(0.08)).frame(width: width * 0.62, height: 7)
                 }

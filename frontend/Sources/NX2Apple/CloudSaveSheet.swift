@@ -55,7 +55,7 @@ struct CloudSaveSheet: View {
         .frame(width: 560)
         .fixedSize(horizontal: false, vertical: true)
         .background(LauncherPalette.background)
-        .font(.manrope(13))
+        .font(DS.Font.body)
         .launcherAppearance()
         .tint(LauncherPalette.cream)
     }
@@ -66,7 +66,7 @@ struct CloudSaveSheet: View {
                 .frame(width: 40, height: 40).background(LauncherPalette.cream.opacity(0.12), in: Circle())
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.manrope(22, .heavy)).tracking(-0.4).fixedSize(horizontal: false, vertical: true)
-                Text(note).font(.manrope(13)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(note).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 18)
@@ -77,7 +77,7 @@ struct CloudSaveSheet: View {
             heading("icloud.and.arrow.down", loc.t("cloudCheck.fetching.title"), String(format: loc.t("cloudCheck.fetching.note"), name))
             HStack(spacing: 12) {
                 ProgressView().controlSize(.small)
-                Text(long ? loc.t("cloudCheck.fetching.long") : loc.t("cloudCheck.fetching.wait")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                Text(long ? loc.t("cloudCheck.fetching.long") : loc.t("cloudCheck.fetching.wait")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 28).padding(.bottom, 20)
@@ -92,7 +92,7 @@ struct CloudSaveSheet: View {
         if q.outcome == .unreadable {
             heading("icloud.slash", loc.t("cloudCheck.unreadable.title"), String(format: loc.t("cloudCheck.unreadable.note"), q.gameName))
             VStack(alignment: .leading, spacing: 10) {
-                if let reason = q.reason { Text(reason).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                if let reason = q.reason { Text(reason).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 choice("cloudCheck.retry", detail: loc.t("cloudCheck.retry.detail"), symbol: "arrow.clockwise", id: "cloudsave.retry", primary: true) { gate.retry() }
                 choice("cloudCheck.playLocal", detail: loc.t("cloudCheck.playLocal.detail"), symbol: "desktopcomputer", id: "cloudsave.local") { gate.choose(.offline) }
             }
@@ -103,7 +103,7 @@ struct CloudSaveSheet: View {
             VStack(alignment: .leading, spacing: 10) {
                 option("cloudCheck.row.cloud", detail: CloudSaveText.cloudDetail(q, loc.t, lang: loc.lang.code), symbol: "icloud", id: "cloudsave.cloud", value: .cloud)
                 option("cloudCheck.row.local", detail: CloudSaveText.localDetail(q, loc.t, lang: loc.lang.code), symbol: "desktopcomputer", id: "cloudsave.local", value: .local)
-                Text(loc.t("cloudCheck.kept")).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 2)
+                Text(loc.t("cloudCheck.kept")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 2)
             }
             .padding(.horizontal, 28).padding(.bottom, 20)
             footer {
@@ -124,7 +124,7 @@ struct CloudSaveSheet: View {
                 Image(systemName: symbol).font(.system(size: 16, weight: .medium)).frame(width: 24)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(loc.t(key)).font(.manrope(14.5, .bold))
-                    Text(detail).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.system(size: 16)).foregroundStyle(selected ? LauncherPalette.cream : .secondary)
@@ -146,7 +146,7 @@ struct CloudSaveSheet: View {
                 Image(systemName: symbol).font(.system(size: 16, weight: .medium)).frame(width: 24)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(loc.t(key)).font(.manrope(14.5, .bold))
-                    Text(detail).font(.manrope(12)).opacity(0.75).fixedSize(horizontal: false, vertical: true)
+                    Text(detail).font(DS.Font.callout).opacity(0.75).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).opacity(0.6)

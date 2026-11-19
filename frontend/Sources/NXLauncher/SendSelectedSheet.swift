@@ -64,7 +64,7 @@ package struct SendSelectedSheet: View {
                         .font(.manrope(26, .heavy))
                         .tracking(-0.5)
                     Text(loc.t(mode == .device ? "shell.selectGamesDeviceNote" : "shell.selectGamesDriveNote"))
-                        .font(.manrope(13))
+                        .font(DS.Font.body)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -145,7 +145,7 @@ package struct SendSelectedSheet: View {
                     .padTarget("sendSelected.cancel", scope: Self.scope, activate: close)
                 Button { confirm() } label: {
                     Text(loc.t(mode == .device ? "shell.sendSelectedConfirm" : "shell.copySelectedConfirm"))
-                        .font(.manrope(14, .semibold))
+                        .font(DS.Font.bodyStrong)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 10)
                 }
@@ -225,7 +225,7 @@ package struct SendSelectedSheet: View {
                 .foregroundStyle(color)
                 .frame(width: 13)
             Text(text)
-                .font(.manrope(12.5))
+                .font(DS.Font.callout)
                 .foregroundStyle(color)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)

@@ -3,7 +3,7 @@ import NXCore
 import NXModel
 import NXLauncher
 
-/// Contextual build navigation lives beside the brand, leaving the hero for game metadata.
+/// The build wizard's navigation, at the top of its content column (LauncherView.buildWizardBar), leaving the hero for game metadata.
 struct BuildHeaderControls: View {
     @ObservedObject var build: BuildStore
     let onBack: () -> Void
@@ -24,11 +24,8 @@ struct BuildHeaderControls: View {
                 .buttonStyle(LauncherSecondaryButtonStyle())
                 .padTarget("builds.back", scope: "main", activate: onBack)
             Button(action: openOptions) {
-                Image(systemName: "ellipsis").font(.system(size: 15, weight: .semibold))
-                    .frame(width: LauncherControl.height, height: LauncherControl.height)
-                    .background(LauncherPalette.secondaryFill, in: Circle())
-                    .overlay(Circle().strokeBorder(LauncherPalette.secondaryBorder)).contentShape(Circle())
-            }.buttonStyle(.plain).launcherHover()
+                Image(systemName: "ellipsis")
+            }.buttonStyle(LauncherIconButtonStyle())
                 .accessibilityLabel(loc.t("flow.options"))
                 .anchorPreference(key: LauncherDropdownAnchorKey.self, value: .bounds) { [menuID: $0] }
                 .padTarget("set.build.options", scope: "main", activate: openOptions)

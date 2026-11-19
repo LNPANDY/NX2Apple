@@ -76,7 +76,7 @@ struct BuildActivityFooter: View {
                 HStack(spacing: 16) {
                     artworkStack
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(status).font(.manrope(12)).foregroundStyle(LauncherPalette.text).lineLimit(1)
+                        Text(status).font(DS.Font.callout).foregroundStyle(LauncherPalette.text).lineLimit(1)
                         ZStack(alignment: .leading) {
                                 Text(title).font(.manrope(20, .semibold)).lineLimit(1).truncationMode(.tail)
                                     .id(titleID).transition(LibraryHeroTransition.blurredMetadata(reduceMotion: reduceMotion))
@@ -109,7 +109,7 @@ struct BuildActivityFooter: View {
                     if onPlay != nil {
                         Button(action: play) {
                             Label(loc.t("library.play"), systemImage: "play.fill")
-                                .font(.manrope(13, .semibold)).padding(.horizontal, 18).frame(height: LauncherControl.height)
+                                .font(DS.Font.bodyStrong).padding(.horizontal, 18).frame(height: LauncherControl.height)
                         }.buttonStyle(LauncherActionButtonStyle()).disabled(!playEnabled)
                             .padTarget("build.activity.play", scope: "main", focusColor: LauncherPalette.onCream, enabled: playEnabled, activate: play)
                     }
@@ -167,7 +167,7 @@ struct BuildActivityFooter: View {
             HStack(spacing: 12) {
                 ForEach([BuildTarget.mac, BuildTarget.ios].filter { platformTargets.map(BuildTarget.normalized).contains($0) }, id: \.self) { target in
                     Label(loc.t(target == BuildTarget.mac ? "library.section.mac" : "build.ios"), systemImage: target == BuildTarget.mac ? "desktopcomputer" : "iphone")
-                        .font(.manrope(13, .semibold)).fixedSize()
+                        .font(DS.Font.bodyStrong).fixedSize()
                 }
             }
             Rectangle().fill(LauncherPalette.secondaryText.opacity(0.4)).frame(width: 1, height: 24).accessibilityHidden(true)
@@ -180,14 +180,14 @@ struct BuildActivityFooter: View {
             }
             .font(.system(size: 18)).frame(width: 20, height: 20)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage?.state)
-            Text(stage?.displayName(loc.t) ?? loc.t("library.preparing")).font(.manrope(13)).lineLimit(1)
+            Text(stage?.displayName(loc.t) ?? loc.t("library.preparing")).font(DS.Font.body).lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             TimelineView(.periodic(from: Date(), by: 1)) { context in
                 Text(stage?.state == .running ? stage?.clock(at: context.date, left: loc.t("prog.etaEstimate")) ?? "" : "")
-                    .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).monospacedDigit().lineLimit(1)
+                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).monospacedDigit().lineLimit(1)
             }.frame(width: 66, alignment: .trailing)
             Text(stage?.state == .running ? stage?.percent.map { "\(Int($0))%" } ?? "" : "")
-                .font(.manrope(13)).monospacedDigit().frame(width: 44, alignment: .trailing)
+                .font(DS.Font.body).monospacedDigit().frame(width: 44, alignment: .trailing)
         }
         .frame(height: 44)
     }

@@ -69,7 +69,7 @@ package struct InstallCard: View {
                         if devices.checked && devices.devices.isEmpty {
                             VStack(spacing: 12) {
                                 Image(systemName: "iphone.and.ipad").font(.system(size: 28)).accessibilityHidden(true)
-                                Text(loc.t("flow.pairDevice")).font(.manrope(13))
+                                Text(loc.t("flow.pairDevice")).font(DS.Font.body)
                                 Button(loc.t("flow.openXcode")) { openXcode() }
                                     .padTarget("set.build.install.xcode", scope: "main", activate: { openXcode() })
                             }.frame(maxWidth: .infinity).padding(20).accessibilityHint(loc.t("dev.noDevices"))
@@ -88,8 +88,8 @@ package struct InstallCard: View {
                                                 Image(systemName: device.model.lowercased().contains("ipad") ? "ipad" : "iphone").font(.system(size: 24))
                                             }
                                             Spacer(minLength: 0)
-                                            Text(device.name).font(.manrope(14, .semibold)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                                            if !device.reachable { Text(loc.t("dev.notConnected")).font(.manrope(11)).foregroundStyle(.secondary) }
+                                            Text(device.name).font(DS.Font.bodyStrong).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                                            if !device.reachable { Text(loc.t("dev.notConnected")).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary) }
                                         }.padding(16).frame(height: 136, alignment: .topLeading)
                                             .background(devices.installDevice == device.id ? LauncherPalette.selectedFill : LauncherPalette.selectableFill, in: RoundedRectangle(cornerRadius: 14))
                                             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(devices.installDevice == device.id ? LauncherPalette.selectedBorder : LauncherPalette.selectableBorder, lineWidth: devices.installDevice == device.id ? 1.5 : 1))
@@ -121,7 +121,7 @@ package struct InstallCard: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 if teams.isEmpty { Text(loc.t("dev.noTeam")) }
                                 if !footnote.isEmpty { Text(footnote) }
-                            }.font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            }.font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(18)
                         }
                     }
@@ -185,7 +185,7 @@ package struct InstallCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(loc.t(framework ? "shell.ipaFramework" : oneGame ? "shell.choiceSingle" : "shell.choiceLauncher")).font(.manrope(16, .semibold))
                     Text(loc.t(framework ? "shell.ipaFrameworkNote" : oneGame ? "shell.choiceSingleNote" : "shell.choiceLauncherNote"))
-                        .font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
+                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

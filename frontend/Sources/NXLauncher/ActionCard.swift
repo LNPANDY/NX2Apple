@@ -36,7 +36,7 @@ package struct ActionCard: View {
             } label: {
                 Label(buttonLabel,
                       systemImage: build.running ? "stop.fill" : "hammer.fill")
-                    .font(.manrope(13, .semibold)).padding(.horizontal, 20).frame(height: LauncherControl.height)
+                    .font(DS.Font.bodyStrong).padding(.horizontal, 20).frame(height: LauncherControl.height)
                     .foregroundStyle(build.running ? LauncherPalette.onBuilding : LauncherPalette.onCream).background(build.running ? LauncherPalette.building : LauncherPalette.cream, in: Capsule())
                     .overlay(Capsule().strokeBorder(LauncherPalette.actionBorder))
             }
@@ -54,27 +54,27 @@ package struct ActionCard: View {
 
     @ViewBuilder private var statusText: some View {
         if !build.doneNote.isEmpty && (build.running || !build.hasQueuedBuilds) {
-            Text(build.doneNote).font(.manrope(13))
+            Text(build.doneNote).font(DS.Font.body)
                 .foregroundStyle(build.done ? LauncherPalette.ready : LauncherPalette.building).lineLimit(3)
         } else if !dependencies.checked {
-            Text(loc.t("status.checkingDeps")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+            Text(loc.t("status.checkingDeps")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
         } else if !dependencies.allPresent {
-            Text(loc.t("status.installFirst")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
+            Text(loc.t("status.installFirst")).font(DS.Font.body).foregroundStyle(LauncherPalette.building)
         } else if !repo.isRepo && !build.usesExternalUpstreamRepo {
-            Text(loc.t("status.chooseRepo")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
+            Text(loc.t("status.chooseRepo")).font(DS.Font.body).foregroundStyle(LauncherPalette.building)
         } else if build.hasQueuedBuilds {
             if build.queueNeedsDevice {
-                Text(loc.t("shell.needsDevice")).font(.manrope(13)).foregroundStyle(LauncherPalette.building).lineLimit(3)
+                Text(loc.t("shell.needsDevice")).font(DS.Font.body).foregroundStyle(LauncherPalette.building).lineLimit(3)
             }
         } else if build.gameFolderRefused {
-            Text(loc.t("status.fixFolder")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+            Text(loc.t("status.fixFolder")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
         } else if !build.inputsReady {
-            Text(loc.t("status.needInputs")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+            Text(loc.t("status.needInputs")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
         } else if let keyProblem = build.keyProblem, !keyProblem.isEmpty {
-            Text(keyProblem).font(.manrope(13)).foregroundStyle(LauncherPalette.building).lineLimit(3)
+            Text(keyProblem).font(DS.Font.body).foregroundStyle(LauncherPalette.building).lineLimit(3)
         } else {
             Text(String(format: loc.t("status.output"), build.shortPath(build.outDir.isEmpty ? build.inputFolder : build.outDir)))
-                .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.head)
+                .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).lineLimit(1).truncationMode(.head)
         }
     }
 }

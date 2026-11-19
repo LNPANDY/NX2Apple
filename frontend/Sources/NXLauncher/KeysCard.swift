@@ -24,8 +24,8 @@ package struct KeysCard: View {
                     .background(LauncherPalette.ink(0.08), in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(loc.t("data.keys")).font(.manrope(14, .semibold))
-                    Text(detail).font(.manrope(12.5)).foregroundStyle(missing ? LauncherPalette.building : LauncherPalette.secondaryText)
+                    Text(loc.t("data.keys")).font(DS.Font.bodyStrong)
+                    Text(detail).font(DS.Font.callout).foregroundStyle(missing ? LauncherPalette.building : LauncherPalette.secondaryText)
                         .lineLimit(2).truncationMode(.middle).help(path)
                 }
                 Spacer(minLength: 12)

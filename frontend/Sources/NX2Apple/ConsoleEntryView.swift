@@ -39,7 +39,7 @@ struct ConsoleConnectionPrompt: View {
                 // one row, macOS order: the way out on the left of the main choice, both of the launcher's standard size
                 HStack(spacing: 10) {
                     Toggle(t("console.promptNever"), isOn: Binding(get: { !promptOn }, set: { promptOn = !$0 }))
-                        .toggleStyle(.checkbox).font(.manrope(12)).foregroundStyle(.secondary)
+                        .toggleStyle(.checkbox).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                         .padTarget("console.entry.never", scope: "console.entry", radius: 6, activate: { promptOn.toggle() })
                     Spacer(minLength: 12)
                     Button(action: dismissPrompt) {

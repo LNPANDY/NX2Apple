@@ -304,8 +304,8 @@ import NXCore
         selection.save(defaults)
         setRepoPath(dir.path)
         engineStore.prune(keeping: selection.kept)
-        if let change = EngineUpdate.chainChange(from: old, to: dir.path) {
-            status = String(format: t("engine.chainChanged"), engine.version, change.old, change.new)
+        if EngineUpdate.chainChange(from: old, to: dir.path) != nil {   // said in the player's terms, without the chain ids (#1458)
+            status = String(format: t("engine.chainChanged"), engine.version)
         } else {
             status = announce ? String(format: t("engine.installed"), engine.version) : ""
         }

@@ -71,7 +71,7 @@ package struct LauncherNotice: View {
                 Text(item.title).font(.manrope(13.5, .semibold)).foregroundStyle(LauncherPalette.text)
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 if let detail = item.detail {
-                    Text(detail).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.tail)
+                    Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1).truncationMode(.tail)
                         .help(detail)
                 }
             }

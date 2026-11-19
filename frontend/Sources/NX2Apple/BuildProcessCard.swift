@@ -34,8 +34,8 @@ struct BuildProcessCard: View {
             }
             VStack(alignment: .leading, spacing: 16) {
                 if let key = build.staleShadersMessageKey {
-                    Text(loc.t("msg.shadersStale.title")).font(.manrope(14, .semibold))
-                    Text(loc.t(key)).font(.manrope(13)).foregroundStyle(.secondary)
+                    Text(loc.t("msg.shadersStale.title")).font(DS.Font.bodyStrong)
+                    Text(loc.t(key)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                 }
                 if !logOpen {
                     HStack {
@@ -45,12 +45,12 @@ struct BuildProcessCard: View {
                         Text(loc.t("prog.overallTitle")).foregroundStyle(.secondary)
                         Spacer()
                         if let overall = build.overallProgress { Text("\(Int(min(max(overall, 0), 1) * 100))%").monospacedDigit() }
-                    }.font(.manrope(12))
+                    }.font(DS.Font.callout)
                 }
                 BuildProcessRows(stages: stages)
                     .frame(minHeight: compact ? 44 : CGFloat(max(1, build.stages.count)) * 60 - 16, alignment: .top)
                 if build.stages.contains(where: { $0.state == .running && $0.isScanningLastShaderFiles }) {
-                    Text(loc.t("prog.lastShaderFiles")).font(.manrope(12)).foregroundStyle(.secondary)
+                    Text(loc.t("prog.lastShaderFiles")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 }
             }
             .padding(18).frame(maxWidth: .infinity, alignment: .leading)
@@ -85,10 +85,10 @@ struct BuildProcessRows: View {
                     Spacer(minLength: 8)
                     TimelineView(.periodic(from: Date(), by: 1)) { context in
                         Text(stage.state == .running ? stage.clock(at: context.date, left: loc.t("prog.etaEstimate")) : "")
-                            .font(.manrope(12)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
+                            .font(DS.Font.callout).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
                     }.frame(width: 100, alignment: .trailing)
                     Text(stage.state == .running ? stage.percent.map { "\(Int($0))%" } ?? "" : "")
-                        .font(.manrope(13)).monospacedDigit().frame(width: 44, alignment: .trailing)
+                        .font(DS.Font.body).monospacedDigit().frame(width: 44, alignment: .trailing)
                 }.frame(height: 44)
                     .help([stage.displayName(loc.t), stage.detail].filter { !$0.isEmpty }.joined(separator: "\n"))
                     .accessibilityElement(children: .combine)

@@ -40,7 +40,7 @@ package struct UpdateSheet: View {
                 Text(loc.t("update.title"))
                     .font(.manrope(24, .heavy)).tracking(-0.5)
                 Text(String(format: loc.t("update.fromTo"), updates.version, update?.tag ?? ""))
-                    .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                    .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
             }
             .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 18)
 
@@ -52,7 +52,7 @@ package struct UpdateSheet: View {
                             blockView(block, first: index == 0)
                         }
                     } else {
-                        Text(loc.t("update.noNotes")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(loc.t("update.noNotes")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     }
                 }
                 .padding(.horizontal, 28).padding(.bottom, 20)
@@ -63,7 +63,7 @@ package struct UpdateSheet: View {
             .padTarget("update.notes", scope: "update", radius: 0, vertical: scroll.move)
 
             if let blocked = Self.note(blocked: updates.blocked, buildRunning: build.running, waitForBuild: loc.t("app.waitForBuild")) {
-                Text(blocked).font(.manrope(12.5))
+                Text(blocked).font(DS.Font.callout)
                     .foregroundStyle(updates.blocked != nil ? LauncherPalette.building : LauncherPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 28).padding(.bottom, 12)
@@ -72,7 +72,7 @@ package struct UpdateSheet: View {
             HStack(spacing: 12) {
                 if let u = update {
                     Link(loc.t("update.openPage"), destination: URL(string: "https://github.com/LNPANDY/NX2Apple/releases/tag/\(u.tag)")!)
-                        .font(.manrope(12.5))
+                        .font(DS.Font.callout)
                         .padTarget("update.page", scope: "update", radius: 0) {
                             if let url = URL(string: "https://github.com/LNPANDY/NX2Apple/releases/tag/\(u.tag)") { NSWorkspace.shared.open(url) }
                         }
@@ -166,7 +166,7 @@ package struct UpdateSheet: View {
         case .bullet(let text):
             // A hanging indent: the bullet is its own column, so wrapped lines align with the text.
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\u{2022}").font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).frame(width: 10, alignment: .center)
+                Text("\u{2022}").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).frame(width: 10, alignment: .center)
                 Text(Self.styled(text, size: 13))
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)

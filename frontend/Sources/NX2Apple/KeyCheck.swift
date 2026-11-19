@@ -343,7 +343,7 @@ struct KeyCheckLine: View {
         let lineText = detailed.map { KeyCheck.detailedMessage($0, t) } ?? KeyCheck.message(outcome, t)
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(color)
-            Text(lineText).font(.manrope(12.5)).foregroundStyle(outcome == .fits ? Color.secondary : color)
+            Text(lineText).font(DS.Font.callout).foregroundStyle(outcome == .fits ? Color.secondary : color)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }

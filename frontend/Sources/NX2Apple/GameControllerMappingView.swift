@@ -75,7 +75,7 @@ struct SteamControllerSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(loc.t("controls.steam.title")).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText)
+                Text(loc.t("controls.steam.title")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary)
                 Spacer()
                 Button(loc.t("controls.steam.reset")) { store.resetSteam() }
                     .buttonStyle(LauncherSecondaryButtonStyle())
@@ -129,7 +129,7 @@ struct ControllerMappingStatus: View {
     @ObservedObject var store: ControllerMappingStore
     var body: some View {
         let message = loc.t(store.saveFailed ? "controls.saveFailed" : "controls.gameApplied")
-        Text(message).font(.manrope(12)).foregroundStyle(store.saveFailed ? Color.orange : Color.secondary).lineLimit(2)
+        Text(message).font(DS.Font.callout).foregroundStyle(store.saveFailed ? Color.orange : Color.secondary).lineLimit(2)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(message)
             .accessibilityIdentifier("controllerMapping.status")

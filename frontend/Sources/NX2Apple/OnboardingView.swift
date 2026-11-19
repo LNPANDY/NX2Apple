@@ -223,7 +223,7 @@ import NXLauncher
             }
             // A fact about this Mac, constant during setup: a calm note, not a warning, and no gate.
             if state.osTooOldForNVN {
-                Text(t("onboarding.nvn.os")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                Text(t("onboarding.nvn.os")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }.modifier(OnboardingCard())
@@ -287,7 +287,7 @@ import NXLauncher
                     case let .failed(failure): failureView(failure)
                     }
                     if state.xcodeTooOldForNVN, state.xcode != .checking {
-                        Text(t("onboarding.nvn.xcode")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(t("onboarding.nvn.xcode")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -302,7 +302,7 @@ import NXLauncher
                     if let transfer = state.engineTransfer {
                         taskRow("onboarding.background.engine", status: .running(transfer.fraction), detail: transfer.detail)
                     }
-                    Text(t("onboarding.background.note")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(t("onboarding.background.note")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -324,8 +324,8 @@ import NXLauncher
                         icon().frame(width: 52, height: 52)
                             .background(LauncherPalette.ink(0.08), in: RoundedRectangle(cornerRadius: 10)).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(t(title)).font(.manrope(14, .semibold))
-                            Text(subtitle).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                            Text(t(title)).font(DS.Font.bodyStrong)
+                            Text(subtitle).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                         Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
@@ -368,7 +368,7 @@ import NXLauncher
                     OnboardingWaiting(label: t("onboarding.running")).frame(width: 14, height: 14).accessibilityHidden(true)
                     Text(t("onboarding.xcode.waiting"))
                 }
-                .font(.manrope(13, .semibold)).padding(.horizontal, 15)
+                .font(DS.Font.bodyStrong).padding(.horizontal, 15)
                 .frame(minWidth: 120, minHeight: LauncherControl.height).contentShape(Capsule())
             }
             .buttonStyle(.plain).launcherHover().disabled(state.xcode != .downloading)
@@ -443,7 +443,7 @@ import NXLauncher
                     .lineLimit(1)
             }
             if case let .failed(failure) = status {
-                Text(failure.message).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
+                Text(failure.message).font(DS.Font.callout).foregroundStyle(LauncherPalette.building)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -529,7 +529,7 @@ import NXLauncher
                         .padTarget("onboarding.back", scope: "onboarding", activate: goBack)
                 }
                 if let pickerError {
-                    Text(pickerError).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
+                    Text(pickerError).font(DS.Font.callout).foregroundStyle(LauncherPalette.building)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()

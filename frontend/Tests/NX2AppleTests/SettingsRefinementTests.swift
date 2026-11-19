@@ -62,7 +62,7 @@ import XCTest
         for settings in [false, true] {
             let host = NSHostingView(rootView: CardRow("Example") { Text("Value") }
                 .environment(\.launcherSettingsLayout, settings).frame(width: 700))
-            XCTAssertEqual(host.fittingSize.height, settings ? 64 : 52, accuracy: 0.5)
+            XCTAssertEqual(host.fittingSize.height, settings ? 60 : 52, accuracy: 0.5)
         }
         for lang in Lang.all {
             for key in ["repo.check", "settings.update.checking", "settings.update.preparing", "settings.update.downloading", "settings.update.install", "app.restartNow"] {

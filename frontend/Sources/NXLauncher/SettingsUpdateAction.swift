@@ -13,7 +13,7 @@ package struct SettingsUpdateAction: View {
         HStack(spacing: 8) {
             if busy { ProgressView().controlSize(.small).accessibilityHidden(true) }
             Text(title).lineLimit(1).minimumScaleFactor(LauncherControl.minimumLabelScale)
-        }.font(.manrope(13, .semibold))
+        }.font(DS.Font.bodyStrong)
     }
     package var body: some View {
         Group {

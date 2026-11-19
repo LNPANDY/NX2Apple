@@ -33,7 +33,7 @@ package struct BuildFilesCard: View {
                 }
                 CardRow(loc.t("buildfiles.total")) {
                     if store.measuring { ProgressView().controlSize(.small) }
-                    Text(Self.bytes(store.total)).font(.manrope(13, .semibold)).monospacedDigit()
+                    Text(Self.bytes(store.total)).font(DS.Font.bodyStrong).monospacedDigit()
                         .accessibilityLabel(loc.t("buildfiles.total") + ": " + Self.bytes(store.total))
                 }
             }

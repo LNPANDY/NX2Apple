@@ -24,14 +24,14 @@ package struct BuildFailureCard: View {
     package var body: some View {
         if let f = failure ?? m.failure {
             VStack(alignment: .leading, spacing: 10) {
-                Text(loc.t("fail.section")).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+                Text(loc.t("fail.section")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Circle().fill(LauncherPalette.building).frame(width: 7, height: 7)
-                        Text(m.failureWhat(f)).font(.manrope(14, .semibold)).fixedSize(horizontal: false, vertical: true)
+                        Text(m.failureWhat(f)).font(DS.Font.bodyStrong).fixedSize(horizontal: false, vertical: true)
                     }
                     let chooseTitle = !f.titleIDs.isEmpty && !m.experimentalBuilder
-                    Text(loc.t(chooseTitle ? "fail.severalGames.choose" : f.kind.nextKey)).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(loc.t(chooseTitle ? "fail.severalGames.choose" : f.kind.nextKey)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true).padding(.leading, 17)
                     if chooseTitle {
                         VStack(alignment: .leading, spacing: 6) {
@@ -126,7 +126,7 @@ package struct BuildFailureCard: View {
     private func fix(_ kind: BuildFailureKind, _ key: String) -> some View {
         Group {
             if m.fixBusy(kind) {
-                HStack(spacing: 8) { ProgressView().controlSize(.small); Text(loc.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building) }
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Text(loc.t("dep.installing")).font(DS.Font.callout).foregroundStyle(LauncherPalette.building) }
             } else {
                 Button(loc.t(key)) { m.fixBuildFailure(kind) }.disabled(m.running)
                     .padTarget("set.build.failure.fix." + kind.rawValue, scope: "main", enabled: !m.running) { if !m.running { m.fixBuildFailure(kind) } }

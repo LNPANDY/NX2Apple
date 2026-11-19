@@ -30,8 +30,8 @@ package struct OutcomeCard: View {
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 5) {
                             Text(verdict(status)).font(.manrope(16, .semibold))
-                            if status == .exported { Text(build.completedFramework ? String(format: loc.t("shell.frameworkStep1Done"), build.exportedIPAText) : loc.t(build.completedOneGameIPA ? "result.oneGameIPA" : "result.sharedIPA")).font(.manrope(13)).foregroundStyle(.secondary) }
-                            if status == .needsData { Text(loc.t("result.notReady")).font(.manrope(13)).foregroundStyle(.secondary) }
+                            if status == .exported { Text(build.completedFramework ? String(format: loc.t("shell.frameworkStep1Done"), build.exportedIPAText) : loc.t(build.completedOneGameIPA ? "result.oneGameIPA" : "result.sharedIPA")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
+                            if status == .needsData { Text(loc.t("result.notReady")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
                         }
                     }
                     ViewThatFits(in: .horizontal) {
@@ -40,9 +40,9 @@ package struct OutcomeCard: View {
                     }
                     if status == .mac { artifact(build.macAppPath, id: "set.build.done.reveal") }
                     if status == .exported {
-                        Text(URL(fileURLWithPath: build.exportedIPAPath).lastPathComponent).font(.manrope(13)).foregroundStyle(.secondary).help(build.exportedIPAPath)
+                        Text(URL(fileURLWithPath: build.exportedIPAPath).lastPathComponent).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).help(build.exportedIPAPath)
                     } else if status != .mac && !build.archivePath.isEmpty { artifact(build.archivePath, id: "set.build.done.archive") }
-                    if let openError { Text(openError).font(.manrope(13)).foregroundStyle(LauncherPalette.building).textSelection(.enabled) }
+                    if let openError { Text(openError).font(DS.Font.body).foregroundStyle(LauncherPalette.building).textSelection(.enabled) }
                     if build.needsReplaceOldImgReminder {
                         Divider()
                         replaceOldImgRow
@@ -69,9 +69,9 @@ package struct OutcomeCard: View {
         HStack(alignment: .top, spacing: 12) {
             Circle().fill(LauncherPalette.building).frame(width: 7, height: 7).padding(.top, 5)
             VStack(alignment: .leading, spacing: 4) {
-                Text(loc.t("imgGuide.replaceOldImgTitle")).font(.manrope(13, .semibold))
+                Text(loc.t("imgGuide.replaceOldImgTitle")).font(DS.Font.bodyStrong)
                 Text(String(format: loc.t("imgGuide.replaceOldImgBody"), imgName))
-                    .font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
+                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
@@ -98,13 +98,13 @@ package struct OutcomeCard: View {
                 .padTarget("set.build.done.play", scope: "main", focusColor: LauncherPalette.onCream, activate: onPlayGame)
         }
         if status == .exported {
-            Button { revealInFinder(build.exportedIPAPath) } label: { Text(loc.t("install.reveal")).font(.manrope(13, .semibold)).padding(.horizontal, 18).frame(height: LauncherControl.height) }.buttonStyle(LauncherActionButtonStyle())
+            Button { revealInFinder(build.exportedIPAPath) } label: { Text(loc.t("install.reveal")).font(DS.Font.bodyStrong).padding(.horizontal, 18).frame(height: LauncherControl.height) }.buttonStyle(LauncherActionButtonStyle())
                 .padTarget("set.build.export.reveal", scope: "main", focusColor: LauncherPalette.onCream) { revealInFinder(build.exportedIPAPath) }
         }
         if status == .installed || status == .needsData {
             let button = Button(String(format: loc.t("dev.open"), devices.deviceName(build.installedOn)), action: openDevice)
             if status == .installed {
-                Button(action: openDevice) { Text(String(format: loc.t("dev.open"), devices.deviceName(build.installedOn))).font(.manrope(13, .semibold)).padding(.horizontal, 18).frame(height: LauncherControl.height) }.buttonStyle(LauncherActionButtonStyle())
+                Button(action: openDevice) { Text(String(format: loc.t("dev.open"), devices.deviceName(build.installedOn))).font(DS.Font.bodyStrong).padding(.horizontal, 18).frame(height: LauncherControl.height) }.buttonStyle(LauncherActionButtonStyle())
                     .padTarget("set.build.done.device", scope: "main", focusColor: LauncherPalette.onCream, activate: openDevice)
             } else {
                 button.buttonStyle(LauncherSecondaryButtonStyle())
@@ -122,7 +122,7 @@ package struct OutcomeCard: View {
             Divider()
             HStack(spacing: 12) {
                 Image(systemName: "folder.fill").foregroundStyle(.secondary)
-                Text(URL(fileURLWithPath: path).lastPathComponent).font(.manrope(13)).lineLimit(2).help(path)
+                Text(URL(fileURLWithPath: path).lastPathComponent).font(DS.Font.body).lineLimit(2).help(path)
                 Spacer(minLength: 8)
                 Button(loc.t("install.reveal")) { revealInFinder(path) }.buttonStyle(LauncherSecondaryButtonStyle())
                     .padTarget(id, scope: "main") { revealInFinder(path) }
@@ -144,8 +144,8 @@ package struct OutcomeCard: View {
     }
     private func guideStep(_ title: String, _ body: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(loc.t(title)).font(.manrope(13, .semibold))
-            Text(loc.t(body)).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(loc.t(title)).font(DS.Font.bodyStrong)
+            Text(loc.t(body)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }

@@ -49,12 +49,13 @@ import XCTest
         }
     }
 
-    func testSecondaryActionsHugTheirLabelsWithinTheSharedColumn() {
+    /// In a setting row every button is as wide as the control column, so the trailing column is one clean edge (#1458).
+    func testSecondaryActionsFillTheSharedColumn() {
         let short = NSHostingView(rootView: Button("OK") {}.buttonStyle(LauncherSecondaryButtonStyle()).launcherRowControls())
         let long = NSHostingView(rootView: Button("Check for updates") {}.buttonStyle(LauncherSecondaryButtonStyle()).launcherRowControls())
         XCTAssertEqual(short.fittingSize.height, 36)
         XCTAssertEqual(long.fittingSize.height, 36)
-        XCTAssertLessThan(short.fittingSize.width, long.fittingSize.width)
-        XCTAssertLessThanOrEqual(long.fittingSize.width, LauncherControl.width)
+        XCTAssertEqual(short.fittingSize.width, long.fittingSize.width)
+        XCTAssertEqual(long.fittingSize.width, LauncherControl.width)
     }
 }

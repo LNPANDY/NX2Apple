@@ -28,6 +28,11 @@ struct BuildMetadataHero: View {
     @State private var banner: NSImage?
     @State private var bannerID: String?
     private var game: LibraryGame? { library?.games.first { $0.titleID == titleID } }
+    /// "Mac", "iPhone" or both, for the line under the title.
+    private var platformLine: String {
+        let targets = (platformTargets.isEmpty ? [build.running ? build.runningTarget : build.target] : platformTargets).map(BuildTarget.normalized)
+        return [BuildTarget.mac, BuildTarget.ios].filter(targets.contains).map { loc.t($0 == BuildTarget.mac ? "library.section.mac" : "build.ios") }.joined(separator: " · ")
+    }
 
     var body: some View {
         HStack(spacing: 22) {
@@ -41,14 +46,15 @@ struct BuildMetadataHero: View {
                 }.frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 14)).accessibilityHidden(true)
                 }
             }
-            VStack(alignment: .leading, spacing: 10) {
-                BuildPlatformChip(targets: platformTargets.isEmpty ? [build.running ? build.runningTarget : build.target] : platformTargets)
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                // The page's title is the largest text on the page, the platforms a quiet line under it (#1458)
                 ZStack(alignment: .leading) {
                     Text(game?.displayName(loc.lang) ?? queuedGame?.entries.first?.name ?? metadataName ?? (build.gameName.isEmpty ? loc.t("build.heading") : build.gameName))
-                        .font(.manrope(30, .bold)).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                        .font(DS.Font.largeTitle).tracking(DS.Font.largeTitleTracking).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
                         .id(titleID).transition(LibraryHeroTransition.blurredMetadata(reduceMotion: reduceMotion))
                 }.animation(LibraryHeroTransition.queue(reduceMotion: reduceMotion), value: titleID)
+                Text(platformLine).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.top, 28).padding(.bottom, 28).padding(.horizontal, 40).frame(maxWidth: 900, alignment: .leading)
@@ -116,7 +122,7 @@ struct BuildQueueHero: View {
             QueueArtworkStack(items: games.prefix(4).map { QueueArtworkItem(id: $0.titleID, image: icons[$0.id]) }, size: 96)
             VStack(alignment: .leading, spacing: 6) {
                 Text(games.count == 1 ? loc.t("queue.oneGame") : String(format: loc.t("library.gameCount"), games.count)).font(.manrope(14)).foregroundStyle(.secondary)
-                Text(loc.t("queue.title")).font(.manrope(30, .bold)).accessibilityAddTraits(.isHeader)
+                Text(loc.t("queue.title")).font(DS.Font.largeTitle).tracking(DS.Font.largeTitleTracking).accessibilityAddTraits(.isHeader)
             }.frame(maxWidth: .infinity, alignment: .leading)
             Button(loc.t("queue.select"), action: onSelectGames)
                 .buttonStyle(LauncherSecondaryButtonStyle())

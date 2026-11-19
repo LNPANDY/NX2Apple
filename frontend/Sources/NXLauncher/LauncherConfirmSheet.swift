@@ -38,13 +38,13 @@ package struct LauncherConfirmSheet<Content: View>: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.manrope(26, .heavy)).tracking(-0.6).fixedSize(horizontal: false, vertical: true)
                 if !subtitle.isEmpty {
-                    Text(subtitle).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                    Text(subtitle).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 18)
             content
             if !note.isEmpty {
-                Text(note).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                Text(note).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 32).padding(.top, 12)
             }
             Divider().opacity(0.3).padding(.top, 20)
@@ -64,7 +64,7 @@ package struct LauncherConfirmSheet<Content: View>: View {
         .frame(width: Self.width)
         .fixedSize(horizontal: false, vertical: true)
         .background(LauncherPalette.background)
-        .font(.manrope(13))
+        .font(DS.Font.body)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .onAppear { cancelFocused = true; pad.scope = scope; pad.focused = scope + ".cancel" }

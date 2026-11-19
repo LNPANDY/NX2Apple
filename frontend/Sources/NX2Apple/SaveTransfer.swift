@@ -397,12 +397,12 @@ struct SavesView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(loc.t("saves.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                if let game { Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText) }
+                if let game { Text(game.displayName(loc.lang)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, model.showsSelector ? 12 : 20)
             if model.showsSelector {
                 HStack(spacing: 12) {
-                    Text(loc.t("saves.device")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(loc.t("saves.device")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     LauncherDropdown(options: model.devices.map { d in
                         (value: d.id, label: d.name + (d.reachable ? "" : " (" + loc.t("dev.notConnected") + ")"))
                     }, selection: model.selected, label: loc.t("saves.device")) { model.select($0) }
@@ -420,11 +420,11 @@ struct SavesView: View {
                 if busy {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
-                        Text(loc.t("saves.copying")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(loc.t("saves.copying")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     }
                 } else if let result {
                     Label(result.text, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .font(.manrope(13)).foregroundStyle(result.ok ? LauncherPalette.ready : LauncherPalette.building)
+                        .font(DS.Font.body).foregroundStyle(result.ok ? LauncherPalette.ready : LauncherPalette.building)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
@@ -432,7 +432,7 @@ struct SavesView: View {
             .padding(.horizontal, 30)
             Divider().opacity(0.3)
             HStack(spacing: 14) {
-                Text(String(format: loc.t("saves.note"), deviceName)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                Text(String(format: loc.t("saves.note"), deviceName)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Button { dismiss() } label: {
@@ -447,7 +447,7 @@ struct SavesView: View {
         .padScope("saves", focus)
         .frame(width: 600, height: 520)
         .background(LauncherPalette.background)
-        .font(.manrope(13))
+        .font(DS.Font.body)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .onAppear { model.begin() }
@@ -480,9 +480,9 @@ struct SavesView: View {
                 .foregroundStyle(LauncherPalette.secondaryText).frame(width: 26)
             VStack(alignment: .leading, spacing: 3) {
                 Text(side == .mac ? loc.t("saves.mac") : deviceName).font(.manrope(14, .medium))
-                Text(detail).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 if side == .mac {
-                    Text(macLocationText).font(.manrope(11)).foregroundStyle(.tertiary).lineLimit(2).truncationMode(.middle)
+                    Text(macLocationText).font(DS.Font.footnote).foregroundStyle(.tertiary).lineLimit(2).truncationMode(.middle)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -523,7 +523,7 @@ struct SavesView: View {
             Text(replacing == .device ? String(format: loc.t("saves.askToDevice"), deviceName) : String(format: loc.t("saves.askToMac"), deviceName))
                 .font(.manrope(15, .semibold)).fixedSize(horizontal: false, vertical: true)
             Text(String(format: loc.t("saves.askNote"), deviceName, m.shortPath(transfer.backups.path)))
-                .font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 Spacer()
                 Button(loc.t("saves.cancel")) { asking = nil }.buttonStyle(LauncherSecondaryButtonStyle())

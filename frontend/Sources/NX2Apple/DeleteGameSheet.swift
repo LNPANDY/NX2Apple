@@ -35,7 +35,7 @@ struct DeleteGameSheet: View {
                     Text(String(format: loc.t("delete.question"), game.displayName(loc.lang))).font(.manrope(22, .heavy)).tracking(-0.4)
                         .fixedSize(horizontal: false, vertical: true)
                     if plan.map({ !$0.items.isEmpty || $0.saves != nil }) ?? true {   // nothing goes to the Trash for a game with no files here
-                        Text(loc.t("delete.note")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                        Text(loc.t("delete.note")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -44,7 +44,7 @@ struct DeleteGameSheet: View {
                 if let plan {
                     card {
                         if plan.items.isEmpty {
-                            Text(loc.t("delete.nothing")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                            Text(loc.t("delete.nothing")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                                 .padding(.horizontal, 18).padding(.vertical, 13)
                         }
                         ForEach(Array(plan.items.enumerated()), id: \.element.id) { index, item in
@@ -57,7 +57,7 @@ struct DeleteGameSheet: View {
                     HStack(spacing: 10) { ProgressView().controlSize(.small); Text(loc.t("free.measuring")).foregroundStyle(LauncherPalette.secondaryText) }
                         .padding(.vertical, 20)
                 }
-                Text(loc.t("delete.sources")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                Text(loc.t("delete.sources")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 2)
             }
             .padding(.horizontal, 28).padding(.bottom, 20)
@@ -84,7 +84,7 @@ struct DeleteGameSheet: View {
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
         .background(LauncherPalette.background)
-        .font(.manrope(13))
+        .font(DS.Font.body)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .onAppear { if plan == nil { measure() } }
@@ -132,7 +132,7 @@ struct DeleteGameSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(loc.t("delete.saves")).font(.manrope(14, .medium))
                     Text(item == nil ? loc.t("delete.noSaves") : loc.t(saves ? "delete.savesOn" : "delete.savesOff"))
-                        .font(.manrope(12)).foregroundStyle(saves && item != nil ? Self.red : .secondary)
+                        .font(DS.Font.callout).foregroundStyle(saves && item != nil ? Self.red : .secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
@@ -146,7 +146,7 @@ struct DeleteGameSheet: View {
     }
 
     private func sizeText(_ bytes: Int64) -> some View {
-        Text(FreeSpaceView.bytes(bytes)).font(.manrope(13, .semibold)).monospacedDigit().frame(minWidth: 70, alignment: .trailing)
+        Text(FreeSpaceView.bytes(bytes)).font(DS.Font.bodyStrong).monospacedDigit().frame(minWidth: 70, alignment: .trailing)
     }
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {

@@ -64,7 +64,7 @@ package struct EngineSwitcherCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
                         Text(active.displayName)
-                            .font(.manrope(14, .semibold))
+                            .font(DS.Font.bodyStrong)
                             .foregroundStyle(LauncherPalette.text)
                         Text(loc.t(badgeKey))
                             .font(.manrope(11, .semibold))
@@ -74,7 +74,7 @@ package struct EngineSwitcherCard: View {
                             .background(LauncherPalette.secondaryFill, in: Capsule())
                     }
                     Text(collapsedSubtitle(active: active, busy: busy))
-                        .font(.manrope(12.5))
+                        .font(DS.Font.callout)
                         .foregroundStyle(LauncherPalette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -165,7 +165,7 @@ package struct EngineSwitcherCard: View {
         let shape = RoundedRectangle(cornerRadius: 9)
         return HStack(spacing: 0) {
             Text(title)
-                .font(.manrope(13, .semibold))
+                .font(DS.Font.bodyStrong)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -183,7 +183,7 @@ package struct EngineSwitcherCard: View {
         .overlay(shape.strokeBorder(open ? LauncherPalette.dropdownOpenBorder : LauncherPalette.secondaryBorder))
         .foregroundStyle(LauncherPalette.text)
         .contentShape(shape)
-        .launcherMeasured(label: Text(title).font(.manrope(13, .semibold)), room: LauncherControl.choiceWidth)
+        .launcherMeasured(label: Text(title).font(DS.Font.bodyStrong), room: LauncherControl.choiceWidth)
     }
 
     private func openDropdown() {

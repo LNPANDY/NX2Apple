@@ -25,7 +25,7 @@ struct RenameGameSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(loc.t("rename.title")).font(.manrope(22, .heavy)).tracking(-0.4)
-                Text(loc.t("rename.note")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                Text(loc.t("rename.note")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 16)
             TextField(game.ownName(loc.lang), text: $text)
@@ -38,7 +38,7 @@ struct RenameGameSheet: View {
                 .accessibilityLabel(loc.t("rename.title"))
                 .padding(.horizontal, 28).padding(.bottom, 8)
             Text(String(format: "%@: %@", loc.t("rename.placeholder"), game.ownName(loc.lang)))
-                .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.middle)
+                .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1).truncationMode(.middle)
                 .padding(.horizontal, 30).padding(.bottom, 20)
             Divider().opacity(0.3)
             HStack(spacing: 12) {
@@ -66,7 +66,7 @@ struct RenameGameSheet: View {
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
         .background(LauncherPalette.background)
-        .font(.manrope(13))
+        .font(DS.Font.body)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .onAppear { fieldFocused = true }

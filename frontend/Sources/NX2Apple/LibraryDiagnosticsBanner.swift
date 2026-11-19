@@ -30,7 +30,7 @@ struct SkippedLibraryItemsOverlay: View {
                         .font(.manrope(24, .heavy))
                         .tracking(-0.5)
                     Text(loc.t("macLibDiag.sheetNote"))
-                        .font(.manrope(13))
+                        .font(DS.Font.body)
                         .foregroundStyle(LauncherPalette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -56,7 +56,7 @@ struct SkippedLibraryItemsOverlay: View {
 
                 HStack(spacing: 12) {
                     Text(String(format: loc.t("macLibDiag.count"), items.count))
-                        .font(.manrope(12))
+                        .font(DS.Font.callout)
                         .foregroundStyle(LauncherPalette.secondaryText)
                     Spacer(minLength: 8)
                     if needsKeysAction {
@@ -74,7 +74,7 @@ struct SkippedLibraryItemsOverlay: View {
                     }
                     Button(action: close) {
                         Text(loc.t("free.done"))
-                            .font(.manrope(13, .semibold))
+                            .font(DS.Font.bodyStrong)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 7)
                             .background(LauncherPalette.menuFill, in: Capsule())
@@ -175,7 +175,7 @@ private struct SkippedItemRow: View {
                         .lineLimit(1)
                 }
                 Text(guidanceText)
-                    .font(.manrope(12))
+                    .font(DS.Font.callout)
                     .foregroundStyle(LauncherPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }

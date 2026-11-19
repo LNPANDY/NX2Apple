@@ -44,7 +44,7 @@ package struct BuildQueueCard: View {
                     Button(loc.t("queue.clear")) { queue.clearFinished() }.buttonStyle(LauncherSecondaryButtonStyle())
                         .padTarget("set.build.queue.clear", scope: "main", activate: { queue.clearFinished() })
                 }
-                if queue.paused { Text(loc.t("queue.paused")).font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.building) }
+                if queue.paused { Text(loc.t("queue.paused")).font(DS.Font.bodyStrong).foregroundStyle(LauncherPalette.building) }
                 Button(loc.t("queue.select"), action: onSelectGames).buttonStyle(LauncherSecondaryButtonStyle())
                     .padTarget("set.build.queue.select", scope: "main", activate: onSelectGames)
             } }
@@ -52,7 +52,7 @@ package struct BuildQueueCard: View {
                 if queue.awaitingResume {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(loc.t("queue.resumeTitle")).font(.manrope(14, .medium))
-                        Text(loc.t("queue.resumeNote")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        Text(loc.t("queue.resumeNote")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                         Button(loc.t("queue.resume")) { queue.resume() }.buttonStyle(LauncherSecondaryButtonStyle())
                             .padTarget("set.build.queue.restore", scope: "main") { queue.resume() }
                     }
@@ -139,17 +139,17 @@ package struct BuildQueueCard: View {
                 BuildPlatformChip(targets: game.entries.map(\.target))
                 Text(entry.name).font(.manrope(14, .medium)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
-                    if !game.both && !game.retryable && entry.status != .queued && (entry.status != .done || entry.packagePending != nil) { Text(status(entry)).font(.manrope(12.5)).foregroundStyle(color(entry.status)) }
+                    if !game.both && !game.retryable && entry.status != .queued && (entry.status != .done || entry.packagePending != nil) { Text(status(entry)).font(DS.Font.callout).foregroundStyle(color(entry.status)) }
                 }
                 if game.both && Self.outcome(game) != .success {
                     HStack(spacing: 12) {
                         ForEach(game.entries.filter { $0.status != .queued && $0.status != .failed && $0.status != .skipped }) { job in
                             if job.status == .done && job.packagePending == nil {
                                 Label(loc.t(job.target == BuildTarget.mac ? "library.section.mac" : "build.ios"), systemImage: "checkmark")
-                                    .font(.manrope(12.5)).foregroundStyle(LauncherPalette.ready)
+                                    .font(DS.Font.callout).foregroundStyle(LauncherPalette.ready)
                             } else {
                                 Text(loc.t(job.target == BuildTarget.mac ? "library.section.mac" : "build.ios") + " · " + status(job))
-                                    .font(.manrope(12.5)).foregroundStyle(color(job.status))
+                                    .font(DS.Font.callout).foregroundStyle(color(job.status))
                             }
                         }
                     }.fixedSize(horizontal: false, vertical: true)

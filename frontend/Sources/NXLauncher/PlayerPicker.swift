@@ -78,7 +78,7 @@ struct PlayerNameSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(loc.t(renaming == nil ? "players.newTitle" : "players.renameTitle")).font(.manrope(20, .heavy))
             if renaming == nil {
-                Text(loc.t("players.newNote")).font(.manrope(13)).foregroundStyle(.secondary)
+                Text(loc.t("players.newNote")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             TextField(loc.t("players.name"), text: $name)

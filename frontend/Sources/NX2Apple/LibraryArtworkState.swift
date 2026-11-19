@@ -90,7 +90,7 @@ struct LibraryProfileChip: View {
         .buttonStyle(.plain).accessibilityHint(explanation)
         .onHover { inside in if inside { showingHelp = true } else if !pinned { showingHelp = false } }
         .popover(isPresented: $showingHelp, arrowEdge: .bottom) {
-            Text(explanation).font(.manrope(13)).padding(16).frame(width: 320, alignment: .leading)
+            Text(explanation).font(DS.Font.body).padding(16).frame(width: 320, alignment: .leading)
         }
         .padTarget("hero.profile", scope: "main") { pinned = true; showingHelp = true }
     }

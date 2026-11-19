@@ -31,7 +31,7 @@ package struct TransferCard: View {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.name).font(.manrope(14, .medium)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    Text(entry.deviceName).font(.manrope(12.5)).foregroundStyle(.secondary)
+                    Text(entry.deviceName).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 }
                 Spacer(minLength: 8)
                 Text(loc.t("transfer.status." + (entry.status == .cancelling ? "sending" : entry.status.rawValue))).font(.manrope(12.5, .semibold)).foregroundStyle(color(entry.status))
@@ -40,18 +40,18 @@ package struct TransferCard: View {
                 LauncherProgressBar(value: entry.totalBytes > 0 ? Double(entry.doneBytes) / Double(entry.totalBytes) : nil, height: 6)
                 if entry.totalBytes > 0 {
                     Text(String(format: loc.t("transfer.progress"), ShellInstall.sizeText(entry.doneBytes), ShellInstall.sizeText(entry.totalBytes)))
-                        .font(.manrope(12.5)).monospacedDigit().foregroundStyle(.secondary)
+                        .font(DS.Font.callout).monospacedDigit().foregroundStyle(.secondary)
                 }
             }
             if entry.status == .waiting {
-                Text(String(format: loc.t("transfer.waitingNote"), entry.deviceName)).font(.manrope(12.5)).foregroundStyle(.secondary)
+                Text(String(format: loc.t("transfer.waitingNote"), entry.deviceName)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if entry.status == .cancelling {
-                Text(loc.t("transfer.cancelling")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                Text(loc.t("transfer.cancelling")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
             }
             if entry.status == .failed, let reason = entry.reason {
-                Text(reason).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(reason).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
                 if entry.status == .failed {

@@ -83,7 +83,7 @@ struct LauncherView: View {
          toolsAssessments: [UUID: GameRefreshAssessment] = [:],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
          enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, recorder: BuildRecorder? = nil, qaPrompt: Bool = false, qaLaunching: Bool = false, qaSkippedOpen: Bool = false,
-         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, dropdowns: LauncherDropdownState? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared, completionDismissal: BuildCompletionDismissal? = nil, allGamesOpen: Bool = false) {
+         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, dropdowns: LauncherDropdownState? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared, completionDismissal: BuildCompletionDismissal? = nil, allGamesOpen: Bool = false, buildStep: Int = 0) {
         _completionDismissal = StateObject(wrappedValue: completionDismissal ?? BuildCompletionDismissal())
         _padFocus = StateObject(wrappedValue: padFocus ?? PadFocus())
         _dropdowns = StateObject(wrappedValue: dropdowns ?? LauncherDropdownState())
@@ -119,6 +119,7 @@ struct LauncherView: View {
         _buildEditorOpen = State(initialValue: initialBuildEditorOpen)
         _settingsCategory = State(initialValue: settingsCategory)
         _allGamesOpen = State(initialValue: allGamesOpen)   // visual QA: the All games grid open
+        _buildStep = State(initialValue: buildStep)   // visual QA: a step of the build wizard
         self.performStartupChecks = performStartupChecks
     }
 
@@ -226,6 +227,7 @@ struct LauncherView: View {
                 topBar.background(LauncherPalette.background).zIndex(1)
                 LauncherTopBarRule()
                 EngineSyncBanner(engine: engine, m: m)
+                if page == .builds && buildEditorVisible { buildWizardBar }
             }
             if page == .library {
                 VStack(spacing: 0) {
@@ -298,7 +300,7 @@ struct LauncherView: View {
         .ignoresSafeArea(.container, edges: .top)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
-        .font(.manrope(13))   // the default for text without a font of its own
+        .font(DS.Font.body)   // the default for text without a font of its own
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .onDisappear { gamepad.deactivate() }
         .onAppear {
@@ -498,31 +500,31 @@ struct LauncherView: View {
                             Text(stage
                                     .map { [badge.isEmpty ? $0.displayName(loc.t) : "\(badge) \($0.displayName(loc.t))", $0.detail, $0.clock(at: context.date, left: loc.t("prog.etaEstimate"))].filter { !$0.isEmpty }.joined(separator: " · ") }
                                  ?? loc.t("library.preparing"))
-                                .font(.manrope(13)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.middle)
+                                .font(DS.Font.body).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.middle)
                         }
                         if stage?.isScanningLastShaderFiles == true {
-                            Text(loc.t("prog.lastShaderFiles")).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
+                            Text(loc.t("prog.lastShaderFiles")).font(DS.Font.body).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .frame(minWidth: 180, alignment: .leading)
                     LauncherProgressBar(value: buildProgress).frame(maxWidth: 480)
                         .accessibilityLabel(loc.t("prog.stageProgress"))
                     Text(buildProgress.map { "\(Int($0 * 100))%" } ?? "")
-                        .font(.manrope(14, .semibold)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).frame(width: 46, alignment: .leading)
+                        .font(DS.Font.bodyStrong).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).frame(width: 46, alignment: .leading)
                     Spacer(minLength: 8)
                     Button(loc.t("library.viewBuild")) { page = .builds; buildEditorOpen = true }.buttonStyle(LauncherSecondaryButtonStyle())
                     Button(loc.t(m.stopping ? "library.stopping" : "btn.stop")) { m.stop() }
                         .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.building)).disabled(m.stopping)
                 } else {
                     Image(systemName: "desktopcomputer").foregroundStyle(LauncherPalette.secondaryText)
-                    Text(loc.t("library.localNote")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(loc.t("library.localNote")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     if let n = repo.autoPulled, n > 0 {   // the automatic update when the app opened (RepoStore.autoPull): the tools are current
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
-                        Text(String(format: loc.t("library.toolsUpdated"), n)).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(String(format: loc.t("library.toolsUpdated"), n)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     }
                     if repo.autoAdopted {   // a ZIP copy connected and updated when the app opened (RepoStore.adoptAtLaunch)
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
-                        Text(loc.t("library.toolsAdopted")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(loc.t("library.toolsAdopted")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     }
                     Spacer()
                     if let staged = updates.staged {
@@ -530,7 +532,7 @@ struct LauncherView: View {
                         // This branch only shows with no build running, and restartNow checks again.
                         HStack(spacing: 10) {
                             Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6)
-                            Text(String(format: loc.t("library.appReady"), staged.release.tag)).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                            Text(String(format: loc.t("library.appReady"), staged.release.tag)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                         }
                         Button(loc.t("app.restartNow")) { updates.restartNow() }.buttonStyle(LauncherSecondaryButtonStyle())
                     }
@@ -553,7 +555,7 @@ struct LauncherView: View {
     private func padHint(_ role: ConsoleGlyphs.Role, _ label: String) -> some View {
         HStack(spacing: 7) {
             ConsoleGlyphView(glyph: ConsoleGlyphs.current().glyph(for: role), size: 18).foregroundStyle(LauncherPalette.accent)
-            Text(label).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+            Text(label).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
         }
     }
 

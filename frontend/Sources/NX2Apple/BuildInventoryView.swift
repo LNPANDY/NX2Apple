@@ -80,7 +80,7 @@ struct BuildInventoryView: View {
                 .padTarget("builds.supported", scope: "main", activate: supportedGames)
                 Button(action: newBuild) {
                     Label {
-                        Text(loc.t("library.newBuild")).font(.manrope(13, .semibold))
+                        Text(loc.t("library.newBuild")).font(DS.Font.bodyStrong)
                     } icon: {
                         Image(systemName: "plus").font(.system(size: 13, weight: .semibold))
                     }
@@ -141,10 +141,10 @@ struct BuildInventoryView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 5)).accessibilityHidden(true)
                             }
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(entry.displayName).font(.manrope(14, .semibold)).lineLimit(2)
+                                Text(entry.displayName).font(DS.Font.bodyStrong).lineLimit(2)
                                 if let version = entry.version {
                                     Text(version)
-                                        .font(.manrope(11)).foregroundStyle(.secondary).lineLimit(1)
+                                        .font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
                                 }
                             }
                         }.padding(.vertical, 8)
@@ -206,7 +206,7 @@ struct BuildInventoryView: View {
             BuildArtifactStatus(built: true, ipaOnly: target == BuildTarget.ios && entry.mobile == .ipa)
         } else {
             Button { buildPlatform(entry.game, target) } label: {
-                Text(loc.t("builds.buildMissing")).font(.manrope(13, .semibold))
+                Text(loc.t("builds.buildMissing")).font(DS.Font.bodyStrong)
                     .frame(minHeight: LauncherControl.height).padding(.horizontal, 6)
                     .contentShape(Capsule())
             }
@@ -295,7 +295,7 @@ struct CurrentBuildEntry: View {
                     Text(title ?? build.gameName).foregroundStyle(.secondary).lineLimit(1)
                     if build.running {
                         Text(build.stages.last(where: { $0.state == .running })?.name ?? loc.t("library.preparing"))
-                            .font(.manrope(12.5)).foregroundStyle(.secondary).lineLimit(1)
+                            .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
                     }
                 }
                 Spacer()

@@ -39,19 +39,27 @@ extension LauncherView {
         .fixedSize(horizontal: true, vertical: false)
     }
 
+    /// The build wizard's own navigation, at the top of its content column instead of beside the wordmark (#1458): back to the
+    /// Builds list and the wizard's options.
+    var buildWizardBar: some View {
+        HStack(spacing: DS.Space.xs) {
+            BuildHeaderControls(build: m, onBack: {
+                buildEditorOpen = false; padFocus.focused = "builds.first"
+            }, onInstallExisting: {
+                m.target = BuildTarget.ios; devices.exportIPA = false; buildStep = 2
+            }, onExport: {
+                m.target = BuildTarget.ios; devices.exportIPA = true; buildStep = 2
+            }, onCancel: { confirmingBuildCancel = true }, logOpen: $buildLogOpen, onShowSteps: { allBuildStepsOpen = true }, onEdit: { editingBuildResult = true; buildStep = 0 })
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DS.Space.xl).padding(.vertical, DS.Space.s)
+        .frame(maxWidth: DS.Control.contentWidth).frame(maxWidth: .infinity)
+    }
+
     var topBar: some View {
         LauncherHeaderLayout {
-            HStack(spacing: 16) {
+            HStack(spacing: DS.Space.m) {
                 LauncherWordmark()
-                if page == .builds && buildEditorVisible {
-                    BuildHeaderControls(build: m, onBack: {
-                        buildEditorOpen = false; padFocus.focused = "builds.first"
-                    }, onInstallExisting: {
-                        m.target = BuildTarget.ios; devices.exportIPA = false; buildStep = 2
-                    }, onExport: {
-                        m.target = BuildTarget.ios; devices.exportIPA = true; buildStep = 2
-                    }, onCancel: { confirmingBuildCancel = true }, logOpen: $buildLogOpen, onShowSteps: { allBuildStepsOpen = true }, onEdit: { editingBuildResult = true; buildStep = 0 })
-                }
             }.padding(.leading, 90)
             ViewThatFits(in: .horizontal) {
                 navigationTabs(tabInset: 18)
@@ -106,7 +114,7 @@ extension LauncherView {
             .accessibilityLabel(loc.t("library.search")).accessibilityHint(loc.t("library.searchShortcut"))
             if searching {
                 TextField(loc.t("library.search"), text: $search)
-                    .textFieldStyle(.plain).font(.manrope(14))
+                    .textFieldStyle(.plain).font(DS.Font.body)
                     .focused($searchFocused)
                     .onAppear { DispatchQueue.main.async { searchFocused = true } }
                     .onSubmit { if search.isEmpty { closeSearch() } }

@@ -184,7 +184,7 @@ struct ControlsView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(gameName ?? loc.t("controls.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                Text(loc.t(gameName == nil ? "controls.globalNote" : "controls.gameNote")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText)
+                Text(loc.t(gameName == nil ? "controls.globalNote" : "controls.gameNote")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
             ScrollViewReader { proxy in
@@ -209,7 +209,7 @@ struct ControlsView: View {
                 if let mappingStore {
                     ControllerMappingStatus(store: mappingStore)
                 } else {
-                    Text(loc.t("controls.globalApplied")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
+                    Text(loc.t("controls.globalApplied")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
                 }
                 Spacer(minLength: 8)
                 if !layout.isDefault {
@@ -233,7 +233,7 @@ struct ControlsView: View {
         .padScope("controls", focus)
         .frame(width: 600, height: 700)
         .background(LauncherPalette.background)
-        .font(.manrope(13))
+        .font(DS.Font.body)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .onDisappear { stopListening() }
@@ -265,7 +265,7 @@ struct ControlsView: View {
 
     private func section<Item, Row: View>(_ title: String, _ items: [Item], note: String = "", @ViewBuilder row: @escaping (Item) -> Row) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+            Text(title).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
             VStack(spacing: 0) {
                 ForEach(items.indices, id: \.self) { i in
                     row(items[i])
@@ -275,7 +275,7 @@ struct ControlsView: View {
             .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             if !note.isEmpty {
-                Text(note).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
+                Text(note).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
             }
         }
     }

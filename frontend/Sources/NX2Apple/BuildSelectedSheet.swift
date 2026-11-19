@@ -33,12 +33,12 @@ struct BuildSelectedSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(loc.t("queue.select").replacingOccurrences(of: "…", with: "")).font(.manrope(26, .heavy)).tracking(-0.5)
-                Text(loc.t("queue.selectNote")).font(.manrope(13)).foregroundStyle(.secondary)
+                Text(loc.t("queue.selectNote")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text(loc.t("queue.buildFor")).font(.manrope(14, .semibold))
+                    Text(loc.t("queue.buildFor")).font(DS.Font.bodyStrong)
                     Spacer()
                     LauncherSegmented(options: [(BuildTarget.mac, loc.t("library.section.mac")), (BuildTarget.ios, loc.t("build.ios")), ("both", loc.t("onboarding.platform.both"))],
                                       selection: selectedTarget) { selectedTarget = $0 }
@@ -98,7 +98,7 @@ struct BuildSelectedSheet: View {
                 Button(loc.t("queue.close"), action: close).buttonStyle(LauncherSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
                     .padTarget("batch.cancel", scope: "batch", activate: close)
                 Button { add() } label: {
-                    Text(loc.t("queue.add")).font(.manrope(14, .semibold)).padding(.horizontal, 20).padding(.vertical, 10)
+                    Text(loc.t("queue.add")).font(DS.Font.bodyStrong).padding(.horizontal, 20).padding(.vertical, 10)
                 }
                     .buttonStyle(LauncherActionButtonStyle())
                     .disabled(!canAdd)

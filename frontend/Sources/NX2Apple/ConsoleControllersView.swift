@@ -299,7 +299,7 @@ struct ConsoleToastView: View {
                     Text(controller.name).font(.manrope(compact ? 18 : 23, .semibold))
                     do { Text(t(controller.kind.labelKey) + " \u{00b7} " + playerLabel(controller)).font(.manrope(compact ? 14 : 17)).foregroundStyle(LauncherPalette.secondaryText) }
                     ConsoleBattery(controller: controller, lang: lang)
-                    if controller.charging { Text(t("console.charging")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText) }
+                    if controller.charging { Text(t("console.charging")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
                 }
                 Spacer(minLength: 0)
             }

@@ -12,7 +12,9 @@ enum GalleryScene: String, CaseIterable, Identifiable {
     /// The library: more games than the Recently played row holds (Show all), fewer (no Show all), none, the narrowest window,
     /// each notice tone, and the All games grid.
     case libraryGames, libraryFew, libraryEmpty, libraryNarrow, libraryEngineUpdate, libraryNoticeWarning, libraryNoticeError, libraryWidescreen, allGames
-    case gamePage, gameOptions, buildsIdle, buildsRunning, buildFailed, settings, consoleHome
+    /// The build wizard's steps (game files, platform, install), the launch options, the Builds page, each part of Settings, the console.
+    case gamePage, wizardPlatform, wizardInstall, gameOptions, buildsIdle, buildsRunning, buildFailed
+    case settings, settingsLibrary, settingsControls, settingsTools, consoleHome
 
     var id: String { rawValue }
     /// The launcher's ideal width at a common laptop height, and its minimum window for the narrow scene.
@@ -69,10 +71,10 @@ enum GalleryScene: String, CaseIterable, Identifiable {
         // the library's own artwork folder and no title list: the player's artwork and the network stay out of every scene
         let artworkStore = ArtworkStore(directory: library.artworkDirectory, titleList: directory.appendingPathComponent("no-titles.json"), fallbacks: [:])
         func launcher(_ page: LauncherPage, editor: Bool = false, olderTools: Set<UUID> = [], assessments: [UUID: GameRefreshAssessment] = [:],
-                      allGames: Bool = false) -> LauncherView {
-            LauncherView(stores: stores, library: library, initialPage: page, initialBuildEditorOpen: editor, settingsCategory: .general,
+                      allGames: Bool = false, category: SettingsCategory = .general, step: Int = 0) -> LauncherView {
+            LauncherView(stores: stores, library: library, initialPage: page, initialBuildEditorOpen: editor, settingsCategory: category,
                          performStartupChecks: false, olderTools: olderTools, toolsAssessments: assessments, artworkStore: artworkStore,
-                         allGamesOpen: allGames)
+                         allGamesOpen: allGames, buildStep: step)
         }
         let root: AnyView
         switch scene {
@@ -97,6 +99,10 @@ enum GalleryScene: String, CaseIterable, Identifiable {
         case .gamePage:
             configureBuild(stores, library: library)
             root = AnyView(launcher(.builds, editor: true))
+        case .wizardPlatform, .wizardInstall:
+            configureBuild(stores, library: library)
+            stores.build.target = BuildTarget.ios
+            root = AnyView(launcher(.builds, editor: true, step: scene == .wizardPlatform ? 1 : 2))
         case .buildsIdle:
             root = AnyView(launcher(.builds))
         case .buildsRunning:
@@ -116,6 +122,12 @@ enum GalleryScene: String, CaseIterable, Identifiable {
                 .environmentObject(stores.saveSettings).environmentObject(stores.players))
         case .settings:
             root = AnyView(launcher(.settings))
+        case .settingsLibrary:
+            root = AnyView(launcher(.settings, category: .library))
+        case .settingsControls:
+            root = AnyView(launcher(.settings, category: .controls))
+        case .settingsTools:
+            root = AnyView(launcher(.settings, category: .tools))
         case .consoleHome:
             root = AnyView(ConsoleView(driver: MockConsoleDriver(scenario: .full, lang: lang, animated: false), lang: lang))
         }

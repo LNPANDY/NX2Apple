@@ -31,9 +31,9 @@ struct OnboardingKeysContent: View {
                 .frame(width: 52, height: 52)
                 .background(LauncherPalette.ink(0.08), in: RoundedRectangle(cornerRadius: 10)).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(file?.lastPathComponent ?? "prod.keys").font(.manrope(14, .semibold))
+                    Text(file?.lastPathComponent ?? "prod.keys").font(DS.Font.bodyStrong)
                     Text(t(state.keys == .empty || state.keys == .skipped ? "onboarding.keys.drop" : state.keys.statusKey))
-                        .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                        .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }.frame(maxWidth: .infinity, alignment: .leading).help(file?.path ?? "")
                 Button(t(file == nil ? "onboarding.choose" : "data.change"), action: choose)
@@ -53,7 +53,7 @@ struct OnboardingKeysContent: View {
             }
             if case let .invalid(reason) = state.keys {
                 Label(reason, systemImage: "exclamationmark.triangle.fill")
-                    .font(.manrope(13)).foregroundStyle(LauncherPalette.building)
+                    .font(DS.Font.body).foregroundStyle(LauncherPalette.building)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(18)
                     .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))

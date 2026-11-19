@@ -73,16 +73,16 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                     Link("github.com/LNPANDY/NX2Apple", destination: URL(string: RepoStore.url.replacingOccurrences(of: ".git", with: ""))!)
                     Text(loc.t("repo.manualHint2")).foregroundStyle(LauncherPalette.secondaryText)
                 }
-                .font(.manrope(12)).padding(.horizontal, 18).padding(.bottom, 12)
+                .font(DS.Font.callout).padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
             }
             if repo.isRepo, !repo.isGit {
-                Text(loc.t(repo.autoUpdate ? "repo.noGit" : "repo.zipNoAuto")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
-                    .padding(.horizontal, 18).padding(.bottom, 12)
+                Text(loc.t(repo.autoUpdate ? "repo.noGit" : "repo.zipNoAuto")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                    .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
             }
             if repo.isRepo, !RepoLayout.missingTools(in: repo.path).isEmpty {
                 Text(String(format: loc.t("repo.toolsOld"), RepoLayout.missingTools(in: repo.path).joined(separator: ", ")))
-                    .font(.manrope(12)).foregroundStyle(LauncherPalette.building).fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 18).padding(.bottom, 12)
+                    .font(DS.Font.callout).foregroundStyle(LauncherPalette.building).fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
             }
             if repo.isRepo {   // a ZIP copy too: its adoption at launch follows this switch
                 CardDivider()
@@ -92,6 +92,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                 }
             }
             }
+            builder   // the build source rows belong to the build tools (#1458)
         }.onChange(of: engine.available?.version) { version in
             if version == nil, pad.focused == "set.engineInstall" { pad.focused = "set.engineCheck" }
         }
@@ -130,7 +131,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                             help: loc.t(d.hint)) {
                             if d.installing {
                                 ProgressView().controlSize(.small)
-                                Text(loc.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
+                                Text(loc.t("dep.installing")).font(DS.Font.callout).foregroundStyle(LauncherPalette.building)
                             } else if !d.present && !(d.id == "xcode" && dependencies.xcodeApp != nil && d.installCmd.isEmpty) {
                                 Button(d.actionLabel.isEmpty ? (d.installCmd.isEmpty ? loc.t("dep.openAppStore") : loc.t("dep.install")) : loc.t(d.actionLabel)) { _ = dependencies.install(d) }
                                     .padTarget("set.dep.install." + d.id, scope: "main") { _ = dependencies.install(d) }
@@ -147,7 +148,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
-                            .padding(.leading, 37).padding(.trailing, 18).padding(.bottom, 11)
+                            .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -155,9 +156,8 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
             }
         }
         CardGroup(loc.t("settings.storageGroup")) { shellCache }
-        builder
-        CardGroup(loc.t("diag.title")) {
-            CardRow(loc.t("diag.title"), info: ("set.diag.help", loc.t("diag.note"))) { diagnostics }
+        CardGroup("") {   // one row says what it is, its button what it does
+            CardRow(loc.t("diag.title"), detail: loc.t("diag.note")) { diagnostics }
         }
     }
 

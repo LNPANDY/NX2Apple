@@ -133,7 +133,7 @@ struct ManageButtonLabel: View {
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: "ellipsis.circle").font(.system(size: 27, weight: .ultraLight))
-            Text(title).font(.manrope(13))
+            Text(title).font(DS.Font.body)
         }
         .foregroundStyle(LauncherPalette.textStrong).contentShape(Rectangle())
     }

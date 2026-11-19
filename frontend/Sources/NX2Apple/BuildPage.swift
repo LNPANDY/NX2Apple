@@ -112,7 +112,7 @@ struct BuildPage: View {
             BuildProcessStepsSheet(build: build) { allStepsOpen.wrappedValue = false; pad.scope = "main" }
                 .environmentObject(loc).environmentObject(pad)
         }
-        .environment(\.launcherSectionTitleFont, .manrope(30, .bold))
+        .environment(\.launcherSectionTitleFont, DS.Font.title)   // a step header, below the page title (#1458)
         .safeAreaInset(edge: .bottom, spacing: 0) { if !processActive && !completionActive { footer } }
         .sheet(isPresented: $confirmingCancel, onDismiss: { pad.scope = "main" }) {
             LauncherConfirmSheet(title: loc.t("flow.cancelTitle"), subtitle: build.gameName, note: loc.t("flow.cancelNote"),
@@ -140,42 +140,35 @@ struct BuildPage: View {
         .onChange(of: running) { active in if active { editingResult.wrappedValue = false } else { allStepsOpen.wrappedValue = false } }
         .onChange(of: logOpen) { _ in if pad.visible { pad.focused = "set.build.options" } }
     }
+    /// Back on the leading side, where the player is in the middle, Next with its trailing chevron on the trailing side (#1458).
     private var footer: some View {
-        VStack(spacing: 0) {
-            if !running && !queueReview {
-                GeometryReader { box in
-                    Capsule().fill(LauncherPalette.secondaryText.opacity(0.15))
-                        .overlay(alignment: .leading) {
-                            Capsule().fill(LauncherPalette.text).frame(width: box.size.width * CGFloat(min(step, lastStep) + 1) / CGFloat(lastStep + 1))
-                        }
-                }.frame(height: 4).accessibilityLabel(labels[min(step, lastStep)])
-                    .accessibilityValue(String(format: loc.t("onboarding.stepCount"), min(step, lastStep) + 1, lastStep + 1))
+        let current = min(step, lastStep)
+        let progress = running || queueReview || showingActions ? nil
+            : String(format: loc.t("wizard.step"), current + 1, lastStep + 1) + " · " + labels[current]
+        return DSWizardFooter(progress: progress) {
+            if !queue.isEmpty {
+                Button(loc.t("queue.cancel")) { confirmingQueueCancel = true }
+                    .disabled(queue.queued.isEmpty)
+                    .padTarget("set.build.queue.cancel", scope: "main", enabled: !queue.queued.isEmpty) { confirmingQueueCancel = true }
             }
-            HStack(spacing: 12) {
-                if !queue.isEmpty {
-                    Button(loc.t("queue.cancel")) { confirmingQueueCancel = true }
-                        .disabled(queue.queued.isEmpty)
-                        .padTarget("set.build.queue.cancel", scope: "main", enabled: !queue.queued.isEmpty) { confirmingQueueCancel = true }
-                }
-                if step > 0 && !running && !queueReview {
-                    Button(loc.t("onboarding.back")) { move(-1) }
-                        .padTarget("set.build.previous", scope: "main", activate: { move(-1) })
-                }
-                Spacer(minLength: 12)
-                if showingActions {
-                    if !queueReview || queue.hasWaiting { ActionCard(build: build, dependencies: dependencies, repo: repo) }
-                } else {
-                    Text(labels[min(step, lastStep)]).font(.manrope(12)).foregroundStyle(.secondary)
-                    Button { move(1) } label: {
-                        Label(loc.t("flow.next"), systemImage: "chevron.right").padding(.horizontal, 18).frame(height: LauncherControl.height)
-                    }.buttonStyle(LauncherActionButtonStyle())
-                        .keyboardShortcut(pad.scope == "main" ? KeyboardShortcut(.return, modifiers: []) : nil)
-                        .disabled(step == 0 && !build.slot("base").ok && build.gameFolder == nil)
-                        .padTarget("set.build.next", scope: "main", focusColor: LauncherPalette.onCream, enabled: step != 0 || build.slot("base").ok || build.gameFolder != nil, activate: { move(1) })
-                }
-            }.padding(.horizontal, 40).padding(.vertical, 16).frame(maxWidth: 900)
-                .frame(maxWidth: .infinity)
-        }.background(LauncherPalette.background).buttonStyle(LauncherSecondaryButtonStyle())
+            if step > 0 && !running && !queueReview {
+                Button(loc.t("onboarding.back")) { move(-1) }
+                    .padTarget("set.build.previous", scope: "main", activate: { move(-1) })
+            }
+        } trailing: {
+            if showingActions {
+                if !queueReview || queue.hasWaiting { ActionCard(build: build, dependencies: dependencies, repo: repo) }
+            } else {
+                Button { move(1) } label: { DSContinueLabel(loc.t("flow.next")) }
+                    .buttonStyle(DSPrimaryButtonStyle())
+                    .keyboardShortcut(pad.scope == "main" ? KeyboardShortcut(.return, modifiers: []) : nil)
+                    .disabled(step == 0 && !build.slot("base").ok && build.gameFolder == nil)
+                    .padTarget("set.build.next", scope: "main", focusColor: LauncherPalette.onCream, enabled: step != 0 || build.slot("base").ok || build.gameFolder != nil, activate: { move(1) })
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityValue(String(format: loc.t("onboarding.stepCount"), current + 1, lastStep + 1))
+        .buttonStyle(DSSecondaryButtonStyle())
     }
     private func move(_ delta: Int) {
         guard !build.running else { return }

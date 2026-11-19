@@ -133,9 +133,9 @@ package struct ExportSteps: View {
             .frame(width: ExportGrid.badge, height: ExportGrid.badge)
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.manrope(14, .semibold)).foregroundStyle(phase == .upcoming ? .secondary : .primary)
+                Text(title).font(DS.Font.bodyStrong).foregroundStyle(phase == .upcoming ? .secondary : .primary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(sub).font(.manrope(12.5)).foregroundStyle(phase == .upcoming ? .tertiary : .secondary)
+                Text(sub).font(DS.Font.callout).foregroundStyle(phase == .upcoming ? .tertiary : .secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: ExportGrid.gap)
@@ -149,7 +149,7 @@ package struct ExportSteps: View {
     @ViewBuilder private func action(_ title: String, id: String, accent: Color? = nil, enabled: Bool = true, _ perform: @escaping () -> Void) -> some View {
         let button = Button(title, action: perform)
         if resultOnly && build.completionStatus == .needsData && (id == "send" || id == "copy") {
-            Button(action: perform) { Text(title).font(.manrope(13, .semibold)).padding(.horizontal, 18).frame(height: LauncherControl.height) }.buttonStyle(LauncherActionButtonStyle()).disabled(!enabled).launcherRowControls()
+            Button(action: perform) { Text(title).font(DS.Font.bodyStrong).padding(.horizontal, 18).frame(height: LauncherControl.height) }.buttonStyle(LauncherActionButtonStyle()).disabled(!enabled).launcherRowControls()
                 .padTarget("set.build.export." + id, scope: "main", focusColor: LauncherPalette.onCream, enabled: enabled) { if enabled { perform() } }
         } else {
         button.buttonStyle(LauncherSecondaryButtonStyle(accent: accent))
@@ -333,7 +333,7 @@ package struct ExportSteps: View {
         return HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(color).frame(width: 13)
             VStack(alignment: .leading, spacing: 8) {
-                Text(text).font(.manrope(12.5)).foregroundStyle(kind == .done || kind == .info ? Color.secondary : color)
+                Text(text).font(DS.Font.callout).foregroundStyle(kind == .done || kind == .info ? Color.secondary : color)
                     .fixedSize(horizontal: false, vertical: true)
                 more()
             }
@@ -345,7 +345,7 @@ package struct ExportSteps: View {
         VStack(alignment: .leading, spacing: 8) {
             LauncherProgressBar(value: total > 0 ? Double(done) / Double(total) : 0, height: 6)
                 .frame(height: 6).accessibilityLabel(text)
-            Text(text).font(.manrope(12.5)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(text).font(DS.Font.callout).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 4)
     }
@@ -403,7 +403,7 @@ struct FinderCopySteps: View {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("\(index + 1)").font(.manrope(11, .semibold)).monospacedDigit().foregroundStyle(.secondary)
                         .frame(width: 18, height: 18).background(Circle().fill(LauncherPalette.ink(0.08)))
-                    Text(line).font(.manrope(12.5)).foregroundStyle(.primary.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+                    Text(line).font(DS.Font.callout).foregroundStyle(.primary.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }

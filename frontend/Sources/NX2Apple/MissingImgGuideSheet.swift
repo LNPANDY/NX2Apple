@@ -133,7 +133,7 @@ struct MissingImgGuideSheet: View {
                         .tracking(-0.4)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(String(format: loc.t("imgGuide.subtitle"), gameDisplayName))
-                        .font(.manrope(13))
+                        .font(DS.Font.body)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -154,7 +154,7 @@ struct MissingImgGuideSheet: View {
             }
 
             Text(loc.t("imgGuide.opt1Note"))
-                .font(.manrope(12.5))
+                .font(DS.Font.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -189,7 +189,7 @@ struct MissingImgGuideSheet: View {
                         .font(.system(size: 12))
                         .foregroundStyle(LauncherPalette.danger)
                     Text(error)
-                        .font(.manrope(12.5))
+                        .font(DS.Font.callout)
                         .foregroundStyle(LauncherPalette.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -216,7 +216,7 @@ struct MissingImgGuideSheet: View {
             }
 
             Text(loc.t("imgGuide.opt2Note"))
-                .font(.manrope(12.5))
+                .font(DS.Font.callout)
                 .foregroundStyle(LauncherPalette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -235,13 +235,13 @@ struct MissingImgGuideSheet: View {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(String(format: loc.t("imgGuide.pulling"), pullingName))
-                        .font(.manrope(12.5))
+                        .font(DS.Font.callout)
                         .foregroundStyle(LauncherPalette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else if device == nil {
                 Text(loc.t("imgGuide.pullNoDevice"))
-                    .font(.manrope(12))
+                    .font(DS.Font.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -252,7 +252,7 @@ struct MissingImgGuideSheet: View {
                         .font(.system(size: 12))
                         .foregroundStyle(LauncherPalette.danger)
                     Text(error)
-                        .font(.manrope(12.5))
+                        .font(DS.Font.callout)
                         .foregroundStyle(LauncherPalette.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -295,7 +295,7 @@ struct MissingImgGuideSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             if assessment.missingOriginalPackage {
                 Text(loc.t("imgGuide.noNspHint"))
-                    .font(.manrope(12))
+                    .font(DS.Font.callout)
                     .foregroundStyle(LauncherPalette.building)
                     .fixedSize(horizontal: false, vertical: true)
             }

@@ -37,7 +37,7 @@ struct SettingsPage: View {
 
     var body: some View {
         LauncherStickyPageScroll(memoryKey: "settings." + category.rawValue, scrollRequest: $pendingScrollID) {
-            CardPageHeading(loc.t("settings.heading"), note: loc.t("settings.note"))
+            CardPageHeading(loc.t("settings.heading"), note: loc.t("settings.note." + category.rawValue))   // each part says what it holds
         } bar: {
             LauncherSegmented(options: SettingsCategory.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: category.rawValue) {
                 category = SettingsCategory(rawValue: $0) ?? .general
@@ -53,7 +53,7 @@ struct SettingsPage: View {
             }
         }
         .environment(\.launcherSettingsLayout, true)
-        .environment(\.launcherSectionTitleFont, .manrope(18, .semibold))
+        .environment(\.launcherSectionTitleFont, DS.Font.headline)
     }
 
     private func move(_ by: Int) {
@@ -99,11 +99,11 @@ struct SettingsPage: View {
         ToolsCard(repo: repo, engine: engine, dependencies: dependencies, buildRunning: build.running,
                   shellCache: { ShellCacheRow(build: build) }, builder: {
             if ExperimentalBuilder.featureEnabled || MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled {
-                CardGroup("") {
-                    if ExperimentalBuilder.featureEnabled { ExperimentalBuilderRow(build: build) }
-                    if ExperimentalBuilder.featureEnabled && (MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled) { CardDivider() }
-                    if MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled { UpstreamBuilderRow(build: build) }
-                }
+                // rows of the build tools group, under its last row
+                CardDivider()
+                if ExperimentalBuilder.featureEnabled { ExperimentalBuilderRow(build: build) }
+                if ExperimentalBuilder.featureEnabled && (MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled) { CardDivider() }
+                if MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled { UpstreamBuilderRow(build: build) }
             }
         }) {
             DiagnosticsButton(report: diagnostics, game: library.selected)
@@ -163,7 +163,10 @@ struct LibraryFoldersCard: View {
                         .disabled(library.scanning || state != .connected)
                         .accessibilityLabel(String(format: loc.t("library.rescanFolder"), name))
                         .padTarget("set.rescan.\(index)", scope: "main", enabled: !library.scanning && state == .connected) { if !library.scanning, state == .connected { library.rescan() } }
-                    Button(loc.t("library.removeFolder")) { library.removeFolder(root) }
+                    // the second action of the row: a round icon button beside the column, so the column keeps one width
+                    Button { library.removeFolder(root) } label: { Image(systemName: "minus") }
+                        .buttonStyle(LauncherIconButtonStyle())
+                        .help(loc.t("library.removeFolder"))
                         .accessibilityLabel(String(format: loc.t("library.removeFolderNamed"), name))
                         .padTarget("set.removeFolder.\(index)", scope: "main") { library.removeFolder(root) }
                 }

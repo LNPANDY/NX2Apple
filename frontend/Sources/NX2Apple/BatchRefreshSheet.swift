@@ -316,7 +316,7 @@ struct BatchRefreshSheet: View {
 
             }
             Text(loc.t("batchRefresh.subtitle"))
-                .font(.manrope(13))
+                .font(DS.Font.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -359,7 +359,7 @@ struct BatchRefreshSheet: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 8) {
                             Text(row.game.displayName(loc.lang))
-                                .font(.manrope(14, .semibold))
+                                .font(DS.Font.bodyStrong)
                                 .foregroundStyle(LauncherPalette.text)
                                 .lineLimit(2).multilineTextAlignment(.leading)
                                 .help(row.assessment.hasSpecificUpdate ? String(format: loc.t("library.refresh.badgeVersion"), row.assessment.versionLabel) : "")

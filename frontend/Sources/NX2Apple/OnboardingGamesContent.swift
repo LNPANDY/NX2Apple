@@ -33,10 +33,10 @@ import NXLauncher
                 HStack {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 10) {
-                            Text(String(format: t("onboarding.games.count"), found.count)).font(.manrope(14, .semibold))
+                            Text(String(format: t("onboarding.games.count"), found.count)).font(DS.Font.bodyStrong)
                             BuildPlatformChip(targets: state.selectedPlatform == .both ? [BuildTarget.mac, BuildTarget.ios] : [state.selectedPlatform == .mac ? BuildTarget.mac : BuildTarget.ios])
                         }.environmentObject(Localizer(lang))
-                        Text(t("onboarding.games.select")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(t("onboarding.games.select")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     }
                     Spacer(minLength: 16)
                     Button(t("onboarding.games.build"), action: build)
@@ -45,7 +45,7 @@ import NXLauncher
                 }
                 if state.keys == .skipped && found.contains(where: \.needsKeys) {
                     Label(t("onboarding.games.needKeys"), systemImage: "key.slash.fill")
-                        .font(.manrope(13)).foregroundStyle(LauncherPalette.building)
+                        .font(DS.Font.body).foregroundStyle(LauncherPalette.building)
                 }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: columns), alignment: .leading, spacing: 24) {
                     ForEach(found) { game in

@@ -31,7 +31,7 @@ struct LibraryGameCard: View {
                 .overlay(alignment: .topLeading) { LibraryArtworkChip(state: state).padding(8) }
                 .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(selected ? LauncherPalette.cream : LauncherPalette.cardBorder,
                                                                                      lineWidth: selected ? 2 : 1))
-                Text(title).font(.manrope(16, .semibold)).lineLimit(1)
+                Text(title).font(DS.Font.headline).lineLimit(1)
             }
             .frame(width: width, alignment: .leading)
             .padding(LibraryCardLayout.inset)

@@ -92,7 +92,7 @@ extension LauncherView {
         let compact = width < Self.collectionWideHeaderWidth
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
-                Text(loc.t("library.recent")).font(.manrope(22, .bold)).tracking(-0.4).lineLimit(1).fixedSize()
+                Text(loc.t("library.recent")).font(DS.Font.title).tracking(DS.Font.titleTracking).lineLimit(1).fixedSize()
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 12)
                 LauncherGlassGroup {
@@ -162,13 +162,13 @@ extension LauncherView {
             VStack(alignment: .leading, spacing: LibraryCardLayout.titleSpacing) {
                 VStack(spacing: 8) {
                     Image(systemName: "square.grid.2x2").font(.system(size: 22, weight: .regular))
-                    Text(String(format: loc.t("library.gameCount"), library.games.count)).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(String(format: loc.t("library.gameCount"), library.games.count)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 }
                 .foregroundStyle(LauncherPalette.text)
                 .frame(width: width, height: width / LibraryCardLayout.aspect)
                 .background(LauncherPalette.ink(0.05), in: RoundedRectangle(cornerRadius: 5))
                 .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(LauncherPalette.cardBorder))
-                Text(loc.t("library.showAll")).font(.manrope(16, .semibold)).lineLimit(1)
+                Text(loc.t("library.showAll")).font(DS.Font.headline).lineLimit(1)
             }
             .frame(width: width, alignment: .leading)
             .padding(LibraryCardLayout.inset)
@@ -228,9 +228,9 @@ extension LauncherView {
                     .help(loc.t("library.backToLibrary")).accessibilityLabel(loc.t("library.backToLibrary"))
                     .padTarget("allGames.back", scope: "main", activate: closeAllGames)
             }
-            Text(loc.t(allGamesOpen ? "library.allGames" : "library.yourLibrary")).font(.manrope(28, .bold)).tracking(-0.6).lineLimit(1).fixedSize()
+            Text(loc.t(allGamesOpen ? "library.allGames" : "library.yourLibrary")).font(DS.Font.title).tracking(DS.Font.titleTracking).lineLimit(1).fixedSize()
                 .accessibilityAddTraits(.isHeader)
-            Text(String(format: loc.t("library.gameCount"), count)).font(.manrope(12.5)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+            Text(String(format: loc.t("library.gameCount"), count)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1).fixedSize()
         }
     }
 }

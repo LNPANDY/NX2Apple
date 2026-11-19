@@ -27,7 +27,7 @@ struct ArtworkPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(t("artwork.title")).font(.manrope(26, .heavy)).tracking(-0.6).accessibilityAddTraits(.isHeader)
-                Text(editor.gameName).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1)
+                Text(editor.gameName).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
             }
             .padding(.horizontal, 24).padding(.top, 22).padding(.bottom, 14)
             tabs.padding(.horizontal, 24).padding(.bottom, 14)
@@ -35,7 +35,7 @@ struct ArtworkPanel: View {
               ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     grid
-                    if editor.isLoading { Text(t("artwork.loading")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText) }
+                    if editor.isLoading { Text(t("artwork.loading")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary) }
                     if editor.loadState == .offline { offline }
                     if let notice = editor.notice { noticeRow(notice) }
                     if editor.needsFraming { framing }
@@ -58,7 +58,7 @@ struct ArtworkPanel: View {
         .padScope("artwork", focus)
         .frame(width: Self.width).frame(maxHeight: .infinity)
         .background(LauncherPalette.background)
-        .font(.manrope(13))
+        .font(DS.Font.body)
         .modifier(GameFilesDrop(enabled: true, label: t("artwork.dropHint." + slotName), targeted: dropped) { paths in
             if let path = paths.first { Task { await editor.importFile(URL(fileURLWithPath: path)) } }
         })
@@ -184,7 +184,7 @@ struct ArtworkPanel: View {
     private var framing: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(t("artwork.framing")).font(.manrope(13, .semibold))
+                Text(t("artwork.framing")).font(DS.Font.bodyStrong)
                 Spacer(minLength: 8)
                 if !editor.isCentered {
                     Button(t("artwork.framing.center")) { editor.recenter() }.buttonStyle(LauncherSecondaryButtonStyle())
@@ -290,7 +290,7 @@ struct ArtworkPanel: View {
 
     private var offline: some View {
         HStack(spacing: 12) {
-            Label(t("artwork.offline"), systemImage: "wifi.slash").font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+            Label(t("artwork.offline"), systemImage: "wifi.slash").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             Button(t("artwork.retry")) { editor.retry() }.buttonStyle(LauncherSecondaryButtonStyle())
@@ -305,7 +305,7 @@ struct ArtworkPanel: View {
             case .error(let text): return (text, "exclamationmark.circle.fill", LauncherPalette.danger)
             }
         }()
-        return Label(text, systemImage: symbol).font(.manrope(13)).foregroundStyle(color).fixedSize(horizontal: false, vertical: true)
+        return Label(text, systemImage: symbol).font(DS.Font.body).foregroundStyle(color).fixedSize(horizontal: false, vertical: true)
     }
 
     /// Reset, Cancel and Save on one row when the reset text fits (English, Chinese, Swedish), else Reset on a row of its own above
