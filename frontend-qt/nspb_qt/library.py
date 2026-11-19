@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import inputs as _inputs
+from . import known_banners as _kb
 from . import platform_util as pu
 from . import post_build_cleanup as pbc
 
@@ -1417,16 +1418,8 @@ class GameLibrary:
 
 class ArtworkStore:
     TITLEDB_URL = 'https://raw.githubusercontent.com/blawar/titledb/master/US.en.json'
-    FALLBACK_BANNERS: dict[str, str] = {
-        '0400245021D2C000': 'https://cdn2.steamgriddb.com/grid/4019460f699df3ca57bb36a6cc8b1ce5.png',  # Yoshi and the Mysterious Book
-        '0400380020056000': 'https://cdn2.steamgriddb.com/grid/220a08c045f283231e519ed83cd21466.png',  # Splatoon Raiders
-        '04003F40232DE000': 'https://cdn2.steamgriddb.com/grid/30430599d3640690ebddef63609c5f31.png',  # Hyrule Warriors: Age of Imprisonment
-        '0400486024DEC000': 'https://cdn2.steamgriddb.com/grid/925526bdfb5910517494acb4db2537d5.png',  # The Legend of Zelda: Ocarina of Time
-        '04007EF01F8AE000': 'https://cdn2.steamgriddb.com/grid/f73cc1e0813d90b30a22ca9af2e9c8b0.png',  # Fire Emblem: Fortune's Weave
-        '0400A3A01EE4C000': 'https://cdn2.steamgriddb.com/grid/00b97e285bef52b2826cfbeecd4d30f7.png',  # Pokémon Pokopia
-        '0400D4201C6EA000': 'https://cdn2.steamgriddb.com/grid/eb3353d1afeb0b6b1c6507bb5d39c757.png',  # Mario Tennis Fever
-        '0400E88025B1A000': 'https://cdn2.steamgriddb.com/grid/a82908cc940793dc1d63acfc0218b2f9.jpg',  # Star Fox
-    }
+    FALLBACK_BANNERS: dict[str, str] = dict(_kb.SWITCH2_FALLBACK_BANNERS)
+    KNOWN_BANNERS: dict[str, str] = _kb.KNOWN_BANNERS
 
     def __init__(self, state_dir: Path | None = None, on_updated: Callable[[str], None] | None = None) -> None:
         self.state_dir = state_dir or default_state_dir()
@@ -1539,9 +1532,26 @@ class ArtworkStore:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _load_disk_index(self) -> dict[str, str]:
+        with self._index_lock:
+            if self._titledb_cache:
+                return self._titledb_cache
+            index_file = self.banners_dir / 'banners_index.json'
+            if index_file.is_file():
+                try:
+                    loaded = json.loads(index_file.read_text(encoding='utf-8'))
+                    if isinstance(loaded, dict):
+                        mapping = {str(k).upper(): str(v) for k, v in loaded.items() if k and v}
+                        if mapping:
+                            self._titledb_cache = mapping
+                            return mapping
+                except Exception:
+                    pass
+            return {}
+
     def _load_or_fetch_index(self) -> dict[str, str]:
         with self._index_lock:
-            if self._titledb_cache is not None:
+            if self._titledb_cache:
                 return self._titledb_cache
             index_file = self.banners_dir / 'banners_index.json'
             mapping: dict[str, str] = {}
@@ -1556,9 +1566,10 @@ class ArtworkStore:
                 self._titledb_cache = mapping
                 return mapping
             try:
-                req = urllib.request.Request(self.TITLEDB_URL, headers={'User-Agent': 'NX2Apple/1.1'})
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    raw = json.loads(resp.read().decode('utf-8', errors='replace'))
+                req = urllib.request.Request(self.TITLEDB_URL, headers={'User-Agent': 'NX2Apple/1.5'})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    body = _kb.read_response_chunked(resp, chunk_size=262144)
+                raw = json.loads(body.decode('utf-8', errors='replace'))
                 if isinstance(raw, dict):
                     for entry in raw.values():
                         if isinstance(entry, dict):
@@ -1566,24 +1577,24 @@ class ArtworkStore:
                             burl = str(entry.get('bannerUrl') or '')
                             if len(etid) == 16 and burl.startswith('http'):
                                 mapping[etid] = burl
-                    _atomic_write_text(index_file, json.dumps(mapping))
-                    self._titledb_cache = mapping
+                    if mapping:
+                        _atomic_write_text(index_file, json.dumps(mapping))
+                        self._titledb_cache = mapping
             except Exception:
                 pass
             return mapping
 
-    def _fetch_one(self, tid: str) -> None:
-        mapping = self._load_or_fetch_index()
-        url = mapping.get(tid) or self.FALLBACK_BANNERS.get(tid)
-        if not url:
-            return
+    def _download_banner_url(self, tid: str, url: str, *, timeout: float = 30.0) -> bool:
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'NX2Apple/1.1'})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = resp.read()
-            if len(data) > 1024:
+            req = urllib.request.Request(url, headers={'User-Agent': 'NX2Apple/1.5'})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                status = getattr(resp, 'status', 200)
+                if status not in (None, 200):
+                    return False
+                data = _kb.read_response_chunked(resp, chunk_size=65536, max_bytes=_kb.MAX_BANNER_BYTES)
+            if _kb.is_valid_image_bytes(data) and len(data) > 64:
                 self.banners_dir.mkdir(parents=True, exist_ok=True)
-                ext = 'png' if data[:8] == b'\x89PNG\r\n\x1a\n' else 'jpg'
+                ext = _kb.image_ext_for_bytes(data)
                 dest = self.banners_dir / f'{tid}.{ext}'
                 tmp_dest = self.banners_dir / f'.{tid}.{uuid.uuid4().hex}.{ext}.tmp'
                 try:
@@ -1597,8 +1608,29 @@ class ArtworkStore:
                             pass
                 if self.on_updated:
                     self.on_updated(tid)
+                return True
         except Exception:
             pass
+        return False
+
+    def _fetch_one(self, tid: str) -> None:
+        tid = tid.upper()
+        # Tier 1: already-cached local index, known shipped banners, or Switch 2 fallbacks.
+        disk_mapping = self._load_disk_index()
+        url = disk_mapping.get(tid) or self.KNOWN_BANNERS.get(tid) or self.FALLBACK_BANNERS.get(tid)
+        if url:
+            if self._download_banner_url(tid, url, timeout=30.0):
+                return
+        else:
+            # Tier 2: single-title nlib.cc endpoint (8s timeout) before downloading the 90 MB title database.
+            direct_url = _kb.nlib_banner_url(tid)
+            if direct_url and self._download_banner_url(tid, direct_url, timeout=8.0):
+                return
+        # Tier 3: streaming regional title database fallback (30s per-chunk socket timeout).
+        mapping = self._load_or_fetch_index()
+        fallback_url = mapping.get(tid) or self.FALLBACK_BANNERS.get(tid)
+        if fallback_url and fallback_url != url:
+            self._download_banner_url(tid, fallback_url, timeout=30.0)
 
 
 # ---------------------------------------------------------------------------

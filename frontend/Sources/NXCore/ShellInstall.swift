@@ -148,16 +148,20 @@ package enum ShellInstall {
     }
 
     /// Copies the game's banner into its framework as banner.<ext>, the picture the shell's library shows: the player's own pick,
-    /// else the eShop banner the launcher caches per title ID (ArtworkStore). The cache is only read. Without either, an older
-    /// banner is removed and the library shows the framework's icon.png. Returns the picture used.
+    /// else the cached banner (optionally fetched on demand via `ensureCached`). When the framework has no `icon.png`, generates
+    /// a 512×512 square PNG fallback from the placed banner. Returns the picture used.
     @discardableResult package static func placeBanner(titleID: String, framework: String, banners: URL, picked: String?,
-                                                       fm: FileManager = .default) -> String? {
-        let source = [picked, BannerCache.cached(titleID, in: banners)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
+                                                       fm: FileManager = .default,
+                                                       ensureCached: ((String, URL) -> URL?)? = nil) -> String? {
+        let existing = [picked, BannerCache.cached(titleID, in: banners, fm: fm)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
+        let source = existing ?? ensureCached?(titleID, banners)?.path
         for ext in ["png", "jpg", "jpeg", "heic", "webp"] { try? fm.removeItem(atPath: framework + "/banner." + ext) }
-        guard let source else { return nil }
+        guard let source, !source.isEmpty, fm.fileExists(atPath: source) else { return nil }
         let ext = (source as NSString).pathExtension.lowercased()
         let dest = framework + "/banner." + (["png", "jpg", "jpeg", "heic", "webp"].contains(ext) ? ext : "jpg")
-        return (try? fm.copyItem(atPath: source, toPath: dest)) != nil ? source : nil
+        guard (try? fm.copyItem(atPath: source, toPath: dest)) != nil else { return nil }
+        _ = BannerCache.ensureFallbackSquareIcon(inFramework: framework, fromBanner: dest, fm: fm)
+        return source
     }
 
     /// devicectl's recursive listing of the game's folder in the app's container, written as JSON to `json`.
@@ -320,8 +324,10 @@ package struct ShellInstaller {
     package var copyProgress: (Int64, Int64) -> Void = { _, _ in }
     /// Seconds between two looks at `devicectl list devices` while waiting for a cable.
     package var pollInterval: TimeInterval = 4
-    /// Where the eShop banners are cached (ArtworkStore), read only: the game's goes into its framework for the shell's library.
+    /// Where the eShop banners are cached (ArtworkStore): the game's goes into its framework for the shell's library.
     package var banners: URL = BannerCache.directory
+    /// On-demand single-banner backfill when `pickedArtwork` and the local cache both lack the game's banner.
+    package var ensureBanner: (String, URL) -> URL? = { BannerCache.ensureCachedBanner(titleID: $0, banners: $1) }
     /// A picture the player chose for the game in the library, which wins over the cached banner (nil: none).
     package var pickedArtwork: String? = nil
     /// The size of one part of a file sent in parts, and the largest file sent whole to an app that may not join parts

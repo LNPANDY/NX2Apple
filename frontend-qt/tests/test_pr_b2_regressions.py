@@ -696,7 +696,10 @@ class LibraryInputsAndModelTests(unittest.TestCase):
             fetch_lock = threading.Lock()
             barrier = threading.Barrier(8)
             sample_db = json.dumps({
-                f'010000000001{i:01x}000': {'id': f'010000000001{i:01x}000', 'bannerUrl': ''}
+                f'010000000009{i:01x}000': {
+                    'id': f'010000000009{i:01x}000',
+                    'bannerUrl': f'https://img-eshop.cdn.nintendo.net/i/sample-{i}.jpg',
+                }
                 for i in range(8)
             }).encode('utf-8')
 
@@ -724,7 +727,7 @@ class LibraryInputsAndModelTests(unittest.TestCase):
 
             def worker(idx: int) -> None:
                 barrier.wait(timeout=5)
-                art._fetch_one(f'010000000001{idx:01x}000')
+                art._fetch_one(f'010000000009{idx:01x}000')
 
             with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
                 threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
