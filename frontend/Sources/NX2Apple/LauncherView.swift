@@ -433,7 +433,8 @@ struct LauncherView: View {
         .sheet(isPresented: Binding(get: { supportedGames != nil }, set: { if !$0 { supportedGames = nil } })) {
             SupportedGamesSheet(games: supportedGames ?? [], owned: { id in library.games.first { $0.titleID.uppercased() == id } },
                                 covers: .live(store: artworkStore, directory: library.artworkDirectory, language: loc.lang.code, maxPixel: SupportedGamesSheet.coverPixels),
-                                showInLibrary: showInLibrary)
+                                showInLibrary: showInLibrary, olderBuild: { toolsAge.older.contains($0) },
+                                rebuild: { id in if let game = library.games.first(where: { $0.id == id }) { DispatchQueue.main.async { configureBuild(game) } } })
                 .environmentObject(padFocus)
         }
         .onChange(of: supportedGames == nil) { closed in padFocus.scope = closed ? currentPadScope : "supported" }

@@ -134,7 +134,7 @@ final class DesignRulesTests: XCTestCase {
     ]
     private static let accentTextAllowed: [String: Int] = [
         "NX2Apple/ConsoleCloudSaveView.swift": 1, "NX2Apple/ConsoleCloudSaves.swift": 1, "NX2Apple/ConsolePages.swift": 2,
-        "NX2Apple/ConsoleSupportedGamesPage.swift": 1, "NX2Apple/ConsoleTiles.swift": 1,
+        "NX2Apple/ConsoleTiles.swift": 1,
     ]
     private static let accentStyle = try! NSRegularExpression(pattern:
         #"\.foreground(?:Style|Color)\([^()\n]*?(?:LauncherPalette\.(?:accent|cream|notice|focusRing|primaryHover|primaryPressed|segmentSelected|selectionUnderline|radioOn)|DS\.Color\.(?:accent|symbolAccent|statusInfo))\b"#)

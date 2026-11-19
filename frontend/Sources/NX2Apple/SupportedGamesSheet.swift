@@ -12,7 +12,13 @@ struct SupportedGamesSheet: View {
     let owned: (String) -> LibraryGame?
     @StateObject private var covers: SupportedCovers
     let showInLibrary: (UUID) -> Void
+    /// The owned game's build is older than the tools: a profile improved in this release needs a rebuild to apply.
+    let olderBuild: (UUID) -> Bool
+    /// Opens the game's build (the Builds page with its form), after the sheet closes.
+    let rebuild: (UUID) -> Void
     let appVersion: String
+    /// Whether a profile was improved in this release (GameUpdateCatalog), replaced by the state gallery's stand-ins.
+    let improved: ((String) -> Bool)?
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var focus: PadFocus
     @Environment(\.dismiss) private var dismiss
@@ -20,17 +26,21 @@ struct SupportedGamesSheet: View {
     @State private var selected: String?
     @FocusState private var searchFocused: Bool
 
-    /// The cover slot: 112 x 63 pt, decoded at 2x.
-    static let coverPixels = 224
+    /// The cover in the 40 pt square slot of a list (DS.Control.thumbnail): the banner's middle, decoded high enough at 2x.
+    static let coverPixels = 160
 
     init(games: [SupportedGame], owned: @escaping (String) -> LibraryGame?, covers: @escaping @autoclosure () -> SupportedCovers,
-         showInLibrary: @escaping (UUID) -> Void, appVersion: String = AppUpdateStore.appVersion, expanded: String? = nil) {
+         showInLibrary: @escaping (UUID) -> Void, olderBuild: @escaping (UUID) -> Bool = { _ in false }, rebuild: @escaping (UUID) -> Void = { _ in },
+         appVersion: String = AppUpdateStore.appVersion, improved: ((String) -> Bool)? = nil, expanded: String? = nil) {
         _selected = State(initialValue: expanded)   // visual QA: a row with its notes open
         self.games = games
         self.owned = owned
         _covers = StateObject(wrappedValue: covers())
         self.showInLibrary = showInLibrary
+        self.olderBuild = olderBuild
+        self.rebuild = rebuild
         self.appVersion = appVersion
+        self.improved = improved
     }
 
     /// At most 720 tall and 80 shorter than the screen.
@@ -40,7 +50,22 @@ struct SupportedGamesSheet: View {
         GameUpdateCatalog.catalogVersion(for: titleID) == GameUpdateCatalog.releaseBaseVersion(appVersion)
     }
 
-    static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String, badgeName: String = "") -> Bool {
+    /// The release as the tag says it: "1.5" for 1.5.0, a patch release in full.
+    static func shortVersion(_ version: String) -> String {
+        let parts = version.split(separator: ".")
+        return parts.count == 3 && parts[2] == "0" ? parts.prefix(2).joined(separator: ".") : version
+    }
+
+    /// The tag of a profile improved in this release ("Improved in 1.5"), nil for one that was not.
+    static func improvedTag(for titleID: String, appVersion: String = AppUpdateStore.appVersion, t: (String) -> String) -> String? {
+        guard isUpdatedInCurrentRelease(titleID: titleID, appVersion: appVersion) else { return nil }
+        return String(format: t("supported.improvedIn"), shortVersion(GameUpdateCatalog.releaseBaseVersion(appVersion)))
+    }
+
+    /// The search finds a game by its name, title ID, the owned game's name, the release its profile was improved in, and by the
+    /// words of its Widescreen property and its Improved tag (in `badgeName` and `improvedName`, else in every language).
+    static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String, badgeName: String = "", improvedName: String = "",
+                              appVersion: String = AppUpdateStore.appVersion) -> Bool {
         let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
         let updated = GameUpdateCatalog.catalogVersion(for: game.titleID) ?? ""
@@ -52,16 +77,26 @@ struct SupportedGamesSheet: View {
                 fields.append(badgeName)
             }
         }
+        if isUpdatedInCurrentRelease(titleID: game.titleID, appVersion: appVersion) {
+            if improvedName.isEmpty {
+                fields.append(contentsOf: Lang.all.compactMap { lang in improvedTag(for: game.titleID, appVersion: appVersion, t: { L10n.string($0, lang) }) })
+            } else {
+                fields.append(improvedName)
+            }
+        }
         return fields.contains {
             $0.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
         }
     }
 
-    static func detailText(for game: SupportedGame, t: (String) -> String) -> String {
+    /// The subtitle: the edition, the game version the profile was made with, Widescreen (a quiet property, no tag), and the release
+    /// that last changed the profile unless it is this one (the Improved tag says that).
+    static func detailText(for game: SupportedGame, appVersion: String = AppUpdateStore.appVersion, t: (String) -> String) -> String {
         var parts: [String] = []
         if game.edition == .switch2 { parts.append(t("switch2.badge")) }
         parts.append(game.version.map { String(format: t("supported.version"), $0) } ?? t("supported.noVersion"))
-        if let updated = GameUpdateCatalog.catalogVersion(for: game.titleID) {
+        if game.fullScreen { parts.append(t("widescreen.badge")) }
+        if let updated = GameUpdateCatalog.catalogVersion(for: game.titleID), !isUpdatedInCurrentRelease(titleID: game.titleID, appVersion: appVersion) {
             parts.append(String(format: t("supported.lastUpdated"), updated))
         }
         return parts.joined(separator: " · ")
@@ -70,12 +105,19 @@ struct SupportedGamesSheet: View {
     var shown: [SupportedGame] {
         let badge = loc.t("widescreen.badge")
         return games.filter { game in
-            Self.matchesSearch(game, needle: search, ownedName: owned(game.titleID)?.displayName(loc.lang) ?? "", badgeName: badge)
+            Self.matchesSearch(game, needle: search, ownedName: owned(game.titleID)?.displayName(loc.lang) ?? "", badgeName: badge,
+                               improvedName: improvedTag(game) ?? "", appVersion: appVersion)
         }
     }
 
+    /// This row's Improved tag.
+    func improvedTag(_ game: SupportedGame) -> String? {
+        guard let improved else { return Self.improvedTag(for: game.titleID, appVersion: appVersion, t: { loc.t($0) }) }
+        return improved(game.titleID) ? String(format: loc.t("supported.improvedIn"), Self.shortVersion(GameUpdateCatalog.releaseBaseVersion(appVersion))) : nil
+    }
+
     func detail(_ game: SupportedGame) -> String {
-        Self.detailText(for: game, t: { loc.t($0) })
+        Self.detailText(for: game, appVersion: appVersion, t: { loc.t($0) })
     }
 
     var body: some View {
@@ -101,9 +143,12 @@ struct SupportedGamesSheet: View {
                  ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(shown) { game in
-                            SupportedGameRow(game: game, detail: detail(game),
-                                             isCurrentUpdate: Self.isUpdatedInCurrentRelease(titleID: game.titleID, appVersion: appVersion),
-                                             owned: owned(game.titleID), cover: covers.image(game.titleID),
+                            let mine = owned(game.titleID)
+                            let improved = improvedTag(game)
+                            SupportedGameRow(game: game, detail: detail(game), improved: improved,
+                                             needsRebuild: improved != nil && mine.map { olderBuild($0.id) } == true,
+                                             owned: mine, cover: covers.image(game.titleID),
+                                             rebuild: { id in dismiss(); rebuild(id) },
                                              expanded: selected == game.titleID,
                                              toggle: { selected = selected == game.titleID ? nil : game.titleID },
                                              show: { id in showInLibrary(id); dismiss() }, move: { direction in
@@ -150,9 +195,13 @@ struct SupportedGamesSheet: View {
 private struct SupportedGameRow: View {
     let game: SupportedGame
     let detail: String
-    let isCurrentUpdate: Bool
+    /// "Improved in 1.5": the profile changed in this release.
+    let improved: String?
+    /// The owned game's build is older than the improved profile: the row offers the rebuild instead of "In your library".
+    let needsRebuild: Bool
     let owned: LibraryGame?
     let cover: NSImage?
+    let rebuild: (UUID) -> Void
     let expanded: Bool
     let toggle: () -> Void
     let show: (UUID) -> Void
@@ -164,25 +213,28 @@ private struct SupportedGameRow: View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: toggle) {
                 HStack(spacing: DS.Space.m) {
-                    ZStack {
+                    ZStack {   // the square thumbnail of every list (small = square), the banner's middle
                         DS.Color.surfaceRaised
-                        if let cover { Image(nsImage: cover).resizable().scaledToFill() }
-                        else { Image(systemName: "gamecontroller").font(.system(size: 18, weight: .light)).foregroundStyle(DS.Color.symbolDefault) }
+                        if let cover { Image(nsImage: cover).resizable().scaledToFill().frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail) }
+                        else { Image(systemName: "gamecontroller").font(.system(size: 15, weight: .light)).foregroundStyle(DS.Color.symbolDefault) }
                     }
-                    .frame(width: 112, height: 63)
+                    .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail)
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.chip))
                     .overlay(RoundedRectangle(cornerRadius: DS.Radius.chip).strokeBorder(DS.Color.separator))
                     .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         HStack(alignment: .center, spacing: DS.Space.xs) {
                             Text(game.name).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
-                            if game.fullScreen { DSTag(loc.t("widescreen.badge")).help(loc.t("widescreen.help")) }
-                            if isCurrentUpdate { DSTag(loc.t("supported.updatedCurrent")) }
+                            if let improved { DSTag(improved) }
                         }
                         Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).multilineTextAlignment(.leading)
                     }
                     Spacer(minLength: DS.Space.s)
-                    if owned != nil {
+                    if let owned, needsRebuild {
+                        Button(loc.t("supported.rebuild")) { rebuild(owned.id) }
+                            .buttonStyle(DSTextButtonStyle()).help(loc.t("supported.rebuildHelp"))
+                            .padTarget("supported.rebuild." + game.titleID, scope: "supported", radius: DS.Radius.chip) { rebuild(owned.id) }
+                    } else if owned != nil {
                         HStack(spacing: DS.Space.xs) {
                             Circle().fill(DS.Color.statusReady).frame(width: 7, height: 7).accessibilityHidden(true)
                             Text(loc.t("supported.owned")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
@@ -191,7 +243,7 @@ private struct SupportedGameRow: View {
                     Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(DS.Color.symbolDefault)
                         .rotationEffect(.degrees(expanded ? 90 : 0)).accessibilityHidden(true)
                 }
-                .padding(.horizontal, DSSheetInsets.horizontal).padding(.vertical, DS.Space.s).frame(minHeight: 91)
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.vertical, DS.Space.s).frame(minHeight: 64)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain).launcherHover()
@@ -207,7 +259,7 @@ private struct SupportedGameRow: View {
                             .padTarget("supported.show." + game.titleID, scope: "supported") { show(owned.id) }
                     }
                 }
-                .padding(.leading, DSSheetInsets.horizontal + 112 + DS.Space.m).padding(.trailing, DSSheetInsets.horizontal).padding(.bottom, DS.Space.m)
+                .padding(.leading, DSSheetInsets.horizontal + DS.Control.thumbnail + DS.Space.m).padding(.trailing, DSSheetInsets.horizontal).padding(.bottom, DS.Space.m)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(reduceMotion ? .identity : .opacity)
             }

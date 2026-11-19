@@ -192,6 +192,9 @@ extension GalleryFixtures {
             }
             return AnyView(SupportedGamesSheet(games: supported, owned: { id in library.games.first { $0.titleID.uppercased() == id.uppercased() } },
                                                covers: .saved(in: library.artworkDirectory, maxPixel: SupportedGamesSheet.coverPixels), showInLibrary: { _ in },
+                                               // the first two stand in for profiles improved in this release, the first with an older build
+                                               olderBuild: { $0 == library.games.first?.id }, appVersion: "1.5.0",
+                                               improved: { id in supported.prefix(2).contains { $0.titleID == id } },
                                                expanded: sheet == .supportedGamesExpanded ? supported.first?.titleID : nil))
         case .batchRefresh, .batchRefreshEmpty:
             var assessments: [UUID: GameRefreshAssessment] = [:]
