@@ -106,8 +106,8 @@ extension BuildStore {
             chooseBuildFolder()
         case .teamTaken, .noSigningAccount, .freeAccountLimit, .appIDLimit:
             openXcode()
-        case .deviceTransfer, .devicePairing:
-            runBuild()
+        case .deviceTransfer, .devicePairing, .developerMode:
+            retryShellInstall()
         case .shellDataIncomplete:
             retryShellData()
         default: break

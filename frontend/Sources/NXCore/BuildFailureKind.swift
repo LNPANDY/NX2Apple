@@ -26,7 +26,7 @@ package enum BuildFailureKind: String, CaseIterable {
     /// build when the app is there already, and the engine's `[Errno 45] Operation not supported` is the same stop for a build that got past that check.
     case volumeFormat
     /// The shared app's install: a device this Mac never paired, and game data that went over only in part.
-    case devicePairing, shellDataIncomplete
+    case devicePairing, developerMode, shellDataIncomplete
     /// The engine's online sync (tools/engine.py sync, EngineLayout.swift): no network or GitHub unreachable, or any other stop of it.
     case engineOffline, engineSync
     case unknown
