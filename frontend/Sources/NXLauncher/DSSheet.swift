@@ -48,6 +48,13 @@ package enum DSSheetInsets {
     package static let gap = DS.Space.m
     /// Above the button row.
     package static let buttons = DS.Space.l
+
+    /// The height a sheet's scrolling content gets: all of it while the sheet fits, else what is left beside the header and the
+    /// buttons (`chrome`). nil before it is measured.
+    package static func contentFrame(content: CGFloat, chrome: CGFloat, maxHeight: CGFloat) -> CGFloat? {
+        guard content > 0 else { return nil }
+        return min(content, max(120, maxHeight - chrome))   // a sliver of content at the least
+    }
 }
 
 /// The button row of a sheet: an optional leading view (a status, a secondary action like Reset), then the buttons on the trailing
@@ -89,12 +96,6 @@ package struct DSSheet<Content: View, Leading: View, Buttons: View>: View {
     @State private var headerHeight: CGFloat = 0   // with its insets
     @State private var footerHeight: CGFloat = 0   // the button row with its insets
 
-    /// The height the content gets: all of it while the sheet fits, else what is left beside the header and the buttons.
-    static func contentFrame(content: CGFloat, chrome: CGFloat, maxHeight: CGFloat) -> CGFloat? {
-        guard content > 0 else { return nil }
-        return min(content, max(120, maxHeight - chrome))   // a sliver of content at the least
-    }
-
     package var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             DSSheetHeader(title: title, message: message)
@@ -106,7 +107,7 @@ package struct DSSheet<Content: View, Leading: View, Buttons: View>: View {
                     .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.gap)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
-            .frame(height: Self.contentFrame(content: contentHeight, chrome: headerHeight + footerHeight, maxHeight: maxHeight))
+            .frame(height: DSSheetInsets.contentFrame(content: contentHeight, chrome: headerHeight + footerHeight, maxHeight: maxHeight))
             DSSheetButtonRow(leading: { leading }, buttons: { buttons })
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.buttons).padding(.bottom, DSSheetInsets.vertical)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }

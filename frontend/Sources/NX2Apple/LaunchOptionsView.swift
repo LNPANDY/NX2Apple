@@ -36,6 +36,10 @@ struct LaunchOptionsView: View {
     @EnvironmentObject private var focus: PadFocus
     @EnvironmentObject private var saveSettings: SaveSettingsStore   // the global setup and this game's own choices (SaveLocation.swift)
     @EnvironmentObject private var players: PlayerProfileStore
+    @Environment(\.dsSheetMaxHeight) private var maxHeight
+    @State private var contentHeight: CGFloat = 0   // the scrolling part's own height: the sheet is as high as it needs (#1458)
+    @State private var topHeight: CGFloat = 0   // the header and the part selector
+    @State private var footerHeight: CGFloat = 0
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
     private var settings: [LaunchSetting]? {
@@ -59,6 +63,7 @@ struct LaunchOptionsView: View {
         let destination = game.map(LaunchDestination.init) ?? .none
         let shown = destination.categories.contains(category) ? category : (destination.categories.first ?? .game)
         VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .bottom) {
                 DSSheetHeader(title: loc.t("launch.title"), message: game?.displayName(loc.lang) ?? "")
                 Spacer()
@@ -79,10 +84,13 @@ struct LaunchOptionsView: View {
                 .padTarget("opt.category", scope: "launch", activate: { moveCategory(1, in: destination) }, adjust: { moveCategory($0, in: destination) })
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DSSheetInsets.gap)
             }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topHeight = $0 }
             if let game {
                 if destination == .none { noBuild(game) } else { content(game, destination: destination, category: shown) }
             }
             footer(game, destination: destination, category: shown)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }
         }
         .padScope("launch", focus)
         .onAppear { library.migrateLaunchOptions() }
@@ -107,7 +115,8 @@ struct LaunchOptionsView: View {
                     .environmentObject(focus).environmentObject(loc).launcherDropdownHost()
             }
         }
-        .frame(width: LauncherSheet.width, height: LauncherSheet.maxHeight(screen: NSScreen.main?.visibleFrame.height ?? 800))
+        .frame(width: LauncherSheet.width)
+        .fixedSize(horizontal: false, vertical: true)   // as high as the content, at most maxHeight: then the parts scroll
         .background(LauncherPalette.background)
         .font(DS.Font.body)
         .launcherAppearance()
@@ -142,9 +151,14 @@ struct LaunchOptionsView: View {
                     case .mods: modsAndCheats(game, destination: destination)
                     case .saves: saves(game, destination: destination)
                     }
+                    // one footnote under the last group: where the choices are kept
+                    Text(loc.t("launch.applied")).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true).padding(.top, -DS.Space.m)
                 }
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DSSheetInsets.gap)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
+            .frame(height: DSSheetInsets.contentFrame(content: contentHeight, chrome: topHeight + footerHeight, maxHeight: maxHeight))
             .id(category)   // each part opens at its top
             .onChange(of: focus.focused) { id in if let id { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } } }
         }
@@ -226,30 +240,25 @@ struct LaunchOptionsView: View {
         .padding(.horizontal, 18).padding(.vertical, 13).frame(minHeight: 52)
     }
 
-    /// Use for new games and Done (Use tested values is at the top of the sheet). Use for new games copies this game's language, display and rumble into the defaults other games start from.
+    /// The button row: Use for new games (its scope in the tooltip) and Done. Use tested values is at the top of the sheet. Use for
+    /// new games copies this game's language, display and rumble into the defaults other games start from, and says so once done.
     private func footer(_ game: LibraryGame?, destination: LaunchDestination, category: LaunchCategory) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(loc.t("launch.applied")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
-            HStack(spacing: 12) {
-                if destination == .mac, category == .game {
-                    Text(defaultsSaved ? loc.t("launch.useForNewDone") : loc.t("defaults.note"))
-                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
-                }
-                Spacer(minLength: 8)
-                if destination == .mac, let game, let settings {
-                    if category == .game {
-                        Button(loc.t("launch.useForNew")) { useForNewGames(game, settings) }
-                            .buttonStyle(LauncherSecondaryButtonStyle())
-                            .launcherRowControls()
-                            .accessibilityLabel(loc.t("launch.useForNewLabel"))
-                            .padTarget("opt.useForNew", scope: "launch") { useForNewGames(game, settings) }
-                    }
-                }
-                DSSheetPrimaryButton(loc.t("launch.done")) { dismiss() }
-                .padTarget("opt.done", scope: "launch", focusColor: DS.Color.accentOn) { dismiss() }
+        DSSheetButtonRow(leading: {
+            if defaultsSaved, destination == .mac, category == .game {
+                Text(loc.t("launch.useForNewDone")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
             }
-        }
-        .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.gap).padding(.bottom, DSSheetInsets.vertical)
+        }, buttons: {
+            if destination == .mac, let game, let settings, category == .game {
+                Button(loc.t("launch.useForNew")) { useForNewGames(game, settings) }
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .help(loc.t("launch.useForNewHelp"))
+                    .accessibilityLabel(loc.t("launch.useForNewLabel"))
+                    .padTarget("opt.useForNew", scope: "launch") { useForNewGames(game, settings) }
+            }
+            DSSheetPrimaryButton(loc.t("launch.done")) { dismiss() }
+                .padTarget("opt.done", scope: "launch", focusColor: DS.Color.accentOn) { dismiss() }
+        })
+        .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.buttons).padding(.bottom, DSSheetInsets.vertical)
     }
 
     /// This game's language, display and rumble become what a game added from now on starts with (PersonalDefaults). Nothing changes in
@@ -442,12 +451,21 @@ struct LaunchOptionsView: View {
                 }
                 .frame(width: 16)
             default:
-                Spacer(minLength: 0)
-                Toggle(label(s), isOn: Binding(get: { value == s.onValue }, set: { set(s, $0 ? s.onValue : s.offValue) }))
-                    .labelsHidden().toggleStyle(LauncherSwitchStyle())
+                if let names = Self.segmentedSwitch[s.env] {
+                    // A switch whose two states are names, not on and off: Window or Fullscreen, as Settings > General (#1458)
+                    LauncherSegmented(options: [(s.offValue, loc.t(names.off)), (s.onValue, loc.t(names.on))],
+                                      selection: value == s.onValue ? s.onValue : s.offValue) { set(s, $0) }
+                } else {
+                    Spacer(minLength: 0)
+                    Toggle(label(s), isOn: Binding(get: { value == s.onValue }, set: { set(s, $0 ? s.onValue : s.offValue) }))
+                        .labelsHidden().toggleStyle(LauncherSwitchStyle())
+                }
             }
         }
     }
+
+    /// The switches drawn as two named segments, by env: the keys of the off and the on segment.
+    static let segmentedSwitch: [String: (off: String, on: String)] = ["DM_FULLSCREEN": ("launch.display.window", "launch.display.fullscreen")]
 
     /// What VoiceOver says for a row's reset button: the action and the setting it resets.
     @MainActor static func resetLabel(_ loc: Localizer, _ setting: String) -> String {

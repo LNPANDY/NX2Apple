@@ -163,7 +163,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     /// A sheet drawn at the size it takes: as wide as its frame, as high as its content (GallerySheet.size nil).
     var fitsContent: Bool {
         if case .sheet(let sheet) = self { return sheet.size == nil }
-        return false
+        return self == .gameOptions   // the launch options are as high as their content too
     }
 
     /// How many of the fixture games the scene's library holds.

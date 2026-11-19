@@ -35,7 +35,7 @@ final class SheetDesignTests: XCTestCase {
 
     /// Content higher than the sheet may be scrolls between the fixed header and button row: the content gets what is left.
     func testTallContentGetsWhatIsLeftBesideTheHeaderAndButtons() {
-        typealias Sheet = DSSheet<EmptyView, EmptyView, EmptyView>
+        typealias Sheet = DSSheetInsets
         XCTAssertNil(Sheet.contentFrame(content: 0, chrome: 200, maxHeight: 720), "not measured yet: its own height")
         XCTAssertEqual(Sheet.contentFrame(content: 300, chrome: 200, maxHeight: 720), 300, "fits: all of it")
         XCTAssertEqual(Sheet.contentFrame(content: 900, chrome: 200, maxHeight: 720), 520, "too high: the rest scrolls")
