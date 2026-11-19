@@ -1,0 +1,679 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: odonnellmatt <odonnellmatt@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 20:52:05 +0800
+Subject: [PATCH] ios/pad: on a phone, the layout editor's panel is a compact
+ bar
+
+The layout editor's panel was made for the iPad: a card up to 400 points
+wide in the middle of the screen. On a phone held sideways (375 to 440
+points tall) it covers most of the controls being arranged, and the two-way
+choice's German and French titles have 1 to 2 points to spare at 375
+points.
+
+On a phone (DM_PAD_EDIT_COMPACT unset and an iPhone, or =1 on any device;
+=0 keeps the card) DmPadEditPanel is a compact bar (DmPadEditor.h, "The
+compact bar"):
+
+- It holds the chosen group's name, its - and + and size, Both sides
+  together | Each side on its own, Cancel and Done, and a last button (...)
+  that shows the rest below them: All controls with its slider, Save for
+  (in the shell) and Reset to default. The chosen group's slider gives way
+  to - and +; VoiceOver's element for each group still takes swipes up and
+  down. Choosing a group on the gamepad folds the rest away again.
+- Its rows follow the width (DmPadEditing.h's dm_pad_compact_rows):
+  everything on one row where it fits (a 6.9-inch phone held sideways in
+  English), the choice on a row of its own where not (every phone held
+  sideways in German and French), and Cancel and Done on a third row on a
+  phone held upright. The row count takes Cancel and Done at their 44-point
+  floor and gives the choice 8 points of room, so a short label ("OK")
+  never lets the choice's titles be squeezed.
+- Every control on it is at least 44 points tall and wide: - and +, the
+  button for the rest, the choice, Save for, the All controls slider,
+  Cancel, Done (whatever the length of its label) and Reset to default.
+- Where it sits (dm_pad_dock_edge, DmGamepad.m's editDock): across the safe
+  area's middle, 4 points from its top or bottom edge, so it keeps off the
+  sensor housing and the home indicator. With nothing chosen, on the edge
+  where it covers the fewest groups; a group just chosen sends it to the
+  edge away from it (with its mirror image while the two move together,
+  and the room for its tag); a chosen group dragged under it sends it to
+  the other edge, animated unless Reduce Motion is on. A drag on the
+  group's name moves it to the other edge too. A bar taller than the safe
+  area keeps to the top, Cancel and Done in its first rows.
+- "No room there" shows on a dark pill just outside the bar, on the side
+  away from its edge, so it takes no room in the bar.
+
+The card on an iPad is unchanged: the same rows, the same places (placeIn:
+and keepIn: only return early for the bar). The bar is measured again only
+when the safe area's width or the rest shown changes; while a group moves
+it only picks its edge (arithmetic on a few rectangles). No new words: the
+bar uses DM_PAD_EDIT_TEXT's 27 lines.
+
+Docs: settings.md, env_switches.tsv (DM_PAD_EDIT_COMPACT).
+
+Checked here (Linux, no Apple SDK): pad_groups_check.m's check_compact_bar
+(the rows on an iPhone SE, 17 and 17 Pro Max screen held sideways and
+upright in English, German, French and Japanese with estimated title
+widths: never three rows sideways, always three upright; on those screens
+sideways, 2D and 3D, no group just chosen, with its mirror image, is under
+the bar, and every one dragged under it sends it to the other edge; a bar
+taller than the safe area keeps to the top), through test_pad_geometry.py
+(clang -Wall -Werror) and under gcc ASan and UBSan; the identity dump
+(unchanged); env_switches.py --check, test_docs.py; DmPadEditor.m and
+DmGamepad.m through clang -fsyntax-only against declaration stubs.
+
+Run on a Mac, on the author's own tree (this series' feature code on
+another base) with the whole series applied: Xcode built it; the next
+change's DuoEditorShotTests drove the bar, and the editor's seven harness
+cases passed, on Simulators of an iPhone SE (3rd generation), an iPhone 17
+and an iPhone 17 Pro Max, held sideways and upright, in English, German and
+French (an 11-inch iPad shows the card, also passed). An earlier run there
+found Done 38.5 points wide in French and the choice's titles 4.7 points
+short on the Pro Max; the 44-point floor and the row count above fix both,
+and the run after them passed. Not run: a real iPhone.
+
+Upstream-Status: pending [builds on 0020 and 0040: the seedds/nxnative pull request follows once they are upstream]
+Reason: on a phone the layout editor's panel is a compact bar at the top or bottom of the safe area, so it leaves the controls being arranged in view
+Issue: LNPANDY/NX2Apple#1397 (the feature issue, to be opened before the pull request)
+---
+ dm/ios/Sources/DmGamepad.m                   |  34 ++-
+ dm/ios/Sources/DmPadEditing.h                |  43 ++++
+ dm/ios/Sources/DmPadEditor.h                 |  20 +-
+ dm/ios/Sources/DmPadEditor.m                 | 216 ++++++++++++++++---
+ dm/ios/tests/pad_geometry/pad_groups_check.m |  61 ++++++
+ dm/ios/tests/test_pad_geometry.py            |   4 +-
+ docs/settings.md                             |   2 +-
+ 7 files changed, 346 insertions(+), 34 deletions(-)
+
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 655c109..eca484a 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -700,7 +700,8 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
+ //   the chosen group's row, the choice Both sides together (the default: the shoulders of both sides, and the left stick with A B X Y, move together, and
+ //   size together as far as each has room) or Each side on its own, per layout, dimmed for the D-pad and − + (no mirror image); all controls' size, where
+ //   Done saves (in the shell: all games or this game), Reset to default (the layout on screen back to the built-in one; for this game also "Same as All
+-//   games"), Cancel (the layout from before) and Done.
++//   games"), Cancel (the layout from before) and Done. On a phone (DM_PAD_EDIT_COMPACT) the panel is a bar at the top or bottom of the safe area
++//   instead, away from the chosen group, with the rest behind a button (DmPadEditor.h, "The compact bar"; editDock).
+ //   Every change goes through DmPadEditing.h's rules: a spot that does not fit is drawn red under the finger and the group goes back when it lifts, a size
+ //   stops where the group meets another, and the panel says why, once per gesture. The self-test (DM_PAD_LAYOUT_TEST) calls the same methods the
+ //   touches, the pinch and the panel call.
+@@ -708,6 +709,12 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
+ //   or this game's own), the layouts the editor neither showed nor changed kept as that scope holds them (DmPadEditing.h, "Where Done saves"); in a
+ //   game's own app in NSUserDefaults (launcher.DM_TOUCH_GROUPS), read at the next start. The running game takes it at once.
+ static const char *edit_text_env(void) { return getenv("DM_PAD_EDIT_TEXT"); }
++// The phone's compact bar or the card (DmPadEditor.h): DM_PAD_EDIT_COMPACT=1 or 0 picks one; unset, a phone takes the bar and an iPad the card.
++static BOOL edit_compact(void) {
++    const char *v = getenv("DM_PAD_EDIT_COMPACT");
++    if (v && *v) return atoi(v) != 0;
++    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone;
++}
+ static NSString *edit_text(int i) { char t[256]; dm_pad_text(edit_text_env(), i, t, sizeof t); return @(t); }
+ static NSString *edit_group_title(int k, BOOL full) { char t[64]; dm_pad_group_title(k, full, edit_text_env(), t, sizeof t); return @(t); }
+ static UIColor *edit_cream(void) { return [UIColor colorWithRed:0.98 green:0.93 blue:0.80 alpha:1]; }
+@@ -748,7 +755,7 @@ - (void)beginEditing {
+     _pinch = [[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(editPinched:)];
+     _pinch.delegate = self;   // no touch on the panel, and only two fingers near one group (gestureRecognizerShouldBegin:)
+     [self addGestureRecognizer:_pinch];
+-    _panel = [[DmPadEditPanel alloc] initWithTexts:edit_text_env() scopes:inShell];
++    _panel = [[DmPadEditPanel alloc] initWithTexts:edit_text_env() scopes:inShell compact:edit_compact()];
+     __weak DmGamepad *weak = self;
+     _panel.groupSize = ^(int percent) { [weak editGroupSize:percent quiet:NO]; };
+     _panel.allSize = ^(int percent) { [weak editAllSize:percent]; };
+@@ -760,7 +767,8 @@ - (void)beginEditing {
+     [self addSubview:_panel];
+     [self editPanelUpdate];
+     _panelFor = self.bounds.size;
+-    [_panel placeIn:self.bounds avoiding:[self editGroupRects]];
++    if (_panel.compact) [self editDock];
++    else [_panel placeIn:self.bounds avoiding:[self editGroupRects]];
+     [self updateControlVisibility];
+     [self wakeMenu];
+     [self hideHint];
+@@ -892,6 +900,7 @@ - (void)editDragBegin:(CGPoint)p {   // a finger down: the group under it is cho
+         _dragBefore = _draft;
+         [_editFeedback prepare];
+         [_panel beginGesture];
++        _panel.expanded = NO;   // a phone's bar: the rest folds away while a group is arranged
+     }
+     [self editChanged];
+ }
+@@ -1097,11 +1106,28 @@ - (void)layoutEditor {
+         if (_panel) [elements addObject:_panel];
+         if (![self.accessibilityElements isEqualToArray:elements]) self.accessibilityElements = elements;   // the same elements: VoiceOver keeps its focus
+     }
+-    if (!CGSizeEqualToSize(_panelFor, self.bounds.size)) {   // a rotation or another window size: the panel fits the new bounds, Done and Cancel in reach
++    if (_panel.compact) [self editDock];   // a phone's bar: at the edge away from the chosen group, in the safe area (every pass: the group moves)
++    else if (!CGSizeEqualToSize(_panelFor, self.bounds.size)) {   // a rotation or another window size: the panel fits the new bounds, Done and Cancel in reach
+         _panelFor = self.bounds.size;
+         [_panel placeIn:self.bounds avoiding:[self editGroupRects]];
+     } else [_panel keepIn:self.bounds];
+ }
++// A phone's bar (DmPadEditor.h, "The compact bar"): the chosen group's rectangle, with its mirror image while they move together and room for its
++// tag above, so the bar keeps clear of what the finger is moving; the safe area keeps it off the sensor housing and the home indicator.
++- (void)editDock {
++    CGRect chosen = CGRectNull;
++    if (_editGroup >= 0 && dm_pad_group_drawn(_editGroup, _full)) {
++        const DmPadGeo *g = self.geo;
++        DmPadScene sc = [self editScene];
++        chosen = dm_pad_group_box(g, _full, _editGroup, NULL);
++        if (!CGRectIsNull(chosen) && dm_pad_linked(&sc, &_draft, _editGroup)) {
++            CGRect m = dm_pad_group_box(g, _full, dm_pad_group_mirror(_editGroup), NULL);
++            if (!CGRectIsNull(m)) chosen = CGRectUnion(chosen, m);
++        }
++        if (!CGRectIsNull(chosen)) { chosen = CGRectInset(chosen, -12, -12); chosen.origin.y -= 22; chosen.size.height += 22; }
++    }
++    [_panel dockIn:UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets) group:_editGroup chosen:chosen avoiding:[self editGroupRects]];
++}
+ 
+ // ---- The layout editor's self-test (DM_PAD_LAYOUT_TEST=1) ----
+ // A scripted run for a build no one touches: 3 seconds after the gamepad's first layout it opens the editor, taps Both sides together on the panel,
+diff --git a/dm/ios/Sources/DmPadEditing.h b/dm/ios/Sources/DmPadEditing.h
+index 5c6cc80..fc01ded 100644
+--- a/dm/ios/Sources/DmPadEditing.h
++++ b/dm/ios/Sources/DmPadEditing.h
+@@ -413,6 +413,49 @@ static inline BOOL dm_pad_pinch_check(const DmPadFingers *s, int *group, BOOL *r
+ static inline void dm_pad_pinch_on(DmPadFingers *s) { s->pinch = YES; s->drag = 0; s->moving = NO; }
+ static inline void dm_pad_pinch_off(DmPadFingers *s) { s->pinch = NO; }
+ 
++// ---- The compact bar (a phone: DmPadEditor.h) ----
++// How many rows the bar's controls take in a row width (points): 1 when the chosen group's name, its − size +, the two-way choice, Cancel and Done and
++// the button for the rest all fit side by side; 2 with the choice on a row of its own below; 3 with Cancel and Done on a third row (a phone held
++// upright). name, sizes (− size + with the gaps between them), choice, buttons (Cancel and Done together) and more are those parts' widths; gap the
++// space between two parts of the row, which also has a stretch of room before Cancel (DmPadEditor.m: name, sizes, room, choice, Cancel, Done, more).
++static inline CGFloat dm_pad_compact_width(int rows, CGFloat name, CGFloat sizes, CGFloat choice, CGFloat buttons, CGFloat more, CGFloat gap) {
++    if (rows == 1) return name + sizes + choice + buttons + more + 6 * gap;
++    if (rows == 2) return name + sizes + buttons + more + 5 * gap;
++    return name + sizes + more + 3 * gap;
++}
++static inline int dm_pad_compact_rows(CGFloat row, CGFloat name, CGFloat sizes, CGFloat choice, CGFloat buttons, CGFloat more, CGFloat gap) {
++    if (dm_pad_compact_width(1, name, sizes, choice, buttons, more, gap) <= row) return 1;
++    if (dm_pad_compact_width(2, name, sizes, choice, buttons, more, gap) <= row) return 2;
++    return 3;
++}
++static const CGFloat DM_PAD_DOCK_MARGIN = 4;   // the bar from the safe area's edge
++// The bar (size bar, centred across the safe area) at the top (edge 0) or the bottom (1) of the safe area.
++static inline CGRect dm_pad_dock_rect(CGRect safe, CGSize bar, int edge) {
++    CGFloat x = CGRectGetMidX(safe) - bar.width / 2;
++    return CGRectMake(x, edge ? CGRectGetMaxY(safe) - DM_PAD_DOCK_MARGIN - bar.height : CGRectGetMinY(safe) + DM_PAD_DOCK_MARGIN, bar.width, bar.height);
++}
++static inline CGFloat dm_pad_cover(CGRect a, CGRect b) { CGRect x = CGRectIntersection(a, b); return CGRectIsNull(x) ? 0 : x.size.width * x.size.height; }
++// The edge the bar docks to. now: its edge (-1: none yet). chosen: the chosen group's rectangle with the groups that move with it (CGRectNull: none),
++// fresh when it was chosen since the last call. With nothing docked yet, the edge where the bar covers the least of the groups (rects, n of them),
++// the top on a tie; a group newly chosen sends it to the edge away from it (the top for a group in the lower half); and where the chosen group is
++// under the bar, to the other edge if the group is less under it there. A bar taller than the safe area keeps to the top, its first rows (Cancel and
++// Done among them) in view.
++static inline int dm_pad_dock_edge(CGRect safe, CGSize bar, CGRect chosen, BOOL fresh, const CGRect *_Nullable rects, int n, int now) {
++    if (bar.height > safe.size.height - 2 * DM_PAD_DOCK_MARGIN) return 0;
++    int e = now;
++    if (e < 0) {
++        CGFloat c[2] = {0, 0};
++        for (int s = 0; s < 2; s++) { CGRect r = dm_pad_dock_rect(safe, bar, s); for (int i = 0; i < n; i++) c[s] += dm_pad_cover(r, rects[i]); }
++        e = c[1] < c[0] - 1 ? 1 : 0;
++    }
++    if (!CGRectIsNull(chosen)) {
++        if (fresh) e = CGRectGetMidY(chosen) > CGRectGetMidY(safe) ? 0 : 1;
++        CGFloat here = dm_pad_cover(dm_pad_dock_rect(safe, bar, e), chosen), there = dm_pad_cover(dm_pad_dock_rect(safe, bar, !e), chosen);
++        if (here > 0 && there < here) e = !e;
++    }
++    return e;
++}
++
+ // ---- The editor's words ----
+ // DM_PAD_EDIT_TEXT carries them in the player's language, one per line in this order (the shell passes it at launch; in an env file the lines are joined
+ // by a backslash and n). A line that is missing or empty stays English. The groups' names are their keys' (ZL L L3 ...), but for the stick and the D-pad.
+diff --git a/dm/ios/Sources/DmPadEditor.h b/dm/ios/Sources/DmPadEditor.h
+index 3947f9d..6ca9a0c 100644
+--- a/dm/ios/Sources/DmPadEditor.h
++++ b/dm/ios/Sources/DmPadEditor.h
+@@ -10,7 +10,9 @@ NS_ASSUME_NONNULL_BEGIN
+ 
+ @interface DmPadEditPanel : UIView
+ // env: DM_PAD_EDIT_TEXT (the words in the player's language, DmPadEditing.h's order); scopes: offer "Save for: All games / This game".
+-- (instancetype)initWithTexts:(const char *_Nullable)env scopes:(BOOL)scopes;
++// compact: the phone's bar (see "The compact bar" below) instead of the card.
++- (instancetype)initWithTexts:(const char *_Nullable)env scopes:(BOOL)scopes compact:(BOOL)compact;
++- (instancetype)initWithTexts:(const char *_Nullable)env scopes:(BOOL)scopes;   // the card (compact NO)
+ @property (nonatomic, copy, nullable) void (^groupSize)(int percent);   // the chosen group's size asked for (the slider, − and +)
+ @property (nonatomic, copy, nullable) void (^allSize)(int percent);     // all controls' size asked for
+ @property (nonatomic, copy, nullable) void (^mirror)(BOOL on);          // Both sides together (YES) or Each side on its own (NO) picked
+@@ -39,6 +41,22 @@ NS_ASSUME_NONNULL_BEGIN
+ - (CGSize)fittingSizeForWidth:(CGFloat)width;
+ - (void)placeIn:(CGRect)bounds avoiding:(NSArray<NSValue *> *)rects;
+ - (void)keepIn:(CGRect)bounds;   // after its title was dragged: back inside
++
++// ---- The compact bar (a phone) ----
++// On a phone the card would hide the controls being arranged, held sideways most of all. The bar keeps to one edge of the safe area instead (clear of
++// the sensor housing and the home indicator), as narrow as its rows: the chosen group's name, its − and + and size, the two-way choice, Cancel and
++// Done, and a button that shows the rest below them (All controls, Save for, Reset to default). Its rows follow the width: all on one row where they
++// fit (DmPadEditing.h's dm_pad_compact_rows), the choice on a row of its own below the name where not, and Cancel and Done on a third row on a phone
++// held upright. Every control is at least 44 points tall and wide. It docks to the top or the bottom edge, away from the chosen group (and its
++// mirror image when they move together), and moves to the other edge when that group comes under it (dm_pad_dock_edge); the player may also drag it
++// by the group's name to the other edge. A message ("No room there") shows just outside it, on the side away from the edge.
++@property (nonatomic, readonly) BOOL compact;
++@property (nonatomic, readonly) int dockEdge;   // 0 the top, 1 the bottom (-1 before the first dockIn:)
++@property (nonatomic, readonly) int compactRows;   // 1 to 3 (dm_pad_compact_rows), 0 for the card
++@property (nonatomic) BOOL expanded;   // the rest shown below (the button's action, or a test)
++// The bar's size and place in the safe area: group is the chosen group (-1 none), chosen the rectangle it and the groups that move with it cover
++// (CGRectNull for none), rects the other groups'. A group newly chosen puts the bar on the edge away from it.
++- (void)dockIn:(CGRect)safe group:(int)group chosen:(CGRect)chosen avoiding:(NSArray<NSValue *> *)rects;
+ @end
+ 
+ NS_ASSUME_NONNULL_END
+diff --git a/dm/ios/Sources/DmPadEditor.m b/dm/ios/Sources/DmPadEditor.m
+index f95f802..803b12f 100644
+--- a/dm/ios/Sources/DmPadEditor.m
++++ b/dm/ios/Sources/DmPadEditor.m
+@@ -1,9 +1,13 @@
+ // The in-game layout editor's panel (DmPadEditor.h). UIKit views available from iOS 15, laid out with a stack view inside a blurred card; the gamepad
+-// (DmGamepad.m) places the card by its frame and the player can drag it by its title.
++// (DmGamepad.m) places the card by its frame and the player can drag it by its title. On a phone the same controls make up the compact bar instead
++// (DmPadEditor.h, "The compact bar"): other rows, the same actions.
+ #import "DmPadEditor.h"
+ #import "DmPadEditing.h"
+ 
+ static UIColor *panel_cream(void) { return [UIColor colorWithRed:0.98 green:0.93 blue:0.80 alpha:1]; }
++// The compact bar's measures (points): the chosen group's name at least this wide, the rows this far in from the bar's sides, the bar this far from
++// the safe area's sides, and the gap between two parts of a row (panel_row's).
++static const CGFloat DM_PAD_BAR_NAME = 96, DM_PAD_BAR_INSET = 8, DM_PAD_BAR_SIDE = 6, DM_PAD_BAR_GAP = 6;
+ 
+ @implementation DmPadEditPanel {
+     UIVisualEffectView *_card;
+@@ -20,6 +24,14 @@ @implementation DmPadEditPanel {
+     int _groupNow, _allNow;   // the sizes the gamepad granted: a slider goes back to them when the finger lifts
+     NSMutableSet<NSString *> *_flashed;   // the messages this gesture showed
+     unsigned _flashGen;
++    // The compact bar (a phone)
++    BOOL _compact, _expanded, _barDragging;
++    int _dock, _rows, _dockGroup;   // its edge (0 top, 1 bottom; -1 none yet), its rows (dm_pad_compact_rows; 0 none yet), the group it last docked away from
++    CGRect _safe;                   // the safe area it was last docked in
++    UIButton *_moreButton;          // the rest: All controls, Save for, Reset to default
++    UIStackView *_row1, *_row3, *_extra;   // name − size + [choice] [Cancel Done] more; Cancel Done (upright); the rest
++    UIView *_gap;                   // the room left in the first row
++    CGSize _barSize; CGFloat _barRow; BOOL _barExpanded;   // the bar's size, and the row width and the rest shown or not it was measured for
+ }
+ 
+ static NSString *panel_text(const char *env, int i) {
+@@ -33,13 +45,14 @@ @implementation DmPadEditPanel {
+     l.adjustsFontSizeToFitWidth = YES; l.minimumScaleFactor = 0.7;
+     return l;
+ }
+-static UIButton *panel_round(NSString *symbol, NSString *label) {
++static UIButton *panel_round(NSString *symbol, NSString *label, CGFloat side) {   // side: its width (the card's 34), and its height too from 44 (the bar's)
+     UIButtonConfiguration *c = UIButtonConfiguration.plainButtonConfiguration;
+     c.image = [UIImage systemImageNamed:symbol withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightMedium]];
+     c.contentInsets = NSDirectionalEdgeInsetsMake(4, 4, 4, 4);
+     UIButton *b = [UIButton buttonWithConfiguration:c primaryAction:nil];
+     b.accessibilityLabel = label;
+-    [b.widthAnchor constraintEqualToConstant:34].active = YES;
++    [b.widthAnchor constraintEqualToConstant:side].active = YES;
++    if (side >= 44) [b.heightAnchor constraintEqualToConstant:side].active = YES;
+     return b;
+ }
+ static UIButton *panel_button(NSString *title, BOOL primary) {
+@@ -57,9 +70,12 @@ @implementation DmPadEditPanel {
+     return r;
+ }
+ 
+-- (instancetype)initWithTexts:(const char *)env scopes:(BOOL)scopes {
++- (instancetype)initWithTexts:(const char *)env scopes:(BOOL)scopes { return [self initWithTexts:env scopes:scopes compact:NO]; }
++- (instancetype)initWithTexts:(const char *)env scopes:(BOOL)scopes compact:(BOOL)compact {
+     if (!(self = [super initWithFrame:CGRectZero])) return nil;
+     _scopes = scopes; _groupNow = _allNow = 100;
++    _compact = compact; _dock = -1; _dockGroup = -1;
++    CGFloat roundSide = compact ? 44 : 34;   // − and +: the bar's are 44 points square
+     _flashed = [NSMutableSet set];
+     self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+     self.tintColor = panel_cream();
+@@ -82,7 +98,7 @@ - (instancetype)initWithTexts:(const char *)env scopes:(BOOL)scopes {
+ 
+     __weak DmPadEditPanel *weak = self;
+     _groupName = panel_label(13, UIFontWeightMedium, 0.9);
+-    _groupMinus = panel_round(@"minus.circle", _smallerText); _groupPlus = panel_round(@"plus.circle", _largerText);
++    _groupMinus = panel_round(@"minus.circle", _smallerText, roundSide); _groupPlus = panel_round(@"plus.circle", _largerText, roundSide);
+     _groupSlider = [UISlider new]; _groupSlider.minimumValue = DM_PAD_SIZE_MIN; _groupSlider.maximumValue = DM_PAD_SIZE_MAX;
+     [_groupSlider addTarget:self action:@selector(groupSlid:) forControlEvents:UIControlEventValueChanged];
+     [_groupSlider addTarget:self action:@selector(sliderDown:) forControlEvents:UIControlEventTouchDown];
+@@ -93,8 +109,8 @@ - (instancetype)initWithTexts:(const char *)env scopes:(BOOL)scopes {
+     [_groupPlus addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weak stepGroup:5]; }] forControlEvents:UIControlEventTouchUpInside];
+ 
+     _allName = panel_label(13, UIFontWeightMedium, 0.9); _allName.text = _allText;
+-    _allMinus = panel_round(@"minus.circle", [NSString stringWithFormat:@"%@, %@", _allText, _smallerText]);
+-    _allPlus = panel_round(@"plus.circle", [NSString stringWithFormat:@"%@, %@", _allText, _largerText]);
++    _allMinus = panel_round(@"minus.circle", [NSString stringWithFormat:@"%@, %@", _allText, _smallerText], roundSide);
++    _allPlus = panel_round(@"plus.circle", [NSString stringWithFormat:@"%@, %@", _allText, _largerText], roundSide);
+     _allSlider = [UISlider new]; _allSlider.minimumValue = DM_PAD_ALL_MIN; _allSlider.maximumValue = DM_PAD_ALL_MAX; _allSlider.accessibilityLabel = _allText;
+     [_allSlider addTarget:self action:@selector(allSlid:) forControlEvents:UIControlEventValueChanged];
+     [_allSlider addTarget:self action:@selector(sliderDown:) forControlEvents:UIControlEventTouchDown];
+@@ -150,27 +166,76 @@ - (instancetype)initWithTexts:(const char *)env scopes:(BOOL)scopes {
+     _mirrorRow.accessibilityLabel = _mirrorControl.accessibilityLabel;
+     _mirrorRow.accessibilityHint = panel_text(env, DM_PAD_TEXT_NO_MIRROR);
+     _mirrorRow.accessibilityTraits = UIAccessibilityTraitNotEnabled;
+-    UIStackView *groupRow = panel_row(@[_groupName, _groupMinus, _groupSlider, _groupPlus, _groupValue]);
+-    UIStackView *allRow = panel_row(@[_allName, _allMinus, _allSlider, _allPlus, _allValue]);
+-    _scopeRow = panel_row(@[_scopeLabel, _scopeControl]); _scopeRow.hidden = !scopes;
+-    UIStackView *buttons = panel_row(@[_resetButton, _cancelButton, _doneButton]); buttons.distribution = UIStackViewDistributionFillEqually; buttons.spacing = 8;
+-    for (UILabel *l in @[_groupName, _allName]) [l.widthAnchor constraintEqualToConstant:104].active = YES;
+-    for (UILabel *l in @[_groupValue, _allValue]) [l.widthAnchor constraintEqualToConstant:44].active = YES;
+-    [_scopeLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
++    if (!compact) {
++        UIStackView *groupRow = panel_row(@[_groupName, _groupMinus, _groupSlider, _groupPlus, _groupValue]);
++        UIStackView *allRow = panel_row(@[_allName, _allMinus, _allSlider, _allPlus, _allValue]);
++        _scopeRow = panel_row(@[_scopeLabel, _scopeControl]); _scopeRow.hidden = !scopes;
++        UIStackView *buttons = panel_row(@[_resetButton, _cancelButton, _doneButton]); buttons.distribution = UIStackViewDistributionFillEqually; buttons.spacing = 8;
++        for (UILabel *l in @[_groupName, _allName]) [l.widthAnchor constraintEqualToConstant:104].active = YES;
++        for (UILabel *l in @[_groupValue, _allValue]) [l.widthAnchor constraintEqualToConstant:44].active = YES;
++        [_scopeLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+ 
+-    _stack = [[UIStackView alloc] initWithArrangedSubviews:@[_title, _hint, _mirrorRow, groupRow, allRow, _scopeRow, buttons, _flashLabel]];
+-    _stack.axis = UILayoutConstraintAxisVertical; _stack.spacing = 8; _stack.alignment = UIStackViewAlignmentFill;
+-    [_stack setCustomSpacing:4 afterView:_title];
+-    _stack.translatesAutoresizingMaskIntoConstraints = NO;
+-    [_card.contentView addSubview:_stack];
+-    [NSLayoutConstraint activateConstraints:@[
+-        [_card.leadingAnchor constraintEqualToAnchor:self.leadingAnchor], [_card.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+-        [_card.topAnchor constraintEqualToAnchor:self.topAnchor], [_card.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+-        [_stack.leadingAnchor constraintEqualToAnchor:_card.contentView.leadingAnchor constant:14],
+-        [_stack.trailingAnchor constraintEqualToAnchor:_card.contentView.trailingAnchor constant:-14],
+-        [_stack.topAnchor constraintEqualToAnchor:_card.contentView.topAnchor constant:12],
+-        [_stack.bottomAnchor constraintEqualToAnchor:_card.contentView.bottomAnchor constant:-12],
+-    ]];
++        _stack = [[UIStackView alloc] initWithArrangedSubviews:@[_title, _hint, _mirrorRow, groupRow, allRow, _scopeRow, buttons, _flashLabel]];
++        _stack.axis = UILayoutConstraintAxisVertical; _stack.spacing = 8; _stack.alignment = UIStackViewAlignmentFill;
++        [_stack setCustomSpacing:4 afterView:_title];
++        _stack.translatesAutoresizingMaskIntoConstraints = NO;
++        [_card.contentView addSubview:_stack];
++        [NSLayoutConstraint activateConstraints:@[
++            [_card.leadingAnchor constraintEqualToAnchor:self.leadingAnchor], [_card.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
++            [_card.topAnchor constraintEqualToAnchor:self.topAnchor], [_card.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
++            [_stack.leadingAnchor constraintEqualToAnchor:_card.contentView.leadingAnchor constant:14],
++            [_stack.trailingAnchor constraintEqualToAnchor:_card.contentView.trailingAnchor constant:-14],
++            [_stack.topAnchor constraintEqualToAnchor:_card.contentView.topAnchor constant:12],
++            [_stack.bottomAnchor constraintEqualToAnchor:_card.contentView.bottomAnchor constant:-12],
++        ]];
++    } else {
++        // The bar: the first row's parts (dm_pad_compact_rows decides which go on it, arrangeRowsFor:), then the rest, shown by the button at its end.
++        // Every control at least 44 points tall; the slider of the chosen group's size gives way to − and + (VoiceOver: the group's own element
++        // takes swipes up and down too).
++        _groupSlider.hidden = YES;
++        _groupName.userInteractionEnabled = YES;   // drag the bar by it to the other edge
++        [_groupName setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
++        [_groupName setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
++        [_groupName addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(barDragged:)]];
++        [_groupName.widthAnchor constraintGreaterThanOrEqualToConstant:DM_PAD_BAR_NAME].active = YES;
++        _moreButton = panel_round(@"ellipsis.circle", scopes ? [NSString stringWithFormat:@"%@, %@, %@", _allText, _scopeLabel.text, panel_text(env, DM_PAD_TEXT_RESET)]
++                                                             : [NSString stringWithFormat:@"%@, %@", _allText, panel_text(env, DM_PAD_TEXT_RESET)], 44);
++        [_moreButton addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; DmPadEditPanel *s = weak; s.expanded = !s.expanded; }] forControlEvents:UIControlEventTouchUpInside];
++        for (UIButton *b in @[_resetButton, _cancelButton, _doneButton]) [b.heightAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;
++        for (UIButton *b in @[_cancelButton, _doneButton]) [b.widthAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;   // a short label ("OK") keeps a 44-point target
++        for (UIView *v in @[_mirrorControl, _scopeControl, _allSlider]) [v.heightAnchor constraintEqualToConstant:44].active = YES;
++        for (UILabel *l in @[_groupValue, _allValue]) [l.widthAnchor constraintEqualToConstant:44].active = YES;
++        [_allName.widthAnchor constraintEqualToConstant:88].active = YES;
++        [_scopeLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
++        _gap = [UIView new];
++        [_gap setContentHuggingPriority:1 forAxis:UILayoutConstraintAxisHorizontal];
++        [_gap.heightAnchor constraintEqualToConstant:1].active = YES;
++        _row1 = panel_row(@[]);
++        _row3 = panel_row(@[]); _row3.distribution = UIStackViewDistributionFillEqually; _row3.spacing = 8;
++        UIStackView *allRow = panel_row(@[_allName, _allMinus, _allSlider, _allPlus, _allValue]);
++        _scopeRow = panel_row(@[_scopeLabel, _scopeControl]); _scopeRow.hidden = !scopes;
++        UIStackView *resetRow = panel_row(@[_resetButton]);
++        _extra = [[UIStackView alloc] initWithArrangedSubviews:@[allRow, _scopeRow, resetRow]];
++        _extra.axis = UILayoutConstraintAxisVertical; _extra.spacing = 6; _extra.alignment = UIStackViewAlignmentFill;
++        _extra.hidden = YES;
++        _stack = [[UIStackView alloc] initWithArrangedSubviews:@[_row1, _mirrorRow, _row3, _extra]];
++        _stack.axis = UILayoutConstraintAxisVertical; _stack.spacing = 6; _stack.alignment = UIStackViewAlignmentFill;
++        _stack.translatesAutoresizingMaskIntoConstraints = NO;
++        [_card.contentView addSubview:_stack];
++        // The message shows outside the bar, on the side away from its edge (layoutSubviews), on a dark pill of its own: it takes no room in the bar.
++        _flashLabel.backgroundColor = [UIColor colorWithWhite:0 alpha:0.72];
++        _flashLabel.layer.cornerRadius = 11; _flashLabel.clipsToBounds = YES;
++        [self addSubview:_flashLabel];
++        [NSLayoutConstraint activateConstraints:@[
++            [_card.leadingAnchor constraintEqualToAnchor:self.leadingAnchor], [_card.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
++            [_card.topAnchor constraintEqualToAnchor:self.topAnchor], [_card.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
++            [_stack.leadingAnchor constraintEqualToAnchor:_card.contentView.leadingAnchor constant:DM_PAD_BAR_INSET],
++            [_stack.trailingAnchor constraintEqualToAnchor:_card.contentView.trailingAnchor constant:-DM_PAD_BAR_INSET],
++            [_stack.topAnchor constraintEqualToAnchor:_card.contentView.topAnchor constant:8],
++            [_stack.bottomAnchor constraintEqualToAnchor:_card.contentView.bottomAnchor constant:-8],
++        ]];
++        [self arrangeRows:2];
++    }
+     [self showGroup:nil size:100 min:DM_PAD_SIZE_MIN max:DM_PAD_SIZE_MAX];
+     [self showAll:100 min:DM_PAD_ALL_MIN];
+     [self showMirror:YES applies:YES];
+@@ -271,6 +336,7 @@ - (BOOL)flash:(NSString *)message {
+     [_flashed addObject:message];
+     unsigned gen = ++_flashGen;
+     _flashLabel.text = message; _flashLabel.alpha = 1;
++    if (_compact) [self setNeedsLayout];   // the bar's message is sized to its words (layoutSubviews)
+     UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, message);
+     __weak DmPadEditPanel *weak = self;
+     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+@@ -288,6 +354,7 @@ - (CGSize)fittingSizeForWidth:(CGFloat)width {
+                        verticalFittingPriority:UILayoutPriorityFittingSizeLevel];
+ }
+ - (void)placeIn:(CGRect)bounds avoiding:(NSArray<NSValue *> *)rects {
++    if (_compact) { _dock = -1; [self dockIn:bounds group:-1 chosen:CGRectNull avoiding:rects]; return; }   // the bar (the gamepad passes its safe area)
+     CGFloat w = fmin(400, bounds.size.width - 24);
+     _hint.hidden = bounds.size.height < 520;   // a phone held sideways: the card keeps to its rows
+     [self fitMirrorTo:w - 28];   // the rows' width: the card less the stack's insets
+@@ -307,9 +374,104 @@ - (void)placeIn:(CGRect)bounds avoiding:(NSArray<NSValue *> *)rects {
+     [self keepIn:bounds];
+ }
+ - (void)keepIn:(CGRect)bounds {   // each axis inside bounds (8 points in), or centred on it where the card is larger
++    if (_compact) return;   // the bar: dockIn: places it
+     CGRect f = self.frame, b = CGRectInset(bounds, 8, 8);
+     f.origin.x = f.size.width > b.size.width ? CGRectGetMidX(b) - f.size.width / 2 : fmin(fmax(f.origin.x, CGRectGetMinX(b)), CGRectGetMaxX(b) - f.size.width);
+     f.origin.y = f.size.height > b.size.height ? CGRectGetMidY(b) - f.size.height / 2 : fmin(fmax(f.origin.y, CGRectGetMinY(b)), CGRectGetMaxY(b) - f.size.height);
+     self.frame = f;
+ }
++// ---- The compact bar ----
++- (BOOL)compact { return _compact; }
++- (int)dockEdge { return _dock; }
++- (int)compactRows { return _compact ? _rows : 0; }
++// The first row's parts for rows (dm_pad_compact_rows): 1 all of them; 2 the choice below; 3 the choice, then Cancel and Done, below.
++- (void)arrangeRows:(int)rows {
++    if (rows == _rows) return;
++    _rows = rows;
++    for (UIStackView *r in @[_row1, _row3]) for (UIView *v in r.arrangedSubviews) { [r removeArrangedSubview:v]; [v removeFromSuperview]; }
++    [_stack removeArrangedSubview:_mirrorRow]; [_mirrorRow removeFromSuperview];
++    NSMutableArray<UIView *> *first = [NSMutableArray arrayWithObjects:_groupName, _groupMinus, _groupValue, _groupPlus, _gap, nil];
++    if (rows == 1) [first addObject:_mirrorRow];
++    if (rows < 3) [first addObjectsFromArray:@[_cancelButton, _doneButton]];
++    [first addObject:_moreButton];
++    for (UIView *v in first) [_row1 addArrangedSubview:v];
++    if (rows > 1) [_stack insertArrangedSubview:_mirrorRow atIndex:1];
++    if (rows == 3) { [_row3 addArrangedSubview:_cancelButton]; [_row3 addArrangedSubview:_doneButton]; }
++    _row3.hidden = rows != 3;
++}
++// The rows for a row width and the width the bar's rows need there (at most row): the choice's titles at 13 points where it shares the first row,
++// else at the largest size that fits a row of its own (fitMirrorTo:).
++- (CGFloat)arrangeRowsFor:(CGFloat)row {
++    CGFloat gap = DM_PAD_BAR_GAP, sizes = 3 * 44 + 2 * gap, more = 44;
++    CGFloat cancel = MAX(44, ceil(_cancelButton.intrinsicContentSize.width)), done = MAX(44, ceil(_doneButton.intrinsicContentSize.width)), buttons = cancel + done;   // as wide as their 44-point floor makes them
++    if (_mirrorFont != 13) [self setMirrorFont:13];
++    CGFloat choice = ceil(_mirrorControl.intrinsicContentSize.width) + 8;   // a little room, so a title is never squeezed by rounding
++    int rows = dm_pad_compact_rows(row, DM_PAD_BAR_NAME, sizes, choice, buttons, more, gap);
++    [self arrangeRows:rows];
++    CGFloat need = dm_pad_compact_width(rows, DM_PAD_BAR_NAME, sizes, choice, buttons, more, gap);
++    if (rows > 1) {
++        [self fitMirrorTo:row - 12];   // a row of its own, with room to spare around the titles (the longest are French and German)
++        need = fmax(need, ceil(_mirrorControl.intrinsicContentSize.width));
++        if (rows == 3) need = fmax(need, 2 * fmax(cancel, done) + _row3.spacing);   // Cancel and Done, as wide as each other
++    }
++    if (_expanded) need = fmax(need, 340);   // All controls' slider and Save for need some room
++    return fmin(need, row);
++}
++- (void)setExpanded:(BOOL)expanded {
++    if (!_compact || expanded == _expanded) return;
++    _expanded = expanded;
++    _extra.hidden = !expanded;
++    _moreButton.selected = expanded;   // VoiceOver: "selected" while the rest shows
++    UIButtonConfiguration *c = _moreButton.configuration;
++    c.image = [UIImage systemImageNamed:expanded ? @"ellipsis.circle.fill" : @"ellipsis.circle"
++                      withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightMedium]];
++    _moreButton.configuration = c;
++    [self.superview setNeedsLayout];   // the gamepad docks the bar again at its new height
++    if (expanded) UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, _allSlider);
++}
++- (void)dockIn:(CGRect)safe group:(int)group chosen:(CGRect)chosen avoiding:(NSArray<NSValue *> *)rects {
++    if (!_compact || _barDragging || CGRectIsEmpty(safe)) return;
++    _safe = safe;
++    CGFloat row = safe.size.width - 2 * DM_PAD_BAR_SIDE - 2 * DM_PAD_BAR_INSET;
++    if (row != _barRow || _expanded != _barExpanded || CGSizeEqualToSize(_barSize, CGSizeZero)) {   // measured again only when the width or the rest changes
++        CGFloat width = [self arrangeRowsFor:row] + 2 * DM_PAD_BAR_INSET;
++        _barSize = [self fittingSizeForWidth:width];
++        _barSize.width = width;
++        _barRow = row; _barExpanded = _expanded;
++    }
++    CGSize size = _barSize;
++    size.height = fmin(size.height, safe.size.height - 2 * DM_PAD_DOCK_MARGIN);
++    CGRect others[DM_PAD_G_N + 2]; int n = 0;
++    for (NSValue *v in rects) if (n < (int)(sizeof others / sizeof *others)) others[n++] = v.CGRectValue;
++    BOOL fresh = group >= 0 && group != _dockGroup;
++    _dockGroup = group;
++    int was = _dock;
++    _dock = dm_pad_dock_edge(safe, size, chosen, fresh, others, n, _dock);
++    CGRect f = dm_pad_dock_rect(safe, size, _dock);
++    if (CGRectEqualToRect(self.frame, f)) return;
++    void (^place)(void) = ^{ self.bounds = CGRectMake(0, 0, f.size.width, f.size.height); self.center = CGPointMake(CGRectGetMidX(f), CGRectGetMidY(f)); };
++    if (was >= 0 && was != _dock && !UIAccessibilityIsReduceMotionEnabled()) [UIView animateWithDuration:0.2 animations:place];
++    else place();
++    [self setNeedsLayout];
++}
++// A drag on the group's name: the bar follows up and down, and goes to the nearer edge when the finger lifts.
++- (void)barDragged:(UIPanGestureRecognizer *)r {
++    UIView *parent = self.superview; if (!parent || CGRectIsEmpty(_safe)) return;
++    if (r.state == UIGestureRecognizerStateBegan) _barDragging = YES;
++    CGPoint t = [r translationInView:parent];
++    CGFloat h = self.bounds.size.height, lo = CGRectGetMinY(_safe) + h / 2, hi = CGRectGetMaxY(_safe) - h / 2;
++    self.center = CGPointMake(self.center.x, fmin(fmax(self.center.y + t.y, lo), fmax(lo, hi)));
++    [r setTranslation:CGPointZero inView:parent];
++    if (r.state == UIGestureRecognizerStateEnded || r.state == UIGestureRecognizerStateCancelled || r.state == UIGestureRecognizerStateFailed) {
++        _barDragging = NO;
++        _dock = self.center.y > CGRectGetMidY(_safe) ? 1 : 0;
++        [parent setNeedsLayout];
++    }
++}
++- (void)layoutSubviews {
++    [super layoutSubviews];
++    if (!_compact) return;
++    CGFloat h = 22, w = fmin(self.bounds.size.width, fmax(160, ceil([_flashLabel sizeThatFits:CGSizeMake(600, h)].width) + 20));
++    _flashLabel.frame = CGRectMake((self.bounds.size.width - w) / 2, _dock == 1 ? -h - 6 : self.bounds.size.height + 6, w, h);
++}
+ @end
+diff --git a/dm/ios/tests/pad_geometry/pad_groups_check.m b/dm/ios/tests/pad_geometry/pad_groups_check.m
+index bf80301..4357c6d 100644
+--- a/dm/ios/tests/pad_geometry/pad_groups_check.m
++++ b/dm/ios/tests/pad_geometry/pad_groups_check.m
+@@ -510,6 +510,66 @@ static void check_side_insets(void) {
+     }
+ }
+ 
++// A phone's compact bar (DmPadEditor.h): its rows for the width of each phone, held sideways and upright, with the widest titles of the 10 languages
++// (estimated with a stand-in for the system font, as DmPadEditor.m's fitMirrorTo: notes: the choice 186 to 322 points at 13 points, Cancel and Done
++// together 138 to 170), the choice's row never narrower than the choice; and its edge: on every phone held sideways, in 2D and 3D, a group just chosen never
++// lies under the bar (it goes to the edge away from it), and a group dragged under it sends it to the other edge.
++static void check_compact_bar(void) {
++    static const struct { const char *name; CGFloat w, h; UIEdgeInsets landscape, upright; } phones[] = {
++        {"iPhone SE", 667, 375, {0, 0, 0, 0}, {20, 0, 0, 0}},
++        {"iPhone 17", 874, 402, {0, 62, 20, 62}, {62, 0, 34, 0}},
++        {"iPhone 17 Pro Max", 956, 440, {0, 62, 20, 62}, {62, 0, 34, 0}},
++    };
++    static const struct { const char *lang; CGFloat choice, buttons; } words[] = {{"en", 304, 146}, {"de", 321, 170}, {"fr", 322, 164}, {"ja", 186, 138}};
++    const CGFloat name = 96, sizes = 3 * 44 + 2 * 6, more = 44, gap = 6, sides = 2 * 6 + 2 * 8;   // DmPadEditor.m's DM_PAD_BAR_*
++    for (int p = 0; p < 3; p++)
++        for (int up = 0; up < 2; up++) {
++            UIEdgeInsets in = up ? phones[p].upright : phones[p].landscape;
++            CGFloat w = up ? phones[p].h : phones[p].w, row = w - in.left - in.right - sides;
++            printf("compact bar: %s %s, a row of %.0f points:", phones[p].name, up ? "upright" : "sideways", row);
++            for (int l = 0; l < 4; l++) {
++                int rows = dm_pad_compact_rows(row, name, sizes, words[l].choice, words[l].buttons, more, gap);
++                printf(" %s %d row%s", words[l].lang, rows, rows > 1 ? "s" : "");
++                if (up && rows != 3) FAIL("compact bar: %s upright in %s has %d rows", phones[p].name, words[l].lang, rows);
++                if (!up && rows == 3) FAIL("compact bar: %s sideways in %s needs 3 rows", phones[p].name, words[l].lang);
++                if (rows > 1 && row - 12 < words[l].choice) printf(" (the choice at a smaller size)");
++                if (rows > 1 && row < words[l].choice - 47) FAIL("compact bar: %s: the choice in %s does not fit at 10 points", phones[p].name, words[l].lang);
++            }
++            printf("\n");
++        }
++    // The edge, on the built-in layout and with each group moved to the bottom or the top of its area.
++    int fresh = 0, swapped = 0;
++    for (int p = 0; p < 3; p++)
++        for (int full = 0; full < 2; full++) {
++            Screen s = {phones[p].name, {{0, 0}, {phones[p].w, phones[p].h}}, phones[p].landscape, NO, CGRectNull};
++            DmPadScene sc = scene(&s, full, 1, 0, NULL);
++            DmPadGroups none; memset(&none, 0, sizeof none);
++            DmPadGeo g = dm_pad_scene_geo(&sc, &none);
++            CGRect safe = UIEdgeInsetsInsetRect(s.bounds, s.insets), rects[DM_PAD_G_N]; int n = 0;
++            for (int k = 0; k < DM_PAD_G_N; k++) if (dm_pad_group_drawn(k, full)) rects[n++] = CGRectInset(dm_pad_group_box(&g, full, k, NULL), -12, -12);
++            CGSize bar = CGSizeMake(fmin(480, safe.size.width - 12), 8 + 44 + 6 + 44 + 8);   // two rows
++            int e0 = dm_pad_dock_edge(safe, bar, CGRectNull, NO, rects, n, -1);
++            for (int k = 0; k < DM_PAD_G_N; k++) {
++                if (!dm_pad_group_drawn(k, full)) continue;
++                CGRect c = dm_pad_group_box(&g, full, k, NULL);
++                int m = dm_pad_group_mirror(k);
++                if (m >= 0) c = CGRectUnion(c, dm_pad_group_box(&g, full, m, NULL));   // together with its mirror image (the default)
++                int e = dm_pad_dock_edge(safe, bar, c, YES, rects, n, e0);
++                fresh++;
++                if (dm_pad_cover(dm_pad_dock_rect(safe, bar, e), c) > 0) FAIL("compact bar: %s %s: %s just chosen is under the bar", phones[p].name, full ? "3D" : "2D", dm_pad_group_names[k]);
++                CGRect under = dm_pad_dock_rect(safe, bar, e);   // dragged to where the bar is: it goes to the other edge
++                CGRect moved = CGRectMake(CGRectGetMidX(under) - c.size.width / 2, CGRectGetMidY(under) - 10, c.size.width, fmin(c.size.height, 40));
++                int e2 = dm_pad_dock_edge(safe, bar, moved, NO, rects, n, e);
++                if (e2 == e) FAIL("compact bar: %s: %s dragged under the bar did not send it to the other edge", phones[p].name, dm_pad_group_names[k]);
++                else swapped++;
++            }
++            if (p == 1 && !full) printf("compact bar: iPhone 17 sideways, nothing chosen: the %s edge\n", e0 ? "bottom" : "top");
++        }
++    CGRect safe = {{0, 0}, {600, 300}};
++    if (dm_pad_dock_edge(safe, CGSizeMake(300, 296), CGRectMake(0, 0, 100, 100), YES, NULL, 0, 1) != 0) FAIL("compact bar: one taller than the safe area is not at the top");
++    printf("compact bar: %d groups chosen, none under the bar; %d dragged under it sent it to the other edge\n", fresh, swapped);
++}
++
+ // The self-test's script (DmGamepad.m runLayoutSelfTest, DM_PAD_LAYOUT_TEST) through the same rules, on every screen and layout, every size and stick
+ // place, with and without single moves: Both sides together, the shoulders go down together (the last step that fits is kept; on a screen where they
+ // have no room below their built-in place the self-test logs that and skips the check, as here), Each side on its own, the left ones half of the way
+@@ -929,6 +989,7 @@ int main(void) {
+     check_editor();
+     check_ipad_top_row_lowered();
+     check_side_insets();
++    check_compact_bar();
+     check_all_floor();
+     check_mirror_room();
+     check_mirror_choice();
+diff --git a/dm/ios/tests/test_pad_geometry.py b/dm/ios/tests/test_pad_geometry.py
+index d206602..3303aae 100644
+--- a/dm/ios/tests/test_pad_geometry.py
++++ b/dm/ios/tests/test_pad_geometry.py
+@@ -22,7 +22,7 @@ and its words are the 27 lines' last three and line 4; Done saves what the edito
+ game's value or this game's; a touch on the panel never reaches the editor, a thumb resting elsewhere neither stops a drag nor starts a pinch, and a
+ pinch's first finger does not drag the group first; the self-test's script fails on no screen, size or stick place for want of room. On a phone
+ held sideways the stick, the D-pad and A B X Y moved up or grown past their built-in band keep out of the side insets (the sensor housing), and an
+-iPad's value keeps its anchors there.
++iPad's value keeps its anchors there; the phone's compact bar takes one to three rows by width (three upright) and docks away from the chosen group.
+ """
+ import shutil
+ import subprocess
+@@ -66,6 +66,8 @@ class PadGeometryTests(unittest.TestCase):
+         self.assertIn("self-test script: 810 runs", out)
+         self.assertIn("side insets: ", out)
+         self.assertIn("Pro Max stick lifted: ring x 59.0", out)
++        self.assertIn("compact bar: iPhone SE upright, a row of 347 points: en 3 rows", out)
++        self.assertIn("none under the bar", out)
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/docs/settings.md b/docs/settings.md
+index 8b73ca0..3da19b8 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -281,7 +281,7 @@ On the iPhone and iPad the gear at the top centre of the touch controls opens a
+ 
+ Console mode changes as on a Switch put in or taken out of its dock. While a TV shows the game it stays **Docked**, and the mode you pick applies when the TV is disconnected. **Docked** removes the Tap layout, as a docked Switch reads no touch screen.
+ 
+-**Controller layout** › **Adjust Gamepad Layout** (2D and 3D) lets you move and resize the touch controls by groups: the left shoulders (ZL, L, L3), the right ones (ZR, R, R3), the left stick, the D-pad, A B X Y, and −, the gear and +. Tap a group to choose it, drag it anywhere (it follows once your finger has moved a few points, and snaps to the edges and the middle), and pinch it with two fingers on it, or use the panel's slider or − and +, to resize it. A thumb resting elsewhere on the screen does not get in the way of a drag, and a touch on the panel never moves a group under it. **All controls** resizes every control at once, down to the size that keeps every touch target 44 points across (on most iPhones held sideways at the small or medium size, − and + are no larger than that already, so it starts at 100 %). Above the chosen group's row the panel asks how a group and its mirror image move, the shoulders of both sides and the left stick with A B X Y: **Both sides together** (at first) moves them as one, so one drag lowers the whole top row, and a size goes to the mirror image as far as it has room, the chosen group growing on alone beyond that (A B X Y larger than the left stick, which meets the D-pad in 3D), the panel naming the group that stopped; **Each side on its own** moves and sizes only the group you drag. The choice is kept per layout, and it is dimmed while the D-pad or −, the gear and + is chosen, which have no mirror image. Picked while the two sides are apart, **Both sides together** moves nothing at once: the other side goes to the mirrored place the next time you move or resize either. A spot with no room turns red and the group goes back when you let go (the panel says when only the mirror image has no room there), and a size stops where the group meets another. **Reset to default** puts the layout on screen back, **Cancel** keeps the layout from before, **Done** saves it (nothing, when nothing changed). While the editor is open the game is told it lost the focus, as for the quit prompt, so a game that pauses there pauses, and the touch controls send nothing. Places are kept per layout (2D, 3D, over the picture or below it) as positions in the area each group may use, so they fit every screen; a group with no room on a smaller screen stays where it is built in. In the NX2Apple shell, **Save for** chooses all games or this game: the editor shows what Done saves there, the layout on screen and the ones you changed as you left them, the others as that choice holds them, so saving for all games from a game with its own layout replaces only those in every game's layout. For this game, **Reset to default** asks: **Built-in layout** (the layout on screen) or **Same as All games** (the game follows the layout of all games again, which Done leaves as it is). The value is `DM_TOUCH_GROUPS` (`DmPadGeometry.h`, Groups).
++**Controller layout** › **Adjust Gamepad Layout** (2D and 3D) lets you move and resize the touch controls by groups: the left shoulders (ZL, L, L3), the right ones (ZR, R, R3), the left stick, the D-pad, A B X Y, and −, the gear and +. Tap a group to choose it, drag it anywhere (it follows once your finger has moved a few points, and snaps to the edges and the middle), and pinch it with two fingers on it, or use the panel's slider or − and +, to resize it. A thumb resting elsewhere on the screen does not get in the way of a drag, and a touch on the panel never moves a group under it. **All controls** resizes every control at once, down to the size that keeps every touch target 44 points across (on most iPhones held sideways at the small or medium size, − and + are no larger than that already, so it starts at 100 %). Above the chosen group's row the panel asks how a group and its mirror image move, the shoulders of both sides and the left stick with A B X Y: **Both sides together** (at first) moves them as one, so one drag lowers the whole top row, and a size goes to the mirror image as far as it has room, the chosen group growing on alone beyond that (A B X Y larger than the left stick, which meets the D-pad in 3D), the panel naming the group that stopped; **Each side on its own** moves and sizes only the group you drag. The choice is kept per layout, and it is dimmed while the D-pad or −, the gear and + is chosen, which have no mirror image. Picked while the two sides are apart, **Both sides together** moves nothing at once: the other side goes to the mirrored place the next time you move or resize either. A spot with no room turns red and the group goes back when you let go (the panel says when only the mirror image has no room there), and a size stops where the group meets another. **Reset to default** puts the layout on screen back, **Cancel** keeps the layout from before, **Done** saves it (nothing, when nothing changed). On an iPhone the panel is a bar along the top or the bottom of the screen instead, so it does not cover the controls you arrange: the chosen group with its − and + and size, the two-way choice, **Cancel** and **Done**, and a last button (…) that shows the rest (**All controls**, **Save for**, **Reset to default**). It keeps to the edge away from the group you choose, moves to the other edge when you drag that group under it, and can be dragged there by the group's name; it stays clear of the notch or Dynamic Island and the home indicator, and every control on it is at least 44 points. Groups moved up along the sides keep clear of the notch or Dynamic Island too. While the editor is open the game is told it lost the focus, as for the quit prompt, so a game that pauses there pauses, and the touch controls send nothing. Places are kept per layout (2D, 3D, over the picture or below it) as positions in the area each group may use, so they fit every screen; a group with no room on a smaller screen stays where it is built in. In the NX2Apple shell, **Save for** chooses all games or this game: the editor shows what Done saves there, the layout on screen and the ones you changed as you left them, the others as that choice holds them, so saving for all games from a game with its own layout replaces only those in every game's layout. For this game, **Reset to default** asks: **Built-in layout** (the layout on screen) or **Same as All games** (the game follows the layout of all games again, which Done leaves as it is). The value is `DM_TOUCH_GROUPS` (`DmPadGeometry.h`, Groups).
+ 
+ ## TV
+ 

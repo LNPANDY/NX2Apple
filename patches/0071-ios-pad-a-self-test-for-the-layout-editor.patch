@@ -1,0 +1,461 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: odonnellmatt <odonnellmatt@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 10:01:31 +0800
+Subject: [PATCH] ios/pad: a self-test for the layout editor
+ (DM_PAD_LAYOUT_TEST)
+
+The layout editor's gestures are UIKit code, which no test on Linux or in
+CI runs. DM_PAD_LAYOUT_TEST=1 (in Documents/env.txt, or in a game's env.txt
+in the shell) runs a scripted pass through the editor on the device. Three
+seconds after the touch gamepad's first layout it opens the editor, taps
+Both sides together on the panel, drags the left shoulders down by 30 % of
+their free range in ten steps (the right ones follow), taps Each side on
+its own and drags the left ones half of the way back up (the right ones
+stay), taps Both sides together again (nothing moves), pinches A B X Y
+toward 120 % (the stick goes along as far as it has room), taps the D-pad
+(in 2D the middle group: the choice must be dimmed there) and sets its
+slider to 80 %, sets all controls to 105 % and taps Done, each step through
+the method a finger, the pinch or the panel calls (the choice through the
+action a tap on it sends). It logs every control's frame before and after,
+reads the value back from where Done saved it, and checks that the geometry
+of that value alone, and the gamepad's own, give the same frames and send
+every touch point to the control it lies in. Then it puts back what was
+stored before; with nothing stored before, it leaves nothing stored
+(through the hosting app's _forget hook; without that hook it stores the
+built-in layout and the log says so). On a screen where the shoulders have
+no room to come down it says so and skips that check. Its lines start with
+"pad layout test:", a failure is a [RED] line, and the last line says PASS
+or FAIL. dm_pad_layout_self_test() runs it at once, for the Duo harness.
+
+Checked here (Linux, no Apple SDK): pad_groups_check.m replays the script
+through DmPadEditing.h's rules on 810 combinations (every screen, 2D and
+3D, every size and stick place, three arrangements); 48 have no room to
+lower the shoulders and are skipped, as the self-test skips them; none
+fails; also under gcc ASan and UBSan. DmGamepad.m passes the stub syntax
+check; test_pad_geometry.py, env_switches.py --check, test_docs.py. A new
+Duo harness test runs the self-test on three screens in 2D and 3D and
+checks that the stored value comes back.
+
+Run on a Mac, on the author's own tree (this series' feature code on
+another base) with the whole series applied: testLayoutEditorSelfTestPasses
+passed on Simulators of an iPhone SE (3rd generation), an iPhone 17, an
+iPhone 17 Pro Max and an 11-inch iPad. Not run: this exact tree on a Mac,
+DM_PAD_LAYOUT_TEST on a real device.
+
+Upstream-Status: pending [builds on 0020 and 0040: the seedds/nxnative pull request follows once they are upstream]
+Reason: a scripted self-test of the layout editor on the device (DM_PAD_LAYOUT_TEST), since no CI runs its UIKit code
+Issue: LNPANDY/NX2Apple#1397 (the feature issue, to be opened before the pull request)
+---
+ dm/ios/Sources/DmGameMenu.h                  |   1 +
+ dm/ios/Sources/DmGamepad.m                   | 186 ++++++++++++++++++-
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m     |  20 ++
+ dm/ios/tests/pad_geometry/pad_groups_check.m |  75 ++++++++
+ dm/ios/tests/test_pad_geometry.py            |   6 +-
+ 5 files changed, 284 insertions(+), 4 deletions(-)
+
+diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
+index 10af79d..4a9a494 100644
+--- a/dm/ios/Sources/DmGameMenu.h
++++ b/dm/ios/Sources/DmGameMenu.h
+@@ -12,6 +12,7 @@ bool dm_pad_layout_offered(int layout);   // Tap only in handheld mode
+ void dm_pad_layout_set(int layout);   // releases every touch first, and is saved for the next start
+ bool dm_pad_edit_offered(void);   // DmGamepad.m: Adjust Gamepad Layout is in the menu (the 2D and 3D layouts: Tap has no controls to move)
+ void dm_pad_edit_begin(void);   // opens the layout editor over the game (on the main queue, once the menu has closed)
++int dm_pad_layout_self_test(void);   // the layout editor's self-test (DM_PAD_LAYOUT_TEST, DmGamepad.m) at once: the number of failures, -1 without a gamepad
+ void dm_gamepad_touch_feedback(bool on);   // DM_TOUCH_HAPTICS
+ bool dm_setting_live(const char *env, const char *value);
+ bool dm_tv_connected(void);   // front_ios.m: true while an external display presents the game window
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 6e8af22..655c109 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -155,6 +155,7 @@ - (BOOL)editOffered;
+ - (void)beginEditing;
+ - (void)finishEditing:(BOOL)save;
+ - (BOOL)editing;
++- (int)runLayoutSelfTest;
+ @end
+ // The menu button: a UIButton whose menu is the in-game menu (UIKit draws it and takes the touches while it is open). Its hit circle is larger than the drawn one, and a key nearer
+ // to the touch wins (− / + sit beside it), so it asks the pad
+@@ -231,6 +232,7 @@ @implementation DmGamepad {
+     CGSize _panelFor;                              // the gamepad's size the panel was placed for: placed again when it changes (a rotation, a window)
+     UIPinchGestureRecognizer *_pinch;
+     UINotificationFeedbackGenerator *_editFeedback;
++    BOOL _selfTestQueued;
+ }
+ 
+ static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
+@@ -636,6 +638,7 @@ - (void)layoutSubviews {
+     else if (_padOff && !_layout.onTV && !_menuOpen && ![self voiceOverRunning] && !_padHintShown && _padHintWords.length && !CGRectIsEmpty(self.bounds)) [self wakeMenu];
+     [self refresh];
+     if (_editing) [self layoutEditor];
++    [self selfTestIfAsked];
+ }
+ 
+ // ---- The right-stick hint ----
+@@ -699,7 +702,8 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
+ //   Done saves (in the shell: all games or this game), Reset to default (the layout on screen back to the built-in one; for this game also "Same as All
+ //   games"), Cancel (the layout from before) and Done.
+ //   Every change goes through DmPadEditing.h's rules: a spot that does not fit is drawn red under the finger and the group goes back when it lifts, a size
+-//   stops where the group meets another, and the panel says why, once per gesture.
++//   stops where the group meets another, and the panel says why, once per gesture. The self-test (DM_PAD_LAYOUT_TEST) calls the same methods the
++//   touches, the pinch and the panel call.
+ //   Done saves DM_TOUCH_GROUPS: in the shell through dm_shell_touch_groups_save (docs/frontends.md), where the shell's own editor reads it (every game's value,
+ //   or this game's own), the layouts the editor neither showed nor changed kept as that scope holds them (DmPadEditing.h, "Where Done saves"); in a
+ //   game's own app in NSUserDefaults (launcher.DM_TOUCH_GROUPS), read at the next start. The running game takes it at once.
+@@ -946,7 +950,7 @@ - (void)editPinchBegin:(CGPoint)c {
+     if (_fingers.drag && _fingers.moving) [self editDragEndWarn:NO];   // the drag the first finger began gives way to the pinch
+     _previewValid = NO; _editRefused = NO; _geoValid = NO;
+     if (_pinchRestore) _draft = _dragBefore;   // that finger's move was the pinch's start: the group goes back to where it was first
+-    int k = _pinchCandidate >= 0 ? _pinchCandidate : dm_pad_group_at(self.geo, _full, c, 24);   // the fingers' group; a call with no fingers (the Duo harness): the one at c
++    int k = _pinchCandidate >= 0 ? _pinchCandidate : dm_pad_group_at(self.geo, _full, c, 24);   // the fingers' group; a call with no fingers (the Duo harness, the self-test): the one at c
+     _pinchCandidate = -1; _pinchRestore = NO;
+     dm_pad_pinch_on(&_fingers);
+     _pinchGroup = k;
+@@ -1099,6 +1103,183 @@ - (void)layoutEditor {
+     } else [_panel keepIn:self.bounds];
+ }
+ 
++// ---- The layout editor's self-test (DM_PAD_LAYOUT_TEST=1) ----
++// A scripted run for a build no one touches: 3 seconds after the gamepad's first layout it opens the editor, taps Both sides together on the panel,
++// drags the left shoulders down by 30 % of their free range in ten steps (the right ones follow; a screen where they have no room below their built-in
++// place says so and skips that check), taps Each side on its own and drags them half of the way back up (the right ones stay), taps Both sides together
++// again (nothing moves), pinches A B X Y toward 120 % (the stick goes along as far as it has room), taps the D-pad (in 2D the middle group: the choice is
++// dimmed there, no mirror image) and sets its slider to 80 %, sets all controls to 105 %, logging every control's frame before and after, and taps Done:
++// the value is saved where the editor saves it, read back from there, and the geometry of the value read back alone must give the same frames and send
++// every touch point to the same control as the edited one and the gamepad's own (dm_pad_hit_compare: what touchesBegan decides with). Then what was
++// stored before the test is put back, and what was not stored is forgotten again (a game with no layout of its own keeps none). Each step calls the
++// method a finger, the pinch or the panel calls (the choice through the action a tap on it sends, tapMirrorSegment:). The lines start with "pad layout
++// test:", a failure is a [RED] line, and the last line says PASS or FAIL. Returns the number of failures (the Duo harness runs it on a simulator).
++- (void)selfTestIfAsked {
++    if (_selfTestQueued || CGRectIsEmpty(self.bounds)) return;
++    const char *e = getenv("DM_PAD_LAYOUT_TEST");
++    if (!e || !atoi(e)) return;
++    _selfTestQueued = YES;
++    LOG("pad layout test: queued (DM_PAD_LAYOUT_TEST), it starts in 3 seconds");
++    __weak DmGamepad *weak = self;
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [weak runLayoutSelfTest]; });
++}
++static void selftest_frames(const char *when, const DmPadGeo *g, BOOL full) {
++    char line[2048]; size_t n = 0; line[0] = 0;
++    for (int c = 0; c < DM_PAD_C_N; c++) {
++        if (c >= DM_PAD_C_A && c <= DM_PAD_C_Y) continue;   // the diamond is "face"
++        CGRect f = dm_pad_control_frame(g, full, c);
++        if (CGRectIsNull(f)) continue;
++        int w = snprintf(line + n, sizeof line - n, " %s %.1f,%.1f %.1fx%.1f", dm_pad_control_names[c], f.origin.x, f.origin.y, f.size.width, f.size.height);
++        if (w < 0 || (size_t)w >= sizeof line - n) break;
++        n += (size_t)w;
++    }
++    LOG("pad layout test: %s:%s, menu %.1f,%.1f r %.1f, stick ring r %.1f knob r %.1f", when, line, g->swap.x, g->swap.y, g->swapR, g->stickR, g->knobR);
++}
++- (int)runLayoutSelfTest {
++    if (_tap) { LOG("pad layout test: skipped, the Tap layout has no controls to move"); return 0; }
++    if (CGRectIsEmpty(self.bounds)) { LOG("[RED] pad layout test: FAIL: the gamepad has no size yet"); return 1; }
++    if (_editing) [self finishEditing:NO];
++    int fails = 0;
++    #define T_FAIL(...) do { LOG("[RED] pad layout test: FAIL: " __VA_ARGS__); fails++; } while (0)
++    BOOL inShell = dlsym(RTLD_DEFAULT, "dm_shell_touch_groups_save") != NULL;
++    int scope = inShell && _groupsOwn ? 1 : 0;
++    NSString *stored = [self storedGroups:scope];
++    DmPadGroups inEffect = _groups; BOOL ownBefore = _groupsOwn;
++    char effect[DM_PAD_GROUPS_MAX + 1]; dm_pad_groups_encode(&_groups, effect, sizeof effect);
++    DmPadScene sc = [self editScene];
++    int set = dm_pad_scene_set(&sc);
++    _geoValid = NO;
++    DmPadGeo before = *self.geo;
++    LOG("pad layout test: start: view %.0fx%.0f, safe area %.0f %.0f %.0f %.0f, %s with the controls %s (layout %s), u %.3f, groups in effect: %s; stored for %s: %s (%s)",
++        self.bounds.size.width, self.bounds.size.height, sc.insets.top, sc.insets.left, sc.insets.bottom, sc.insets.right, _full ? "3D" : "2D",
++        _layout.separated ? "below the picture" : "over the picture", dm_pad_set_names[set], before.u, *effect ? effect : "none", scope ? "this game" : "every game",
++        stored ? (stored.length ? stored.UTF8String : "empty") : "nothing", inShell ? "the shell's store" : "this app's NSUserDefaults");
++    selftest_frames("before", &before, _full);
++    [self beginEditing];
++    if (!_editing) { T_FAIL("the editor did not open"); return fails; }
++    LOG("pad layout test: the editor is open");
++    // The test runs with Both sides together, the default, tapped on the panel (the layout on screen may have had Each side on its own).
++    if (![_panel tapMirrorSegment:0] || _draft.solo[set] || [_panel mirrorSegment] != 0)
++        T_FAIL("Both sides together, tapped on the panel, did not take (the halves %s, the panel shows %d)", _draft.solo[set] ? "on their own" : "together", [_panel mirrorSegment]);
++    // 1. A drag of the left shoulders, as a finger does it.
++    const DmPadGeo *g = self.geo;
++    CGRect box = dm_pad_group_box(g, _full, DM_PAD_G_LEFT, NULL);
++    CGPoint from = CGPointMake(CGRectGetMidX(box), CGRectGetMidY(box));
++    CGFloat dy = 0.3 * (g->area[DM_PAD_G_LEFT].size.height - box.size.height);
++    [self editDragBegin:from];
++    for (int i = 1; i <= 10; i++) [self editDragMove:CGPointMake(from.x, from.y + dy * i / 10)];
++    [self editDragEnd];
++    DmPadPlace l = _draft.place[set][DM_PAD_G_LEFT], r = _draft.place[set][DM_PAD_G_RIGHT];
++    CGRect moved = dm_pad_group_box(self.geo, _full, DM_PAD_G_LEFT, NULL);
++    if (!l.size && !r.size) LOG("pad layout test: drag: no room to move the left shoulders down on this screen (%.0fx%.0f, %s): that check is skipped",
++                                self.bounds.size.width, self.bounds.size.height, dm_pad_set_names[set]);
++    else if (!l.size || !r.size || abs(r.x - (DM_PAD_ANCHOR_MAX - l.x)) > 1 || r.y != l.y) T_FAIL("the shoulders did not move down together (left %d,%d,%d right %d,%d,%d)", l.x, l.y, l.size, r.x, r.y, r.size);
++    else LOG("pad layout test: drag: the left shoulders went down %.1f of %.1f points asked, the right ones followed mirrored (left at %d,%d, right at %d,%d)",
++             CGRectGetMidY(moved) - from.y, dy, l.x, l.y, r.x, r.y);
++    // 1b. Each side on its own, tapped on the panel (the choice is the left shoulders', chosen by the drag): they go half of the way back up on their
++    //     own, the right ones stay. Then Both sides together: nothing moves (the right ones go to the mirrored place at the next move).
++    if (![_panel mirrorApplies]) T_FAIL("the choice is dimmed with the left shoulders chosen");
++    if (![_panel tapMirrorSegment:1] || !_draft.solo[set] || [_panel mirrorSegment] != 1)
++        T_FAIL("Each side on its own, tapped on the panel, did not take (the halves %s, the panel shows %d)", _draft.solo[set] ? "on their own" : "together", [_panel mirrorSegment]);
++    DmPadPlace rStays = _draft.place[set][DM_PAD_G_RIGHT];
++    if (l.size || r.size) {
++        CGFloat back = (CGRectGetMidY(moved) - from.y) / 2;
++        CGPoint at = CGPointMake(CGRectGetMidX(moved), CGRectGetMidY(moved));
++        [self editDragBegin:at];
++        for (int i = 1; i <= 5; i++) [self editDragMove:CGPointMake(at.x, at.y - back * i / 5)];
++        [self editDragEnd];
++        DmPadPlace l2 = _draft.place[set][DM_PAD_G_LEFT], r2 = _draft.place[set][DM_PAD_G_RIGHT];
++        CGRect up = dm_pad_group_box(self.geo, _full, DM_PAD_G_LEFT, NULL);
++        if (r2.x != rStays.x || r2.y != rStays.y || r2.size != rStays.size)
++            T_FAIL("each side on its own: the right shoulders moved with the left ones (%d,%d,%d to %d,%d,%d)", rStays.x, rStays.y, rStays.size, r2.x, r2.y, r2.size);
++        else LOG("pad layout test: each side on its own: the left shoulders went back up %.1f of %.1f points asked (left at %d,%d), the right ones stayed (at %d,%d)",
++                 CGRectGetMidY(moved) - CGRectGetMidY(up), back, l2.x, l2.y, r2.x, r2.y);
++    } else LOG("pad layout test: each side on its own: no drag, the shoulders have no room to move on this screen");
++    DmPadGroups apart = _draft;
++    if (![_panel tapMirrorSegment:0] || _draft.solo[set] || [_panel mirrorSegment] != 0) T_FAIL("Both sides together, tapped again, did not take");
++    apart.solo[set] = 0;
++    if (dm_pad_groups_diff(&apart, &_draft)) T_FAIL("Both sides together moved a group by itself");
++    else LOG("pad layout test: both sides together again: nothing moved (the right shoulders go to the mirrored place at their next move)");
++    // 2. A pinch on A B X Y.
++    CGRect fb = dm_pad_group_box(self.geo, _full, DM_PAD_G_FACE, NULL);
++    [self editPinchBegin:CGPointMake(CGRectGetMidX(fb), CGRectGetMidY(fb))];
++    if (_pinchGroup != DM_PAD_G_FACE) T_FAIL("the pinch on A B X Y did not take them");
++    for (int i = 1; i <= 4; i++) [self editPinchScale:1 + 0.05 * i];
++    [self editPinchEnd];
++    DmPadScene scp = [self editScene];
++    int face = dm_pad_place_now(&scp, &_draft, DM_PAD_G_FACE).size, stick = dm_pad_place_now(&scp, &_draft, DM_PAD_G_STICK).size;
++    if (stick != face && !dm_pad_mate_maxed(&scp, &_draft, DM_PAD_G_FACE)) T_FAIL("the stick (%d %%) did not follow A B X Y (%d %%) as far as it has room", stick, face);
++    LOG("pad layout test: pinch: A B X Y at %d %% (120 asked), the stick with them at %d %%%s", face, stick, stick != face ? " (as large as it has room for)" : "");
++    // 3. A tap on the D-pad (2D: the middle group), then its slider.
++    int k3 = _full ? DM_PAD_G_DPAD : DM_PAD_G_MID;
++    CGRect b3 = dm_pad_group_box(self.geo, _full, k3, NULL);
++    [self editDragBegin:CGPointMake(CGRectGetMidX(b3), CGRectGetMidY(b3))];
++    [self editDragEnd];
++    if (_editGroup != k3) T_FAIL("a tap on %s chose %d", dm_pad_group_names[k3], _editGroup);
++    // The choice is not for a group with no mirror image: dimmed, still showing the layout's, and a tap on it does nothing.
++    if ([_panel mirrorApplies] || [_panel tapMirrorSegment:1] || _draft.solo[set] || [_panel mirrorSegment] != 0)
++        T_FAIL("the choice is not dimmed for %s, which has no mirror image (the halves %s)", dm_pad_group_names[k3], _draft.solo[set] ? "on their own" : "together");
++    else LOG("pad layout test: the choice is dimmed for %s (no mirror image), showing both sides together", dm_pad_group_names[k3]);
++    DmPadScene sc2 = [self editScene];
++    int want3 = MAX(80, dm_pad_size_min(&sc2, &_draft, k3)), got3 = [self editGroupSize:80 quiet:YES];
++    if (got3 != want3) T_FAIL("%s's slider to 80 %% gave %d %%, not %d %%", dm_pad_group_names[k3], got3, want3);
++    else LOG("pad layout test: slider: %s at %d %% (80 asked, its smallest is %d %%)", dm_pad_group_names[k3], got3, dm_pad_size_min(&sc2, &_draft, k3));
++    // 4. All controls.
++    int all = [self editAllSize:105];
++    LOG("pad layout test: all controls at %d %% (105 asked)", all);
++    _geoValid = NO;
++    DmPadGeo edited = *self.geo;
++    selftest_frames("after", &edited, _full);
++    LOG("pad layout test: the stick's ring went from r %.1f to r %.1f, its knob's travel with it (knob r %.1f)", before.stickR, edited.stickR, edited.knobR);
++    // 5. Done, as the button does it (nothing to save when no step changed anything on this screen).
++    char saved[DM_PAD_GROUPS_MAX + 1]; dm_pad_groups_encode(&_draft, saved, sizeof saved);
++    DmPadGroups scopeValue = [self editScopeValue:_editScope];
++    BOOL changed = dm_pad_done(_editScope, _editOpened, &_draft, &scopeValue) != DM_PAD_DONE_NOTHING;
++    [self finishEditing:YES];
++    if (_editing) T_FAIL("Done did not close the editor");
++    // 6. Read back from where Done saved it, and laid out from that value alone.
++    NSString *back = [self storedGroups:scope];
++    if (!changed) {
++        LOG("pad layout test: nothing changed on this screen, Done saved nothing (stored for %s: %s)", scope ? "this game" : "every game", back ? back.UTF8String : "nothing");
++        if (!(stored ? [back isEqualToString:stored] : back == nil)) T_FAIL("Done with nothing changed changed what is stored");
++        back = @(saved);
++    } else {
++        LOG("pad layout test: saved for %s: %s; read back: %s", scope ? "this game" : "every game", saved, back ? back.UTF8String : "nothing");
++        if (!back || strcmp(back.UTF8String, saved)) T_FAIL("the value read back is not the one saved");
++    }
++    DmPadGroups reloaded; memset(&reloaded, 0, sizeof reloaded);
++    if (back && !dm_pad_groups_parse(back.UTF8String, &reloaded)) T_FAIL("the value read back does not parse");
++    DmPadScene sc3 = [self editScene];
++    DmPadGeo fresh = dm_pad_scene_geo(&sc3, &reloaded);
++    _geoValid = NO;
++    const DmPadGeo *live = self.geo;   // what the gamepad now draws and hit-tests with
++    int bad = 0, badLive = 0, n = dm_pad_hit_compare(&edited, &fresh, _full, _layout.separated, &bad);
++    dm_pad_hit_compare(&edited, live, _full, _layout.separated, &badLive);
++    int controls = 0;
++    for (int c = 0; c < DM_PAD_C_N; c++) controls += !CGRectIsNull(dm_pad_control_frame(&fresh, _full, c));
++    if (bad || badLive) T_FAIL("reload: %d of %d touch points or frames differ from the edited layout (%d in the gamepad's own)", bad, n, badLive);
++    else LOG("pad layout test: reload matches: %d controls' frames, %d touch points each taken by its own control, in the value read back and in the gamepad", controls, n);
++    if (fresh.groupDropped) T_FAIL("reload: groups %#x kept their built-in place", fresh.groupDropped);
++    // 7. What was stored before the test goes back; with nothing stored before, nothing is stored after (forgotten, not an empty layout of its own).
++    BOOL forgotten = NO;
++    if (stored) [self storeGroupsValue:stored scope:scope];
++    else if (!(forgotten = [self forgetGroups:scope])) {
++        [self storeGroupsValue:@"" scope:scope];
++        LOG("pad layout test: this shell cannot forget a stored layout (no dm_shell_touch_groups_forget): the built-in one is stored for %s instead", scope ? "this game" : "every game");
++    }
++    _groups = inEffect; _groupsOwn = ownBefore; _geoValid = NO;
++    setenv("DM_TOUCH_GROUPS", effect, 1); setenv("DM_TOUCH_GROUPS_OWN", ownBefore ? "1" : "0", 1);
++    [self setNeedsLayout];
++    NSString *after = [self storedGroups:scope];
++    if (!(stored ? [after isEqualToString:stored] : forgotten ? after == nil : !after.length))
++        T_FAIL("the stored layout from before the test did not come back (%s)", after ? (after.length ? after.UTF8String : "empty") : "nothing");
++    else LOG("pad layout test: put back the stored layout from before the test (%s)", stored ? (stored.length ? stored.UTF8String : "empty") : "nothing stored");
++    if (fails) LOG("[RED] pad layout test: FAIL (%d)", fails);
++    else LOG("pad layout test: PASS");
++    #undef T_FAIL
++    return fails;
++}
++
+ // ---- Physical controllers ----
+ // Each controller with an extended gamepad profile is a player of its own, as on the Mac (front_mac.m): it holds a slot (pad_slots.h: player 1 first, a reconnected controller
+ // gets its player back) and goes to dm_pad_set_player, and hle_hid.c reports player n on its own npad while the slot is held (dm_pad_players). Player 1's controller is ORed
+@@ -1453,6 +1634,7 @@ int front_ctrl_support(int min, int max) {
+ void dm_pad_layout_set(int layout) { [g_view setPadLayout:layout]; }
+ bool dm_pad_edit_offered(void) { return g_view && [g_view editOffered]; }
+ void dm_pad_edit_begin(void) { dispatch_async(dispatch_get_main_queue(), ^{ [g_view beginEditing]; }); }   // once the menu has closed
++int dm_pad_layout_self_test(void) { return g_view ? [g_view runLayoutSelfTest] : -1; }
+ void dm_gamepad_pads_read(void) {   // front_ios.m: the quit prompt closed, the game reads every controller as it is now (a button held through it counts again)
+     if (g_merge) { for (GCController *c in GCController.controllers) if (c.extendedGamepad) read_pad(c.extendedGamepad); }
+     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p].extendedGamepad) read_pad(g_held[p].extendedGamepad);
+diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+index f35bc08..45532b2 100644
+--- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
++++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+@@ -119,6 +119,7 @@ @interface UIView (DuoHarnessLayoutEditor)
+ - (void)beginEditing;
+ - (void)finishEditing:(BOOL)save;
+ - (BOOL)editing;
++- (int)runLayoutSelfTest;
+ - (void)editPinchBegin:(CGPoint)centroid;
+ - (void)editPinchScale:(CGFloat)scale;
+ - (void)editPinchEnd;
+@@ -951,6 +952,25 @@ - (void)testLayoutEditorPinchGrowsTheStickAndItsTravel {
+     [self resetLayoutEditorStore];
+ }
+ 
++// The self-test (DM_PAD_LAYOUT_TEST) on the simulator: every step through the gesture paths, saved, read back, the same touches; what was stored before
++// comes back.
++- (void)testLayoutEditorSelfTestPasses {
++    [self resetLayoutEditorStore];
++    [NSUserDefaults.standardUserDefaults setObject:@"1;3d/dpad:300,700,100" forKey:@"launcher.DM_TOUCH_GROUPS"];
++    for (NSValue *v in @[[NSValue valueWithCGRect:CGRectMake(0, 0, 1210, 834)], [NSValue valueWithCGRect:CGRectMake(0, 0, 852, 393)], [NSValue valueWithCGRect:CGRectMake(0, 0, 834, 1210)]]) {
++        CGRect bounds = v.CGRectValue;
++        DmLayout layout = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9);
++        for (int full = 0; full < 2; full++) {
++            UIView *pad = [self padForLayout:layout bounds:bounds];
++            dm_pad_layout_set(full);
++            [pad layoutIfNeeded];
++            XCTAssertEqual([pad runLayoutSelfTest], 0, @"%@ %s", NSStringFromCGRect(bounds), full ? "3D" : "2D");
++            XCTAssertEqualObjects([NSUserDefaults.standardUserDefaults stringForKey:@"launcher.DM_TOUCH_GROUPS"], @"1;3d/dpad:300,700,100", @"the stored value from before comes back");
++        }
++    }
++    [self resetLayoutEditorStore];
++}
++
+ - (void)testDockingDropsTheTapLayout {
+     dm_set_opmode(0);
+     CGRect bounds = CGRectMake(0, 0, 844, 390);
+diff --git a/dm/ios/tests/pad_geometry/pad_groups_check.m b/dm/ios/tests/pad_geometry/pad_groups_check.m
+index 7d340f9..bf80301 100644
+--- a/dm/ios/tests/pad_geometry/pad_groups_check.m
++++ b/dm/ios/tests/pad_geometry/pad_groups_check.m
+@@ -510,6 +510,80 @@ static void check_side_insets(void) {
+     }
+ }
+ 
++// The self-test's script (DmGamepad.m runLayoutSelfTest, DM_PAD_LAYOUT_TEST) through the same rules, on every screen and layout, every size and stick
++// place, with and without single moves: Both sides together, the shoulders go down together (the last step that fits is kept; on a screen where they
++// have no room below their built-in place the self-test logs that and skips the check, as here), Each side on its own, the left ones half of the way
++// back up while the right ones stay, Both sides together again (nothing moves), the pinch on A B X Y takes the stick along as far as it has room, the
++// choice is dimmed for the D-pad (2D: the middle group), whose slider gives 80 % or its floor, and the value read back gives the same frames and
++// touches. No combination fails: the self-test reports no FAIL that is the screen's and not the editor's.
++static void check_selftest_script(void) {
++    static const char *arrangements[] = {NULL, "1;3d/face:-4,-4/stick:0,-3", "1;2d/zr:-3,2/x:-1,-2/plus:5,1"};
++    int runs = 0, noRoom = 0, apartRuns = 0;
++    for (int i = 0; i < N_SCREENS; i++)
++        for (int full = 0; full < 2; full++)
++            for (int z = 0; z < 3; z++)
++                for (int st = 0; st < 3; st++)
++                    for (int ar = 0; ar < 3; ar++) {
++                        DmPadLayout arr; dm_pad_layout_parse(arrangements[ar], &arr);
++                        DmPadScene sc = scene(&k_screens[i], full, dm_pad_size_scale(k_sizes[z]), st, &arr);
++                        int set = dm_pad_scene_set(&sc);
++                        char what[128]; snprintf(what, sizeof what, "%s %s %s stick %d layout %d self-test", k_screens[i].name, full ? "3D" : "2D", k_sizes[z], st, ar);
++                        DmPadGroups d; memset(&d, 0, sizeof d);
++                        DmPadGeo g = dm_pad_scene_geo(&sc, &d);
++                        CGRect box = dm_pad_group_box(&g, full, DM_PAD_G_LEFT, NULL);
++                        CGPoint start = g.at[DM_PAD_G_LEFT];
++                        CGFloat dy = 0.3 * (g.area[DM_PAD_G_LEFT].size.height - box.size.height);
++                        for (int s = 1; s <= 10; s++) {   // as editDragMove: the centre the drag began at, plus the finger's move
++                            DmPadGeo cur = dm_pad_scene_geo(&sc, &d);
++                            DmPadPlace p = dm_pad_place_at(&cur, DM_PAD_G_LEFT, 100, CGPointMake(start.x, start.y + dy * s / 10), DM_PAD_SNAP);
++                            DmPadGroups t; if (dm_pad_try_places(&sc, &d, DM_PAD_G_LEFT, p, dm_pad_mate_size(&sc, &d, DM_PAD_G_LEFT), &t)) d = t;
++                        }
++                        DmPadPlace l = d.place[set][DM_PAD_G_LEFT], r = d.place[set][DM_PAD_G_RIGHT];
++                        if (!l.size && !r.size) noRoom++;   // no step fitted: the self-test says so and goes on
++                        else if (!l.size || !r.size || abs(r.x - (1000 - l.x)) > 1 || r.y != l.y)
++                            FAIL("%s: the shoulders did not go down together (%d,%d,%d / %d,%d,%d)", what, l.x, l.y, l.size, r.x, r.y, r.size);
++                        // 1b. Each side on its own (the choice is the left shoulders'): from the centre of their box, half of the way back up in five steps.
++                        if (!dm_pad_mirror_applies(&sc, DM_PAD_G_LEFT)) FAIL("%s: the choice does not apply to the left shoulders", what);
++                        d.solo[set] = 1;
++                        if (l.size || r.size) {
++                            DmPadGeo now = dm_pad_scene_geo(&sc, &d);
++                            CGRect moved = dm_pad_group_box(&now, full, DM_PAD_G_LEFT, NULL);
++                            CGFloat back = (CGRectGetMidY(moved) - CGRectGetMidY(box)) / 2;
++                            CGPoint from = now.at[DM_PAD_G_LEFT];
++                            int size = dm_pad_place_now(&sc, &d, DM_PAD_G_LEFT).size;
++                            for (int s = 1; s <= 5; s++) {
++                                DmPadGeo cur = dm_pad_scene_geo(&sc, &d);
++                                DmPadPlace p = dm_pad_place_at(&cur, DM_PAD_G_LEFT, size, CGPointMake(from.x, from.y - back * s / 5), DM_PAD_SNAP);
++                                DmPadGroups t; if (dm_pad_try_places(&sc, &d, DM_PAD_G_LEFT, p, dm_pad_mate_size(&sc, &d, DM_PAD_G_LEFT), &t)) d = t;
++                            }
++                            if (memcmp(&d.place[set][DM_PAD_G_RIGHT], &r, sizeof r)) FAIL("%s: on their own, the right shoulders moved", what);
++                            if (back > DM_PAD_SNAP + 1 && d.place[set][DM_PAD_G_LEFT].y >= l.y) FAIL("%s: on their own, the left shoulders did not go back up", what);
++                            apartRuns++;
++                        }
++                        DmPadGeo apart = dm_pad_scene_geo(&sc, &d);
++                        d.solo[set] = 0;   // Both sides together again: nothing moves
++                        DmPadGeo together = dm_pad_scene_geo(&sc, &d);
++                        if (!geo_identical(&apart, &together)) FAIL("%s: Both sides together moved something", what);
++                        DmPadGroups t;
++                        for (int s = 1; s <= 4; s++) { dm_pad_try_size_mated(&sc, &d, DM_PAD_G_FACE, (int)lround(100 * (1 + 0.05 * s)), &t, NULL); d = t; }
++                        int face = dm_pad_place_now(&sc, &d, DM_PAD_G_FACE).size, stick = dm_pad_place_now(&sc, &d, DM_PAD_G_STICK).size;
++                        if (stick != face && !dm_pad_mate_maxed(&sc, &d, DM_PAD_G_FACE)) FAIL("%s: the stick (%d) did not follow A B X Y (%d) as far as it has room", what, stick, face);
++                        int k3 = full ? DM_PAD_G_DPAD : DM_PAD_G_MID, want = MAX(80, dm_pad_size_min(&sc, &d, k3));
++                        if (dm_pad_mirror_applies(&sc, k3)) FAIL("%s: the choice applies to %s", what, dm_pad_group_names[k3]);
++                        int got = dm_pad_try_size_mated(&sc, &d, k3, 80, &t, NULL); d = t;
++                        if (got != want) FAIL("%s: %s's slider to 80 gave %d, not %d", what, dm_pad_group_names[k3], got, want);
++                        dm_pad_try_all(&sc, &d, 105, &t); d = t;
++                        char v[DM_PAD_GROUPS_MAX + 1]; DmPadGroups back;
++                        dm_pad_groups_encode(&d, v, sizeof v); dm_pad_groups_parse(v, &back);
++                        DmPadGeo a = dm_pad_scene_geo(&sc, &d), b = dm_pad_scene_geo(&sc, &back);
++                        int bad, n = dm_pad_hit_compare(&a, &b, full, sc.layout.separated, &bad);
++                        if (bad || b.groupDropped) FAIL("%s: read back, %d of %d points differ (dropped %#x)", what, bad, n, b.groupDropped);
++                        check_geo(&sc, &a, what);
++                        runs++;
++                    }
++    printf("self-test script: %d runs, %d with no room to lower the shoulders (skipped, not failed), %d with the left ones moved back on their own\n", runs, noRoom, apartRuns);
++}
++
+ // ---- All controls never take a touch target under 44 points ----
+ // The smallest touch target radius of group k as drawn (as dm_pad_group_floor measures it, with the group's own size in the − and + margins).
+ static CGFloat group_target(const DmPadGeo *g, BOOL full, BOOL sep, int k) {
+@@ -849,6 +923,7 @@ static void check_fingers(void) {
+ 
+ int main(void) {
+     check_values();
++    check_selftest_script();
+     check_identity();
+     check_placement();
+     check_editor();
+diff --git a/dm/ios/tests/test_pad_geometry.py b/dm/ios/tests/test_pad_geometry.py
+index 4930a2d..d206602 100644
+--- a/dm/ios/tests/test_pad_geometry.py
++++ b/dm/ios/tests/test_pad_geometry.py
+@@ -20,8 +20,9 @@ together a group grows on past its mirror image's room; the panel's choice (Both
+ mirror image and dimmed for the D-pad and − +, picking it moves nothing, the next move takes the other side along, Reset keeps it and Done saves it,
+ and its words are the 27 lines' last three and line 4; Done saves what the editor shows for the scope picked and keeps the other layouts of every
+ game's value or this game's; a touch on the panel never reaches the editor, a thumb resting elsewhere neither stops a drag nor starts a pinch, and a
+-pinch's first finger does not drag the group first. On a phone held sideways the stick, the D-pad and A B X Y moved up or grown past
+-their built-in band keep out of the side insets (the sensor housing), and an iPad's value keeps its anchors there.
++pinch's first finger does not drag the group first; the self-test's script fails on no screen, size or stick place for want of room. On a phone
++held sideways the stick, the D-pad and A B X Y moved up or grown past their built-in band keep out of the side insets (the sensor housing), and an
++iPad's value keeps its anchors there.
+ """
+ import shutil
+ import subprocess
+@@ -62,6 +63,7 @@ class PadGeometryTests(unittest.TestCase):
+         self.assertIn("mirror: A B X Y at 150 %", out)
+         self.assertIn("mirror choice: on their own on", out)
+         self.assertIn("all controls' floor:", out)
++        self.assertIn("self-test script: 810 runs", out)
+         self.assertIn("side insets: ", out)
+         self.assertIn("Pro Max stick lifted: ring x 59.0", out)
+ 
