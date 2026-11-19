@@ -14,7 +14,7 @@ final class DesignTokenGuardTests: XCTestCase {
         "BuildActivityFooter.swift": 1,
         "ConsoleCloudSaveView.swift": 8,
         "ConsoleCloudSaves.swift": 11,
-        "ConsoleControllersView.swift": 2,
+        "ConsoleControllersView.swift": 1,
         "ConsoleEntryView.swift": 4,
         "ConsoleGameOptions.swift": 3,
         "ConsoleGlyphs.swift": 2,

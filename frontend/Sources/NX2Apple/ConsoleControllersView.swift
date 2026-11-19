@@ -125,13 +125,15 @@ struct ConsoleBattery: View {
     let controller: ConsoleController
     let lang: Lang
     var compact = false
+    /// The desktop's Controllers sheet sets the desktop type (DS.Font.callout), console mode keeps its own sizes.
+    var font: Font? = nil
     var body: some View {
         if let percent = controller.batteryPercent {
             HStack(spacing: 5) {
                 BatteryIcon(level: controller.battery, charging: controller.charging, height: compact ? 10 : 13)
                 Text(String(format: L10n.string("console.batteryPercent", lang), percent))
             }
-            .font(.manrope(compact ? 11 : 16, .medium))
+            .font(font ?? .manrope(compact ? 11 : 16, .medium))
             .foregroundStyle(BatteryIcon.isLow(controller.battery) && !controller.charging ? Color.red : LauncherPalette.ink(0.7))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(String(format: L10n.string(controller.charging ? "console.batteryCharging" : "console.batteryLevel", lang), percent))
@@ -151,7 +153,7 @@ struct ConsoleToastView: View {
         }
             .font(.manrope(17, .semibold)).padding(.horizontal, 22).padding(.vertical, 15)
             .background(LauncherPalette.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(LauncherPalette.ink(0.15)))
+            .overlay(DSPill().strokeBorder(LauncherPalette.ink(0.15)))
             .foregroundStyle(LauncherPalette.accent)
             .accessibilityElement(children: .combine)
             .allowsHitTesting(false)
@@ -295,29 +297,58 @@ struct ConsoleToastView: View {
     }
 }
 
+/// The desktop's Controllers sheet: the players, the connected controllers and the shared switch, on the sheet layout (DSSheet)
+/// with the desktop's type and spacing like every other sheet. Console mode's own 10-foot list is ConsoleControllerList.
 @MainActor struct ConsoleControllersSheet<Driver: ConsoleDriver>: View {
     @ObservedObject var driver: Driver
     let lang: Lang
     let close: () -> Void
+    private let scope = "console.controllers"
     @EnvironmentObject private var pad: PadFocus
+    private var state: ConsoleState { driver.state }
+    private func t(_ key: String) -> String { L10n.string(key, lang) }
+    private func playerLabel(_ controller: ConsoleController) -> String {
+        (state.padMerge ? 1 : controller.player).map { String(format: t("console.player"), $0) } ?? t("console.unassigned")
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(L10n.string("console.controllers", lang)).font(DS.Font.title).foregroundStyle(DS.Color.textPrimary).accessibilityAddTraits(.isHeader)
-                Spacer()
-                Button(action: close) { Image(systemName: "xmark") }
-                    .buttonStyle(LauncherIconButtonStyle()).accessibilityLabel(L10n.string("console.close", lang))
-                    .padTarget("console.sheet.close", scope: "console.controllers", activate: close)
-            }.padding(DS.Space.l)
-            ConsoleControllerList(driver: driver, lang: lang, compact: true, showsMapping: false)
-                .padding(.bottom, DS.Space.m)
+        DSSheet(width: 580, title: t("console.controllers"), message: t("console.controllerNote")) {
+            DSSection(t("console.controllers.players")) {
+                HStack(spacing: DS.Space.xs) {
+                    ForEach(1...4, id: \.self) { player in playerButton(player) }
+                }
+                .padding(DS.Space.s)
+                if let player = state.assigningPlayer {
+                    DSRowDivider()
+                    DSRow(String(format: t("console.assignNotice.title"), player), detail: t("console.assignNotice.detail"), dot: DS.Color.statusInfo) {
+                        Button(t("console.assignNotice.cancel")) { driver.cancelAssignment() }
+                            .buttonStyle(DSRowButtonStyle())
+                            .padTarget("console.controllers.cancelAssign", scope: scope, activate: { driver.cancelAssignment() })
+                    }
+                }
+            }
+            DSSection("") {
+                if state.controllers.isEmpty { DSRow(t("console.noControllers")) {} }
+                ForEach(Array(state.controllers.enumerated()), id: \.element.id) { index, controller in
+                    if index > 0 { DSRowDivider() }
+                    controllerRow(controller)
+                }
+            }
+            DSSection(t("console.controllers.input")) {
+                DSRow(t("console.mergeAll")) {
+                    Toggle(t("console.mergeAll"), isOn: Binding(get: { state.padMerge }, set: { _ in driver.setPadMerge(!state.padMerge) }))
+                        .labelsHidden().toggleStyle(LauncherSwitchStyle())
+                        .padTarget("console.controller.merge", scope: scope, activate: { driver.setPadMerge(!state.padMerge) })
+                }
+            }
+        } buttons: {
+            DSSheetPrimaryButton(t("free.done"), action: close)
+                .keyboardShortcut(.cancelAction)
+                .padTarget("console.sheet.close", scope: scope, focusColor: DS.Color.accentOn, activate: close)
         }
-        // as tall as its content, up to the screen's share a sheet may take: the list scrolls only beyond that
-        .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, maxHeight: 720, alignment: .top).background(DS.Color.background).launcherAppearance()
-        .foregroundStyle(DS.Color.textPrimary).padScope("console.controllers", pad)
-        .environment(\.padRingStyle, .hug)
-        .onAppear { pad.scope = "console.controllers"; pad.focused = "console.player.1" }
-        .overlay(alignment: .bottom) { if let toast = driver.state.toast { ConsoleToastView(toast: toast) } }
+        .padScope(scope, pad)
+        .onAppear { pad.scope = scope; pad.focused = "console.player.1" }
+        .overlay(alignment: .bottom) { if let toast = state.toast { ConsoleToastView(toast: toast) } }
         .background(ConsoleKeyboardInput { input in
             pad.show(default: "console.player.1")
             switch input {
@@ -330,5 +361,46 @@ struct ConsoleToastView: View {
             default: break
             }
         })
+    }
+
+    /// Player 1 to 4: choosing one waits for a button on the controller that takes it. The one waiting has the accent outline.
+    private func playerButton(_ player: Int) -> some View {
+        let waiting = state.assigningPlayer == player
+        return Button { driver.requestPlayer(player) } label: {
+            Text(String(format: t("console.playerShort"), player)).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(DSSecondaryButtonStyle(accent: waiting ? DS.Color.accent : nil))
+        .accessibilityLabel(String(format: t("console.player"), player))
+        .accessibilityAddTraits(waiting ? .isSelected : [])
+        .padTarget("console.player.\(player)", scope: scope, activate: { driver.requestPlayer(player) })
+    }
+
+    /// A controller: its kind, name, player and battery, then Identify and Assign, Disconnect at the trailing edge.
+    private func controllerRow(_ controller: ConsoleController) -> some View {
+        let id = "console.controller." + controller.id
+        return VStack(alignment: .leading, spacing: 0) {
+            DSRow(controller.name, detail: t(controller.kind.labelKey) + " \u{00b7} " + playerLabel(controller) + (controller.charging ? " \u{00b7} " + t("console.charging") : "")) {
+                ConsoleBattery(controller: controller, lang: lang, font: DS.Font.callout)
+            }
+            HStack(spacing: DS.Space.xs) {
+                if controller.canIdentify {
+                    Button { driver.identify(controllerID: controller.id) } label: {
+                        Label(t(state.identifyingControllerID == controller.id ? "console.identifying" : "console.identify"), systemImage: "wave.3.right")
+                    }
+                    .buttonStyle(DSRowButtonStyle())
+                    .padTarget(id + ".identify", scope: scope, activate: { driver.identify(controllerID: controller.id) })
+                }
+                Button { driver.requestAssignment(controllerID: controller.id) } label: {
+                    Label(t("console.assign"), systemImage: "person.crop.circle.badge.plus")
+                }
+                .buttonStyle(DSRowButtonStyle())
+                .padTarget(id + ".assign", scope: scope, activate: { driver.requestAssignment(controllerID: controller.id) })
+                Spacer(minLength: DS.Space.s)
+                Button(t("console.disconnect")) { driver.disconnect(controllerID: controller.id) }
+                    .buttonStyle(DSDestructiveButtonStyle())
+                    .padTarget(id + ".disconnect", scope: scope, activate: { driver.disconnect(controllerID: controller.id) })
+            }
+            .padding(.leading, DS.Space.xs + DS.Control.leadingSlot + DS.Space.s).padding(.trailing, DS.Space.s).padding(.bottom, DS.Space.s)
+        }
     }
 }
