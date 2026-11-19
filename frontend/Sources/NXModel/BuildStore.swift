@@ -270,6 +270,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var driveBatchLabel = ""    // active game label during a multi-game drive copy ("1/3 · Hades")
     var shellRetry: (framework: String, titleID: String, name: String, archive: String)?
     var shellBatchRetry: [DeferredShellGame]?
+    var shellInstallRetry: (() -> Void)?
     var shellDeviceChecked = false
     package let driveCancel = LockedFlag()   // Stop of the copy to a drive (BuildStore+Send.swift)
     @Published package var shellMove: ShellMove = .idle   // Move cache folder (BuildStore+ShellRoot.swift, #427)

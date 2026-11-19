@@ -62,6 +62,9 @@ extension BuildStore {
         if dataOnly { failure = nil; done = false; doneNote = "" }
         shellBatchRetry = nil
         shellRetry = (framework, titleID, name, archive)
+        shellInstallRetry = { [weak self] in
+            self?.installShell(framework: framework, titleID: titleID, name: name, archive: archive, dataOnly: dataOnly)
+        }
         let installer = makeInstaller()
         let target = devices
         let device = devices.installDevice
@@ -104,6 +107,9 @@ extension BuildStore {
         beginOperation(.installing, game: nil, titleID: nil, destination: .target)
         stopping = false; stoppedByPlayer = false; installCancel.set(false); installPhaseActive = true
         running = true; done = false; doneNote = ""; failure = nil; stages = []
+        shellInstallRetry = { [weak self] in
+            self?.installBuiltShell(framework: framework, titleID: titleID, name: name)
+        }
         finderShown = false
         let installer = makeInstaller()
         let device = devices.installDevice
@@ -147,6 +153,7 @@ extension BuildStore {
         if dataOnly { stages = [] }
         finderShown = false
         shellBatchRetry = games
+        shellInstallRetry = { [weak self] in self?.installShellBatch(games, dataOnly: dataOnly) }
         shellRetry = (last.framework, last.titleID, last.name, last.archive)
         let batchGames = games.map {
             ShellInstaller.BatchGame(framework: $0.framework, titleID: $0.titleID, name: $0.name, archive: $0.archive,
@@ -195,6 +202,15 @@ extension BuildStore {
                 self.finishInstall(nil, note: result.message)
             }
         }
+    }
+
+    /// Retry the failed installation with its original built games, without restarting the game builder.
+    package func retryShellInstall() {
+        guard !running else { return }
+        if let retry = shellInstallRetry {
+            failure = nil; done = false; doneNote = ""
+            retry()
+        } else { runBuild() }  // Non-shell installs retain their existing recovery path.
     }
 
     /// Retry after game data that went over in part: only the data step runs again (listing, diff, copy).
@@ -297,6 +313,7 @@ extension BuildStore {
         let resources = Bundle.main.resourceURL?.path, repoPath = repo.path, home = self.home, runner = self.runner
         buildingGame = false; runningTarget = BuildTarget.ios
         beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .target)
+        shellInstallRetry = { [weak self] in self?.resignOnDevice(app: app, device: device, then: then) }
         stopping = false; stoppedByPlayer = false; installPhaseActive = true
         running = true
         // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
