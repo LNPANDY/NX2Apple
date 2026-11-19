@@ -349,12 +349,13 @@ keyboard is on the focus ring and a scale of 1.03. No plate, no shadow, nothing 
 top and leading edge, above the clip. Rows answer the pointer with the raised surface (`dsRowHover`), never a scale. The
 console mode's cards keep their own focus look. The gallery's Design system › Card and row states shows each state.
 
-A row (`DSRow`) keeps one rule set. The status dot is centred in the 20 pt leading slot and on the centre of the title line, a
-thumbnail is centred on the whole row. Every control in the trailing column is exactly `DS.Control.columnWidth` wide, the
+A row (`DSRow`) keeps one rule set. The leading slot's content (a status dot, a thumbnail, an icon) is centred in the slot and
+vertically on the row's text block (title and subtitle), the same centre as the trailing control, so dot and control sit on one
+line. A row with a message centres both on the title and subtitle, not on the message. Every control in the trailing column is exactly `DS.Control.columnWidth` wide, the
 primary too, and a toggle sits at the column's trailing edge. A row with a second action keeps one in the column and the
 others in a "…" just before the column, so the column keeps its edges. A row's own warning, error or note is its `message` (`.warning(text)`): the tone's symbol at the
-title's leading edge, 4 pt to the text, both in callout, the text wrapping under itself. The control stays centred on the title
-and subtitle, and the row grows downwards. A row's help is an info button beside its title, not one beside the section header.
+title's leading edge, 4 pt to the text, both in callout, the text wrapping under itself. Dot and control stay centred on the
+title and subtitle, and the row grows downwards. A row's help is an info button beside its title, not one beside the section header.
 
 One primary per screen. In a wizard step the footer's Continue is the primary as soon as it is enabled. An action in the
 content may be primary only while Continue is disabled and that action is the way forward (Choose folder before anything is

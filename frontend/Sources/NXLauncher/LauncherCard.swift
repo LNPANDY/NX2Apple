@@ -123,8 +123,8 @@ package struct CardRow<Trailing: View>: View {
     @Environment(\.launcherSettingsLayout) private var settingsLayout
 
     /// `message` is the row's own warning, error or note, under its title and subtitle (DSRowMessage). The layout rules:
-    /// the status dot is centred in the 20 pt leading slot and on the centre of the title line, the trailing control is centred on
-    /// the title and subtitle, and a message makes the row grow downwards without moving either.
+    /// the status dot is centred in the 20 pt leading slot, and it and the trailing control are both centred on the text block (title
+    /// and subtitle, never the message), so they share one centre. A message makes the row grow downwards without moving either.
     package init(_ title: String, detail: String = "", detail2: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil, info: (id: String, text: String)? = nil,
                  message: DSRowMessage? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.title = title
@@ -141,7 +141,7 @@ package struct CardRow<Trailing: View>: View {
     package var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(spacing: DS.Space.s) {
-                HStack(alignment: .dsTitleLine, spacing: DS.Space.s) {
+                HStack(alignment: .center, spacing: DS.Space.s) {   // the dot centred on the title and subtitle, as the control
                     Circle().fill(dot ?? .clear).frame(width: 7, height: 7).frame(width: DS.Control.leadingSlot)
                     texts
                 }
@@ -166,7 +166,6 @@ package struct CardRow<Trailing: View>: View {
                             .rotationEffect(.degrees(open ? 90 : 0))
                     }
                 }
-                .alignmentGuide(.dsTitleLine) { $0[VerticalAlignment.center] }   // the status dot sits on the title line
                 if !detail.isEmpty {
                     // A path is technical text: the system's monospaced face, on one line, cut in the middle when
                     // too long. Everything else is prose in Manrope and wraps, so no word is ever cut.

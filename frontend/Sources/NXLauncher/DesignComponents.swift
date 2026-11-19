@@ -187,14 +187,6 @@ package struct DSInlineWarning: View {
     package var body: some View { DSRowMessageView(.warning(text)) }
 }
 
-extension VerticalAlignment {
-    private enum DSTitleLine: AlignmentID {
-        static func defaultValue(in d: ViewDimensions) -> CGFloat { d[VerticalAlignment.center] }
-    }
-    /// The centre of a row's title line: the status dot sits on it.
-    package static let dsTitleLine = VerticalAlignment(DSTitleLine.self)
-}
-
 /// Where a row's title starts inside its card: a note under a row lines up with it.
 package enum DSRowInset {
     package static let title = DS.Space.xs + DS.Control.leadingSlot + DS.Space.s
