@@ -34,8 +34,9 @@ import NXLauncher
             LaunchSetting(env: "DM_AUDIO_LATENCY", kind: "range", label: t("console.demoLatency"), note: "", def: "40", section: nil,
                           options: nil, min: 10, max: 120, step: 10, on: nil, off: nil)
         ]
-        // Library-style titles. Covers come from the launcher's own artwork lookup in the repo copy (nothing is bundled or downloaded).
-        let titles = ["Hollow Knight: Silksong", "Celeste", "Hades", "Sea of Stars", "Portal", "Balatro", "Animal Well", "Cuphead", "Stardew Valley", "Return of the Obra Dinn", "Blasphemous", "Hades II"]
+        // The state gallery's fictional games (GalleryFixtures.games), so no real title is shown. The gallery swaps in its own covers
+        // and names (GalleryConsoleFixtures.swift), the demos look covers up in the repo copy (nothing is bundled or downloaded).
+        let titles = GalleryFixtures.games.prefix(12).map(\.name)
         let noBanners = FileManager.default.temporaryDirectory.appendingPathComponent("console-demo-no-banners")   // the demo ids are invented: no eShop banner to find
         let games = ConsoleGame.readyFirst(titles.enumerated().map { index, title in
             ConsoleGame(id: "demo.\(index)", title: title, version: "1.0.\(index % 3)", platforms: index % 3 == 1 ? [.mac] : [.mac, .iphone],
@@ -176,6 +177,7 @@ import NXLauncher
         state.assigningPlayer = player
     }
     func assignPlayer(controllerID: String, player: Int) { state.assignPlayer(controller: controllerID, player: player) }
+    func cancelAssignment() { state.assigningPlayer = nil; state.assigningControllerID = nil }
     func back() {
         if state.startingGameID != nil { startingTask?.cancel(); state.returnFromGame(); return }
         let wasGame = state.mappingGameID != nil

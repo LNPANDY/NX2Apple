@@ -77,20 +77,16 @@ import XCTest
         let selection = driver.state.focusedGame?.id
         let id = "console.build.activity"
         let frame = try XCTUnwrap(pad.frames["console"]?.first { $0.id == id }?.frame)
-        XCTAssertEqual(frame.minX, 0, accuracy: 1)
-        XCTAssertEqual(frame.height, 60, accuracy: 1)
-        let clock = NSHostingView(rootView: ConsoleClock(time: driver.state.time, compact: false).padding(.leading, 70))
-        XCTAssertEqual(frame.width, clock.fittingSize.width, accuracy: 1)
-        XCTAssertEqual(frame.minY, 50 + clock.fittingSize.height + 19, accuracy: 1)
-        driver.state.time = Calendar.current.date(bySettingHour: 11, minute: 59, second: 0, of: driver.state.time)!
-        settle()
-        let changedClock = NSHostingView(rootView: ConsoleClock(time: driver.state.time, compact: false).padding(.leading, 70))
-        XCTAssertEqual(pad.frames["console"]?.first { $0.id == id }?.frame.width ?? 0, changedClock.fittingSize.width, accuracy: 1)
-        driver.state.time = Calendar.current.date(bySettingHour: 3, minute: 49, second: 0, of: driver.state.time)!
-        settle()
-        let currentWidth = pad.frames["console"]?.first { $0.id == id }?.frame.width
+        // the console pass (#1458): a glass capsule of the top bar, right of the clock and as high as Search and the menu
+        let search = try XCTUnwrap(pad.frames["console"]?.first { $0.id == "console.searchButton" }?.frame)
+        let clock = NSHostingView(rootView: ConsoleClock(time: driver.state.time, compact: false))
+        XCTAssertEqual(frame.height, DS.Console.Control.topBar, accuracy: 1)
+        XCTAssertEqual(frame.midY, search.midY, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(frame.minX, 70 + clock.fittingSize.width)
+        XCTAssertLessThan(frame.maxX, search.minX)
+        XCTAssertEqual(ConsoleBuildIndicator.label(driver.state.builds.queue[0], lang: .en), "Building · 63 %")
         driver.state.builds.queue[0].progress = 1; settle()
-        XCTAssertEqual(pad.frames["console"]?.first { $0.id == id }?.frame.width, currentWidth)
+        XCTAssertNotNil(pad.frames["console"]?.first { $0.id == id })
         pad.show(default: id); pad.focused = id
         gamepad.perform(.a); settle()
         XCTAssertEqual(driver.state.presentedSheet, .builds)
@@ -122,10 +118,12 @@ import XCTest
         ] {
             open(); settle()
             XCTAssertEqual(pad.scope, scope)
-            let target = try XCTUnwrap(pad.frames[scope]?.first { $0.id == close })
-            XCTAssertGreaterThanOrEqual(target.frame.minX, 0)
-            XCTAssertLessThanOrEqual(target.frame.width, 740, "Back is sized to the side panel")
-            XCTAssertTrue(ids(pad, scope).contains(close))
+            // the console pass (#1458): a full-screen page in two columns, its targets in the content column, Back in the hint bar
+            XCTAssertFalse(ids(pad, scope).contains(close), "Back is a hint, B does it")
+            for target in pad.frames[scope] ?? [] {
+                XCTAssertGreaterThanOrEqual(target.frame.minX, 1280 * 0.45 - 1, "\(target.id) sits in the content column")
+                XCTAssertLessThanOrEqual(target.frame.maxX, 1280 + 1, target.id)
+            }
             gamepad.perform(.b); settle()
             XCTAssertEqual(driver.state.presentedSheet, .menu)
             XCTAssertEqual(pad.scope, "console.menu")
@@ -158,8 +156,8 @@ import XCTest
             let last = try XCTUnwrap(pad.frames[scope]?.first { $0.id == prefix + "0" })
             XCTAssertGreaterThan(first.frame.width, 40)
             XCTAssertEqual(first.frame.height, 56, accuracy: 1)
-            XCTAssertEqual(first.frame.minX, 40, accuracy: 1)
-            XCTAssertLessThanOrEqual(last.frame.maxX, 1280 * 0.54 - 39)
+            XCTAssertEqual(first.frame.minX, (1280 * DS.Console.Scale.artColumn).rounded() + 40, accuracy: 1, "the content column, after the artwork")
+            XCTAssertLessThanOrEqual(last.frame.maxX, 1280 - 40, "nothing clipped at the right")
             driver.back(); settle()
         }
     }
@@ -178,8 +176,8 @@ import XCTest
         XCTAssertGreaterThan(last.frame.minY, 90)
         XCTAssertLessThan(last.frame.maxY, 700)
         gamepad.perform(.down); settle()
-        XCTAssertEqual(pad.focused, "console.builds.close")
-        gamepad.perform(.a); settle()
+        XCTAssertEqual(pad.focused, lastID, "the last row keeps the focus, Back is the hint bar's")
+        gamepad.perform(.b); settle()
         XCTAssertNil(driver.state.presentedSheet)
     }
 
@@ -196,7 +194,7 @@ import XCTest
         driver.focus(unavailable.id); pad.focused = "console.game." + unavailable.id; settle()
         gamepad.perform(.a); settle()
         XCTAssertEqual(driver.state.presentedSheet, .options(unavailable.id))
-        XCTAssertTrue(ids(pad, "console.options").isSuperset(of: ["console.options.details", "console.options.saves", "console.options.manage", "console.sheet.close"]))
+        XCTAssertTrue(ids(pad, "console.options").isSuperset(of: ["console.options.details", "console.options.saves", "console.options.manage"]))
         XCTAssertFalse(ids(pad, "console.options").contains("console.options.play"))
     }
 
@@ -206,7 +204,7 @@ import XCTest
         let game = try XCTUnwrap(driver.state.games.first { $0.status == .ready })
         driver.play(game.id); driver.state.launchCancellable = true; settle()
         XCTAssertEqual(pad.scope, "console.launch")
-        XCTAssertTrue(ids(pad, "console.launch").contains("console.launch.back"))
+        XCTAssertEqual(pad.scope, "console.launch")   // Back is the hint bar's, B does it
         gamepad.perform(.b); settle()
         XCTAssertNil(driver.state.startingGameID)
         XCTAssertEqual(pad.scope, "console")
@@ -218,8 +216,9 @@ import XCTest
         host(driver, pad, gamepad)
         let game = try XCTUnwrap(driver.state.games.first { $0.status == .ready })
         driver.play(game.id); driver.state.starting = .cloudSave(long: true); settle()
-        XCTAssertTrue(ids(pad, "console.launch").isSuperset(of: ["console.launch.back", "console.cloudSave.offline", "console.cloudSave.cancel"]))
-        gamepad.perform(.down); settle()
+        XCTAssertTrue(ids(pad, "console.launch").isSuperset(of: ["console.cloudSave.offline", "console.cloudSave.cancel"]))
+        pad.show(default: "console.cloudSave.cancel"); pad.focused = "console.cloudSave.cancel"
+        gamepad.perform(.left); settle()   // the two answers side by side in the hint row
         XCTAssertEqual(pad.focused, "console.cloudSave.offline")
         gamepad.perform(.right); settle()
         XCTAssertEqual(pad.focused, "console.cloudSave.cancel")
@@ -234,7 +233,7 @@ import XCTest
         let games = driver.state.games.filter { $0.status == .ready }
         let first = try XCTUnwrap(games.first), second = try XCTUnwrap(games.dropFirst().first)
         driver.play(first.id); driver.state.starting = .opening; settle()
-        XCTAssertTrue(ids(pad, "console.launch").contains("console.launch.back"))
+        XCTAssertEqual(pad.scope, "console.launch")   // Back is the hint bar's, B does it
         gamepad.perform(.b); settle()
         XCTAssertNil(driver.state.startingGameID)
         XCTAssertEqual(pad.scope, "console")
@@ -256,7 +255,7 @@ import XCTest
         RunLoop.main.run(until: Date().addingTimeInterval(1.2))
         XCTAssertEqual(driver.state.startingGameID, second.id)
         XCTAssertEqual(pad.scope, "console.launch")
-        XCTAssertTrue(ids(pad, "console.launch").contains("console.launch.back"))
+        XCTAssertEqual(pad.scope, "console.launch")   // Back is the hint bar's, B does it
         gamepad.perform(.b); settle()
         XCTAssertNil(driver.state.startingGameID)
         XCTAssertEqual(pad.focused, "console.game." + second.id)
@@ -268,13 +267,12 @@ import XCTest
         driver.openOptions("demo.0"); settle()
         driver.openGamePad("demo.0"); settle()
         XCTAssertFalse(try XCTUnwrap(driver.state.presentedSheet).isFullScreen)
-        let back = try XCTUnwrap(pad.frames["console.gamePad"]?.first { $0.id == "console.gamePad.close" }?.frame)
-        XCTAssertGreaterThan(back.minX, 500)
-        XCTAssertGreaterThan(back.width, 500)
-        XCTAssertLessThanOrEqual(back.maxY, 800)
+        // the content column holds the page's rows, the hint bar its Back (B)
+        let rows = try XCTUnwrap(pad.frames["console.gamePad"])
+        XCTAssertFalse(rows.isEmpty)
+        for row in rows { XCTAssertGreaterThan(row.frame.minX, 500, row.id); XCTAssertLessThanOrEqual(row.frame.maxY, 800, row.id) }
         driver.openGameMapping("demo.0"); settle()
         XCTAssertFalse(try XCTUnwrap(driver.state.presentedSheet).isFullScreen)
-        XCTAssertTrue(ids(pad, "console.mapping").contains("console.map.close"))
         gamepad.perform(.b); settle()
         XCTAssertEqual(driver.state.presentedSheet, .gamePad("demo.0"))
         gamepad.perform(.b); settle()
@@ -285,11 +283,11 @@ import XCTest
         let driver = MockConsoleDriver(scenario: .full, animated: false), pad = PadFocus(), gamepad = LauncherGamepad()
         host(driver, pad, gamepad)
         driver.openMenu(); settle()
-        XCTAssertTrue(ids(pad, "console.menu").isSuperset(of: ["console.menu.allGames", "console.menu.search", "console.menu.builds", "console.menu.library", "console.menu.controllers", "console.menu.settings", "console.menu.exit", "console.sheet.close"]))
+        XCTAssertTrue(ids(pad, "console.menu").isSuperset(of: ["console.menu.allGames", "console.menu.search", "console.menu.builds", "console.menu.library", "console.menu.controllers", "console.menu.settings", "console.menu.exit"]))
         gamepad.perform(.b); settle()
         XCTAssertNil(driver.state.presentedSheet)
         driver.openQuickMenu(); settle()
-        XCTAssertTrue(ids(pad, "console.quickMenu").isSuperset(of: ["console.quick.controllers", "console.sheet.close"]))
+        XCTAssertTrue(ids(pad, "console.quickMenu").isSuperset(of: ["console.quick.controllers"]))
         gamepad.perform(.b); settle()
         XCTAssertNil(driver.state.presentedSheet)
     }
@@ -315,7 +313,7 @@ import XCTest
         let game = try! XCTUnwrap(driver.state.games.first { $0.id == "demo.0" })
         XCTAssertEqual(game.status, .ready)
         XCTAssertTrue(ids(pad, "console.gamePage").isSuperset(of: ConsoleGamePage<MockConsoleDriver>.hintIDs(game, embedded: true)), "\(ids(pad, "console.gamePage"))")
-        XCTAssertTrue(ConsoleGamePage<MockConsoleDriver>.hintIDs(game, embedded: true).contains("console.gamePage.hint.options"))
+        XCTAssertTrue(ConsoleGamePage<MockConsoleDriver>.hintIDs(game, embedded: true).contains("console.gamePage.tab.overview"))
         gamepad.perform(.select); settle()
         XCTAssertEqual(driver.state.presentedSheet, .quickMenu, "− opens the quick menu from a game's page too")
     }
@@ -332,10 +330,6 @@ import XCTest
         driver.state.builds.queue[0].outcome = .success
         driver.state.builds.running = false; settle()
         XCTAssertEqual(pad.focused, rowID)
-        driver.state.builds.running = true; settle()
-        pad.focused = "console.builds.stop"
-        driver.state.builds.running = false; settle()
-        XCTAssertEqual(pad.focused, "console.builds.close")
     }
 
     func testConsoleToggleRowsMatchLanguageHeight() throws {
@@ -346,7 +340,7 @@ import XCTest
         let language = try XCTUnwrap(rows.first { $0.id == "console.settings.language" })
         let toggle = try XCTUnwrap(rows.first { $0.id == "console.pref.returnAfterPlay" })
         XCTAssertEqual(toggle.frame.height, language.frame.height, accuracy: 1)
-        XCTAssertGreaterThanOrEqual(toggle.frame.height, 84)
+        XCTAssertGreaterThanOrEqual(toggle.frame.height, DS.Console.Control.rowHeight)
         pad.focused = "console.pref.returnAfterPlay"; pad.activate(); settle()
         XCTAssertFalse(driver.state.prefs[.returnAfterPlay])
     }

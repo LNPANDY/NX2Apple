@@ -86,6 +86,7 @@ final class DesignRulesTests: XCTestCase {
     /// `launcherGlass(` themselves. Everything else gets flat controls from the same button styles.
     func testGlassOnlyInTheNavigationLayer() throws {
         let navigation: Set<String> = ["NX2Apple/LauncherView+Header.swift", "NX2Apple/LauncherView+HeroAction.swift", "NX2Apple/LauncherView+Carousel.swift",
+                                       "NX2Apple/ConsoleTopBar.swift",   // console mode's top controls
                                        "NXLauncher/DesignComponents.swift", "NXLauncher/LauncherGlass.swift", "NXLauncher/PlayerPicker.swift"]
         let pattern = try NSRegularExpression(pattern: #"\.launcherGlassLayer\(\)|\.launcherGlass\(|glassEffect\(|\.buttonStyle\(\.glass"#)
         var offenders: [String] = []

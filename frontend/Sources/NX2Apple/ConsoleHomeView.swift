@@ -52,6 +52,8 @@ struct ConsoleClock: View {
     let compact: Bool
     var launchNamespace: Namespace.ID? = nil
     var floatingPanelChrome = false
+    /// Whether the top bar shows the build indicator (ConsoleView decides: something builds or just finished, not expired).
+    var showBuild = false
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tileFrames: [String: CGRect] = [:]
@@ -80,7 +82,7 @@ struct ConsoleClock: View {
                         VStack(alignment: .leading, spacing: compact || size.height < 900 ? 16 : 24) {
                             Spacer(minLength: 0)
                             if let game = state.focusedGame { title(game) }
-                            rows
+                            rows(available: area.size.height - titleHeight - 40 - (compact || size.height < 900 ? 16 : 24))
                         }
                         .padding(.top, 24).padding(.bottom, 16)
                         .frame(minHeight: area.size.height, alignment: .bottomLeading)
@@ -99,18 +101,22 @@ struct ConsoleClock: View {
     /// Search and the menu. Its height never changes, so a controller arriving or leaving moves nothing below it.
     private var topBar: some View {
         HStack(spacing: compact ? 12 : 20) {
-            ConsoleClock(time: state.time, compact: compact).hidden().accessibilityHidden(true)
-            Spacer(minLength: 8)
-            HStack(spacing: compact ? 12 : 20) {
-                HStack(alignment: .center, spacing: compact ? 12 : 16) {
-                    ConsoleControllerButton(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
-                    barButton("magnifyingglass", id: "console.searchButton", label: t("console.search")) { driver.openSearch() }
-                    barButton("line.3.horizontal", id: "console.menuButton", label: t("console.menu")) { driver.openMenu() }
-                }
-                .fixedSize(horizontal: true, vertical: false)
-            }.blur(radius: panelOpen ? 14 : 0)
+            ConsoleClock(time: state.time, compact: compact)
+            if showBuild, let row = state.builds.indicatorRow {
+                ConsoleBuildIndicator(builds: state.builds, row: row, lang: lang) { driver.openBuilds() }
+                    .padTarget(ConsoleBuildIndicator.id, scope: "console", enabled: !panelOpen, activate: { driver.openBuilds() })
+                    .environment(\.padRingStyle, .none)
+                    .transition(.opacity)
+            }
+            // the players drop out first when the window is too narrow for all of it: nothing overflows the bar
+            ViewThatFits(in: .horizontal) {
+                cluster(players: true)
+                cluster(players: false)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .frame(height: compact ? 48 : 56)
+        .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.standard), value: showBuild)
         // The banner sits under the bar, so it never covers the controller chips, and it is drawn over the page without moving it (#1004)
         .overlay(alignment: .top) {
             if let toast = state.toast {
@@ -119,6 +125,15 @@ struct ConsoleClock: View {
             }
         }
         .zIndex(1)
+    }
+
+    private func cluster(players: Bool) -> some View {
+        HStack(alignment: .center, spacing: compact ? 12 : 16) {
+            ConsoleControllerButton(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact, showsPlayers: players) { driver.openControllers() }
+            barButton("magnifyingglass", id: "console.searchButton", label: t("console.search")) { driver.openSearch() }
+            barButton("line.3.horizontal", id: "console.menuButton", label: t("console.menu")) { driver.openMenu() }
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func barButton(_ symbol: String, id: String, label: String, action: @escaping () -> Void) -> some View {
@@ -130,11 +145,11 @@ struct ConsoleClock: View {
     /// A fixed-height slot: the old and the new title overlap and cross-fade in place with the Library timing, so nothing slides and the rows below
     /// never move, whatever the title's length. Availability stays on the artwork chip.
     private func title(_ game: ConsoleGame) -> some View {
-        let big = compact ? 36 : min(56, size.width / 26)
         return ZStack(alignment: .bottomLeading) {
             VStack(alignment: .leading, spacing: compact ? 10 : 16) {
-                Text(game.title).font(.manrope(big, .bold))
-                    .tracking(-1.4).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                Text(game.title).font(compact ? DS.Console.Font.title : DS.Console.Font.largeTitle)
+                    .tracking(DS.Console.Font.largeTitleTracking).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(DS.Color.textPrimary)
                     .shadow(color: .black.opacity(0.45), radius: 12)
                     .accessibilityAddTraits(.isHeader)
 
@@ -143,20 +158,24 @@ struct ConsoleClock: View {
         }
         .animation(LibraryHeroTransition.metadata(reduceMotion: reduceMotion), value: game.id)
         .padding(.horizontal, inset)
-        .frame(height: compact ? 130 : 54 + 2.4 * big, alignment: .bottomLeading)
+        .frame(height: titleHeight, alignment: .bottomLeading)
     }
+
+    private var titleHeight: CGFloat { compact ? 130 : 54 + 2.4 * DS.Console.Font.largeTitleSize }
 
     // MARK: Rows
 
-    /// The focused row at the top of the rows' area and the start of the next one under it. The rows above it are not drawn, so the
-    /// layout never depends on a scroll position: up and down change which row leads, with a short fade.
-    private var rows: some View {
+    /// The focused row at the top of the rows' area, and the next row under it only when it fits whole: a row is never cut, so no
+    /// cover, chip or caption is clipped at the bottom. The rows above it are not drawn, so the layout never depends on a scroll
+    /// position: up and down change which row leads, with a short fade.
+    private func rows(available: CGFloat) -> some View {
         let sections = state.homeSections
         let focusedIndex = sections.firstIndex { $0.gameIDs.contains(state.focusedGame?.id ?? "") } ?? 0
-        // the row in focus and the start of the next one: more would push the title off a 1080 p screen
-        let height = sectionHeight + (sections.count > focusedIndex + 1 ? (compact ? 40 : 64) : 0)
-        return VStack(alignment: .leading, spacing: compact ? 8 : 12) {
-            ForEach(sections.dropFirst(focusedIndex)) { section in row(section).transition(.opacity) }
+        let spacing: CGFloat = compact ? 8 : 12
+        let shown = sections.count > focusedIndex + 1 && available >= 2 * sectionHeight + spacing ? 2 : 1
+        let height = CGFloat(shown) * sectionHeight + CGFloat(shown - 1) * spacing
+        return VStack(alignment: .leading, spacing: spacing) {
+            ForEach(sections.dropFirst(focusedIndex).prefix(shown)) { section in row(section).transition(.opacity) }
         }
         .fixedSize(horizontal: false, vertical: true)   // each row at its own height: the area clips the next one, it never squeezes a tile
         .frame(height: height, alignment: .top)
@@ -467,40 +486,3 @@ enum ConsoleTimes {
     }
 }
 
-/// Header actions share height, outline and centered content. Text actions use a capsule.
-struct ConsoleHeaderButton: View {
-    let symbol: String
-    let id: String
-    let label: String
-    let compact: Bool
-    var showsLabel = false
-    @EnvironmentObject private var pad: PadFocus
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var focused: Bool { pad.visible && pad.focused == id }
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: symbol).font(.system(size: compact ? 18 : 20, weight: .semibold))
-                    .frame(width: 24, height: 24)
-                if showsLabel { Text(label).font(.manrope(compact ? 15 : 17, .semibold)).lineLimit(1) }
-            }
-            .padding(.horizontal, showsLabel ? 18 : 0)
-            .frame(width: showsLabel ? nil : (compact ? 48 : 52), height: compact ? 48 : 52)
-            .background {
-                if showsLabel { Capsule().fill(focused ? LauncherPalette.cream : .black) } else { Circle().fill(focused ? LauncherPalette.cream : .black) }
-            }
-            .overlay {
-                if showsLabel { Capsule().strokeBorder(LauncherPalette.cream, lineWidth: 2) }
-                else { Circle().strokeBorder(LauncherPalette.cream, lineWidth: 2) }
-            }
-            .contentShape(Capsule())
-        }
-        .foregroundStyle(focused ? Color.black : .white)
-        .buttonStyle(.plain).accessibilityLabel(label)
-        .padTarget(id, scope: "console", activate: action)
-        .environment(\.padRingStyle, .none)
-        .scaleEffect(focused && !reduceMotion ? 1.1 : 1)
-        .animation(.easeOut(duration: reduceMotion ? 0 : 0.16), value: focused)
-    }
-}

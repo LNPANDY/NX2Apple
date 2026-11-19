@@ -39,13 +39,12 @@ struct ConsolePageHeader: View {
     }
 }
 
-/// A section's heading on a console page, as the mapping's groups have it.
+/// A section's heading on a console page: sentence case in the console headline, never upper case.
 struct ConsoleSectionHeading: View {
     let title: String
     let compact: Bool
     var body: some View {
-        Text(title.uppercased()).font(.manrope(compact ? 12 : 14, .semibold)).tracking(1.5)
-            .foregroundStyle(LauncherPalette.cream.opacity(0.7)).padding(.leading, 4)
+        Text(title).font(DS.Console.Font.headline).foregroundStyle(DS.Color.textPrimary).padding(.leading, DS.Space.xxs)
             .accessibilityAddTraits(.isHeader)
     }
 }

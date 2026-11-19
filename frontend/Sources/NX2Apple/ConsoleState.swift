@@ -531,9 +531,12 @@ struct ConsoleState {
     /// #952: the paused game plays again, and the answer Quit to "Quit <game>?" (the paused game quits, then what waited for it runs).
     func resume(_ gameID: String)
     func quitPausedGame()
+    /// Cancel on the Controllers page's "Press a button…" notice: no player waits for a button any more.
+    func cancelAssignment()
 }
 
 extension ConsoleDriver {
+    func cancelAssignment() {}
     func setPadMode(_ mode: PadMode) {}
     func setPadSends(button: String, to output: String) {}
     func resetPadMapping() {}
