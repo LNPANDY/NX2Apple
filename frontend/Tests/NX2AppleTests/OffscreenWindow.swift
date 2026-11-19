@@ -12,6 +12,7 @@ final class OffscreenWindow: NSWindow {
     init(size: NSSize, styleMask: NSWindow.StyleMask = [.titled]) {
         super.init(contentRect: NSRect(origin: Self.origin, size: size), styleMask: styleMask, backing: .buffered, defer: false)
         isReleasedWhenClosed = false
+        // Pixel assertions must not inherit a machine's display color profile.
         colorSpace = .sRGB
         // Ordering a window in or out plays a fade on a worker thread, paced by the display. With no frames coming each fade
         // holds its thread for good, and a suite that shows hundreds of windows runs out of them.

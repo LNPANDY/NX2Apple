@@ -156,6 +156,9 @@ extension BuildStore {
         let shouldTransferUpdatedImg = didUpdateImg ?? needsReplaceOldImgReminder
         let effectiveImgPath = updatedImgPath ?? self.updatedImgPath
         let targetEntryID = activeQueuedEntryID
+        shellInstallRetry = { [weak self] in
+            self?.installShell(framework: framework, titleID: titleID, name: name, archive: archive, dataOnly: dataOnly)
+        }
         let installer = makeInstaller(respectSkipMode: !dataOnly && !shouldTransferUpdatedImg)
         let target = devices
         let device = devices.installDevice
@@ -237,7 +240,14 @@ extension BuildStore {
         beginOperation(.installing, game: nil, titleID: nil, destination: .target)
         stopping = false; stoppedByPlayer = false; installCancel.set(false); installPhaseActive = true
         running = true; done = false; doneNote = ""; failure = nil; stages = []
+<<<<<<< HEAD
         needsReplaceOldImgReminder = false; updatedImgPath = ""; shellUpdatedOnDevice = false
+=======
+        needsReplaceOldImgReminder = false; updatedImgPath = ""
+        shellInstallRetry = { [weak self] in
+            self?.installBuiltShell(framework: framework, titleID: titleID, name: name)
+        }
+>>>>>>> 21b1751b2 (Fix iOS installation recovery without rebuilding games)
         finderShown = false
         let installer = makeInstaller()
         let device = devices.installDevice
@@ -282,6 +292,7 @@ extension BuildStore {
         if dataOnly { stages = [] }
         finderShown = false
         shellBatchRetry = games
+        shellInstallRetry = { [weak self] in self?.installShellBatch(games, dataOnly: dataOnly) }
         shellRetry = (last.framework, last.titleID, last.name, last.archive)
         let batchGames = games.map {
             ShellInstaller.BatchGame(
@@ -346,6 +357,15 @@ extension BuildStore {
                 self.finishInstall(nil, note: result.message)
             }
         }
+    }
+
+    /// Retry the failed installation with its original built games, without restarting the game builder.
+    package func retryShellInstall() {
+        guard !running else { return }
+        if let retry = shellInstallRetry {
+            failure = nil; done = false; doneNote = ""
+            retry()
+        } else { runBuild() }  // Non-shell installs retain their existing recovery path.
     }
 
     /// Retry after game data that went over in part: only the data step runs again (listing, diff, copy).

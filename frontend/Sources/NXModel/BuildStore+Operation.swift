@@ -14,6 +14,7 @@ extension BuildStore {
     }
 
     package func beginOperation(_ kind: ActiveOperation.Kind, game: String?, titleID: String?, destination place: OperationPlace) {
+        shellInstallRetry = nil
         var destination: ActiveOperation.Destination?
         switch place {
         case .target:

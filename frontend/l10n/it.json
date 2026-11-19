@@ -1030,6 +1030,8 @@
   "fail.damagedNSP.next": "Sostituiscili con una copia integra del gioco (esegui di nuovo il dump o il download). Compilando comunque, i file danneggiati vengono scritti così come sono, e il gioco potrebbe non funzionare.",
   "fail.damagedNSP.risk": "I file danneggiati vengono scritti così come sono. Il gioco potrebbe bloccarsi o mostrare dati errati, e il risultato non è testato. La scelta vale solo per questa build e non viene salvata.",
   "fail.damagedNSP.what": "I file del gioco sono danneggiati. Non superano la verifica dell’hash o del formato (come file di texture o dati corrotti), spesso per una copia incompleta, un download interrotto o un pacchetto difettoso.",
+  "fail.developerMode.next": "Su iPhone o iPad, apri Impostazioni → Privacy e sicurezza → Modalità sviluppatore. Attivala, riavvia e conferma. Poi riprova l’installazione. I giochi già compilati vengono riutilizzati.",
+  "fail.developerMode.what": "La modalità sviluppatore è disattivata sul dispositivo.",
   "fail.devicePairing.next": "Collega il dispositivo con un cavo, tocca Autorizza sul dispositivo e inserisci il codice. Poi riprova.",
   "fail.devicePairing.what": "Questo Mac non è abbinato al dispositivo.",
   "fail.deviceTransfer.next": "Sblocca l’iPhone o l’iPad e tocca Autorizza se lo chiede, controlla il cavo e che il dispositivo resti collegato, poi riprova.",

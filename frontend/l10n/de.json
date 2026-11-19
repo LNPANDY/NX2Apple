@@ -1031,6 +1031,8 @@
   "fail.damagedNSP.next": "Ersetze sie durch eine intakte Kopie des Spiels (erneut per Dump erstellen oder herunterladen). Wenn du trotzdem baust, werden die beschädigten Dateien unverändert geschrieben, was das Spiel kaputt machen kann.",
   "fail.damagedNSP.risk": "Das schreibt die beschädigten Dateien unverändert. Das Spiel kann abstürzen oder falsche Daten zeigen, und das Ergebnis ist ungetestet. Die Auswahl gilt nur für diesen einen Build und wird nicht gesichert.",
   "fail.damagedNSP.what": "Die Spieldateien sind beschädigt. Sie bestehen die Hash- oder Formatprüfung nicht (etwa beschädigte Textur- oder Ressourcendateien), oft wegen einer unvollständigen Kopie, eines abgebrochenen Downloads oder eines fehlerhaften Pakets.",
+  "fail.developerMode.next": "Öffne auf deinem iPhone oder iPad Einstellungen → Datenschutz & Sicherheit → Entwicklermodus. Aktiviere ihn, starte das Gerät neu und bestätige die Aktivierung. Wiederhole danach die Installation. Bereits erstellte Spiele werden wiederverwendet.",
+  "fail.developerMode.what": "Der Entwicklermodus ist auf dem Gerät deaktiviert.",
   "fail.devicePairing.next": "Schließe das Gerät mit einem Kabel an, tippe auf dem Gerät auf Vertrauen und gib den Code ein. Versuche es dann erneut.",
   "fail.devicePairing.what": "Dieser Mac ist nicht mit dem Gerät gekoppelt.",
   "fail.deviceTransfer.next": "Entsperre das iPhone oder iPad und tippe auf „Vertrauen“, falls es danach fragt. Prüfe das Kabel und ob das Gerät verbunden bleibt, und versuche es dann erneut.",

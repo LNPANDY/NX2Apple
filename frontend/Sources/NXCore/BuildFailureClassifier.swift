@@ -126,6 +126,9 @@ package enum BuildFailureClassifier {
     /// nil when the launcher has no better words than the tool's own line. `teamListed`: whether the chosen team is still one
     /// the Mac knows (an account signed in to Xcode, or a development certificate in the keychain).
     package static func classifyInstall(_ step: InstallStep, error: String, teamListed: Bool) -> BuildFailure? {
+        if error.range(of: #"(?i)developer[ -]mode(?: is)? (?:disabled|not enabled)"#, options: .regularExpression) != nil {
+            return BuildFailure(kind: .developerMode, gameName: nil)
+        }
         if error.contains("No space left on device") { return BuildFailure(kind: .diskFull, gameName: nil) }
         if appIDLimitReached(error) { return BuildFailure(kind: .appIDLimit, gameName: nil, detail: appIDLimitReset(in: error)) }
         if freeAccountLimitReached(error) { return BuildFailure(kind: .freeAccountLimit, gameName: nil) }

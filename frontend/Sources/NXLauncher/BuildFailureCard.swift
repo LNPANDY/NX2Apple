@@ -168,7 +168,7 @@ package struct BuildFailureCard: View {
                 fix(kind, "fail.cloudFolder.button")
             case .teamTaken, .noSigningAccount, .freeAccountLimit, .appIDLimit:
                 if m.installedXcode != nil { fix(kind, "fail.openXcode") }
-            case .deviceTransfer, .devicePairing:
+            case .deviceTransfer, .devicePairing, .developerMode:
                 fix(kind, "fail.retry")
             case .shellDataIncomplete:
                 fix(kind, "shell.retry")

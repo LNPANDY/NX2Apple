@@ -4,7 +4,24 @@ import NXCore
 
 // What a failed build says and what its card offers: the classification, "Build anyway" and the fix buttons (LNPANDY/NX2Apple#387).
 
+@MainActor private final class ShellInstallRetryBox {
+    var retry: (() -> Void)?
+}
+
+@MainActor private let shellInstallRetries = NSMapTable<BuildStore, ShellInstallRetryBox>.weakToStrongObjects()
+
 extension BuildStore {
+    var shellInstallRetry: (() -> Void)? {
+        get { shellInstallRetries.object(forKey: self)?.retry }
+        set {
+            let box = shellInstallRetries.object(forKey: self) ?? {
+                let b = ShellInstallRetryBox()
+                shellInstallRetries.setObject(b, forKey: self)
+                return b
+            }()
+            box.retry = newValue
+        }
+    }
     /// A failed build's log read for the script's known early stops: the card under the build button then says what
     /// happened and what to do. An unknown stop leaves the note (the last line of the log) as it is.
     package func noteFailure() {
@@ -123,8 +140,8 @@ extension BuildStore {
             chooseBuildFolder()
         case .teamTaken, .noSigningAccount, .freeAccountLimit, .appIDLimit:
             openXcode()
-        case .deviceTransfer, .devicePairing:
-            runBuild()
+        case .deviceTransfer, .devicePairing, .developerMode:
+            retryShellInstall()
         case .shellDataIncomplete:
             retryShellData()
         default: break

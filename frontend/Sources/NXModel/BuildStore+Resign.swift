@@ -40,6 +40,7 @@ extension BuildStore {
         let stampMatches = ShellHotInstall.projectStampMatches(root: shell.root, expectedChain: expectedChain)
         buildingGame = false; runningTarget = BuildTarget.ios
         beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .device(name))
+        shellInstallRetry = { [weak self] in self?.resignOnDevice(app: app, device: device, then: then) }
         stopping = false; stoppedByPlayer = false; installPhaseActive = true
         needsReplaceOldImgReminder = false; updatedImgPath = ""; shellUpdatedOnDevice = false
         running = true

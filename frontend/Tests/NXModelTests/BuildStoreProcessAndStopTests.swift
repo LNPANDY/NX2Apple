@@ -177,6 +177,43 @@ import XCTest
         XCTAssertFalse(FileManager.default.fileExists(atPath: failedEnv), "temp nspb-env file must be removed on launch failure too")
     }
 
+    func testInstallRetryNeverRestartsTheGameBuilder() throws {
+        for mode in 0..<3 {
+            let runner = ChunkedRunner()
+            runner.onStartInspect = { _ in XCTFail("Retry must not start a game build") }
+            let devices = DeviceStore(runner: runner, xcrun: "/usr/bin/true", defaults: defaults,
+                                      listDevices: { _ in [] }, readTeams: { [] })
+            let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps,
+                                   engine: engine, devices: devices, defaults: defaults)
+            let framework = temporary.appendingPathComponent("missing.framework").path
+            func waitForFailure() {
+                let end = Date().addingTimeInterval(3)
+                while store.running && Date() < end { drainMainQueue(seconds: 0.01) }
+                XCTAssertFalse(store.running)
+            }
+            switch mode {
+            case 0: store.installShell(framework: framework, titleID: "0100000000001000", name: "Game", archive: "/archive")
+            case 1: store.installBuiltShell(framework: framework, titleID: "0100000000001000", name: "Game")
+            default: store.installShellBatch([.init(framework: framework, titleID: "0100000000001000", name: "Game", archive: "/archive")])
+            }
+            waitForFailure()
+            let originalFailure = store.doneNote
+            // Recovery uses the completed install's inputs even if unrelated form state has changed.
+            store.shellRetry = ("/unrelated.framework", "OTHER", "Other", "/other-archive")
+            for kind in [BuildFailureKind.deviceTransfer, .devicePairing, .developerMode] {
+                store.failure = .init(kind: kind, gameName: nil)
+                store.fixBuildFailure(kind)
+                XCTAssertTrue(store.running, "Retry must resume the cached install in mode \(mode)")
+                XCTAssertNil(store.failure, "The previous failure must not remain after retry starts")
+                waitForFailure()
+                XCTAssertEqual(store.doneNote, originalFailure)
+            }
+            store.beginOperation(.building, game: "Other", titleID: "OTHER", destination: .none)
+            store.fixBuildFailure(.deviceTransfer)
+            XCTAssertFalse(store.running, "A new operation must discard the old installation retry")
+        }
+    }
+
     func testStopCancelsPostInstallAskCopyAndCableWaitWhenNoSubprocessIsRunning() throws {
         let phone = AppleDevice(id: "UDID-1", name: "Jo's iPhone", model: "iPhone 17", os: "27.0", reachable: true, transport: "network")
         let team = SigningTeam(id: "TEAM123456", identity: "Apple Development")
