@@ -143,25 +143,29 @@ enum ConsoleCloudSaves {
     let compact: Bool
     let close: () -> Void
     var now = Date()
+    var embedded = false
+    var gameOnly = false
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let scope = "console.saves"
     private func t(_ key: String) -> String { L10n.string(key, lang) }
-    private var inset: CGFloat { compact ? 24 : 64 }
+    private var inset: CGFloat { embedded ? 40 : (compact ? 24 : 64) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if !embedded {
             ConsolePageHeader(title: t("console.saves.title"), note: t("console.saves.note"), compact: compact, closeLabel: t("console.close"),
                               closeID: "console.saves.close", scope: Self.scope, close: close)
+            }
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: compact ? 12 : 14) {
                         if rows.isEmpty {
-                            message(t("console.saves.empty"))
+                            message(t(gameOnly ? "console.saves.gameEmpty" : "console.saves.empty"))
                         } else {
-                            if rows.allSatisfy({ $0.status == .off }) { message(t("console.saves.allOff")) }
+                            if !gameOnly && rows.allSatisfy({ $0.status == .off }) { message(t("console.saves.allOff")) }
                             ForEach(ConsoleCloudSaves.sorted(rows)) { row in rowView(row) }
                         }
                     }
@@ -199,10 +203,10 @@ enum ConsoleCloudSaves {
             Image(systemName: row.status.symbol).font(.system(size: compact ? 22 : 28, weight: .medium))
                 .foregroundStyle(row.status.tint).frame(width: compact ? 36 : 44).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
-                Text(row.title).font(.manrope(compact ? 18 : 23, .semibold)).lineLimit(2)
+                if !gameOnly { Text(row.title).font(.manrope(compact ? 18 : 23, .semibold)).lineLimit(2) }
                 Text(statusLine(row)).font(.manrope(compact ? 14 : 17, .medium))
                     .foregroundStyle(row.status == .synced ? LauncherPalette.cream : row.status.tint)
-                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(gameOnly ? nil : 2).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
             VStack(alignment: .trailing, spacing: 4) {

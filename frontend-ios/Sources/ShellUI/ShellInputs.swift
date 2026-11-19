@@ -304,9 +304,15 @@ public struct ShellActions {
     public var onCopyShortcutURL: ((String) -> Void)?
     /// Saves a square game icon to Photos, copies the title, and opens Shortcuts to add a Home Screen icon.
     public var onAddToHomeScreen: (@MainActor (String) async -> Bool)?
+    /// Saves a square game icon to Photos, copies the title, optionally starts the floating PiP step guide, and opens Shortcuts.
+    public var onAddToHomeScreenWithGuide: (@MainActor (String, Bool) async -> Bool)?
+    /// Pre-warms the floating PiP step guide when the Add to Home Screen sheet opens.
+    public var onPrepareHomeScreenGuide: (@MainActor (String) -> Void)?
+    /// Releases a pre-warmed floating PiP step guide if the sheet closes without launching Shortcuts.
+    public var onCancelPreparedHomeScreenGuide: (@MainActor () -> Void)?
 
     public var supportsHomeScreen: Bool {
-        onAddToHomeScreen != nil || onCopyShortcutURL != nil
+        onAddToHomeScreenWithGuide != nil || onAddToHomeScreen != nil || onCopyShortcutURL != nil
     }
 
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
@@ -325,7 +331,10 @@ public struct ShellActions {
                 onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in },
                 onOpenHomeButtonSettings: @escaping () -> Void = {},
                 onCopyShortcutURL: ((String) -> Void)? = nil,
-                onAddToHomeScreen: (@MainActor (String) async -> Bool)? = nil) {
+                onAddToHomeScreen: (@MainActor (String) async -> Bool)? = nil,
+                onAddToHomeScreenWithGuide: (@MainActor (String, Bool) async -> Bool)? = nil,
+                onPrepareHomeScreenGuide: (@MainActor (String) -> Void)? = nil,
+                onCancelPreparedHomeScreenGuide: (@MainActor () -> Void)? = nil) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -351,5 +360,8 @@ public struct ShellActions {
         self.onOpenHomeButtonSettings = onOpenHomeButtonSettings
         self.onCopyShortcutURL = onCopyShortcutURL
         self.onAddToHomeScreen = onAddToHomeScreen
+        self.onAddToHomeScreenWithGuide = onAddToHomeScreenWithGuide
+        self.onPrepareHomeScreenGuide = onPrepareHomeScreenGuide
+        self.onCancelPreparedHomeScreenGuide = onCancelPreparedHomeScreenGuide
     }
 }

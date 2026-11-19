@@ -194,7 +194,7 @@ import NXModel
         XCTAssertNil(TitleNameLookup.sourceVersion(for: badGame))
     }
 
-    func testHeroShowsUnbuiltPackageVersionBesideSetUpBuildAndHidesWhenOnDevice() throws {
+    func testHeroOmitsUnbuiltVersionAndBuildsRetainsItBeforeDeviceInstall() throws {
         let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
         let previous = NSApplication.shared.accessibilityAttributeValue(enhanced)
         NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
@@ -233,10 +233,11 @@ import NXModel
             repeat {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.02))
                 host.layoutSubtreeIfNeeded()
-            } while !texts(in: host).contains(expected) && Date() < deadline
+            } while !texts(in: host).contains(stores.localizer.t("library.setUpBuild")) && Date() < deadline
             let visible = texts(in: host)
             XCTAssertTrue(visible.contains(stores.localizer.t("library.setUpBuild")), "Set Up Build in \(code)")
-            XCTAssertTrue(visible.contains(expected), "Unbuilt version in \(code): \(visible.sorted())")
+            XCTAssertFalse(visible.contains(expected), "Version belongs in Builds, not the Library hero")
+            XCTAssertEqual(library.games.first.map(BuildInventoryEntry.init)?.version, "2.0.6")
         }
 
         // When installed on a paired device (`primary == .openOnDevice`), `unbuiltVersion` must be nil.

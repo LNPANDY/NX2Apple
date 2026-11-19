@@ -4,6 +4,9 @@ import XCTest
 /// #382: a file name without a title ID used to give the work folder `game_build` and the app `game.app` for every game,
 /// so a second game hit the first one's shader cache. One key per game now.
 final class TitleIDTests: XCTestCase {
+    func testMalformedSmallIDsHaveNoOwningGameInsteadOfUnderflowing() {
+        for id: UInt64 in [1, 0x7FF, 0x801, 0xFFF] { XCTAssertEqual(TitleID.owner(id), 0) }
+    }
     func testNameWithTitleIDKeepsItsFolder() {
         XCTAssertEqual(TitleID.buildKey("/x/Game [01007EF00011E000][v0].nsp"), "01007EF00011E000")
         XCTAssertEqual(TitleID.buildKey("/x/01007ef00011e000_v0_420d1c5034ab.nsp"), "01007EF00011E000")

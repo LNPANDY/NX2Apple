@@ -405,7 +405,15 @@ public struct LibraryView: View {
                     ScrollView {
                         AddToHomeScreenView(
                             game: game,
-                            saveAndOpen: { await guardedActions.onAddToHomeScreen?(id) ?? false },
+                            supportsFloatingGuide: guardedActions.onAddToHomeScreenWithGuide != nil,
+                            prepareFloatingGuide: { guardedActions.onPrepareHomeScreenGuide?(id) },
+                            cancelPreparedFloatingGuide: { guardedActions.onCancelPreparedHomeScreenGuide?() },
+                            saveAndOpen: { floatingGuide in
+                                if let withGuide = guardedActions.onAddToHomeScreenWithGuide {
+                                    return await withGuide(id, floatingGuide)
+                                }
+                                return await guardedActions.onAddToHomeScreen?(id) ?? false
+                            },
                             copyURL: { guardedActions.onCopyShortcutURL?(id) },
                             close: closeHomeScreen
                         )

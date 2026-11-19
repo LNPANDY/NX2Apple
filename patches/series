@@ -21,9 +21,6 @@
 0020-ios-touch-controls-layout.patch
 0021-ios-hide-the-settings-gear-during-tv-play-with-a.patch
 0022-keep-the-mac-game-in-focus-while-its-window-is-u.patch
-0023-host-serve-nsd-services.patch
-0024-shader-split-zstd-in-process.patch
-0025-allow-ios-packaging-without-a-recorded-prewarm-s.patch
 0026-ios-fade-out-the-settings-gear-after-3-idle-seco.patch
 0027-hid-report-vibration-device-info-for-startup-han.patch
 0028-mac-app-exit-at-once-with-dm-preflight.patch
@@ -52,8 +49,11 @@
 0054-mac-host-join-the-default-preferences-domain-at.patch
 0055-gfx-adaptive-ios-memory-pressure-convergence-for.patch
 0056-tools-shader-lib-a-failed-write-removes-its-part.patch
-0057-motion-a-controller-is-a-source-once-its-rotatio.patch
 0058-test-native-controller-motion-primes-the-adapter.patch
-0059-gfx-keep-argument-block-and-ub-padded-arena-gpu.patch
 0060-host-games-support-full-screen-and-wide-aspect-r.patch
 0061-build-seed-infer-and-self-heal-gl-and-vulkan-gfx.patch
+0062-mac-launcher-bring-the-last-played-save-along-al.patch
+0063-nvn-decode-cpu-bc-buffer-to-texture-copies-and-r.patch
+0064-older-devices-decode-bc-textures-across-the-cpu.patch
+0065-tools-tests-stub-dmsh-rewrite-in-the-mesh-target.patch
+0066-tools-tests-a-changed-nso-syms-py-rewrites-again.patch

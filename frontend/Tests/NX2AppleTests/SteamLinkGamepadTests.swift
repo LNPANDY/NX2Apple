@@ -183,7 +183,7 @@ import GameController
     func testAcceptedSteamPadsJoinAndLeaveExistingConsoleInventory() {
         var steam = [SteamLinkGamepads.snapshot(id: "steam-test", slot: 0)]
         let library = GameLibrary(file: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json"))
-        let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: testDefaults), repo: { "" },
+        let driver = LiveConsoleDriver(launchGracePeriod: 0, library: library, controls: ControlLayout(defaults: testDefaults), repo: { "" },
                                        lang: { .en }, labels: { L10n.string($0, .en) }, pads: { [] }, steamPads: { steam },
                                        observeSystem: false)
         XCTAssertEqual(driver.state.controllers.map(\.id), ["steam-test"])

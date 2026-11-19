@@ -641,70 +641,6 @@
         }
       }
     },
-    "Add the NX2Apple Launch Game action and pick this game.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die NX2Apple-Aktion zum Spielstart hinzufügen und dieses Spiel auswählen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add the NX2Apple Launch Game action and pick this game."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Añade la acción Iniciar juego de NX2Apple y elige este juego."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajoutez l’action Lancer un jeu de NX2Apple et choisissez ce jeu."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aggiungi l’azione Avvia gioco di NX2Apple e scegli questo gioco."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NX2Apple のゲーム起動アクションを追加し、このゲームを選びます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NX2Apple의 게임 실행 동작을 추가하고 이 게임을 선택합니다."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adicione a ação Iniciar Jogo do NX2Apple e escolha este jogo."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lägg till åtgärden Starta spel från NX2Apple och välj det här spelet."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添加「NX2Apple」的启动游戏操作，并选中此游戏。"
-          }
-        }
-      }
-    },
     "Add to Home Screen": {
       "localizations": {
         "de": {
@@ -6721,6 +6657,70 @@
         }
       }
     },
+    "Floating Step Guide (PiP)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schwebende Schritt-für-Schritt-Hilfe (BiB)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Floating Step Guide (PiP)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guía de pasos flotante (PiP)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guide flottant étape par étape (PiP)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guida passi fluttuante (PiP)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順フローティングガイド（PiP）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플로팅 단계 안내 (PiP)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guia flutuante de etapas (PiP)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytande stegguide (PiP)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "悬浮步骤提示（画中画）"
+          }
+        }
+      }
+    },
     "For a bug report": {
       "localizations": {
         "de": {
@@ -8705,6 +8705,70 @@
         }
       }
     },
+    "In Shortcuts, search for NX2Apple and select the Launch Game action.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suche in Kurzbefehle nach NX2Apple und wähle die Aktion „Launch Game“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Shortcuts, search for NX2Apple and select the Launch Game action."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Atajos, busca NX2Apple y selecciona la acción Launch Game."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans Raccourcis, recherchez NX2Apple et choisissez l’action Launch Game."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Comandi Rapidi, cerca NX2Apple e seleziona l’azione Launch Game."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ショートカット」で NX2Apple を検索し、「Launch Game」アクションを選びます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축어 앱에서 NX2Apple을 검색하고 Launch Game 동작을 선택합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No app Atalhos, busque por NX2Apple e selecione a ação Launch Game."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sök efter NX2Apple i Genvägar och välj åtgärden Launch Game."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳转到「快捷指令」后搜索 NX2Apple，选择「Launch Game」操作。"
+          }
+        }
+      }
+    },
     "In a game": {
       "localizations": {
         "de": {
@@ -8829,6 +8893,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "在原位"
+          }
+        }
+      }
+    },
+    "In the Launch Game card, tap Choose next to Game and pick this game.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippe in der „Launch Game“-Karte neben „Game“ auf „Auswählen“ und wähle dieses Spiel."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the Launch Game card, tap Choose next to Game and pick this game."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En la tarjeta Launch Game, toca Seleccionar junto a Game y elige este juego."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans la carte Launch Game, touchez Choisir à côté de Game puis sélectionnez ce jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nella scheda Launch Game, tocca Scegli accanto a Game e seleziona questo gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「Launch Game」カードの「Game」の横にある「選択」をタップし、このゲームを選びます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Launch Game 카드의 Game 옆에 있는 선택을 탭하고 이 게임을 선택합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cartão Launch Game, toque em Escolher ao lado de Game e selecione este jogo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryck på Välj bredvid Game på Launch Game-kortet och välj det här spelet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「Launch Game」卡片的「Game」一栏点击右侧「选取」，选择当前游戏。"
           }
         }
       }
@@ -9469,6 +9597,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "继续编辑"
+          }
+        }
+      }
+    },
+    "Keep the steps floating over Shortcuts. Use back or forward in the floating window to switch steps.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt die Schritte über der App Kurzbefehle an. Mit Zurück oder Weiter im Fenster wechselst du den Schritt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep the steps floating over Shortcuts. Use back or forward in the floating window to switch steps."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantiene los pasos flotando sobre Atajos. Usa retroceder o avanzar en la ventana flotante para cambiar de paso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garde les étapes affichées au-dessus de Raccourcis. Utilisez retour ou avance dans la fenêtre pour changer d’étape."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantiene i passaggi in sovrimpressione su Comandi Rapidi. Usa indietro o avanti nella finestra per cambiare passaggio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ショートカット」の上にも手順を表示し続けます。小窓の早戻し・早送りで手順を切り替えられます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축어 앱 위에도 단계 안내를 띄워 둡니다. 플로팅 창의 되감기나 빨리 감기로 단계를 전환하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantém as etapas flutuando sobre o app Atalhos. Use voltar ou avançar na janela para trocar de etapa."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håller stegen synliga ovanpå Genvägar. Använd bakåt eller framåt i fönstret för att byta steg."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切到「快捷指令」时保持悬浮提示，点按画中画快退或快进即可切换步骤。"
           }
         }
       }
@@ -10433,6 +10625,70 @@
         }
       }
     },
+    "Lets the game hear your microphone. macOS asks for access when you launch with this enabled.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Spiel hört dein Mikrofon. macOS fragt beim Start nach dem Zugriff, wenn dies an ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets the game hear your microphone. macOS asks for access when you launch with this enabled."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El juego oye tu micrófono. macOS pide acceso al iniciar con esto activado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le jeu entend ton micro. macOS demande l’accès au lancement quand c’est activé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il gioco sente il tuo microfono. macOS chiede l’accesso all’avvio quando è attivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームがマイクの音を使えるようにします。オンで起動すると macOS がアクセスを求めます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임이 마이크 소리를 듣습니다. 켜고 실행하면 macOS가 접근 권한을 요청합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O jogo ouve seu microfone. O macOS pede acesso ao iniciar com isto ativado."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelet hör din mikrofon. macOS ber om åtkomst när du startar med detta på."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让游戏使用你的麦克风。开启后启动游戏时，macOS 会请求访问权限。"
+          }
+        }
+      }
+    },
     "Lets the game lower its resolution under load. Turn off to keep full resolution for the selected console mode.": {
       "localizations": {
         "de": {
@@ -10877,6 +11133,134 @@
           "stringUnit": {
             "state": "translated",
             "value": "MetalFX"
+          }
+        }
+      }
+    },
+    "Microphone": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mikrofon"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Micrófono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Micro"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microfono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microfone"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mikrofon"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "麦克风"
+          }
+        }
+      }
+    },
+    "Microphone gain": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mikrofonverstärkung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone gain"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ganancia del micrófono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gain du micro"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guadagno del microfono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイクのゲイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 게인"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ganho do microfone"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mikrofonförstärkning"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "麦克风增益"
           }
         }
       }
@@ -16833,70 +17217,6 @@
         }
       }
     },
-    "Share to the Home Screen and choose the saved icon.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Über Teilen zum Startbildschirm hinzufügen und das gesicherte Bild wählen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share to the Home Screen and choose the saved icon."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comparte en la pantalla de inicio y elige el icono guardado."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Partagez sur l’écran d’accueil et choisissez l’icône enregistrée."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Condividi sulla schermata Home e scegli l’icona salvata."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共有からホーム画面に追加し、保存したアイコンを選択します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "공유 메뉴에서 홈 화면에 추가를 누르고 저장한 아이콘을 선택합니다."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compartilhe na Tela de Início e escolha o ícone salvo."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dela till hemskärmen och välj den sparade ikonen."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "点分享添加到主屏幕，选刚保存的封面图即可。"
-          }
-        }
-      }
-    },
     "Shoulders and triggers": {
       "localizations": {
         "de": {
@@ -17793,6 +18113,70 @@
         }
       }
     },
+    "Tap Launch Game at the top, choose Rename, and paste the copied game title.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippe oben auf „Launch Game“, wähle „Umbenennen“ und füge den kopierten Spieltitel ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap Launch Game at the top, choose Rename, and paste the copied game title."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca Launch Game en la parte superior, elige Renombrar y pega el título del juego copiado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touchez Launch Game en haut, choisissez Renommer et collez le titre du jeu copié."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocca Launch Game in alto, scegli Rinomina e incolla il titolo del gioco copiato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上部の「Launch Game」をタップして「名称変更」を選び、コピーしたゲーム名を貼り付けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상단의 Launch Game을 탭해 이름 변경을 선택하고 복사한 게임 제목을 붙여넣습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque em Launch Game no topo, escolha Renomear e cole o título do jogo copiado."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryck på Launch Game längst upp, välj Byt namn och klistra in den kopierade speltiteln."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击顶部「Launch Game」旁的小箭头，选择「重命名」并粘贴刚复制的游戏名称。"
+          }
+        }
+      }
+    },
     "Tap a button to change what it sends.": {
       "localizations": {
         "de": {
@@ -17921,66 +18305,258 @@
         }
       }
     },
-    "Tap below to save the icon, copy the title and open Shortcuts.": {
+    "Tap back or forward to switch steps": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unten tippen, um das Symbol zu sichern, den Titel zu kopieren und Kurzbefehle zu öffnen."
+            "value": "Mit Zurück oder Weiter den Schritt wechseln"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap below to save the icon, copy the title and open Shortcuts."
+            "value": "Tap back or forward to switch steps"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toca abajo para guardar el icono, copiar el título y abrir Atajos."
+            "value": "Toca retroceder o avanzar para cambiar de paso"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Touchez ci-dessous pour enregistrer l’icône, copier le titre et ouvrir Raccourcis."
+            "value": "Touchez retour ou avance pour changer d’étape"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tocca qui sotto per salvare l’icona, copiare il titolo e aprire Comandi Rapidi."
+            "value": "Tocca indietro o avanti per cambiare passaggio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "下のボタンでアイコン保存・タイトルコピーして「ショートカット」を開きます。"
+            "value": "早戻し・早送りで手順を切り替え"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아래 버튼을 눌러 아이콘을 저장하고 제목을 복사한 뒤 단축어를 엽니다."
+            "value": "되감기 또는 빨리 감기로 단계 전환"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toque abaixo para salvar o ícone, copiar o título e abrir o app Atalhos."
+            "value": "Toque em voltar ou avançar para trocar de etapa"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tryck nedan för att spara ikonen, kopiera titeln och öppna Genvägar."
+            "value": "Tryck bakåt eller framåt för att byta steg"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "点下方主按钮保存封面图、复制游戏名并打开「快捷指令」。"
+            "value": "点按快退或快进切换步骤"
+          }
+        }
+      }
+    },
+    "Tap below to save the cover icon to Photos and copy the game title.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippe unten, um das Cover-Symbol in Fotos zu sichern und den Spieltitel zu kopieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap below to save the cover icon to Photos and copy the game title."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca abajo para guardar la carátula en Fotos y copiar el título del juego."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touchez ci-dessous pour enregistrer la jaquette dans Photos et copier le titre du jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocca qui sotto per salvare la copertina in Foto e copiare il titolo del gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のボタンでカバー画像を写真に保存し、ゲーム名をコピーします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아래 버튼을 눌러 커버 아이콘을 사진에 저장하고 게임 제목을 복사합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque abaixo para salvar a capa em Fotos e copiar o título do jogo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryck nedan för att spara omslagsikonen i Bilder och kopiera spelets titel."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击下方按钮保存封面图标到相册，并自动复制游戏名称。"
+          }
+        }
+      }
+    },
+    "Tap the Share button at the bottom and choose Add to Home Screen.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippe unten auf „Teilen“ und wähle „Zum Home-Bildschirm“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap the Share button at the bottom and choose Add to Home Screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca el botón Compartir abajo y selecciona Añadir a pantalla de inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touchez le bouton Partager en bas puis choisissez Sur l’écran d’accueil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocca il pulsante Condividi in basso e scegli Aggiungi alla schermata Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下部の共有ボタンをタップし、「ホーム画面に追加」を選びます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하단 공유 버튼을 탭하고 홈 화면에 추가를 선택합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque no botão Compartilhar abaixo e escolha Adicionar à Tela de Início."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryck på knappen Dela längst ned och välj Lägg till på hemskärmen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击底部「分享」按钮，选择「添加到主屏幕」。"
+          }
+        }
+      }
+    },
+    "Tap the icon, pick Choose Photo, select the saved cover, then tap Add.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippe auf das Symbol, wähle „Foto auswählen“, markiere das gesicherte Cover und tippe auf „Hinzufügen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap the icon, pick Choose Photo, select the saved cover, then tap Add."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca el icono, elige Seleccionar foto, escoge la carátula guardada y pulsa Añadir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touchez l’icône, choisissez Choisir une photo, sélectionnez la jaquette enregistrée puis touchez Ajouter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocca l’icona, scegli Scegli foto, seleziona la copertina salvata e poi tocca Aggiungi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンをタップして「写真を選択」から保存した画像を選び、右上の「追加」を押します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘을 탭해 사진 선택에서 저장한 커버를 고른 뒤 오른쪽 위 추가를 누릅니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque no ícone, escolha Escolher Foto, selecione a capa salva e toque em Adicionar."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryck på ikonen, välj Välj bild, markera det sparade omslaget och tryck på Lägg till."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击图标选择「选取照片」，选中相册刚保存的封面图，点击右上角「添加」完成。"
           }
         }
       }

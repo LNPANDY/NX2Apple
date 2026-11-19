@@ -7,6 +7,7 @@ import NXModel
 package struct PlayersCard: View {
     @ObservedObject var players: PlayerProfileStore
     @EnvironmentObject var loc: Localizer
+    @EnvironmentObject private var pad: PadFocus
     @State private var naming: Naming?
     @State private var removing: PlayerProfile?
 
@@ -26,18 +27,22 @@ package struct PlayersCard: View {
                     if profile.id != players.activeID {
                         Button(loc.t("players.use")) { players.select(profile.id) }
                             .accessibilityLabel(String(format: loc.t("players.useFor"), name))
+                            .padTarget("players.use." + profile.id, scope: "main") { players.select(profile.id) }
                     }
                     Button(loc.t("players.renameButton")) { naming = Naming(renaming: profile) }
                         .accessibilityLabel(String(format: loc.t("players.renameFor"), name))
+                        .padTarget("players.rename." + profile.id, scope: "main") { naming = Naming(renaming: profile) }
                     if !profile.isDefault {
                         Button(loc.t("players.removeButton")) { removing = profile }
                             .accessibilityLabel(String(format: loc.t("players.removeFor"), name))
+                            .padTarget("players.remove." + profile.id, scope: "main") { removing = profile }
                     }
                 }
             }
             CardDivider()
             CardRow(loc.t("players.addRow")) {
                 Button(loc.t("players.new")) { naming = Naming() }
+                    .padTarget("players.add", scope: "main") { naming = Naming() }
             }
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
@@ -45,15 +50,12 @@ package struct PlayersCard: View {
             PlayerNameSheet(players: players, renaming: naming.renaming) { self.naming = nil }
                 .environmentObject(loc)
         }
-        .confirmationDialog(String(format: loc.t("players.removeAsk"), removing.map(players.displayName) ?? ""),
-                            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
-            Button(loc.t("players.remove"), role: .destructive) {
-                if let removing { players.remove(removing.id) }
-                removing = nil
-            }
-            Button(loc.t("players.cancel"), role: .cancel) { removing = nil }
-        } message: {
-            Text(loc.t("players.removeNote"))
+        .sheet(item: $removing) { profile in
+            LauncherConfirmSheet(title: String(format: loc.t("players.removeAsk"), players.displayName(profile)), subtitle: "", note: loc.t("players.removeNote"),
+                cancelTitle: loc.t("players.cancel"), confirmTitle: loc.t("players.remove"), destructive: true, scope: "playerremove",
+                cancel: { removing = nil }, confirm: { players.remove(profile.id); removing = nil })
         }
+        .onChange(of: naming?.id) { value in pad.scope = value == nil ? "main" : "playername" }
+        .onChange(of: removing?.id) { value in pad.scope = value == nil ? "main" : "playerremove" }
     }
 }

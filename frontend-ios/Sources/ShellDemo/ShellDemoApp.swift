@@ -215,6 +215,12 @@ struct DemoScreen: View {
             UIPasteboard.general.string = title
             #endif
             return true
+        }, onAddToHomeScreenWithGuide: { id, _ in
+            let title = games.first(where: { $0.id == id })?.game.title ?? id
+            #if canImport(UIKit)
+            UIPasteboard.general.string = title
+            #endif
+            return true
         })
     }
 }

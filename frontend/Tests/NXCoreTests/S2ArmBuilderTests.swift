@@ -159,4 +159,80 @@ final class S2ArmBuilderTests: XCTestCase {
             "finished step 2"
         )
     }
+
+    func testSdkRequirementReadsGlobalJsonAndFallsBack() throws {
+        let fallback = S2ArmBuilder.sdkRequirement(in: "")
+        XCTAssertEqual(fallback.version, "10.0.403")
+        XCTAssertEqual(fallback.rollForward, "latestFeature")
+
+        let tree = try makeFakeS2ArmTree(name: "s2arm-global-json")
+        let missingGlobal = S2ArmBuilder.sdkRequirement(in: tree)
+        XCTAssertEqual(missingGlobal.version, "10.0.403")
+        XCTAssertEqual(missingGlobal.rollForward, "latestFeature")
+
+        let compatDir = URL(fileURLWithPath: tree).appendingPathComponent("compat/tree")
+        try FileManager.default.createDirectory(at: compatDir, withIntermediateDirectories: true)
+        let json = """
+        {
+          "sdk": {
+            "version": "10.0.405",
+            "rollForward": "latestFeature"
+          }
+        }
+        """
+        try Data(json.utf8).write(to: compatDir.appendingPathComponent("global.json"))
+        let custom = S2ArmBuilder.sdkRequirement(in: tree)
+        XCTAssertEqual(custom.version, "10.0.405")
+        XCTAssertEqual(custom.rollForward, "latestFeature")
+    }
+
+    func testSdkSatisfiesAndFindDotnetRejects10_0_402AndAccepts10_0_403() throws {
+        XCTAssertFalse(S2ArmBuilder.sdkSatisfies("10.0.402", required: "10.0.403", rollForward: "latestFeature"))
+        XCTAssertFalse(S2ArmBuilder.sdkSatisfies("9.0.405", required: "10.0.403", rollForward: "latestFeature"))
+        XCTAssertTrue(S2ArmBuilder.sdkSatisfies("10.0.403", required: "10.0.403", rollForward: "latestFeature"))
+        XCTAssertTrue(S2ArmBuilder.sdkSatisfies("10.0.404", required: "10.0.403", rollForward: "latestFeature"))
+        XCTAssertTrue(S2ArmBuilder.sdkSatisfies("10.0.500", required: "10.0.403", rollForward: "latestFeature"))
+
+        let tree = try makeFakeS2ArmTree(name: "s2arm-dotnet-check")
+        let runner = FakeProcessRunner()
+        runner.answer = { launch in
+            if launch.executable == "/fake/dotnet-old" {
+                return ProcessResult(status: 0, out: "8.0.404 [/fake/sdk]\n10.0.402 [/fake/sdk]\n")
+            }
+            if launch.executable == "/fake/dotnet-new" {
+                return ProcessResult(status: 0, out: "10.0.403 [/fake/sdk]\n")
+            }
+            return ProcessResult(status: 1, out: "")
+        }
+
+        let rejected = S2ArmBuilder.findDotnet(
+            ["/fake/dotnet-old"],
+            tree: tree,
+            runner: runner,
+            exists: { _ in true }
+        )
+        XCTAssertFalse(rejected.ok)
+        XCTAssertEqual(rejected.requiredVersion, "10.0.403")
+        XCTAssertEqual(rejected.foundOldVersion, "10.0.402")
+
+        let accepted = S2ArmBuilder.findDotnet(
+            ["/fake/dotnet-old", "/fake/dotnet-new"],
+            tree: tree,
+            runner: runner,
+            exists: { _ in true }
+        )
+        XCTAssertTrue(accepted.ok)
+        XCTAssertEqual(accepted.path, "/fake/dotnet-new")
+        XCTAssertNil(accepted.foundOldVersion)
+    }
+
+    func testMissingPythonPackagesReportsAbsentImports() {
+        let runner = FakeProcessRunner()
+        runner.answer = { _ in ProcessResult(status: 0, out: "Pillow,skia-pathops\n") }
+        let missing = S2ArmBuilder.missingPythonPackages(python: "/fake/python3", runner: runner)
+        XCTAssertEqual(missing, ["Pillow", "skia-pathops"])
+
+        runner.answer = { _ in ProcessResult(status: 0, out: "\n") }
+        XCTAssertEqual(S2ArmBuilder.missingPythonPackages(python: "/fake/python3", runner: runner), [])
+    }
 }

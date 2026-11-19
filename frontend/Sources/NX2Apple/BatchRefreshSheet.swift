@@ -88,7 +88,7 @@ struct BatchRefreshSheet: View {
         }
 
         var showsMissingImgHint: Bool {
-            !disabledMac && hasIOS && disabledIOS && assessment.hasUsableSeed && assessment.needsMissingImgGuideIOS && externalIOSImgPath == nil
+            hasIOS && assessment.hasUsableSeed && assessment.needsMissingImgGuideIOS && externalIOSImgPath == nil
         }
 
         var enabledTargets: [String] {
@@ -112,11 +112,14 @@ struct BatchRefreshSheet: View {
     var appVersion: String = AppUpdateStore.appVersion
     let onConfirmed: () -> Void
     let close: () -> Void
+    var recoverImage: (MissingImgGuideContext) -> Void = { _ in }
 
     @EnvironmentObject var loc: Localizer
+    @EnvironmentObject private var pad: PadFocus
     @State private var selected: Set<PlatformSelection> = []
     @State private var didSeedSelection = false
     @State private var externalDriveImages: [UUID: String] = [:]
+    @State private var icons: [UUID: NSImage] = [:]
     @State private var driveScanGeneration = 0
 
     private var baseVersion: String {
@@ -222,6 +225,10 @@ struct BatchRefreshSheet: View {
         plannedItems.count
     }
 
+    private var firstPadTarget: String {
+        rows.first(where: { !$0.enabledTargets.isEmpty }).map { "batchRefresh.game.\($0.id.uuidString)" } ?? "batchRefresh.cancel"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerSection
@@ -229,35 +236,42 @@ struct BatchRefreshSheet: View {
                 .padding(.top, 26)
                 .padding(.bottom, 18)
 
-            ScrollView {
-                if rows.isEmpty {
-                    Text(loc.t("batchRefresh.empty"))
-                        .font(.manrope(14))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if rows.isEmpty {
+                        Text(loc.t("batchRefresh.empty"))
+                            .font(.manrope(14))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 30)
+                            .padding(.vertical, 28)
+                    } else {
+                        VStack(alignment: .leading, spacing: 20) {
+                            if !fastRows.isEmpty {
+                                groupSection(
+                                    title: loc.t("batchRefresh.groupFast"),
+                                    symbol: "bolt.fill",
+                                    symbolColor: LauncherPalette.ready,
+                                    items: fastRows
+                                )
+                            }
+                            if !fullRows.isEmpty {
+                                groupSection(
+                                    title: loc.t("batchRefresh.groupFull"),
+                                    symbol: "arrow.triangle.2.circlepath",
+                                    symbolColor: LauncherPalette.notice,
+                                    items: fullRows
+                                )
+                            }
+                        }
                         .padding(.horizontal, 30)
-                        .padding(.vertical, 28)
-                } else {
-                    VStack(alignment: .leading, spacing: 20) {
-                        if !fastRows.isEmpty {
-                            groupSection(
-                                title: loc.t("batchRefresh.groupFast"),
-                                symbol: "bolt.fill",
-                                symbolColor: LauncherPalette.ready,
-                                items: fastRows
-                            )
-                        }
-                        if !fullRows.isEmpty {
-                            groupSection(
-                                title: loc.t("batchRefresh.groupFull"),
-                                symbol: "arrow.triangle.2.circlepath",
-                                symbolColor: LauncherPalette.notice,
-                                items: fullRows
-                            )
-                        }
+                        .padding(.bottom, 20)
                     }
-                    .padding(.horizontal, 30)
-                    .padding(.bottom, 20)
+                }
+                .onChange(of: pad.focused) { id in
+                    if let id, id.hasPrefix("batchRefresh.game.") || id.hasPrefix("batchRefresh.platform.") || id.hasPrefix("batchRefresh.recover.") {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
                 }
             }
 
@@ -272,9 +286,20 @@ struct BatchRefreshSheet: View {
         .background(LauncherPalette.background)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
+        .background(PadKeyboardInput(focus: pad, scope: "batchRefresh", back: close))
+        .environment(\.padRingStyle, .hug)
+        .padScope("batchRefresh", pad)
         .onAppear {
+            pad.scope = "batchRefresh"
+            icons = Dictionary(uniqueKeysWithValues: library.games.compactMap { game in
+                GameLibrary.appIcon(for: game, banners: library.artworkDirectory).map { (game.id, $0) }
+            })
             seedSelectionIfNeeded()
             scanExternalDriveIfNeeded()
+            if pad.visible {
+                let target = firstPadTarget
+                DispatchQueue.main.async { pad.show(default: target) }
+            }
         }
         .onDisappear {
             driveScanGeneration &+= 1
@@ -287,13 +312,8 @@ struct BatchRefreshSheet: View {
                 Text(loc.t("batchRefresh.title"))
                     .font(.manrope(26, .heavy))
                     .tracking(-0.5)
-                Text(String(format: loc.t("batchRefresh.versionBadge"), baseVersion))
-                    .font(.manrope(12, .bold))
-                    .foregroundStyle(LauncherPalette.accent)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 3)
-                    .background(LauncherPalette.ink(0.08), in: Capsule())
-                    .overlay(Capsule().strokeBorder(LauncherPalette.ink(0.16)))
+                    .help(String(format: loc.t("batchRefresh.versionBadge"), baseVersion))
+
             }
             Text(loc.t("batchRefresh.subtitle"))
                 .font(.manrope(13))
@@ -312,16 +332,9 @@ struct BatchRefreshSheet: View {
                     .font(.manrope(13, .bold))
                     .foregroundStyle(LauncherPalette.secondaryText)
             }
-            VStack(spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, row in
-                    if index > 0 {
-                        Divider().opacity(0.25).padding(.leading, 16)
-                    }
-                    candidateRowView(row)
-                }
+            VStack(spacing: 4) {
+                ForEach(items) { row in candidateRowView(row) }
             }
-            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(LauncherPalette.cardBorder))
         }
     }
 
@@ -339,18 +352,18 @@ struct BatchRefreshSheet: View {
                         .font(.system(size: 17))
                         .foregroundStyle((allOn || partialOn) ? LauncherPalette.ready : .secondary)
                         .opacity(enabled.isEmpty ? 0.35 : 1)
+                    Group {
+                        if let icon = icons[row.id] { Image(nsImage: icon).resizable().scaledToFill() }
+                        else { Image(systemName: "gamecontroller.fill").frame(maxWidth: .infinity, maxHeight: .infinity).background(LauncherPalette.surface) }
+                    }.frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 8) {
                             Text(row.game.displayName(loc.lang))
                                 .font(.manrope(14, .semibold))
                                 .foregroundStyle(LauncherPalette.text)
-                                .lineLimit(1)
-                            if row.assessment.hasSpecificUpdate {
-                                Text(String(format: loc.t("library.refresh.badgeVersion"), row.assessment.versionLabel))
-                                    .font(.manrope(11, .semibold))
-                                    .foregroundStyle(LauncherPalette.notice)
-                                    .lineLimit(1)
-                            }
+                                .lineLimit(2).multilineTextAlignment(.leading)
+                                .help(row.assessment.hasSpecificUpdate ? String(format: loc.t("library.refresh.badgeVersion"), row.assessment.versionLabel) : "")
+
                         }
                         if row.showsMissingImgHint {
                             Text(loc.t("batchRefresh.missingImg"))
@@ -371,11 +384,14 @@ struct BatchRefreshSheet: View {
             .buttonStyle(.plain)
             .disabled(enabled.isEmpty)
 
-            HStack(spacing: 8) {
+
+            VStack(alignment: .trailing, spacing: 8) {
+              HStack(spacing: 8) {
                 if row.hasMac {
                     platformTogglePill(
                         label: loc.t("batchRefresh.platformMac"),
                         symbol: "desktopcomputer",
+                        id: "batchRefresh.platform.mac.\(row.id.uuidString)",
                         isOn: !row.disabledMac && selected.contains(PlatformSelection(gameID: row.id, target: BuildTarget.mac)),
                         isFast: row.canFastMac,
                         disabled: row.disabledMac
@@ -387,6 +403,7 @@ struct BatchRefreshSheet: View {
                     platformTogglePill(
                         label: loc.t("batchRefresh.platformIOS"),
                         symbol: "iphone",
+                        id: "batchRefresh.platform.ios.\(row.id.uuidString)",
                         isOn: !row.disabledIOS && selected.contains(PlatformSelection(gameID: row.id, target: BuildTarget.ios)),
                         isFast: row.canFastIOS,
                         disabled: row.disabledIOS
@@ -394,15 +411,27 @@ struct BatchRefreshSheet: View {
                         togglePlatform(gameID: row.id, target: BuildTarget.ios)
                     }
                 }
+              }
+              if row.showsMissingImgHint {
+                Button(loc.t("imgGuide.chooseImgBtn")) { recoverImage(.init(game: row.game, assessment: row.assessment)) }
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .padTarget("batchRefresh.recover." + row.id.uuidString, scope: "batchRefresh") {
+                        recoverImage(.init(game: row.game, assessment: row.assessment))
+                    }
+              }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .frame(minHeight: 64)
+        .background(!checkedTargets.isEmpty ? LauncherPalette.ink(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        .padTarget("batchRefresh.game.\(row.id.uuidString)", scope: "batchRefresh", radius: 8, enabled: !enabled.isEmpty) { toggleRow(row) }
     }
 
     private func platformTogglePill(
         label: String,
         symbol: String,
+        id: String,
         isOn: Bool,
         isFast: Bool,
         disabled: Bool,
@@ -436,6 +465,7 @@ struct BatchRefreshSheet: View {
         .buttonStyle(.plain)
         .disabled(disabled)
         .accessibilityAddTraits(isOn ? .isSelected : [])
+        .padTarget(id, scope: "batchRefresh", enabled: !disabled, activate: action)
     }
 
     private var footerSection: some View {
@@ -465,12 +495,18 @@ struct BatchRefreshSheet: View {
             Button(loc.t("batchRefresh.cancel"), action: close)
                 .buttonStyle(LauncherSecondaryButtonStyle())
                 .keyboardShortcut(.cancelAction)
+                .padTarget("batchRefresh.cancel", scope: "batchRefresh", activate: close)
 
+            if selectedFullCount > 0 && selectedFastCount > 0 {
             Button(String(format: loc.t("batchRefresh.onlyFast"), selectedFastCount)) {
                 confirm(onlyFast: true)
             }
             .buttonStyle(LauncherSecondaryButtonStyle())
             .disabled(selectedFastCount == 0)
+            .padTarget("batchRefresh.onlyFast", scope: "batchRefresh", enabled: selectedFastCount > 0) {
+                confirm(onlyFast: true)
+            }
+            }
 
             Button {
                 confirm(onlyFast: false)
@@ -482,9 +518,12 @@ struct BatchRefreshSheet: View {
                     .padding(.vertical, 9)
             }
             .buttonStyle(LauncherActionButtonStyle())
+            .keyboardShortcut(.defaultAction)
             .disabled(totalSelectedCount == 0)
             .opacity(totalSelectedCount == 0 ? 0.45 : 1)
-            .keyboardShortcut(.defaultAction)
+            .padTarget("batchRefresh.confirm", scope: "batchRefresh", enabled: totalSelectedCount > 0) {
+                confirm(onlyFast: false)
+            }
         }
     }
 

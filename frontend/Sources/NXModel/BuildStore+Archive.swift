@@ -77,7 +77,7 @@ extension BuildStore {
     /// shader trailer, and reclaim intermediate build files in `workDir`.
     /// `then` continues the build with the archive's folder (installing on a device or exporting the shared app).
     /// `titleID` names the game's title ID (the framework's title ID), falling back to the build key when omitted.
-    package func packArchive(workDir: String, titleID: String? = nil, then: @escaping (String) -> Void) {
+    package func packArchive(workDir: String, titleID: String? = nil, isFastRefresh: Bool? = nil, then: @escaping (String) -> Void) {
         buildingGame = true
         runningTarget = BuildTarget.ios
         if operation == nil { beginOperation(.building, game: gameName, titleID: titleID, destination: .target) }
@@ -93,11 +93,13 @@ extension BuildStore {
         let pythonPath = deps.pythonPath
         let runner = self.runner
         let externalImg = fastRefreshExternalImgPath
+        let fastRefreshMode = isFastRefresh ?? (fastRefreshActive || (externalImg?.isEmpty == false))
         fastRefreshExternalImgPath = nil
         let idx = 1000
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let fm = FileManager.default
+            let hasShaderSource = isIOSBuild && Self.locateIOSShaderSource(workDir: workDir, tid: tid, repoPath: repoPath, fm: fm) != nil
             let extract = workDir + "/extract"
             guard let v = RomFSArchive.extractedVersion(in: extract) else {
                 let resolvedName = Self.resolveArchiveGameName(
@@ -141,6 +143,10 @@ extension BuildStore {
                             return
                         }
                         if let trailerOut, !trailerOut.isEmpty { self.say(trailerOut) }
+                        if isIOSBuild && (fastRefreshMode || hasShaderSource) {
+                            self.needsReplaceOldImgReminder = true
+                            self.updatedImgPath = targetImg
+                        }
                         self.archivePath = dest
                         self.upsertArchiveStage(id: idx, state: .done, detail: String(format: self.t("prog.archiveReused"), 1))
                         self.say(String(format: self.t("msg.archiveReused"), dest))
@@ -149,8 +155,9 @@ extension BuildStore {
                     }
                 } else {
                     var extNotes: [String] = []
+                    var updatedExternal = false
                     if isIOSBuild, let externalImg, !externalImg.isEmpty {
-                        Self.updateExternalImageTrailerInPlace(
+                        updatedExternal = Self.updateExternalImageTrailerInPlace(
                             imgPath: externalImg, workDir: workDir, tid: tid,
                             repoPath: repoPath, pythonPath: pythonPath, runner: runner, fm: fm,
                             onNote: { extNotes.append($0) }
@@ -164,8 +171,20 @@ extension BuildStore {
                             return
                         }
                         for note in extNotes where !note.isEmpty { self.say(note) }
-                        self.say(String(format: self.t("msg.archiveSkipped"), extract))
-                        self.upsertArchiveStage(id: idx, state: .done, detail: self.t("prog.noRomfs"))
+                        if updatedExternal, let externalImg {
+                            let fileName = (externalImg as NSString).lastPathComponent
+                            self.say(String(format: self.t("imgGuide.externalUpdatedLog"), self.shortPath(externalImg)))
+                            self.upsertArchiveStage(
+                                id: idx,
+                                state: .done,
+                                detail: String(format: self.t("prog.externalImgUpdated"), fileName)
+                            )
+                            self.needsReplaceOldImgReminder = true
+                            self.updatedImgPath = externalImg
+                        } else {
+                            self.say(String(format: self.t("msg.archiveSkipped"), extract))
+                            self.upsertArchiveStage(id: idx, state: .done, detail: self.t("prog.noRomfs"))
+                        }
                         self.archivePath = ""
                         then("")
                     }
@@ -218,6 +237,10 @@ extension BuildStore {
                         return
                     }
                     if let trailerOut, !trailerOut.isEmpty { self.say(trailerOut) }
+                    if isIOSBuild && (fastRefreshMode || hasShaderSource) {
+                        self.needsReplaceOldImgReminder = true
+                        self.updatedImgPath = targetImg
+                    }
                     self.archivePath = dest
                     self.stages.append(Stage(id: idx, name: self.t("prog.archive"), state: .done,
                                              detail: String(format: self.t("prog.archiveReused"), reused), nameKey: "prog.archive"))
@@ -270,6 +293,10 @@ extension BuildStore {
                             return
                         }
                         if let trailerOut, !trailerOut.isEmpty { self.say(trailerOut) }
+                        if isIOSBuild && (fastRefreshMode || hasShaderSource) {
+                            self.needsReplaceOldImgReminder = true
+                            self.updatedImgPath = targetImg
+                        }
                         switch placement {
                         case .reused:
                             self.upsertArchiveStage(id: idx, state: .done, detail: String(format: self.t("prog.archiveReused"), 1))
@@ -311,7 +338,9 @@ extension BuildStore {
                 self.say(String(format: self.t("msg.archiveLog"), romfs, dest))
                 self.launchLegacyRomFSImagePack(
                     workDir: workDir, romfs: romfs, version: v, dest: dest, targetImg: targetImg,
-                    tid: tid, isIOSBuild: isIOSBuild, repoPath: repoPath, pythonPath: pythonPath,
+                    tid: tid, isIOSBuild: isIOSBuild,
+                    shouldShowReplaceOldImgReminder: isIOSBuild && (fastRefreshMode || hasShaderSource),
+                    repoPath: repoPath, pythonPath: pythonPath,
                     stageID: idx, generation: generation, then: then
                 )
             }
@@ -348,7 +377,8 @@ extension BuildStore {
 
     private func launchLegacyRomFSImagePack(
         workDir: String, romfs: String, version: String, dest: String, targetImg: String,
-        tid: String, isIOSBuild: Bool, repoPath: String, pythonPath: String, stageID: Int,
+        tid: String, isIOSBuild: Bool, shouldShowReplaceOldImgReminder: Bool,
+        repoPath: String, pythonPath: String, stageID: Int,
         generation: Int, then: @escaping (String) -> Void
     ) {
         let engine = EngineLayout.root(repoPath)
@@ -407,6 +437,10 @@ extension BuildStore {
                             return
                         }
                         if let trailerOut, !trailerOut.isEmpty { self.say(trailerOut) }
+                        if shouldShowReplaceOldImgReminder {
+                            self.needsReplaceOldImgReminder = true
+                            self.updatedImgPath = targetImg
+                        }
                         self.archivePath = dest
                         if aocCount > 0 { self.say(String(format: self.t("msg.aocCopied"), aocCount)) }
                         self.upsertArchiveStage(id: stageID, state: .done, detail: String(format: self.t("prog.archiveDone"), dest))

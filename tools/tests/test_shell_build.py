@@ -185,6 +185,7 @@ class ShellBuild(unittest.TestCase):
         info = plistlib.loads((app / 'Info.plist').read_bytes())
         self.assertEqual(info['CFBundleDisplayName'], 'Shell Fixture')
         self.assertEqual(info['CFBundleIdentifier'], 'org.nxnative.ci.shell')
+        self.assertIn('audio', info.get('UIBackgroundModes', []))
         self.assertNotIn('UIRequiresFullScreen', info)
         landscape = {'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'}
         self.assertEqual(set(info['UISupportedInterfaceOrientations']), landscape | {'UIInterfaceOrientationPortrait'})

@@ -44,6 +44,12 @@ extension LibraryView {
                 return await add(id)
             }
         }
+        if let addWithGuide = o.onAddToHomeScreenWithGuide {
+            a.onAddToHomeScreenWithGuide = { @MainActor id, floatingGuide in
+                guard !gate.isSystemEcho else { return false }
+                return await addWithGuide(id, floatingGuide)
+            }
+        }
         return a
     }
     /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when

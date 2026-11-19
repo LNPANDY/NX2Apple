@@ -56,14 +56,17 @@ import NXCore
     private let repo: RepoLocation
     private let defaults: UserDefaults
     private let needsIOS: () -> Bool
+    private let upstreamContext: () -> (kind: EngineUpstreamKind, s2armPath: String)
     private let scan: (@Sendable (_ repo: String, _ needsIOS: Bool) -> DependencyCheck.Result)?
     private let report: @Sendable ([Dep]) -> Void
     private let openAppStore: () -> Void
     private let log: (String) -> Void
     private let installFailed: (String) -> Void
+    private var checkGeneration: UInt64 = 0
 
     /// - Parameters:
     ///   - needsIOS: whether the xcode row asks for the iOS SDK (the guided setup's platform choice).
+    ///   - upstreamContext: active builder upstream and S2Arm repository path for upstream-specific toolchain probes.
     ///   - scan: the detection, for a repository path and `needsIOS`. Runs off the main actor.
     ///   - report: writes what the check decided (`deps-check.txt`). Runs off the main actor.
     ///   - openAppStore: a row with no command (Xcode) opens the App Store.
@@ -71,6 +74,7 @@ import NXCore
     ///   - installFailed: the note for a failed install, already translated.
     package init(localizer: Localizer, runner: ProcessRunner, repo: RepoLocation, defaults: UserDefaults = .standard,
                  needsIOS: @escaping () -> Bool = { true },
+                 upstreamContext: @escaping () -> (kind: EngineUpstreamKind, s2armPath: String) = { (.nxnative, "") },
                  scan: (@Sendable (String, Bool) -> DependencyCheck.Result)? = nil,
                  report: @escaping @Sendable ([Dep]) -> Void = { DependencyCheck.writeReport($0, appVersion: AppUpdateStore.appVersion) },
                  openAppStore: @escaping () -> Void = {}, log: @escaping (String) -> Void = { _ in },
@@ -80,6 +84,7 @@ import NXCore
         self.repo = repo
         self.defaults = defaults
         self.needsIOS = needsIOS
+        self.upstreamContext = upstreamContext
         self.scan = scan
         self.xcodeApp = XcodeSelection.app(in: defaults)
         self.report = report
@@ -136,14 +141,27 @@ import NXCore
     @discardableResult
     package func check() -> Task<Void, Never> {
         checked = false
+        checkGeneration &+= 1
+        let generation = checkGeneration
         let path = repo.path, needsIOS = needsIOS(), scan = self.scan, report = self.report, selection = xcodeApp
+        let upstreamCtx = upstreamContext()
         return Task {
             let found = await Task.detached { () -> DependencyCheck.Result in
-                let r = scan?(path, needsIOS) ?? DependencyCheck.scan(needsIOS: needsIOS, repo: path, customApp: selection)
+                let r = scan?(path, needsIOS) ?? DependencyCheck.scan(
+                    needsIOS: needsIOS,
+                    repo: path,
+                    customApp: selection,
+                    upstream: upstreamCtx.kind,
+                    s2armPath: upstreamCtx.s2armPath
+                )
                 report(r.deps)
                 return r
             }.value
-            guard xcodeApp == selection else { return }
+            let currentUpstream = upstreamContext()
+            guard checkGeneration == generation,
+                  xcodeApp == selection,
+                  currentUpstream.kind == upstreamCtx.kind,
+                  currentUpstream.s2armPath == upstreamCtx.s2armPath else { return }
             deps = found.deps
             pythonPath = found.python                // the interpreter the build runs under
             dotnetPath = found.dotnet
@@ -171,10 +189,11 @@ import NXCore
         let base = pythonPath
         let cmd = dep.installCmd
         let isPython = depID == "python"
+        let includeS2Arm = upstreamContext().kind == .s2arm
         return Task {
             let outcome = await Task.detached { [weak self] () -> (ok: Bool, failure: (error: String, fix: String)?, output: String?) in
                 if isPython {
-                    let r = Toolchain.makeVenv(base: base, runner: runner) { fraction, detail in
+                    let r = Toolchain.makeVenv(base: base, includeS2Arm: includeS2Arm, runner: runner) { fraction, detail in
                         Task { @MainActor [weak self] in
                             guard let self else { return }
                             if let fraction { self.installProgress[depID] = fraction }

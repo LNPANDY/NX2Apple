@@ -26,10 +26,10 @@ Issue: LNPANDY/NX2Apple#1005
  2 files changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index 30c290cb..2a3f6be0 100644
+index 277d469..060e37f 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
-@@ -182,6 +182,7 @@ static void programs_table(const char *contents, const char *res, const char *su
+@@ -203,6 +203,7 @@ static void programs_table(const char *contents, const char *res, const char *su
  int main(int argc, char **argv) {
      char self[PATH_MAX], exe[PATH_MAX]; uint32_t n = sizeof self;
      if (_NSGetExecutablePath(self, &n) || !realpath(self, exe)) return 1;
@@ -38,10 +38,10 @@ index 30c290cb..2a3f6be0 100644
      snprintf(contents, sizeof contents, "%s", exe); *strrchr(contents, '/') = 0; *strrchr(contents, '/') = 0;   // .../Contents/MacOS/<launcher> → .../Contents
      snprintf(res, sizeof res, "%s/Resources", contents); snprintf(host, sizeof host, "%s/MacOS/dmhost", contents);
 diff --git a/docs/frontends.md b/docs/frontends.md
-index cf58514a..d079fdc7 100644
+index 2374bae..d54939e 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
-@@ -54,7 +54,7 @@ A built app carries the settings its game supports, as the iPhone app's settings
+@@ -55,7 +55,7 @@ A built app carries the settings its game supports, as the iPhone app's settings
  
  **A Mac app** is started like any app, or by running its `Contents/MacOS/nxnative` with the chosen settings in its environment (`DM_FPS_TARGET=30`, …). The launcher there runs the host as a child, forwards SIGTERM, SIGINT and SIGHUP to it and exits with its exit code: 0 for a quit (⌘Q, the Home prompt, closing the window), 70 after the alert that macOS stopped running the game's GPU work ([A GPU whose access macOS revoked stops the game](reference/rendering.md#a-gpu-whose-access-macos-revoked-stops-the-game)), 134 for an abort. A variable already in the environment wins; then come `~/Library/Application Support/nxnative/<title ID>/env.txt` and the bundle's `dm/env.txt`, one `KEY=VALUE` per line ([A Mac app](development.md#a-mac-app)). The save is in `save/` in that Application Support folder; the log is `~/Library/Logs/nxnative/<title ID>.log`, the previous run's `<title ID>.prev.log`. The title ID is `DMTitleID` in the app's `Info.plist`.
  

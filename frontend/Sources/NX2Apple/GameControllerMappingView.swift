@@ -115,10 +115,10 @@ struct SteamControllerSection: View {
         HStack(spacing: 12) {
             Text(title).font(.manrope(13, .medium))
             Spacer(minLength: 8)
-            trailing().frame(width: 168, alignment: .trailing)
+            trailing().padTarget("steam." + id, scope: "controls", activate: activate, adjust: adjust)
+                .frame(width: 168, alignment: .trailing)
         }
         .padding(.horizontal, 18).padding(.vertical, 4).frame(minHeight: 34)
-        .padTarget("steam." + id, scope: "controls", radius: 10, activate: activate, adjust: adjust)
     }
 }
 

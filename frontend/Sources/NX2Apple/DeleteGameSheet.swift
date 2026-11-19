@@ -76,7 +76,7 @@ struct DeleteGameSheet: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(plan == nil || working)
-                .padTarget("delete.confirm", scope: "delete", radius: 20) { delete() }
+                .padTarget("delete.confirm", scope: "delete", enabled: plan != nil && !working) { delete() }
             }
             .padding(.horizontal, 28).padding(.vertical, 16)
         }
@@ -141,7 +141,7 @@ struct DeleteGameSheet: View {
                 Toggle(loc.t("delete.saves"), isOn: $saves).labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(item == nil || working)
             }
             .padding(.horizontal, 18).padding(.vertical, 13)
-            .padTarget("delete.saves", scope: "delete", radius: 10, activate: { if item != nil { saves.toggle() } },
+            .padTarget("delete.saves", scope: "delete", radius: 10, enabled: item != nil && !working, activate: { if item != nil { saves.toggle() } },
                        adjust: { _ in if item != nil { saves.toggle() } })
         }
     }

@@ -14,6 +14,12 @@ struct ConsolePadDiagram: View {
     static let design = CGSize(width: 320, height: 220)
     static var aspect: CGFloat { design.width / design.height }
 
+    static func mappingHighlight(row: String?, focused: String?) -> String? {
+        if let row { return row }
+        guard let focused, focused.hasPrefix("console.map.row.") else { return nil }
+        return String(focused.dropFirst("console.map.row.".count))
+    }
+
     /// Where each mappable button sits in the design space and how large it is, shared by the drawing, the rings and the click
     /// test. The shoulders' frames are their outlines' bounds (`shoulder`).
     static func frame(_ button: String) -> (center: CGPoint, size: CGSize)? {

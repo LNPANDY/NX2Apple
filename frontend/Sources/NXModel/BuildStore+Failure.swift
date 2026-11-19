@@ -100,6 +100,10 @@ extension BuildStore {
             if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
         case .updateMismatch:
             pickFiles(kind: .update)
+        case .mngSharedFonts:
+            selectUpstream(.nxnative)
+            failure = nil
+            doneNote = ""
         case .severalGames, .noTitleID, .diskFull, .staleProfile:
             showFailureFolder()
         case .cloudFolder, .volumeFormat:

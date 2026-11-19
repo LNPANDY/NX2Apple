@@ -52,39 +52,46 @@ struct ConsoleGameTile: View {
     var paused = false
     /// A grid (all games, the search) has no big title above it: every tile keeps its caption, the focused one in full white.
     var alwaysCaptioned = false
-    private var badge: String? {
-        if paused { return L10n.string("console.paused", lang) }
-        if game.status == .ready, game.olderTools { return L10n.string("library.olderToolsShort", lang) }   // why a ready game needs attention
-        return game.status == .ready ? nil : L10n.string(game.status.labelKey, lang)
-    }
-    /// Darkening, never transparency: over the bright backdrop a see-through tile reads as a pale veil. A game this Mac cannot play is
-    /// darker, a tile out of focus slightly darker on the home screen.
-    /// The layer is blended in linear light, so a share that looks like half as bright is larger than a half: black at 0.5 only takes
-    /// white down to a light grey (the pale veil seen on bright covers).
-    private var shade: Double {
-        let unplayable = game.status == .ready ? 0 : 0.72
-        let unfocused = selected || alwaysCaptioned ? 0 : 0.3
-        return game.status == .ready ? unfocused : max(unplayable, 0.72)
+    var coverflow = false
+    var tilt: Double = 0
+    var rearOffset: CGFloat = 0
+    var showsSelection = true
+    var launchNamespace: Namespace.ID? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var artworkState: LibraryArtworkState { LibraryArtworkState(game) }
+    private var badgeKey: String? {
+        if paused { return "console.paused" }
+        if game.status == .ready, game.olderTools { return "library.olderToolsShort" }
+        return artworkState.chipKey
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // not playable on this Mac or out of focus: darker under a black layer in the tile's own group, never see-through
             ZStack {
                 ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus)
-                Color.black.opacity(shade)
+                    .grayscale(game.status == .ready && !game.olderTools ? 0 : 1)
+                    .drawingGroup()
+                Color.black.opacity(selected ? 0 : 0.55)
             }
             .compositingGroup()
             .aspectRatio(1.8, contentMode: .fit)
-                .overlay(alignment: .bottomLeading) {
-                    if let badge {
-                        Text(badge).font(.manrope(compact ? 14 : 18, .semibold))
-                            .foregroundStyle(paused ? LauncherPalette.cream : .white)
-                            .padding(.horizontal, 14).padding(.vertical, 10)
-                            .background(LauncherPalette.background.opacity(0.93), in: Capsule()).padding(14)
-                    }
+            .overlay(alignment: .topLeading) {
+                if let key = badgeKey {
+                    ArtworkStatusChip(title: L10n.string(key, lang),
+                                      symbol: paused || game.olderTools ? nil : artworkState.symbol,
+                                      color: paused ? LauncherPalette.cream : (game.olderTools ? LauncherPalette.building : artworkState.color),
+                                      fontSize: compact ? 14 : 15)
+                        .padding(8)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(selected && showsSelection ? LauncherPalette.cream : .white.opacity(0.12), lineWidth: selected && showsSelection ? 4 : 1))
+            .scaleEffect(coverflow && !reduceMotion ? (selected ? 1.04 : (tilt > 0 ? 0.76 : 0.96)) : 1)
+            .rotation3DEffect(.degrees(coverflow && !reduceMotion ? tilt : 0), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+            .offset(x: coverflow && !reduceMotion && tilt > 0 ? rearOffset : 0,
+                    y: coverflow && !reduceMotion ? (selected ? -4 : 4) : 0)
+            .modifier(ConsoleLaunchArtwork(namespace: launchNamespace, id: game.id))
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: selected)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: tilt)
             // The focused game's name is the big title above, so its tile shows the image alone (the row is top-aligned, so
             // nothing else moves). The others keep a small, muted caption.
             if !selected || alwaysCaptioned {
@@ -92,5 +99,63 @@ struct ConsoleGameTile: View {
                     .foregroundStyle(.white.opacity(selected ? 0.95 : 0.72)).padding(.horizontal, 4).accessibilityHidden(true)
             }
         }
+    }
+}
+
+
+extension LibraryArtworkState {
+    /// The console driver already verified availability. Rendering never probes the filesystem.
+    init(_ game: ConsoleGame) {
+        let attention: Attention
+        switch game.status {
+        case .ready, .iphoneOnly: attention = .none
+        case .needsBuild: attention = .notBuilt
+        case .needsData: attention = .missingData
+        case .broken: attention = .fixFiles
+        }
+        self.init(mac: game.status == .ready, ios: game.status == .iphoneOnly || game.platforms.contains(.iphone), attention: attention)
+    }
+}
+
+struct ConsoleLaunchArtwork: ViewModifier {
+    let namespace: Namespace.ID?
+    let id: String
+    @ViewBuilder func body(content: Content) -> some View {
+        if let namespace { content.matchedGeometryEffect(id: id, in: namespace) }
+        else { content }
+    }
+}
+
+/// Measured shader work fills the capsule. Unmeasured phases repeat a leading-edge fill without a percentage.
+struct ConsoleLaunchProgress: View {
+    let progress: Double?
+    let label: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    static func phase(at date: Date, reducedMotion: Bool) -> Double {
+        reducedMotion ? 0.5 : date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2) / 2
+    }
+    var body: some View {
+        GeometryReader { bounds in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.black.opacity(0.65))
+                if let progress {
+                    Rectangle().fill(LauncherPalette.cream)
+                        .frame(width: bounds.size.width * min(max(progress, 0), 1))
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: progress)
+                } else {
+                    TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+                        let phase = Self.phase(at: timeline.date, reducedMotion: reduceMotion)
+                        Rectangle().fill(LauncherPalette.cream)
+                            .frame(width: bounds.size.width * phase)
+                            .opacity(reduceMotion || phase < 0.8 ? 1 : (1 - phase) / 0.2)
+                            .frame(width: bounds.size.width, height: bounds.size.height, alignment: .leading)
+                    }
+                }
+            }
+            .clipShape(Capsule())
+            .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35), lineWidth: 1))
+        }
+        .accessibilityElement(children: .ignore).accessibilityLabel(label)
+        .accessibilityValue(progress.map { "\(Int(min(max($0, 0), 1) * 100))%" } ?? "")
     }
 }

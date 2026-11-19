@@ -5,15 +5,16 @@ import NXModel
 private struct StaleFrameworksPrompt: ViewModifier {
     @ObservedObject var m: BuildStore
     @EnvironmentObject var loc: Localizer
+    @EnvironmentObject private var focus: PadFocus
 
     func body(content: Content) -> some View {
-        content.alert(loc.t("stale.title"), isPresented: Binding(get: { !m.staleFrameworks.isEmpty },
-                                                                set: { if !$0 { m.stopForStaleFrameworks() } })) {
-            Button(loc.t("stale.go")) { m.continueWithStaleFrameworks() }
-            Button(loc.t("stale.stop"), role: .cancel) { m.stopForStaleFrameworks() }
-        } message: {
-            Text(String(format: loc.t("stale.message"), StaleFrameworks.list(m.staleFrameworks)))
+        content.sheet(isPresented: Binding(get: { !m.staleFrameworks.isEmpty }, set: { if !$0 { m.stopForStaleFrameworks() } })) {
+            LauncherConfirmSheet(title: loc.t("stale.title"), subtitle: "",
+                note: String(format: loc.t("stale.message"), StaleFrameworks.list(m.staleFrameworks)),
+                cancelTitle: loc.t("stale.stop"), confirmTitle: loc.t("stale.go"), scope: "staleframeworks",
+                cancel: { m.stopForStaleFrameworks() }, confirm: { m.continueWithStaleFrameworks() }).environmentObject(focus)
         }
+        .onChange(of: m.staleFrameworks.isEmpty) { empty in focus.scope = empty ? "main" : "staleframeworks" }
     }
 }
 

@@ -1,8 +1,8 @@
-<!-- One change per PR. CONTRIBUTING.md says where a change may go. The engine (`dm/`, `scripts/`, `docs/`, `ref/`) is not in this repository: it is seedds/nxnative plus `patches/`. -->
+<!-- One change per PR. CONTRIBUTING.md says where a change may go. The engine (`dm/`, `scripts/`, `docs/`, `ref/`) is not in this repository: it is seedds/nxnative plus the maintainers' `patches/`. We take no engine patches from outside: send them to seedds/nxnative. -->
 
 ## Fix or feature
 
-<!-- Tick one. A fix merges when CI is green and no "changes requested" review is open, a maintainer's feature after 48 hours. An outside PR merges after a maintainer tried it and reviewed it. A patch is renumbered at merge. Maintainers label it `bug` or `enhancement`. -->
+<!-- Tick one. A fix merges when CI is green and no "changes requested" review is open, a maintainer's feature after 48 hours. An outside PR merges after a maintainer tried it and reviewed it. A maintainer's patch is renumbered at merge. Maintainers label it `bug` or `enhancement`. -->
 - [ ] Fix
 - [ ] Feature
 
@@ -32,7 +32,7 @@ Put the long analysis, logs and traces in a <details> block below. See CONTRIBUT
 
 ## Scope
 
-- [ ] No engine file (`dm/`, `scripts/`, `docs/`, `ref/`) is added to the repository: a change there is a patch in `patches/` (a commit in `engine/`, then `tools/engine.py export`, and `tools/engine.py check` passes), with its `Upstream-Status`
-- [ ] A fix to the engine or a game profile also goes to seedds/nxnative as a PR in parallel: this PR's patch says `forwarded seedds/nxnative#...`, or `pending` until that PR is open
+- [ ] No engine file (`dm/`, `scripts/`, `docs/`, `ref/`) is added to the repository
+- [ ] No file in `patches/` is added or changed, unless a maintainer does it (engine fixes and game profiles go to seedds/nxnative as a PR)
 - [ ] A change to a launcher view has before and after screenshots above
 - [ ] No keys, game files or data extracted from a game in the change or the attachments

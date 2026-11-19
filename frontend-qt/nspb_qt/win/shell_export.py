@@ -34,6 +34,45 @@ ZIP32_ENTRY_LIMIT = 0xFFFF - 2  # 65,533: reserves _CodeSignature/ and CodeResou
 _IGNORED_META_FILES = frozenset({'.titleid', '.packstamp'})
 
 
+_PACKAGE_EXTS = frozenset({'.nsp', '.xci', '.nsz', '.xcz', '.nup'})
+_DUMP_BRACKET_RE = re.compile(r'\[[^\]]*\]')
+_DUMP_PAREN_RE = re.compile(r'\(\s*(?:\d+(?:[.,]\d+)?\s*(?:B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)|v\d+(?:\.\d+)*)\s*\)', re.I)
+_DUMP_BARE_TID_RE = re.compile(r'(?:^|[\s_\-]+)0[14][0-9A-Fa-f]{14}(?![0-9A-Fa-f])(?:[_ ]v\d+)?(?:_[0-9A-Fa-f]{8,64})?(?:\s*[\-_]\s*)?')
+
+
+def clean_shell_game_name(raw: str, framework: str = '', title_id: str = '') -> str:
+    """Normalize a game title written to `shell.json`, stripping dump tags and `.nsp`/`.xci` extensions."""
+    trimmed = (raw or '').strip()
+    tid = (title_id or '').strip()
+    base_name = os.path.basename(trimmed) if ('/' in trimmed or '\\' in trimmed) else trimmed
+    stem, ext = os.path.splitext(base_name)
+    candidate = stem.strip() if ext.lower() in _PACKAGE_EXTS and stem.strip() else base_name
+    cleaned = _DUMP_BRACKET_RE.sub('', candidate)
+    cleaned = _DUMP_PAREN_RE.sub('', cleaned)
+    cleaned = _DUMP_BARE_TID_RE.sub(' ', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip(' -._\t\n\r')
+
+    looks_raw_or_empty = (
+        not trimmed
+        or cleaned != trimmed
+        or (tid and trimmed.lower() == tid.lower())
+    )
+    if looks_raw_or_empty and framework:
+        manifest_p = Path(framework) / 'game.manifest.json'
+        if manifest_p.is_file():
+            try:
+                data = json.loads(manifest_p.read_text(encoding='utf-8'))
+                if isinstance(data, dict):
+                    mname = str(data.get('name') or '').strip()
+                    if mname and (not tid or mname.lower() != tid.lower()):
+                        return mname
+            except Exception:
+                pass
+    if cleaned:
+        return cleaned
+    return tid or candidate or trimmed
+
+
 @dataclass
 class ShellGame:
     title_id: str
@@ -101,11 +140,13 @@ class ShellLibrary:
         os.replace(tmp, self.state_file(root_p))
 
     def add(self, game: ShellGame) -> None:
+        cleaned_name = clean_shell_game_name(game.name, framework=game.framework, title_id=game.title_id)
+        normalized = ShellGame(title_id=game.title_id, name=cleaned_name, framework=game.framework)
         for i, existing in enumerate(self.games):
-            if existing.title_id == game.title_id:
-                self.games[i] = game
+            if existing.title_id == normalized.title_id:
+                self.games[i] = normalized
                 return
-        self.games.append(game)
+        self.games.append(normalized)
 
     def drop_missing(self, exists: Callable[[str], bool] = os.path.isdir) -> None:
         self.games = [g for g in self.games if exists(g.framework)]

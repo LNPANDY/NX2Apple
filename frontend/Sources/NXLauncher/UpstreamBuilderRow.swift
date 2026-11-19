@@ -37,6 +37,7 @@ package struct UpstreamBuilderRow: View {
                 }
             }
             .disabled(build.running)
+            .padTarget("set.upstream", scope: "main", enabled: !build.running, activate: { cycle(1) }, adjust: cycle)
         }
         if MacNativeGamesBuilder.featureEnabled && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames) {
             CardDivider()
@@ -60,6 +61,7 @@ package struct UpstreamBuilderRow: View {
                     pickMNG()
                 }
                 .disabled(build.running)
+                .padTarget("set.upstream.mngFolder", scope: "main", enabled: !build.running) { if !build.running { pickMNG() } }
             }
         }
         if S2ArmBuilder.featureEnabled && (build.s2armInstalled || build.buildUpstream == .s2arm) {
@@ -84,8 +86,16 @@ package struct UpstreamBuilderRow: View {
                     pickS2Arm()
                 }
                 .disabled(build.running)
+                .padTarget("set.upstream.s2armFolder", scope: "main", enabled: !build.running) { if !build.running { pickS2Arm() } }
             }
         }
+    }
+
+    private func cycle(_ by: Int) {
+        let options = availableOptions
+        guard !build.running, let index = options.firstIndex(where: { $0.value == build.buildUpstream.rawValue }), !options.isEmpty,
+              let kind = EngineUpstreamKind(rawValue: options[(index + by + options.count) % options.count].value) else { return }
+        build.selectUpstream(kind)
     }
 
     private func pickMNG() {

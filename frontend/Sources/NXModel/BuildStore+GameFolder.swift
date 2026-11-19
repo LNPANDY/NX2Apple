@@ -136,9 +136,13 @@ extension BuildStore {
             return GameFolder.profileName(tid, engineRoot: EngineLayout.root(repo.path)) ?? selectedTitleID
         }
         if let f = gameFolder {
-            let fallback = f.nup.map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension } ?? (f.folder as NSString).lastPathComponent
-            return f.hasTitleID ? GameFolder.profileName(f.titleID, engineRoot: EngineLayout.root(repo.path)) ?? fallback : fallback
+            let rawFallback = f.nup.map { ($0 as NSString).lastPathComponent } ?? (f.folder as NSString).lastPathComponent
+            let fallback = RomFSArchive.cleanPackageGameName(rawFallback)
+            let resolvedFallback = fallback.isEmpty ? ((rawFallback as NSString).deletingPathExtension) : fallback
+            return f.hasTitleID ? GameFolder.profileName(f.titleID, engineRoot: EngineLayout.root(repo.path)) ?? resolvedFallback : resolvedFallback
         }
-        return ((basePath as NSString).lastPathComponent as NSString).deletingPathExtension
+        let rawBase = (basePath as NSString).lastPathComponent
+        let cleanedBase = RomFSArchive.cleanPackageGameName(rawBase)
+        return cleanedBase.isEmpty ? (rawBase as NSString).deletingPathExtension : cleanedBase
     }
 }

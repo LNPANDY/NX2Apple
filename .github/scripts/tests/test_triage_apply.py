@@ -12,7 +12,7 @@ import triage_apply as ta  # noqa: E402
 GOOD_URL = 'https://github.com/LNPANDY/NX2Apple/blob/main/docs/reference/services.md#x'
 
 
-def out(labels=('game',), comment='Hello.', duplicates=()):
+def out(labels=('build',), comment='Hello.', duplicates=()):
     return json.dumps({'labels': list(labels), 'comment': comment, 'duplicates': list(duplicates)})
 
 
@@ -22,10 +22,10 @@ def run(raw, issue=5, cands=(3, 4), exists=lambda n: True):
 
 class Schema(unittest.TestCase):
     def test_ok(self):
-        self.assertEqual(run(out(('game', 'mac'), 'Thanks.', (3,))), (['game', 'mac'], 'Thanks.', [3]))
+        self.assertEqual(run(out(('build', 'mac'), 'Thanks.', (3,))), (['build', 'mac'], 'Thanks.', [3]))
 
     def test_fenced_json_ok_prose_not(self):
-        self.assertEqual(run('```json\n' + out() + '\n```')[0], ['game'])
+        self.assertEqual(run('```json\n' + out() + '\n```')[0], ['build'])
         for bad in ('Sure! ' + out(), out() + ' done', '', '[]', '{}', 'null'):
             with self.assertRaises(ta.Invalid):
                 run(bad)
@@ -37,7 +37,7 @@ class Schema(unittest.TestCase):
             run(json.dumps({'labels': [], 'comment': ''}))
 
     def test_types(self):
-        for bad in ({'labels': 'game', 'comment': '', 'duplicates': []}, {'labels': [1], 'comment': '', 'duplicates': []},
+        for bad in ({'labels': 'build', 'comment': '', 'duplicates': []}, {'labels': [1], 'comment': '', 'duplicates': []},
                     {'labels': [], 'comment': ['x'], 'duplicates': []}, {'labels': [], 'comment': '', 'duplicates': ['3']},
                     {'labels': [], 'comment': '', 'duplicates': [True]}, {'labels': [], 'comment': '', 'duplicates': [3.0]}):
             with self.assertRaises(ta.Invalid, msg=bad):
@@ -56,12 +56,12 @@ class Labels(unittest.TestCase):
 
     def test_repeats_and_count(self):
         with self.assertRaises(ta.Invalid):
-            run(out(('game', 'game')))
+            run(out(('build', 'build')))
         with self.assertRaises(ta.Invalid):
-            run(out(('game', 'build', 'launcher', 'ios', 'mac')))
+            run(out(('idea', 'build', 'launcher', 'ios', 'mac')))
 
     def test_duplicate_label_without_target_is_dropped(self):
-        self.assertEqual(run(out(('game', 'duplicate')))[0], ['game'])
+        self.assertEqual(run(out(('build', 'duplicate')))[0], ['build'])
         self.assertEqual(run(out(('duplicate',), duplicates=(3,)))[0], ['duplicate'])
 
 
@@ -181,9 +181,9 @@ class Mode(unittest.TestCase):
             self.assertEqual(ta.resolve_mode(v), 'report', v)
 
     def test_report_text(self):
-        t = ta.report_text(7, 'LNPANDY/NX2Apple', ['game', 'mac'], [3], 'Line one.\n\nLine two.')
+        t = ta.report_text(7, 'LNPANDY/NX2Apple', ['build', 'mac'], [3], 'Line one.\n\nLine two.')
         self.assertIn('[#7](https://github.com/LNPANDY/NX2Apple/issues/7)', t)
-        self.assertIn('Labels added: game, mac', t)
+        self.assertIn('Labels added: build, mac', t)
         self.assertIn('> Line one.\n>\n> Line two.', t)
         self.assertIn('> _(no comment)_', ta.report_text(7, 'a/b', [], [], ''))
 

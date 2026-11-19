@@ -1353,14 +1353,25 @@ import XCTest
         addBtn.tap()
 
         XCTAssertTrue(app.staticTexts["homeScreen.title"].waitForExistence(timeout: 5))
+        for step in 1...6 {
+            XCTAssertTrue(app.staticTexts["homeScreen.step.\(step)"].exists || app.otherElements["homeScreen.step.\(step)"].exists,
+                          "Missing step \(step) in Add to Home Screen guide")
+        }
+        let pipToggle = app.switches["homeScreen.pipToggle"].firstMatch
+        XCTAssertTrue(pipToggle.exists)
+        XCTAssertEqual(pipToggle.value as? String, "1")
+        capture("add-to-home-screen")
+
         let saveBtn = app.buttons["homeScreen.save"].firstMatch
         let copyBtn = app.buttons["homeScreen.copy"].firstMatch
         XCTAssertTrue(saveBtn.exists)
         XCTAssertTrue(copyBtn.exists)
+        reveal(copyBtn)
         copyBtn.tap()
 
         let backBtn = app.buttons["homeScreen.close"].firstMatch
         XCTAssertTrue(backBtn.waitForExistence(timeout: 5))
+        reveal(backBtn)
         backBtn.tap()
         XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
     }

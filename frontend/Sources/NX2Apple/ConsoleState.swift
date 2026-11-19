@@ -35,6 +35,7 @@ struct ConsoleGame: Identifiable {
     var version: String
     var platforms: [Platform]
     var artwork: NSImage?
+    var icon: NSImage? = nil
     /// The game's large artwork (the hero slot, at screen size), for the home screen's backdrop: loaded for the focused game only.
     var hero: NSImage?
     var heroFocus = UnitPoint.center
@@ -144,7 +145,7 @@ enum ConsoleSheet: Equatable {
     /// gamePad: a game's controller settings (its Controls rows: rumble, and its own button mapping), opened from its options.
     /// library: the menu's Library page (the library's switch, the way to the cloud saves). settings: its General page (the display
     /// language, the app's update, the launcher after a game), language: the display language list.
-    /// cloudSaves: each game's cloud save state and time, as a page of its own over the whole screen.
+    /// cloudSaves: each game's cloud save state and time in a side panel.
     /// confirmExit: "Leave console mode?", over what is open (the menu's Exit, or B on the home screen).
     /// confirmMapping: "Save changes?", leaving the button mapping after something on it changed.
     /// cloudSave: the cloud's save and this Mac's both changed, or the cloud's cannot be read: the player chooses before the start (#957).
@@ -163,14 +164,8 @@ enum ConsoleSheet: Equatable {
         default: return false
         }
     }
-    /// Pages over the whole screen rather than a panel at the side: the cloud saves, a game's controller settings, the button mapping,
-    /// a game's page, all games, the search and the builds.
-    var isFullScreen: Bool {
-        switch self {
-        case .cloudSaves, .gamePad, .mapping, .gamePage, .allGames, .search, .builds, .supportedGames: return true
-        default: return false
-        }
-    }
+    /// Console destinations keep the Library context visible behind a trailing panel.
+    var isFullScreen: Bool { false }
     var scope: String {
         switch self {
         case .gamePage: return "console.gamePage"
@@ -280,6 +275,7 @@ struct ConsoleState {
     var assigningControllerID: String?
     var starting: ConsoleStarting = .preparing
     var assigningPlayer: Int?
+    var launchCancellable = false
     var startingGameID: String?
     var exited = false
     var time: Date = Date()
@@ -336,7 +332,7 @@ struct ConsoleState {
     }
     mutating func openCloudSaves(_ rows: [ConsoleSaveRow]) {
         guard !exited, startingGameID == nil, presentedSheet != .cloudSaves else { return }
-        saveRows = rows
+        saveRows = gameContextID.map { id in rows.filter { $0.id == id } } ?? rows
         sheets.append(.cloudSaves)
     }
     mutating func openLibrary() {
@@ -409,7 +405,7 @@ struct ConsoleState {
     }
     mutating func back() {
         guard !exited else { return }
-        if startingGameID != nil { return } // the driver ends Starting when the game window appears
+        if startingGameID != nil { return }
         if presentedSheet == .mapping, mappingRow != nil { mappingRow = nil; return }   // B in a button's choices goes back to the list
         if presentedSheet == .mapping, mappingChanged { sheets.append(.confirmMapping); return }   // asks before leaving changes
         if presentedSheet == .mapping { mappingOrigin = nil; pendingMenuSwapAB = nil; mappingUndo = nil }
@@ -422,7 +418,7 @@ struct ConsoleState {
         else { confirmExit() }   // B on the home screen asks before leaving
     }
     mutating func exitToDesktop() { exited = true; sheets = []; startingGameID = nil; assigningPlayer = nil; assigningControllerID = nil; mappingRow = nil; mappingGameID = nil; mappingOrigin = nil; pendingMenuSwapAB = nil; mappingUndo = nil }
-    mutating func returnFromGame() { exited = false; startingGameID = nil; sheets = []; assigningPlayer = nil; assigningControllerID = nil; mappingRow = nil; mappingGameID = nil }
+    mutating func returnFromGame() { launchCancellable = false; exited = false; startingGameID = nil; sheets = []; assigningPlayer = nil; assigningControllerID = nil; mappingRow = nil; mappingGameID = nil }
     mutating func setOption(game id: String, setting env: String, value: String) {
         guard !exited, startingGameID == nil, let i = games.firstIndex(where: { $0.id == id }),
               let setting = games[i].visibleSettings.first(where: { $0.env == env }), setting.accepts(value) else { return }
