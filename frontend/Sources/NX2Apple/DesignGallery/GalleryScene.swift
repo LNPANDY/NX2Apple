@@ -13,6 +13,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     case gameOptions
     // Builds and the build wizard
     case addGame, gamePage, wizardPlatform, wizardInstall, buildsIdle, buildsRunning, buildsQueued, buildsSetupHint, buildFailed
+    case addGameFound, addGamePartial, buildOneStage, buildMultiStage, buildFinishedMac, buildFinishedIOS
     case buildFailure(BuildFailureKind)
     // Settings
     case settings, settingsLibrary, settingsControls, settingsTools, settingsEngineError
@@ -33,7 +34,8 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         [.libraryGames, .libraryFew, .libraryEmpty, .libraryNarrow, .libraryWidescreen,
          .libraryEngineSyncing, .libraryEngineUpdate, .libraryNoticeWarning, .libraryNoticeError, .librarySwitch2, .libraryGatekeeper,
          .allGames, .allGamesSearch, .allGamesNoResults, .gameOptions,
-         .addGame, .gamePage, .wizardPlatform, .wizardInstall, .buildsIdle, .buildsRunning, .buildsQueued, .buildsSetupHint, .buildFailed]
+         .addGame, .addGameFound, .addGamePartial, .gamePage, .wizardPlatform, .wizardInstall, .buildsIdle, .buildsRunning,
+         .buildOneStage, .buildMultiStage, .buildsQueued, .buildFinishedMac, .buildFinishedIOS, .buildsSetupHint, .buildFailed]
         + BuildFailureKind.allCases.filter { $0 != .diskFull }.map(GalleryScene.buildFailure)
         + [.settings, .settingsLibrary, .settingsControls, .settingsTools, .settingsEngineError, .deleteGame, .controlsSheet, .controllersSheet]
         + MockOnboardingDriver.Scenario.allCases.map(GalleryScene.onboarding)
@@ -55,7 +57,8 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
              .libraryNoticeWarning, .libraryNoticeError, .librarySwitch2, .libraryGatekeeper: return .library
         case .allGames, .allGamesSearch, .allGamesNoResults: return .allGames
         case .gameOptions: return .gameOptions
-        case .addGame, .gamePage, .wizardPlatform, .wizardInstall, .buildsIdle, .buildsRunning, .buildsQueued, .buildsSetupHint: return .builds
+        case .addGame, .gamePage, .wizardPlatform, .wizardInstall, .buildsIdle, .buildsRunning, .buildsQueued, .buildsSetupHint,
+             .addGameFound, .addGamePartial, .buildOneStage, .buildMultiStage, .buildFinishedMac, .buildFinishedIOS: return .builds
         case .buildFailed, .buildFailure: return .failures
         case .settings, .settingsLibrary, .settingsControls, .settingsTools, .settingsEngineError: return .settings
         case .deleteGame, .controlsSheet, .controllersSheet: return .sheets
@@ -81,7 +84,13 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .allGamesSearch: return "Search results"
         case .allGamesNoResults: return "No results"
         case .gameOptions: return "Launch options"
-        case .addGame: return "Add game"
+        case .addGame: return "Add game: nothing chosen"
+        case .addGameFound: return "Add game: folder, all found"
+        case .addGamePartial: return "Add game: keys missing"
+        case .buildOneStage: return "Building: one stage"
+        case .buildMultiStage: return "Building: several stages"
+        case .buildFinishedMac: return "Finished: Mac"
+        case .buildFinishedIOS: return "Finished: iPhone"
         case .gamePage: return "Wizard: game files"
         case .wizardPlatform: return "Wizard: platform"
         case .wizardInstall: return "Wizard: install"

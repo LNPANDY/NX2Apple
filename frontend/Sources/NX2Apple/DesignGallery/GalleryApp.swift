@@ -110,6 +110,10 @@ struct GalleryWindow: View {
                         .id(scene.id + lang.code + preset.rawValue)
                 }
                 .background(DS.Color.surface)
+                // The scene starts below the gallery's own toolbar: a solid toolbar, so the ScrollView keeps its top inset
+                // and the scene's top bar never sits under it (#1458)
+                .toolbarBackground(DS.Color.background, for: .windowToolbar)
+                .toolbarBackground(.visible, for: .windowToolbar)
                 .navigationTitle(scene.group.rawValue + ": " + scene.title)
             } else {
                 Text("Choose a view").foregroundStyle(DS.Color.textSecondary)

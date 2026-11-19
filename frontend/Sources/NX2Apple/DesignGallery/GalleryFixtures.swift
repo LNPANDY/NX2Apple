@@ -144,6 +144,52 @@ import NXLauncher
                 })
             }
             root = AnyView(launcher(.builds))
+        case .addGameFound:   // a folder with the base game, an update, a DLC and the keys found in it
+            configureBuild(stores, library: library)
+            let update = directory.appendingPathComponent("\(catalog[0].name) Update v3.nsp"), dlc = directory.appendingPathComponent("\(catalog[0].name) DLC.nsp")
+            let keys = directory.appendingPathComponent("prod.keys")
+            for file in [update, dlc, keys] { try? Data().write(to: file) }
+            stores.build.gameDir = directory.path
+            stores.build.updateSlot("update") { $0.paths = [update.path] }
+            stores.build.updateSlot("dlc") { $0.paths = [dlc.path] }
+            stores.build.updateSlot("keys") { $0.paths = [keys.path] }
+            root = AnyView(launcher(.builds, editor: true))
+        case .addGamePartial:   // the base game found, no update, and the keys missing: the step cannot go on
+            configureBuild(stores, library: library)
+            stores.build.gameDir = directory.path
+            stores.build.updateSlot("keys") { $0.paths = [directory.appendingPathComponent("missing/prod.keys").path] }
+            root = AnyView(launcher(.builds, editor: true))
+        case .buildOneStage, .buildMultiStage:
+            configureBuild(stores, library: library)
+            stores.build.buildingGame = true
+            stores.build.running = true
+            if scene == .buildOneStage {
+                stores.build.overallProgress = 0.4
+                stores.build.stages = [Stage(id: 1, name: "Shaders", state: .running, detail: "20 / 50", percent: 40, started: Date().addingTimeInterval(-95), eta: 140, etaAt: Date())]
+            } else {
+                stores.build.overallProgress = 0.62
+                stores.build.stages = [Stage(id: 1, name: "Extract", state: .done), Stage(id: 2, name: "Romfs", state: .done),
+                                       Stage(id: 3, name: "Shaders", state: .running, detail: "31 / 50", percent: 62, started: Date().addingTimeInterval(-240), eta: 150, etaAt: Date()),
+                                       Stage(id: 4, name: "Package", state: .pending), Stage(id: 5, name: "Sign", state: .pending)]
+            }
+            root = AnyView(launcher(.builds, editor: true))
+        case .buildFinishedMac:
+            configureBuild(stores, library: library)
+            let app = makeMacApp(for: 0, in: library)
+            stores.build.runningTarget = BuildTarget.mac
+            stores.build.macAppPath = library.games.first { $0.id == app }?.appPath ?? directory.appendingPathComponent("Game.app").path
+            stores.build.stages = [Stage(id: 1, name: "Shaders", state: .done), Stage(id: 2, name: "Package", state: .done)]
+            stores.build.done = true
+            root = AnyView(launcher(.builds, editor: true, step: 1))
+        case .buildFinishedIOS:
+            configureBuild(stores, library: library)
+            stores.build.target = BuildTarget.ios
+            stores.build.runningTarget = BuildTarget.ios
+            stores.build.installedOn = "iPhone"
+            stores.build.installedDataComplete = true
+            stores.build.stages = [Stage(id: 1, name: "Shaders", state: .done), Stage(id: 2, name: "Install", state: .done)]
+            stores.build.done = true
+            root = AnyView(launcher(.builds, editor: true, step: 2))
         case .buildsSetupHint:
             stores.dependencies.deps = [Dep(id: "xcode", name: "Xcode", hint: "", present: false, installCmd: [])]
             root = AnyView(launcher(.builds))
