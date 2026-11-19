@@ -162,18 +162,17 @@ import NXModel
         let game = driver.state.games.first { $0.id == "demo.0" }
         XCTAssertEqual(game?.basicSettings.map(\.env), ["DM_RENDER_SCALE", "DM_FPS_TARGET", "DM_LANG"], "rumble is not among the options")
         XCTAssertEqual(game?.controllerSettings.map(\.env), ["DM_RUMBLE", "DM_RUMBLE_GAIN"])
+        // the console pass (#1458): every setting is a value stepper, left and right change it at once, no picking with A first
         let before = scale()
         gamepad.perform(.right); settle()
-        XCTAssertEqual(scale(), before, "a slider not picked ignores left and right")
-        gamepad.perform(.a); settle()
-        gamepad.perform(.right); settle()
-        XCTAssertNotEqual(scale(), before, "picked with A, it moves")
+        XCTAssertEqual(scale(), "1.25", "right steps the render scale up one step")
+        gamepad.perform(.left); settle()
+        XCTAssertEqual(scale(), "1", "left steps it back")
+        XCTAssertNotEqual(before, "1.25")
         gamepad.perform(.b); settle()
-        XCTAssertEqual(driver.state.presentedSheet, .options("demo.0"), "B lets the slider go first")
-        let after = scale()
-        gamepad.perform(.right); settle()
-        XCTAssertEqual(scale(), after, "let go, it ignores left and right again")
+        XCTAssertNil(driver.state.presentedSheet, "B leaves the options at once")
 
+        driver.openOptions("demo.0")
         driver.openGamePad("demo.0")
         XCTAssertEqual(driver.state.presentedSheet, .gamePad("demo.0"))
         driver.setPadMode(.byLabel)   // ignored over a game: only all games' mapping has layouts

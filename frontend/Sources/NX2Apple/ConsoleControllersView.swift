@@ -21,6 +21,7 @@ import NXLauncher
     func requestPlayer(_ player: Int) { base.requestPlayer(player) }
     func assignPlayer(controllerID: String, player: Int) { base.assignPlayer(controllerID: controllerID, player: player) }
     func requestAssignment(controllerID: String) { base.requestAssignment(controllerID: controllerID) }
+    func cancelAssignment() { base.cancelAssignment() }
     func identify(controllerID: String) { base.identify(controllerID: controllerID) }
     func disconnect(controllerID: String) { base.disconnect(controllerID: controllerID) }
     func openMenu() { base.openMenu() }
@@ -141,53 +142,6 @@ struct ConsoleBattery: View {
     }
 }
 
-/// The controller entry keeps its size, with player and battery chips below it and full details in its panel.
-struct ConsoleControllerButton: View {
-    let controllers: [ConsoleController]
-    let merged: Bool
-    let lang: Lang
-    var compact = false
-    let openControllers: () -> Void
-    private func t(_ key: String) -> String { L10n.string(key, lang) }
-
-    private var summary: String {
-        guard !controllers.isEmpty else { return t("console.noControllers") }
-        return controllers.map { controller in
-            let player = (merged ? 1 : controller.player).map { String(format: t("console.player"), $0) } ?? t("console.unassigned")
-            var parts = [controller.name, t(controller.kind.labelKey), player]
-            if let percent = controller.batteryPercent {
-                parts.append(String(format: t(controller.charging ? "console.batteryCharging" : "console.batteryLevel"), percent))
-            }
-            return parts.joined(separator: ", ")
-        }.joined(separator: "\n")
-    }
-
-    var body: some View {
-        ConsoleHeaderButton(symbol: "gamecontroller.fill", id: "console.chip.controllers", label: t("console.controllers"), compact: compact, showsLabel: true, action: openControllers)
-            .accessibilityValue(summary).help(summary)
-            .overlay(alignment: .topTrailing) {
-                if !controllers.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(controllers) { controller in
-                                HStack(spacing: 6) {
-                                    Image(systemName: controller.kind.symbol)
-                                    Text((merged ? 1 : controller.player).map { String(format: t("console.playerShort"), $0) } ?? "—")
-                                    ConsoleBattery(controller: controller, lang: lang, compact: true)
-                                }
-                                .font(.manrope(12, .semibold)).padding(.horizontal, 10).frame(height: 28)
-                                .background(LauncherPalette.surface, in: Capsule())
-                                .overlay(Capsule().strokeBorder(LauncherPalette.cream, lineWidth: 1))
-                            }
-                        }.frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                    .frame(width: compact ? 260 : 400, height: 32).offset(y: compact ? 48 : 56)
-                    .accessibilityHidden(true)
-                }
-            }
-    }
-}
-
 struct ConsoleToastView: View {
     let toast: ConsoleToast
     var body: some View {
@@ -221,128 +175,123 @@ struct ConsoleToastView: View {
     }
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 12) {
-                    ConsoleSectionHeading(title: t("console.controllers.input"), compact: compact)
-                    mergeToggle
-                    if showsMapping { menuSwapToggle }   // in reach here too, not only at the top of the button mapping (#1129)
-                    if showsMapping { mappingEntry }
-                    if showsMapping && state.homeButtonAvailable { homeEntry }
-                    if showsMapping { ConsoleSectionHeading(title: t("console.entry"), compact: compact).padding(.top, 14) }
-                    if showsMapping { ForEach(ConsolePref.onControllers, id: \.self) { prefToggle($0) } }   // the ways into console mode, as the desktop's Controls card has them
-                    ConsoleSectionHeading(title: t("console.controllers.players"), compact: compact).padding(.top, 14)
-                    Text(t("console.controllerNote")).font(.manrope(compact ? 17 : 22)).foregroundStyle(LauncherPalette.secondaryText)
-                    HStack(spacing: 12) {
-                        ForEach(1...4, id: \.self) { player in
-                            Button { driver.requestPlayer(player) } label: {
-                                Text(String(format: t("console.playerShort"), player)).font(.manrope(compact ? 18 : 22, .bold))
-                                    .frame(maxWidth: .infinity, minHeight: 56)
-                                    .background(state.assigningPlayer == player ? LauncherPalette.cream : LauncherPalette.surface, in: Capsule())
-                                    .foregroundStyle(state.assigningPlayer == player ? LauncherPalette.background : LauncherPalette.textStrong)
-                            }
-                            .buttonStyle(.plain).accessibilityLabel(String(format: t("console.player"), player))
-                            .accessibilityAddTraits(state.assigningPlayer == player ? .isSelected : [])
-                            .padTarget("console.player.\(player)", scope: scope, activate: { driver.requestPlayer(player) })
-                        }
-                    }
-                    if let player = state.assigningPlayer {
-                        Text(String(format: t("console.pressToAssign"), player)).font(.manrope(compact ? 19 : 26, .semibold)).foregroundStyle(LauncherPalette.cream)
-                    }
-                    if state.controllers.isEmpty { Text(t("console.noControllers")) }
-                    ForEach(state.controllers) { controller in row(controller) }
-                }
-                .padding(.horizontal, compact ? 24 : 40).padding(.vertical, 12)
-                }.consoleScrollContent()
+            ViewThatFits(in: .vertical) {
+                content   // the desktop's sheet takes the list's own height when it fits
+                ScrollView(showsIndicators: false) { content.consoleScrollContent() }
+                    .frame(minHeight: 0, maxHeight: .infinity)
+                    .consoleScrollFade()
             }
-            .frame(minHeight: 0, maxHeight: .infinity)
-            .consoleScrollFade()
             .onChange(of: pad.focused) { id in
                 if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } }
             }
         }
     }
+
+    /// Players and their controllers first, what they are for on a TV, then the input switches and the ways into console mode.
+    private var content: some View {
+        VStack(alignment: .leading, spacing: DS.Console.Space.xl) {
+            VStack(alignment: .leading, spacing: DS.Console.Space.s) {
+                ConsoleSectionHeading(title: t("console.controllers.players"), compact: compact)
+                Text(t("console.controllerNote")).font(DS.Console.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ConsoleSegmentedControl(segments: (1...4).map { ("\($0)", String(format: t("console.playerShort"), $0)) },
+                                        selected: (state.assigningPlayer ?? 0) - 1, scope: scope, idPrefix: "console.player.") { index in
+                    driver.requestPlayer(index + 1)
+                }
+                .padding(.vertical, DS.Console.Space.xxs)   // room for the focus ring, so nothing is clipped at the top
+                .accessibilityLabel(t("console.controllers.players"))
+            }
+            if let player = state.assigningPlayer {
+                ConsoleNoticeCard(tone: .info, title: String(format: t("console.assignNotice.title"), player), detail: t("console.assignNotice.detail"),
+                                  action: (t("console.assignNotice.cancel"), "console.controllers.cancelAssign", scope, { driver.cancelAssignment() }))
+            }
+            VStack(alignment: .leading, spacing: DS.Console.Space.s) {
+                if state.controllers.isEmpty {
+                    ConsoleGroupedList { ConsoleInfoRow(title: t("console.noControllers"), value: "") }
+                }
+                ForEach(state.controllers) { controller in row(controller) }
+            }
+            ConsoleGroupedList(title: t("console.controllers.input")) {
+                mergeToggle
+                if showsMapping {
+                    ConsoleRowDivider()
+                    menuSwapToggle   // in reach here too, not only at the top of the button mapping (#1129)
+                    ConsoleRowDivider()
+                    mappingEntry
+                    if state.homeButtonAvailable { ConsoleRowDivider(); homeEntry }
+                }
+            }
+            if showsMapping {   // the ways into console mode, as the desktop's Controls card has them
+                ConsoleGroupedList(title: t("console.entry")) {
+                    ForEach(Array(ConsolePref.onControllers.enumerated()), id: \.element) { index, pref in
+                        if index > 0 { ConsoleRowDivider() }
+                        prefToggle(pref)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, compact ? DS.Console.Space.l : DS.Console.Space.xl).padding(.vertical, DS.Console.Space.s)
+    }
+
     /// The shared switch keeps pointer and controller activation on the same row.
     private var mergeToggle: some View {
-        ConsoleSwitchRow(id: "console.controller.merge", scope: scope, title: t("console.mergeAll"), isOn: state.padMerge, compact: compact) { driver.setPadMerge(!state.padMerge) }
+        ConsoleToggleListRow(id: "console.controller.merge", scope: scope, title: t("console.mergeAll"), isOn: state.padMerge) { driver.setPadMerge(!state.padMerge) }
     }
 
     /// The button mapping for all games, with the layout it uses now, as iOS shows it in its Controllers page.
     private var mappingEntry: some View {
-        ConsoleMenuRow(id: "console.controller.mapping", scope: scope, symbol: "arrow.left.arrow.right", title: t("console.mapping"), note: "", value: t("controls.mode." + state.padLayout.mode.rawValue), compact: compact) { driver.openMapping() }
+        ConsoleListRow(id: "console.controller.mapping", scope: scope, title: t("console.mapping"), accessory: .value(t("controls.mode." + state.padLayout.mode.rawValue))) { driver.openMapping() }
             .accessibilityHint(t("console.menu.mappingNote"))
     }
 
-    /// A launcher switch about controllers (ConsolePref.onControllers: start in console mode, offer it when a controller connects), as
-    /// a shared switch. Console mode only: the desktop's Controls card has the same switches.
+    /// A launcher switch about controllers (ConsolePref.onControllers: start in console mode, offer it when a controller connects).
+    /// Console mode only: the desktop's Controls card has the same switches.
     private func prefToggle(_ pref: ConsolePref) -> some View {
-        ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), note: t(pref.noteKey), isOn: state.prefs[pref], compact: compact) { driver.setPref(pref, on: !state.prefs[pref]) }
-            .accessibilityHint(t(pref.noteKey))
+        ConsoleToggleListRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), subtitle: t(pref.noteKey), isOn: state.prefs[pref]) { driver.setPref(pref, on: !state.prefs[pref]) }
     }
 
     /// "Quit games with the Home button": the system's setting on macOS 27 (HomeButtonSettings), opened as the desktop's Controls page does.
     private var homeEntry: some View {
-        ConsoleMenuRow(id: "console.controller.home", scope: scope, symbol: "house", title: t("controls.homeQuit"), note: "", compact: compact) { driver.openSystemHomeSettings() }
+        ConsoleListRow(id: "console.controller.home", scope: scope, title: t("controls.homeQuit")) { driver.openSystemHomeSettings() }
             .accessibilityHint(t("controls.homeQuitNote"))
     }
 
     private var menuSwapToggle: some View {
-        ConsoleSwitchRow(id: "console.controller.menuSwap", scope: scope, title: t("console.mapping.menuSwap"), note: t("console.mapping.menuSwapNote"), isOn: state.menuSwapAB, compact: compact) { driver.setMenuSwapAB(!state.menuSwapAB) }
-            .accessibilityHint(t("console.mapping.menuSwapNote"))
+        ConsoleToggleListRow(id: "console.controller.menuSwap", scope: scope, title: t("console.mapping.menuSwap"), subtitle: t("console.mapping.menuSwapNote"), isOn: state.menuSwapAB) { driver.setMenuSwapAB(!state.menuSwapAB) }
     }
 
+    /// A controller's card: its kind, name, player and battery, then one row of flat buttons, Disconnect as a red text button at the right.
     private func row(_ controller: ConsoleController) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 16) {
-                Image(systemName: controller.kind.symbol).font(.system(size: compact ? 26 : 34)).frame(width: 42).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(controller.name).font(.manrope(compact ? 18 : 23, .semibold))
-                    do { Text(t(controller.kind.labelKey) + " \u{00b7} " + playerLabel(controller)).font(.manrope(compact ? 14 : 17)).foregroundStyle(LauncherPalette.secondaryText) }
-                    ConsoleBattery(controller: controller, lang: lang)
-                    if controller.charging { Text(t("console.charging")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
+        VStack(alignment: .leading, spacing: DS.Console.Space.m) {
+            HStack(spacing: DS.Console.Space.m) {
+                Image(systemName: controller.kind.symbol).font(.system(size: 26)).foregroundStyle(DS.Color.symbolDefault).frame(width: 40).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text(controller.name).font(DS.Console.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).lineLimit(1)
+                    Text(t(controller.kind.labelKey) + " \u{00b7} " + playerLabel(controller) + (controller.charging ? " \u{00b7} " + t("console.charging") : ""))
+                        .font(DS.Console.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
                 }
-                Spacer(minLength: 0)
+                Spacer(minLength: DS.Console.Space.s)
+                ConsoleBattery(controller: controller, lang: lang)
             }
-            // Three equal tiles: the icon above a label that wraps between words only (and shrinks a little rather than break a word).
-            HStack(spacing: 10) {
-                if controller.canIdentify { tile(id: controller.id + ".identify", label: t(state.identifyingControllerID == controller.id ? "console.identifying" : "console.identify"), symbol: "wave.3.right") { driver.identify(controllerID: controller.id) } }
-                tile(id: controller.id + ".assign", label: t("console.assign"), symbol: "person.crop.circle.badge.plus") { driver.requestAssignment(controllerID: controller.id) }
-                tile(id: controller.id + ".disconnect", label: t("console.disconnect"), symbol: "xmark.circle") { driver.disconnect(controllerID: controller.id) }
-            }
-            if state.isPreview, state.assigningPlayer != nil, state.assigningControllerID == nil || state.assigningControllerID == controller.id {
-                action(id: controller.id + ".press", label: t("console.mockPress"), symbol: "hand.tap") {
-                    driver.assignPlayer(controllerID: controller.id, player: state.assigningPlayer ?? 1)
+            HStack(spacing: DS.Console.Space.s) {
+                if controller.canIdentify {
+                    ConsoleFlatButton(id: "console.controller." + controller.id + ".identify", scope: scope,
+                                      title: t(state.identifyingControllerID == controller.id ? "console.identifying" : "console.identify"), symbol: "wave.3.right") {
+                        driver.identify(controllerID: controller.id)
+                    }
+                }
+                ConsoleFlatButton(id: "console.controller." + controller.id + ".assign", scope: scope, title: t("console.assign"), symbol: "person.crop.circle.badge.plus") {
+                    driver.requestAssignment(controllerID: controller.id)
+                }
+                Spacer(minLength: DS.Console.Space.s)
+                ConsoleFlatButton(id: "console.controller." + controller.id + ".disconnect", scope: scope, title: t("console.disconnect"), destructive: true) {
+                    driver.disconnect(controllerID: controller.id)
                 }
             }
         }
-        .padding(20).background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 16))
-    }
-    private func tile(id: String, label: String, symbol: String, perform: @escaping () -> Void) -> some View {
-        Button(action: perform) {
-            VStack(spacing: 8) {
-                Image(systemName: symbol).font(.system(size: compact ? 20 : 24)).accessibilityHidden(true)
-                Text(label).font(.manrope(compact ? 14 : 17, .semibold)).multilineTextAlignment(.center)
-                    .lineLimit(2).minimumScaleFactor(0.7).fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, minHeight: compact ? 88 : 96).padding(.horizontal, 6)
-            .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14)).contentShape(RoundedRectangle(cornerRadius: 14))
-        }
-        .buttonStyle(.plain)
-        .padTarget("console.controller." + id, scope: scope, radius: 14, activate: perform)
-        .accessibilityLabel(label)
-    }
-    private func action(id: String, label: String, value: String? = nil, symbol: String, adjust: ((Int) -> Void)? = nil, perform: @escaping () -> Void) -> some View {
-        Button(action: perform) {
-            VStack(alignment: .leading, spacing: 8) {
-                Label(label, systemImage: symbol).font(.manrope(compact ? 16 : 18, .semibold))
-                if let value { Text(value).font(.manrope(compact ? 16 : 20)).foregroundStyle(LauncherPalette.cream) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14)).contentShape(RoundedRectangle(cornerRadius: 14))
-        }
-        .buttonStyle(.plain)
-        .padTarget("console.controller." + id, scope: scope, radius: 14, activate: perform, adjust: adjust)
-        .accessibilityLabel(label).accessibilityValue(value ?? "")
+        .padding(DS.Console.Space.l)
+        .background(DS.Color.surface, in: RoundedRectangle(cornerRadius: DS.Console.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Console.Radius.card).strokeBorder(DS.Color.separator))
     }
 }
 
@@ -354,21 +303,23 @@ struct ConsoleToastView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(L10n.string("console.controllers", lang)).font(.manrope(28, .bold)).accessibilityAddTraits(.isHeader)
+                Text(L10n.string("console.controllers", lang)).font(DS.Font.title).foregroundStyle(DS.Color.textPrimary).accessibilityAddTraits(.isHeader)
                 Spacer()
-                Button(action: close) { Image(systemName: "xmark").frame(width: 48, height: 48) }
-                    .buttonStyle(.plain).accessibilityLabel(L10n.string("console.close", lang))
+                Button(action: close) { Image(systemName: "xmark") }
+                    .buttonStyle(LauncherIconButtonStyle()).accessibilityLabel(L10n.string("console.close", lang))
                     .padTarget("console.sheet.close", scope: "console.controllers", activate: close)
-            }.padding(24)
+            }.padding(DS.Space.l)
             ConsoleControllerList(driver: driver, lang: lang, compact: true, showsMapping: false)
+                .padding(.bottom, DS.Space.m)
         }
-        .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, minHeight: 600, idealHeight: 720, maxHeight: 720).background(LauncherPalette.background).launcherAppearance()
-        .foregroundStyle(LauncherPalette.textStrong).padScope("console.controllers", pad)
+        // as tall as its content, up to the screen's share a sheet may take: the list scrolls only beyond that
+        .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, maxHeight: 720, alignment: .top).background(DS.Color.background).launcherAppearance()
+        .foregroundStyle(DS.Color.textPrimary).padScope("console.controllers", pad)
         .environment(\.padRingStyle, .hug)
-        .onAppear { pad.scope = "console.controllers"; pad.focused = "console.controller.merge" }
+        .onAppear { pad.scope = "console.controllers"; pad.focused = "console.player.1" }
         .overlay(alignment: .bottom) { if let toast = driver.state.toast { ConsoleToastView(toast: toast) } }
         .background(ConsoleKeyboardInput { input in
-            pad.show(default: "console.controller.merge")
+            pad.show(default: "console.player.1")
             switch input {
             case .back: close()
             case .left: pad.horizontal(-1)

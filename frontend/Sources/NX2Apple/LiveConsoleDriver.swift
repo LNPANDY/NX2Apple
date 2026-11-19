@@ -435,6 +435,8 @@ struct ConsolePadSnapshot: Equatable {
     }
     var captureSeconds: TimeInterval = 8
 
+    func cancelAssignment() { cancelCapture() }
+
     private func cancelCapture() {
         assignTimeout?.cancel()
         state.assigningPlayer = nil

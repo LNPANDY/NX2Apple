@@ -40,7 +40,9 @@ import SwiftUI
                        .symbol("line.3.horizontal.circle.fill"), "a symbol that says what the button is stays the controller's own")
     }
 
-    func testHeaderCircleHasAnOpaqueBlackFaceOverBrightArtwork() throws {
+    /// The top bar's controls are glass now (console mode's navigation layer, #1458): the static stand-in draws a light veil and the
+    /// rim, not the old opaque black face, and the circle still leaves its square corners clear.
+    func testHeaderCircleIsGlassAndLeavesItsCornersClear() throws {
         let view = NSHostingView(rootView: ConsoleHeaderButton(symbol: "gamecontroller", id: "console.chip.controllers", label: "Controllers", compact: false, action: {})
             .environmentObject(PadFocus()).frame(width: 52, height: 52).background(.white))
         let window = OffscreenWindow(size: NSSize(width: 52, height: 52), styleMask: [.borderless])
@@ -51,9 +53,7 @@ import SwiftUI
         view.cacheDisplay(in: view.bounds, to: rep)
         let scale = CGFloat(rep.pixelsWide) / 52
         let face = try XCTUnwrap(rep.colorAt(x: Int(7 * scale), y: Int(26 * scale))?.usingColorSpace(.deviceRGB))
-        XCTAssertLessThan(face.redComponent, 0.02)
-        XCTAssertLessThan(face.greenComponent, 0.02)
-        XCTAssertLessThan(face.blueComponent, 0.02)
+        XCTAssertGreaterThan(face.redComponent, 0.5, "no opaque black face: the glass lets the page through")
         let corner = try XCTUnwrap(rep.colorAt(x: 0, y: 0)?.usingColorSpace(.deviceRGB))
         XCTAssertGreaterThan(corner.redComponent, 0.98, "The circular face leaves its square corners clear")
     }

@@ -54,14 +54,17 @@ import XCTest
         }
     }
 
+    /// The starting screen's bar (under its label, the console pass of #1458) fills from the left to the measured share.
     func testLoadingPillFillsFromLeftToRight() throws {
-        let view = NSHostingView(rootView: ConsoleLaunchProgress(progress: 0.5, label: "Loading").frame(width: 200, height: 60).environment(\.colorScheme, .dark))
-        view.frame = CGRect(x: 0, y: 0, width: 200, height: 60)
+        let view = NSHostingView(rootView: ConsoleLaunchProgress(progress: 0.5, label: "Loading").frame(width: 200).fixedSize(horizontal: false, vertical: true)
+            .background(DS.Color.background).environment(\.colorScheme, .dark))
+        view.frame = CGRect(origin: .zero, size: CGSize(width: 200, height: view.fittingSize.height))
         view.layoutSubtreeIfNeeded()
         let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: rep)
-        let left = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide / 4, y: rep.pixelsHigh / 2)?.usingColorSpace(.sRGB))
-        let right = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide * 3 / 4, y: rep.pixelsHigh / 2)?.usingColorSpace(.sRGB))
+        let barRow = rep.pixelsHigh - max(1, rep.pixelsHigh * 3 / Int(max(1, view.bounds.height)))   // the middle of the 6 pt bar at the bottom
+        let left = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide / 4, y: barRow)?.usingColorSpace(.sRGB))
+        let right = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide * 3 / 4, y: barRow)?.usingColorSpace(.sRGB))
         XCTAssertGreaterThan(left.redComponent, 0.9)
         XCTAssertLessThan(right.redComponent, 0.3)
     }

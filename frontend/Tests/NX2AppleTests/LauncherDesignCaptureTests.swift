@@ -24,9 +24,11 @@ import NXModel
             addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
             fixtures = GalleryFixtures(lang: lang, covers: GalleryRealCovers.snapshot(into: folder), coverFolder: folder)
         }
-        // NX_CAPTURE_GROUP=Sheets (a GalleryScene.Group's name) renders that group only
+        // NX_CAPTURE_GROUP=Sheets (a GalleryScene.Group's name) renders that group only, NX_CAPTURE_SCENES=console only the scenes
+        // whose id starts with it
         let group = ProcessInfo.processInfo.environment["NX_CAPTURE_GROUP"]
-        for scene in GalleryScene.allCases where group == nil || scene.group.rawValue == group {
+        let only = ProcessInfo.processInfo.environment["NX_CAPTURE_SCENES"] ?? ""
+        for scene in GalleryScene.allCases where (group == nil || scene.group.rawValue == group) && (only.isEmpty || scene.id.hasPrefix(only)) {
             let png = try XCTUnwrap(GalleryRenderer.png(scene, fixtures: fixtures), scene.id)
             try png.write(to: output.appendingPathComponent("\(scene.id)-\(lang.code).png"))
         }

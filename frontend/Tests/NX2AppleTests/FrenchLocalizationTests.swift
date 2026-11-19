@@ -11,7 +11,7 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "library.chip.both", "shell.choiceLauncher", "onboarding.xcode.section", "onboarding.step.xcode",
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.background.python",
         "onboarding.background.dotnet", "onboarding.demo.mario",
-        "console.platform.mac", "console.platform.iphone", "console.version",
+        "console.platform.mac", "console.platform.iphone", "console.version", "console.builds.more",
         "saves.toDevice", "saves.toMac", "section.app", "app.version", "library.ok",
         "build.ios", "data.keys", "delete.part.ipa", "dep.tool.xcodegen",
         "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator", "diag.title", "dep.brew",

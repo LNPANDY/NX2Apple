@@ -12,7 +12,7 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.setup.metal",
         "onboarding.background.python", "onboarding.background.dotnet",
         "onboarding.demo.mario", "msg.ipaAt", "console.kind.gamepad", "console.platform.mac",
-        "console.platform.iphone", "console.version", "console.fps30", "console.fps60", "saves.toDevice",
+        "console.platform.iphone", "console.version", "console.builds.more", "console.fps30", "console.fps60", "saves.toDevice",
         "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "library.ok", "build.ios", "data.update", "data.keys", "delete.part.ipa",
         "dep.iossdk", "dep.tool.xcodegen", "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator",
         "dep.glslang", "dep.xcode", "dep.metal", "dep.brew", "dep.xcodegen", "dep.zstd", "dep.spirv.win",

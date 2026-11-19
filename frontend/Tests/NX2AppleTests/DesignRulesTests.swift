@@ -87,6 +87,7 @@ final class DesignRulesTests: XCTestCase {
     /// `launcherGlass(` themselves. Everything else gets flat controls from the same button styles.
     func testGlassOnlyInTheNavigationLayer() throws {
         let navigation: Set<String> = ["NX2Apple/LauncherView+Header.swift", "NX2Apple/LauncherView+HeroAction.swift", "NX2Apple/LauncherView+Carousel.swift",
+                                       "NX2Apple/ConsoleTopBar.swift",   // console mode's top controls
                                        "NXLauncher/DesignComponents.swift", "NXLauncher/LauncherGlass.swift", "NXLauncher/PlayerPicker.swift"]
         let pattern = try NSRegularExpression(pattern: #"\.launcherGlassLayer\(\)|\.launcherGlass\(|glassEffect\(|\.buttonStyle\(\.glass"#)
         var offenders: [String] = []
@@ -132,9 +133,8 @@ final class DesignRulesTests: XCTestCase {
         "NXLauncher/LauncherGlass.swift", "NXLauncher/LauncherWordmark.swift", "NXLauncher/LauncherBrandMark.swift", "NXLauncher/PadFocus.swift",
     ]
     private static let accentTextAllowed: [String: Int] = [
-        "NX2Apple/ConsoleBuildsPage.swift": 1, "NX2Apple/ConsoleCloudSaveView.swift": 1, "NX2Apple/ConsoleCloudSaves.swift": 1,
-        "NX2Apple/ConsoleControllersView.swift": 2, "NX2Apple/ConsoleGameOptions.swift": 3, "NX2Apple/ConsoleOptionRow.swift": 1,
-        "NX2Apple/ConsolePages.swift": 2, "NX2Apple/ConsoleSupportedGamesPage.swift": 1, "NX2Apple/ConsoleTiles.swift": 1,
+        "NX2Apple/ConsoleCloudSaveView.swift": 1, "NX2Apple/ConsoleCloudSaves.swift": 1, "NX2Apple/ConsolePages.swift": 2,
+        "NX2Apple/ConsoleSupportedGamesPage.swift": 1, "NX2Apple/ConsoleTiles.swift": 1,
     ]
     private static let accentStyle = try! NSRegularExpression(pattern:
         #"\.foreground(?:Style|Color)\([^()\n]*?(?:LauncherPalette\.(?:accent|cream|notice|focusRing|primaryHover|primaryPressed|segmentSelected|selectionUnderline|radioOn)|DS\.Color\.(?:accent|symbolAccent|statusInfo))\b"#)
@@ -168,9 +168,10 @@ final class DesignRulesTests: XCTestCase {
     // MARK: Controls
 
     /// A dropdown that shows its value is a pop-up with the up and down chevron (LauncherDropdownKind, Apple HIG). Nothing draws
-    /// a `chevron.down` face of its own: the onboarding's details disclosure is the one other down chevron.
+    /// a `chevron.down` face of its own: the onboarding's details disclosure and console mode's expandable row are the only
+    /// other down chevrons.
     func testNoHandDrawnPullDownChevrons() throws {
-        let allowed: [String: Int] = ["NXLauncher/LauncherDropdown.swift": 1, "NX2Apple/OnboardingView.swift": 1]
+        let allowed: [String: Int] = ["NXLauncher/LauncherDropdown.swift": 1, "NX2Apple/OnboardingView.swift": 1, "NX2Apple/ConsoleLayout.swift": 1]
         let pattern = try NSRegularExpression(pattern: #""chevron\.down""#)
         for (path, text) in try Self.sources() {
             XCTAssertLessThanOrEqual(Self.matches(pattern, text), allowed[path] ?? 0, "\(path): a pop-up uses LauncherDropdown (chevron.up.chevron.down)")
