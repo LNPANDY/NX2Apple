@@ -75,11 +75,6 @@ import NXLauncher
                          performStartupChecks: false, search: search, olderTools: olderTools, toolsAssessments: assessments,
                          controls: controls, qaLaunching: launching, artworkStore: artworkStore, allGamesOpen: allGames, buildStep: step)
         }
-        func console(_ scenario: MockConsoleDriver.Scenario = .full, _ open: (MockConsoleDriver) -> Void = { _ in }) -> AnyView {
-            let driver = MockConsoleDriver(scenario: scenario, lang: lang, animated: false)
-            open(driver)
-            return AnyView(ConsoleView(driver: driver, lang: lang))
-        }
         let root: AnyView
         switch scene {
         case .libraryGames, .libraryFew, .libraryEmpty, .libraryNarrow, .libraryWidescreen:
@@ -224,13 +219,7 @@ import NXLauncher
             root = AnyView(ConsoleControllersSheet(driver: MockConsoleDriver(scenario: .controllers, lang: lang, animated: false), lang: lang, close: {}))
         case .onboarding(let scenario):
             root = AnyView(OnboardingDemoHost(scenario: scenario))
-        case .consoleHome: root = console()
-        case .consoleEmpty: root = console(.empty)
-        case .consoleStarting: root = console(.starting)
-        case .consoleGamePage: root = console { driver in driver.state.games.first.map { driver.openGamePage($0.id) } }
-        case .consoleBuilds: root = console { $0.openBuilds() }
-        case .consoleOptions: root = console { driver in driver.state.games.first.map { driver.openOptions($0.id) } }
-        case .consoleControllers: root = console(.controllers) { $0.openControllers() }
+        default: root = consoleView(scene)   // console mode's scenes, GalleryConsoleFixtures.swift
         }
         let frame = size ?? scene.size
         return AnyView(root.environmentObject(PadFocus()).environmentObject(stores.localizer).launcherDropdownHost()

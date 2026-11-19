@@ -22,7 +22,27 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     // The first run
     case onboarding(MockOnboardingDriver.Scenario)
     // Console mode
-    case consoleHome, consoleEmpty, consoleGamePage, consoleBuilds, consoleOptions, consoleControllers, consoleStarting
+    case consoleHome, consoleHomeTV, consoleHomeBuilding, consoleEmpty
+    case consoleGamePage, consoleGameOverviewEmpty, consoleGameSaves, consoleGameSavesEmpty, consoleGameBuild, consoleGameBuildEmpty, consoleGameCheats, consoleGameCheatsEmpty
+    case consoleOptions, consoleOptionsMin, consoleOptionsMax, consoleOptionsStepperFocus, consoleOptionsNavFocus, consoleOptionsSingleLanguage
+    case consoleBuilds, consoleBuildsQueued, consoleBuildsFinished, consoleBuildsFailed, consoleBuildsEmpty
+    case consoleControllers, consoleControllersAssigned, consoleSearch, consoleQuickMenu, consoleStarting, consoleStartingCloud
+
+    /// Console mode's scenes, in the gallery's order, with their titles.
+    static let consoleScenes: [(scene: GalleryScene, title: String)] = [
+        (.consoleHome, "Home"), (.consoleHomeTV, "Home at 1600 x 1000"), (.consoleHomeBuilding, "Home, a build running"), (.consoleEmpty, "Empty"),
+        (.consoleGamePage, "Game page: Overview"), (.consoleGameOverviewEmpty, "Game page: Overview, not built"),
+        (.consoleGameSaves, "Game page: Saves"), (.consoleGameSavesEmpty, "Game page: Saves, none yet"),
+        (.consoleGameBuild, "Game page: Build"), (.consoleGameBuildEmpty, "Game page: Build, not built"),
+        (.consoleGameCheats, "Game page: Cheats"), (.consoleGameCheatsEmpty, "Game page: Cheats, none"),
+        (.consoleOptions, "Options panel"), (.consoleOptionsMin, "Options: values at the minimum"), (.consoleOptionsMax, "Options: values at the maximum"),
+        (.consoleOptionsStepperFocus, "Options: focus on a stepper"), (.consoleOptionsNavFocus, "Options: focus on a link row"),
+        (.consoleOptionsSingleLanguage, "Options: one language"),
+        (.consoleBuilds, "Builds: running"), (.consoleBuildsQueued, "Builds: several queued"), (.consoleBuildsFinished, "Builds: finished"),
+        (.consoleBuildsFailed, "Builds: failed"), (.consoleBuildsEmpty, "Builds: empty"),
+        (.consoleControllers, "Controllers: waiting for a button"), (.consoleControllersAssigned, "Controllers: player assigned"),
+        (.consoleSearch, "Search"), (.consoleQuickMenu, "Quick menu"), (.consoleStarting, "Starting a game"), (.consoleStartingCloud, "Starting: cloud save"),
+    ]
 
     enum Group: String, CaseIterable, Identifiable {
         case library = "Library", allGames = "All games", gameOptions = "Game options", builds = "Builds", failures = "Build failures"
@@ -39,7 +59,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         + BuildFailureKind.allCases.filter { $0 != .diskFull }.map(GalleryScene.buildFailure)
         + [.settings, .settingsLibrary, .settingsControls, .settingsTools, .settingsEngineError, .deleteGame, .controlsSheet, .controllersSheet]
         + MockOnboardingDriver.Scenario.allCases.map(GalleryScene.onboarding)
-        + [.consoleHome, .consoleEmpty, .consoleGamePage, .consoleBuilds, .consoleOptions, .consoleControllers, .consoleStarting]
+        + consoleScenes.map(\.scene)
     }
 
     /// A stable name: the file name of its capture and the gallery's selection.
@@ -63,7 +83,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .settings, .settingsLibrary, .settingsControls, .settingsTools, .settingsEngineError: return .settings
         case .deleteGame, .controlsSheet, .controllersSheet: return .sheets
         case .onboarding: return .onboarding
-        case .consoleHome, .consoleEmpty, .consoleGamePage, .consoleBuilds, .consoleOptions, .consoleControllers, .consoleStarting: return .console
+        default: return .console   // consoleScenes
         }
     }
 
@@ -109,13 +129,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .controlsSheet: return "Keyboard controls"
         case .controllersSheet: return "Controllers"
         case .onboarding(let scenario): return scenario.rawValue
-        case .consoleHome: return "Home"
-        case .consoleEmpty: return "Empty"
-        case .consoleGamePage: return "Game page"
-        case .consoleBuilds: return "Builds"
-        case .consoleOptions: return "Options panel"
-        case .consoleControllers: return "Controllers"
-        case .consoleStarting: return "Starting a game"
+        default: return Self.consoleScenes.first { $0.scene == self }?.title ?? id
         }
     }
 
@@ -125,6 +139,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     var size: CGSize {
         switch self {
         case .libraryNarrow: return CGSize(width: 900, height: 680)
+        case .consoleHomeTV: return CGSize(width: 1600, height: 1000)
         case .gameOptions, .deleteGame, .controlsSheet, .controllersSheet: return CGSize(width: 680, height: 720)
         default: return Self.size
         }
