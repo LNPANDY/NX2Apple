@@ -39,9 +39,13 @@ package enum LauncherNoticeStyle {
 }
 
 package struct LauncherNotice: View {
-    package init(_ item: LauncherNoticeItem, enabled: Bool = true) { self.item = item; self.enabled = enabled }
+    /// `scope` is the controller's scope the notice's action and dismiss belong to: "main" on a page, the sheet's own in a sheet.
+    package init(_ item: LauncherNoticeItem, enabled: Bool = true, scope: String = "main") {
+        self.item = item; self.enabled = enabled; self.scope = scope
+    }
     let item: LauncherNoticeItem
     let enabled: Bool
+    let scope: String
     @EnvironmentObject private var pad: PadFocus
 
     package var body: some View {
@@ -64,7 +68,7 @@ package struct LauncherNotice: View {
                 Button(action.title, action: action.perform)
                     .buttonStyle(LauncherSecondaryButtonStyle(height: 30)).fixedSize()
                     .disabled(!enabled)
-                    .padTarget(action.padID ?? "notice." + item.id, scope: "main", enabled: enabled, activate: action.perform)
+                    .padTarget(action.padID ?? "notice." + item.id, scope: scope, enabled: enabled, activate: action.perform)
             }
             if let dismiss = item.dismiss {
                 Button(action: dismiss.perform) { Image(systemName: "xmark") }
@@ -72,7 +76,7 @@ package struct LauncherNotice: View {
                     .disabled(!enabled)
                     .help(dismiss.label).accessibilityLabel(dismiss.label)
                     .accessibilityIdentifier("notice." + item.id + ".dismiss")
-                    .padTarget("notice." + item.id + ".dismiss", scope: "main", radius: 14, enabled: enabled, activate: dismiss.perform)
+                    .padTarget("notice." + item.id + ".dismiss", scope: scope, radius: 14, enabled: enabled, activate: dismiss.perform)
             }
         }
         .padding(.leading, 14).padding(.trailing, item.action == nil && item.dismiss == nil ? 16 : 10).padding(.vertical, 10)
@@ -86,16 +90,18 @@ package struct LauncherNotice: View {
 
 /// The one place notices show: under the top bar, the most serious first, at most `limit` of them stacked 8 pt apart.
 package struct LauncherNoticeStack: View {
-    package init(_ items: [LauncherNoticeItem], limit: Int = 3, enabled: Bool = true) {
+    package init(_ items: [LauncherNoticeItem], limit: Int = 3, enabled: Bool = true, scope: String = "main") {
+        self.scope = scope
         self.items = Array(items.enumerated().sorted { ($0.element.tone, $0.offset) < ($1.element.tone, $1.offset) }.map(\.element).prefix(limit))
         self.enabled = enabled
     }
     let items: [LauncherNoticeItem]
     let enabled: Bool
+    let scope: String
     package var body: some View {
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(items) { LauncherNotice($0, enabled: enabled) }
+                ForEach(items) { LauncherNotice($0, enabled: enabled, scope: scope) }
             }
         }
     }
