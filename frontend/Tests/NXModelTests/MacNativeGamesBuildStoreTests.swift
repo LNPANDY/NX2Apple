@@ -344,4 +344,138 @@ import XCTest
         XCTAssertEqual(store.buildUpstream, .nxnative)
         XCTAssertNil(store.failure)
     }
+
+    private func syntheticNPDM(programID: UInt64) -> Data {
+        var d = [UInt8](repeating: 0, count: 0x100)
+        d.replaceSubrange(0..<4, with: Array("META".utf8))
+        d[0x70] = 0x80
+        d[0x74] = 0x40
+        d.replaceSubrange(0x80..<0x84, with: Array("ACI0".utf8))
+        for i in 0..<8 {
+            d[0x90 + i] = UInt8((programID >> (8 * UInt64(i))) & 0xFF)
+        }
+        return Data(d)
+    }
+
+    private func syntheticNUP(baseTID: UInt64, updateTID: UInt64, updateVersion: UInt32, dlcTID: UInt64) -> Data {
+        func put(_ d: inout [UInt8], _ o: Int, _ v: UInt64, _ n: Int) {
+            for i in 0..<n {
+                d[o + i] = UInt8((v >> (8 * UInt64(i))) & 0xFF)
+            }
+        }
+        let count = 3
+        let tableSize = 0x30 + count * 0x40
+        var d = [UInt8](repeating: 0, count: 0x80 + tableSize)
+        d.replaceSubrange(0..<4, with: [0x4E, 0x55, 0x50, 0x01])
+        put(&d, 0x08, 0x80, 8)
+        put(&d, 0x10, UInt64(tableSize), 8)
+        put(&d, 0x40, UInt64(d.count), 8)
+        put(&d, 0x48, UInt64(count), 4)
+        d.replaceSubrange(0x80..<0x84, with: [0x54, 0x4F, 0x43, 0x01])
+        put(&d, 0x80 + 0x30, baseTID, 8)
+        put(&d, 0x80 + 0x30 + 0x40, updateTID, 8)
+        put(&d, 0x80 + 0x30 + 0x40 + 20, UInt64(updateVersion), 4)
+        d[0x80 + 0x30 + 0x40 + 24] = 1
+        put(&d, 0x80 + 0x30 + 0x80, dlcTID, 8)
+        d[0x80 + 0x30 + 0x80 + 24] = 2
+        return Data(d)
+    }
+
+    func testUnencryptedNUPAndDumpFolderOmitKeysUpdateAndDLCArguments() throws {
+        repo.isRepo = false
+        let validTree = try makeFakeMNGTree()
+        let runner = ChunkedRunner()
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        defaults.set(false, forKey: MacPreflight.defaultsKey)
+        store.buildUpstream = .macNativeGames
+        store.macNativeGamesPath = validTree
+        store.target = BuildTarget.mac
+        store.outDir = temporary.appendingPathComponent("out").path
+        try FileManager.default.createDirectory(atPath: store.outDir, withIntermediateDirectories: true)
+
+        var launchedArgs: [String] = []
+        runner.onStartInspect = { launch in
+            launchedArgs = launch.arguments
+        }
+
+        // 1. Single .nup filling base, update, and dlc slots (Issue #1450: 0400486024DEC000).
+        let nupURL = temporary.appendingPathComponent("Ocarina [0400486024DEC000][v131072].nup")
+        try syntheticNUP(
+            baseTID: 0x0400486024DEC000,
+            updateTID: 0x0400486024DEC800,
+            updateVersion: 131072,
+            dlcTID: 0x0400486024DED001
+        ).write(to: nupURL)
+        store.scan(folder: nupURL.path)
+        XCTAssertEqual(store.gameFolder?.nup, nupURL.path)
+        XCTAssertEqual(store.updatePath, nupURL.path)
+        XCTAssertEqual(store.dlcPaths, [nupURL.path])
+
+        store.startBuild()
+        XCTAssertFalse(launchedArgs.isEmpty)
+        XCTAssertEqual(launchedArgs[1], nupURL.path)
+        XCTAssertFalse(launchedArgs.contains("-k"))
+        XCTAssertFalse(launchedArgs.contains("--update"))
+        XCTAssertFalse(launchedArgs.contains("--dlc"))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        // 2. Switch 2 unpacked dump folder where updatePath != gameInput (<folder>/updates/131072).
+        launchedArgs = []
+        let dumpDir = temporary.appendingPathComponent("OOT_Dump")
+        let fm = FileManager.default
+        try fm.createDirectory(at: dumpDir.appendingPathComponent("base/exefs"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: dumpDir.appendingPathComponent("base/romfs"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: dumpDir.appendingPathComponent("updates/131072/romfs"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: dumpDir.appendingPathComponent("dlc/0400486024ded001/0/romfs"), withIntermediateDirectories: true)
+        try syntheticNPDM(programID: 0x0400486024DEC000).write(to: dumpDir.appendingPathComponent("base/exefs/main.npdm"))
+        store.scan(folder: dumpDir.path)
+        XCTAssertEqual(store.gameFolder?.folder, dumpDir.path)
+        XCTAssertEqual(store.updatePath, dumpDir.appendingPathComponent("updates/131072").path)
+        XCTAssertEqual(store.dlcPaths, [dumpDir.appendingPathComponent("dlc/0400486024ded001").path])
+
+        store.startBuild()
+        XCTAssertFalse(launchedArgs.isEmpty)
+        XCTAssertEqual(launchedArgs[1], dumpDir.path)
+        XCTAssertFalse(launchedArgs.contains("-k"))
+        XCTAssertFalse(launchedArgs.contains("--update"))
+        XCTAssertFalse(launchedArgs.contains("--dlc"))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    func testEncryptedNSPWithSeparateUpdateAndDLCKeepsKeysUpdateAndDLCArguments() throws {
+        repo.isRepo = false
+        let validTree = try makeFakeMNGTree()
+        let runner = ChunkedRunner()
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        defaults.set(false, forKey: MacPreflight.defaultsKey)
+        store.buildUpstream = .macNativeGames
+        store.macNativeGamesPath = validTree
+        store.target = BuildTarget.mac
+        store.outDir = temporary.appendingPathComponent("out").path
+        try FileManager.default.createDirectory(atPath: store.outDir, withIntermediateDirectories: true)
+
+        let base = temporary.appendingPathComponent("Zelda [0100F2C0115B6000].nsp")
+        let update = temporary.appendingPathComponent("Zelda Update [0100F2C0115B6800].nsp")
+        let dlc = temporary.appendingPathComponent("Zelda DLC [0100F2C0115B7001].nsp")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: base)
+        try Data([0]).write(to: update)
+        try Data([0]).write(to: dlc)
+        try Data([0]).write(to: keys)
+        store.updateSlot("base") { $0.paths = [base.path] }
+        store.updateSlot("update") { $0.paths = [update.path] }
+        store.updateSlot("dlc") { $0.paths = [dlc.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+
+        var launchedArgs: [String] = []
+        runner.onStartInspect = { launch in
+            launchedArgs = launch.arguments
+        }
+
+        store.startBuild()
+        XCTAssertEqual(launchedArgs.firstIndex(of: "-k").map { launchedArgs[$0 + 1] }, keys.path)
+        XCTAssertEqual(launchedArgs.firstIndex(of: "--update").map { launchedArgs[$0 + 1] }, update.path)
+        XCTAssertEqual(launchedArgs.firstIndex(of: "--dlc").map { launchedArgs[$0 + 1] }, dlc.path)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
 }

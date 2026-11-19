@@ -180,6 +180,83 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         XCTAssertFalse(worldendArgs.contains("--update"))
     }
 
+    func testArgumentsOmitEmbeddedAddonsForUnencryptedAndContainedInputs() {
+        let nupPath = "/games/Ocarina [0400486024DEC000][v131072].nup"
+        let nupArgs = MacNativeGamesBuilder.arguments(
+            route: .unifiedBuildApp,
+            tree: "/opt/mng",
+            gameInput: nupPath,
+            keysPath: "/keys/prod.keys",
+            isUnencryptedInput: true,
+            updatePath: nupPath,
+            dlcPaths: [nupPath],
+            outputAppPath: "/out/OOT.app",
+            workDir: "/work"
+        )
+        XCTAssertEqual(nupArgs, ["/opt/mng/build_app.py", nupPath, "--platform", "macos", "-o", "/out/OOT.app", "--work", "/work"])
+
+        let dumpArgs = MacNativeGamesBuilder.arguments(
+            route: .unifiedBuildApp,
+            tree: "/opt/mng",
+            gameInput: "/games/oot_dump",
+            keysPath: "/keys/prod.keys",
+            isUnencryptedInput: true,
+            updatePath: "/games/oot_dump/updates/131072",
+            dlcPaths: ["/games/oot_dump/dlc/0400486024DED001"],
+            outputAppPath: "/out/OOT.app",
+            workDir: "/work"
+        )
+        XCTAssertFalse(dumpArgs.contains("-k"))
+        XCTAssertFalse(dumpArgs.contains("--update"))
+        XCTAssertFalse(dumpArgs.contains("--dlc"))
+
+        let ssRoute = MacNativeGamesBuilder.perGameRoutes["01002DA013484000"]!
+        let perGameUnencryptedArgs = MacNativeGamesBuilder.arguments(
+            route: ssRoute,
+            tree: "/opt/mng",
+            gameInput: "/games/ss_dump/",
+            keysPath: "/keys/prod.keys",
+            isUnencryptedInput: true,
+            updatePath: "/games/ss_dump/updates/65536",
+            dlcPaths: [],
+            outputAppPath: "/out/SS.app",
+            workDir: "/work"
+        )
+        XCTAssertFalse(perGameUnencryptedArgs.contains("-k"))
+        XCTAssertFalse(perGameUnencryptedArgs.contains("--update"))
+
+        // Even if a caller leaves isUnencryptedInput false, a .nup or contained/same addon path must not be emitted.
+        let containedAddonArgs = MacNativeGamesBuilder.arguments(
+            route: .unifiedBuildApp,
+            tree: "/opt/mng",
+            gameInput: "/games/oot_dump/",
+            keysPath: "/keys/prod.keys",
+            isUnencryptedInput: false,
+            updatePath: "/games/oot_dump/updates/131072",
+            dlcPaths: ["/games/oot_dump/dlc/0400486024DED001", "/games/oot_dump_extra/dlc.nsp"],
+            outputAppPath: "/out/OOT.app",
+            workDir: "/work"
+        )
+        XCTAssertFalse(containedAddonArgs.contains("--update"))
+        XCTAssertEqual(containedAddonArgs.filter { $0 == "--dlc" }.count, 1)
+        XCTAssertTrue(containedAddonArgs.contains("/games/oot_dump_extra/dlc.nsp"))
+        XCTAssertFalse(containedAddonArgs.contains("/games/oot_dump/dlc/0400486024DED001"))
+
+        let nupEvenWithFalseFlag = MacNativeGamesBuilder.arguments(
+            route: ssRoute,
+            tree: "/opt/mng",
+            gameInput: nupPath,
+            keysPath: "/keys/prod.keys",
+            isUnencryptedInput: false,
+            updatePath: "/games/other_update.nsp",
+            dlcPaths: [],
+            outputAppPath: "/out/OOT.app",
+            workDir: "/work"
+        )
+        XCTAssertFalse(nupEvenWithFalseFlag.contains("-k"))
+        XCTAssertFalse(nupEvenWithFalseFlag.contains("--update"))
+    }
+
     func testEnvironment() {
         let env = MacNativeGamesBuilder.environment(languageCode: "zh-Hans")
         XCTAssertEqual(env["MNG_LANG"], "zh-Hans")

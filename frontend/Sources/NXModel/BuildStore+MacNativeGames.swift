@@ -30,14 +30,16 @@ extension BuildStore {
         guard let route = MacNativeGamesBuilder.route(forTitleID: gameTitleID, in: macNativeGamesPath) else { return nil }
         let gameInput = gameFolder?.scriptInput ?? basePath
         let unencrypted = gameFolder != nil || (gameInput as NSString).pathExtension.lowercased() == "nup"
+        let effectiveUpdatePath = unencrypted ? "" : updatePath
+        let effectiveDlcPaths = unencrypted ? [] : dlcPaths
         let args = MacNativeGamesBuilder.arguments(
             route: route,
             tree: macNativeGamesPath,
             gameInput: gameInput,
             keysPath: keysPath,
             isUnencryptedInput: unencrypted,
-            updatePath: updatePath,
-            dlcPaths: dlcPaths,
+            updatePath: effectiveUpdatePath,
+            dlcPaths: effectiveDlcPaths,
             outputAppPath: outputAppPath,
             workDir: workDir
         )
