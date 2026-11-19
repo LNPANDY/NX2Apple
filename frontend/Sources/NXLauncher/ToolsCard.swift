@@ -42,27 +42,30 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                 detail: repo.isRepo ? repo.shortPath(repo.path)
                     : (repo.path.isEmpty ? loc.t("repo.notFound") : String(format: loc.t("repo.notRepo"), repo.shortPath(repo.path))),
                 dot: repo.isRepo ? LauncherPalette.ready : LauncherPalette.building, help: repo.path) {
+                // One action in the column: Pull when behind, else Check, Make updatable or Download. Choose repository, always
+                // offered (a saved path from an earlier session is a state a user cannot leave without it), is in the "…" (#1458).
+                let busy = repo.busy || buildRunning
                 if repo.isRepo {
                     if repo.isGit {
                         if let n = repo.behind, n > 0 {
-                            Button(loc.t("repo.pull")) { repo.pull() }.disabled(repo.busy || buildRunning)
-                                .padTarget("set.repoPull", scope: "main", enabled: !(repo.busy || buildRunning)) { if !(repo.busy || buildRunning) { repo.pull() } }
+                            Button(loc.t("repo.pull")) { repo.pull() }.disabled(busy)
+                                .padTarget("set.repoPull", scope: "main", enabled: !busy) { if !busy { repo.pull() } }
+                        } else {
+                            SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.check"), busy: repo.busy) { repo.checkForUpdates() }.disabled(busy)
+                                .padTarget("set.repoCheck", scope: "main", enabled: !busy) { if !busy { repo.checkForUpdates() } }
                         }
-                        SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.check"), busy: repo.busy) { repo.checkForUpdates() }.disabled(repo.busy || buildRunning)
-                            .padTarget("set.repoCheck", scope: "main", enabled: !(repo.busy || buildRunning)) { if !(repo.busy || buildRunning) { repo.checkForUpdates() } }
                     } else {
-                        SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.adopt"), busy: repo.busy) { repo.adoptAsGit() }.disabled(repo.busy || buildRunning)
-                            .padTarget("set.repoAdopt", scope: "main", enabled: !(repo.busy || buildRunning)) { if !(repo.busy || buildRunning) { repo.adoptAsGit() } }
+                        SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.adopt"), busy: repo.busy) { repo.adoptAsGit() }.disabled(busy)
+                            .padTarget("set.repoAdopt", scope: "main", enabled: !busy) { if !busy { repo.adoptAsGit() } }
                     }
+                } else {
+                    SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.download"), busy: repo.busy) { repo.clone() }.disabled(busy)
+                        .padTarget("set.repoDownload", scope: "main", enabled: !busy) { if !busy { repo.clone() } }
                 }
-                // Always offered, including when a repository is already configured: a saved path from
-                // an earlier session (an upstream clone, a moved folder) is exactly the state a user
-                // cannot fix without this button — the report had no way to leave the wrong repository.
-                Button(loc.t("repo.choose")) { pickRepo() }
-                    .padTarget("set.repoChoose", scope: "main", activate: pickRepo)
-                if !repo.isRepo {
-                    SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.download"), busy: repo.busy) { repo.clone() }.disabled(repo.busy || buildRunning)
-                        .padTarget("set.repoDownload", scope: "main", enabled: !(repo.busy || buildRunning)) { if !(repo.busy || buildRunning) { repo.clone() } }
+                DSOverflowMenu(label: loc.t("repo.choose"),
+                               options: [("choose", loc.t("repo.choose"))] + (repo.isGit && (repo.behind ?? 0) > 0 ? [("check", loc.t("repo.check"))] : []),
+                               padID: "set.repoChoose") { choice in
+                    if choice == "check" { if !busy { repo.checkForUpdates() } } else { pickRepo() }
                 }
             }
             if !repo.isRepo {
@@ -73,15 +76,16 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                     Link("github.com/LNPANDY/NX2Apple", destination: URL(string: RepoStore.url.replacingOccurrences(of: ".git", with: ""))!)
                     Text(loc.t("repo.manualHint2")).foregroundStyle(LauncherPalette.secondaryText)
                 }
-                .font(DS.Font.callout).padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
+                .font(DS.Font.callout).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
             }
             if repo.isRepo, !repo.isGit {
                 Text(loc.t(repo.autoUpdate ? "repo.noGit" : "repo.zipNoAuto")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
             }
             if repo.isRepo, !RepoLayout.missingTools(in: repo.path).isEmpty {
-                Text(String(format: loc.t("repo.toolsOld"), RepoLayout.missingTools(in: repo.path).joined(separator: ", ")))
-                    .font(DS.Font.callout).foregroundStyle(LauncherPalette.building).fixedSize(horizontal: false, vertical: true)
+                DSInlineWarning(String(format: loc.t("repo.toolsOld"), RepoLayout.missingTools(in: repo.path).joined(separator: ", ")))
                     .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
             }
             if repo.isRepo {   // a ZIP copy too: its adoption at launch follows this switch
