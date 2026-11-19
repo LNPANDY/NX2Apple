@@ -77,6 +77,12 @@ struct GalleryWindow: View {
 
     private func size(of scene: GalleryScene) -> CGSize { scene.resizable ? preset.size : scene.size }
 
+    /// The scale that fits a scene of `size` into `width`: 1 when it fits, never larger.
+    static func fit(_ size: CGSize, into width: CGFloat) -> CGFloat {
+        guard size.width > 0, width > 0 else { return 1 }
+        return min(1, width / size.width)
+    }
+
     private var filtered: [GalleryScene] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !needle.isEmpty else { return GalleryScene.allCases }
@@ -102,12 +108,20 @@ struct GalleryWindow: View {
         } detail: {
             if let scene = selection {
                 let frame = size(of: scene)
-                ScrollView([.horizontal, .vertical]) {
-                    fixtures.liveView(scene, size: frame)
-                        .frame(width: frame.width, height: frame.height)
-                        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card))
-                        .padding(DS.Space.l)
-                        .id(scene.id + lang.code + preset.rawValue)
+                // The scene keeps its size (its layout is the one of that window) and is drawn smaller when the detail pane is
+                // narrower, so there is never a horizontal scrollbar (#1458). A tall scene scrolls vertically.
+                GeometryReader { geometry in
+                    let scale = Self.fit(frame, into: geometry.size.width - 2 * DS.Space.l)
+                    ScrollView(.vertical) {
+                        fixtures.liveView(scene, size: frame)
+                            .frame(width: frame.width, height: frame.height)
+                            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card))
+                            .scaleEffect(scale, anchor: .topLeading)
+                            .frame(width: frame.width * scale, height: frame.height * scale, alignment: .topLeading)
+                            .padding(DS.Space.l)
+                            .frame(maxWidth: .infinity)
+                            .id(scene.id + lang.code + preset.rawValue)
+                    }
                 }
                 // every scene its own identity: switching scenes always builds the new one from its fixture, never keeps the last
                 // scene's view state (an onboarding step, a sheet's selection)
