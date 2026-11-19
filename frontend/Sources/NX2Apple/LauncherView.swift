@@ -107,6 +107,9 @@ struct LauncherView: View {
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools, assessments: toolsAssessments))   // visual QA: games marked without a checkout to compare
         _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())   // LauncherPerformanceTests presses its buttons
         let stores = stores ?? LauncherStores(); self.stores = stores
+        let savedFilter = LibraryFilter.load(stores.defaults)
+        _libraryFilter = State(initialValue: savedFilter == .built ? .owned : savedFilter)
+        _librarySort = State(initialValue: LibrarySort.load(stores.defaults))
         _m = StateObject(wrappedValue: stores.build); _loc = ObservedObject(wrappedValue: stores.localizer)
         _updates = ObservedObject(wrappedValue: stores.appUpdates); _devices = ObservedObject(wrappedValue: stores.deviceStore)
         _buildDependencies = ObservedObject(wrappedValue: stores.dependencies)
@@ -129,24 +132,22 @@ struct LauncherView: View {
         if injectedDriver { consoleDriver.setPadMerge(on) }
     }
 
-    @State var libraryFilter: LibraryFilter = {
-        let saved = LibraryFilter.load()
-        return saved == .built ? .owned : saved
-    }()
+    /// Loaded from and saved to the stores' defaults (LauncherStores.defaults), never straight to UserDefaults.standard.
+    @State var libraryFilter: LibraryFilter = .owned
     @FocusState var keyboardCard: UUID?
-    @State var librarySort: LibrarySort = LibrarySort.load()
+    @State var librarySort: LibrarySort = .recent
 
     /// Order of the collection. The selection stays whatever it was: the order only moves cards.
     func setLibrarySort(_ sort: LibrarySort) {
         guard sort != librarySort else { return }
         librarySort = sort
-        sort.save()
+        sort.save(stores.defaults)
     }
 
     func setLibraryFilter(_ filter: LibraryFilter) {
         guard filter != libraryFilter else { return }
         withAnimation(.easeInOut(duration: 0.2)) { libraryFilter = filter }
-        filter.save()
+        filter.save(stores.defaults)
         let after = filter.reconcile(games: library.games, selectedID: library.selectedID, focused: padFocus.focused, sort: librarySort)
         if after.selectedID != library.selectedID { library.selectedID = after.selectedID }
         if after.focused != padFocus.focused { padFocus.focused = after.focused }

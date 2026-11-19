@@ -40,12 +40,7 @@ import XCTest
     }
 
     func testEmptyPlatformFiltersKeepHeroAndCarouselGeometryAndRecover() throws {
-        let prior = UserDefaults.standard.object(forKey: "libraryFilter")
-        defer {
-            if let prior { UserDefaults.standard.set(prior, forKey: "libraryFilter") }
-            else { UserDefaults.standard.removeObject(forKey: "libraryFilter") }
-        }
-        UserDefaults.standard.removeObject(forKey: "libraryFilter")
+        // the filter is saved to the stores' defaults (testDefaults), never to the shared ones
         var game = LibraryGame(titleID: "0100000000000000", name: "Source-only game",
                                inputs: ["base": ["/tmp/game.nsp"]], sourceFolder: "/tmp")
         game.installedDevice = "previous-install-record"
@@ -70,6 +65,8 @@ import XCTest
             XCTAssertTrue(stores.build.gameDir.isEmpty, "An empty result must not activate the hidden game's shortcut")
         }
         pad.show(default: "library.filter"); pad.activate(); settle()
+        XCTAssertNotNil(testDefaults.string(forKey: "libraryFilter"), "the filter is saved to the stores' defaults")
+        XCTAssertNil(UserDefaults.standard.object(forKey: "libraryFilter"), "a test's window never writes the shared defaults")
         XCTAssertEqual(try frame("library.filter").minY, filter.minY, accuracy: 1)
         XCTAssertTrue(pad.frames["main", default: []].contains { $0.id == "card." + game.id.uuidString })
     }

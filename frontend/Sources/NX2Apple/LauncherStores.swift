@@ -33,6 +33,9 @@ import NXModel
     let players: PlayerProfileStore
     let saveSettings: SaveSettingsStore
     let sticks: StickDeadzoneStore
+    /// The defaults the stores were made with: the launcher keeps its own view settings there too (the library's filter and
+    /// sort), so a test's window never writes them into the shared defaults.
+    let defaults: UserDefaults
     /// The games' build files (#232), measured and removed by `BuildFiles` (the Free space code).
     let buildFiles = BuildFilesStore(measure: { BuildFiles.measure($0) }, remove: { try BuildFiles.remove($0) })
     private var quitObserver: NSObjectProtocol?
@@ -47,7 +50,7 @@ import NXModel
         _ = Self.endGroupsWhenQuitting
         let runner = runner ?? SystemProcessRunner(defaults: defaults)
         let git = gitCheckout ?? SystemGitCheckout(runner: runner)
-        self.localizer = localizer; self.runner = runner; self.gitCheckout = git; self.releases = releases
+        self.localizer = localizer; self.runner = runner; self.gitCheckout = git; self.releases = releases; self.defaults = defaults
         let log = BuildLog()
         let laterBuild = Later<BuildStore>(), laterEngine = Later<EngineSyncStore>()
 
