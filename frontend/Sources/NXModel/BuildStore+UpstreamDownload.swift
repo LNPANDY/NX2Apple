@@ -63,6 +63,7 @@ extension BuildStore {
         } else if buildUpstream == .s2arm && !s2armInstalled {
             buildUpstream = .nxnative
         }
+        refreshUpstreamLocalVersions()
     }
 
     package func isUpstreamInstalled(_ kind: EngineUpstreamKind) -> Bool {
@@ -129,6 +130,7 @@ extension BuildStore {
         upstreamDownloads[kind] = .downloading(fraction: nil, progressText: "")
         let store = UpstreamEngineStore(root: upstreamsRootURL)
         let transport = upstreamTransport
+        let knownRemote = upstreamRemoteVersions[kind]
         let cancelFlag = UpstreamCancelFlag()
 
         let task = Task { [weak self] in
@@ -137,6 +139,7 @@ extension BuildStore {
                     store.downloadAndInstall(
                         kind: kind,
                         transport: transport,
+                        remoteInfo: knownRemote,
                         shouldCancel: { cancelFlag.isCancelled },
                         onProgress: { written, expected in
                             guard !cancelFlag.isCancelled else { return }
@@ -180,6 +183,7 @@ extension BuildStore {
                     self.s2armPath = url.path
                 }
                 self.upstreamDownloads.removeValue(forKey: kind)
+                self.didInstallUpstreamVersion(kind, previousRemote: knownRemote)
                 if !self.running {
                     self.selectUpstream(kind)
                     self.upstreamAutoSwitchRevision &+= 1

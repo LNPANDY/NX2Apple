@@ -228,6 +228,165 @@ class UpstreamStoreTests(unittest.TestCase):
         self.assertEqual(coord.state('s2arm', installed=True), ('installed', None, ''))
         self.assertEqual(len(installed_events), 1)
 
+    def test_version_receipt_eocd_legacy_fallback_and_remote_parsing(self) -> None:
+        old_sha = '1111111111111111111111111111111111111111'
+        new_sha = '2222222222222222222222222222222222222222'
+
+        zip_path = self.temp_dir / 's2arm-eocd.zip'
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr('S2Arm-main/pack/jobs/main.py', '#!/usr/bin/env python3\n')
+            zf.writestr('S2Arm-main/runtime/rewriter/rewriter.c', '/* rewriter */\n')
+            zf.writestr('S2Arm-main/pack/oneclick/oneclick.sh', '#!/bin/bash\n')
+            zf.writestr('S2Arm-main/pack/orch/oneclick_win.py', '#!/usr/bin/env python3\n')
+            zf.comment = old_sha.upper().encode('utf-8')
+
+        self.assertEqual(upstream_store.extract_git_commit_from_zip(zip_path), old_sha)
+
+        remote_v057 = upstream_store.UpstreamRemoteInfo(kind='s2arm', commit=old_sha, version='v0.5.7', date='2026.11.10')
+        installed = upstream_store.install_upstream_zip(
+            zip_path,
+            's2arm',
+            self.store_root,
+            remote_info=remote_v057,
+            is_windows=False,
+        )
+        receipt = upstream_store.read_local_receipt('s2arm', str(installed), is_windows=False)
+        self.assertIsNotNone(receipt)
+        assert receipt is not None
+        self.assertEqual(receipt.commit, old_sha)
+        self.assertEqual(receipt.version, 'v0.5.7')
+        self.assertFalse(upstream_store.has_update(receipt, remote_v057))
+
+        # Failed update preserves old receipt and directory
+        bad_zip = self._make_s2arm_zip('incomplete-update.zip', complete=False)
+        with self.assertRaises(upstream_store.UpstreamInstallError):
+            upstream_store.install_upstream_zip(bad_zip, 's2arm', self.store_root, is_windows=False)
+        preserved = upstream_store.read_local_receipt('s2arm', str(installed), is_windows=False)
+        self.assertEqual(preserved, receipt)
+
+        # Legacy install without .upstream-version.json falls back to entry mtime and flags update
+        (installed / upstream_store.RECEIPT_FILENAME).unlink()
+        entry = installed / 'pack' / 'jobs' / 'main.py'
+        os.utime(entry, (1_763_424_000, 1_763_424_000))
+        legacy = upstream_store.read_local_receipt('s2arm', str(installed), is_windows=False)
+        self.assertIsNotNone(legacy)
+        assert legacy is not None
+        self.assertIsNone(legacy.commit)
+        self.assertEqual(legacy.version, '2025.11.18')
+        self.assertTrue(upstream_store.has_update(legacy, remote_v057))
+
+        # Remote parsing via Git Smart HTTP info/refs: exact tag, ahead (+), annotated ^{}, ignore impactor-*
+        tag_obj_sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        refs_exact = (
+            '001e# service=git-upload-pack\n'
+            f'00000159{new_sha} HEAD\x00multi_ack\n'
+            f'003d{new_sha} refs/heads/main\n'
+            f'0040{old_sha} refs/tags/impactor-1.0\n'
+            f'003e{tag_obj_sha} refs/tags/v0.5.8\n'
+            f'0041{new_sha} refs/tags/v0.5.8^{{}}\n'
+        )
+        refs_ahead = (
+            f'003d{new_sha} refs/heads/main\n'
+            f'0040{new_sha} refs/tags/impactor-2.0\n'
+            f'003e{old_sha} refs/tags/v0.5.8\n'
+        )
+        refs_notags = f'003d{new_sha} refs/heads/main\n'
+        exact = upstream_store.parse_info_refs('s2arm', refs_exact)
+        ahead = upstream_store.parse_info_refs('s2arm', refs_ahead)
+        fallback = upstream_store.parse_info_refs('s2arm', refs_notags)
+        self.assertIsNotNone(exact)
+        self.assertIsNotNone(ahead)
+        self.assertIsNotNone(fallback)
+        assert exact and ahead and fallback
+        self.assertEqual(exact.version, 'v0.5.8')
+        self.assertEqual(ahead.version, 'v0.5.8+')
+        self.assertEqual(fallback.version, new_sha[:7])
+
+        # MacNativeGames source-YYYYMMDD-<sha> tags: exact vs ahead (+) and same-day SHA comparison
+        mng_refs_ahead = (
+            f'003d{new_sha} refs/heads/main\n'
+            f'0050{old_sha} refs/tags/source-20261118-{old_sha[:8]}\n'
+        )
+        mng_remote = upstream_store.parse_info_refs('macnativegames', mng_refs_ahead)
+        assert mng_remote is not None
+        self.assertEqual(mng_remote.version, '2026.11.18+')
+        mng_local_old = upstream_store.UpstreamVersionReceipt(commit=old_sha, version='2026.11.18', installed_at='2026.11.18')
+        self.assertTrue(upstream_store.has_update(mng_local_old, mng_remote))
+
+        # First-time download without remote_info auto-queries info/refs for semantic tag receipt
+        first_root = self.temp_dir / 'first-dl'
+        first_payload = zip_path.read_bytes()
+        installed_first = upstream_store.download_and_install_upstream(
+            's2arm',
+            first_root,
+            downloader=lambda _u, dst, _p: dst.write_bytes(first_payload),
+            fetch_text=lambda _u: refs_ahead,
+            is_windows=False,
+        )
+        first_rec = upstream_store.read_local_receipt('s2arm', str(installed_first), is_windows=False)
+        assert first_rec is not None
+        self.assertEqual(first_rec.commit, old_sha)
+        self.assertEqual(first_rec.version, 'v0.5.8+')
+
+        # Built-in .upstream-ref short SHA
+        fake_repo = self.temp_dir / 'repo'
+        fake_repo.mkdir()
+        (fake_repo / '.upstream-ref').write_text('0b5fd6020093abcdef1234567890abcdef123456\n', encoding='utf-8')
+        builtin_rec = upstream_store.read_local_receipt('nxnative', repo_path=str(fake_repo))
+        assert builtin_rec is not None
+        self.assertEqual(builtin_rec.version, '0b5fd60')
+        self.assertEqual(
+            upstream_store.compact_badge_text('nxnative', builtin_rec, update_available=False, builtin_fallback='Built-in', installed_fallback='Installed'),
+            '0b5fd60',
+        )
+        self.assertEqual(
+            upstream_store.compact_badge_text('s2arm', receipt, update_available=True, builtin_fallback='Built-in', installed_fallback='Installed'),
+            'v0.5.7 ↑',
+        )
+
+    def test_version_checker_caches_success_and_never_caches_failure(self) -> None:
+        now_box = [1000.0]
+        hits: list[str] = []
+        should_fail = [True]
+        sha = '3333333333333333333333333333333333333333'
+
+        def fake_fetch(url: str):
+            hits.append(url)
+            if should_fail[0]:
+                raise RuntimeError('offline')
+            return f'003d{sha} refs/heads/main\n003e{sha} refs/tags/v0.5.8\n'
+
+        checker = upstream_store.UpstreamVersionChecker(now_fn=lambda: now_box[0])
+        threads = checker.check_async(('s2arm',), is_installed=lambda k: k == 's2arm', fetch_text=fake_fetch)
+        for t in threads:
+            t.join(timeout=5.0)
+        self.assertIsNone(checker.remote_info('s2arm'))
+        self.assertEqual(len(hits), 1)
+
+        # Retry immediately after failure succeeds
+        should_fail[0] = False
+        threads = checker.check_async(('s2arm',), is_installed=lambda k: k == 's2arm', fetch_text=fake_fetch)
+        for t in threads:
+            t.join(timeout=5.0)
+        info = checker.remote_info('s2arm')
+        self.assertIsNotNone(info)
+        assert info is not None
+        self.assertEqual(info.version, 'v0.5.8')
+        hits_after_ok = len(hits)
+
+        # Within 10-minute TTL, cached result skips network
+        now_box[0] += 300.0
+        threads = checker.check_async(('s2arm',), is_installed=lambda k: k == 's2arm', fetch_text=fake_fetch)
+        self.assertEqual(threads, [])
+        self.assertEqual(len(hits), hits_after_ok)
+
+        # After TTL expires, fetches again
+        now_box[0] += 400.0
+        threads = checker.check_async(('s2arm',), is_installed=lambda k: k == 's2arm', fetch_text=fake_fetch)
+        for t in threads:
+            t.join(timeout=5.0)
+        self.assertGreater(len(hits), hits_after_ok)
+
 
 try:
     from PySide6.QtCore import QSettings
@@ -330,6 +489,52 @@ class QtEngineDropdownTests(unittest.TestCase):
         self.assertFalse(win._eng_popup_rows['s2arm']['exp_badge'].isHidden())
         self.assertEqual(win._eng_popup_rows['s2arm']['exp_badge'].text(), m.t('engine.experimental'))
         self.assertFalse(popup.isVisible())
+
+        # Install S2Arm with an older SHA, inject newer remote info, verify compact badge + Update button
+        old_sha = '1111111111111111111111111111111111111111'
+        new_sha = '2222222222222222222222222222222222222222'
+        zip_path = self.temp_dir / 's2arm-old.zip'
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr('S2Arm-main/pack/jobs/main.py', '#!/usr/bin/env python3\n')
+            zf.writestr('S2Arm-main/runtime/rewriter/rewriter.c', '/* rewriter */\n')
+            zf.writestr('S2Arm-main/pack/oneclick/oneclick.sh', '#!/bin/bash\n')
+            zf.writestr('S2Arm-main/pack/orch/oneclick_win.py', '#!/usr/bin/env python3\n')
+            zf.comment = old_sha.encode('utf-8')
+        installed = upstream_store.install_upstream_zip(
+            zip_path,
+            's2arm',
+            self.temp_dir / 'upstreams',
+            remote_info=upstream_store.UpstreamRemoteInfo('s2arm', old_sha, 'v0.5.7', '2026.11.10'),
+            is_windows=False,
+        )
+        m.s2arm_path = str(installed)
+        m.select_upstream('s2arm')
+        m._upstream_version_checker.set_remote_info(
+            's2arm',
+            upstream_store.UpstreamRemoteInfo('s2arm', new_sha, 'v0.5.8', '2026.11.19'),
+        )
+        win._refresh_engine_switcher()
+        win._refresh_engine_popup()
+        self.assertEqual(win.eng_active_badge.text(), 'v0.5.7 ↑')
+        self.assertIn('v0.5.8', win.eng_active_badge.toolTip())
+        self.assertFalse(win._eng_popup_rows['s2arm']['update_btn'].isHidden())
+        self.assertEqual(win._eng_popup_rows['s2arm']['update_btn'].text(), m.t('upstream.update'))
+        self.assertTrue(win._eng_popup_rows['nxnative']['update_btn'].isHidden())
+
+        # Same-commit local short-hash receipt upgrades to semantic remote version on disk and UI
+        upstream_store.write_version_receipt(
+            installed,
+            upstream_store.UpstreamVersionReceipt(commit=new_sha, version=new_sha[:7], installed_at='2026.11.19'),
+        )
+        m._upstream_version_checker.set_remote_info(
+            's2arm',
+            upstream_store.UpstreamRemoteInfo('s2arm', new_sha, 'v0.5.8+', '2026.11.19'),
+        )
+        win._refresh_engine_switcher()
+        self.assertEqual(win.eng_active_badge.text(), 'v0.5.8+')
+        upgraded_disk = upstream_store.read_local_receipt('s2arm', str(installed), is_windows=False)
+        assert upgraded_disk is not None
+        self.assertEqual(upgraded_disk.version, 'v0.5.8+')
 
 
 if __name__ == '__main__':

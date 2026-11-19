@@ -283,4 +283,112 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         XCTAssertEqual(ids["org.macnativegames.by3"], "01004A4010FEA000")
         XCTAssertEqual(ids["org.macnativegames.unicorn"], "010054B01AD92000")
     }
+
+    func testFindMNGPython314StrictlyMatches314AndInstallCommandIsRootless() {
+        let runner = FakeProcessRunner()
+        runner.answer = { launch in
+            switch launch.executable {
+            case "/fake/python3.13": return ProcessResult(status: 0, out: "3.13\n")
+            case "/fake/python3.15": return ProcessResult(status: 0, out: "3.15\n")
+            case "/fake/python3.14": return ProcessResult(status: 0, out: "3.14\n")
+            default: return ProcessResult(status: 1, out: "")
+            }
+        }
+        let found = MacNativeGamesBuilder.findMNGPython314(
+            candidates: ["/fake/python3.13", "/fake/python3.15", "/fake/python3.14"],
+            runner: runner,
+            exists: { _ in true }
+        )
+        XCTAssertEqual(found, "/fake/python3.14")
+
+        let none = MacNativeGamesBuilder.findMNGPython314(
+            candidates: ["/fake/python3.13", "/fake/python3.15"],
+            runner: runner,
+            exists: { _ in true }
+        )
+        XCTAssertNil(none)
+
+        let cmd = MacNativeGamesBuilder.python314InstallCommand(home: "/Users/tester")
+        XCTAssertEqual(cmd.first, "/bin/bash")
+        let script = cmd.last ?? ""
+        XCTAssertTrue(script.contains("UV_UNMANAGED_INSTALL=\"/Users/tester/Library/Application Support/NX2Apple/tools/uv\""))
+        XCTAssertTrue(script.contains("python install 3.14 --install-dir \"/Users/tester/Library/Application Support/NX2Apple/tools/uv-python\""))
+    }
+
+    func testSharedFontsDetectionParsingAndArguments() throws {
+        let workDir = temporary.appendingPathComponent("totk-work", isDirectory: true)
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+
+        XCTAssertTrue(MacNativeGamesBuilder.needsAutoSharedFonts(
+            route: .unifiedBuildApp,
+            gameInput: "/roms/totk.nsp",
+            isUnencryptedInput: false,
+            workDir: workDir.path
+        ))
+        XCTAssertTrue(MacNativeGamesBuilder.needsAutoSharedFonts(
+            route: .unifiedBuildApp,
+            gameInput: "/roms/totk.nsz",
+            isUnencryptedInput: false,
+            workDir: workDir.path
+        ))
+        XCTAssertFalse(MacNativeGamesBuilder.needsAutoSharedFonts(
+            route: .unifiedBuildApp,
+            gameInput: "/roms/totk.xci",
+            isUnencryptedInput: false,
+            workDir: workDir.path
+        ))
+        XCTAssertFalse(MacNativeGamesBuilder.needsAutoSharedFonts(
+            route: .unifiedBuildApp,
+            gameInput: "/roms/totk.nup",
+            isUnencryptedInput: true,
+            workDir: workDir.path
+        ))
+
+        let manifestDir = workDir.appendingPathComponent("totk/extracted/firmware/shared-fonts", isDirectory: true)
+        try FileManager.default.createDirectory(at: manifestDir, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: manifestDir.appendingPathComponent("manifest.json"))
+        XCTAssertFalse(MacNativeGamesBuilder.needsAutoSharedFonts(
+            route: .unifiedBuildApp,
+            gameInput: "/roms/totk.nsp",
+            isUnencryptedInput: false,
+            workDir: workDir.path
+        ))
+
+        let noisyStdout = """
+        [mng] downloading NotoSans font pack...
+        [mng] generated 6 shared fonts
+        NX2APPLE_OPEN_FONTS=/tmp/open-fonts/shared-fonts
+        """
+        XCTAssertEqual(MacNativeGamesBuilder.parseOpenFontsOutput(noisyStdout), "/tmp/open-fonts/shared-fonts")
+        XCTAssertNil(MacNativeGamesBuilder.parseOpenFontsOutput("just log output without marker\n"))
+
+        let argsWithFonts = MacNativeGamesBuilder.arguments(
+            route: .unifiedBuildApp,
+            tree: "/opt/mng",
+            gameInput: "/games/totk.nsp",
+            keysPath: "/keys/prod.keys",
+            isUnencryptedInput: false,
+            updatePath: "",
+            dlcPaths: [],
+            outputAppPath: "/out/TOTK.app",
+            workDir: "/work",
+            sharedFontsPath: "/tmp/open-fonts/shared-fonts"
+        )
+        XCTAssertTrue(argsWithFonts.contains("--shared-fonts"))
+        XCTAssertTrue(argsWithFonts.contains("/tmp/open-fonts/shared-fonts"))
+    }
+
+    func testParseStageLineRecognizesMNGProgressHeaders() {
+        let s1 = MacNativeGamesBuilder.parseStageLine("1/4 code")
+        XCTAssertEqual(s1?.index, 1)
+        XCTAssertEqual(s1?.total, 4)
+        XCTAssertEqual(s1?.name, "code")
+
+        let s3 = MacNativeGamesBuilder.parseStageLine("=== 3/4 shaders ===")
+        XCTAssertEqual(s3?.index, 3)
+        XCTAssertEqual(s3?.total, 4)
+        XCTAssertEqual(s3?.name, "shaders")
+
+        XCTAssertNil(MacNativeGamesBuilder.parseStageLine("normal log line"))
+    }
 }

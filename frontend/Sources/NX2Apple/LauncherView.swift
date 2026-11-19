@@ -342,6 +342,7 @@ struct LauncherView: View {
                 else { engine.syncEngine() }   // a checkout whose engine/ is missing or older than its pin (#214)
                 if repo.isRepo && repo.isGit { repo.checkForUpdates(silent: true) } else { repo.adoptAtLaunch() }
                 updates.checkForUpdate(silent: true)
+                _ = m.checkUpstreamUpdates()
                 BuildNotifier.shared.watch(m, library: library)   // BuildNotifications.swift
             }
         }
@@ -471,6 +472,7 @@ struct LauncherView: View {
             profileHelpOpen = false
             padFocus.focused = nil
             if page != .library { closeArtwork(save: false) }
+            if page == .builds && performStartupChecks { _ = m.checkUpstreamUpdates() }
         }
         .onChange(of: artworkEditor?.gameID) { id in
             padFocus.scope = id != nil ? "artwork" : currentPadScope

@@ -242,6 +242,7 @@ package enum EngineFetch<Value> {
 /// The network, as the updater sees it. Tests replace it with files in memory.
 package protocol EngineTransport {
     func data(from url: URL) -> EngineFetch<Data>
+    func data(from url: URL, timeout: TimeInterval) -> EngineFetch<Data>
     /// Download to `destination` (which does not exist yet). true when the whole file arrived.
     func download(from url: URL, to destination: URL) -> Bool
     /// Download to `destination`, reporting `(writtenBytes, expectedBytes)` as chunks arrive.
@@ -256,6 +257,10 @@ package protocol EngineTransport {
 }
 
 extension EngineTransport {
+    package func data(from url: URL, timeout: TimeInterval) -> EngineFetch<Data> {
+        data(from: url)
+    }
+
     package func download(from url: URL, to destination: URL, progress: (@Sendable (Int64, Int64?) -> Void)?) -> Bool {
         download(from: url, to: destination)
     }
@@ -353,15 +358,25 @@ package struct URLSessionEngineTransport: EngineTransport {
         let c = URLSessionConfiguration.ephemeral
         c.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         c.timeoutIntervalForRequest = 60
+        c.httpAdditionalHeaders = ["User-Agent": "NX2Apple"]
+        if let proxyDict = ProxyEnvironment.urlSessionProxyDictionary() {
+            c.connectionProxyDictionary = proxyDict
+        }
         return URLSession(configuration: c)
     }()
 
     package init() {}
 
     package func data(from url: URL) -> EngineFetch<Data> {
+        data(from: url, timeout: 60)
+    }
+
+    package func data(from url: URL, timeout: TimeInterval) -> EngineFetch<Data> {
         var result: EngineFetch<Data> = .failed
         let sem = DispatchSemaphore(value: 0)
-        session.dataTask(with: url) { data, response, _ in
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: timeout)
+        req.setValue("NX2Apple", forHTTPHeaderField: "User-Agent")
+        session.dataTask(with: req) { data, response, _ in
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 200, let data { result = .ok(data) } else if status == 404 { result = .missing }
             sem.signal()

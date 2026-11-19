@@ -63,6 +63,9 @@ package struct EngineSwitcherCard: View {
 
     package var body: some View {
         let active = build.buildUpstream
+        let badgeText = build.upstreamVersionBadge(active)
+        let activeHasUpdate = build.upstreamHasUpdate(active)
+        let activeTooltip = build.upstreamUpdateTooltip(active)
         let busy = backgroundBusyEngine
         let failed = busy == nil ? backgroundFailedEngine : nil
         return CardGroup(loc.t("engine.title")) {
@@ -77,6 +80,14 @@ package struct EngineSwitcherCard: View {
                             .foregroundStyle(LauncherPalette.text)
                             .lineLimit(1)
                         EngineExperimentalBadge(text: loc.t("engine.experimental"))
+                        UpstreamVersionPill(
+                            text: badgeText,
+                            highlighted: activeHasUpdate,
+                            fontSize: 11,
+                            hPad: 7,
+                            vPad: 2,
+                            tooltip: activeTooltip
+                        )
                     }
                     Text(loc.t("engine.switcherNote"))
                         .font(.manrope(12.5))
@@ -119,10 +130,11 @@ package struct EngineSwitcherCard: View {
             .frame(minHeight: 56)
         }
         .onAppear {
+            build.refreshUpstreamLocalVersions()
             guard !didApplyInitialOpen, (initiallyOpen || envInitiallyOpen) else { return }
             didApplyInitialOpen = true
             DispatchQueue.main.async {
-                openDropdown()
+                openDropdown(triggerCheck: false)
             }
         }
         .onChange(of: build.running) { isRunning in
@@ -176,7 +188,11 @@ package struct EngineSwitcherCard: View {
             .padTarget("set.build.engine", scope: "main", enabled: !build.running) { isOpen ? closeDropdown() : openDropdown() }
         } else {
             Button {
+                let willOpen = !fallbackPopoverOpen
                 fallbackPopoverOpen.toggle()
+                if willOpen {
+                    _ = build.checkUpstreamUpdates()
+                }
             } label: {
                 triggerFace(title: active.displayName, open: fallbackPopoverOpen)
             }
@@ -218,8 +234,11 @@ package struct EngineSwitcherCard: View {
         .launcherMeasured(label: Text(title).font(.manrope(13, .semibold)), room: LauncherControl.choiceWidth)
     }
 
-    private func openDropdown() {
+    private func openDropdown(triggerCheck: Bool = true) {
         guard !build.running else { return }
+        if triggerCheck {
+            _ = build.checkUpstreamUpdates()
+        }
         if let dropdownHost {
             let label = loc.t("engine.title")
             let store = build
@@ -353,76 +372,107 @@ package struct EngineDropdownPanel: View {
 
     private func installedRow(kind: EngineUpstreamKind, selected: Bool) -> some View {
         let hovered = hoveredKind == kind
-        let badgeKey = kind.isBuiltIn ? "upstream.builtinBadge" : "upstream.installedBadge"
-        return Button {
-            build.selectUpstream(kind)
-            close()
-        } label: {
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(selected ? LauncherPalette.ready : LauncherPalette.unbuilt.opacity(0.55))
-                    .frame(width: 7, height: 7)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(kind.displayName)
-                            .font(.manrope(13.5, selected ? .bold : .semibold))
-                            .foregroundStyle(LauncherPalette.text)
+        let badgeText = build.upstreamVersionBadge(kind)
+        let hasUpdate = build.upstreamHasUpdate(kind)
+        let tooltip = build.upstreamUpdateTooltip(kind)
+        return HStack(spacing: 8) {
+            Button {
+                build.selectUpstream(kind)
+                close()
+            } label: {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(selected ? LauncherPalette.ready : LauncherPalette.unbuilt.opacity(0.55))
+                        .frame(width: 7, height: 7)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(kind.displayName)
+                                .font(.manrope(13.5, selected ? .bold : .semibold))
+                                .foregroundStyle(LauncherPalette.text)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.9)
+                            UpstreamVersionPill(
+                                text: badgeText,
+                                highlighted: hasUpdate,
+                                selectedTint: selected,
+                                fontSize: 10.5,
+                                hPad: 6,
+                                vPad: 1.5,
+                                tooltip: tooltip
+                            )
+                            if !kind.isBuiltIn {
+                                EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
+                            }
+                        }
+                        Text(loc.t(kind.cardNoteKey))
+                            .font(.manrope(11.5))
+                            .foregroundStyle(LauncherPalette.secondaryText)
                             .lineLimit(1)
-                        Text(loc.t(badgeKey))
-                            .font(.manrope(10.5, .semibold))
-                            .foregroundStyle(selected ? LauncherPalette.accent : LauncherPalette.secondaryText)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1.5)
-                            .background(LauncherPalette.secondaryFill, in: Capsule())
-                            .fixedSize()
-                        if !kind.isBuiltIn {
-                            EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
+                    }
+                    Spacer(minLength: 4)
+                    if !hasUpdate {
+                        if selected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(LauncherPalette.ready)
+                                .padding(.trailing, 4)
+                        } else {
+                            Text(loc.t("upstream.switchBtn"))
+                                .font(.manrope(12, .semibold))
+                                .foregroundStyle(LauncherPalette.secondaryText)
+                                .lineLimit(1)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(LauncherPalette.secondaryFill, in: Capsule())
+                                .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
                         }
                     }
-                    Text(loc.t(kind.cardNoteKey))
-                        .font(.manrope(11.5))
-                        .foregroundStyle(LauncherPalette.secondaryText)
-                        .lineLimit(1)
                 }
-                Spacer(minLength: 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(build.running)
+            .help(tooltip ?? loc.t(selected ? "upstream.activeBadge" : "upstream.readySwitch"))
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .keyboardShortcut(shortcut(kind))
+            .padTarget(actionID(kind), scope: "engineDropdown", radius: 9, enabled: !build.running, activate: { build.selectUpstream(kind); close() }, vertical: { move(kind, by: $0) })
+
+            if hasUpdate {
+                Button {
+                    build.downloadUpstream(kind)
+                } label: {
+                    Text(loc.t("upstream.update"))
+                        .font(.manrope(11.5, .bold))
+                        .lineLimit(1)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(LauncherActionButtonStyle(.capsule))
+                .disabled(build.running)
+                .help(tooltip ?? loc.t("upstream.update"))
+
                 if selected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(LauncherPalette.ready)
-                        .padding(.trailing, 4)
-                } else {
-                    Text(loc.t("upstream.switchBtn"))
-                        .font(.manrope(12, .semibold))
-                        .foregroundStyle(LauncherPalette.secondaryText)
-                        .lineLimit(1)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(LauncherPalette.secondaryFill, in: Capsule())
-                        .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
-                        .fixedSize()
+                        .padding(.trailing, 2)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                hovered ? LauncherPalette.ink(0.08) : (selected ? LauncherPalette.selectedFill : .clear),
-                in: RoundedRectangle(cornerRadius: 9)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9)
-                    .strokeBorder(selected ? LauncherPalette.selectedBorder.opacity(0.45) : .clear)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 9))
         }
-        .buttonStyle(.plain)
-        .disabled(build.running)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            hovered ? LauncherPalette.ink(0.08) : (selected ? LauncherPalette.selectedFill : .clear),
+            in: RoundedRectangle(cornerRadius: 9)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9)
+                .strokeBorder(selected ? LauncherPalette.selectedBorder.opacity(0.45) : .clear)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 9))
         .onHover { inside in
             if inside { hoveredKind = kind } else if hoveredKind == kind { hoveredKind = nil }
         }
-        .help(loc.t(selected ? "upstream.activeBadge" : "upstream.readySwitch"))
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .keyboardShortcut(shortcut(kind))
-        .padTarget(actionID(kind), scope: "engineDropdown", radius: 9, enabled: !build.running, activate: { build.selectUpstream(kind); close() }, vertical: { move(kind, by: $0) })
     }
 
     private func notInstalledRow(kind: EngineUpstreamKind) -> some View {
@@ -587,5 +637,38 @@ private struct EngineExperimentalBadge: View {
             .background(LauncherPalette.building.opacity(0.14), in: Capsule())
             .overlay(Capsule().strokeBorder(LauncherPalette.building.opacity(0.35)))
             .fixedSize()
+    }
+}
+
+private struct UpstreamVersionPill: View {
+    let text: String
+    let highlighted: Bool
+    var selectedTint: Bool = false
+    let fontSize: CGFloat
+    let hPad: CGFloat
+    let vPad: CGFloat
+    let tooltip: String?
+
+    var body: some View {
+        let fg = highlighted
+            ? LauncherPalette.accent
+            : (selectedTint ? LauncherPalette.accent : LauncherPalette.secondaryText)
+        let bg = highlighted ? LauncherPalette.accent.opacity(0.14) : LauncherPalette.secondaryFill
+        let border = highlighted ? LauncherPalette.accent.opacity(0.28) : Color.clear
+        let pill = Text(text)
+            .font(.manrope(fontSize, .semibold))
+            .monospacedDigit()
+            .lineLimit(1)
+            .fixedSize()
+            .foregroundStyle(fg)
+            .padding(.horizontal, hPad)
+            .padding(.vertical, vPad)
+            .background(bg, in: Capsule())
+            .overlay(Capsule().strokeBorder(border))
+        if let tooltip, !tooltip.isEmpty {
+            pill.help(tooltip)
+        } else {
+            pill
+        }
     }
 }

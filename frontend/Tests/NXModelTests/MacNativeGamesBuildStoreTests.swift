@@ -53,7 +53,16 @@ import XCTest
         var streamLinesHandler: ((ProcessLaunch, (RunningProcess) -> Void, (String) -> Void) -> ProcessResult)?
 
         func capture(_ launch: ProcessLaunch) -> ProcessResult { captureAnswer(launch) }
-        func stream(_ launch: ProcessLaunch, line: @escaping (String) -> Void) -> Bool { true }
+        var streamHandler: ((ProcessLaunch, (String) -> Void) -> Bool)?
+        func stream(_ launch: ProcessLaunch, line: @escaping (String) -> Void) -> Bool {
+            if let streamHandler { return streamHandler(launch, line) }
+            if launch.arguments.contains(where: { $0.contains("open_fonts") }) {
+                line("[deps] making NotoSans")
+                line("NX2APPLE_OPEN_FONTS=/tmp/auto-shared-fonts")
+                return true
+            }
+            return true
+        }
         func streamLines(_ launch: ProcessLaunch, started: @escaping (RunningProcess) -> Void, line: @escaping (String) -> Void) -> ProcessResult {
             if let handler = streamLinesHandler { return handler(launch, started, line) }
             started(FakeRunningProcess())
@@ -76,19 +85,40 @@ import XCTest
     private let devices = FakeDevices()
     private let localizer = Localizer(.en)
     private var originalFeatureEnabled = false
+    private var originalCustomPy314: [String]? = nil
+    private var fakePy314Path = ""
 
     override func setUpWithError() throws {
         originalFeatureEnabled = MacNativeGamesBuilder.featureEnabled
+        originalCustomPy314 = MacNativeGamesBuilder.customPython314Candidates
         MacNativeGamesBuilder.featureEnabled = true
         defaults = TestDefaults.make("nxmodel-mng-build-tests")
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent("mng-tests-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
         repo = FakeRepo(path: temporary.appendingPathComponent("repo").path)
+        let pyDir = temporary.appendingPathComponent("fake-py314/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: pyDir, withIntermediateDirectories: true)
+        let pyURL = pyDir.appendingPathComponent("python3.14")
+        try Data("#!/bin/sh\n".utf8).write(to: pyURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pyURL.path)
+        fakePy314Path = pyURL.path
+        MacNativeGamesBuilder.customPython314Candidates = [fakePy314Path]
     }
 
     override func tearDownWithError() throws {
         MacNativeGamesBuilder.featureEnabled = originalFeatureEnabled
+        MacNativeGamesBuilder.customPython314Candidates = originalCustomPy314
         try? FileManager.default.removeItem(at: temporary)
+    }
+
+    private func defaultMNGCaptureAnswer(_ launch: ProcessLaunch) -> ProcessResult {
+        if launch.arguments.contains(where: { $0.contains("sys.version_info") }) {
+            return ProcessResult(status: 0, out: "3.14\n")
+        }
+        if launch.arguments.contains(where: { $0.contains("open_fonts") }) {
+            return ProcessResult(status: 0, out: "NX2APPLE_OPEN_FONTS=/tmp/auto-shared-fonts\n")
+        }
+        return ProcessResult(status: 0, out: "")
     }
 
     private func makeFakeMNGTree() throws -> String {
@@ -176,6 +206,7 @@ import XCTest
         repo.isRepo = false
         let validTree = try makeFakeMNGTree()
         let runner = ChunkedRunner()
+        runner.captureAnswer = defaultMNGCaptureAnswer
         let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
         defaults.set(false, forKey: MacPreflight.defaultsKey)
         store.buildUpstream = .macNativeGames
@@ -226,15 +257,20 @@ import XCTest
 
         store.startBuild()
 
+        let deadline = Date().addingTimeInterval(3)
+        while (!store.done || launchedCommand.isEmpty) && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+
         XCTAssertFalse(launchedCommand.isEmpty)
+        XCTAssertEqual(launchedCommand[0], fakePy314Path)
         XCTAssertEqual(launchedCommand[1], "\(validTree)/build_app.py")
         XCTAssertTrue(launchedCommand.contains("--platform"))
         XCTAssertTrue(launchedCommand.contains("macos"))
-
-        let deadline = Date().addingTimeInterval(3)
-        while !store.done && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
+        XCTAssertTrue(launchedCommand.contains("--shared-fonts"))
+        XCTAssertTrue(launchedCommand.contains("/tmp/auto-shared-fonts"))
+        XCTAssertTrue(store.logTail.contains("[deps] making NotoSans"), "Shared fonts output must stream into build log")
+        XCTAssertFalse(store.logTail.contains("NX2APPLE_OPEN_FONTS="), "Internal open_fonts marker must be filtered from visible build log")
 
         XCTAssertTrue(store.done)
         XCTAssertFalse(store.macAppPath.isEmpty)
@@ -256,6 +292,7 @@ import XCTest
         repo.isRepo = false
         let validTree = try makeFakeMNGTree()
         let runner = ChunkedRunner()
+        runner.captureAnswer = defaultMNGCaptureAnswer
         runner.chunks = [Data("checking files\nERROR: missing shared fonts\n".utf8)]
         runner.exitStatus = 1
 
@@ -272,7 +309,10 @@ import XCTest
         store.updateSlot("keys") { $0.paths = [keys.path] }
 
         store.startBuild()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+        let failDeadline = Date().addingTimeInterval(3)
+        while store.running && Date() < failDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
 
         XCTAssertFalse(store.running)
         XCTAssertFalse(store.done)
@@ -315,6 +355,7 @@ import XCTest
         repo.isRepo = false
         let validTree = try makeFakeMNGTree()
         let runner = ChunkedRunner()
+        runner.captureAnswer = defaultMNGCaptureAnswer
         runner.chunks = [
             Data("checking files\nERROR: Standard NSP packages do not include system shared fonts; pass --firmware <dir> or --shared-fonts <dir>\n".utf8)
         ]
@@ -333,7 +374,10 @@ import XCTest
         store.updateSlot("keys") { $0.paths = [keys.path] }
 
         store.startBuild()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+        let sfDeadline = Date().addingTimeInterval(3)
+        while store.running && Date() < sfDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
 
         XCTAssertFalse(store.running)
         XCTAssertFalse(store.done)
@@ -477,5 +521,61 @@ import XCTest
         XCTAssertEqual(launchedArgs.firstIndex(of: "--update").map { launchedArgs[$0 + 1] }, update.path)
         XCTAssertEqual(launchedArgs.firstIndex(of: "--dlc").map { launchedArgs[$0 + 1] }, dlc.path)
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    func testAutoInstallsPython314WhenMissingBeforeRunningMNG() throws {
+        repo.isRepo = false
+        let validTree = try makeFakeMNGTree()
+        let installedPyURL = temporary.appendingPathComponent("uv-installed/bin/python3.14")
+        MacNativeGamesBuilder.customPython314Candidates = [installedPyURL.path]
+
+        var sawUVInstall = false
+        let runner = ChunkedRunner()
+        runner.streamHandler = { launch, line in
+            if launch.arguments.joined(separator: " ").contains("uv/install.sh") {
+                sawUVInstall = true
+                try? FileManager.default.createDirectory(at: installedPyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? Data("#!/bin/sh\n".utf8).write(to: installedPyURL)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedPyURL.path)
+                line("Installed Python 3.14")
+                return true
+            }
+            return true
+        }
+        runner.captureAnswer = defaultMNGCaptureAnswer
+
+        var launchedExec = ""
+        var launchedPath = ""
+        var launchedTmpDir = ""
+        runner.onStartInspect = { launch in
+            launchedExec = launch.executable
+            launchedPath = launch.environment?["PATH"] ?? ""
+            launchedTmpDir = launch.environment?["TMPDIR"] ?? ""
+        }
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        store.buildUpstream = .macNativeGames
+        store.macNativeGamesPath = validTree
+        store.target = BuildTarget.mac
+        let base = temporary.appendingPathComponent("Zelda [0100F2C0115B6000].xci")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: base)
+        try Data([0]).write(to: keys)
+        store.updateSlot("base") { $0.paths = [base.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+
+        store.startBuild()
+        let dl = Date().addingTimeInterval(3)
+        while launchedExec.isEmpty && Date() < dl {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+
+        XCTAssertTrue(sawUVInstall, "Missing Python 3.14 must trigger rootless uv install")
+        XCTAssertEqual(launchedExec, installedPyURL.path)
+        XCTAssertTrue(launchedPath.hasPrefix(installedPyURL.deletingLastPathComponent().path + ":"))
+        let expectedTmp = store.effectiveWorkDir + "/.tmp"
+        XCTAssertEqual(launchedTmpDir, expectedTmp)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedTmp))
     }
 }

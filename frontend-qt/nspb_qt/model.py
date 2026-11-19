@@ -326,10 +326,19 @@ class Model(QObject):
             if managed:
                 self.s2arm_path = managed
         self.upstream_auto_switch_revision = 0
+        def _safe_emit_upstream() -> None:
+            try:
+                self.upstreamStateChanged.emit()
+            except RuntimeError:
+                pass
+
         self._upstream_coordinator = upstream_store.UpstreamDownloadCoordinator(
             is_running=lambda: self.running,
             on_installed=self._on_upstream_installed,
-            on_changed=lambda: self.upstreamStateChanged.emit(),
+            on_changed=_safe_emit_upstream,
+        )
+        self._upstream_version_checker = upstream_store.UpstreamVersionChecker(
+            on_changed=_safe_emit_upstream,
         )
         self.upstream_states = self._upstream_coordinator.states
         self._upstream_lock = self._upstream_coordinator._lock
@@ -935,7 +944,7 @@ class Model(QObject):
         """
         is_s2arm = self.is_s2arm_selected
         if py_ok and is_s2arm:
-            missing_s2a = s2arm_builder.missing_python_packages(py)
+            missing_s2a = s2arm_builder.missing_python_packages(py, tree=getattr(self, 's2arm_path', ''))
             if missing_s2a:
                 return Dep(
                     'python',
@@ -2834,10 +2843,84 @@ class Model(QObject):
             return True
         return False
 
+    def upstream_local_receipt(self, kind: str) -> upstream_store.UpstreamVersionReceipt | None:
+        tree_path = getattr(self, 's2arm_path', '') if kind == 's2arm' else ''
+        local = upstream_store.read_local_receipt(kind, tree_path, repo_path=self.repo_path)
+        remote = self._upstream_version_checker.remote_info(kind)
+        if (
+            local is not None
+            and remote is not None
+            and local.commit
+            and upstream_store.normalized_commit(local.commit) == upstream_store.normalized_commit(remote.commit)
+            and remote.version
+            and local.version != remote.version
+        ):
+            upgraded = upstream_store.UpstreamVersionReceipt(
+                commit=local.commit,
+                version=remote.version,
+                installed_at=local.installed_at,
+            )
+            if tree_path:
+                try:
+                    upstream_store.write_version_receipt(tree_path, upgraded)
+                except OSError:
+                    pass
+            return upgraded
+        return local
+
+    def upstream_remote_info(self, kind: str) -> upstream_store.UpstreamRemoteInfo | None:
+        return self._upstream_version_checker.remote_info(kind)
+
+    def upstream_has_update(self, kind: str) -> bool:
+        if upstream_store.upstream_is_builtin(kind) or not self.is_upstream_installed(kind):
+            return False
+        if self._upstream_coordinator.is_busy(kind):
+            return False
+        return upstream_store.has_update(
+            self.upstream_local_receipt(kind),
+            self.upstream_remote_info(kind),
+        )
+
+    def upstream_version_badge(self, kind: str) -> str:
+        return upstream_store.compact_badge_text(
+            kind,
+            self.upstream_local_receipt(kind),
+            update_available=self.upstream_has_update(kind),
+            builtin_fallback=self.t('upstream.builtinBadge'),
+            installed_fallback=self.t('upstream.installedBadge'),
+        )
+
+    def upstream_update_tooltip(self, kind: str) -> str:
+        if not self.upstream_has_update(kind):
+            return ''
+        remote = self.upstream_remote_info(kind)
+        if remote is None:
+            return ''
+        return self.t('upstream.updateAvailableHelp', remote.tooltip_detail)
+
+    def check_upstream_updates(
+        self,
+        *,
+        kinds: tuple[str, ...] | list[str] | None = None,
+        force: bool = False,
+        fetch_text: Callable[[str], str | bytes | None] | None = None,
+    ) -> list[threading.Thread]:
+        target_kinds = upstream_store.available_upstreams() if kinds is None else kinds
+        return self._upstream_version_checker.check_async(
+            target_kinds,
+            is_installed=self.is_upstream_installed,
+            is_busy=self._upstream_coordinator.is_busy,
+            force=force,
+            fetch_text=fetch_text,
+        )
+
     def _on_upstream_installed(self, kind: str, installed_dir: Path) -> None:
         if kind == 's2arm':
             self.s2arm_path = str(installed_dir)
             self.settings.setValue('s2armPath', self.s2arm_path)
+        receipt = upstream_store.read_version_receipt(installed_dir)
+        if receipt is not None and receipt.commit:
+            self._upstream_version_checker.clear_if_stale_after_install(kind, receipt.commit)
         if not self.running:
             self.upstream_auto_switch_revision += 1
             self.select_upstream(kind)
@@ -2853,7 +2936,8 @@ class Model(QObject):
     ) -> threading.Thread | None:
         if kind not in upstream_store.available_upstreams() or kind == 'nxnative':
             return None
-        return self._upstream_coordinator.start_download(kind, downloader=downloader)
+        known_remote = self.upstream_remote_info(kind)
+        return self._upstream_coordinator.start_download(kind, remote_info=known_remote, downloader=downloader)
 
     @property
     def can_build(self) -> bool:
@@ -3432,18 +3516,20 @@ class Model(QObject):
         if self.is_s2arm_selected:
             Path(work_dir).mkdir(parents=True, exist_ok=True)
             events_file = str(Path(work_dir, 's2a-events.jsonl'))
-            is_unencrypted = folder is not None or Path(input_dir).suffix.lower() == '.nup'
-            cmd_argv, cwd, extra_env = s2arm_builder.build_command(
-                self.s2arm_path,
-                python_exe=py,
-                source_input=input_dir,
-                keys_path=self.keys_path,
-                is_unencrypted=is_unencrypted,
-                work_dir=work_dir,
-                target=self.target,
-                title_id=tid_hex,
-                events_file=events_file,
+            is_unencrypted = (
+                folder is not None
+                or Path(input_dir).suffix.lower() == '.nup'
+                or Path(self.base_path).suffix.lower() == '.nup'
             )
+            resolved_dir, _used_staging = s2arm_builder.resolve_source_input(
+                input_dir,
+                work_dir=work_dir,
+                hard_links=not pu.IS_WIN,
+            )
+            if not resolved_dir:
+                self.finished.emit(False, self.t('msg.stagingFailed'))
+                return
+            input_dir = resolved_dir
             self._build_cancelled = False
             self.running = True
             self.runningChanged.emit(True)
@@ -3451,11 +3537,164 @@ class Model(QObject):
                 self.stages = []
             self.log_tail = ''
             self.stagesChanged.emit()
-            self.log(self.t('msg.running', ' '.join(cmd_argv)) + '\n')
-            env = pu.child_env()
-            env.update(extra_env)
+
+            s2arm_tree = self.s2arm_path
+            keys_path = self.keys_path
+            target = self.target
 
             def run_s2arm() -> tuple[bool, str]:
+                from . import s2arm_bootstrap
+
+                def _cancelled() -> bool:
+                    return bool(getattr(self, '_build_cancelled', False))
+
+                def _log_line(line: str) -> None:
+                    self._on_line(line)
+
+                env = s2arm_bootstrap.env_with_git_proxy_safety(pu.child_env())
+
+                # 1. Single-commit local git repo for extracted ZIP snapshots
+                s2arm_bootstrap.ensure_git_repo(s2arm_tree)
+                if _cancelled():
+                    return False, self.t('msg.stopped')
+
+                # 2. Dedicated `<s2arm>/.venv` matching exact requirements*.txt pins + cmake/ninja/(meson)
+                venv_ok, _venv_skipped, s2a_py, venv_log = s2arm_bootstrap.ensure_s2arm_venv(
+                    s2arm_tree,
+                    py,
+                    env=env,
+                    on_line=_log_line,
+                )
+                if _cancelled():
+                    return False, self.t('msg.stopped')
+                if not venv_ok:
+                    if venv_log and not self.log_tail:
+                        self.log(venv_log + '\n')
+                    missing = s2arm_builder.missing_python_packages(s2a_py, tree=s2arm_tree)
+                    missing_tools = s2arm_bootstrap.missing_venv_build_tools(s2a_py)
+                    detail = ', '.join(missing + missing_tools) or ', '.join(s2arm_bootstrap.FALLBACK_PYTHON_SPECS)
+                    return False, self.t('dep.python.s2armMissing', detail)
+
+                # 3. Official .NET 10 SDK (skips Homebrew dotnet on POSIX, auto-installs if missing)
+                dn_path, dn_ok, dn_err = s2arm_bootstrap.ensure_dotnet_for_s2arm(
+                    s2arm_tree,
+                    env=env,
+                    on_line=_log_line,
+                )
+                if _cancelled():
+                    return False, self.t('msg.stopped')
+                if not dn_ok:
+                    req_ver, _ = s2arm_builder.sdk_requirement(s2arm_tree)
+                    if dn_err:
+                        self.log(dn_err + '\n')
+                    return False, self.t('dep.dotnet.s2armMissing', req_ver)
+
+                extra_path_bins: list[str] = [str(Path(s2a_py).parent)]
+                if dn_path and Path(dn_path).is_file():
+                    dn_dir = str(Path(dn_path).parent)
+                    extra_path_bins.append(dn_dir)
+                    env['DOTNET_ROOT'] = dn_dir
+                    if not pu.IS_WIN:
+                        env['DOTNET_ROOT_ARM64'] = dn_dir
+
+                def _prepend_path(dirs: list[str]) -> None:
+                    existing = [d for d in env.get('PATH', '').split(os.pathsep) if d]
+                    merged: list[str] = []
+                    seen: set[str] = set()
+                    for d in dirs + existing:
+                        if d and d not in seen:
+                            seen.add(d)
+                            merged.append(d)
+                    env['PATH'] = os.pathsep.join(merged)
+
+                _prepend_path(extra_path_bins)
+
+                # 4. Prepare `<s2arm>/build/rewriter-deps` and export `S2A_REWRITER_DEPS`
+                deps_ok, _deps_skipped, deps_dir, deps_log = s2arm_bootstrap.ensure_rewriter_deps(
+                    s2arm_tree,
+                    s2a_py,
+                    env=env,
+                    on_line=_log_line,
+                )
+                if _cancelled():
+                    return False, self.t('msg.stopped')
+                if not deps_ok:
+                    if deps_log:
+                        self.log(deps_log + '\n')
+                    return False, self.t('msg.buildFailedReason', 'S2Arm rewriter-deps')
+                if deps_dir:
+                    env['S2A_REWRITER_DEPS'] = deps_dir
+
+                bash_exe = '/bin/bash'
+                if pu.IS_WIN:
+                    # 5W. Windows: S2A_ENGINE, Git Bash (S2A_BASH + PATH), and 7 open shared fonts (S2A_FONTS)
+                    env['S2A_ENGINE'] = s2arm_tree
+                    git_bash = s2arm_bootstrap.find_git_bash_windows()
+                    if git_bash:
+                        env['S2A_BASH'] = git_bash
+                        _prepend_path([str(Path(git_bash).parent)])
+                    if not str(env.get('S2A_FONTS') or '').strip():
+                        fonts_dir = lib.default_state_dir() / 's2arm-openfonts'
+                        f_ok, _f_skip, resolved_fonts, f_log = s2arm_bootstrap.ensure_open_fonts_windows(
+                            s2arm_tree,
+                            s2a_py,
+                            fonts_dir,
+                            env=env,
+                            on_line=_log_line,
+                        )
+                        if _cancelled():
+                            return False, self.t('msg.stopped')
+                        if not f_ok:
+                            if f_log:
+                                self.log(f_log + '\n')
+                            return False, self.t('msg.buildFailedReason', 'S2Arm open fonts')
+                        if resolved_fonts:
+                            env['S2A_FONTS'] = resolved_fonts
+                else:
+                    # 5P. POSIX: modern Bash >= 4 (+ shim) and macOS SPIRV / pinned zstd 1.5.7 tools
+                    modern_bash = s2arm_bootstrap.ensure_modern_bash(env=env, on_line=_log_line)
+                    if _cancelled():
+                        return False, self.t('msg.stopped')
+                    if not modern_bash:
+                        return False, self.t('msg.buildFailedReason', 'Bash 5')
+                    bash_exe = modern_bash
+                    env['SHELL'] = modern_bash
+                    shim_dir = s2arm_bootstrap.link_bash_shim(modern_bash, s2arm_tree)
+                    if shim_dir:
+                        _prepend_path([shim_dir])
+                    rt_ok, _rt_skip, rt_bin, zstd_lib, rt_log = s2arm_bootstrap.ensure_runtime_tools(
+                        s2arm_tree,
+                        s2a_py,
+                        env=env,
+                        on_line=_log_line,
+                    )
+                    if _cancelled():
+                        return False, self.t('msg.stopped')
+                    if not rt_ok:
+                        if rt_log:
+                            self.log(rt_log + '\n')
+                        return False, self.t('msg.buildFailedReason', 'SPIRV / zstd tools')
+                    if rt_bin:
+                        _prepend_path(([shim_dir] if shim_dir else []) + [rt_bin])
+                    if zstd_lib:
+                        env['S2A_ZSTD_LIB'] = zstd_lib
+
+                cmd_argv, cwd, extra_env = s2arm_builder.build_command(
+                    s2arm_tree,
+                    python_exe=s2a_py,
+                    source_input=input_dir,
+                    keys_path=keys_path,
+                    is_unencrypted=is_unencrypted,
+                    work_dir=work_dir,
+                    target=target,
+                    title_id=tid_hex,
+                    events_file=events_file,
+                    bash_exe=bash_exe,
+                )
+                env.update(extra_env)
+                env = s2arm_builder.apply_concurrency_defaults(env)
+                self.log(self.t('msg.running', ' '.join(cmd_argv)) + '\n')
+
                 ok = False
                 rc = -1
                 proc: subprocess.Popen | None = None
@@ -3473,13 +3712,13 @@ class Model(QObject):
                         **pu.process_group_kwargs(),
                     )
                     self._proc = proc
-                    if getattr(self, '_build_cancelled', False):
+                    if _cancelled():
                         pu.kill_process_tree(proc)
                     assert proc.stdout is not None
                     for line in proc.stdout:
                         self._on_line(line.rstrip('\n'))
                     rc = proc.wait()
-                    ok = rc == 0 and not getattr(self, '_build_cancelled', False)
+                    ok = rc == 0 and not _cancelled()
                 except OSError as e:
                     self.log(f'{e}\n')
                 finally:

@@ -28,13 +28,41 @@ package enum S2ArmBuilder {
     package static let macOneClickScript = "pack/oneclick/oneclick.sh"
     package static let defaultMinDotnetSDK = "10.0.403"
     package static let defaultDotnetRollForward = "latestFeature"
-    package static let pipPackages = ["numpy", "Pillow", "fonttools", "skia-pathops"]
+    package static let pipPackages = ["capstone", "lz4", "zstandard", "numpy", "Pillow", "fonttools", "skia-pathops", "cmake", "meson", "ninja"]
     package static let requiredPythonPackages: [(module: String, package: String)] = [
+        ("capstone", "capstone"),
+        ("lz4", "lz4"),
+        ("zstandard", "zstandard"),
         ("numpy", "numpy"),
         ("PIL", "Pillow"),
         ("fontTools", "fonttools"),
         ("pathops", "skia-pathops"),
     ]
+
+    /// True when `path` or its resolved symlink target lives inside Homebrew (`/Cellar/` or `/homebrew/`).
+    /// Homebrew's source-built `.NET SDK` lacks static Brotli libraries required by S2Arm's macOS host C# build.
+    package static func isHomebrewDotnetPath(_ path: String) -> Bool {
+        guard !path.isEmpty else { return false }
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        for p in [path, resolved] {
+            if p.contains("/Cellar/") || p.contains("/homebrew/") {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Ordered non-Homebrew `.NET` candidate paths for S2Arm (`~/.dotnet` and `/usr/local/share/dotnet` first).
+    package static func dotnetCandidates(home: String = NSHomeDirectory()) -> [String] {
+        var ordered = [
+            home + "/.dotnet/dotnet",
+            "/usr/local/share/dotnet/dotnet",
+        ]
+        for cand in Toolchain.dotnetCandidates(home: home) where !ordered.contains(cand) && !isHomebrewDotnetPath(cand) {
+            ordered.append(cand)
+        }
+        return ordered
+    }
 
     package static func sdkRequirement(in tree: String, fileManager fm: FileManager = .default) -> (version: String, rollForward: String) {
         guard !tree.isEmpty else { return (defaultMinDotnetSDK, defaultDotnetRollForward) }
@@ -111,14 +139,14 @@ package enum S2ArmBuilder {
     }
 
     package static func findDotnet(
-        _ candidates: [String] = Toolchain.dotnetCandidates(),
+        _ candidates: [String] = S2ArmBuilder.dotnetCandidates(),
         tree: String = "",
         runner: ProcessRunner = SystemProcessRunner(),
         exists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> (path: String, ok: Bool, requiredVersion: String, foundOldVersion: String?) {
         let req = sdkRequirement(in: tree)
         let reqMajor = parseSDKVersion(req.version)?.major ?? 10
-        let found = candidates.filter(exists)
+        let found = candidates.filter { !isHomebrewDotnetPath($0) && exists($0) }
         var bestOld: String?
         for candidate in found {
             let env = [
@@ -143,13 +171,38 @@ package enum S2ArmBuilder {
 
     package static func missingPythonPackages(
         python: String,
+        tree: String = "",
         runner: ProcessRunner = SystemProcessRunner()
     ) -> [String] {
         guard !python.isEmpty else { return requiredPythonPackages.map(\.package) }
+        let pins = tree.isEmpty ? [] : S2ArmBootstrap.requirementSpecs(in: tree).pinned
+        let checksLiteral = requiredPythonPackages
+            .map { "(\"\($0.module)\", \"\($0.package)\")" }
+            .joined(separator: ", ")
+        let pinsLiteral = pins
+            .map { pair -> String in
+                let n = pair.name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                let v = pair.version.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                return "(\"\(n)\", \"\(v)\")"
+            }
+            .joined(separator: ", ")
         let probe = """
-        import importlib.util
-        checks = [("numpy", "numpy"), ("PIL", "Pillow"), ("fontTools", "fonttools"), ("pathops", "skia-pathops")]
-        missing = [pkg for mod, pkg in checks if importlib.util.find_spec(mod) is None]
+        import importlib.metadata, importlib.util
+        checks = [\(checksLiteral)]
+        pins = [\(pinsLiteral)]
+        missing = []
+        for mod, pkg in checks:
+            if importlib.util.find_spec(mod) is None:
+                missing.append(pkg)
+        for pkg, expected in pins:
+            try:
+                have = importlib.metadata.version(pkg)
+            except importlib.metadata.PackageNotFoundError:
+                have = None
+            if have != expected:
+                tag = f"{pkg}=={expected}"
+                if tag not in missing:
+                    missing.append(tag)
         print(",".join(missing))
         """
         let env = ProcessInfo.processInfo.environment.merging(BundledTools.environment(for: python)) { $1 }
@@ -160,6 +213,57 @@ package enum S2ArmBuilder {
         let line = res.out.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return [] }
         return line.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    package struct ResolvedSource: Equatable, Sendable {
+        package let directory: String
+        package let stagedDirectory: String?
+        package let stagingFailed: Bool
+
+        package init(directory: String, stagedDirectory: String? = nil, stagingFailed: Bool = false) {
+            self.directory = directory
+            self.stagedDirectory = stagedDirectory
+            self.stagingFailed = stagingFailed
+        }
+    }
+
+    private static let siblingContainerExtensions: Set<String> = ["nup", "nsp", "xci", "nsz", "xcz"]
+
+    /// Ensures the source argument passed to S2Arm's `oneclick.sh` (`cd "$1"`) is always a directory.
+    /// When a single `.nup` (or other file) is selected:
+    /// - if its parent folder holds only this file and no sibling `.nup`/`.nsp`/`.xci`/`.nsz`/`.xcz` packages,
+    ///   passes the parent folder directly;
+    /// - otherwise symlinks the file into `<workDir>/staging` via `InputStaging` and returns that directory.
+    package static func resolveSourceDirectory(
+        _ sourceInput: String,
+        workDir: String,
+        fileManager fm: FileManager = .default
+    ) -> ResolvedSource {
+        guard !sourceInput.isEmpty else {
+            return ResolvedSource(directory: sourceInput)
+        }
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: sourceInput, isDirectory: &isDir), !isDir.boolValue else {
+            return ResolvedSource(directory: sourceInput)
+        }
+        let parentDir = (sourceInput as NSString).deletingLastPathComponent
+        let fileName = (sourceInput as NSString).lastPathComponent
+        let siblings = ((try? fm.contentsOfDirectory(atPath: parentDir)) ?? []).filter { name in
+            guard !name.hasPrefix("._") else { return false }
+            let ext = (name as NSString).pathExtension.lowercased()
+            guard siblingContainerExtensions.contains(ext) else { return false }
+            var childIsDir: ObjCBool = false
+            return fm.fileExists(atPath: parentDir + "/" + name, isDirectory: &childIsDir) && !childIsDir.boolValue
+        }
+        if siblings == [fileName] {
+            return ResolvedSource(directory: parentDir)
+        }
+        let tmp = InputStaging.folder(workDir: workDir)
+        let linked = InputStaging.sync(files: [sourceInput], into: tmp)
+        guard linked > 0 else {
+            return ResolvedSource(directory: "", stagedDirectory: nil, stagingFailed: true)
+        }
+        return ResolvedSource(directory: tmp, stagedDirectory: tmp)
     }
 
     package static func scriptPath(in tree: String) -> String {
@@ -214,6 +318,234 @@ package enum S2ArmBuilder {
             env["S2A_KEYS"] = keysPath
         }
         return env
+    }
+
+    /// Computes conservative fallback concurrency floors (`S2A_DIRECT_J`, `S2A_CPU_BAKE`) from
+    /// physical memory and logical CPU count so macOS file-cache pressure does not collapse
+    /// `cores.sh` down to single-core serial compilation on 16+ GiB Macs.
+    package static func recommendedConcurrency(
+        physicalMemoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory,
+        cpuCount: Int = ProcessInfo.processInfo.processorCount
+    ) -> (directJ: Int, cpuBake: Int)? {
+        let cores = max(1, cpuCount)
+        let memGiB = physicalMemoryBytes / (1024 * 1024 * 1024)
+        if memGiB >= 32 {
+            return (min(cores, 8), min(cores, 4))
+        }
+        if memGiB >= 24 {
+            return (min(cores, 6), min(cores, 3))
+        }
+        if memGiB >= 16 {
+            return (min(cores, 4), min(cores, 2))
+        }
+        if memGiB >= 8 {
+            return (min(cores, 2), 1)
+        }
+        return nil
+    }
+
+    /// Applies conservative `S2A_DIRECT_J` and `S2A_CPU_BAKE` defaults when absent from both `env`
+    /// and `processEnv`, never overriding caller-specified values.
+    package static func environmentWithConcurrencyDefaults(
+        into env: [String: String],
+        processEnv: [String: String] = ProcessInfo.processInfo.environment,
+        physicalMemoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory,
+        cpuCount: Int = ProcessInfo.processInfo.processorCount
+    ) -> [String: String] {
+        var out = env
+        let existingDirect = (out["S2A_DIRECT_J"] ?? processEnv["S2A_DIRECT_J"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingBake = (out["S2A_CPU_BAKE"] ?? processEnv["S2A_CPU_BAKE"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !existingDirect.isEmpty {
+            out["S2A_DIRECT_J"] = existingDirect
+        }
+        if !existingBake.isEmpty {
+            out["S2A_CPU_BAKE"] = existingBake
+        }
+        guard let rec = recommendedConcurrency(physicalMemoryBytes: physicalMemoryBytes, cpuCount: cpuCount) else {
+            return out
+        }
+        if existingDirect.isEmpty {
+            out["S2A_DIRECT_J"] = String(rec.directJ)
+        }
+        if existingBake.isEmpty {
+            out["S2A_CPU_BAKE"] = String(rec.cpuBake)
+        }
+        return out
+    }
+
+    /// Injects DOTNET_ROOT and prepends tool/dotnet/wrapper bin folders into PATH without duplicates.
+    package static func environmentWithToolPaths(
+        base: [String: String],
+        dotnetPath: String?,
+        extraBinDirs: [String] = [],
+        home: String = NSHomeDirectory(),
+        runner: ProcessRunner = SystemProcessRunner()
+    ) -> [String: String] {
+        var env = base
+        var prepend: [String] = extraBinDirs.filter { !$0.isEmpty }
+        if let dotnetPath, !dotnetPath.isEmpty {
+            let binDir = (dotnetPath as NSString).deletingLastPathComponent
+            if !binDir.isEmpty {
+                prepend.append(binDir)
+            }
+            let root = Toolchain.dotnetRoot(for: dotnetPath, runner: runner) ?? binDir
+            if !root.isEmpty {
+                env["DOTNET_ROOT"] = root
+                env["DOTNET_ROOT_ARM64"] = root
+            }
+        }
+        prepend += [
+            home + "/.dotnet",
+            "/usr/local/share/dotnet",
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+        ]
+        let existing = (env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
+            .split(separator: ":")
+            .map(String.init)
+        var seen = Set<String>()
+        let merged = (prepend + existing).filter { !$0.isEmpty && seen.insert($0).inserted }
+        env["PATH"] = merged.joined(separator: ":")
+        return env
+    }
+
+    /// Ensures a runnable `zstd` command is available on PATH for `oneclick.sh`.
+    /// When neither PATH nor Homebrew/usr/local has `zstd`, writes a lightweight Python-backed
+    /// wrapper at `<workDir>/.nx2a-bin/zstd` (0755) and returns its containing directory.
+    package static func ensureZstdWrapper(
+        workDir: String,
+        python: String,
+        pathEnv: String,
+        fileManager fm: FileManager = .default
+    ) -> String? {
+        let searchDirs = pathEnv.split(separator: ":").map(String.init)
+            + ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+        for dir in searchDirs where !dir.isEmpty {
+            let candidate = (dir.hasSuffix("/") ? dir : dir + "/") + "zstd"
+            if fm.isExecutableFile(atPath: candidate) {
+                return nil
+            }
+        }
+        guard !workDir.isEmpty, !python.isEmpty else { return nil }
+        let binDir = (workDir.hasSuffix("/") ? workDir : workDir + "/") + ".nx2a-bin"
+        let wrapperPath = binDir + "/zstd"
+        let escapedPy = python.replacingOccurrences(of: "'", with: "'\\''")
+        let script = """
+        #!/bin/sh
+        exec '\(escapedPy)' - "$@" <<'PYEOF'
+        import os, sys
+        try:
+            from compression import zstd
+        except ImportError:
+            from backports import zstd
+
+        decompress = False
+        to_stdout = False
+        out_path = None
+        remove_src = False
+        files = []
+        args = sys.argv[1:]
+        i = 0
+        while i < len(args):
+            a = args[i]
+            if a == '--':
+                files.extend(args[i + 1:])
+                break
+            if a in ('-d', '--decompress', '--uncompress'):
+                decompress = True
+            elif a in ('-c', '--stdout'):
+                to_stdout = True
+            elif a in ('-f', '--force', '-q', '--quiet', '-k', '--keep', '-T0', '--no-progress'):
+                pass
+            elif a == '--rm':
+                remove_src = True
+            elif a == '-o' and i + 1 < len(args):
+                i += 1
+                out_path = args[i]
+            elif a.startswith('-o') and len(a) > 2:
+                out_path = a[2:]
+            elif a.startswith('-T') or a.startswith('--threads'):
+                if a == '--threads' and i + 1 < len(args):
+                    i += 1
+            elif a.startswith('-') and not a.startswith('--') and len(a) > 1:
+                for ch in a[1:]:
+                    if ch == 'd':
+                        decompress = True
+                    elif ch == 'c':
+                        to_stdout = True
+                    elif ch in ('f', 'q', 'k'):
+                        pass
+            else:
+                files.append(a)
+            i += 1
+
+        def run_stream(src_f, dst_f):
+            data = src_f.read()
+            dst_f.write(zstd.decompress(data) if decompress else zstd.compress(data))
+
+        if not files or files == ['-']:
+            run_stream(sys.stdin.buffer, sys.stdout.buffer)
+            sys.exit(0)
+
+        for src in files:
+            if to_stdout:
+                with open(src, 'rb') as sf:
+                    run_stream(sf, sys.stdout.buffer)
+            else:
+                if out_path:
+                    dst = out_path
+                elif decompress and src.endswith('.zst'):
+                    dst = src[:-4]
+                elif not decompress:
+                    dst = src + '.zst'
+                else:
+                    dst = src + '.out'
+                with open(src, 'rb') as sf, open(dst, 'wb') as df:
+                    run_stream(sf, df)
+                if remove_src:
+                    try:
+                        os.remove(src)
+                    except OSError:
+                        pass
+        PYEOF
+        """
+        do {
+            try fm.createDirectory(atPath: binDir, withIntermediateDirectories: true)
+            try Data(script.utf8).write(to: URL(fileURLWithPath: wrapperPath), options: .atomic)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperPath)
+            return binDir
+        } catch {
+            return nil
+        }
+    }
+
+    private static let s2armDoneRegex = try! NSRegularExpression(pattern: #"(.+?)完成[，,]\s*用时\s*(.+)$"#)
+
+    /// Parses S2Arm Chinese stage markers: `▶ <stage>开始` and `<stage>完成，用时<elapsed>`.
+    package static func parseStageEvent(_ line: String) -> (name: String, finished: Bool, detail: String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let arrow = trimmed.range(of: "▶") {
+            let after = trimmed[arrow.upperBound...].trimmingCharacters(in: .whitespaces)
+            if after.hasSuffix("开始") {
+                let name = String(after.dropLast(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty {
+                    return (name, false, "")
+                }
+            }
+        }
+        let ns = trimmed as NSString
+        if let m = s2armDoneRegex.firstMatch(in: trimmed, range: NSRange(location: 0, length: ns.length)) {
+            let rawName = ns.substring(with: m.range(at: 1))
+                .trimmingCharacters(in: CharacterSet(charactersIn: " ✓✔✅▶•·-[]"))
+            let elapsed = ns.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !rawName.isEmpty {
+                return (rawName, true, elapsed)
+            }
+        }
+        return nil
     }
 
     package static func parseEvents(_ text: String) -> ResultSummary? {
