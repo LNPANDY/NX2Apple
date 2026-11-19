@@ -20,6 +20,7 @@ enum GallerySheet: String, CaseIterable {
     case batchRefresh, batchRefreshEmpty, imgGuide, imgGuideNoPackage
     case saves, saveImport
     case skippedItems, appUpdate, playerName, playerRename, buildSteps, sendSelectedDevice
+    case cheats
 
     var title: String {
         switch self {
@@ -66,6 +67,7 @@ enum GallerySheet: String, CaseIterable {
         case .playerRename: return "Rename a player"
         case .buildSteps: return "Build steps"
         case .sendSelectedDevice: return "Send game data: no shared app"
+        case .cheats: return "Cheats: no files yet"
         }
     }
 
@@ -79,6 +81,7 @@ enum GallerySheet: String, CaseIterable {
         case .supportedGames, .supportedGamesExpanded, .batchRefresh: return CGSize(width: 680, height: 720)
         case .saves: return CGSize(width: 600, height: 560)
         case .buildSteps: return CGSize(width: 600, height: 440)
+        case .cheats: return CGSize(width: 600, height: 700)
         case .sendSelectedDevice: return CGSize(width: 680, height: 720)
         default: return nil
         }
@@ -232,6 +235,8 @@ extension GalleryFixtures {
             return AnyView(BuildProcessStepsSheet(build: stores.build, close: {}))
         case .sendSelectedDevice:
             return AnyView(SendSelectedSheet(mode: .device, build: stores.build, close: {}))
+        case .cheats:
+            return AnyView(CheatsView(m: stores.build, library: library, gameID: game.id))
         case .confirmTestedValues:
             return confirm(subject: .game(icon), t("launch.useTested"), subtitle: name, note: String(format: t("launch.useTestedMany"), 3), t("launch.useTested"), destructive: false)
         }
