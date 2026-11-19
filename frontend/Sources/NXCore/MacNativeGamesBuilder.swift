@@ -5,7 +5,7 @@ package enum MacNativeGamesBuilder {
 
     package enum Route: Equatable, Sendable {
         case unifiedBuildApp
-        case perGameScript(relativePath: String, supportsPlatformFlag: Bool, supportsUpdateFlag: Bool)
+        case perGameScript(relativePath: String, supportsPlatformFlag: Bool, supportsUpdateFlag: Bool, supportsDLCFlag: Bool)
     }
 
     package static let unifiedTitleIDs: Set<String> = [
@@ -17,9 +17,9 @@ package enum MacNativeGamesBuilder {
     ]
 
     package static let perGameRoutes: [String: Route] = [
-        "010093801237C000": .perGameScript(relativePath: "games/dread/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true),
-        "01002DA013484000": .perGameScript(relativePath: "games/ss/build.py", supportsPlatformFlag: false, supportsUpdateFlag: true),
-        "010048900CF64000": .perGameScript(relativePath: "games/worldend/build.py", supportsPlatformFlag: false, supportsUpdateFlag: false)
+        "010093801237C000": .perGameScript(relativePath: "games/dread/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true, supportsDLCFlag: false),
+        "01002DA013484000": .perGameScript(relativePath: "games/ss/build.py", supportsPlatformFlag: false, supportsUpdateFlag: true, supportsDLCFlag: false),
+        "010048900CF64000": .perGameScript(relativePath: "games/worldend/build.py", supportsPlatformFlag: false, supportsUpdateFlag: false, supportsDLCFlag: false)
     ]
 
     package static var supportedTitleIDs: Set<String> {
@@ -35,7 +35,7 @@ package enum MacNativeGamesBuilder {
         switch route {
         case .unifiedBuildApp:
             return prefix + "build_app.py"
-        case .perGameScript(let relativePath, _, _):
+        case .perGameScript(let relativePath, _, _, _):
             return prefix + relativePath
         }
     }
@@ -72,13 +72,16 @@ package enum MacNativeGamesBuilder {
                     let filesDict = json["files"] as? [String: Any]
                     let updateArr = filesDict?["update"] as? [Any]
                     let supportsUpdate = !(updateArr?.isEmpty ?? true)
+                    let dlcArr = filesDict?["dlc"] as? [Any]
+                    let supportsDLC = !(dlcArr?.isEmpty ?? true)
                     let scriptFullPath = prefix + buildRel
                     let scriptText = (try? String(contentsOfFile: scriptFullPath, encoding: .utf8)) ?? ""
                     let supportsPlatform = scriptText.contains("--platform")
                     return .perGameScript(
                         relativePath: buildRel,
                         supportsPlatformFlag: supportsPlatform,
-                        supportsUpdateFlag: supportsUpdate
+                        supportsUpdateFlag: supportsUpdate,
+                        supportsDLCFlag: supportsDLC
                     )
                 }
             }
@@ -110,13 +113,18 @@ package enum MacNativeGamesBuilder {
             for dlc in dlcPaths where !dlc.isEmpty {
                 args += ["--dlc", dlc]
             }
-        case .perGameScript(_, let supportsPlatformFlag, let supportsUpdateFlag):
+        case .perGameScript(_, let supportsPlatformFlag, let supportsUpdateFlag, let supportsDLCFlag):
             if supportsPlatformFlag {
                 args += ["--platform", "macos"]
             }
             args += ["-o", outputAppPath, "--work", workDir]
             if supportsUpdateFlag && !updatePath.isEmpty {
                 args += ["--update", updatePath]
+            }
+            if supportsDLCFlag {
+                for dlc in dlcPaths where !dlc.isEmpty {
+                    args += ["--dlc", dlc]
+                }
             }
         }
         return args

@@ -55,15 +55,15 @@ final class MacNativeGamesBuilderTests: XCTestCase {
 
         XCTAssertEqual(
             MacNativeGamesBuilder.route(forTitleID: "010093801237C000", in: tree),
-            .perGameScript(relativePath: "games/dread/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true)
+            .perGameScript(relativePath: "games/dread/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true, supportsDLCFlag: false)
         )
         XCTAssertEqual(
             MacNativeGamesBuilder.route(forTitleID: "01002DA013484000", in: tree),
-            .perGameScript(relativePath: "games/ss/build.py", supportsPlatformFlag: false, supportsUpdateFlag: true)
+            .perGameScript(relativePath: "games/ss/build.py", supportsPlatformFlag: false, supportsUpdateFlag: true, supportsDLCFlag: false)
         )
         XCTAssertEqual(
             MacNativeGamesBuilder.route(forTitleID: "010048900CF64000", in: tree),
-            .perGameScript(relativePath: "games/worldend/build.py", supportsPlatformFlag: false, supportsUpdateFlag: false)
+            .perGameScript(relativePath: "games/worldend/build.py", supportsPlatformFlag: false, supportsUpdateFlag: false, supportsDLCFlag: false)
         )
 
         let customDir = URL(fileURLWithPath: tree).appendingPathComponent("games/custom")
@@ -84,7 +84,7 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         let dynamicRoute = MacNativeGamesBuilder.route(forTitleID: "0100ABC001234000", in: tree)
         XCTAssertEqual(
             dynamicRoute,
-            .perGameScript(relativePath: "games/custom/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true)
+            .perGameScript(relativePath: "games/custom/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true, supportsDLCFlag: false)
         )
 
         XCTAssertNil(MacNativeGamesBuilder.route(forTitleID: "0100000000010000", in: tree))
@@ -101,7 +101,7 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         )
         XCTAssertEqual(
             MacNativeGamesBuilder.scriptPath(
-                for: .perGameScript(relativePath: "games/dread/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true),
+                for: .perGameScript(relativePath: "games/dread/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true, supportsDLCFlag: false),
                 in: "/opt/mng"
             ),
             "/opt/mng/games/dread/build.py"
@@ -178,6 +178,71 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         )
         XCTAssertFalse(worldendArgs.contains("--platform"))
         XCTAssertFalse(worldendArgs.contains("--update"))
+    }
+
+    private func writeGame(_ name: String, titleID: String, files: String, in tree: String) throws {
+        let dir = URL(fileURLWithPath: tree).appendingPathComponent("games/\(name)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let json = """
+        {
+            "title_id": "\(titleID)",
+            "build": "games/\(name)/build.py",
+            "files": \(files)
+        }
+        """
+        try Data(json.utf8).write(to: dir.appendingPathComponent("game.json"))
+        try Data("#!/usr/bin/env python3\n".utf8).write(to: dir.appendingPathComponent("build.py"))
+    }
+
+    func testPerGameScriptDLCFromGameJSON() throws {
+        let tree = try makeFakeMNGTree()
+        try writeGame("x", titleID: "0100AAAA00001000",
+                      files: #"{"game": ["nsp"], "update": ["nsp"], "dlc": ["nsp"]}"#, in: tree)
+        try writeGame("y", titleID: "0100BBBB00002000",
+                      files: #"{"game": ["nsp"], "update": ["nsp"]}"#, in: tree)
+
+        let withDLC = MacNativeGamesBuilder.route(forTitleID: "0100AAAA00001000", in: tree)
+        XCTAssertEqual(
+            withDLC,
+            .perGameScript(relativePath: "games/x/build.py", supportsPlatformFlag: false, supportsUpdateFlag: true, supportsDLCFlag: true)
+        )
+        let withoutDLC = MacNativeGamesBuilder.route(forTitleID: "0100BBBB00002000", in: tree)
+        XCTAssertEqual(
+            withoutDLC,
+            .perGameScript(relativePath: "games/y/build.py", supportsPlatformFlag: false, supportsUpdateFlag: true, supportsDLCFlag: false)
+        )
+
+        func args(_ route: MacNativeGamesBuilder.Route) -> [String] {
+            MacNativeGamesBuilder.arguments(
+                route: route,
+                tree: "/opt/mng",
+                gameInput: "/games/base.nsp",
+                keysPath: "/keys/prod.keys",
+                isUnencryptedInput: false,
+                updatePath: "/games/update.nsp",
+                dlcPaths: ["/games/dlc1.nsp", "", "/games/dlc2.nsp"],
+                outputAppPath: "/out/X.app",
+                workDir: "/work"
+            )
+        }
+        XCTAssertEqual(args(try XCTUnwrap(withDLC)), [
+            "/opt/mng/games/x/build.py",
+            "/games/base.nsp",
+            "-k", "/keys/prod.keys",
+            "-o", "/out/X.app",
+            "--work", "/work",
+            "--update", "/games/update.nsp",
+            "--dlc", "/games/dlc1.nsp",
+            "--dlc", "/games/dlc2.nsp"
+        ])
+        XCTAssertEqual(args(try XCTUnwrap(withoutDLC)), [
+            "/opt/mng/games/y/build.py",
+            "/games/base.nsp",
+            "-k", "/keys/prod.keys",
+            "-o", "/out/X.app",
+            "--work", "/work",
+            "--update", "/games/update.nsp"
+        ])
     }
 
     func testEnvironment() {
