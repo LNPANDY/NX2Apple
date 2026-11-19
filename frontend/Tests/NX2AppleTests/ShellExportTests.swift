@@ -6,7 +6,7 @@ import NXModel
 @testable import NXLauncher
 
 /// LNPANDY/NX2Apple#416: the shared app as an unsigned IPA. The commands are checked as pure functions. The export runs headless
-/// against a stand-in `xcrun` (xcodebuild only: it makes an app folder) and a stand-in build_shell.sh, while ditto, xattr and codesign
+/// against a stand-in `xcrun` (xcodebuild only: it makes an app folder) and a stand-in build_shell.sh, while zip, xattr and codesign
 /// are the system's. No test builds a real app, reaches a device or needs a signing team.
 @MainActor final class ShellExportTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
@@ -48,7 +48,8 @@ import NXModel
         XCTAssertEqual(ShellInstall.entitlementsCommand(app: stagedApp, entitlements: "/e.plist"),
                        ["/usr/bin/codesign", "--force", "--sign", "-", "--entitlements", "/e.plist", stagedApp + "/DmShell"])
         XCTAssertEqual(ShellInstall.zipCommand(root: root),
-                       ["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent", root + "/export/stage/Payload", root + "/export/NX2Apple.ipa"])
+                       ["/bin/sh", "-c", #"cd "$1" && rm -f "$3" && exec /usr/bin/zip -q -r -y -X "$3" "$2""#, "sh",
+                        root + "/export/stage", "Payload", root + "/export/NX2Apple.ipa"])
     }
 
     func testTheBuildScriptTakesNoTeamForAnExport() {
@@ -332,7 +333,7 @@ import NXModel
         let stage = ShellInstall.exportStage(root: f.root), ipa = ShellInstall.ipaPath(root: f.root)
         var i = installer(f)
         i.log = { line in
-            if line.contains("/usr/bin/ditto -c -k ") {
+            if line.contains("/usr/bin/zip -q -r -y -X") {
                 try? self.fm.removeItem(atPath: stage + "/Payload")
                 try? self.write(ipa, "partial")
             }
@@ -357,7 +358,7 @@ import NXModel
         XCTAssertEqual(names.count, 8)   // Payload/, app/, Frameworks/, framework/, two executables, Info.plist, one shader archive
         XCTAssertTrue(names.contains("Payload/DmShell.app/Info.plist"))
         XCTAssertEqual(names.filter { $0.hasSuffix(".aar") }.count, 1)
-        // The count a ZIP32 reader actually sees in ditto's end-of-central-directory record.
+        // The count a ZIP32 reader actually sees in zip's end-of-central-directory record.
         let end = try Data(contentsOf: URL(fileURLWithPath: outcome.ipaPath), options: .mappedIfSafe).suffix(22)
         XCTAssertEqual(Array(end.prefix(4)), [0x50, 0x4b, 0x05, 0x06])
         XCTAssertEqual(Array(end.dropFirst(10).prefix(2)), [8, 0])

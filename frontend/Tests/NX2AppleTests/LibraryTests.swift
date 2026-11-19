@@ -554,12 +554,12 @@ import NXModel
         XCTAssertEqual(model.defaultIPAName(), "Zelda_ Echoes_of Wisdom.ipa")
     }
 
-    /// The two commands the actions build: a plain devicectl install of the cached app, and ditto's Payload archive.
+    /// The two commands the actions build: a plain devicectl install of the cached app, and zip's Payload archive.
     func testTheReinstallAndIPARecipes() {
         XCTAssertEqual(BuildCommands.reinstallCommand(xcrun: "/x", device: "D", app: "/a/DmIOS.app"),
                        ["/x", "devicectl", "device", "install", "app", "--device", "D", "/a/DmIOS.app"])
         XCTAssertEqual(BuildCommands.ipaCommand(payload: "/t/Payload", ipa: "/o/Game.ipa"),
-                       ["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent", "/t/Payload", "/o/Game.ipa"])
+                       ["/bin/sh", "-c", #"cd "$1" && rm -f "$3" && exec /usr/bin/zip -q -r -y -X "$3" "$2""#, "sh", "/t", "Payload", "/o/Game.ipa"])
     }
 
     /// An app from before the shared app has no project to sign again: the note says to build the game again. Without a team

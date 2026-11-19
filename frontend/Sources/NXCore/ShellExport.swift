@@ -68,7 +68,7 @@ extension ShellInstall {
         return total
     }
 
-    /// The IPA: the stage folder holds `Payload/<app>.app`, and ditto writes it with Payload as the root (see `BuildCommands.ipaCommand`).
+    /// The IPA: the stage folder holds `Payload/<app>.app`, and zip writes it with Payload as the root (see `BuildCommands.ipaCommand`).
     package static func zipCommand(root: String) -> [String] {
         BuildCommands.ipaCommand(payload: exportStage(root: root) + "/Payload", ipa: ipaPath(root: root))
     }
@@ -353,7 +353,7 @@ package enum ShellExport {
         }) else {
             throw failure ?? CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: payload.path])
         }
-        var count = 1   // ditto --keepParent writes Payload/ itself, then DmShell.app/ and its descendants.
+        var count = 1   // zip writes Payload/ itself, then DmShell.app/ and its descendants.
         while count <= limit, entries.nextObject() != nil { count += 1 }
         if let failure { throw failure }
         return count > limit

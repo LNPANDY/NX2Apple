@@ -397,9 +397,13 @@ package enum BuildCommands {
         [xcrun, "devicectl", "device", "install", "app", "--device", device, app]
     }
 
-    /// ditto writes the archive the way Finder's "compress" does; the IPA's root must be Payload/, and --norsrc keeps
-    /// __MACOSX out (the signature itself lives in _CodeSignature inside the app).
+    /// zip writes the IPA with Payload/ as its root. ditto is not used: past 4 GB it writes 32-bit offsets
+    /// that wrap, so `unzip -t` and sideloading tools reject the IPA. zip writes ZIP64 records once an
+    /// archive needs them. `-y` stores symlinks as links, and `-X` leaves out extended attributes, as
+    /// ditto's --norsrc did. zip adds to an existing archive, so the old IPA is removed first.
     package nonisolated static func ipaCommand(payload: String, ipa: String) -> [String] {
-        ["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent", payload, ipa]
+        let url = URL(fileURLWithPath: payload)
+        return ["/bin/sh", "-c", #"cd "$1" && rm -f "$3" && exec /usr/bin/zip -q -r -y -X "$3" "$2""#, "sh",
+                url.deletingLastPathComponent().path, url.lastPathComponent, ipa]
     }
 }
