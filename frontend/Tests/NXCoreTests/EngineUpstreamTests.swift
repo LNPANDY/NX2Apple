@@ -145,6 +145,38 @@ final class EngineUpstreamTests: XCTestCase {
         XCTAssertThrowsError(try MacGameBundle.read(app))
     }
 
+    /// The key set of nxkit's `info_plist` (crates/nxb-build/src/standalone/bundle.rs): no DMUpstream and no DMTitleID.
+    private func nxkitPlist(bundleID: String) -> [String: Any] {
+        [
+            "CFBundleExecutable": "nxkit-host", "CFBundleIdentifier": bundleID,
+            "CFBundleName": "Ocarina", "CFBundleDisplayName": "Ocarina", "CFBundlePackageType": "APPL",
+            "CFBundleInfoDictionaryVersion": "6.0", "CFBundleVersion": "1.0", "CFBundleShortVersionString": "1.0",
+            "LSMinimumSystemVersion": "14.0", "LSApplicationCategoryType": "public.app-category.games",
+            "NSHighResolutionCapable": true,
+        ]
+    }
+
+    func testMacGameBundleReadsNxkitAppByItsDefaultBundleID() throws {
+        let app = try createFakeApp(name: "NxkitDefault", plist: nxkitPlist(bundleID: "org.nxkit.game.0400486024dec000"), executables: ["nxkit-host"])
+        XCTAssertThrowsError(try MacGameBundle.read(app), "no run folder yet")
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents/Resources/nxkit"), withIntermediateDirectories: true)
+        let bundle = try MacGameBundle.read(app)
+        XCTAssertEqual(bundle.titleID, "0400486024DEC000")
+        XCTAssertEqual(bundle.upstream, .nxkit)
+        XCTAssertEqual(bundle.name, "Ocarina")
+    }
+
+    func testMacGameBundleReadsNxkitAppWithACustomBundleIDByItsHost() throws {
+        var plist = nxkitPlist(bundleID: "com.example.oot")
+        XCTAssertThrowsError(try MacGameBundle.read(try createFakeApp(name: "NxkitNoID", plist: plist, executables: ["nxkit-host"])))
+        plist["DMTitleID"] = "0400486024DEC000"
+        let app = try createFakeApp(name: "NxkitCustom", plist: plist, executables: ["nxkit-host"])
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents/Resources/nxkit"), withIntermediateDirectories: true)
+        let bundle = try MacGameBundle.read(app)
+        XCTAssertEqual(bundle.titleID, "0400486024DEC000")
+        XCTAssertEqual(bundle.upstream, .nxkit)
+    }
+
     func testMacGameBundleReadsMacNativeGames() throws {
         let totkApp = try createFakeApp(
             name: "TOTK",

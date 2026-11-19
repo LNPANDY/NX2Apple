@@ -47,8 +47,10 @@ package struct MacGameBundle {
         switch upstream {
         case .nxnative:
             return fm.isExecutableFile(atPath: bundleURL.appendingPathComponent("Contents/MacOS/dmhost").path)
-        case .macNativeGames, .nxkit:
+        case .macNativeGames:
             return true
+        case .nxkit:
+            return executable == NxkitBuilder.hostName && fm.fileExists(atPath: bundleURL.appendingPathComponent("Contents/Resources/nxkit").path)
         case .s2arm:
             if executable == "s2arm-host" {
                 return fm.fileExists(atPath: bundleURL.appendingPathComponent("Contents/MacOS/libs2a_vaguard.dylib").path)
@@ -131,6 +133,15 @@ package struct MacGameBundle {
                 throw Invalid.notGame
             }
             upstream = .s2arm
+            upperID = resolvedID
+        } else if explicitUpstream == "nxkit" || (explicitUpstream == nil && (bundleID.hasPrefix("org.nxkit.game.") || (info["CFBundleExecutable"] as? String) == NxkitBuilder.hostName)) {
+            // nxkit's Info.plist has no DM keys: the title ID is the 16 hex digits at the end of `org.nxkit.game.<id>`
+            let suffix = bundleID.hasPrefix("org.nxkit.game.") ? String(bundleID.dropFirst("org.nxkit.game.".count)) : nil
+            guard let resolvedID = isHexTitleID(info["DMTitleID"] as? String) ?? isHexTitleID(suffix) else {
+                removeCached(bundleKey)
+                throw Invalid.notGame
+            }
+            upstream = .nxkit
             upperID = resolvedID
         } else {
             guard let resolvedID = isHexTitleID(info["DMTitleID"] as? String) else {
