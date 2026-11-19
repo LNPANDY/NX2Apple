@@ -48,6 +48,7 @@
     {"prefix": "onboarding.background.", "suffix": "", "why": "the background tasks of the onboarding, OnboardingState.swift"},
     {"prefix": "onboarding.platform.", "suffix": "", "why": "the platform choices of the onboarding, OnboardingView.swift"},
     {"prefix": "onboarding.setup.", "suffix": "", "why": "the Xcode setup tasks of the onboarding, OnboardingState.swift"},
+    {"prefix": "onboarding.step.", "suffix": "", "why": "the name of each onboarding step in its top bar, OnboardingView.swift"},
     {"prefix": "stage.", "suffix": "", "why": "the name of each build stage, BuildProgress.swift"},
     {"prefix": "launch.cat.", "suffix": "", "why": "the four parts of the options sheet, LaunchCategory.labelKey in LaunchCategory.swift"},
     {"prefix": "settings.cat.", "suffix": "", "why": "the four parts of Settings, SettingsCategory.labelKey in SettingsCategory.swift"},

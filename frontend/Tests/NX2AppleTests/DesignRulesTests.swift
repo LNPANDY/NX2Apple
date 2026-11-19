@@ -101,7 +101,6 @@ final class DesignRulesTests: XCTestCase {
     /// files below still hold some, with the count they may keep: lower it when a file moves to tokens.
     private static let rawColourAllowed: [String: Int] = [
         "NX2Apple/FrameTimesView.swift": 1,   // the frame-time graph's series colours
-        "NX2Apple/OnboardingView.swift": 2,
         "NXLauncher/AppCard.swift": 1,
         "NXLauncher/BuildFilesCard.swift": 1,
         "NXLauncher/BuildQueueCard.swift": 1,
