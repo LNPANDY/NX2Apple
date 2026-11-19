@@ -10,9 +10,9 @@ import NXCore
 enum ConsoleHomeRow: String, CaseIterable, Equatable {
     /// Ready on this Mac and played before, the one played last first.
     case continuePlaying
-    /// Ready on this Mac, never played, built with the engine's current tools.
+    /// Ready on this Mac, never played.
     case ready
-    /// Not playable as it is: not built, built for iPhone only, an incomplete app, no game data, or built with older tools.
+    /// Not playable on Mac as it is: not built, built for iPhone only, an incomplete app, or no game data.
     case attention
     var titleKey: String { "console.rows." + rawValue }
 }
@@ -31,7 +31,7 @@ enum ConsoleHome {
         var ready: [String] = [], attention: [String] = []
         for (index, game) in games.enumerated() {
             if game.status == .ready, game.lastPlayed != nil || game.id == pausedGameID { continuing.append((game, index)) }
-            else if game.status == .ready, !game.olderTools { ready.append(game.id) }
+            else if game.status == .ready { ready.append(game.id) }
             else { attention.append(game.id) }
         }
         continuing.sort { l, r in

@@ -24,14 +24,14 @@ struct ConsoleBackdrop: View {
                     if starting { blurred(game).overlay(Color.black.opacity(0.32)) }   // a scrim keeps the Starting text readable on any cover
                     else { home(game) }
                 }
-                .saturation(game.status == .ready && !game.olderTools ? 1 : 0)
+                .saturation(LibraryArtworkTone.saturation(muted: game.needsMutedArtworkTone))
                 .id(game.id).transition(.opacity)
             }
         }
         .frame(width: size.width, height: size.height)
         .overlay {
             if !starting, let game {
-                home(game).saturation(game.status == .ready && !game.olderTools ? 1 : 0)
+                home(game).saturation(LibraryArtworkTone.saturation(muted: game.needsMutedArtworkTone))
                     .blur(radius: 16)
                     .mask(alignment: .topTrailing) {
                         EllipticalGradient(colors: [.black, .black.opacity(0.8), .clear], center: .topTrailing,

@@ -58,10 +58,10 @@ import SwiftUI
         XCTAssertGreaterThan(corner.redComponent, 0.98, "The circular face leaves its square corners clear")
     }
 
-    func testAReadyGameWithOlderToolsSaysWhyItNeedsAttention() {
+    func testAReadyGameWithOlderToolsStaysInReadyRowAndKeepsItsStrings() {
         var mario = ConsoleGame(id: "m", title: "Mario", version: "", platforms: [.mac], artwork: nil, status: .ready)
         mario.olderTools = true
-        XCTAssertEqual(ConsoleHome.sections([mario]).first?.row, .attention)
+        XCTAssertEqual(ConsoleHome.sections([mario]).first?.row, .ready)
         XCTAssertNotNil(L10n.table["library.olderToolsShort"])
         XCTAssertNotNil(L10n.table["library.olderTools"])
     }

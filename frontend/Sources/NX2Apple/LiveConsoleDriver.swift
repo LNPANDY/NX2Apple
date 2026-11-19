@@ -80,7 +80,7 @@ struct ConsolePadSnapshot: Equatable {
     var cancellables = Set<AnyCancellable>()
     private var observers: [NSObjectProtocol] = []
     private var refreshQueued = false
-    private var covers: [UUID: (path: String, image: NSImage?)] = [:]
+    private var covers: [UUID: (key: String, image: NSImage)] = [:]
     private var launchedPID: Int32?
     /// The check of the cloud's save before a start, and the game it is for (LiveConsoleDriver+CloudSave.swift). Tests give it a fake download.
     var cloudGate = CloudSaveGate() { didSet { watchCloudGate() } }
@@ -227,13 +227,29 @@ struct ConsolePadSnapshot: Equatable {
 
     var versions: [String: String] = [:]   // LiveConsoleDriver+Version.swift
 
-    /// Covers through the launcher's own lookup, decoded once per image path.
+    /// Covers through the launcher's own lookup, decoded once per image file stamp. Missing covers are never cached.
     private func cover(_ game: LibraryGame) -> NSImage? {
-        let key = "\(game.artwork)|\(game.artworkPath)|" + game.titleID + "|" + game.name
-        if let cached = covers[game.id], cached.path == key { return cached.image }
-        let image = artwork(game, repo())
+        let key = coverKey(for: game)
+        if let cached = covers[game.id], cached.key == key { return cached.image }
+        guard let image = artwork(game, repo()) else {
+            covers.removeValue(forKey: game.id)
+            return nil
+        }
         covers[game.id] = (key, image)
         return image
+    }
+
+    private func coverKey(for game: LibraryGame) -> String {
+        let fileStamp: String
+        if let url = GameLibrary.artworkURLs(for: game, slot: .thumbnail, repo: repo(), banners: library.artworkDirectory).first,
+           let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) {
+            let size = (attrs[.size] as? NSNumber)?.uint64Value ?? 0
+            let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0
+            fileStamp = "\(url.path)|\(size)|\(mtime)"
+        } else {
+            fileStamp = "none"
+        }
+        return "\(game.artwork)|\(game.artworkPath)|\(game.titleID)|\(game.name)|\(fileStamp)"
     }
 
     /// Covers downloaded after the first draw (ArtworkStore) show up when the console asks again.

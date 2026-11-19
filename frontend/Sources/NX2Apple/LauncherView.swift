@@ -30,6 +30,7 @@ struct LauncherView: View {
     @FocusState var searchFocused: Bool
     @State var artwork: [UUID: NSImage] = [:]   // card size
     @State var heroArtwork: (id: UUID, image: NSImage)?   // the hero game's, at the size the hero needs
+    @State var heroIcon: (id: UUID, image: NSImage)?   // the hero game's 1:1 icon, loaded asynchronously off the hero backdrop path
     @StateObject private var recorder: BuildRecorder   // writes the builds into the library: the session's, so a build that ends in console mode is recorded too
     var activeBuildID: UUID? { recorder.activeBuildID }
     @State var profileHelpOpen = false
@@ -119,6 +120,7 @@ struct LauncherView: View {
         _page = State(initialValue: initialPage)
         _buildEditorOpen = State(initialValue: initialBuildEditorOpen)
         _settingsCategory = State(initialValue: settingsCategory)
+        _libraryFilter = State(initialValue: LibraryFilter.loadDesktop(stores.defaults))
         self.performStartupChecks = performStartupChecks
     }
 
@@ -128,10 +130,7 @@ struct LauncherView: View {
         if injectedDriver { consoleDriver.setPadMerge(on) }
     }
 
-    @State var libraryFilter: LibraryFilter = {
-        let saved = LibraryFilter.load()
-        return saved == .built ? .owned : saved
-    }()
+    @State var libraryFilter: LibraryFilter
     @FocusState var keyboardCard: UUID?
     @State var librarySort: LibrarySort = LibrarySort.load()
 
@@ -145,14 +144,32 @@ struct LauncherView: View {
     func setLibraryFilter(_ filter: LibraryFilter) {
         guard filter != libraryFilter else { return }
         withAnimation(.easeInOut(duration: 0.2)) { libraryFilter = filter }
-        filter.save()
-        let after = filter.reconcile(games: library.games, selectedID: library.selectedID, focused: padFocus.focused, sort: librarySort)
+        filter.saveDesktop(stores.defaults)
+        let states = library.cachedArtworkStates(buildingID: activeBuildID)
+        let after = filter.reconcile(
+            games: library.games,
+            selectedID: library.selectedID,
+            focused: padFocus.focused,
+            sort: librarySort,
+            search: search,
+            lang: loc.lang,
+            buildingID: activeBuildID,
+            states: states
+        )
         if after.selectedID != library.selectedID { library.selectedID = after.selectedID }
         if after.focused != padFocus.focused { padFocus.focused = after.focused }
     }
 
     var filteredGames: [LibraryGame] {
-        libraryFilter.visibleGames(library.games, matching: search, lang: loc.lang, sort: librarySort)
+        let states = library.cachedArtworkStates(buildingID: activeBuildID)
+        return libraryFilter.visibleGames(
+            library.games,
+            matching: search,
+            lang: loc.lang,
+            sort: librarySort,
+            buildingID: activeBuildID,
+            states: states
+        )
     }
 
     /// The hero's game: the selection, unless the filter hides it, then the first game the filter shows.
@@ -210,7 +227,6 @@ struct LauncherView: View {
     @State var editingBuildResult = false
     @StateObject private var completionDismissal: BuildCompletionDismissal
     @State private var completedFooterDismissed = false
-    @State private var buildInventoryFilter = BuildInventoryFilter.owned
 
     var needsBuildSetup: Bool { (!repo.isRepo && !m.usesExternalUpstreamRepo) || !buildDependencies.allPresent }
     private var completedActivityVisible: Bool {
@@ -221,7 +237,7 @@ struct LauncherView: View {
         return "complete"
     }
     var completedBuildGame: LibraryGame? { library.games.first { $0.titleID == m.gameTitleID } }
-    var buildEditorVisible: Bool { buildEditorOpen && (!needsBuildSetup || m.running || m.done || m.completionStatus != nil || m.failure != nil) }
+    var buildEditorVisible: Bool { true }
 
     private var launcherBody: some View {
         VStack(spacing: 0) {
@@ -235,39 +251,31 @@ struct LauncherView: View {
                     libraryPage.transaction { if reduceMotion { $0.animation = nil } }
                     if !m.running && !completedActivityVisible { activityBar }
                 }
-            } else if page == .builds && !buildEditorVisible {
-                BuildInventoryView(library: library, build: m, repo: repo, dependencies: buildDependencies, onOpenSettings: { settingsCategory = .tools; page = .settings }, hasDraft: !m.basePath.isEmpty || !m.gameDir.isEmpty,
-                    inventory: library.games.map(BuildInventoryEntry.init), filter: buildInventoryFilter, search: search,
-                    artwork: artwork, managedID: manageOpenFor, configure: configureBuild,
-                    buildPlatform: { game, target in configureBuild(game); if !m.running { m.target = target } },
-                    selectGames: { selectingGames = true },
-                    manage: { library.selectedID = $0.id; manageOpenFor = $0.id },
-                    setFilter: { buildInventoryFilter = $0 }, resume: { if needsBuildSetup && !m.running && !m.done && m.completionStatus == nil { settingsCategory = .tools; page = .settings } else { buildEditorOpen = true } }, newBuild: newBuild,
-                    supportedGames: openSupportedGames, queue: stores.queue, chooseFolder: chooseLibraryFolder, pad: padFocus)
             } else {
+                let allowsArtworkFetch = performStartupChecks || artworkStore !== ArtworkStore.shared
                 VStack(spacing: 0) {
-                CardPages(artworkStore: artworkStore, buildStep: $buildStep, confirmingBuildCancel: $confirmingBuildCancel, buildLogOpen: $buildLogOpen, allBuildStepsOpen: $allBuildStepsOpen, settings: page == .settings, build: m, updates: updates, repo: repo, engine: engine, dependencies: stores.dependencies, devices: devices, queue: stores.queue, transfers: stores.transfers, onSelectGames: { selectingGames = true },
+                CardPages(artworkStore: artworkStore, fetchMetadata: allowsArtworkFetch, buildStep: $buildStep, confirmingBuildCancel: $confirmingBuildCancel, buildLogOpen: $buildLogOpen, allBuildStepsOpen: $allBuildStepsOpen, settings: page == .settings, build: m, updates: updates, repo: repo, engine: engine, dependencies: stores.dependencies, devices: devices, queue: stores.queue, transfers: stores.transfers, onSelectGames: { selectingGames = true },
                           sticks: stores.sticks, saveSettings: stores.saveSettings, players: stores.players,
-                          library: library, diagnostics: stores.diagnostics, onCancelBuild: { buildEditorOpen = false; padFocus.focused = "builds.first" }, onViewGame: {
+                          library: library, diagnostics: stores.diagnostics, onCancelBuild: { buildEditorOpen = false }, onViewGame: {
                               if let game = completedBuildGame { showInLibrary(game.id) } else { page = .library }
                               buildEditorOpen = false
                           }, onPlayGame: completedBuildGame.flatMap { game in game.isReady ? { primaryAction(game) } : nil }, onPlayQueuedGame: { titleID in
                               if let game = library.games.first(where: { $0.titleID == titleID }), game.isReady, !launching { primaryAction(game) }
-                          }, queuePlayEnabled: !launching, editingBuildResult: $editingBuildResult, onOpenSettings: { page = .settings },
+                          }, queuePlayEnabled: !launching, editingBuildResult: $editingBuildResult, onOpenSettings: { settingsCategory = .tools; page = .settings },
                           onChooseLibraryFolder: chooseLibraryFolder, onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
                           padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }), buildFiles: stores.buildFiles, buildingID: m.running ? activeBuildID : nil, onBuildFileDetails: { freeSpaceFor = $0 }, settingsCategory: $settingsCategory)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            if (m.running || stores.queue.active || completedActivityVisible) && (page != .builds || !buildEditorVisible) {
-                BuildActivityFooter(build: m, library: library, queue: stores.queue, repo: repo.path, artworkStore: artworkStore, onOpen: {
+            if (m.running || stores.queue.active || completedActivityVisible) && page != .builds {
+                BuildActivityFooter(build: m, library: library, queue: stores.queue, repo: repo.path, artworkStore: artworkStore, fetchMetadata: performStartupChecks || artworkStore !== ArtworkStore.shared, onOpen: {
                     page = .builds; buildEditorOpen = true
-                    if padFocus.visible { padFocus.focused = "builds.back" }
+                    if padFocus.visible { padFocus.focused = "set.build.action" }
                 }, onPlay: completedBuildGame.flatMap { game in game.isReady ? { if !launching { primaryAction(game) } } : nil },
                     playEnabled: !launching, completedAt: completionDismissal.startedAt, onDismiss: {
                         completedFooterDismissed = true
                         if padFocus.visible && padFocus.scope == "main" {
-                            padFocus.focused = page == .library ? library.selectedID.map { "card." + $0.uuidString } : page == .builds ? "builds.first" : "set.category"
+                            padFocus.focused = page == .library ? library.selectedID.map { "card." + $0.uuidString } : "set.category"
                         }
                     })
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .modifier(active: BuildFooterExit(hidden: true), identity: BuildFooterExit(hidden: false))))
@@ -377,7 +385,10 @@ struct LauncherView: View {
             if performStartupChecks { checkTools() }
         }
         .onChange(of: scenePhase) { phase in
-            if phase == .active { library.objectWillChange.send() }
+            if phase == .active {
+                library.invalidateArtworkStates()
+                library.objectWillChange.send()
+            }
         }
         .alert(loc.t("library.error"), isPresented: Binding(
             get: { launchError != nil || library.error != nil },
@@ -424,7 +435,7 @@ struct LauncherView: View {
         .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)
         .sheet(isPresented: $selectingGames) {
             BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !m.exportsOneGame && !m.exportsFramework, exportsFramework: m.exportsFramework,
-                added: { target in m.target = target; buildEditorOpen = true }) { selectingGames = false }
+                added: { target in m.target = target; buildEditorOpen = true; page = .builds }) { selectingGames = false }
                 .environmentObject(loc).environmentObject(padFocus)
         }
         .refreshSheetsWiring(batchOpen: $batchRefreshOpen, imgGuide: $missingImgGuideFor, stores: stores, library: library, toolsAge: toolsAge, page: $page, buildEditorOpen: $buildEditorOpen, pad: padFocus, scope: { currentPadScope })
@@ -577,7 +588,6 @@ struct LauncherView: View {
     }
 
     func newBuild() {
-        guard !needsBuildSetup || m.running else { page = .builds; buildEditorOpen = false; padFocus.focused = "set.build.setup"; return }
         buildEditorOpen = true
         guard !m.running else { page = .builds; return }
         buildStep = 0
@@ -589,7 +599,6 @@ struct LauncherView: View {
     }
 
     func configureBuild(_ game: LibraryGame) {
-        guard !needsBuildSetup || m.running else { page = .builds; buildEditorOpen = false; padFocus.focused = "set.build.setup"; return }
         buildEditorOpen = true
         guard !m.running else { page = .builds; return }
         buildStep = 0
@@ -655,7 +664,7 @@ struct LauncherView: View {
             return
         }
         let sheetOpen = padFocus.scope != "main" || selectingGames || batchRefreshOpen || missingImgGuideFor != nil || controllerSheet || supportedGames != nil || skippedItemsOpen || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || stores.buildFiles.confirming != nil || deleting != nil || removing != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive
-        switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && (page == .library || page == .builds && !buildEditorVisible)) {
+        switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
         case .open:
@@ -684,7 +693,7 @@ struct LauncherView: View {
         if renaming != nil && [.b, .x, .l, .r].contains(action) { if action == .b { renaming = nil }; return }
         if action == .b {
             if batchRefreshOpen { batchRefreshOpen = false } else if missingImgGuideFor != nil { missingImgGuideFor = nil } else if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsCancelRequest += 1 }
-            else if searching { searching = false; search = "" } else if page == .builds && buildEditorOpen { buildEditorOpen = false } else if page != .library { page = .library }
+            else if searching { searching = false; search = "" } else if page != .library { page = .library }
             return
         }
         if !padFocus.visible {
@@ -695,17 +704,23 @@ struct LauncherView: View {
         switch action {
         case .up: padFocus.move(dx: 0, dy: -1)
         case .down: padFocus.move(dx: 0, dy: 1)
-        case .left: padFocus.horizontal(-1)
-        case .right: padFocus.horizontal(1)
+        case .left, .right:
+            let step = action == .left ? -1 : 1
+            if !sheetOpen, page == .library, let focused = padFocus.focused, focused.hasPrefix("card."),
+               let uuid = UUID(uuidString: String(focused.dropFirst(5))),
+               let game = filteredGames.first(where: { $0.id == uuid }) {
+                _ = moveCollectionFocus(game, by: step)
+            } else {
+                padFocus.horizontal(step)
+            }
         case .a: padFocus.activate()
         case .x:
-            if !sheetOpen, page == .library || page == .builds && !buildEditorVisible,
+            if !sheetOpen, page == .library,
                let game = library.selected, game.isReady { optionsFor = game.id }
         case .l, .r:
             guard !sheetOpen, let at = LauncherPage.allCases.firstIndex(of: page) else { return }
             let pages = LauncherPage.allCases
             page = pages[(at + (action == .l ? pages.count - 1 : 1)) % pages.count]
-            if page == .builds { buildEditorOpen = false }
         case .y, .plus, .select:   // Y is the Manage menu: ManagePad.route opened it above
             return
         case .b:

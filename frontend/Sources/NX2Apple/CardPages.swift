@@ -10,6 +10,7 @@ import NXModel
 
 struct CardPages: View {
     var artworkStore: ArtworkStore = .shared
+    var fetchMetadata = true
     @Binding var buildStep: Int
     var confirmingBuildCancel: Binding<Bool> = .constant(false)
     var buildLogOpen: Binding<Bool> = .constant(false)
@@ -57,7 +58,7 @@ struct CardPages: View {
                              onOpenControllers: onOpenControllers, onRunSetup: onRunSetup, controlChanges: controlChanges, padMerge: padMerge, buildFiles: buildFiles, buildingID: buildingID, onBuildFileDetails: onBuildFileDetails, category: $settingsCategory)
             } else {
                 Group {
-                    BuildPage(library: library, artworkStore: artworkStore, step: $buildStep, build: build, running: build.running, repo: repo, dependencies: dependencies, devices: devices, queue: queue, transfers: transfers, onSelectGames: onSelectGames, extrasOpen: $extrasOpen, logOpen: buildLogOpen, allStepsOpen: allBuildStepsOpen,
+                    BuildPage(library: library, artworkStore: artworkStore, fetchMetadata: fetchMetadata, step: $buildStep, build: build, running: build.running, repo: repo, dependencies: dependencies, devices: devices, queue: queue, transfers: transfers, onSelectGames: onSelectGames, extrasOpen: $extrasOpen, logOpen: buildLogOpen, allStepsOpen: allBuildStepsOpen,
                               confirmingCancel: confirmingBuildCancel, onCancelBuild: onCancelBuild, onViewGame: onViewGame, onPlayGame: onPlayGame, onPlayQueuedGame: onPlayQueuedGame, queuePlayEnabled: queuePlayEnabled, editingResult: editingBuildResult, onOpenSettings: onOpenSettings)
                 }
             }

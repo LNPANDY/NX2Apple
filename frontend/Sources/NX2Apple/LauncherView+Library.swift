@@ -58,7 +58,11 @@ extension LauncherView {
             .modifier(LibraryScrollUnderlap())
             .animation(.easeOut(duration: 0.18), value: artworkSlot)
             .onChange(of: library.selectedID) { _ in toolsAge.cancelSingleRefreshProbe() }
-            .onChange(of: m.running) { running in if running { toolsAge.cancelSingleRefreshProbe() } }
+            .onChange(of: m.running) { running in
+                library.invalidateArtworkStates()
+                if running { toolsAge.cancelSingleRefreshProbe() }
+            }
+            .onChange(of: activeBuildID) { _ in library.invalidateArtworkStates() }
             .onDisappear { toolsAge.cancelSingleRefreshProbe() }
             .allowsHitTesting(!editing)
             .overlay(alignment: .trailing) {
@@ -95,8 +99,9 @@ extension LauncherView {
                 ZStack {
                     ZStack {
                         if let game, let image = heroImage(for: game) {
+                            let state = library.artworkState(for: game, building: m.running && activeBuildID == game.id)
                             ArtworkFill(image: image, focus: displayed(game).artwork.focus(for: .hero))
-                                .saturation(LibraryArtworkState(game, building: m.running && activeBuildID == game.id).monochrome ? 0 : 1)
+                                .saturation(LibraryArtworkTone.saturation(muted: state.monochrome))
                                 .blur(radius: 24, opaque: true)
                                 .id(game.id).transition(.opacity)
                         } else {
@@ -132,7 +137,8 @@ extension LauncherView {
                     HStack(alignment: .bottom, spacing: contentGap) {
                         ZStack {
                             Group {
-                                if let icon = GameLibrary.appIcon(for: game, banners: library.artworkDirectory) {
+                                if let icon = (heroIcon?.id == game.id ? heroIcon?.image : nil)
+                                    ?? GameLibrary.appIcon(for: game, banners: library.artworkDirectory) {
                                     Image(nsImage: icon).resizable().scaledToFill()
                                 } else {
                                     ZStack {
@@ -200,9 +206,31 @@ extension LauncherView {
             }.transaction { $0.animation = nil }
         }
         .frame(width: width).frame(minHeight: height, alignment: .bottomLeading)
-        .task(id: game?.id) {
-            guard let game, performStartupChecks else { return }
-            if await artworkStore.fetchIcon(game.titleID, language: loc.lang.code) != nil { refreshHeroArtwork() }
+        .task(id: "\(game?.id.uuidString ?? "")|\(loc.lang.code)|\(game?.appPath ?? "")") {
+            guard let game else {
+                heroIcon = nil
+                return
+            }
+            let banners = library.artworkDirectory
+            let fallbackKeys = library.keysFile()
+            let langCode = loc.lang.code
+            if let offline = await GameLibrary.loadAppIcon(
+                for: game,
+                banners: banners,
+                language: langCode,
+                fallbackKeys: fallbackKeys,
+                maxPixel: ArtworkImages.iconPixels
+            ) {
+                guard !Task.isCancelled, heroGame?.id == game.id else { return }
+                heroIcon = (game.id, offline)
+            }
+            guard performStartupChecks || artworkStore !== ArtworkStore.shared else { return }
+            if let url = await artworkStore.fetchIcon(game.titleID, language: langCode) {
+                ArtworkImages.shared.invalidate(at: url)
+                let online = await ArtworkImages.shared.loadImage(at: url, maxPixel: ArtworkImages.iconPixels)
+                guard !Task.isCancelled, heroGame?.id == game.id else { return }
+                if let online { heroIcon = (game.id, online) }
+            }
         }
     }
 
@@ -215,7 +243,7 @@ extension LauncherView {
 
     @ViewBuilder private func heroBadgeContent(_ game: LibraryGame) -> some View {
         Group {
-            LibraryArtworkChip(state: LibraryArtworkState(game, building: m.running && activeBuildID == game.id))
+            LibraryArtworkChip(state: library.artworkState(for: game, building: m.running && activeBuildID == game.id))
             libraryMetadataBadges(game)
         }
     }

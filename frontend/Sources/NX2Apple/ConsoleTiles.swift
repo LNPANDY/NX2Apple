@@ -68,7 +68,7 @@ struct ConsoleGameTile: View {
         VStack(alignment: .leading, spacing: 12) {
             ZStack {
                 ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus)
-                    .grayscale(game.status == .ready && !game.olderTools ? 0 : 1)
+                    .saturation(LibraryArtworkTone.saturation(muted: game.needsMutedArtworkTone, active: selected))
                     .drawingGroup()
                 Color.black.opacity(selected ? 0 : 0.55)
             }
@@ -102,6 +102,11 @@ struct ConsoleGameTile: View {
     }
 }
 
+
+extension ConsoleGame {
+    /// Playable builds (Mac or iPhone, regardless of older tools) keep full-color artwork; unbuilt/broken entries use the muted tone.
+    var needsMutedArtworkTone: Bool { status != .ready && status != .iphoneOnly }
+}
 
 extension LibraryArtworkState {
     /// The console driver already verified availability. Rendering never probes the filesystem.

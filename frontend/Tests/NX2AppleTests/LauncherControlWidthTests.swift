@@ -144,7 +144,7 @@ import NXModel
                 s.deviceStore.installDevice = device.id
                 s.deviceStore.signingTeam = team.id
             },
-            // The single-game FilesCard is hidden while a queue is staged, leaving the InstallCard row controls.
+            // The single-game FilesCard is hidden while a queue is staged, leaving the engine switcher and InstallCard row controls.
             Scenario(name: "builds with a waiting queue for an iPhone", page: .builds, atLeast: 2) { s, _, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "ios"
@@ -154,7 +154,7 @@ import NXModel
                 s.deviceStore.installDevice = device.id
                 s.deviceStore.signingTeam = team.id
                 s.queue.enqueue([
-                    QueueEntry(titleID: "0100535012974000", name: "Hades", target: BuildTarget.mac,
+                    QueueEntry(titleID: "0100535012974000", name: "Hades", target: BuildTarget.ios,
                                inputs: ["base": ["/g/hades.nsp"]], outputDirectory: directory.path,
                                engineID: s.engineSync.selection.engineID)
                 ])
@@ -214,14 +214,12 @@ import NXModel
         model.lang = lang
         let samples = Samples()
         let focus = PadFocus()
-        // Source cards are content-sized now. Inspect the actual platform/device step for its constrained rows.
-        let step = modelStores.queue.hasWaiting ? 1 : (model.target == BuildTarget.ios ? 2 : (model.done ? 1 : 0))
         let view = Group {
             if scenario.page == .settings {
                 LauncherView(stores: modelStores, library: library, initialPage: .settings, settingsCategory: category,
                              activeBuildID: nil, performStartupChecks: false, search: nil, olderTools: [], manageOpen: false, padRing: false)
             } else {
-                BuildPage(library: library, step: .constant(step), build: model, running: model.running,
+                BuildPage(library: library, fetchMetadata: false, step: .constant(0), build: model, running: model.running,
                           repo: modelStores.repo, dependencies: modelStores.dependencies, devices: modelStores.deviceStore,
                           queue: modelStores.queue, transfers: modelStores.transfers,
                           extrasOpen: .constant(true), logOpen: .constant(false), confirmingCancel: .constant(false))
@@ -234,20 +232,31 @@ import NXModel
         let window = OffscreenWindow(size: NSSize(width: 1100, height: 2600))
         window.contentView = host
         window.orderFront(nil)
-        defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        defer { window.contentView = nil; window.orderOut(nil); window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.25))
         host.layoutSubtreeIfNeeded()
         if scenario.page == .builds {
-            let required = step == 0 ? "set.build.file.base" : step == 1 ? "set.build.target." + model.target : "set.build.install.mode"
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == required }, "\(scenario.name): missing current-step control")
+            let ids = Set(focus.frames["main", default: []].map(\.id))
+            XCTAssertTrue(ids.contains("set.build.engine"), "\(scenario.name): missing engine switcher control")
+            if modelStores.queue.hasWaiting {
+                XCTAssertTrue(ids.contains("set.build.queue.select"), "\(scenario.name): missing batch queue selector")
+                if modelStores.queue.hasIOS {
+                    XCTAssertTrue(ids.contains("set.build.install.mode"), "\(scenario.name): missing iOS install mode control")
+                }
+            } else {
+                XCTAssertTrue(ids.contains("set.build.file.base"), "\(scenario.name): missing base game file control")
+                XCTAssertTrue(ids.contains("set.build.target." + model.target), "\(scenario.name): missing target control")
+                if model.target == BuildTarget.ios {
+                    XCTAssertTrue(ids.contains("set.build.install.mode"), "\(scenario.name): missing iOS install mode control")
+                }
+            }
         }
         return samples.all
     }
 
-    /// Settings retains the compact row-control contract. Build cards and result actions have their own sizing tests.
+    /// Every Settings and Builds row control fits on one line in every language the launcher offers.
     @MainActor func testEverySettingsRowControlFitsInEveryLanguage() throws {
-        let keys = ["repoPath", "depsExpanded", "buildTarget", "installDevice", "signingTeam", "buildOutputDirectory", "autoUpdateRepo", "exportIPA", "sendWhere"]
-        for scenario in scenarios where scenario.page == .settings {
+        for scenario in scenarios {
             for lang in Lang.all {
                 // Settings has four parts (General, Library, Controls, Tools) and shows one: the page is every part in turn
                 let samples = scenario.page == .settings ? try SettingsCategory.allCases.flatMap { try measure(scenario, lang, category: $0) } : try measure(scenario, lang)

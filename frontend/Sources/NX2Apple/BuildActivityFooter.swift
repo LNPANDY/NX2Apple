@@ -84,11 +84,11 @@ struct BuildActivityFooter: View {
                                 Text(title).font(.manrope(20, .semibold)).lineLimit(1).truncationMode(.tail)
                                     .id(titleID).transition(LibraryHeroTransition.blurredMetadata(reduceMotion: reduceMotion))
                         }.animation(LibraryHeroTransition.queue(reduceMotion: reduceMotion), value: titleID)
-                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
                     if !completed {
-                        currentStep.padding(.horizontal, 12)
+                        currentStep.padding(.horizontal, 14)
                             .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-                            .frame(width: 460)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                 }
                 .padding(.leading, 24).padding(.trailing, completed ? 0 : 24)
@@ -140,14 +140,14 @@ struct BuildActivityFooter: View {
             for entry in upcoming {
                 let game = library.games.first { $0.titleID.caseInsensitiveCompare(entry.titleID) == .orderedSame }
                 if let image = squareArtwork(for: game, titleID: entry.titleID) { queuedIcons[entry.titleID] = image }
-                if let game, let image = GameLibrary.artwork(for: game, repo: repo, banners: library.artworkDirectory) { queuedBackdrops[entry.titleID] = image }
+                if let game, let image = GameLibrary.artwork(for: game, repo: repo, banners: library.artworkDirectory, maxPixel: 320) { queuedBackdrops[entry.titleID] = image }
             }
         }
         .task(id: ArtworkRequest(operation: build.operation, titleID: titleID, game: game, repo: repo, language: loc.lang.code)) {
             icon = nil; shopName = nil
             guard let id = titleID else { return }
             let record = game ?? LibraryGame(titleID: id, name: title)
-            if let image = GameLibrary.artwork(for: record, repo: repo, banners: library.artworkDirectory) { backdropImage = image; backdropID = id }
+            if let image = GameLibrary.artwork(for: record, repo: repo, banners: library.artworkDirectory, maxPixel: 320) { backdropImage = image; backdropID = id }
             icon = squareArtwork(for: game, titleID: id); iconID = id
             guard fetchMetadata else { return }
             _ = await artworkStore.fetchMissing([id], language: loc.lang.code, waits: true)
@@ -155,8 +155,8 @@ struct BuildActivityFooter: View {
             let iconURL = await artworkStore.fetchIcon(id, language: loc.lang.code)
             guard !Task.isCancelled, titleID == id else { return }
             shopName = artworkStore.cachedName(id, language: loc.lang.code)
-            if let iconURL { icon = NSImage(contentsOf: iconURL) }
-            if let image = GameLibrary.artwork(for: record, repo: repo, banners: library.artworkDirectory) { backdropImage = image; backdropID = id }
+            if let iconURL { icon = ArtworkImages.shared.image(at: iconURL, maxPixel: 192) }
+            if let image = GameLibrary.artwork(for: record, repo: repo, banners: library.artworkDirectory, maxPixel: 320) { backdropImage = image; backdropID = id }
         }
     }
 
@@ -169,13 +169,22 @@ struct BuildActivityFooter: View {
     }
 
     private func squareArtwork(for game: LibraryGame?, titleID: String) -> NSImage? {
-        if let game, !game.appPath.isEmpty, let image = NSImage(contentsOfFile: game.appPath + "/Contents/Resources/AppIcon.icns") { return image }
-        return NSImage(contentsOf: library.artworkDirectory.appendingPathComponent(titleID.uppercased()).appendingPathComponent("icon.jpg"))
+        if let game, let image = GameLibrary.appIcon(for: game, banners: library.artworkDirectory, maxPixel: ArtworkImages.iconPixels) {
+            return image
+        }
+        if let cached = BannerCache.cachedIcon(titleID, in: library.artworkDirectory),
+           let image = ArtworkImages.shared.image(at: cached, maxPixel: ArtworkImages.iconPixels) {
+            return image
+        }
+        if let banner = ArtworkStore.cachedBanner(titleID, in: library.artworkDirectory) {
+            return ArtworkImages.shared.image(at: banner, maxPixel: ArtworkImages.iconPixels, squareCrop: true)
+        }
+        return nil
     }
 
     private var currentStep: some View {
         HStack(spacing: 10) {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 ForEach([BuildTarget.mac, BuildTarget.ios].filter { platformTargets.map(BuildTarget.normalized).contains($0) }, id: \.self) { target in
                     Label(loc.t(target == BuildTarget.mac ? "library.section.mac" : "build.ios"), systemImage: target == BuildTarget.mac ? "desktopcomputer" : "iphone")
                         .font(.manrope(13, .semibold)).fixedSize()
@@ -191,14 +200,19 @@ struct BuildActivityFooter: View {
             }
             .font(.system(size: 18)).frame(width: 20, height: 20)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage?.state)
-            Text(stage?.displayName(loc.t) ?? loc.t("library.preparing")).font(.manrope(13)).lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(stage?.displayName(loc.t) ?? loc.t("library.preparing")).font(.manrope(13)).lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: 220, alignment: .leading)
             TimelineView(.periodic(from: Date(), by: 1)) { context in
                 Text(stage?.state == .running ? stage?.clock(at: context.date, left: loc.t("prog.etaEstimate")) ?? "" : "")
-                    .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).monospacedDigit().lineLimit(1)
-            }.frame(width: 66, alignment: .trailing)
-            Text(stage?.state == .running ? stage?.percent.map { "\(Int($0))%" } ?? "" : "")
-                .font(.manrope(13)).monospacedDigit().frame(width: 44, alignment: .trailing)
+                    .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).monospacedDigit()
+                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+            }.layoutPriority(1)
+            if stage?.state == .running, let pct = stage?.percent {
+                Text("\(Int(pct))%")
+                    .font(.manrope(13, .semibold)).monospacedDigit()
+                    .frame(minWidth: 38, alignment: .trailing)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
         }
         .frame(height: 44)
     }

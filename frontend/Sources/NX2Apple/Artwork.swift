@@ -12,7 +12,16 @@ import NXCore
 /// `BannerPick` chooses the game's own product. `sources.json` beside the banners records which URL each one came from, so
 /// a banner saved before the rule (no record) is checked once against it and replaced when the pick differs.
 actor ArtworkStore {
-    static let shared = ArtworkStore(directory: BannerCache.directory)
+    static let shared: ArtworkStore = {
+        if NSClassFromString("XCTestCase") != nil {
+            return ArtworkStore(
+                directory: BannerCache.directory,
+                titleList: URL(fileURLWithPath: "/nonexistent-xctest-titledb.json"),
+                fallbacks: [:]
+            )
+        }
+        return ArtworkStore(directory: BannerCache.directory)
+    }()
 
     static let titleListURL = URL(string: "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json")!
     static let imageHosts: Set<String> = ["img-eshop.cdn.nintendo.net", "cdn2.steamgriddb.com", "www.nintendo.com"]
@@ -35,10 +44,15 @@ actor ArtworkStore {
     let directory: URL
     private let titleList: URL
     private let allowsFileURLs: Bool   // tests serve the list and the images from disk
+    private let now: () -> Date
+    private let retryCooldown: TimeInterval
     private var index: Index?
-    private var listFailed = false   // one attempt per launch
+    private var listFailedAt: Date?   // cools down instead of locking the entire session after a transient outage
     private var running = false
     private var idle: [CheckedContinuation<Void, Never>] = []   // callers that wait for the running fetch to end
+
+    /// Default cooldown after a title list or catalogue fetch error before retrying automatically.
+    static let listRetryCooldown: TimeInterval = 60
 
     /// What the list knows of a title besides its banner: up to `maxScreenshots` gameplay screenshots (1920×1080).
     struct Media: Codable, Equatable {
@@ -63,7 +77,9 @@ actor ArtworkStore {
     }
     static let maxScreenshots = 6
 
-    /// Saved as index.json. `media` holds only the titles that were asked for, as the list for all of them would add some 10 MB.
+    /// Saved as index.json. `media` holds only the titles that were found when asked for, as the list for all of them would add
+    /// some 10 MB; `missed` records titles absent from this language's list so they are not re-fetched in the same language while
+    /// never blocking a later query in another language.
     private struct Index: Codable {
         var version: Int?
         var language: String?   // nil: the US list alone (an index from before version 3, or English)
@@ -71,38 +87,76 @@ actor ArtworkStore {
         var banners: [String: String]
         var several: Set<String>?   // title IDs the list holds more than one product with a banner for
         var media: [String: Media]?
+        var missed: Set<String>? = nil
     }
     private var regional: [String: URL]   // language → its list; tests pass their own
     private let catalogue: CleanArt.Lookup
     private var clean: CleanArt.Cache?
-    private var catalogueFailed = false   // one attempt per launch, as for the list
-    private var activeLanguage: String?
+    private var catalogueFailedAt: Date?   // cools down after a transient error, like the title list
+    private var activeLanguageKey: String?
+    private var activeListLanguage: String?
     private var languageGeneration = 0
-    private var runningLanguage: String?
     private var reading: (language: String, task: Task<Void, Never>)?   // the list being read, about 90 MB: once at a time per language
     private var seen: Set<String> = []   // the title IDs asked for since launch: the media to keep when the list is read again
 
     init(directory: URL, titleList: URL = ArtworkStore.titleListURL, allowsFileURLs: Bool = false, regional: [String: URL]? = nil,
-         catalogue: CleanArt.Lookup? = nil) {
+         catalogue: CleanArt.Lookup? = nil, now: @escaping () -> Date = Date.init, retryCooldown: TimeInterval = ArtworkStore.listRetryCooldown) {
         self.directory = directory
         self.titleList = titleList
         self.allowsFileURLs = allowsFileURLs
+        self.now = now
+        self.retryCooldown = max(0, retryCooldown)
         self.regional = regional ?? Dictionary(uniqueKeysWithValues: Self.regionalLists.keys.compactMap { code in Self.titleListURL(for: code).map { (code, $0) } })
         // Tests that serve their images from disk get no catalogue unless they pass one: it is on the network
         let emptyLookup: CleanArt.Lookup = { _, _ in [:] }
         self.catalogue = catalogue ?? (allowsFileURLs ? emptyLookup : CleanArt.live)
     }
 
+    private var listFailed: Bool {
+        guard let failedAt = listFailedAt else { return false }
+        let elapsed = now().timeIntervalSince(failedAt)
+        return elapsed >= 0 && elapsed < retryCooldown
+    }
+
+    private var catalogueFailed: Bool {
+        guard let failedAt = catalogueFailedAt else { return false }
+        let elapsed = now().timeIntervalSince(failedAt)
+        return elapsed >= 0 && elapsed < retryCooldown
+    }
+
+    /// Normalizes launcher/locale codes (e.g. `zh-Hans`, `EN`, `en-US`) so equivalent requests share the same language identity.
+    private func normalizedLanguage(_ raw: String) -> String {
+        let lower = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: "_", with: "-")
+        guard !lower.isEmpty else { return "en" }
+        if regional[lower] != nil { return lower }
+        let base = String(lower.prefix { $0 != "-" })
+        if regional[base] != nil { return base }
+        return base.isEmpty ? "en" : base
+    }
+
     /// The language whose list is read: the launcher's when it has one, else English (the US list)
-    private func listLanguage(_ language: String) -> String { regional[language] == nil ? "en" : language }
+    private func listLanguage(_ language: String) -> String {
+        let norm = normalizedLanguage(language)
+        return regional[norm] == nil ? "en" : norm
+    }
+
+    /// Combined source-language identity (titledb list + Nintendo EU catalogue). Two requests that resolve to the exact same
+    /// effective sources (e.g. `en`, `en-US`, `sv`) must not bump `languageGeneration` and cancel each other.
+    private func effectiveLanguageKey(_ language: String) -> String {
+        let norm = normalizedLanguage(language)
+        return "\(listLanguage(norm))|\(CleanArt.language(for: norm))"
+    }
 
     private func noteLanguage(_ requested: String) -> Int {
-        if let activeLanguage, activeLanguage != requested {
+        let norm = normalizedLanguage(requested)
+        let key = effectiveLanguageKey(norm)
+        if let activeLanguageKey, activeLanguageKey != key {
             languageGeneration &+= 1
-            listFailed = false
-            catalogueFailed = false
+            listFailedAt = nil
+            catalogueFailedAt = nil
         }
-        activeLanguage = requested
+        activeLanguageKey = key
+        activeListLanguage = listLanguage(norm)
         return languageGeneration
     }
 
@@ -146,14 +200,14 @@ actor ArtworkStore {
                                          lightweight: Bool = false) async -> [String] {
         let generation = noteLanguage(requested)
         while true {
-            while running, waits || runningLanguage != requested {
+            if running, !waits { return [] }
+            while running {
                 await withCheckedContinuation { idle.append($0) }
-                if !waits, languageGeneration != generation { return [] }
             }
             if !waits, languageGeneration != generation { return [] }
             let runGen = waits ? languageGeneration : generation
             if let added = await fetchOnce(titleIDs, language: requested, generation: runGen, lightweight: lightweight) { return added }
-            guard waits else { return [] }   // turned away: another fetch in the same language started while this one looked up the catalogue
+            guard waits else { return [] }   // turned away: another fetch started while this one looked up the catalogue
         }
     }
 
@@ -161,13 +215,14 @@ actor ArtworkStore {
     private func fetchOnce(_ titleIDs: [String], language requested: String, generation: Int, lightweight: Bool = false) async -> [String]? {
         let asked = Set(titleIDs.map { $0.uppercased() }.filter(Self.isTitleID))
         seen.formUnion(asked)
-        let lang = listLanguage(requested)
+        let norm = normalizedLanguage(requested)
+        let lang = listLanguage(norm)
         var sources = readSources()
         // Picked for another language (or before languages were recorded): every banner is picked again, once
         let sameLanguage = (sources[Self.languageKey] ?? "en") == lang
         if !sameLanguage && !lightweight { sources = [Self.languageKey: lang] }
         else if sources[Self.languageKey] == nil { sources[Self.languageKey] = lang }
-        await lookUpClean(asked, language: requested, generation: generation)
+        await lookUpClean(asked, language: norm, generation: generation)
         guard languageGeneration == generation else { return [] }
         let wanted = asked.filter { id in
             if lightweight { return Self.cachedBanner(id, in: directory) == nil }
@@ -176,14 +231,15 @@ actor ArtworkStore {
         // A title added since the list was last read has its banner and no media: read the list now, in the background, rather than
         // when the panel opens. An index without media is left for `media(for:)`, as it is not rewritten at launch.
         loadIndex()
-        let lacksMedia = !lightweight && (index?.media.map { media in asked.contains { media[$0] == nil } } ?? false)
+        let lacksMedia = !lightweight && (index?.media.map { media in
+            let missed = index?.missed ?? []
+            return (index?.language ?? "en") != lang || asked.contains { media[$0] == nil && !missed.contains($0) }
+        } ?? false)
         guard !wanted.isEmpty || (lacksMedia && !listFailed) else { return [] }
         guard !running else { return nil }
         running = true
-        runningLanguage = requested
         defer {
             running = false
-            runningLanguage = nil
             let waiting = idle
             idle = []
             for caller in waiting { caller.resume() }
@@ -303,19 +359,26 @@ actor ArtworkStore {
 
     /// The screenshots of a title. They are in the saved index once it has been read again since they were added, so an index
     /// without them is read again, once, here and never at launch. `retrying` is the player asking again after `.offline`: the
-    /// list gets another attempt, which the one-attempt-per-launch rule would refuse.
+    /// list gets another attempt immediately without waiting for the failure cooldown.
     func media(for titleID: String, retrying: Bool = false, language requested: String? = nil) async -> MediaLoad {
         let generation = requested.map { noteLanguage($0) } ?? languageGeneration
-        let lang = requested.map(listLanguage) ?? activeLanguage.map(listLanguage) ?? index?.language ?? "en"
+        let lang = requested.map(listLanguage) ?? activeListLanguage ?? index?.language ?? "en"
         let id = titleID.uppercased()
         seen.insert(id)
-        if retrying { listFailed = false }
+        if retrying { listFailedAt = nil }
         loadIndex()
-        if index?.media?[id] == nil || index?.version != Self.indexVersion, !listFailed {
+        let indexLang = index?.language ?? "en"
+        let hasRecord = index?.media?[id] != nil || (index?.missed?.contains(id) ?? false)
+        if index == nil || index?.version != Self.indexVersion || indexLang != lang || !hasRecord, !listFailed {
             await refresh(language: lang, generation: generation)
         }
-        guard let media = index?.media?[id] else { return .offline }
-        return media.screenshots.isEmpty ? .none : .loaded(media)
+        if let media = index?.media?[id] {
+            return media.screenshots.isEmpty ? .none : .loaded(media)
+        }
+        if index?.version == Self.indexVersion, (index?.language ?? "en") == lang, index?.missed?.contains(id) == true {
+            return .none
+        }
+        return .offline
     }
 
     /// Optional metadata added to existing caches without invalidating downloaded artwork.
@@ -327,12 +390,13 @@ actor ArtworkStore {
     }
 
     /// The selected game's metadata icon uses the same bounded image validation as banners.
-    func fetchIcon(_ titleID: String, language: String) async -> URL? {
+    /// Retries automatically once the failure cooldown expires or immediately when `retrying` is true.
+    func fetchIcon(_ titleID: String, language: String, retrying: Bool = false) async -> URL? {
         let id = titleID.uppercased()
         guard Self.isTitleID(id) else { return nil }
         let file = directory.appendingPathComponent(id).appendingPathComponent("icon.jpg")
         if FileManager.default.fileExists(atPath: file.path) { return file }
-        _ = await media(for: id, language: language)
+        _ = await media(for: id, retrying: retrying, language: language)
         guard let data = try? await fetchImageData(index?.media?[id]?.iconURL) else { return nil }
         do { try writeImageData(data, to: file); return file }
         catch { return nil }
@@ -354,17 +418,31 @@ actor ArtworkStore {
     }
 
     /// Fetch and validate an image from Nintendo's CDN: at most 20 MB, and one that decodes.
+    /// Transient network errors retry once after a brief backoff; permanent 404/refused/unreadable errors fail immediately.
     private func fetchImageData(_ link: String?) async throws -> Data {
         guard let link, let url = URL(string: link), allowed(url) else { throw ArtworkError.refused }
-        let (data, response) = try await URLSession.shared.data(from: url)
-        if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw URLError(.badServerResponse) }
-        guard data.count < 20 << 20, NSImage(data: data) != nil else { throw ArtworkError.unreadable }
-        return data
+        var lastError: Error?
+        let maxAttempts = url.isFileURL ? 1 : 2
+        for attempt in 0..<maxAttempts {
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw URLError(.badServerResponse) }
+                guard data.count < 20 << 20, NSImage(data: data) != nil else { throw ArtworkError.unreadable }
+                return data
+            } catch {
+                lastError = error
+                if attempt + 1 >= maxAttempts || Self.isMissing(error) || Task.isCancelled { throw error }
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                if Task.isCancelled { throw error }
+            }
+        }
+        throw lastError ?? ArtworkError.unavailable
     }
 
     private func writeImageData(_ data: Data, to file: URL) throws {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: file, options: .atomic)
+        ArtworkImages.shared.invalidate(at: file)
     }
 
     private func loadIndex() {
@@ -377,8 +455,8 @@ actor ArtworkStore {
     /// The title ID → banner URL index: the saved one while it is current and fresh or knows every wanted title, else the list again.
     private func index(for wanted: Set<String>, language: String, generation: Int) async -> Index? {
         loadIndex()
-        if let index, listFailed || index.version == Self.indexVersion && index.language == language
-            && (wanted.isSubset(of: index.banners.keys) || Date().timeIntervalSince(index.fetched) < 7 * 86400) {
+        if let index, listFailed || index.version == Self.indexVersion && (index.language ?? "en") == language
+            && (wanted.isSubset(of: index.banners.keys) || now().timeIntervalSince(index.fetched) < 7 * 86400) {
             return index
         }
         await refresh(language: language, generation: generation)
@@ -415,25 +493,31 @@ actor ArtworkStore {
         do {
             let products = try await readProducts(language: language)
             guard languageGeneration == generation else { return }
+            listFailedAt = nil
             let picked = BannerPick.banners(products)
             // The screenshots of the product whose banner the game gets, so both come from the game's own listing
             let kept = seen.union(index?.media?.keys.map { $0 } ?? [])
             var byID: [String: [BannerPick.Product]] = [:]
             for product in products { if let id = product.id?.uppercased(), kept.contains(id) { byID[id, default: []].append(product) } }
             var media: [String: Media] = [:]
-            for id in kept {   // a title not in the list gets no screenshots, and no second look
+            var missed: Set<String> = []
+            for id in kept {
                 let list = byID[id] ?? []
-                let product = BannerPick.pick(list) ?? list.first
-                media[id] = Media(screenshots: Array((product?.screenshots ?? []).prefix(Self.maxScreenshots)), iconURL: product?.iconUrl, name: product?.name)
+                if let product = BannerPick.pick(list) ?? list.first {
+                    media[id] = Media(screenshots: Array((product.screenshots ?? []).prefix(Self.maxScreenshots)), iconURL: product.iconUrl, name: product.name)
+                } else {
+                    // Track misses separately on this language's index so switching languages always re-queries instead of locking on an empty shell.
+                    missed.insert(id)
+                }
             }
-            let fresh = Index(version: Self.indexVersion, language: language, fetched: Date(), banners: picked.banners, several: picked.several, media: media)
+            let fresh = Index(version: Self.indexVersion, language: language, fetched: now(), banners: picked.banners, several: picked.several, media: media, missed: missed.isEmpty ? nil : missed)
             index = fresh
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
             try encoder.encode(fresh).write(to: directory.appendingPathComponent("index.json"), options: .atomic)
         } catch {
             guard languageGeneration == generation else { return }
-            listFailed = true
+            listFailedAt = now()
             fputs("artwork: title list \(titleList.absoluteString): \(error.localizedDescription)\n", stderr)
         }
     }
@@ -464,10 +548,13 @@ actor ArtworkStore {
     ]
     private var customFallbacks: [String: String]?
 
-    init(directory: URL, titleList: URL, fallbacks: [String: String], catalogue: CleanArt.Lookup? = nil) {
+    init(directory: URL, titleList: URL, fallbacks: [String: String], catalogue: CleanArt.Lookup? = nil,
+         now: @escaping () -> Date = Date.init, retryCooldown: TimeInterval = ArtworkStore.listRetryCooldown) {
         self.directory = directory
         self.titleList = titleList
         self.allowsFileURLs = true
+        self.now = now
+        self.retryCooldown = max(0, retryCooldown)
         self.regional = [:]
         self.catalogue = catalogue ?? { _, _ in [:] }
         self.customFallbacks = fallbacks
@@ -485,20 +572,21 @@ actor ArtworkStore {
             decoder.dateDecodingStrategy = .iso8601
             clean = try? decoder.decode(CleanArt.Cache.self, from: data)
         }
-        if clean?.language != cleanLanguage || Date().timeIntervalSince(clean?.fetched ?? .distantPast) > 7 * 86400 {
-            clean = CleanArt.Cache(language: cleanLanguage, fetched: Date(), images: [:], checked: [])
+        if clean?.language != cleanLanguage || now().timeIntervalSince(clean?.fetched ?? .distantPast) > 7 * 86400 {
+            clean = CleanArt.Cache(language: cleanLanguage, fetched: now(), images: [:], checked: [])
         }
         let missing = asked.subtracting(clean?.checked ?? [])
         guard !missing.isEmpty, !catalogueFailed else { return }
         do {
             let found = try await catalogue(cleanLanguage, missing.sorted())
             guard languageGeneration == generation, clean?.language == cleanLanguage else { return }
+            catalogueFailedAt = nil
             clean?.images.merge(found.filter { missing.contains($0.key) }) { $1 }
             clean?.checked.formUnion(missing)
             saveClean()
         } catch {
             guard languageGeneration == generation else { return }
-            catalogueFailed = true
+            catalogueFailedAt = now()
             fputs("artwork: catalogue \(cleanLanguage): \(error.localizedDescription)\n", stderr)
         }
     }

@@ -153,7 +153,6 @@ final class LauncherDropdownTests: IsolatedDefaultsTestCase {
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        NSApplication.shared.setActivationPolicy(.accessory)
 
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("nx-engine-dropdown-qa-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -177,6 +176,7 @@ final class LauncherDropdownTests: IsolatedDefaultsTestCase {
 
         func capture(name: String, openDropdown: Bool, light: Bool) throws {
             let root = LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false)
+                .defaultAppStorage(testDefaults)
                 .environment(\.engineDropdownInitiallyOpen, openDropdown)
                 .frame(width: size.width, height: size.height)
             let host = NSHostingView(rootView: root)

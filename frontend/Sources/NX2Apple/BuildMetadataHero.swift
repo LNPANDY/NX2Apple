@@ -8,6 +8,7 @@ struct BuildMetadataHero: View {
     @ObservedObject var build: BuildStore
     var library: GameLibrary?
     var artworkStore: ArtworkStore = .shared
+    var fetchMetadata = true
     var queueGames: [QueueGame] = []
     var queueArtwork: (QueueEntry) -> NSImage? = { _ in nil }
     var platformTargets: [String] = []
@@ -36,7 +37,7 @@ struct BuildMetadataHero: View {
                     QueueArtworkStack(items: artworkGames.map { QueueArtworkItem(id: $0.titleID, image: queueIcons[$0.titleID]) }, size: 96)
                 } else {
                 Group {
-                    if let icon { Image(nsImage: icon).resizable().scaledToFit() }
+                    if let icon { Image(nsImage: icon).resizable().scaledToFill() }
                     else { Image(systemName: "gamecontroller.fill").font(.system(size: 30)).frame(maxWidth: .infinity, maxHeight: .infinity).background(.black.opacity(0.25)) }
                 }.frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 14)).accessibilityHidden(true)
                 }
@@ -45,14 +46,14 @@ struct BuildMetadataHero: View {
                 BuildPlatformChip(targets: platformTargets.isEmpty ? [build.running ? build.runningTarget : build.target] : platformTargets)
                 ZStack(alignment: .leading) {
                     Text(game?.displayName(loc.lang) ?? queuedGame?.entries.first?.name ?? metadataName ?? (build.gameName.isEmpty ? loc.t("build.heading") : build.gameName))
-                        .font(.manrope(30, .bold)).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                        .font(.manrope(26, .bold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
                         .id(titleID).transition(LibraryHeroTransition.blurredMetadata(reduceMotion: reduceMotion))
                 }.animation(LibraryHeroTransition.queue(reduceMotion: reduceMotion), value: titleID)
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.top, 28).padding(.bottom, 28).padding(.horizontal, 40).frame(maxWidth: 900, alignment: .leading)
-        .frame(maxWidth: .infinity, minHeight: 176)
+        .padding(.vertical, 22).padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, minHeight: 136, alignment: .leading)
         .foregroundStyle(.white)
         .background {
             GeometryReader { box in
@@ -68,22 +69,48 @@ struct BuildMetadataHero: View {
                 }.clipped()
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(LauncherPalette.cardBorder))
         .task(id: artworkGames.map(\.id)) {
             for game in artworkGames {
                 if let image = queueArtwork(game.entries[0]) { queueIcons[game.titleID] = image }
                 if let record = library?.games.first(where: { $0.titleID == game.titleID }),
-                   let image = GameLibrary.artwork(for: record, repo: "", banners: artworkStore.directory) { queueBanners[game.titleID] = image }
+                   let image = GameLibrary.artwork(for: record, repo: "", banners: artworkStore.directory, maxPixel: 640) { queueBanners[game.titleID] = image }
             }
         }
         .task(id: (titleID ?? "") + loc.lang.code) {
             icon = nil; metadataName = nil
             guard let id = titleID else { return }
-            if let game, let image = GameLibrary.artwork(for: game, repo: "", banners: artworkStore.directory) {
+            if let game, let image = GameLibrary.artwork(for: game, repo: "", banners: artworkStore.directory, maxPixel: ArtworkImages.cardPixels) {
                 banner = image; bannerID = id
             }
+            if let game {
+                let offlineIcon = await GameLibrary.loadAppIcon(
+                    for: game,
+                    banners: artworkStore.directory,
+                    language: loc.lang.code,
+                    fallbackKeys: library?.keysFile() ?? "",
+                    maxPixel: ArtworkImages.iconPixels
+                )
+                guard !Task.isCancelled, titleID == id else { return }
+                if let offlineIcon { icon = offlineIcon }
+            } else {
+                let offlineIcon = await GameLibrary.loadAppIcon(
+                    titleID: id,
+                    appPath: build.macAppPath,
+                    banners: artworkStore.directory,
+                    maxPixel: ArtworkImages.iconPixels
+                )
+                guard !Task.isCancelled, titleID == id else { return }
+                if let offlineIcon { icon = offlineIcon }
+            }
+            guard fetchMetadata else { return }
             let iconURL = await artworkStore.fetchIcon(id, language: loc.lang.code)
             guard !Task.isCancelled, titleID == id else { return }
-            if let iconURL { icon = NSImage(contentsOf: iconURL) }
+            if let iconURL, let online = await ArtworkImages.shared.loadImage(at: iconURL, maxPixel: ArtworkImages.iconPixels) {
+                guard !Task.isCancelled, titleID == id else { return }
+                icon = online
+            }
             if game == nil {
                 let name = await artworkStore.cachedName(id, language: loc.lang.code)
                 guard !Task.isCancelled, titleID == id else { return }
@@ -92,9 +119,12 @@ struct BuildMetadataHero: View {
             if bannerID != id {
                 _ = await artworkStore.fetchMissing([id], language: loc.lang.code, waits: true)
                 guard !Task.isCancelled, titleID == id else { return }
-                if let url = ArtworkStore.cachedBanner(id, in: artworkStore.directory), let image = NSImage(contentsOf: url) { banner = image; bannerID = id }
+                if let url = ArtworkStore.cachedBanner(id, in: artworkStore.directory),
+                   let image = await ArtworkImages.shared.loadImage(at: url, maxPixel: ArtworkImages.cardPixels) {
+                    guard !Task.isCancelled, titleID == id else { return }
+                    banner = image; bannerID = id
+                }
             }
-
         }
     }
 }
@@ -110,22 +140,24 @@ struct BuildQueueHero: View {
 
     var body: some View {
         HStack(spacing: 24) {
-            QueueArtworkStack(items: games.prefix(4).map { QueueArtworkItem(id: $0.titleID, image: icons[$0.id]) }, size: 96)
+            QueueArtworkStack(items: games.prefix(4).map { QueueArtworkItem(id: $0.titleID, image: icons[$0.id]) }, size: 88)
             VStack(alignment: .leading, spacing: 6) {
-                Text(games.count == 1 ? loc.t("queue.oneGame") : String(format: loc.t("library.gameCount"), games.count)).font(.manrope(14)).foregroundStyle(.secondary)
-                Text(loc.t("queue.title")).font(.manrope(30, .bold)).accessibilityAddTraits(.isHeader)
+                Text(games.count == 1 ? loc.t("queue.oneGame") : String(format: loc.t("library.gameCount"), games.count)).font(.manrope(13.5)).foregroundStyle(.secondary)
+                Text(loc.t("queue.title")).font(.manrope(24, .bold)).accessibilityAddTraits(.isHeader)
             }.frame(maxWidth: .infinity, alignment: .leading)
             Button(loc.t("queue.select"), action: onSelectGames)
-                .buttonStyle(LauncherSecondaryButtonStyle())
+                .buttonStyle(LauncherSecondaryButtonStyle()).fixedSize()
                 .padTarget("set.build.queue.select", scope: "main", activate: onSelectGames)
         }
-        .padding(.horizontal, 40).padding(.vertical, 28).frame(maxWidth: 900)
-        .frame(maxWidth: .infinity, minHeight: 176)
+        .padding(.horizontal, 24).padding(.vertical, 22)
+        .frame(maxWidth: .infinity, minHeight: 136)
         .background {
             GeometryReader { box in
                 LibraryFallbackArtwork(size: box.size)
             }.clipped()
         }
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(LauncherPalette.cardBorder))
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: games.map(\.id))
         .task(id: games.map(\.id)) {
             icons = Dictionary(uniqueKeysWithValues: games.compactMap { game in artwork(game.entries[0]).map { (game.id, $0) } })

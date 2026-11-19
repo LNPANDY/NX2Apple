@@ -17,7 +17,7 @@ extension LauncherView {
     private func navigationTabs(compact: Bool = false, tabInset: CGFloat) -> some View {
         HStack(spacing: 2) {
             ForEach([LauncherPage.library, .builds], id: \.self) { destination in
-                Button { page = destination; if destination == .builds { buildEditorOpen = false } } label: {
+                Button { page = destination } label: {
                     // The selected tab is bold. The bold text also sizes the (hidden) slot, so a tab never changes width as the selection moves.
                     ZStack {
                         navLabel(destination, compact: compact).font(.manrope(13, .bold)).hidden()
@@ -31,7 +31,7 @@ extension LauncherView {
                 }
                 .buttonStyle(.plain).launcherHover().help(loc.t("nav." + destination.rawValue))
                 .accessibilityAddTraits(page == destination ? .isSelected : [])
-                .padTarget("tab." + destination.rawValue, scope: "main", focusColor: page == destination ? LauncherPalette.segmentSelectedText : nil) { page = destination; if destination == .builds { buildEditorOpen = false } }
+                .padTarget("tab." + destination.rawValue, scope: "main", focusColor: page == destination ? LauncherPalette.segmentSelectedText : nil) { page = destination }
             }
         }
         .padding(3)
@@ -44,15 +44,6 @@ extension LauncherView {
         LauncherHeaderLayout {
             HStack(spacing: 16) {
                 LauncherBrandMark(onHero: page == .library && colorScheme == .dark).fixedSize()
-                if page == .builds && buildEditorVisible {
-                    BuildHeaderControls(build: m, onBack: {
-                        buildEditorOpen = false; padFocus.focused = "builds.first"
-                    }, onInstallExisting: {
-                        m.target = BuildTarget.ios; devices.exportIPA = false; buildStep = 2
-                    }, onExport: {
-                        m.target = BuildTarget.ios; devices.exportIPA = true; buildStep = 2
-                    }, onCancel: { confirmingBuildCancel = true }, logOpen: $buildLogOpen, onShowSteps: { allBuildStepsOpen = true }, onEdit: { editingBuildResult = true; buildStep = 0 })
-                }
             }.padding(.leading, 90)
             ViewThatFits(in: .horizontal) {
                 navigationTabs(tabInset: 18)
@@ -104,7 +95,7 @@ extension LauncherView {
         HStack(spacing: 8) {
             Button {
                 searching = true
-                if page == .builds { buildEditorOpen = false } else { page = .library }
+                page = .library
                 searchFocused = true
             } label: {
                 Image(systemName: "magnifyingglass").font(.system(size: 16, weight: .medium))

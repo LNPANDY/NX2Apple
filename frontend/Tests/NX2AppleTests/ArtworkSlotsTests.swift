@@ -176,9 +176,10 @@ final class ArtworkSlotsTests: XCTestCase {
     @MainActor func testTheConsoleCoverIsDrawnAgainWhenTheThumbnailChanges() throws {
         let library = try library("")
         var asked: [ArtworkSlot] = []
+        let placeholder = NSImage(size: NSSize(width: 8, height: 8))
         let driver = LiveConsoleDriver(launchGracePeriod: 0, library: library, controls: ControlLayout(defaults: TestDefaults.make("ArtworkSlotsTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { [] },
-                                       artwork: { game, _ in asked.append(game.artwork.thumbnail == nil ? .hero : .thumbnail); return nil }, observeSystem: false)
+                                       artwork: { game, _ in asked.append(game.artwork.thumbnail == nil ? .hero : .thumbnail); return placeholder }, observeSystem: false)
         driver.refresh()
         let before = asked.count
         driver.refresh()

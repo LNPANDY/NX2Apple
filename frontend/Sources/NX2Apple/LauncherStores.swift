@@ -12,6 +12,7 @@ import NXModel
 /// the devices, and the stores that need to know whether a build runs ask the build store. What needs AppKit (the file panels, the
 /// Finder, quitting) is wired here too.
 @MainActor final class LauncherStores {
+    let defaults: UserDefaults
     let localizer: Localizer
     let runner: ProcessRunner
     let gitCheckout: GitCheckout
@@ -45,6 +46,7 @@ import NXModel
          releases: ReleaseSource = GitHubReleases(), xcrun: String = "/usr/bin/xcrun", volumesRoot: String = "/Volumes",
          defaults: UserDefaults = .standard) {
         _ = Self.endGroupsWhenQuitting
+        self.defaults = defaults
         let runner = runner ?? SystemProcessRunner(defaults: defaults)
         let git = gitCheckout ?? SystemGitCheckout(runner: runner)
         self.localizer = localizer; self.runner = runner; self.gitCheckout = git; self.releases = releases

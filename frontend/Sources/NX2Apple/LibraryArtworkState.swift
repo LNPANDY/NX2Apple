@@ -3,6 +3,88 @@ import NXCore
 import NXModel
 import NXLauncher
 
+/// Translucent-fade parameters for unbuilt or unavailable artwork:
+/// 48% saturation + 50% artwork opacity blending into surface + 52% muted title at rest, restoring 100% full color when active.
+enum LibraryArtworkTone {
+    static let mutedSaturation: Double = 0.48
+    static let mutedArtworkOpacity: Double = 0.50
+    static let mutedTitleOpacity: Double = 0.52
+
+    static func saturation(muted: Bool, active: Bool = false) -> Double {
+        muted && !active ? mutedSaturation : 1.0
+    }
+
+    static func artworkOpacity(muted: Bool, active: Bool = false) -> Double {
+        muted && !active ? mutedArtworkOpacity : 1.0
+    }
+
+    static func titleOpacity(muted: Bool, active: Bool = false) -> Double {
+        muted && !active ? mutedTitleOpacity : 1.0
+    }
+}
+
+/// Thread-safe per-game snapshot cache preventing synchronous Info.plist and stat probes on every SwiftUI body redraw.
+final class LibraryArtworkStateCache {
+    private struct Key: Equatable {
+        let appPath: String
+        let ipaPath: String
+        let iosAppPath: String
+        let installedDevice: String
+        let hasShellFramework: Bool
+        let installedViaShellReceipt: Bool
+        let shellIPAExists: Bool
+        let baseInputs: [String]
+        let folderInputs: [String]
+        let sourceFolder: String
+        let titleID: String
+        let building: Bool
+
+        init(_ game: LibraryGame, building: Bool) {
+            appPath = game.appPath
+            ipaPath = game.ipaPath
+            iosAppPath = game.iosAppPath
+            installedDevice = game.installedDevice
+            hasShellFramework = game.hasShellFramework
+            installedViaShellReceipt = game.installedViaShellReceipt
+            shellIPAExists = game.shellIPAExists
+            baseInputs = game.inputs["base"] ?? []
+            folderInputs = game.inputs[GameLibrary.folderInput] ?? []
+            sourceFolder = game.sourceFolder
+            titleID = game.titleID
+            self.building = building
+        }
+    }
+
+    private let lock = NSLock()
+    private var entries: [UUID: (key: Key, state: LibraryArtworkState)] = [:]
+
+    func state(for game: LibraryGame, building: Bool = false) -> LibraryArtworkState {
+        let key = Key(game, building: building)
+        lock.lock()
+        if let cached = entries[game.id], cached.key == key {
+            lock.unlock()
+            return cached.state
+        }
+        lock.unlock()
+        let computed = LibraryArtworkState(game, building: building)
+        lock.lock()
+        entries[game.id] = (key, computed)
+        lock.unlock()
+        return computed
+    }
+
+    func states(for games: [LibraryGame], buildingID: UUID?) -> [UUID: LibraryArtworkState] {
+        Dictionary(uniqueKeysWithValues: games.map { ($0.id, state(for: $0, building: buildingID == $0.id)) })
+    }
+
+    func invalidate(id: UUID? = nil) {
+        lock.lock()
+        if let id { entries.removeValue(forKey: id) }
+        else { entries.removeAll(keepingCapacity: true) }
+        lock.unlock()
+    }
+}
+
 /// Only desktop-observable availability. An iOS artifact does not prove installation on a device.
 struct LibraryArtworkState: Equatable {
     enum Attention: Equatable { case none, notBuilt, missingData, fixFiles, building }

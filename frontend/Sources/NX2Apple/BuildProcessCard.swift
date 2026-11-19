@@ -6,60 +6,64 @@ import NXLauncher
 /// Active work only. Completion and error recovery retain the release presentation.
 struct BuildProcessCard: View {
     @ObservedObject var build: BuildStore
-    let availableHeight: CGFloat
-    let logOpen: Bool
+    var availableHeight: CGFloat = 0
+    var logOpen: Bool = false
+    var onShowSteps: (() -> Void)? = nil
     @EnvironmentObject private var loc: Localizer
     @EnvironmentObject private var pad: PadFocus
+    @Environment(\.launcherSectionTitleFont) private var titleFont
 
-    private var compact: Bool { logOpen || availableHeight < CGFloat(max(1, build.stages.count)) * 60 + 150 + (build.staleShadersMessageKey == nil ? 0 : 100) }
     private var stages: [Stage] {
-        let rows = build.stages.isEmpty ? [Stage(id: -1, name: loc.t("library.preparing"))] : build.stages
-        return compact ? Array((rows.last { $0.state == .running } ?? rows.last { $0.state != .pending } ?? rows.first).map { [$0] } ?? []) : rows
+        build.stages.isEmpty ? [Stage(id: -1, name: loc.t("library.preparing"))] : build.stages
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if logOpen {
-                CardGroup(loc.t("section.log")) {
-                    BuildLogView(log: build.log, placeholder: loc.t("log.placeholder"), height: max(80, min(220, availableHeight - 340))).padding(14)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Text(loc.t("section.progress")).font(titleFont)
+                    .foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+                Spacer(minLength: 8)
+                if let onShowSteps, build.stages.count > 1 {
+                    Button(loc.t("prog.showAllSteps"), action: onShowSteps)
+                        .buttonStyle(LauncherSecondaryButtonStyle()).fixedSize()
+                        .padTarget("set.build.steps", scope: "main", activate: onShowSteps)
                 }
-            }
-            HStack {
-                Text(loc.t("section.progress")).font(.manrope(30, .bold))
-                Spacer()
                 Button(role: .destructive) { build.stop() } label: { Text(loc.t(build.stopping ? "library.stopping" : "build.stop")) }
-                    .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.danger)).disabled(build.stopping)
+                    .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.danger)).fixedSize().disabled(build.stopping)
                     .keyboardShortcut(pad.scope == "main" ? KeyboardShortcut(.return, modifiers: .command) : nil)
                     .padTarget("set.build.action", scope: "main", enabled: !build.stopping) { if !build.stopping { build.stop() } }
             }
             VStack(alignment: .leading, spacing: 16) {
                 if let key = build.staleShadersMessageKey {
-                    Text(loc.t("msg.shadersStale.title")).font(.manrope(14, .semibold))
-                    Text(loc.t(key)).font(.manrope(13)).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(loc.t("msg.shadersStale.title")).font(.manrope(14, .semibold))
+                        Text(loc.t(key)).font(.manrope(13)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-                if !logOpen {
-                    HStack {
-                        if let position = build.currentStagePosition {
-                            Text(String(format: loc.t("prog.stageBadge"), position.current, position.total))
-                        }
-                        Text(loc.t("prog.overallTitle")).foregroundStyle(.secondary)
-                        Spacer()
-                        if let overall = build.overallProgress { Text("\(Int(min(max(overall, 0), 1) * 100))%").monospacedDigit() }
-                    }.font(.manrope(12))
-                }
+                HStack(spacing: 10) {
+                    if let position = build.currentStagePosition {
+                        Text(String(format: loc.t("prog.stageBadge"), position.current, position.total))
+                            .font(.manrope(12, .semibold)).monospacedDigit()
+                    }
+                    Text(loc.t("prog.overallTitle")).foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    if let overall = build.overallProgress {
+                        LauncherProgressBar(value: min(max(overall, 0), 1), height: 6).frame(width: 140)
+                        Text("\(Int(min(max(overall, 0), 1) * 100))%")
+                            .font(.manrope(12.5, .semibold)).monospacedDigit().frame(minWidth: 38, alignment: .trailing)
+                    }
+                }.font(.manrope(12))
                 BuildProcessRows(stages: stages)
-                    .frame(minHeight: compact ? 44 : CGFloat(max(1, build.stages.count)) * 60 - 16, alignment: .top)
                 if build.stages.contains(where: { $0.state == .running && $0.isScanningLastShaderFiles }) {
                     Text(loc.t("prog.lastShaderFiles")).font(.manrope(12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(18).frame(maxWidth: .infinity, alignment: .leading)
             .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
         }
-        // Balance the 176pt hero above when centering progress in the window.
-        .padding(.bottom, logOpen ? 0 : min(176, max(0, availableHeight - CGFloat(stages.count) * 60 - 150)))
-        .frame(maxWidth: .infinity, minHeight: max(0, availableHeight - 64), alignment: .center)
     }
 }
 
@@ -80,15 +84,23 @@ struct BuildProcessRows: View {
                         }
                     }.font(.system(size: 18)).frame(width: 20, height: 20)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage.state)
-                    Text(stage.displayName(loc.t)).font(.manrope(14)).lineLimit(1)
+                    Text(stage.displayName(loc.t)).font(.manrope(14)).lineLimit(1).truncationMode(.tail)
                         .opacity(stage.state == .done ? 0.5 : stage.state == .pending ? 0.65 : 1)
                     Spacer(minLength: 8)
                     TimelineView(.periodic(from: Date(), by: 1)) { context in
-                        Text(stage.state == .running ? stage.clock(at: context.date, left: loc.t("prog.etaEstimate")) : "")
-                            .font(.manrope(12)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
-                    }.frame(width: 100, alignment: .trailing)
-                    Text(stage.state == .running ? stage.percent.map { "\(Int($0))%" } ?? "" : "")
-                        .font(.manrope(13)).monospacedDigit().frame(width: 44, alignment: .trailing)
+                        let clock = stage.state == .running ? stage.clock(at: context.date, left: loc.t("prog.etaEstimate")) : ""
+                        let detail = stage.state == .running ? stage.detail : ""
+                        let trailingText = [detail, clock].filter { !$0.isEmpty }.joined(separator: " · ")
+                        Text(trailingText)
+                            .font(.manrope(12)).monospacedDigit().foregroundStyle(.secondary)
+                            .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    }.layoutPriority(1)
+                    if stage.state == .running, let pct = stage.percent {
+                        Text("\(Int(pct))%")
+                            .font(.manrope(13, .semibold)).monospacedDigit()
+                            .frame(minWidth: 40, alignment: .trailing)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
                 }.frame(height: 44)
                     .help([stage.displayName(loc.t), stage.detail].filter { !$0.isEmpty }.joined(separator: "\n"))
                     .accessibilityElement(children: .combine)
