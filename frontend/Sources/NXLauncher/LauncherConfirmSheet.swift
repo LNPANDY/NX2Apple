@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// A 560 pt question before an action that cannot be undone or changes several things at once: a title, the thing it is about in
-/// secondary text, an optional card, a note, then Cancel and the action. Cancel has the focus and answers Escape, so Return never
-/// confirms by accident. The action is drawn in red when it removes something.
+/// A question before an action that cannot be undone or changes several things at once, on the sheet layout (DSSheet): the icon of
+/// what it is about, the title, the thing it is about in secondary text, an optional card, a note, then Cancel and the action.
+/// Escape cancels and Return presses Cancel, so Return never confirms by accident. A removing action is the red destructive button.
 package struct LauncherConfirmSheet<Content: View>: View {
+    let subject: DSSheetSubject?
     let title: String
     let subtitle: String
     let note: String
@@ -15,10 +16,11 @@ package struct LauncherConfirmSheet<Content: View>: View {
     let confirm: () -> Void
     let content: Content
     @EnvironmentObject private var pad: PadFocus
-    @FocusState private var cancelFocused: Bool
 
-    package init(title: String, subtitle: String, note: String, cancelTitle: String, confirmTitle: String, destructive: Bool = false,
-                 scope: String, cancel: @escaping () -> Void, confirm: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+    package init(subject: DSSheetSubject? = nil, title: String, subtitle: String, note: String, cancelTitle: String, confirmTitle: String,
+                 destructive: Bool = false, scope: String, cancel: @escaping () -> Void, confirm: @escaping () -> Void,
+                 @ViewBuilder content: () -> Content) {
+        self.subject = subject
         self.title = title
         self.subtitle = subtitle
         self.note = note
@@ -31,50 +33,26 @@ package struct LauncherConfirmSheet<Content: View>: View {
         self.content = content()
     }
 
-    package static var width: CGFloat { 560 }
+    package static var width: CGFloat { DS.Control.sheetWidth }
 
     package var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.manrope(26, .heavy)).tracking(-0.6).fixedSize(horizontal: false, vertical: true)
-                if !subtitle.isEmpty {
-                    Text(subtitle).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 18)
+        DSSheet(subject: subject, title: title, message: subtitle) {
             content
             if !note.isEmpty {
                 Text(note).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 32).padding(.top, 12)
             }
-            Divider().opacity(0.3).padding(.top, 20)
-            HStack(spacing: 12) {
-                Spacer(minLength: 8)
-                Button(cancelTitle, action: cancel)
-                    .buttonStyle(LauncherSecondaryButtonStyle())
-                    .keyboardShortcut(.cancelAction).focused($cancelFocused)
-                    .padTarget(scope + ".cancel", scope: scope, activate: cancel)
-                Button(confirmTitle, action: confirm)
-                    .buttonStyle(LauncherSecondaryButtonStyle(accent: destructive ? LauncherPalette.danger : nil))
-                    .padTarget(scope + ".confirm", scope: scope, activate: confirm)
-            }
-            .padding(.horizontal, 30).padding(.vertical, 16)
+        } buttons: {
+            DSSheetConfirmButtons(cancelTitle: cancelTitle, confirmTitle: confirmTitle, role: destructive ? .destructive : .primary,
+                                  scope: scope, cancel: cancel, confirm: confirm)
         }
         .padScope(scope, pad)
-        .frame(width: Self.width)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(LauncherPalette.background)
-        .font(DS.Font.body)
-        .launcherAppearance()
-        .tint(LauncherPalette.accent)
-        .onAppear { cancelFocused = true; pad.scope = scope; pad.focused = scope + ".cancel" }
     }
 }
 
 package extension LauncherConfirmSheet where Content == EmptyView {
-    init(title: String, subtitle: String, note: String, cancelTitle: String, confirmTitle: String, destructive: Bool = false,
-         scope: String, cancel: @escaping () -> Void, confirm: @escaping () -> Void) {
-        self.init(title: title, subtitle: subtitle, note: note, cancelTitle: cancelTitle, confirmTitle: confirmTitle, destructive: destructive,
-                  scope: scope, cancel: cancel, confirm: confirm) { EmptyView() }
+    init(subject: DSSheetSubject? = nil, title: String, subtitle: String, note: String, cancelTitle: String, confirmTitle: String,
+         destructive: Bool = false, scope: String, cancel: @escaping () -> Void, confirm: @escaping () -> Void) {
+        self.init(subject: subject, title: title, subtitle: subtitle, note: note, cancelTitle: cancelTitle, confirmTitle: confirmTitle,
+                  destructive: destructive, scope: scope, cancel: cancel, confirm: confirm) { EmptyView() }
     }
 }

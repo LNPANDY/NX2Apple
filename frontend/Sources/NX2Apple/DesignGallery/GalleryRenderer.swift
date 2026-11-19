@@ -26,9 +26,10 @@ struct GalleryReleases: ReleaseSource {
 @MainActor enum GalleryRenderer {
     /// A window outside every display, never key or main, so rendering shows nothing to anybody.
     private final class Window: NSWindow {
-        init(size: NSSize) {
+        /// `titled`: the launcher's window chrome. A sheet has none: it is drawn without a title bar's safe area.
+        init(size: NSSize, titled: Bool = true) {
             super.init(contentRect: NSRect(origin: NSPoint(x: -100_000, y: -100_000), size: size),
-                       styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+                       styleMask: titled ? [.titled, .closable, .resizable, .fullSizeContentView] : [.borderless], backing: .buffered, defer: false)
             isReleasedWhenClosed = false
             colorSpace = .sRGB
             animationBehavior = .none
@@ -46,7 +47,8 @@ struct GalleryReleases: ReleaseSource {
         LauncherGlass.forceStatic = true
         defer { LauncherGlass.forceStatic = wasStatic }
         let host = NSHostingView(rootView: fixtures.view(scene, size: frame))
-        let window = Window(size: NSSize(width: frame.width, height: frame.height))
+        if scene.fitsContent { host.frame = NSRect(origin: .zero, size: host.fittingSize) }   // a sheet as high as its content
+        let window = Window(size: scene.fitsContent ? host.frame.size : NSSize(width: frame.width, height: frame.height), titled: !scene.isSheet)
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil); window.contentView = nil; window.close() }

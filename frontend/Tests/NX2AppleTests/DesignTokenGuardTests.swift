@@ -11,11 +11,7 @@ final class DesignTokenGuardTests: XCTestCase {
     /// File under frontend/Sources/NX2Apple -> raw styles it may still hold. The console mode's own look is most of it.
     private static let allowed: [String: Int] = [
         "ArtworkPanel.swift": 7,
-        "BatchRefreshSheet.swift": 8,
         "BuildActivityFooter.swift": 1,
-        "BuildSelectedSheet.swift": 3,
-        "CheatsView.swift": 9,
-        "CloudSaveSheet.swift": 3,
         "ConsoleBuildIndicator.swift": 1,
         "ConsoleBuildsPage.swift": 9,
         "ConsoleCloudSaveView.swift": 8,
@@ -35,24 +31,15 @@ final class DesignTokenGuardTests: XCTestCase {
         "ConsoleTiles.swift": 3,
         "ConsoleView.swift": 20,
         "ControlPresets.swift": 1,
-        "Controls.swift": 4,
-        "DeleteGameSheet.swift": 6,
-        "FreeSpace.swift": 4,
-        "GameControllerMappingView.swift": 3,
-        "LaunchOptionsView.swift": 9,
         "LauncherView+Library.swift": 1,
         "LauncherView+RefreshUI.swift": 1,
         "LibraryEmptyState.swift": 1,
         "LiveConsoleDriver+Identify.swift": 2,
         "LiveConsoleDriver.swift": 1,
-        "MissingImgGuideSheet.swift": 4,
         "OnboardingGamesContent.swift": 1,
         "OnboardingKeysContent.swift": 1,
         "OnboardingView.swift": 12,
-        "RenameGameSheet.swift": 3,
-        "SaveTransfer.swift": 6,
         "StickDeadzoneCard.swift": 1,
-        "SupportedGamesSheet.swift": 5,
     ]
 
     func testScreensUseTheDesignTokens() throws {

@@ -64,27 +64,27 @@ package struct BuildFilesCard: View {
 /// focus) and Remove in red.
 package struct BuildFilesRemoveSheet: View {
     let entry: BuildFilesStore.Entry
+    /// The game's icon over the title.
+    let subject: DSSheetSubject?
     let cancel: () -> Void
     let confirm: () -> Void
     @EnvironmentObject var loc: Localizer
 
-    package init(entry: BuildFilesStore.Entry, cancel: @escaping () -> Void, confirm: @escaping () -> Void) {
+    package init(entry: BuildFilesStore.Entry, subject: DSSheetSubject? = nil, cancel: @escaping () -> Void, confirm: @escaping () -> Void) {
+        self.subject = subject
         self.entry = entry
         self.cancel = cancel
         self.confirm = confirm
     }
 
     package var body: some View {
-        LauncherConfirmSheet(title: loc.t("buildfiles.title"), subtitle: entry.name, note: loc.t("buildfiles.note"),
+        LauncherConfirmSheet(subject: subject, title: loc.t("buildfiles.title"), subtitle: entry.name, note: loc.t("buildfiles.note"),
                              cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("buildfiles.remove"), destructive: true,
                              scope: "buildfiles", cancel: cancel, confirm: confirm) {
-            VStack(spacing: 0) {
-                CardRow(String(format: loc.t("buildfiles.frees"), BuildFilesCard.bytes(entry.bytes)), detail: loc.t("buildfiles.stays"),
-                        detail2: (entry.folder as NSString).abbreviatingWithTildeInPath, help: entry.folder) { EmptyView() }
+            DSSection("") {
+                DSRow(String(format: loc.t("buildfiles.frees"), BuildFilesCard.bytes(entry.bytes)), detail: loc.t("buildfiles.stays"),
+                      detail2: (entry.folder as NSString).abbreviatingWithTildeInPath, help: entry.folder) { EmptyView() }
             }
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
-            .padding(.horizontal, 30)
         }
     }
 }

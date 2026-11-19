@@ -312,6 +312,20 @@ Screens compose the components in `Sources/NXLauncher/DesignComponents.swift` in
 | A capsule or round outline | `DSPill` |
 | Controls side by side that wrap | `DSFlowRow` |
 | The engine on a build page | `EngineFootnote` ("Built with nxnative · Change") |
+| A question or a short task in a sheet | `DSSheet` (`LauncherConfirmSheet` for a confirmation) |
+| A sheet whose list scrolls | `DSScrollingSheet` |
+| What a sheet is about, above its title | `DSSheetSubject` (`.game(icon)`, `.app`) |
+| Cancel and the sheet's action | `DSSheetConfirmButtons`, `DSSheetPrimaryButton` for Done or Save |
+| An action that removes something | `DSDestructiveButtonStyle` |
+| A path in a sheet | `DSPathText` (a row's `detail` does the same) |
+
+Every sheet has one layout: the icon of what it is about at the top leading corner (a game's square icon, the app's icon,
+or none, never a symbol in a circle), the title in `DS.Font.title` and its message under it, the content, then the button
+row with Cancel left of the primary, both on the trailing side. The insets are 32 pt at the sides and 24 pt at the top
+and the bottom, a confirmation is `DS.Control.sheetWidth` wide and as high as its content, and no hairline sits above the
+button row. Escape is Cancel. Return presses the primary action only when it is safe: a destructive action never takes
+Return, in its sheet Return is Cancel (`DSSheetKeys`, Apple HIG "Alerts"). The destructive fill is `status.errorFill`,
+deeper than `status.error`, so its white label reads at 4.5:1.
 
 Liquid Glass belongs to the navigation layer that floats above the content (Apple's HIG for macOS 26): the top bar, the
 controls over the library hero, the carousel arrows and the wizard footer. Those views call `launcherGlassLayer()`, and only
@@ -368,7 +382,9 @@ scene runs on fixture stores (`GalleryFixtures`): a private defaults suite, a li
 generated artwork, a process runner that starts nothing and no release source. The launcher's window, its session,
 the engine sync and the update check are never made, and the app's own defaults are put back when the gallery quits.
 `LauncherDesignCaptureTests` renders the same catalogue, so captures and gallery match. A new view or state gets a
-case in `GalleryScene` and its fixture in `GalleryFixtures`. The gallery's own texts are English only.
+case in `GalleryScene` and its fixture in `GalleryFixtures`. A sheet or dialog gets a case in `GallerySheet`
+(`GallerySheets.swift`) for each of its steps and states. It is drawn without a title bar at the size it takes, and
+`NX_CAPTURE_GROUP=Sheets` captures that group alone. The gallery's own texts are English only.
 
 The gallery shows your own games' covers (Covers: Real in the toolbar, Generated for the fictional art). At launch it
 reads the launcher's library file and copies the artwork that is already on disk into its temporary folder

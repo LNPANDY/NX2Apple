@@ -28,7 +28,7 @@ package enum DS {
         package static let statusReady = SwiftUI.Color(nsColor: nsStatusReady)
         package static let statusWarning = SwiftUI.Color(nsColor: nsStatusWarning)
         package static let statusError = SwiftUI.Color(nsColor: nsStatusError)
-        /// The fill of a destructive button: deeper than status.error, so its white label reads at 4.5:1
+        /// The fill of every destructive button (Uninstall, Delete game): deeper than status.error, so its white label reads at 4.75:1
         package static let statusErrorFill = SwiftUI.Color(nsColor: nsStatusErrorFill)
         /// Text, symbols and spinners on the destructive fill
         package static let statusErrorOn = SwiftUI.Color(nsColor: nsStatusErrorOn)
@@ -52,7 +52,7 @@ package enum DS {
         package static let nsStatusReady = rgb(0x40D678, alpha: 1.0)
         package static let nsStatusWarning = rgb(0xFFC73D, alpha: 1.0)
         package static let nsStatusError = rgb(0xFF6B66, alpha: 1.0)
-        package static let nsStatusErrorFill = rgb(0xC62F2B, alpha: 1.0)
+        package static let nsStatusErrorFill = rgb(0xD23B36, alpha: 1.0)
         package static let nsStatusErrorOn = rgb(0xFFFFFF, alpha: 1.0)
         package static let nsStatusInfo = rgb(0xFFF0D6, alpha: 1.0)
         package static let nsStatusSuccess = rgb(0x40D678, alpha: 1.0)
@@ -133,6 +133,10 @@ package enum DS {
         package static let headerIcon: CGFloat = 64
         /// A game's cover in a row's leading slot, and the slot of every row in that list
         package static let thumbnail: CGFloat = 40
+        /// The icon of what a sheet is about, above its title, as a macOS alert shows it
+        package static let sheetIcon: CGFloat = 56
+        /// A question or a short task in a sheet: every confirmation has this width
+        package static let sheetWidth: CGFloat = 520
     }
 
     /// Animation durations in seconds.

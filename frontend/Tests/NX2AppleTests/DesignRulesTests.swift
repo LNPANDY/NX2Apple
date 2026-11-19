@@ -107,7 +107,6 @@ final class DesignRulesTests: XCTestCase {
         "NX2Apple/GameControllerMappingView.swift": 1,
         "NX2Apple/OnboardingView.swift": 2,
         "NXLauncher/ExportSteps.swift": 1,
-        "NXLauncher/SendSelectedSheet.swift": 3,
         "NXLauncher/TransferCard.swift": 1,
     ]
 
@@ -128,7 +127,7 @@ final class DesignRulesTests: XCTestCase {
 
     /// The accent (the cream) marks the one primary action, a selection and focus. Text in it is the selected or primary
     /// component's own (the button styles, the dropdown, the segmented control, the wordmark): a screen never colours a Text or a
-    /// Label with the accent itself. Console mode and the sheets below still do, with the count they may keep.
+    /// Label with the accent itself. Console mode below still does, with the count it may keep.
     private static let accentTextComponents: Set<String> = [
         "NXLauncher/LauncherStyles.swift", "NXLauncher/LauncherDropdown.swift", "NXLauncher/DesignComponents.swift",
         "NXLauncher/LauncherGlass.swift", "NXLauncher/LauncherWordmark.swift", "NXLauncher/LauncherBrandMark.swift", "NXLauncher/PadFocus.swift",
@@ -137,7 +136,6 @@ final class DesignRulesTests: XCTestCase {
         "NX2Apple/ConsoleBuildsPage.swift": 1, "NX2Apple/ConsoleCloudSaveView.swift": 1, "NX2Apple/ConsoleCloudSaves.swift": 1,
         "NX2Apple/ConsoleControllersView.swift": 2, "NX2Apple/ConsoleGameOptions.swift": 3, "NX2Apple/ConsoleOptionRow.swift": 1,
         "NX2Apple/ConsolePages.swift": 2, "NX2Apple/ConsoleSupportedGamesPage.swift": 1, "NX2Apple/ConsoleTiles.swift": 1,
-        "NX2Apple/SupportedGamesSheet.swift": 1,
     ]
     private static let accentStyle = try! NSRegularExpression(pattern:
         #"\.foreground(?:Style|Color)\([^()\n]*?(?:LauncherPalette\.(?:accent|cream|notice|focusRing|primaryHover|primaryPressed|segmentSelected|selectionUnderline|radioOn)|DS\.Color\.(?:accent|symbolAccent|statusInfo))\b"#)

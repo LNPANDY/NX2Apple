@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NXCore
 import NXModel
@@ -9,66 +10,50 @@ import NXLauncher
 struct RenameGameSheet: View {
     let game: LibraryGame
     let save: (String) -> Void
+    /// The game's square icon over the title.
+    let icon: NSImage?
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var focus: PadFocus
     @Environment(\.dismiss) private var dismiss
     @State private var text: String
     @FocusState private var fieldFocused: Bool
 
-    init(game: LibraryGame, save: @escaping (String) -> Void = { _ in }) {
+    init(game: LibraryGame, icon: NSImage? = nil, save: @escaping (String) -> Void = { _ in }) {
+        self.icon = icon
         self.game = game
         self.save = save
         _text = State(initialValue: game.customName)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(loc.t("rename.title")).font(.manrope(22, .heavy)).tracking(-0.4)
-                Text(loc.t("rename.note")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
+        DSSheet(subject: .game(icon), title: loc.t("rename.title"), message: loc.t("rename.note")) {
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                TextField(game.ownName(loc.lang), text: $text)
+                    .textFieldStyle(.plain).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+                    .padding(.horizontal, DS.Space.s).frame(height: DS.Control.height)
+                    .background(DS.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.chip))
+                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.chip).strokeBorder(fieldFocused ? DS.Color.accent : DS.Color.separator))
+                    .focused($fieldFocused)
+                    .onSubmit(commit)
+                    .accessibilityLabel(loc.t("rename.title"))
+                Text(String(format: "%@: %@", loc.t("rename.placeholder"), game.ownName(loc.lang)))
+                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1).truncationMode(.middle)
             }
-            .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 16)
-            TextField(game.ownName(loc.lang), text: $text)
-                .textFieldStyle(.plain).font(.manrope(16, .medium))
-                .padding(.horizontal, 14).padding(.vertical, 11)
-                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(LauncherPalette.ink(fieldFocused ? 0.25 : 0.08)))
-                .focused($fieldFocused)
-                .onSubmit(commit)
-                .accessibilityLabel(loc.t("rename.title"))
-                .padding(.horizontal, 28).padding(.bottom, 8)
-            Text(String(format: "%@: %@", loc.t("rename.placeholder"), game.ownName(loc.lang)))
-                .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1).truncationMode(.middle)
-                .padding(.horizontal, 30).padding(.bottom, 20)
-            Divider().opacity(0.3)
-            HStack(spacing: 12) {
-                if !game.customName.isEmpty {
-                    Button(loc.t("rename.reset")) { save(""); dismiss() }
-                        .buttonStyle(LauncherSecondaryButtonStyle())
-                        .padTarget("rename.reset", scope: "rename") { save(""); dismiss() }
-                }
-                Spacer(minLength: 8)
-                Button(loc.t("saves.cancel")) { dismiss() }
-                    .buttonStyle(LauncherSecondaryButtonStyle())
-                    .keyboardShortcut(.cancelAction)
-                    .padTarget("rename.cancel", scope: "rename") { dismiss() }
-                Button(action: commit) {
-                    Text(loc.t("rename.save")).font(.manrope(13.5, .bold))
-                        .padding(.horizontal, 20).padding(.vertical, 9)
-                }
-                .buttonStyle(LauncherActionButtonStyle())
-                .keyboardShortcut(.defaultAction)
-                .padTarget("rename.save", scope: "rename", focusColor: LauncherPalette.onCream) { commit() }
+        } leading: {
+            if !game.customName.isEmpty {
+                Button(loc.t("rename.reset")) { save(""); dismiss() }
+                    .buttonStyle(DSSecondaryButtonStyle())
+                    .padTarget("rename.reset", scope: "rename") { save(""); dismiss() }
             }
-            .padding(.horizontal, 28).padding(.vertical, 16)
+        } buttons: {
+            Button(loc.t("saves.cancel")) { dismiss() }
+                .buttonStyle(DSSecondaryButtonStyle())
+                .keyboardShortcut(.cancelAction)
+                .padTarget("rename.cancel", scope: "rename") { dismiss() }
+            DSSheetPrimaryButton(loc.t("rename.save"), action: commit)
+                .padTarget("rename.save", scope: "rename", focusColor: DS.Color.accentOn) { commit() }
         }
         .padScope("rename", focus)
-        .frame(width: 520)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(LauncherPalette.background)
-        .font(DS.Font.body)
-        .launcherAppearance()
-        .tint(LauncherPalette.accent)
         .onAppear { fieldFocused = true }
     }
 
@@ -82,7 +67,7 @@ extension View {
     /// The Rename sheet of `game`, and the controller's scope while it is open.
     func renameGameSheet(_ game: Binding<LibraryGame?>, library: GameLibrary, pad: PadFocus, scope: @escaping () -> String) -> some View {
         sheet(item: game) { game in
-            RenameGameSheet(game: game) { library.rename(game.id, to: $0) }.environmentObject(pad)
+            RenameGameSheet(game: game, icon: GameLibrary.appIcon(for: game, banners: library.artworkDirectory)) { library.rename(game.id, to: $0) }.environmentObject(pad)
         }
         .onChange(of: game.wrappedValue?.id) { id in pad.scope = id != nil ? "rename" : scope() }
     }

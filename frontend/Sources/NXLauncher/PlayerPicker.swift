@@ -68,7 +68,7 @@ package struct PlayerPicker: View {
 }
 
 /// Asks for a player's name: a new player, or a new name for `renaming`.
-struct PlayerNameSheet: View {
+package struct PlayerNameSheet: View {
     @EnvironmentObject private var pad: PadFocus
     @ObservedObject var players: PlayerProfileStore
     let renaming: PlayerProfile?
@@ -77,32 +77,31 @@ struct PlayerNameSheet: View {
     @State private var name = ""
     @FocusState private var focused: Bool
 
+    package init(players: PlayerProfileStore, renaming: PlayerProfile?, close: @escaping () -> Void) {
+        self.players = players; self.renaming = renaming; self.close = close
+    }
+
     private var valid: Bool { players.canUse(name: name, for: renaming?.id) }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(loc.t(renaming == nil ? "players.newTitle" : "players.renameTitle")).font(.manrope(20, .heavy))
-            if renaming == nil {
-                Text(loc.t("players.newNote")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+    package var body: some View {
+        DSSheet(title: loc.t(renaming == nil ? "players.newTitle" : "players.renameTitle"), message: renaming == nil ? loc.t("players.newNote") : "") {
             TextField(loc.t("players.name"), text: $name)
-                .textFieldStyle(.roundedBorder).focused($focused)
+                .textFieldStyle(.plain).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+                .padding(.horizontal, DS.Space.s).frame(height: DS.Control.height)
+                .background(DS.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.chip))
+                .overlay(RoundedRectangle(cornerRadius: DS.Radius.chip).strokeBorder(focused ? DS.Color.accent : DS.Color.separator))
+                .focused($focused)
                 .onSubmit(commit)
-                .padTarget("playername.field", scope: "playername", radius: 5) { focused = true }
-            HStack {
-                Spacer()
-                Button(loc.t("players.cancel"), action: close).keyboardShortcut(.cancelAction)
-                    .buttonStyle(LauncherSecondaryButtonStyle())
-                    .padTarget("playername.cancel", scope: "playername", activate: close)
-                Button(loc.t("players.save"), action: commit)
-                    .keyboardShortcut(.defaultAction).disabled(!valid)
-                    .buttonStyle(LauncherActionButtonStyle())
-                    .padTarget("playername.save", scope: "playername", focusColor: LauncherPalette.onCream, enabled: valid, activate: commit)
-            }
+                .accessibilityLabel(loc.t("players.name"))
+                .padTarget("playername.field", scope: "playername", radius: DS.Radius.chip) { focused = true }
+        } buttons: {
+            Button(loc.t("players.cancel"), action: close).keyboardShortcut(.cancelAction)
+                .buttonStyle(DSSecondaryButtonStyle())
+                .padTarget("playername.cancel", scope: "playername", activate: close)
+            DSSheetPrimaryButton(loc.t("players.save"), action: commit)
+                .disabled(!valid)
+                .padTarget("playername.save", scope: "playername", focusColor: DS.Color.accentOn, enabled: valid, activate: commit)
         }
-        .padding(24).frame(width: 380)
-        .background(LauncherPalette.background).launcherAppearance()
         .padScope("playername", pad)
         .onAppear {
             if let renaming { name = players.displayName(renaming) }

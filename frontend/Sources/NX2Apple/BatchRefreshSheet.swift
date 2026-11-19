@@ -232,26 +232,25 @@ struct BatchRefreshSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerSection
-                .padding(.horizontal, 30)
-                .padding(.top, 26)
-                .padding(.bottom, 18)
+                .padding(.horizontal, DSSheetInsets.horizontal)
+                .padding(.top, DSSheetInsets.vertical)
+                .padding(.bottom, DSSheetInsets.gap)
 
             ScrollViewReader { proxy in
                 ScrollView {
                     if rows.isEmpty {
                         Text(loc.t("batchRefresh.empty"))
-                            .font(.manrope(14))
-                            .foregroundStyle(.secondary)
+                            .font(DS.Font.body)
+                            .foregroundStyle(DS.Color.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 30)
-                            .padding(.vertical, 28)
+                            .padding(.horizontal, DSSheetInsets.horizontal)
+                            .padding(.vertical, DS.Space.l)
                     } else {
-                        VStack(alignment: .leading, spacing: 20) {
+                        VStack(alignment: .leading, spacing: DS.Space.l) {
                             if !fastRows.isEmpty {
                                 groupSection(
                                     title: loc.t("batchRefresh.groupFast"),
                                     symbol: "bolt.fill",
-                                    symbolColor: LauncherPalette.ready,
                                     items: fastRows
                                 )
                             }
@@ -259,13 +258,13 @@ struct BatchRefreshSheet: View {
                                 groupSection(
                                     title: loc.t("batchRefresh.groupFull"),
                                     symbol: "arrow.triangle.2.circlepath",
-                                    symbolColor: LauncherPalette.notice,
                                     items: fullRows
                                 )
                             }
                         }
-                        .padding(.horizontal, 30)
-                        .padding(.bottom, 20)
+                        .padding(.horizontal, DSSheetInsets.horizontal)
+                        .padding(.top, DS.Space.xxs)
+                        .padding(.bottom, DSSheetInsets.gap)
                     }
                 }
                 .onChange(of: pad.focused) { id in
@@ -275,17 +274,14 @@ struct BatchRefreshSheet: View {
                 }
             }
 
-            Divider().opacity(0.3)
-
             footerSection
-                .padding(.horizontal, 30)
-                .padding(.vertical, 16)
+                .padding(.horizontal, DSSheetInsets.horizontal)
+                .padding(.top, DSSheetInsets.gap)
+                .padding(.bottom, DSSheetInsets.vertical)
         }
         .frame(width: 680)
         .frame(maxHeight: min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80))
-        .background(LauncherPalette.background)
-        .launcherAppearance()
-        .tint(LauncherPalette.accent)
+        .dsSheetSurface()
         .background(PadKeyboardInput(focus: pad, scope: "batchRefresh", back: close))
         .environment(\.padRingStyle, .hug)
         .padScope("batchRefresh", pad)
@@ -307,33 +303,28 @@ struct BatchRefreshSheet: View {
     }
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(loc.t("batchRefresh.title"))
-                    .font(.manrope(26, .heavy))
-                    .tracking(-0.5)
-                    .help(String(format: loc.t("batchRefresh.versionBadge"), baseVersion))
-
-            }
-            Text(loc.t("batchRefresh.subtitle"))
-                .font(DS.Font.body)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        DSSheetHeader(title: loc.t("batchRefresh.title"), message: loc.t("batchRefresh.subtitle"))
+            .help(String(format: loc.t("batchRefresh.versionBadge"), baseVersion))
     }
 
-    private func groupSection(title: String, symbol: String, symbolColor: Color, items: [CandidateRow]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
+    /// A group of games (fast refresh, full rebuild): its symbol and title as the section header over one card of rows.
+    private func groupSection(title: String, symbol: String, items: [CandidateRow]) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            HStack(spacing: DS.Space.xs) {
                 Image(systemName: symbol)
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(symbolColor)
+                    .foregroundStyle(DS.Color.symbolDefault)
                 Text(title)
-                    .font(.manrope(13, .bold))
-                    .foregroundStyle(LauncherPalette.secondaryText)
+                    .font(DS.Font.headline)
+                    .foregroundStyle(DS.Color.textSecondary)
             }
-            VStack(spacing: 4) {
-                ForEach(items) { row in candidateRowView(row) }
+            .padding(.leading, DS.Space.xxs)
+            .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+            DSSection("") {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, row in
+                    if index > 0 { DSRowDivider() }
+                    candidateRowView(row)
+                }
             }
         }
     }
@@ -345,36 +336,33 @@ struct BatchRefreshSheet: View {
         let partialOn = !checkedTargets.isEmpty && !allOn
         let checkSymbol = allOn ? "checkmark.square.fill" : (partialOn ? "minus.square.fill" : "square")
 
-        return HStack(alignment: .center, spacing: 12) {
+        return HStack(alignment: .center, spacing: DS.Space.s) {
             Button { toggleRow(row) } label: {
-                HStack(alignment: .center, spacing: 11) {
+                HStack(alignment: .center, spacing: DS.Space.s) {
                     Image(systemName: checkSymbol)
                         .font(.system(size: 17))
-                        .foregroundStyle((allOn || partialOn) ? LauncherPalette.ready : .secondary)
+                        .foregroundStyle((allOn || partialOn) ? DS.Color.symbolAccent : DS.Color.symbolDefault)
                         .opacity(enabled.isEmpty ? 0.35 : 1)
                     Group {
                         if let icon = icons[row.id] { Image(nsImage: icon).resizable().scaledToFill() }
-                        else { Image(systemName: "gamecontroller.fill").frame(maxWidth: .infinity, maxHeight: .infinity).background(LauncherPalette.surface) }
-                    }.frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 8) {
+                        else {
+                            Image(systemName: "gamecontroller.fill").foregroundStyle(DS.Color.symbolDefault)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity).background(DS.Color.surfaceRaised)
+                        }
+                    }.frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail).clipShape(RoundedRectangle(cornerRadius: DS.Radius.chip)).accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                        HStack(spacing: DS.Space.xs) {
                             Text(row.game.displayName(loc.lang))
                                 .font(DS.Font.bodyStrong)
-                                .foregroundStyle(LauncherPalette.text)
+                                .foregroundStyle(DS.Color.textPrimary)
                                 .lineLimit(2).multilineTextAlignment(.leading)
                                 .help(row.assessment.hasSpecificUpdate ? String(format: loc.t("library.refresh.badgeVersion"), row.assessment.versionLabel) : "")
 
                         }
                         if row.showsMissingImgHint {
-                            Text(loc.t("batchRefresh.missingImg"))
-                                .font(.manrope(11.5))
-                                .foregroundStyle(LauncherPalette.building)
-                                .fixedSize(horizontal: false, vertical: true)
+                            warning(loc.t("batchRefresh.missingImg"))
                         } else if row.showsMissingPackageHint {
-                            Text(loc.t("batchRefresh.missingPackage"))
-                                .font(.manrope(11.5))
-                                .foregroundStyle(LauncherPalette.building)
-                                .fixedSize(horizontal: false, vertical: true)
+                            warning(loc.t("batchRefresh.missingPackage"))
                         }
                     }
                 }
@@ -414,18 +402,26 @@ struct BatchRefreshSheet: View {
               }
               if row.showsMissingImgHint {
                 Button(loc.t("imgGuide.chooseImgBtn")) { recoverImage(.init(game: row.game, assessment: row.assessment)) }
-                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .buttonStyle(DSRowButtonStyle())
                     .padTarget("batchRefresh.recover." + row.id.uuidString, scope: "batchRefresh") {
                         recoverImage(.init(game: row.game, assessment: row.assessment))
                     }
               }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
-        .frame(minHeight: 64)
-        .background(!checkedTargets.isEmpty ? LauncherPalette.ink(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-        .padTarget("batchRefresh.game.\(row.id.uuidString)", scope: "batchRefresh", radius: 8, enabled: !enabled.isEmpty) { toggleRow(row) }
+        .padding(.horizontal, DS.Space.s)
+        .padding(.vertical, DS.Space.xs)
+        .frame(minHeight: 56)
+        .padTarget("batchRefresh.game.\(row.id.uuidString)", scope: "batchRefresh", radius: DS.Radius.chip, enabled: !enabled.isEmpty) { toggleRow(row) }
+    }
+
+    /// Why a game cannot be refreshed fast: the warning symbol and the text in the row's secondary style.
+    private func warning(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: DS.Space.xxs) {
+            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10, weight: .semibold)).foregroundStyle(DS.Color.statusWarning)
+                .accessibilityHidden(true)
+            Text(text).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func platformTogglePill(
@@ -438,27 +434,27 @@ struct BatchRefreshSheet: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: DS.Space.xxs) {
                 Image(systemName: isOn ? "checkmark.square.fill" : "square")
                     .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(isOn ? LauncherPalette.ready : LauncherPalette.secondaryText)
+                    .foregroundStyle(isOn ? DS.Color.symbolAccent : DS.Color.symbolDefault)
                 Image(systemName: symbol)
                     .font(.system(size: 11))
-                    .foregroundStyle(LauncherPalette.secondaryText)
+                    .foregroundStyle(DS.Color.symbolDefault)
                 Text(label)
-                    .font(.manrope(12.5, .semibold))
-                    .foregroundStyle(LauncherPalette.text)
+                    .font(DS.Font.bodyStrong)
+                    .foregroundStyle(DS.Color.textPrimary)
                     .lineLimit(1)
                 if isFast {
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(LauncherPalette.ready)
+                        .foregroundStyle(DS.Color.symbolDefault)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(isOn ? LauncherPalette.selectedFill : LauncherPalette.ink(0.04), in: Capsule())
-            .overlay(Capsule().strokeBorder(isOn ? LauncherPalette.selectedBorder : LauncherPalette.secondaryBorder))
+            .padding(.horizontal, DS.Space.s)
+            .frame(height: 30)
+            .background(DS.Color.surfaceRaised, in: Capsule())
+            .overlay(Capsule().strokeBorder(isOn ? DS.Color.accent : DS.Color.separator))
             .opacity(disabled ? 0.4 : 1)
             .contentShape(Capsule())
         }
@@ -470,19 +466,15 @@ struct BatchRefreshSheet: View {
 
     private var footerSection: some View {
         let summaryText = Text(String(format: loc.t("batchRefresh.summary"), selectedFastCount, selectedFullCount))
-            .font(.manrope(13, .medium))
-            .foregroundStyle(LauncherPalette.secondaryText)
+            .font(DS.Font.callout)
+            .foregroundStyle(DS.Color.textSecondary)
             .lineLimit(1)
 
         return ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
+            DSSheetButtonRow { summaryText } buttons: { footerButtons }
+            VStack(alignment: .leading, spacing: DS.Space.s) {
                 summaryText
-                Spacer(minLength: 10)
-                footerButtons
-            }
-            VStack(alignment: .leading, spacing: 12) {
-                summaryText
-                HStack(spacing: 10) {
+                HStack(spacing: DS.Space.s) {
                     Spacer(minLength: 0)
                     footerButtons
                 }
@@ -491,9 +483,9 @@ struct BatchRefreshSheet: View {
     }
 
     private var footerButtons: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: DS.Space.s) {
             Button(loc.t("batchRefresh.cancel"), action: close)
-                .buttonStyle(LauncherSecondaryButtonStyle())
+                .buttonStyle(DSSecondaryButtonStyle())
                 .keyboardShortcut(.cancelAction)
                 .padTarget("batchRefresh.cancel", scope: "batchRefresh", activate: close)
 
@@ -501,26 +493,17 @@ struct BatchRefreshSheet: View {
             Button(String(format: loc.t("batchRefresh.onlyFast"), selectedFastCount)) {
                 confirm(onlyFast: true)
             }
-            .buttonStyle(LauncherSecondaryButtonStyle())
+            .buttonStyle(DSSecondaryButtonStyle())
             .disabled(selectedFastCount == 0)
             .padTarget("batchRefresh.onlyFast", scope: "batchRefresh", enabled: selectedFastCount > 0) {
                 confirm(onlyFast: true)
             }
             }
 
-            Button {
+            DSSheetPrimaryButton(String(format: loc.t("batchRefresh.allSelected"), totalSelectedCount)) {
                 confirm(onlyFast: false)
-            } label: {
-                Text(String(format: loc.t("batchRefresh.allSelected"), totalSelectedCount))
-                    .font(.manrope(13.5, .semibold))
-                    .lineLimit(1)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 9)
             }
-            .buttonStyle(LauncherActionButtonStyle())
-            .keyboardShortcut(.defaultAction)
             .disabled(totalSelectedCount == 0)
-            .opacity(totalSelectedCount == 0 ? 0.45 : 1)
             .padTarget("batchRefresh.confirm", scope: "batchRefresh", enabled: totalSelectedCount > 0) {
                 confirm(onlyFast: false)
             }

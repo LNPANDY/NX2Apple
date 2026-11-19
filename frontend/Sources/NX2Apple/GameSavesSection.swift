@@ -71,6 +71,7 @@ struct GameSavesSection: View {
         }
         .sheet(item: Binding(get: { importing.map { PendingImport(preview: $0) } }, set: { if $0 == nil { importing = nil } })) { pending in
             SaveImportSheet(gameName: game.name, source: pending.preview.source.path, target: save.path.path,
+                            icon: GameLibrary.appIcon(for: game, banners: ArtworkStore.shared.directory),
                             cancel: { importing = nil }, confirm: { performImport(pending.preview, into: save.path) })
                 .environmentObject(loc).environmentObject(pad)
         }
@@ -188,50 +189,26 @@ enum SaveLocationText {
     static func shown(_ path: String) -> String { (path as NSString).abbreviatingWithTildeInPath }
 }
 
-/// The 560 pt confirmation of an import: the game, where the files come from, where they go, and that the current save is backed up.
-/// Cancel has the focus, so Return never replaces a save.
+/// The confirmation of an import, on the sheet layout: the game's icon, where the files come from, where they go, and that the
+/// current save is backed up. Import replaces the save, so it is the destructive button: Return and Escape cancel.
 struct SaveImportSheet: View {
     let gameName: String
     let source: String
     let target: String
+    var icon: NSImage? = nil
     let cancel: () -> Void
     let confirm: () -> Void
     @EnvironmentObject var loc: Localizer
-    @EnvironmentObject private var pad: PadFocus
-    @FocusState private var cancelFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(loc.t("savesloc.importTitle")).font(DS.Font.title).tracking(DS.Font.titleTracking)
-                Text(gameName).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+        LauncherConfirmSheet(subject: .game(icon), title: loc.t("savesloc.importTitle"), subtitle: gameName, note: loc.t("savesloc.importNote"),
+                             cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("savesloc.importButton"), destructive: true,
+                             scope: "saveimport", cancel: cancel, confirm: confirm) {
+            DSSection("") {
+                DSRow(loc.t("savesloc.source"), detail: SaveLocationText.shown(source), help: source) {}
+                DSRowDivider()
+                DSRow(loc.t("savesloc.target"), detail: SaveLocationText.shown(target), help: target) {}
             }
-            .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 18)
-            VStack(spacing: 0) {
-                CardRow(loc.t("savesloc.source"), detail: SaveLocationText.shown(source), help: source) {}
-                CardDivider()
-                CardRow(loc.t("savesloc.target"), detail: SaveLocationText.shown(target), help: target) {}
-            }
-            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-            .padding(.horizontal, 30)
-            Text(loc.t("savesloc.importNote")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).padding(.horizontal, 32).padding(.top, 12)
-            Divider().opacity(0.3).padding(.top, 20)
-            HStack(spacing: 12) {
-                Spacer(minLength: 8)
-                Button(loc.t("saves.cancel"), action: cancel).keyboardShortcut(.cancelAction).focused($cancelFocused)
-                    .padTarget("saveimport.cancel", scope: "saveimport", activate: cancel)
-                Button(loc.t("savesloc.importButton"), action: confirm)
-                    .padTarget("saveimport.confirm", scope: "saveimport", activate: confirm)
-            }
-            .buttonStyle(LauncherSecondaryButtonStyle())
-            .padding(.horizontal, 30).padding(.vertical, 16)
         }
-        .padScope("saveimport", pad)
-        .frame(width: 560)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(LauncherPalette.background)
-        .launcherAppearance()
-        .tint(LauncherPalette.cream)
-        .onAppear { cancelFocused = true }
     }
 }
