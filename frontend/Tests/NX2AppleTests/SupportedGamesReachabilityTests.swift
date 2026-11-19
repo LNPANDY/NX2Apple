@@ -180,10 +180,5 @@ import XCTest
         XCTAssertEqual(state.supportedShown.map(\.titleID), [olderCatalogGame.titleID])
         state.supportedText = "9.9.9"
         XCTAssertTrue(state.supportedShown.isEmpty)
-
-        let fullScreenGame = SupportedGame(titleID: "01006F8002326000", name: "Animal Crossing: New Horizons", edition: .switch1, version: "3.0.3", notes: "", fullScreen: true)
-        XCTAssertTrue(SupportedGamesSheet.matchesSearch(fullScreenGame, needle: "Full screen", ownedName: "", badgeName: L10n.string("widescreen.badge", .en)))
-        XCTAssertTrue(SupportedGamesSheet.matchesSearch(fullScreenGame, needle: "全面屏", ownedName: "", badgeName: L10n.string("widescreen.badge", .zh)))
-        XCTAssertFalse(SupportedGamesSheet.matchesSearch(currentGame, needle: "Full screen", ownedName: "", badgeName: L10n.string("widescreen.badge", .en)))
     }
 }

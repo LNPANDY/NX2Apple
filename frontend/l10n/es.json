@@ -2463,8 +2463,6 @@
   "upstream.s2armPickMessage": "Elige la carpeta del repositorio de S2Arm",
   "upstream.switchBtn": "Cambiar",
   "upstream.title": "Origen de compilación",
-  "widescreen.badge": "Pantalla completa",
-  "widescreen.help": "Se adapta a proporciones de pantalla completa y panorámica.",
   "xcodeChoice.choose": "Elegir Xcode…",
   "xcodeChoice.finishSetup": "Termina la configuración en el Xcode elegido y pulsa Reintentar.",
   "xcodeChoice.invalid": "Elige una app Xcode que contenga las herramientas de desarrollo.",

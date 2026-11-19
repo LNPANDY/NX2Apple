@@ -2463,8 +2463,6 @@
   "upstream.s2armPickMessage": "选择 S2Arm 仓库文件夹",
   "upstream.switchBtn": "切换",
   "upstream.title": "构建上游",
-  "widescreen.badge": "全面屏",
-  "widescreen.help": "支持适配全面屏与宽屏显示比例。",
   "xcodeChoice.choose": "选择 Xcode…",
   "xcodeChoice.finishSetup": "请在所选的 Xcode 中完成配置，然后点「重试」。",
   "xcodeChoice.invalid": "请选择包含开发工具的 Xcode 应用。",

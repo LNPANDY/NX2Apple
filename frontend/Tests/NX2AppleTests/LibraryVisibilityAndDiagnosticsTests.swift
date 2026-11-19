@@ -294,14 +294,8 @@ import NXLauncher
         // Repeated lookups hit memory without re-scanning game.tsv files.
         let secondLoad = VerifiedProfiles.titleIDs(engineRoot: realEngine)
         let cachedHit = VerifiedProfiles.cachedTitleIDs(engineRoot: realEngine)
-        let fullScreenSet = VerifiedProfiles.fullScreenTitleIDs(engineRoot: realEngine)
         XCTAssertEqual(secondLoad, firstLoad)
         XCTAssertEqual(cachedHit, firstLoad)
-        XCTAssertTrue(VerifiedProfiles.supportsFullScreen(titleID: "01006F8002326000", fullScreenTitleIDs: fullScreenSet))
-        XCTAssertTrue(VerifiedProfiles.supportsFullScreen(titleID: "01007EF00011E000", fullScreenTitleIDs: fullScreenSet))
-        XCTAssertTrue(VerifiedProfiles.supportsFullScreen(titleID: "0400486024DEC000", fullScreenTitleIDs: fullScreenSet))
-        XCTAssertTrue(VerifiedProfiles.supportsFullScreen(titleID: "0400A3A01EE4C000", fullScreenTitleIDs: fullScreenSet))
-        XCTAssertFalse(VerifiedProfiles.supportsFullScreen(titleID: "01002B30028F6000", fullScreenTitleIDs: fullScreenSet))
         XCTAssertEqual(VerifiedProfiles.diskScanCount, 1, "Memoized engineRoot must not re-read dm/games/*.tsv")
 
         // Multi-program collection sub-profile (010049900F546001) aligns its base container (010049900F546000) as verified.

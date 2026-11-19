@@ -2463,8 +2463,6 @@
   "upstream.s2armPickMessage": "Scegli la cartella della repository S2Arm",
   "upstream.switchBtn": "Cambia",
   "upstream.title": "Sorgente di compilazione",
-  "widescreen.badge": "Schermo intero",
-  "widescreen.help": "Si adatta ai formati a schermo intero e ultrawide.",
   "xcodeChoice.choose": "Scegli Xcode…",
   "xcodeChoice.finishSetup": "Completa la configurazione nell’Xcode selezionato, poi fai clic su Riprova.",
   "xcodeChoice.invalid": "Scegli un’app Xcode che contenga gli strumenti per sviluppatori.",

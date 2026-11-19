@@ -2463,8 +2463,6 @@
   "upstream.s2armPickMessage": "Välj mappen för S2Arm-arkivet",
   "upstream.switchBtn": "Växla",
   "upstream.title": "Byggkälla",
-  "widescreen.badge": "Helskärm",
-  "widescreen.help": "Anpassar sig till helskärms- och bredbildsformat.",
   "xcodeChoice.choose": "Välj Xcode …",
   "xcodeChoice.finishSetup": "Slutför inställningen i den valda Xcode och klicka sedan på Försök igen.",
   "xcodeChoice.invalid": "Välj en Xcode-app som innehåller utvecklarverktygen.",
