@@ -223,7 +223,9 @@ import NXLauncher
         case .controllersSheet:
             root = AnyView(ConsoleControllersSheet(driver: MockConsoleDriver(scenario: .controllers, lang: lang, animated: false), lang: lang, close: {}))
         case .onboarding(let scenario):
-            root = AnyView(OnboardingDemoHost(scenario: scenario))
+            root = onboardingView(scenario)
+        case .onboardingState(let state):
+            root = onboardingView(state)
         case .consoleHome: root = console()
         case .consoleEmpty: root = console(.empty)
         case .consoleStarting: root = console(.starting)
@@ -236,6 +238,14 @@ import NXLauncher
         return AnyView(root.environmentObject(PadFocus()).environmentObject(stores.localizer).launcherDropdownHost()
             .defaultAppStorage(defaults)   // @AppStorage in the views reads and writes the scene's suite, not the app's defaults
             .frame(width: frame.width, height: frame.height).background(LauncherPalette.background))
+    }
+
+    /// The onboarding's found games: the first fixture games with their covers, decoded as the real driver does it.
+    func onboardingGames(count: Int) -> [OnboardingGame] {
+        makeLibrary(count: count).games.map {
+            OnboardingGame(id: $0.titleID, title: $0.name, version: "",
+                           cover: GameLibrary.artwork(for: $0, slot: .thumbnail, repo: "", banners: artworkFolder, maxPixel: ArtworkImages.cardPixels))
+        }
     }
 
     /// What a failure's message adds to its row, as a build would give it.

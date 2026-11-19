@@ -50,6 +50,54 @@ import NXModel
         }
     }
 
+    /// Every onboarding scene opens at its own step with its state, not at the first step (xcodeReady, keysInvalid, xcodeFailed and
+    /// noGames all showed Welcome before): the step count and the step's title in the rendered view say which step it is.
+    func testEveryOnboardingSceneOpensAtItsOwnStep() throws {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        // SwiftUI builds its accessibility tree only for an assistive client
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = NSApplication.shared.accessibilityAttributeValue(enhanced)
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(previous ?? false, forAttribute: enhanced) }
+        let fixtures = GalleryFixtures(lang: .en)
+        let scenes = GalleryScene.allCases.filter { $0.group == .onboarding }
+        XCTAssertGreaterThanOrEqual(scenes.count, 25, "every step and state of the flow")
+        var rendered: [GalleryScene: OnboardingStep] = [:]
+        for scene in scenes {
+            let expected = try XCTUnwrap(scene.onboardingStep, scene.id)
+            let window = OffscreenWindow(size: scene.size)
+            window.contentView = NSHostingView(rootView: fixtures.view(scene))
+            window.orderFront(nil)
+            defer { window.contentView = nil; window.orderOut(nil); window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            let labels = Self.texts(in: window)
+            let shown = OnboardingStep.allCases.filter {
+                labels.contains(String(format: L10n.string("onboarding.stepCount", .en), $0.index + 1, OnboardingStep.allCases.count))
+            }
+            XCTAssertEqual(shown, [expected], "\(scene.id) shows \(shown)")
+            XCTAssertTrue(labels.contains(L10n.string(expected.titleKey, .en)), "\(scene.id) shows the title of \(expected)")
+            rendered[scene] = shown.first
+        }
+        for scenario in [MockOnboardingDriver.Scenario.xcodeReady, .keysInvalid, .xcodeFailed, .noGames] {
+            XCTAssertNotEqual(rendered[.onboarding(scenario)], rendered[.onboarding(.fresh)], "\(scenario) opens at its own step, not Welcome")
+        }
+        XCTAssertEqual(Set(rendered.values), Set(OnboardingStep.allCases), "every step has a scene")
+    }
+
+    private static func texts(in node: NSObject) -> Set<String> {
+        var labels: Set<String> = []
+        func visit(_ node: NSObject) {
+            for selector in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
+                let sel = NSSelectorFromString(selector)
+                if node.responds(to: sel), let value = node.perform(sel)?.takeUnretainedValue() as? String { labels.insert(value) }
+            }
+            let children = NSSelectorFromString("accessibilityChildren")
+            if node.responds(to: children), let next = node.perform(children)?.takeUnretainedValue() as? [NSObject] { next.forEach(visit) }
+        }
+        visit(node)
+        return labels
+    }
+
     func testTheGalleryIsAskedForByFlagOrEnvironment() {
         XCTAssertFalse(GalleryMode.requested, "the test runner is not the gallery")
     }
