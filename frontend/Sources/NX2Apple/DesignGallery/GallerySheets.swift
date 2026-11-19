@@ -74,7 +74,6 @@ enum GallerySheet: String, CaseIterable {
     /// nil: the sheet's own size (its width, its content's height). A sheet with a scrolling list has a fixed one.
     var size: CGSize? {
         switch self {
-        case .controllersSheet: return CGSize(width: 680, height: 720)   // console mode's view (ConsoleControllersView.swift), not this pass
         case .controlsSheet: return CGSize(width: 600, height: 700)
         case .freeSpace, .freeSpaceMeasuring: return CGSize(width: 560, height: 690)
         case .buildSelected, .buildSelectedEmpty: return CGSize(width: 680, height: 720)

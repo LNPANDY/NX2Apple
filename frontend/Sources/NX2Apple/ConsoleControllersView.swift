@@ -312,7 +312,9 @@ struct ConsoleToastView: View {
     }
 
     var body: some View {
-        DSSheet(width: 580, title: t("console.controllers"), message: t("console.controllerNote")) {
+        // a fixed height with the list scrolling, as the other long sheets (Keyboard controls): the controller's focus scrolls it
+        DSScrollingSheet(width: 580, height: 640, title: t("console.controllers"), message: t("console.controllerNote"),
+                         scrollTarget: pad.scope == scope ? pad.focused : nil) {
             DSSection(t("console.controllers.players")) {
                 HStack(spacing: DS.Space.xs) {
                     ForEach(1...4, id: \.self) { player in playerButton(player) }
@@ -341,6 +343,8 @@ struct ConsoleToastView: View {
                         .padTarget("console.controller.merge", scope: scope, activate: { driver.setPadMerge(!state.padMerge) })
                 }
             }
+        } leading: {
+            EmptyView()
         } buttons: {
             DSSheetPrimaryButton(t("free.done"), action: close)
                 .keyboardShortcut(.cancelAction)
