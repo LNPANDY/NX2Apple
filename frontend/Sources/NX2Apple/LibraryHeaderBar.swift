@@ -44,3 +44,41 @@ enum LibraryHeroLayout {
         max(hasDeviceActions ? 340 : 300, available * 0.7)
     }
 }
+
+/// Two groups share a row when their ideal widths fit, otherwise the second starts on the leading edge below.
+struct LibraryCollectionHeaderLayout: Layout {
+    let spacing: CGFloat
+    var spread = false
+    private let rowSpacing: CGFloat = 12
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let first = subviews[0].sizeThatFits(.unspecified)
+        let second = subviews[1].sizeThatFits(.unspecified)
+        let idealWidth = first.width + spacing + second.width
+        guard let width = proposal.width else {
+            return CGSize(width: idealWidth, height: max(first.height, second.height))
+        }
+        if idealWidth <= width {
+            return CGSize(width: spread ? width : idealWidth, height: max(first.height, second.height))
+        }
+        let row = ProposedViewSize(width: width, height: nil)
+        let height = subviews[0].sizeThatFits(row).height + rowSpacing + subviews[1].sizeThatFits(row).height
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let first = subviews[0].sizeThatFits(.unspecified)
+        let second = subviews[1].sizeThatFits(.unspecified)
+        if first.width + spacing + second.width <= bounds.width {
+            subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading, proposal: .unspecified)
+            let secondX = spread ? bounds.maxX - second.width : bounds.minX + first.width + spacing
+            subviews[1].place(at: CGPoint(x: secondX, y: bounds.midY), anchor: .leading, proposal: .unspecified)
+        } else {
+            let row = ProposedViewSize(width: bounds.width, height: nil)
+            let firstHeight = subviews[0].sizeThatFits(row).height
+            subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: row)
+            subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + firstHeight + rowSpacing),
+                              anchor: .topLeading, proposal: row)
+        }
+    }
+}

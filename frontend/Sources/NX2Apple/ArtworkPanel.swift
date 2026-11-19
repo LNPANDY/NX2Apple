@@ -130,6 +130,7 @@ struct ArtworkPanel: View {
             chooseFile
         }
         .focusable()
+        .modifier(ArtworkGridFocusEffect())
         .focused($gridFocused)
         .onMoveCommand { direction in
             switch direction {
@@ -343,15 +344,16 @@ struct ArtworkPanel: View {
         return Label(text, systemImage: symbol).font(.manrope(13)).foregroundStyle(color).fixedSize(horizontal: false, vertical: true)
     }
 
-    /// Reset, Cancel and Save on one row when the reset text fits (English, Chinese, Swedish), else Reset on a row of its own above
-    /// (German, French, Italian), never cut short.
+    /// Keep the actions on one row when the localized labels fit.
     private var footer: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 10) {
-                if editor.canReset(editor.slot) { resetButton }
-                Spacer(minLength: 8)
+                if editor.canReset(editor.slot) {
+                    resetButton.frame(maxWidth: .infinity, alignment: .leading)
+                }
                 cancelAndSave
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
             VStack(alignment: .leading, spacing: 10) {
                 if editor.canReset(editor.slot) { resetButton }
                 HStack(spacing: 10) { Spacer(minLength: 0); cancelAndSave }
@@ -361,7 +363,7 @@ struct ArtworkPanel: View {
     }
 
     private var resetButton: some View {
-        Button { editor.reset(editor.slot) } label: { Label(t("artwork.reset." + slotName), systemImage: "arrow.uturn.backward").lineLimit(1).fixedSize() }
+        Button { editor.reset(editor.slot) } label: { Label(t("artwork.reset"), systemImage: "arrow.uturn.backward").lineLimit(1).fixedSize() }
             .buttonStyle(LauncherSecondaryButtonStyle())
             .padTarget("artwork.reset", scope: "artwork") { editor.reset(editor.slot) }
     }
@@ -376,6 +378,14 @@ struct ArtworkPanel: View {
         }
         .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut("s", modifiers: .command).disabled(!editor.isDirty)
         .padTarget("artwork.save", scope: "artwork", focusColor: LauncherPalette.onCream, enabled: editor.isDirty) { if editor.isDirty { save() } }
+    }
+}
+
+/// The selected tile marks the keyboard position without outlining the whole grid.
+private struct ArtworkGridFocusEffect: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 14, *) { content.focusEffectDisabled() }
+        else { content }
     }
 }
 

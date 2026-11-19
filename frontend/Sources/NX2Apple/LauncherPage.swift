@@ -19,7 +19,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     static let libraryOptions: [LibraryFilter] = [.owned, .mac, .ios]
     var labelKey: String {
         switch self {
-        case .owned: return "builds.allGames"
+        case .owned: return "console.filter.all"
         case .built: return "filter.built"
         case .mac: return "library.section.mac"
         case .ios: return "library.section.mobile"

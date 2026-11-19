@@ -203,7 +203,10 @@ extension LauncherView {
                 } else {
                     emptyLibraryHero(width: width)
                 }
-            }.transaction { $0.animation = nil }
+            }
+            // The artwork can extend behind the navigation bar. Keep the foreground below it at rest.
+            .padding(.top, libraryHeaderHeight - libraryReservedHeaderHeight)
+            .transaction { $0.animation = nil }
         }
         .frame(width: width).frame(minHeight: height, alignment: .bottomLeading)
         .task(id: "\(game?.id.uuidString ?? "")|\(loc.lang.code)|\(game?.appPath ?? "")") {
@@ -248,48 +251,36 @@ extension LauncherView {
         }
     }
 
-    /// Narrow windows place collection controls on a separate line.
-    static let collectionWideHeaderWidth: CGFloat = 1100
-
     func collection(width: CGFloat) -> some View {
         let cardWidth = LibraryCardLayout.width(in: width)
         let columns = LibraryCardLayout.columns(in: width)
         let games = filteredGames
         let heroID = heroGame?.id
+        let compact = width < 1200
         return VStack(alignment: .leading, spacing: 18) {
-            let headerLayout = width < Self.collectionWideHeaderWidth
-                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
-                : AnyLayout(HStackLayout(spacing: 16))
-            headerLayout {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(loc.t("library.yourLibrary")).font(.manrope(28, .bold)).tracking(-0.6).fixedSize()
-                    Text("(" + String(format: loc.t("library.gameCount"), games.count) + ")").font(.manrope(12)).foregroundStyle(.secondary)
+            LibraryCollectionHeaderLayout(spacing: 16, spread: true) {
+                LibraryCollectionHeaderLayout(spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(loc.t("library.yourLibrary")).font(.manrope(28, .bold)).tracking(-0.6).fixedSize()
+                        Text("(" + String(format: loc.t("library.gameCount"), games.count) + ")").font(.manrope(12)).foregroundStyle(.secondary)
+                    }
                     Button(loc.t("supported.title"), action: openSupportedGames)
                         .buttonStyle(LauncherSecondaryButtonStyle())
                         .padTarget("library.supported", scope: "main", activate: openSupportedGames)
                 }
-                HStack(spacing: 12) {
-                Spacer(minLength: 0)
-                let compactHeader = width < Self.collectionWideHeaderWidth
-                if !library.games.isEmpty {
-                    collectionBatchRefreshButton(compact: compactHeader)
-                }
-                HStack(spacing: 8) {
-                    // a narrow window keeps the menu without the word before it (the menu's accessible label says Sort)
-                    if !compactHeader { Text(loc.t("sort.label")).font(.manrope(12)).foregroundStyle(.secondary).fixedSize() }
-                    LauncherDropdown(options: LibrarySort.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: librarySort.rawValue,
-                                     label: loc.t("sort.label"), style: .button) { setLibrarySort(LibrarySort(rawValue: $0) ?? .recent) }
-                        .padTarget("library.sort", scope: "main",
-                                   activate: { setLibrarySort(librarySort == .recent ? .name : .recent) },
-                                   adjust: { setLibrarySort($0 > 0 ? .name : .recent) })
-                }
-                LauncherSegmented(options: LibraryFilter.libraryOptions.map { ($0.rawValue, loc.t($0.labelKey)) },
-                                  selection: libraryFilter.rawValue) { setLibraryFilter(LibraryFilter(rawValue: $0) ?? .owned) }
-                    .compactFrame(minWidth: LauncherControl.width)
-                    .padTarget("library.filter", scope: "main",
-                               activate: { setLibraryFilter(libraryFilter == .ios ? .owned : libraryFilter.adjusted(1)) },
-                               adjust: { setLibraryFilter(libraryFilter.adjusted($0)) })
-
+                LibraryCollectionHeaderLayout(spacing: 12) {
+                    HStack(spacing: 12) {
+                        if !library.games.isEmpty { collectionBatchRefreshButton(compact: compact) }
+                        HStack(spacing: 8) {
+                            if !compact { Text(loc.t("sort.label")).font(.manrope(12)).foregroundStyle(.secondary).fixedSize() }
+                            LauncherDropdown(options: LibrarySort.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: librarySort.rawValue,
+                                             label: loc.t("sort.label"), style: .button) { setLibrarySort(LibrarySort(rawValue: $0) ?? .recent) }
+                                .padTarget("library.sort", scope: "main",
+                                           activate: { setLibrarySort(librarySort == .recent ? .name : .recent) },
+                                           adjust: { setLibrarySort($0 > 0 ? .name : .recent) })
+                        }
+                    }
+                    collectionPlatformFilter
                 }
             }.id("library.collection.header")
             if library.showsSkippedBanner {
@@ -319,6 +310,17 @@ extension LauncherView {
             }
         }
         .padding(.horizontal, 34).padding(.top, 8).padding(.bottom, 22)
+    }
+
+    private var collectionPlatformFilter: some View {
+        LauncherSegmented(options: LibraryFilter.libraryOptions.map { ($0.rawValue, loc.t($0.labelKey)) },
+                          selection: libraryFilter.rawValue) {
+            setLibraryFilter(LibraryFilter(rawValue: $0) ?? .owned)
+        }
+        .compactFrame(minWidth: LauncherControl.width)
+        .padTarget("library.filter", scope: "main",
+                   activate: { setLibraryFilter(libraryFilter == .ios ? .owned : libraryFilter.adjusted(1)) },
+                   adjust: { setLibraryFilter(libraryFilter.adjusted($0)) })
     }
 
     func libraryMetadataBadges(_ game: LibraryGame) -> some View {
