@@ -335,7 +335,7 @@ package struct EngineDropdownPanel: View {
                             .lineLimit(1)
                         Text(loc.t(badgeKey))
                             .font(.manrope(10.5, .semibold))
-                            .foregroundStyle(selected ? LauncherPalette.accent : LauncherPalette.secondaryText)
+                            .foregroundStyle(selected ? DS.Color.textPrimary : DS.Color.textSecondary)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1.5)
                             .background(LauncherPalette.secondaryFill, in: Capsule())

@@ -9,10 +9,10 @@ import NXModel
 extension StepState {
     package var color: Color {
         switch self {
-        case .pending: return .gray
-        case .running: return .yellow
-        case .done: return .green
-        case .failed: return .red
+        case .pending: return DS.Color.textTertiary
+        case .running: return DS.Color.statusWarning
+        case .done: return DS.Color.statusSuccess
+        case .failed: return DS.Color.statusError
         }
     }
 }

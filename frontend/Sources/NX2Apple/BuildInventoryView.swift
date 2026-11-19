@@ -108,7 +108,7 @@ struct BuildInventoryView: View {
             if library.games.isEmpty {
                 VStack(alignment: .leading, spacing: 16) {
                     Label(loc.t("builds.empty.title"), systemImage: "shippingbox")
-                        .font(.manrope(22, .semibold))
+                        .font(DS.Font.title)
                     Text(loc.t("builds.empty.note")).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 660, alignment: .leading)
                     HStack(spacing: 12) {
@@ -291,7 +291,7 @@ struct CurrentBuildEntry: View {
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(loc.t(build.running ? "builds.current.running" : build.done ? "builds.current.complete" : "builds.current.draft"))
-                        .font(.manrope(15, .semibold))
+                        .font(DS.Font.headline)
                     Text(title ?? build.gameName).foregroundStyle(.secondary).lineLimit(1)
                     if build.running {
                         Text(build.stages.last(where: { $0.state == .running })?.name ?? loc.t("library.preparing"))

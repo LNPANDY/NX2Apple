@@ -27,7 +27,7 @@ struct GameSavesSection: View {
         let _ = settings.revision
         let save = effective
         VStack(alignment: .leading, spacing: 10) {
-            Text(loc.t("saves.title")).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
+            Text(loc.t("saves.title")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
             VStack(spacing: 0) {
                 CardRow(loc.t("savesloc.folder"), detail: SaveLocationText.shown(save.path.path), detail2: "", help: save.path.path) {
                     Button(loc.t("savesloc.show")) { reveal(save.path) }
@@ -203,7 +203,7 @@ struct SaveImportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(loc.t("savesloc.importTitle")).font(.manrope(26, .heavy)).tracking(-0.6)
+                Text(loc.t("savesloc.importTitle")).font(DS.Font.title).tracking(DS.Font.titleTracking)
                 Text(gameName).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 18)

@@ -37,7 +37,7 @@ struct CloudSavesCard: View {
     }
 
     private var store: GameCloudSaves { saves ?? GameCloudSaves(titleID: game.titleID, appPath: game.appPath) }
-    static let attention = Color(red: 1, green: 0.78, blue: 0.24)
+    static let attention = DS.Color.statusWarning
 
     var body: some View {
         let _ = revision
@@ -71,12 +71,12 @@ struct CloudSavesCard: View {
             Image(systemName: setting.isOn ? "icloud" : "icloud.slash").font(.system(size: 17, weight: .medium))
                 .foregroundStyle(setting.isOn ? LauncherPalette.accent : .secondary).frame(width: 22)
             VStack(alignment: .leading, spacing: 3) {
-                Text(setting.folder.map(Self.name) ?? loc.t("cloud.off")).font(.manrope(14, .medium)).lineLimit(1)
+                Text(setting.folder.map(Self.name) ?? loc.t("cloud.off")).font(DS.Font.body).lineLimit(1)
                 if let folder = setting.folder {
-                    Text(Self.shown(folder, home: home)).font(.manrope(11.5)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.middle)
+                    Text(Self.shown(folder, home: home)).font(DS.Font.callout).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.middle)
                         .help(folder)
                 }
-                if let source = sourceText(setting) { Text(source).font(.manrope(11.5)).foregroundStyle(.tertiary) }
+                if let source = sourceText(setting) { Text(source).font(DS.Font.callout).foregroundStyle(.tertiary) }
             }
             Spacer(minLength: 12)
             if setting.isOn {
@@ -143,9 +143,9 @@ struct CloudSavesCard: View {
         HStack(alignment: .firstTextBaseline, spacing: 14) {
             Circle().fill(color(shown?.state)).frame(width: 8, height: 8).frame(width: 22)
             VStack(alignment: .leading, spacing: 3) {
-                Text(stateText(shown)).font(.manrope(13.5, .medium)).fixedSize(horizontal: false, vertical: true)
+                Text(stateText(shown)).font(DS.Font.body).fixedSize(horizontal: false, vertical: true)
                 if let date = shown?.date {
-                    Text(String(format: loc.t("cloud.lastSession"), when(date))).font(.manrope(11.5)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(String(format: loc.t("cloud.lastSession"), when(date))).font(DS.Font.callout).foregroundStyle(LauncherPalette.secondaryText)
                 }
             }
             Spacer(minLength: 0)
@@ -184,9 +184,9 @@ struct CloudSavesCard: View {
 
     private func color(_ state: CloudSaveSync.LogState?) -> Color {
         switch state {
-        case .inStep, .sent, .broughtIn: return Color(red: 0.25, green: 0.84, blue: 0.47)
+        case .inStep, .sent, .broughtIn: return DS.Color.statusSuccess
         case .waitingToSend, .waitingForChoice, .offline, .off: return Self.attention
-        case .failed: return Color(red: 1, green: 0.42, blue: 0.40)
+        case .failed: return DS.Color.statusError
         case .nothingYet, nil: return LauncherPalette.ink(0.3)
         }
     }

@@ -264,7 +264,7 @@ extension LauncherView {
                 LibraryProfileChip(title: loc.t("macLibVerify.badge"), explanation: loc.t("macLibVerify.note"), showingHelp: $profileHelpOpen).id(game.id)
             }
             if game.isOlderIOSBuild {
-                ArtworkStatusChip(title: loc.t("library.chip.olderIOS"), color: LauncherPalette.advisory, textColor: .white)
+                ArtworkStatusChip(title: loc.t("library.chip.olderIOS"), color: LauncherPalette.advisory)
                     .help(loc.t("library.olderIOS"))
             }
             if toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning

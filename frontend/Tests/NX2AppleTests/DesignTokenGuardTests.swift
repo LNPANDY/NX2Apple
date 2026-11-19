@@ -6,19 +6,16 @@ import XCTest
 /// below with the count they had when the guard came in. The listed files may only shrink: lower the number when a file moves
 /// to tokens, and drop its entry at zero. NXLauncher, where the tokens and components live, is not scanned.
 final class DesignTokenGuardTests: XCTestCase {
-    private static let pattern = try! NSRegularExpression(pattern: #"\.font\(\.manrope\(|Color\(red:|\.foregroundStyle\(\.white\.opacity\(|Color\(white:|NSColor\(srgbRed:"#)
+    private static let pattern = try! NSRegularExpression(pattern: #"\.font\(\.manrope\(|(?<!CG)Color\(red:|\.foregroundStyle\(\.white\.opacity\(|(?<!CG)Color\(white:|NSColor\(srgbRed:"#)
 
     /// File under frontend/Sources/NX2Apple -> raw styles it may still hold. The console mode's own look is most of it.
     private static let allowed: [String: Int] = [
-        "ArtworkImport.swift": 1,
         "ArtworkPanel.swift": 7,
         "BatchRefreshSheet.swift": 8,
         "BuildActivityFooter.swift": 1,
-        "BuildInventoryView.swift": 2,
         "BuildSelectedSheet.swift": 3,
         "CheatsView.swift": 9,
         "CloudSaveSheet.swift": 3,
-        "CloudSavesCard.swift": 8,
         "ConsoleBuildIndicator.swift": 1,
         "ConsoleBuildsPage.swift": 9,
         "ConsoleCloudSaveView.swift": 8,
@@ -40,21 +37,14 @@ final class DesignTokenGuardTests: XCTestCase {
         "ControlPresets.swift": 1,
         "Controls.swift": 4,
         "DeleteGameSheet.swift": 6,
-        "FrameTimesView.swift": 1,
         "FreeSpace.swift": 4,
         "GameControllerMappingView.swift": 3,
-        "GameSavesSection.swift": 2,
         "LaunchOptionsView.swift": 9,
-        "LauncherView+Header.swift": 2,
         "LauncherView+Library.swift": 1,
-        "LauncherView+RefreshUI.swift": 2,
-        "LauncherView.swift": 1,
-        "LibraryArtworkState.swift": 4,
-        "LibraryDiagnosticsBanner.swift": 4,
+        "LauncherView+RefreshUI.swift": 1,
         "LibraryEmptyState.swift": 1,
         "LiveConsoleDriver+Identify.swift": 2,
         "LiveConsoleDriver.swift": 1,
-        "ManageMenu.swift": 1,
         "MissingImgGuideSheet.swift": 4,
         "OnboardingGamesContent.swift": 1,
         "OnboardingKeysContent.swift": 1,

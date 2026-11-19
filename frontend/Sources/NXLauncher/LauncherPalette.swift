@@ -81,7 +81,8 @@ package enum LauncherPalette {
     package static let radioOn = accent
 
     // Status. Always shown with words.
-    package static let advisory = Color(nsColor: .systemBlue)
+    /// A quiet advisory beside a status (an older iOS build): the info tone.
+    package static let advisory = DS.Color.statusInfo
     package static let ready = DS.Color.statusReady
     package static let building = DS.Color.statusWarning
     package static let danger = DS.Color.statusError

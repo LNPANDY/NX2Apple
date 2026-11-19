@@ -9,7 +9,7 @@ struct GalleryCardStates: View {
         let size = NSSize(width: 480, height: 267)
         let image = NSImage(size: size)
         image.lockFocus()
-        NSGradient(colors: [NSColor(srgbRed: 0.55, green: 0.18, blue: 0.12, alpha: 1), NSColor(srgbRed: 0.12, green: 0.10, blue: 0.22, alpha: 1)])?
+        NSGradient(colors: [DS.Color.nsStatusErrorFill, DS.Color.nsSurfaceRaised])?   // stand-in art from the tokens
             .draw(in: NSRect(origin: .zero, size: size), angle: -30)
         image.unlockFocus()
         return image

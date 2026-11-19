@@ -81,7 +81,7 @@ package struct ProgressCard: View {
                     HStack(spacing: 12) {
                         Text(String(format: loc.t("prog.stageBadge"), pos.current, pos.total))
                             .font(.manrope(12, .bold)).monospacedDigit()
-                            .foregroundStyle(build.done && build.failure == nil ? LauncherPalette.ready : LauncherPalette.cream)
+                            .foregroundStyle(build.done && build.failure == nil ? DS.Color.statusSuccess : DS.Color.textPrimary)
                             .padding(.horizontal, 10).padding(.vertical, 4)
                             .background(LauncherPalette.ink(0.08), in: Capsule())
                             .overlay(DSPill().strokeBorder(LauncherPalette.ink(0.14)))
@@ -94,7 +94,7 @@ package struct ProgressCard: View {
                             LauncherProgressBar(value: overall, height: 7).frame(width: 200)
                             Text("\(Int((overall * 100).rounded(.down)))%")
                                 .font(DS.Font.bodyStrong).monospacedDigit()
-                                .foregroundStyle(build.done && build.failure == nil ? LauncherPalette.ready : LauncherPalette.cream)
+                                .foregroundStyle(build.done && build.failure == nil ? DS.Color.statusSuccess : DS.Color.textPrimary)
                                 .frame(width: 42, alignment: .trailing)
                         }
                     }

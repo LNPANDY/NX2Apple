@@ -77,6 +77,7 @@ final class DesignRulesTests: XCTestCase {
             }
         }
         XCTAssertGreaterThanOrEqual(Self.contrast(try value("accentOn"), on: try value("accent")), 4.5, "text on the accent")
+        XCTAssertGreaterThanOrEqual(Self.contrast(try value("status.errorOn"), on: try value("status.errorFill")), 4.5, "text on the destructive fill")
     }
 
     // MARK: Liquid Glass
@@ -97,31 +98,100 @@ final class DesignRulesTests: XCTestCase {
 
     // MARK: Colours
 
-    /// Symbols and text take their colour from the tokens (symbol.default, the status colours), never a raw SwiftUI colour. The
-    /// files below still hold some, with the count they may keep: lower it when a file moves to tokens.
+    /// Symbols and text take their colour from the tokens (symbol.default, the status colours), never a raw SwiftUI or AppKit
+    /// colour (`.yellow`, `Color.orange`, `NSColor.systemRed`, also in a ternary). Only the generated token file may hold them.
+    /// The files below, all of them console, onboarding or sheets, still do, with the count they may keep: lower it when a file
+    /// moves to tokens, and drop its entry at zero.
     private static let rawColourAllowed: [String: Int] = [
-        "NX2Apple/FrameTimesView.swift": 1,   // the frame-time graph's series colours
+        "NX2Apple/ConsoleControllersView.swift": 2,   // a low battery
+        "NX2Apple/GameControllerMappingView.swift": 1,
         "NX2Apple/OnboardingView.swift": 2,
-        "NXLauncher/AppCard.swift": 1,
-        "NXLauncher/BuildFilesCard.swift": 1,
-        "NXLauncher/BuildQueueCard.swift": 1,
         "NXLauncher/ExportSteps.swift": 1,
-        "NXLauncher/LauncherCard.swift": 3,
-        "NXLauncher/LauncherPalette.swift": 1,   // the palette under the tokens
         "NXLauncher/SendSelectedSheet.swift": 3,
-        "NXLauncher/ShellCacheRow.swift": 1,
         "NXLauncher/TransferCard.swift": 1,
     ]
 
+    /// `(?!:)` leaves out a case label (`case .red:`), not the `:` of a ternary, which the earlier `(?!\s*:)` let through.
+    static let rawColour = try! NSRegularExpression(pattern: #"(?<![\w])(?:Color|NSColor)?\.(?:yellow|orange|red|green|blue|purple|pink|mint|teal|cyan|indigo|brown|gray|systemYellow|systemOrange|systemRed|systemGreen|systemBlue|systemPurple|systemPink|systemTeal|systemMint|systemCyan|systemIndigo|systemBrown|systemGray)\b(?!:)"#)
+
     func testNoRawSwiftUIColours() throws {
-        let pattern = try NSRegularExpression(pattern: #"(?<![\w])(?:Color|NSColor)?\.(?:yellow|orange|red|green|blue|purple|pink|mint|teal|cyan|indigo|systemYellow|systemOrange|systemRed|systemGreen|systemBlue)\b(?!\s*:)"#)
+        XCTAssertEqual(Self.matches(Self.rawColour, "x ? Color.orange : Color.secondary"), 1, "a ternary is caught")
+        XCTAssertEqual(Self.matches(Self.rawColour, "case .red: break"), 0, "a case label is not a colour")
         var seen: Set<String> = []
         for (path, text) in try Self.sources() {
-            let count = pattern.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text))
+            let count = Self.matches(Self.rawColour, text)
             if count > 0 { seen.insert(path) }
             XCTAssertLessThanOrEqual(count, Self.rawColourAllowed[path] ?? 0, "\(path) uses \(count) raw colours: use DS.Color.symbolDefault or a status token")
         }
         for path in Self.rawColourAllowed.keys where !seen.contains(path) { XCTFail("\(path) has no raw colours left: drop its entry") }
+    }
+
+    /// The accent (the cream) marks the one primary action, a selection and focus. Text in it is the selected or primary
+    /// component's own (the button styles, the dropdown, the segmented control, the wordmark): a screen never colours a Text or a
+    /// Label with the accent itself. Console mode and the sheets below still do, with the count they may keep.
+    private static let accentTextComponents: Set<String> = [
+        "NXLauncher/LauncherStyles.swift", "NXLauncher/LauncherDropdown.swift", "NXLauncher/DesignComponents.swift",
+        "NXLauncher/LauncherGlass.swift", "NXLauncher/LauncherWordmark.swift", "NXLauncher/LauncherBrandMark.swift", "NXLauncher/PadFocus.swift",
+    ]
+    private static let accentTextAllowed: [String: Int] = [
+        "NX2Apple/ConsoleBuildsPage.swift": 1, "NX2Apple/ConsoleCloudSaveView.swift": 1, "NX2Apple/ConsoleCloudSaves.swift": 1,
+        "NX2Apple/ConsoleControllersView.swift": 2, "NX2Apple/ConsoleGameOptions.swift": 3, "NX2Apple/ConsoleOptionRow.swift": 1,
+        "NX2Apple/ConsolePages.swift": 2, "NX2Apple/ConsoleSupportedGamesPage.swift": 1, "NX2Apple/ConsoleTiles.swift": 1,
+        "NX2Apple/SupportedGamesSheet.swift": 1,
+    ]
+    private static let accentStyle = try! NSRegularExpression(pattern:
+        #"\.foreground(?:Style|Color)\([^()\n]*?(?:LauncherPalette\.(?:accent|cream|notice|focusRing|primaryHover|primaryPressed|segmentSelected|selectionUnderline|radioOn)|DS\.Color\.(?:accent|symbolAccent|statusInfo))\b"#)
+    private static let viewStart = try! NSRegularExpression(pattern: #"\b(Text|Label|Image|[A-Z]\w*(?:View|Mark|Glyph)|Circle|Capsule|Rectangle|RoundedRectangle|Group|HStack|VStack|ZStack|DSPill)\("#)
+
+    /// How many accent foregrounds apply to a Text or a Label: the view a modifier belongs to is the last one started before it.
+    static func accentOnText(_ text: String) -> Int {
+        let ns = text as NSString
+        return accentStyle.matches(in: text, range: NSRange(location: 0, length: ns.length)).filter { match in
+            let start = max(0, match.range.location - 400)
+            let before = NSRange(location: start, length: match.range.location - start)
+            guard let last = viewStart.matches(in: text, range: before).last else { return false }
+            return ["Text", "Label"].contains(ns.substring(with: last.range(at: 1)))
+        }.count
+    }
+
+    func testNoAccentOnTextOutsideTheSelectedAndPrimaryComponents() throws {
+        XCTAssertEqual(Self.accentOnText(#"Text("x").font(DS.Font.body).foregroundStyle(LauncherPalette.cream)"#), 1)
+        XCTAssertEqual(Self.accentOnText("Text(\"x\")\n    .foregroundStyle(on ? DS.Color.accent : DS.Color.textPrimary)"), 1)
+        XCTAssertEqual(Self.accentOnText(#"Image(systemName: "checkmark").foregroundStyle(LauncherPalette.accent)"#), 0, "a selected symbol is fine")
+        var seen: Set<String> = []
+        for (path, text) in try Self.sources() where !Self.accentTextComponents.contains(path) {
+            let count = Self.accentOnText(text)
+            if count > 0 { seen.insert(path) }
+            XCTAssertLessThanOrEqual(count, Self.accentTextAllowed[path] ?? 0,
+                                     "\(path) colours \(count) texts with the accent: use text.primary, a status colour or the selected component")
+        }
+        for path in Self.accentTextAllowed.keys where !seen.contains(path) { XCTFail("\(path) has no accent text left: drop its entry") }
+    }
+
+    // MARK: Controls
+
+    /// A dropdown that shows its value is a pop-up with the up and down chevron (LauncherDropdownKind, Apple HIG). Nothing draws
+    /// a `chevron.down` face of its own: the onboarding's details disclosure is the one other down chevron.
+    func testNoHandDrawnPullDownChevrons() throws {
+        let allowed: [String: Int] = ["NXLauncher/LauncherDropdown.swift": 1, "NX2Apple/OnboardingView.swift": 1]
+        let pattern = try NSRegularExpression(pattern: #""chevron\.down""#)
+        for (path, text) in try Self.sources() {
+            XCTAssertLessThanOrEqual(Self.matches(pattern, text), allowed[path] ?? 0, "\(path): a pop-up uses LauncherDropdown (chevron.up.chevron.down)")
+        }
+    }
+
+    /// A capsule or round outline is drawn by DSPill: `Capsule().strokeBorder` comes out with bars past its round ends in AppKit's
+    /// bitmap caching, so captures showed buttons and chips cut at their sides. The shared components and screens outside console,
+    /// onboarding and the sheets have none left.
+    func testCapsuleOutlinesUseDSPill() throws {
+        let pattern = try NSRegularExpression(pattern: #"Capsule\(\)\.stroke"#)
+        for (path, text) in try Self.sources() where path.hasPrefix("NXLauncher/") && !path.contains("Sheet") && !path.contains("ExportSteps") && !path.contains("TransferCard") {
+            XCTAssertEqual(Self.matches(pattern, text), 0, "\(path): use DSPill().strokeBorder")
+        }
+    }
+
+    private static func matches(_ pattern: NSRegularExpression, _ text: String) -> Int {
+        pattern.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text))
     }
 
     private static func sources() throws -> [(String, String)] {
