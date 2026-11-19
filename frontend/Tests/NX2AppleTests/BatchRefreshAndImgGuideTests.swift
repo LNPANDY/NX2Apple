@@ -303,7 +303,7 @@ import XCTest
         XCTAssertTrue(guideClosed)
         guideWindow.orderOut(nil)
 
-        let statusHost = NSHostingView(rootView: AnyView(launcher.heroSingleRefreshButton(dualGame, lightHero: false, compact: false).environmentObject(stores.localizer).environmentObject(pad)))
+        let statusHost = NSHostingView(rootView: AnyView(launcher.heroSingleRefreshButton(dualGame, compact: false).environmentObject(stores.localizer).environmentObject(pad)))
         do {
             let host = statusHost
             let win = OffscreenWindow(size: NSSize(width: 720, height: 640))
@@ -446,7 +446,7 @@ import XCTest
 
         let guideCtx = MissingImgGuideContext(game: mk8, assessment: assessMK8)
         let langs = captureDir == nil ? ["en", "zh"] : ["zh", "en", "ja"]
-        let appearances = captureDir == nil ? [false] : [true, false]
+        let appearances = [false]   // the launcher is dark only (#1458)
 
         for code in langs {
             stores.localizer.lang = Lang(code)

@@ -27,7 +27,7 @@ import XCTest
         }
     }
     func testEverySetupStepHasReachableActionsAndKeyboardReturn() throws {
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             for step in OnboardingStep.allCases {
                 var state = MockOnboardingDriver.sampleState
                 state.step = step; state.platform = .selected(.mac); state.xcode = .ready
@@ -88,7 +88,7 @@ import XCTest
 
     func testWelcomeFooterAndDiskGateAcrossWindowSizes() throws {
         for size in [CGSize(width: 900, height: 680), CGSize(width: 1280, height: 900)] {
-            for dark in [false, true] {
+            for dark in [true] {   // the launcher is dark only (#1458)
                 for lang: Lang in [.en, .de, .zh] {
                     for hasSpace in [false, true] {
                         var state = MockOnboardingDriver.sampleState
@@ -149,7 +149,7 @@ import XCTest
     }
 
     func testSetupAccordionsStartClosedAndPreserveFocusThroughRecovery() throws {
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             for scenario in ["checking", "ready", "failed"] {
                 var state = MockOnboardingDriver.sampleState
                 state.step = .xcode; state.platform = .selected(.both)
@@ -223,7 +223,7 @@ import XCTest
             ("working", .settingUp, false), ("failed", .failed(failure), false), ("ready", .ready, false),
             ("support-failed", .ready, true)
         ]
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             for (name, xcode, supportFailed) in cases {
                 var state = MockOnboardingDriver.sampleState
                 state.step = .xcode; state.platform = .selected(.mac); state.xcode = xcode
@@ -266,7 +266,7 @@ import XCTest
     func testKeysStayInlineAndRequireConfirmationOrExplicitDeferral() throws {
         let states: [(String, OnboardingState.Keys)] = [("empty", .empty), ("checking", .validating),
             ("valid", .valid), ("invalid", .invalid("Choose a prod.keys file from your own console.")), ("deferred", .skipped)]
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             for (name, keys) in states {
                 var state = MockOnboardingDriver.sampleState
                 state.step = .keys; state.platform = .selected(.mac); state.keys = keys

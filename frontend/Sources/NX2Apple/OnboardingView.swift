@@ -737,10 +737,9 @@ private struct OnboardingCheck: View {
 }
 
 private struct OnboardingStepProgressStyle: ProgressViewStyle {
-    @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
         GeometryReader { geometry in
-            let color: Color = scheme == .dark ? LauncherPalette.cream : .black
+            let color = LauncherPalette.cream
             Rectangle().fill(color.opacity(0.12))
                 .overlay(alignment: .leading) {
                     Rectangle().fill(color).frame(width: geometry.size.width * (configuration.fractionCompleted ?? 0))

@@ -329,14 +329,12 @@ extension View {
 
 /// An on / off switch that reads the same in a window that is not key (the system's drops its colour there): cream when on, a dim track when off.
 struct CheatSwitchStyle: ToggleStyle {
-    @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
-        let light = scheme == .light
-        return Button { configuration.isOn.toggle() } label: {
-            Capsule().fill(configuration.isOn ? LauncherPalette.switchOnTrack : (light ? LauncherPalette.switchOffTrack : LauncherPalette.ink(0.16)))
+        Button { configuration.isOn.toggle() } label: {
+            Capsule().fill(configuration.isOn ? LauncherPalette.switchOnTrack : LauncherPalette.ink(0.16))
                 .frame(width: 40, height: 23)
                 .overlay(alignment: configuration.isOn ? .trailing : .leading) {
-                    Circle().fill(configuration.isOn ? (light ? LauncherPalette.switchOnKnob : Color.black.opacity(0.85)) : LauncherPalette.switchOffKnob).frame(width: 17, height: 17).padding(3)
+                    Circle().fill(configuration.isOn ? Color.black.opacity(0.85) : LauncherPalette.switchOffKnob).frame(width: 17, height: 17).padding(3)
                 }
                 .animation(.easeOut(duration: 0.12), value: configuration.isOn)
         }

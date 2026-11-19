@@ -4,21 +4,14 @@ import CoreText
 package struct LauncherWindowChrome: NSViewRepresentable {
     package init() {}
     package final class ChromeView: NSView {
-        private func applyBackground() {
-            let light = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua
-            window?.backgroundColor = LauncherPalette.backgroundNSColor(light: light)
-        }
-        package override func viewDidChangeEffectiveAppearance() {
-            super.viewDidChangeEffectiveAppearance()
-            applyBackground()
-        }
         package override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let window else { return }
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             window.styleMask.insert(.fullSizeContentView)
-            applyBackground()
+            window.appearance = NSAppearance(named: .darkAqua)   // the launcher is dark only (#1458)
+            window.backgroundColor = LauncherPalette.backgroundNSColor
             window.isMovableByWindowBackground = true
         }
     }
@@ -26,13 +19,10 @@ package struct LauncherWindowChrome: NSViewRepresentable {
     package func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-/// The line under the top bar: the divider Dark always had, a black hairline at 0.08 in Light.
+/// The line under the top bar: a hairline.
 package struct LauncherTopBarRule: View {
-    @Environment(\.colorScheme) private var scheme
     package init() {}
-    package var body: some View {
-        if scheme == .light { LauncherPalette.topBarRule.frame(height: 1) } else { Divider().opacity(0.3) }
-    }
+    package var body: some View { LauncherPalette.topBarRule.frame(height: 1) }
 }
 
 /// What a double-click on the title bar does, as System Settings → Desktop & Dock sets it.
@@ -189,7 +179,7 @@ package struct LauncherSecondaryButtonStyle: ButtonStyle {
     }
 }
 
-/// A secondary button: a quiet fill with a hairline. Light has its own fill under the pointer and pressed.
+/// A secondary button: clear Liquid Glass (LauncherGlass.swift), a quiet fill with a hairline before macOS 26.
 private struct LauncherSecondaryButton: View {
     let configuration: ButtonStyleConfiguration
     let accent: Color?
@@ -200,9 +190,10 @@ private struct LauncherSecondaryButton: View {
     @Environment(\.isEnabled) private var enabled
     @State private var hovered = false
 
+    /// The stand-in's veil where the live glass is not drawn: a little brighter under the pointer and pressed.
     private var fill: Color {
-        if configuration.isPressed { return LauncherPalette.secondaryPressed }
-        return hovered && enabled ? LauncherPalette.secondaryHover : LauncherPalette.secondaryFill
+        if configuration.isPressed { return LauncherPalette.ink(0.14) }
+        return hovered && enabled ? LauncherPalette.ink(0.11) : LauncherGlass.veil
     }
 
     var body: some View {
@@ -214,54 +205,46 @@ private struct LauncherSecondaryButton: View {
             .padding(.horizontal, 15)
             .frame(height: height)
             .frame(maxWidth: width).fixedSize(horizontal: width != nil, vertical: false)
-            .background(fill, in: Capsule())
-            .overlay(Capsule().strokeBorder(accent?.opacity(0.75) ?? LauncherPalette.secondaryBorder))
+            .contentShape(Capsule())
+            .launcherGlass(in: Capsule(), fallback: fill, border: accent?.opacity(0.75))
             .foregroundStyle(enabled ? (accent ?? LauncherPalette.text) : .gray)
             .opacity(enabled ? 1 : 0.55)
-            .contentShape(Capsule())
             .launcherMeasured(label: configuration.label.font(.manrope(fontSize, .semibold)), room: LauncherControl.buttonLabelWidth)
             .onHover { hovered = $0 }
-            .launcherHover(lightBrightness: 0)
+            .launcherHover()
     }
 }
 
-/// The primary action outside the hero (Done, Save, Build, Add to queue): the cream fill in Dark, near-black with white text in
-/// Light, darker when pressed and a little lighter under the pointer there. The label brings its own font and padding.
+/// The primary action of a screen (Play, Build, Done, Save, Add to queue): Liquid Glass tinted with the cream accent, black text. The
+/// label brings its own font and padding.
 package struct LauncherActionButtonStyle: ButtonStyle {
     package enum Outline { case capsule, rounded(CGFloat) }
     package init(_ shape: Outline = .capsule) { self.shape = shape }
     package let shape: Outline
     package func makeBody(configuration: Configuration) -> some View { LauncherActionButton(configuration: configuration, shape: shape) }
-
-    /// The fill for a state: Dark always the cream, Light pressed, under the pointer or at rest.
-    package static func fill(light: Bool, pressed: Bool, hovered: Bool) -> Color {
-        guard light else { return LauncherPalette.cream }
-        return pressed ? LauncherPalette.primaryPressed : (hovered ? LauncherPalette.primaryHover : LauncherPalette.cream)
-    }
 }
 
 private struct LauncherActionButton: View {
     let configuration: ButtonStyleConfiguration
     let shape: LauncherActionButtonStyle.Outline
-    @Environment(\.colorScheme) private var scheme
     @Environment(\.isEnabled) private var enabled
-    @State private var hovered = false
 
     var body: some View {
-        let fill = LauncherActionButtonStyle.fill(light: scheme == .light, pressed: configuration.isPressed, hovered: hovered && enabled)
         configuration.label
             .foregroundStyle(LauncherPalette.onCream)
             .frame(minHeight: LauncherControl.height)
-            .background { background(fill) }
             .contentShape(Rectangle())
+            .modifier(Tinted(shape: shape))
             .opacity(enabled ? 1 : 0.45)
-            .onHover { hovered = $0 }
     }
 
-    @ViewBuilder private func background(_ fill: Color) -> some View {
-        switch shape {
-        case .capsule: Capsule().fill(fill)
-        case .rounded(let radius): RoundedRectangle(cornerRadius: radius).fill(fill)
+    private struct Tinted: ViewModifier {
+        let shape: LauncherActionButtonStyle.Outline
+        @ViewBuilder func body(content: Content) -> some View {
+            switch shape {
+            case .capsule: content.launcherGlass(in: Capsule(), tint: LauncherPalette.cream)
+            case .rounded(let radius): content.launcherGlass(in: RoundedRectangle(cornerRadius: radius), tint: LauncherPalette.cream)
+            }
         }
     }
 }
@@ -273,12 +256,11 @@ package enum LauncherMotion {
     }
 }
 
-/// The launcher's switch: a cream track when on and a dim one when off in Dark, a near-black or a gray track with a white knob in Light.
+/// The launcher's switch: a cream track when on and a dim one when off.
 package struct LauncherSwitchStyle: ToggleStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     package init() {}
     @Environment(\.isEnabled) private var enabled
-    @Environment(\.colorScheme) private var scheme
     package func makeBody(configuration: Configuration) -> some View {
         Button { withAnimation(LauncherMotion.animation(.spring(response: 0.25, dampingFraction: 0.8), reduceMotion: reduceMotion)) { configuration.isOn.toggle() } } label: {
             ZStack(alignment: configuration.isOn ? .trailing : .leading) {
@@ -291,7 +273,7 @@ package struct LauncherSwitchStyle: ToggleStyle {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .opacity(enabled ? 1 : (scheme == .light ? 0.4 : 0.45))
+        .opacity(enabled ? 1 : 0.45)
         .accessibilityRepresentation {
             Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.switch)
         }
@@ -354,11 +336,10 @@ package enum LaunchControl {
     }
 }
 
-/// Two or three choices side by side; the chosen pill is cream in Dark and near-black in Light. Each choice takes an equal share of the width
+/// Two or three choices side by side, the chosen pill cream. Each choice takes an equal share of the width
 /// it is given.
 package struct LauncherSegmented: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var scheme
     package init(options: [(value: String, label: String)], selection: String, size: CGFloat = 12.5, semibold: Bool = false,
                  choose: @escaping (String) -> Void) {
         self.options = options; self.selection = selection; self.size = size; self.semibold = semibold; self.choose = choose
@@ -375,7 +356,7 @@ package struct LauncherSegmented: View {
             ForEach(options, id: \.value) { o in
                 let on = o.value == selection
                 Button { withAnimation(LauncherMotion.animation(.easeOut(duration: 0.15), reduceMotion: reduceMotion)) { choose(o.value) } } label: {
-                    Text(o.label).font(.manrope(size, semibold ? .semibold : (on ? (scheme == .light ? .semibold : .bold) : .medium)))
+                    Text(o.label).font(.manrope(size, semibold ? .semibold : (on ? .bold : .medium)))
                         .foregroundStyle(on ? LauncherPalette.segmentSelectedText : LauncherPalette.segmentText)
                         .lineLimit(1).minimumScaleFactor(0.85)
                         .padding(.horizontal, 12)

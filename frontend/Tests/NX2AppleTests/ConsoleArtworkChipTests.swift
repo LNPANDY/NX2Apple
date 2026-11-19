@@ -23,7 +23,7 @@ import XCTest
     }
 
     func testAdvisoryChipKeepsWhiteTextAndBlueAccentInBothAppearances() throws {
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             let host = NSHostingView(rootView: ArtworkStatusChip(title: "Older iOS build", color: LauncherPalette.advisory, textColor: .white)
                 .fixedSize().environment(\.colorScheme, dark ? .dark : .light))
             let window = OffscreenWindow(size: .init(width: 180, height: 40))

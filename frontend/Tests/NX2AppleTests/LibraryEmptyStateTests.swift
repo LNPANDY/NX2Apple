@@ -76,7 +76,7 @@ import XCTest
     }
 
     func testTrulyEmptyLibraryUsesTheSameHeroBoundaryInBothAppearances() throws {
-        for scheme in [ColorScheme.light, .dark] {
+        for scheme in [ColorScheme.dark] {   // the launcher is dark only (#1458)
             let (_, emptyPad, _, emptyWindow) = try host([], scheme: scheme)
             let emptyFilter = try XCTUnwrap(emptyPad.frames["main"]?.first { $0.id == "library.filter" }?.frame)
             let primary = try XCTUnwrap(emptyPad.frames["main"]?.first { $0.id == "library.empty.primary" }?.frame)
@@ -99,43 +99,25 @@ import XCTest
         }
     }
 
-    func testBackdropMarkPreservesTransparentCornersBeforeBlur() throws {
-        let image = try XCTUnwrap(LauncherBrandMark.backdropImage)
-        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(image.tiffRepresentation)))
-        XCTAssertTrue(bitmap.hasAlpha)
-        XCTAssertEqual(try XCTUnwrap(bitmap.colorAt(x: 0, y: 0)).alphaComponent, 0, accuracy: 0.01)
-    }
-
-    func testBlurredFallbackHasSoftVisibleEdgesInBothAppearances() throws {
-        for scheme in [ColorScheme.light, .dark] {
-            let host = NSHostingView(rootView: LibraryFallbackArtwork(size: CGSize(width: 1000, height: 400))
-                .preferredColorScheme(scheme))
-            host.appearance = NSAppearance(named: scheme == .light ? .aqua : .darkAqua)
-            let window = OffscreenWindow(size: NSSize(width: 1000, height: 400))
-            window.contentView = host; window.orderFront(nil); settle()
-            defer { window.orderOut(nil); window.contentView = nil; window.close() }
-            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: bitmap)
-            let y = bitmap.pixelsHigh / 3
-            let values = (0..<bitmap.pixelsWide).compactMap { x -> Int? in
-                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return nil }
-                return Int((color.redComponent * 255).rounded())
-            }
-            XCTAssertGreaterThan((values.max() ?? 0) - (values.min() ?? 0), 5, "The NX mark remains visible")
-            let jumps = zip(values, values.dropFirst()).map { abs($0 - $1) }
-            XCTAssertLessThanOrEqual(jumps.max() ?? 255, 8, "A blurred mark must not expose a hard rectangular image edge")
-            if let path = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] {
-                let directory = URL(fileURLWithPath: path)
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                let file = directory.appendingPathComponent(scheme == .light ? "nx-fallback-light.png" : "nx-fallback-dark.png")
-                try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: file)
-            }
+    /// The fallback backdrop is a calm gradient: no large NX mark behind the library (#1458), no hard edge.
+    func testFallbackBackdropHasNoMark() throws {
+        let host = NSHostingView(rootView: LibraryFallbackArtwork(size: CGSize(width: 1000, height: 400)).launcherAppearance())
+        let window = OffscreenWindow(size: NSSize(width: 1000, height: 400))
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = host; window.orderFront(nil); settle()
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let y = bitmap.pixelsHigh / 3
+        let values = (0..<bitmap.pixelsWide).compactMap { x -> Int? in
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return nil }
+            return Int((color.redComponent * 255).rounded())
         }
+        XCTAssertLessThanOrEqual((values.max() ?? 0) - (values.min() ?? 0), 1, "one tone across a row: no mark")
     }
-
     func testPlaceholderMatchesRealCardFootprintAtCarouselWidths() {
         let state = LibraryArtworkState(LibraryGame(titleID: "0100000000000000", name: "Example"))
-        for scheme in [ColorScheme.light, .dark] {
+        for scheme in [ColorScheme.dark] {   // the launcher is dark only (#1458)
             for available in [CGFloat(900), 1257, 1900] {
                 let width = LibraryCardLayout.width(in: available), localizer = Localizer(.en)
                 let card = NSHostingView(rootView: LibraryGameCard(title: "Example", image: nil, focus: .center,

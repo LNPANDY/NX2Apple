@@ -308,12 +308,6 @@ import NXModel
 
         for lang in Lang.all {
             let loc = Localizer(lang)
-            let appearanceLabels = LauncherAppearance.allCases.map { loc.t($0.labelKey) }
-            let appWidth = LauncherSegmented.compactWidth(labels: appearanceLabels, minWidth: 276)
-            let appCellRoom = (appWidth - 10) / 3 - 24
-            for label in appearanceLabels {
-                XCTAssertLessThanOrEqual(singleLineWidth(label), appCellRoom, "Appearance '\(label)' truncated in \(lang.code)")
-            }
 
             let displayLabels = [loc.t("launch.display.window"), loc.t("launch.display.fullscreen")]
             let dispWidth = LauncherSegmented.compactWidth(labels: displayLabels, minWidth: LauncherControl.width)
@@ -322,7 +316,6 @@ import NXModel
                 XCTAssertLessThanOrEqual(singleLineWidth(label), dispCellRoom, "Display '\(label)' truncated in \(lang.code)")
             }
             if ["en", "zh"].contains(lang.code) {
-                XCTAssertEqual(appWidth, 276)
                 XCTAssertEqual(dispWidth, LauncherControl.width)
             }
         }

@@ -81,7 +81,6 @@ extension LauncherView {
     }
 
     func hero(_ game: LibraryGame?, width: CGFloat, height: CGFloat) -> some View {
-        let lightHero = colorScheme == .light
         let layout = LibraryHeroLayout.content(width: width, height: height, headerHeight: libraryHeaderHeight)
         let titleSize = layout.titleSize
         let titleTopInset = Typography.manropeFont(size: titleSize, weight: .heavy).map { max(0, CTFontGetAscent($0) - CTFontGetCapHeight($0)) } ?? 0
@@ -97,7 +96,6 @@ extension LauncherView {
                         if let game, let image = heroImage(for: game) {
                             ArtworkFill(image: image, focus: displayed(game).artwork.focus(for: .hero))
                                 .saturation(LibraryArtworkState(game, building: m.running && activeBuildID == game.id).monochrome ? 0 : 1)
-                                .blur(radius: 24, opaque: true)
                                 .id(game.id).transition(.opacity)
                         } else {
                             LibraryFallbackArtwork(size: CGSize(width: width + 96, height: backdropHeight + pull + 96))
@@ -107,22 +105,16 @@ extension LauncherView {
                     .frame(width: width + 96, height: backdropHeight + pull + 96)
                     .frame(width: width, height: max(0, backdropHeight + pull - 1)).clipped()
                     .frame(width: width, height: backdropHeight + pull, alignment: .top)
-                    if lightHero {
-                        LinearGradient(stops: [.init(color: .clear, location: 0),
-                                               .init(color: .clear, location: 0.44),
-                                               .init(color: LauncherPalette.background.opacity(0.68), location: 0.62),
-                                               .init(color: LauncherPalette.background.opacity(0.92), location: 0.78),
-                                               .init(color: LauncherPalette.background, location: 0.96),
-                                               .init(color: LauncherPalette.background, location: 1)],
-                                       startPoint: .top, endPoint: .bottom)
-                    } else {
-                        LinearGradient(stops: [.init(color: .clear, location: 0.25),
-                                               .init(color: .black.opacity(0.25), location: 0.45),
-                                               .init(color: LauncherPalette.background, location: 0.98),
-                                               .init(color: LauncherPalette.background, location: 1)],
-                                       startPoint: .top, endPoint: .bottom)
-                        LinearGradient(colors: [.black.opacity(0.24), .clear], startPoint: .leading, endPoint: .trailing)
-                    }
+                    // The artwork sharp, not blurred (#1458): dimmed at the top under the bar, darker behind the title on the left, and
+                    // fading into the page at the bottom, where the row of games starts.
+                    LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0),
+                                           .init(color: .black.opacity(0.1), location: 0.22),
+                                           .init(color: .black.opacity(0.25), location: 0.5),
+                                           .init(color: LauncherPalette.background.opacity(0.92), location: 0.86),
+                                           .init(color: LauncherPalette.background, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                    LinearGradient(stops: [.init(color: .black.opacity(0.55), location: 0), .init(color: .black.opacity(0.2), location: 0.55),
+                                           .init(color: .clear, location: 1)], startPoint: .leading, endPoint: .trailing)
                 }.frame(width: width, height: backdropHeight + pull)
                 .background(LauncherPalette.background)
                 .offset(y: -pull)
@@ -156,13 +148,13 @@ extension LauncherView {
                                         .fixedSize(horizontal: false, vertical: true)
                                         // Trim the font's space above capitals without changing the title-to-action gap.
                                         .padding(.top, -titleTopInset)
-                                        .shadow(color: lightHero ? .white.opacity(0.55) : .black.opacity(0.25), radius: 12)
+                                        .shadow(color: .black.opacity(0.3), radius: 12)
                                         .frame(width: textWidth, alignment: .leading)
                                         .id(game.id).transition(.opacity)
                                 }
                                 .animation(LibraryHeroTransition.metadata(reduceMotion: reduceMotion), value: game.id)
                             }
-                            heroActions(game, lightHero: lightHero, compact: width < 760)
+                            heroActions(game, compact: width < 760)
                             if game.onDevice, let expiry = signatureExpiry[game.id], AppSignature.isUrgent(expiry) {
                                 Label(AppSignature.describe(expiry, loc.t), systemImage: "exclamationmark.triangle.fill")
                                     .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.building)

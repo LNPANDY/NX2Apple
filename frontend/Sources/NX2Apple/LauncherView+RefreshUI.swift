@@ -78,7 +78,7 @@ extension LauncherView {
     }
 
     /// Scheme A: high-contrast platform-aware single-game refresh CTA next to heroPrimary.
-    @ViewBuilder func heroSingleRefreshButton(_ game: LibraryGame, lightHero: Bool, compact: Bool) -> some View {
+    @ViewBuilder func heroSingleRefreshButton(_ game: LibraryGame, compact: Bool) -> some View {
         let assessment = toolsAge.assessments[game.id]
         let (hasMac, hasIOS) = resolvedRefreshTargets(for: game)
         let isFast = assessment.map {

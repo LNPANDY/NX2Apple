@@ -3,7 +3,7 @@ import SwiftUI
 import NXCore
 import NXModel
 
-/// Settings, the app's own rows, in three parts the categories place (#678): `general` (language, appearance, notifications, return
+/// Settings, the app's own rows, in three parts the categories place (#678): `general` (language, display, notifications, return
 /// after play), `updates` (the version, the self-update) and `maintenance` (the guided setup, the uninstaller, which Tools shows).
 /// Observes the update store. The two switches that live in the app's defaults come as bindings, and what the uninstaller needs from the library
 /// and the build store as a closure.
@@ -17,7 +17,6 @@ package struct AppCard: View {
     let onRunSetup: (() -> Void)?   // the guided first-run setup, again (nil where there is none)
     let uninstallPlan: () -> Uninstall.Plan
     let part: Part
-    @AppStorage(LauncherAppearance.defaultsKey) private var appearance = LauncherAppearance.system.rawValue
     @AppStorage(GameDisplay.defaultsKey) private var gameDisplayUUID = ""
     @State private var screens = NSScreen.screens
     @EnvironmentObject var loc: Localizer
@@ -86,14 +85,6 @@ package struct AppCard: View {
                 LauncherDropdown(options: displayOptions, selection: displaySelection,
                                  label: loc.t("settings.display"), style: .button) { gameDisplayUUID = $0 }
                     .padTarget("set.display", scope: "main", activate: { cycleDisplay(1) }, adjust: { cycleDisplay($0) })
-            }
-            CardDivider()
-            // System, Light or Dark for the launcher's windows and sheets (LauncherAppearance)
-            CardRow(loc.t("settings.appearance")) {
-                LauncherSegmented(options: LauncherAppearance.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: appearance) { appearance = $0 }
-                    .compactFrame(minWidth: 276)
-                    .accessibilityElement(children: .contain).accessibilityLabel(loc.t("settings.appearance"))
-                    .padTarget("set.appearance", scope: "main", activate: { cycleAppearance(1) }, adjust: { cycleAppearance($0) })
             }
             CardDivider()
             // Build notifications (BuildNotifications.swift): none without an app bundle, e.g. under swift run
@@ -197,11 +188,6 @@ package struct AppCard: View {
         }
     }
 
-    private func cycleAppearance(_ by: Int) {
-        let all = LauncherAppearance.allCases
-        let at = all.firstIndex { $0.rawValue == appearance } ?? 0
-        appearance = all[(at + by + all.count) % all.count].rawValue
-    }
 
     /// The interface language one step on (a controller's left / right on the language list).
     private func cycleLanguage(_ by: Int) {

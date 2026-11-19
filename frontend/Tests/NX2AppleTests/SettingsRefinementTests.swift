@@ -82,7 +82,7 @@ import XCTest
         let marker = root.appendingPathComponent(EngineLayout.marker)
         try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: marker)
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             for category in SettingsCategory.allCases {
                 let stores = LauncherStores(defaults: TestDefaults.make("settings.refinement"))
                 stores.repo.path = root.path

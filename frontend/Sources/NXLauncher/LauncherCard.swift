@@ -275,7 +275,6 @@ package struct LauncherStickyPageScroll<Heading: View, Bar: View, Content: View>
                         }
                         .background {
                             ZStack {
-                                if !settingsLayout { Rectangle().fill(.ultraThinMaterial) }
                                 LauncherPalette.background.opacity(pinned ? 0.94 : 0.98)
                             }
                         }

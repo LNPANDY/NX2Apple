@@ -27,7 +27,7 @@ import NXModel
 
     func testSharedCardsReflowAndControllerSelectionQueuesOnlyEligibleGames() throws {
         for size in [CGSize(width: 900, height: 680), CGSize(width: 1280, height: 900)] {
-            for dark in [false, true] {
+            for dark in [true] {   // the launcher is dark only (#1458)
                 var state = MockOnboardingDriver.sampleState
                 state.step = .games; state.keys = .skipped; state.platform = .selected(.both)
                 state.games = .found((0..<9).map {

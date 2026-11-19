@@ -486,15 +486,15 @@ import XCTest
                 .padding(24)
                 .frame(width: width)
                 .background(LauncherPalette.background)
-                .environment(\.colorScheme, .light)
+                .environment(\.colorScheme, .dark)
             NSApplication.shared.setActivationPolicy(.accessory)
             let host = NSHostingView(rootView: framed)
-            host.appearance = NSAppearance(named: .aqua)
+            host.appearance = NSAppearance(named: .darkAqua)
             host.frame = NSRect(origin: .zero, size: host.fittingSize)
             host.wantsLayer = true
-            host.layer?.backgroundColor = LauncherPalette.backgroundNSColor(light: true).cgColor
+            host.layer?.backgroundColor = LauncherPalette.backgroundNSColor.cgColor
             let window = OffscreenWindow(size: host.frame.size)
-            window.appearance = NSAppearance(named: .aqua)
+            window.appearance = NSAppearance(named: .darkAqua)
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.35))

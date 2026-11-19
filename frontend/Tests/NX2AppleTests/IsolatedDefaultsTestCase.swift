@@ -67,28 +67,3 @@ final class SharedDefaultsGuardTests: IsolatedDefaultsTestCase {
         XCTAssertTrue(Self.sharedKeys().isEmpty, "left over: \(Self.sharedKeys().keys.sorted())")
     }
 }
-
-/// The appearance choice (`LauncherAppearance.defaultsKey`) is read by every hosted view through `@AppStorage`, so a test that
-/// leaves it in the shared domain turns the next test's window Light or Dark. A test that needs a choice saves it to
-/// `testDefaults` and gives the view `.defaultAppStorage(testDefaults)`.
-final class AppearanceKeyGuardTests: IsolatedDefaultsTestCase {
-    func testTheAppearanceKeyIsNotInTheSharedDomain() {
-        XCTAssertNil(Self.sharedKeys()[LauncherAppearance.defaultsKey], "an earlier test left the appearance choice in the shared defaults")
-    }
-
-    func testNoTestWritesTheAppearanceToTheSharedDefaults() throws {
-        let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let write = try NSRegularExpression(pattern: #"(UserDefaults\.standard|\.standard)\.(set|removeObject)\([^)]*(LauncherAppearance\.defaultsKey|"appearance")"#)
-        var offenders: [String] = []
-        let files = FileManager.default.enumerator(at: tests, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
-        for file in files where file.pathExtension == "swift" && file.lastPathComponent != "IsolatedDefaultsTestCase.swift" {
-            let text = try String(contentsOf: file, encoding: .utf8)
-            for (n, line) in text.components(separatedBy: "\n").enumerated()
-            where write.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil {
-                offenders.append("\(file.lastPathComponent):\(n + 1)")
-            }
-        }
-        XCTAssertFalse(files.isEmpty, "the test sources are next to this file")
-        XCTAssertEqual(offenders, [], "save the choice to testDefaults and use .defaultAppStorage(testDefaults)")
-    }
-}

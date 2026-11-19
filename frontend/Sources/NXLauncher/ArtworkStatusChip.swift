@@ -33,7 +33,6 @@ package struct ArtworkStatusChip: View {
 /// Shared proportional outcome marker attached after the artwork's clipping shape.
 package struct ArtworkOutcomeBadge: View {
     package enum Outcome { case success, warning, failure }
-    @Environment(\.colorScheme) private var colorScheme
     let outcome: Outcome
     let artworkSize: CGFloat
     package init(_ outcome: Outcome, artworkSize: CGFloat) {
@@ -57,7 +56,7 @@ package struct ArtworkOutcomeBadge: View {
         ZStack {
             Circle().fill(.black)
             Circle().fill(color).padding(artworkSize * 0.055)
-            Image(systemName: symbol).font(.system(size: artworkSize * 0.19, weight: .bold)).foregroundStyle(outcome != .failure && colorScheme == .dark ? .black : .white)
+            Image(systemName: symbol).font(.system(size: artworkSize * 0.19, weight: .bold)).foregroundStyle(outcome != .failure ? .black : .white)
         }.frame(width: artworkSize * 0.44, height: artworkSize * 0.44)
             .offset(x: artworkSize * 0.06, y: artworkSize * 0.06)
             .accessibilityHidden(true)

@@ -24,25 +24,25 @@ extension LauncherView {
         let button = Button { primaryAction(game) } label: {
             LauncherHeroActionLabel(title: title, symbol: symbol, loading: macStarting)
         }
-        .buttonStyle(LauncherActionButtonStyle()).fixedSize(horizontal: false, vertical: true).launcherHover(enabled: artworkEditor == nil && !launching, lightBrightness: 0)
+        .buttonStyle(LauncherActionButtonStyle()).fixedSize(horizontal: false, vertical: true).launcherHover(enabled: artworkEditor == nil && !launching)
         .disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
         .keyboardShortcut(keyboardCard == nil && libraryInputAvailable ? KeyboardShortcut(.return, modifiers: []) : nil)
         .padTarget("hero.play", scope: "main", focusColor: LauncherPalette.onCream, enabled: !launching && (!m.running || game.isReady) && artworkEditor == nil) { if !launching && !profileHelpOpen && artworkEditor == nil && (!m.running || game.isReady) { primaryAction(game) } }
         button.id(game.id)
     }
 
-    func heroActions(_ game: LibraryGame, lightHero: Bool, compact: Bool) -> some View {
+    func heroActions(_ game: LibraryGame, compact: Bool) -> some View {
         let showsRefresh = !(m.running && activeBuildID == game.id) && gameNeedsRefresh(game)
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) {
                 heroPrimary(game)
-                if showsRefresh { heroSingleRefreshButton(game, lightHero: lightHero, compact: compact) }
+                if showsRefresh { heroSingleRefreshButton(game, compact: compact) }
                 heroDeviceActions(game)
                 heroManage(game)
             }.fixedSize(horizontal: true, vertical: false)
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) { heroPrimary(game); heroManage(game) }
-                if showsRefresh { heroSingleRefreshButton(game, lightHero: lightHero, compact: compact) }
+                if showsRefresh { heroSingleRefreshButton(game, compact: compact) }
                 heroDeviceActions(game)
             }
         }

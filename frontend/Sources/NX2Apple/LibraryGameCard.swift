@@ -41,7 +41,7 @@ struct LibraryGameCard: View {
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovered)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain).launcherHover(lightBrightness: 0)
+        .buttonStyle(.plain).launcherHover()
         .onHover { hovered = $0 }
         .accessibilityLabel(title)
         .accessibilityValue(state.chipKey.map { loc.t($0) } ?? "")

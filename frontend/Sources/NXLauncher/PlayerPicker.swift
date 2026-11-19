@@ -57,8 +57,7 @@ package struct PlayerPicker: View {
     private func chip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
             .padding(.horizontal, 12).frame(height: LauncherControl.height)
-            .background(LauncherPalette.menuFill, in: Capsule())
-            .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+            .launcherGlass(in: Capsule())
             .contentShape(Capsule())
     }
 }

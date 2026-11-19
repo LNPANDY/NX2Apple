@@ -1,5 +1,4 @@
 import SwiftUI
-import CoreImage
 
 package struct LauncherBrandMark: View {
     var onHero: Bool
@@ -15,15 +14,6 @@ package struct LauncherBrandMark: View {
 </svg>
 """
     package static let image = NSImage(data: Data(svg.utf8))
-    // Cache the blurred alpha mask so the decorative backdrop also stays soft in AppKit bitmap rendering.
-    package static let backdropImage: NSImage? = {
-        guard let data = image?.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data), let cg = bitmap.cgImage else { return nil }
-        let source = CIImage(cgImage: cg)
-        let blurred = source.applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 24])
-        let bounds = source.extent.insetBy(dx: -72, dy: -72)
-        guard let result = CIContext().createCGImage(blurred, from: bounds) else { return nil }
-        return NSImage(cgImage: result, size: bounds.size)
-    }()
 
     package var body: some View {
         Group {

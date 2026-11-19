@@ -64,7 +64,10 @@ struct BuildMetadataHero: View {
                                 .id((titleID ?? "") + build.runningTarget).transition(.opacity)
                         }
                     }.animation(LibraryHeroTransition.queue(reduceMotion: reduceMotion), value: (titleID ?? "") + build.runningTarget)
-                    Color.black.opacity(0.4)
+                    // the artwork sharp and dimmed, darker where the title sits, fading into the page at the bottom (#1458)
+                    LinearGradient(stops: [.init(color: .black.opacity(0.72), location: 0), .init(color: .black.opacity(0.45), location: 0.55),
+                                           .init(color: .black.opacity(0.3), location: 1)], startPoint: .leading, endPoint: .trailing)
+                    LinearGradient(colors: [.clear, LauncherPalette.background], startPoint: .center, endPoint: .bottom)
                 }.clipped()
             }
         }
@@ -191,7 +194,6 @@ struct QueueArtworkStack: View {
         .clipShape(RoundedRectangle(cornerRadius: size * 0.15))
         .saturation(index == 0 ? 1 : 0)
         .overlay(Color.black.opacity(index == 0 ? 0 : 0.2), in: RoundedRectangle(cornerRadius: size * 0.15))
-        .blur(radius: index == 0 ? 0 : size * 0.018)
         .scaleEffect(index == 0 ? 1 : max(0.7, 0.9 - Double(index) * 0.06))
         .rotation3DEffect(.degrees(index == 0 ? 0 : 22), axis: (x: 0, y: 1, z: 0))
         .offset(x: -CGFloat(index) * size * 0.125)
@@ -210,7 +212,7 @@ private struct BuildHeroReveal: View {
         }
     }
     private func artwork(_ size: CGSize) -> some View {
-        Image(nsImage: image).resizable().scaledToFill().frame(width: size.width, height: size.height).blur(radius: 28)
+        Image(nsImage: image).resizable().scaledToFill().frame(width: size.width, height: size.height)
     }
 }
 

@@ -17,7 +17,7 @@ import XCTest
         game.ipaPath = ipa.path
         XCTAssertTrue(game.isOlderIOSBuild, "Exercise both the platform and older-iOS chips")
         try JSONEncoder().encode([game]).write(to: file)
-        for scheme in [ColorScheme.light, .dark] {
+        for scheme in [ColorScheme.dark] {   // the launcher is dark only (#1458)
         for size in [NSSize(width: 900, height: 680), NSSize(width: 1000, height: 720), NSSize(width: 1500, height: 900)] {
             let stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
             let host = NSHostingView(rootView: LauncherView(stores: stores, library: GameLibrary(file: file),

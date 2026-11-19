@@ -91,8 +91,7 @@ struct DeleteGameSheet: View {
     }
 
     static let red = LauncherPalette.danger
-    static let fill = LauncherPalette.dynamic(dark: NSColor(srgbRed: 0.86, green: 0.25, blue: 0.24, alpha: 1),
-                                              light: NSColor(srgbRed: 0xB4 / 255.0, green: 0x23 / 255.0, blue: 0x28 / 255.0, alpha: 1))
+    static let fill = Color(nsColor: NSColor(srgbRed: 0.86, green: 0.25, blue: 0.24, alpha: 1))
 
     private func title(_ kind: GameDeletion.Item.Kind) -> String {
         switch kind {

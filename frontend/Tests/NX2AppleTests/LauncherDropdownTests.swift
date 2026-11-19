@@ -195,7 +195,7 @@ final class LauncherDropdownTests: IsolatedDefaultsTestCase {
         for (code, lang) in [("en", Lang.en), ("zh", Lang.zh)] {
             stores.build.lang = lang
             stores.localizer.lang = lang
-            for light in [true, false] {
+            for light in [false] {   // the launcher is dark only (#1458)
                 let scheme = light ? "light" : "dark"
                 stores.build.upstreamDownloads = [:]
                 try capture(name: "builds-engine-collapsed-\(code)-\(scheme)", openDropdown: false, light: light)
