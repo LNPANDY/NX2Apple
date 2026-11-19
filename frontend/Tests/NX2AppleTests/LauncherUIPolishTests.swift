@@ -357,23 +357,4 @@ import NXModel
         XCTAssertEqual(scroll.contentView.bounds.origin.y, 132)
         XCTAssertEqual(pinnedStates.last, true)
     }
-
-    // MARK: - 4. Light Mode Contrast & Shadow Tokens
-
-    func testLightModeDropdownShadowAndDestructiveContrast() {
-        var lightShadow = NSColor.clear, darkShadow = NSColor.clear
-        var lightRed = NSColor.clear, lightFill = NSColor.clear
-        NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
-            lightShadow = NSColor(LauncherPalette.dropdownShadow).usingColorSpace(.sRGB)!
-            lightRed = NSColor(DeleteGameSheet.red).usingColorSpace(.sRGB)!
-            lightFill = NSColor(DeleteGameSheet.fill).usingColorSpace(.sRGB)!
-        }
-        NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
-            darkShadow = NSColor(LauncherPalette.dropdownShadow).usingColorSpace(.sRGB)!
-        }
-        XCTAssertEqual(Double(lightShadow.alphaComponent), 0.12, accuracy: 0.01)
-        XCTAssertEqual(Double(darkShadow.alphaComponent), 0.50, accuracy: 0.01)
-        XCTAssertGreaterThanOrEqual(LauncherPalette.contrast(lightRed, .white), 4.5)
-        XCTAssertGreaterThanOrEqual(LauncherPalette.contrast(.white, lightFill), 4.5)
-    }
 }

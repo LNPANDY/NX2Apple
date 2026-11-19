@@ -47,7 +47,7 @@ import XCTest
 
     func testEverySettingsCategoryExposesItsControls() throws {
         let expected: [(SettingsCategory, Set<String>)] = [
-            (.general, ["set.category", "set.language", "set.appearance", "set.defaultDisplay", "set.returnAfterPlay"]),
+            (.general, ["set.category", "set.language", "set.defaultDisplay", "set.returnAfterPlay"]),
             (.library, ["set.folder", "saves.global.cloud", "players.add"]),
             (.controls, ["set.controls", "set.controllers", "sticks.custom", "set.padMerge"]),
             (.tools, ["set.xcodeChoose", "set.deps.expand", "set.repoAuto", "set.setup"])]

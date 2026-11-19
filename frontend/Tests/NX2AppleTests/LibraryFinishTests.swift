@@ -72,7 +72,7 @@ import XCTest
             var ink = 0
             for x in x0..<x1 {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                if c.redComponent < 0.25 && c.greenComponent < 0.25 && c.blueComponent < 0.25 { ink += 1 }
+                if c.redComponent > 0.85 && c.greenComponent > 0.85 && c.blueComponent > 0.85 { ink += 1 }   // the white title on the dark hero (#1458)
             }
             if ink > Int(20 * scale) { titleTop = y; break }
         }
