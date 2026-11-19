@@ -5,11 +5,14 @@ import NXCore
 import NXModel
 import NXLauncher
 
-/// Modal detail panel listing every skipped file in the library folders along with its reason and remediation guidance.
+/// Modal detail panel listing every skipped file in the library folders along with its reason and remediation guidance, on the
+/// sheet layout (the header, one card of rows, the button row) over a dimmed launcher.
 struct SkippedLibraryItemsOverlay: View {
     let items: [SkippedLibraryItem]
     let openKeysSettings: () -> Void
     let close: () -> Void
+    /// The panel alone, without the dimmed launcher behind it: the gallery's scene.
+    var panelOnly = false
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var focus: PadFocus
 
@@ -18,83 +21,57 @@ struct SkippedLibraryItemsOverlay: View {
     }
 
     var body: some View {
+        if panelOnly { panel } else { dimmed }
+    }
+
+    private var dimmed: some View {
         ZStack {
             Color.black.opacity(0.48)
                 .ignoresSafeArea()
                 .onTapGesture(perform: close)
                 .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(loc.t("macLibDiag.sheetTitle"))
-                        .font(.manrope(24, .heavy))
-                        .tracking(-0.5)
-                    Text(loc.t("macLibDiag.sheetNote"))
-                        .font(DS.Font.body)
-                        .foregroundStyle(LauncherPalette.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.horizontal, 28)
-                .padding(.top, 26)
-                .padding(.bottom, 16)
-
-                Divider().opacity(0.3)
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                            if index > 0 {
-                                Divider().opacity(0.25).padding(.leading, 68)
-                            }
-                            SkippedItemRow(item: item)
-                        }
-                    }
-                }
-                .frame(maxHeight: 360)
-
-                Divider().opacity(0.3)
-
-                HStack(spacing: 12) {
-                    Text(String(format: loc.t("macLibDiag.count"), items.count))
-                        .font(DS.Font.callout)
-                        .foregroundStyle(LauncherPalette.secondaryText)
-                    Spacer(minLength: 8)
-                    if needsKeysAction {
-                        Button(action: openKeysSettings) {
-                            Label(loc.t("macLibDiag.chooseKeys"), systemImage: "key")
-                                .font(.manrope(12.5, .semibold))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 7)
-                                .background(LauncherPalette.menuFill, in: Capsule())
-                                .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
-                        }
-                        .buttonStyle(.plain)
-                        .launcherHover()
-                        .padTarget("skipped.keys", scope: "skipped", activate: openKeysSettings)
-                    }
-                    Button(action: close) {
-                        Text(loc.t("free.done"))
-                            .font(DS.Font.bodyStrong)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 7)
-                            .background(LauncherPalette.menuFill, in: Capsule())
-                            .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
-                    }
-                    .buttonStyle(.plain)
-                    .launcherHover()
-                    .keyboardShortcut(.cancelAction)
-                    .padTarget("skipped.close", scope: "skipped", activate: close)
-                }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 14)
-            }
-            .padScope("skipped", focus)
-            .frame(width: 680)
-            .background(LauncherPalette.background, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(LauncherPalette.cardBorder))
-            .shadow(color: .black.opacity(0.45), radius: 28, y: 12)
-            .padding(28)
+            panel
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.sheet))
+                .overlay(RoundedRectangle(cornerRadius: DS.Radius.sheet).strokeBorder(DS.Color.separator))
+                .shadow(color: .black.opacity(0.45), radius: 28, y: 12)
+                .padding(DS.Space.l)
         }
+    }
+
+    /// The panel itself, which the gallery draws alone.
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DSSheetHeader(title: loc.t("macLibDiag.sheetTitle"), message: loc.t("macLibDiag.sheetNote"))
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
+            ScrollView {
+                DSSection("") {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        if index > 0 { DSRowDivider() }
+                        SkippedItemRow(item: item)
+                    }
+                }
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.vertical, DS.Space.xxs)
+            }
+            .frame(maxHeight: 360)
+            .fixedSize(horizontal: false, vertical: true)
+            DSSheetButtonRow {
+                Text(String(format: loc.t("macLibDiag.count"), items.count)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+            } buttons: {
+                if needsKeysAction {
+                    Button(action: openKeysSettings) { Label(loc.t("macLibDiag.chooseKeys"), systemImage: "key") }
+                        .buttonStyle(DSSecondaryButtonStyle())
+                        .padTarget("skipped.keys", scope: "skipped", activate: openKeysSettings)
+                }
+                Button(action: close) { Text(loc.t("free.done")).font(DS.Font.bodyStrong).padding(.horizontal, DS.Space.m) }
+                    .buttonStyle(DSPrimaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                    .padTarget("skipped.close", scope: "skipped", focusColor: DS.Color.accentOn, activate: close)
+            }
+            .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.buttons).padding(.bottom, DSSheetInsets.vertical)
+        }
+        .padScope("skipped", focus)
+        .frame(width: 680)
+        .dsSheetSurface()
     }
 }
 
@@ -110,15 +87,6 @@ private struct SkippedItemRow: View {
             return "doc.zipper"
         case .unidentifiedWithoutKeys:
             return "key"
-        }
-    }
-
-    private var iconColor: Color {
-        switch item.reason {
-        case .orphanSupplement, .unidentifiedWithoutKeys:
-            return LauncherPalette.building
-        case .unextractedArchiveOrSplit:
-            return LauncherPalette.accent
         }
     }
 
@@ -149,54 +117,46 @@ private struct SkippedItemRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            ZStack {
-                Circle().fill(iconColor.opacity(0.14))
-                Image(systemName: iconName)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(iconColor)
-            }
-            .frame(width: 28, height: 28)
-            .padding(.top, 2)
-            .accessibilityHidden(true)
+        HStack(alignment: .top, spacing: DS.Space.s) {
+            Image(systemName: iconName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(DS.Color.symbolDefault)
+                .frame(width: DS.Control.leadingSlot)
+                .padding(.top, 2)
+                .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
                     Text(item.name)
-                        .font(.manrope(13.5, .semibold))
+                        .font(DS.Font.bodyStrong)
+                        .foregroundStyle(DS.Color.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .help(item.path)
                     Text(reasonTitle)
-                        .font(.manrope(11, .semibold))
-                        .foregroundStyle(iconColor)
-                        .padding(.horizontal, 7)
+                        .font(DS.Font.footnote)
+                        .foregroundStyle(DS.Color.textSecondary)
+                        .padding(.horizontal, DS.Space.xs)
                         .padding(.vertical, 2)
-                        .background(iconColor.opacity(0.12), in: Capsule())
+                        .background(DS.Color.surfaceRaised, in: Capsule())
+                        .overlay(Capsule().strokeBorder(DS.Color.separator))
                         .lineLimit(1)
                 }
                 Text(guidanceText)
                     .font(DS.Font.callout)
-                    .foregroundStyle(LauncherPalette.secondaryText)
+                    .foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: DS.Space.xs)
 
-            Button(action: revealInFinder) {
-                Image(systemName: "folder")
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(LauncherPalette.secondaryText)
-                    .frame(width: 28, height: 28)
-                    .background(LauncherPalette.menuFill, in: Circle())
-                    .overlay(Circle().strokeBorder(LauncherPalette.secondaryBorder))
-            }
-            .buttonStyle(.plain)
-            .launcherHover()
-            .help(loc.t("macLibDiag.reveal"))
-            .accessibilityLabel(loc.t("macLibDiag.reveal"))
+            Button(action: revealInFinder) { Image(systemName: "folder") }
+                .buttonStyle(DSIconButtonStyle(size: 28))
+                .help(loc.t("macLibDiag.reveal"))
+                .accessibilityLabel(loc.t("macLibDiag.reveal"))
         }
-        .padding(.horizontal, 26)
-        .padding(.vertical, 12)
+        .padding(.leading, DS.Space.xs).padding(.trailing, DS.Space.m)
+        .padding(.vertical, DS.Space.s)
     }
 }
 

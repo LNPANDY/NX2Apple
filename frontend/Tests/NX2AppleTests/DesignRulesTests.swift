@@ -108,7 +108,6 @@ final class DesignRulesTests: XCTestCase {
         "NXLauncher/ExportSteps.swift": 1,
         "NXLauncher/LauncherCard.swift": 3,
         "NXLauncher/LauncherPalette.swift": 1,   // the palette under the tokens
-        "NXLauncher/SendSelectedSheet.swift": 3,
         "NXLauncher/ShellCacheRow.swift": 1,
         "NXLauncher/TransferCard.swift": 1,
     ]

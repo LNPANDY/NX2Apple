@@ -18,6 +18,8 @@ enum GallerySheet: String, CaseIterable {
     case confirmCancelQueue, confirmCancelDraft, confirmTestedValues
     case rename, renameCustom, buildSelected, buildSelectedEmpty, supportedGames, supportedGamesExpanded
     case batchRefresh, batchRefreshEmpty, imgGuide, imgGuideNoPackage
+    case saves, saveImport
+    case skippedItems, appUpdate, playerName, playerRename, buildSteps, sendSelectedDevice
 
     var title: String {
         switch self {
@@ -56,6 +58,14 @@ enum GallerySheet: String, CaseIterable {
         case .batchRefreshEmpty: return "Refresh games: nothing to refresh"
         case .imgGuide: return "Game data for iOS missing"
         case .imgGuideNoPackage: return "Game data for iOS missing: no package"
+        case .saves: return "Saves: Mac and iPhone"
+        case .saveImport: return "Import a save"
+        case .skippedItems: return "Skipped files"
+        case .appUpdate: return "App update"
+        case .playerName: return "New player"
+        case .playerRename: return "Rename a player"
+        case .buildSteps: return "Build steps"
+        case .sendSelectedDevice: return "Send game data: no shared app"
         }
     }
 
@@ -67,6 +77,9 @@ enum GallerySheet: String, CaseIterable {
         case .freeSpace, .freeSpaceMeasuring: return CGSize(width: 560, height: 690)
         case .buildSelected, .buildSelectedEmpty: return CGSize(width: 680, height: 720)
         case .supportedGames, .supportedGamesExpanded, .batchRefresh: return CGSize(width: 680, height: 720)
+        case .saves: return CGSize(width: 600, height: 560)
+        case .buildSteps: return CGSize(width: 600, height: 440)
+        case .sendSelectedDevice: return CGSize(width: 680, height: 720)
         default: return nil
         }
     }
@@ -194,6 +207,31 @@ extension GalleryFixtures {
                                                    missingOriginalPackage: sheet == .imgGuideNoPackage)
             return AnyView(MissingImgGuideSheet(context: MissingImgGuideContext(game: game, assessment: assessment), stores: stores, devices: stores.deviceStore,
                                                 libraryFolder: library.folder, onResolvedImg: { _ in }, onFallbackFullRebuild: {}, close: {}, icon: icon))
+        case .saves:   // no device is asked: a devicectl stand-in that answers nothing and the devices the launcher knows (none)
+            return AnyView(SavesView(m: stores.build, library: library, gameID: game.id, devicectl: DeviceControl { _ in (false, "") },
+                                     support: directory.appendingPathComponent("support", isDirectory: true), listDevices: { [] }))
+        case .saveImport:
+            return AnyView(SaveImportSheet(gameName: name, source: "/Users/Shared/Exports/\(game.name) save.zip",
+                                           target: "/Volumes/Games/\(game.name)/save/\(game.titleID)", icon: icon, cancel: {}, confirm: {}))
+        case .skippedItems:
+            let items = [
+                SkippedLibraryItem(path: "/Volumes/Games/Update v3.nsp", name: "Update v3.nsp", rootPath: "/Volumes/Games", reason: .orphanSupplement(titleID: "0100000000990800")),
+                SkippedLibraryItem(path: "/Volumes/Games/\(game.name).rar", name: "\(game.name).rar", rootPath: "/Volumes/Games", reason: .unextractedArchiveOrSplit),
+            ]
+            return AnyView(SkippedLibraryItemsOverlay(items: items, openKeysSettings: {}, close: {}, panelOnly: true))
+        case .appUpdate:
+            stores.appUpdates.update = AppUpdate.Release(tag: "v1.2.0", url: "", digest: nil,
+                                                         notes: "## What is new\n\n- Sheets show the game they are about.\n- Return never deletes a game.\n- The Controllers sheet keeps its toasts at the bottom.")
+            return AnyView(UpdateSheet(updates: stores.appUpdates, build: stores.build))
+        case .playerName, .playerRename:
+            let renaming = sheet == .playerRename ? (stores.players.profiles.first ?? stores.players.create(name: "Alex")) : nil
+            return AnyView(PlayerNameSheet(players: stores.players, renaming: renaming, close: {}))
+        case .buildSteps:
+            stores.build.stages = [Stage(id: 1, name: "Extract", state: .done), Stage(id: 2, name: "Romfs", state: .done),
+                                   Stage(id: 3, name: "Shaders", state: .running, detail: "31 / 50", percent: 62), Stage(id: 4, name: "Package", state: .pending)]
+            return AnyView(BuildProcessStepsSheet(build: stores.build, close: {}))
+        case .sendSelectedDevice:
+            return AnyView(SendSelectedSheet(mode: .device, build: stores.build, close: {}))
         case .confirmTestedValues:
             return confirm(subject: .game(icon), t("launch.useTested"), subtitle: name, note: String(format: t("launch.useTestedMany"), 3), t("launch.useTested"), destructive: false)
         }

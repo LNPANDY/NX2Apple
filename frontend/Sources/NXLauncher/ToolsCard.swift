@@ -111,12 +111,14 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
             }
             .disabled(buildRunning || dependencies.deps.contains(where: \.installing))
              .sheet(isPresented: $invalidXcode) {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text(loc.t("xcodeChoice.invalid")).font(.manrope(20, .bold)).fixedSize(horizontal: false, vertical: true)
-                    HStack { Spacer(); Button(loc.t("library.ok")) { invalidXcode = false }
-                        .buttonStyle(LauncherSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
-                        .padTarget("xcodemessage.cancel", scope: "xcodemessage") { invalidXcode = false } }
-                }.padding(28).frame(width: 460).background(LauncherPalette.background).launcherAppearance().padScope("xcodemessage", pad)
+                DSSheet(title: loc.t("xcodeChoice.invalid")) {
+                    EmptyView()
+                } buttons: {
+                    DSSheetPrimaryButton(loc.t("library.ok")) { invalidXcode = false }
+                        .background { Button("") { invalidXcode = false }.keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0).accessibilityHidden(true) }
+                        .padTarget("xcodemessage.cancel", scope: "xcodemessage", focusColor: DS.Color.accentOn) { invalidXcode = false }
+                }
+                .padScope("xcodemessage", pad)
             }
             .onChange(of: invalidXcode) { open in pad.scope = open ? "xcodemessage" : "main" }
             CardDivider()

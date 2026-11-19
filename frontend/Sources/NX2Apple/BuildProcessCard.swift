@@ -157,11 +157,11 @@ struct BuildProcessStepsSheet: View {
     @EnvironmentObject private var pad: PadFocus
     @State private var rowIndex = 0
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text(loc.t("section.progress")).font(DS.Font.title).foregroundStyle(DS.Color.textPrimary)
+        VStack(alignment: .leading, spacing: DSSheetInsets.gap) {
+            DSSheetHeader(title: loc.t("section.progress"))
             ScrollViewReader { proxy in
                 ScrollView {
-                    BuildProcessRows(stages: build.stages.isEmpty ? [Stage(id: -1, name: loc.t("library.preparing"))] : build.stages).padding(16)
+                    DSCard { BuildProcessRows(stages: build.stages.isEmpty ? [Stage(id: -1, name: loc.t("library.preparing"))] : build.stages) }
                 }
                 .padTarget("build.steps.rows", scope: "build.steps", radius: 10, vertical: { direction in
                     let rows = build.stages
@@ -171,10 +171,15 @@ struct BuildProcessStepsSheet: View {
                     return true
                 })
             }
-            HStack { Spacer(); Button(loc.t("free.done"), action: close)
-                .buttonStyle(LauncherSecondaryButtonStyle()).keyboardShortcut(.defaultAction)
-                .padTarget("build.steps.cancel", scope: "build.steps", activate: close) }
-        }.padding(28).frame(width: 600, height: 440)
+            DSSheetButtonRow {
+                DSSheetPrimaryButton(loc.t("free.done"), action: close)
+                    .padTarget("build.steps.cancel", scope: "build.steps", focusColor: DS.Color.accentOn, activate: close)
+            }
+            .padding(.top, DSSheetInsets.buttons - DSSheetInsets.gap)
+        }
+        .padding(.horizontal, DSSheetInsets.horizontal).padding(.vertical, DSSheetInsets.vertical)
+        .frame(width: 600, height: 440)
+            .dsSheetSurface()
             .padScope("build.steps", pad)
             .onAppear { pad.scope = "build.steps"; if pad.visible { pad.focused = "build.steps.cancel" } }
             .onExitCommand(perform: close)

@@ -394,69 +394,46 @@ struct SavesView: View {
     private var transfer: SaveTransfer { model.found ?? model.template }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(loc.t("saves.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                if let game { Text(game.displayName(loc.lang)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
-            }
-            .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, model.showsSelector ? 12 : 20)
+        DSScrollingSheet(width: 600, height: 560, subject: .game(game.flatMap { GameLibrary.appIcon(for: $0, banners: library.artworkDirectory) }),
+                         title: loc.t("saves.title"), message: game?.displayName(loc.lang) ?? "") {
             if model.showsSelector {
-                HStack(spacing: 12) {
+                HStack(spacing: DS.Space.s) {
                     Text(loc.t("saves.device")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     LauncherDropdown(options: model.devices.map { d in
                         (value: d.id, label: d.name + (d.reachable ? "" : " (" + loc.t("dev.notConnected") + ")"))
                     }, selection: model.selected, label: loc.t("saves.device")) { model.select($0) }
                     .padTarget("saves.device", scope: "saves") {}
                 }
-                .padding(.horizontal, 30).padding(.bottom, 16)
             }
-            VStack(alignment: .leading, spacing: 18) {
-                card {
-                    sideRow(.mac)
-                    Divider().opacity(0.25).padding(.leading, 18)
-                    sideRow(.device)
-                }
-                if let asking { confirmation(asking) } else { actions }
-                if busy {
-                    HStack(spacing: 10) {
-                        ProgressView().controlSize(.small)
-                        Text(loc.t("saves.copying")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
-                    }
-                } else if let result {
-                    Label(result.text, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .font(DS.Font.body).foregroundStyle(result.ok ? LauncherPalette.ready : LauncherPalette.building)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
+            DSSection("") {
+                sideRow(.mac)
+                DSRowDivider()
+                sideRow(.device)
             }
-            .padding(.horizontal, 30)
-            Divider().opacity(0.3)
-            HStack(spacing: 14) {
-                Text(String(format: loc.t("saves.note"), deviceName)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
-                    .lineLimit(3).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Button { dismiss() } label: {
-                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold))
-                        .padding(.horizontal, 22).padding(.vertical, 9)
+            if let asking { confirmation(asking) } else { actions }
+            if busy {
+                HStack(spacing: DS.Space.s) {
+                    ProgressView().controlSize(.small)
+                    Text(loc.t("saves.copying")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                 }
-                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(asking == nil ? .defaultAction : nil).disabled(busy)
-                .padTarget("saves.done", scope: "saves", focusColor: LauncherPalette.onCream, enabled: !busy) { if !busy { dismiss() } }
+            } else if let result {
+                HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
+                    Image(systemName: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(result.ok ? DS.Color.statusSuccess : DS.Color.statusWarning).accessibilityHidden(true)
+                    Text(result.text).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
             }
-            .padding(.horizontal, 30).padding(.vertical, 16)
+        } leading: {
+            Text(String(format: loc.t("saves.note"), deviceName)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+        } buttons: {
+            DSSheetPrimaryButton(loc.t("launch.done"), takesReturn: asking == nil) { dismiss() }
+                .disabled(busy)
+                .padTarget("saves.done", scope: "saves", focusColor: DS.Color.accentOn, enabled: !busy) { if !busy { dismiss() } }
         }
         .padScope("saves", focus)
-        .frame(width: 600, height: 520)
-        .background(LauncherPalette.background)
-        .font(DS.Font.body)
-        .launcherAppearance()
-        .tint(LauncherPalette.accent)
         .onAppear { model.begin() }
-    }
-
-    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(spacing: 0, content: content)
-            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
     }
 
     private func sideRow(_ side: SaveTransfer.Side) -> some View {
@@ -475,25 +452,26 @@ struct SavesView: View {
             case .ready(let c): detail = c.newest.map { String(format: loc.t("saves.saved"), dateText($0)) } ?? loc.t("saves.none")
             }
         }
-        return HStack(spacing: 14) {
-            Image(systemName: side == .mac ? "desktopcomputer" : (model.selectedDevice?.model.lowercased().contains("ipad") == true ? "ipad" : "iphone")).font(.system(size: 18, weight: .light))
-                .foregroundStyle(LauncherPalette.secondaryText).frame(width: 26)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(side == .mac ? loc.t("saves.mac") : deviceName).font(.manrope(14, .medium))
+        return HStack(spacing: DS.Space.s) {
+            Image(systemName: side == .mac ? "desktopcomputer" : (model.selectedDevice?.model.lowercased().contains("ipad") == true ? "ipad" : "iphone")).font(.system(size: 16, weight: .light))
+                .foregroundStyle(DS.Color.symbolDefault).frame(width: DS.Control.leadingSlot).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                Text(side == .mac ? loc.t("saves.mac") : deviceName).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
                 Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 if side == .mac {
-                    Text(macLocationText).font(DS.Font.footnote).foregroundStyle(.tertiary).lineLimit(2).truncationMode(.middle)
+                    Text(macLocationText).font(DS.Font.footnote).foregroundStyle(DS.Color.textTertiary).lineLimit(2).truncationMode(.middle)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer(minLength: 12)
-            if newer == side && (side == .mac || deviceSave != nil) {
-                Text(loc.t("saves.newer").uppercased()).font(.manrope(10.5, .bold)).tracking(1.1).foregroundStyle(LauncherPalette.onCream)
-                    .padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(LauncherPalette.cream, in: Capsule())
+            Spacer(minLength: DS.Space.s)
+            if newer == side && (side == .mac || deviceSave != nil) {   // a quiet tag: newer is a property, not a selection
+                Text(loc.t("saves.newer")).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary).lineLimit(1).fixedSize()
+                    .padding(.horizontal, DS.Space.xs).padding(.vertical, 2)
+                    .background(DS.Color.surfaceRaised, in: Capsule())
+                    .overlay(Capsule().strokeBorder(DS.Color.separator))
             }
         }
-        .padding(.horizontal, 18).padding(.vertical, 13)
+        .padding(.leading, DS.Space.xs).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.s)
         .frame(minHeight: 60)
     }
 
@@ -501,12 +479,11 @@ struct SavesView: View {
     private var actions: some View {
         let toDevice = !busy && deviceSave != nil && !macSave.folders.isEmpty
         let toMac = !busy && !(deviceSave?.folders.isEmpty ?? true)
-        return HStack(spacing: 10) {
+        return DSFlowRow(spacing: DS.Space.xs) {
             Button(String(format: loc.t("saves.toDevice"), deviceName)) { ask(.device) }.disabled(!toDevice)
                 .padTarget("saves.toDevice", scope: "saves", enabled: toDevice) { if toDevice { ask(.device) } }
             Button(String(format: loc.t("saves.toMac"), deviceName)) { ask(.mac) }.disabled(!toMac)
                 .padTarget("saves.toMac", scope: "saves", enabled: toMac) { if toMac { ask(.mac) } }
-            Spacer(minLength: 8)
             Button(loc.t("dev.refresh")) { model.refresh() }.disabled(busy || !model.canRefresh)
                 .padTarget("saves.refresh", scope: "saves", enabled: !busy && model.canRefresh) { if !busy { model.refresh() } }
             if FileManager.default.fileExists(atPath: transfer.backups.path) {
@@ -514,31 +491,24 @@ struct SavesView: View {
                     .padTarget("saves.backups", scope: "saves") { NSWorkspace.shared.open(transfer.backups) }
             }
         }
-        .buttonStyle(LauncherSecondaryButtonStyle())
+        .buttonStyle(DSRowButtonStyle())
     }
 
     /// Asking before a copy replaces a save: which one, where its backup goes, and that the game must be closed on the device.
+    /// Replace removes a save, so it is the destructive button and never the Return key's (DSSheetKeys): Return and Escape cancel.
     private func confirmation(_ replacing: SaveTransfer.Side) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(replacing == .device ? String(format: loc.t("saves.askToDevice"), deviceName) : String(format: loc.t("saves.askToMac"), deviceName))
-                .font(.manrope(15, .semibold)).fixedSize(horizontal: false, vertical: true)
-            Text(String(format: loc.t("saves.askNote"), deviceName, m.shortPath(transfer.backups.path)))
-                .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 10) {
-                Spacer()
-                Button(loc.t("saves.cancel")) { asking = nil }.buttonStyle(LauncherSecondaryButtonStyle())
-                    .padTarget("saves.cancel", scope: "saves") { asking = nil }
-                Button { copy(replacing) } label: {
-                    Text(loc.t("saves.replace")).font(.manrope(13, .bold))
-                        .padding(.horizontal, 18).padding(.vertical, 9)
+        DSCard {
+            VStack(alignment: .leading, spacing: DS.Space.s) {
+                Text(replacing == .device ? String(format: loc.t("saves.askToDevice"), deviceName) : String(format: loc.t("saves.askToMac"), deviceName))
+                    .font(DS.Font.headline).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
+                Text(String(format: loc.t("saves.askNote"), deviceName, m.shortPath(transfer.backups.path)))
+                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
+                DSSheetButtonRow {
+                    DSSheetConfirmButtons(cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("saves.replace"), role: .destructive,
+                                          scope: "saves", cancel: { asking = nil }, confirm: { copy(replacing) })
                 }
-                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(.defaultAction)
-                .padTarget("saves.replace", scope: "saves") { copy(replacing) }
             }
         }
-        .padding(18)
-        .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.accent.opacity(0.35)))
     }
 
     private func dateText(_ date: Date) -> String {

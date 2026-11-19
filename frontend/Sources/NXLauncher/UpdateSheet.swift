@@ -36,13 +36,8 @@ package struct UpdateSheet: View {
 
     package var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(loc.t("update.title"))
-                    .font(.manrope(24, .heavy)).tracking(-0.5)
-                Text(String(format: loc.t("update.fromTo"), updates.version, update?.tag ?? ""))
-                    .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
-            }
-            .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 18)
+            DSSheetHeader(subject: .app, title: loc.t("update.title"), message: String(format: loc.t("update.fromTo"), updates.version, update?.tag ?? ""))
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
@@ -55,7 +50,7 @@ package struct UpdateSheet: View {
                         Text(loc.t("update.noNotes")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     }
                 }
-                .padding(.horizontal, 28).padding(.bottom, 20)
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DSSheetInsets.gap)
                 .background(LauncherScrollProbe(scroll: scroll))
             }
             .frame(maxHeight: 340)
@@ -63,13 +58,13 @@ package struct UpdateSheet: View {
             .padTarget("update.notes", scope: "update", radius: 0, vertical: scroll.move)
 
             if let blocked = Self.note(blocked: updates.blocked, buildRunning: build.running, waitForBuild: loc.t("app.waitForBuild")) {
-                Text(blocked).font(DS.Font.callout)
-                    .foregroundStyle(updates.blocked != nil ? LauncherPalette.building : LauncherPalette.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 28).padding(.bottom, 12)
+                Group {
+                    if updates.blocked != nil { DSInlineWarning(blocked) }
+                    else { Text(blocked).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true) }
+                }
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DS.Space.xs)
             }
-            Divider().opacity(0.3)
-            HStack(spacing: 12) {
+            HStack(spacing: DS.Space.s) {
                 if let u = update {
                     Link(loc.t("update.openPage"), destination: URL(string: "https://github.com/LNPANDY/NX2Apple/releases/tag/\(u.tag)")!)
                         .font(DS.Font.callout)
@@ -77,9 +72,9 @@ package struct UpdateSheet: View {
                             if let url = URL(string: "https://github.com/LNPANDY/NX2Apple/releases/tag/\(u.tag)") { NSWorkspace.shared.open(url) }
                         }
                 }
-                Spacer(minLength: 8)
+                Spacer(minLength: DS.Space.xs)
                 Button(loc.t("update.later")) { dismiss() }
-                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .buttonStyle(DSSecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
                     .padTarget("update.cancel", scope: "update") { dismiss() }
                 Button {
@@ -92,15 +87,13 @@ package struct UpdateSheet: View {
                 .allowsHitTesting(!updates.busy && !build.running)
                 .accessibilityValue(updates.downloadProgress.map { "\(Int((min(max($0, 0), 1) * 100).rounded()))%" } ?? "")
                 .keyboardShortcut(.defaultAction)
-                .padTarget("update.install", scope: "update", focusColor: LauncherPalette.onCream, enabled: !updates.busy && !build.running, activate: install)
+                .padTarget("update.install", scope: "update", focusColor: DS.Color.accentOn, enabled: !updates.busy && !build.running, activate: install)
             }
-            .padding(.horizontal, 28).padding(.vertical, 16)
+            .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.gap).padding(.bottom, DSSheetInsets.vertical)
         }
         .padScope("update", pad)
         .frame(width: 560)
-        .background(LauncherPalette.background)
-        .launcherAppearance()
-        .tint(LauncherPalette.accent)
+        .dsSheetSurface()
     }
 
     private func install() {

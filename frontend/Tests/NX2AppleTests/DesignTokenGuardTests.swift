@@ -37,14 +37,13 @@ final class DesignTokenGuardTests: XCTestCase {
         "ControlPresets.swift": 1,
         "FrameTimesView.swift": 1,
         "GameControllerMappingView.swift": 3,
-        "GameSavesSection.swift": 2,
+        "GameSavesSection.swift": 1,
         "LaunchOptionsView.swift": 9,
         "LauncherView+Header.swift": 2,
         "LauncherView+Library.swift": 1,
         "LauncherView+RefreshUI.swift": 2,
         "LauncherView.swift": 1,
         "LibraryArtworkState.swift": 4,
-        "LibraryDiagnosticsBanner.swift": 4,
         "LibraryEmptyState.swift": 1,
         "LiveConsoleDriver+Identify.swift": 2,
         "LiveConsoleDriver.swift": 1,
@@ -52,7 +51,6 @@ final class DesignTokenGuardTests: XCTestCase {
         "OnboardingGamesContent.swift": 1,
         "OnboardingKeysContent.swift": 1,
         "OnboardingView.swift": 12,
-        "SaveTransfer.swift": 6,
         "StickDeadzoneCard.swift": 1,
     ]
 
