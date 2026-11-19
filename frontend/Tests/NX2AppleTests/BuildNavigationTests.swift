@@ -266,7 +266,7 @@ import XCTest
     func testSingleScreenBuilderControlsAreReachableAndDisabledWhileRunning() throws {
         try withBuilds { stores, library, focus, pad, _, _ in
             let ids = Set(focus.frames["main", default: []].map(\.id))
-            XCTAssertTrue(ids.isSuperset(of: ["set.build.engine", "set.build.folder", "set.build.file.base", "set.build.file.keys", "set.build.output", "set.build.file.update", "set.build.file.dlc", "set.build.target.ios", "set.build.queue.select", "set.build.log"]))
+            XCTAssertTrue(ids.isSuperset(of: ["set.build.engine.change", "set.build.folder", "set.build.file.base", "set.build.file.keys", "set.build.output", "set.build.file.update", "set.build.file.dlc", "set.build.target.ios", "set.build.queue.select", "set.build.log"]))
             stores.build.take(picked: library.games[0].inputs["base"]!, kind: .base); settle()
             aim("set.build.target.ios", focus)
             guard focus.focused == "set.build.target.ios" else { return }

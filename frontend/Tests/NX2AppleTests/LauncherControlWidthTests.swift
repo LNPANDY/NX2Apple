@@ -237,7 +237,7 @@ import NXModel
         host.layoutSubtreeIfNeeded()
         if scenario.page == .builds {
             let ids = Set(focus.frames["main", default: []].map(\.id))
-            XCTAssertTrue(ids.contains("set.build.engine"), "\(scenario.name): missing engine switcher control")
+            XCTAssertTrue(ids.contains("set.build.engine.change"), "\(scenario.name): missing the way to the engine in Settings")
             if modelStores.queue.hasWaiting {
                 XCTAssertTrue(ids.contains("set.build.queue.select"), "\(scenario.name): missing batch queue selector")
                 if modelStores.queue.hasIOS {

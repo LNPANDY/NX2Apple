@@ -103,11 +103,12 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View, Ups
                 }
             }
             }
-            if !engine.usesEngineStore, let upstream {   // a checkout: the engine pop-up has a row of its own
+            // a checkout: the engine pop-up has a row of its own, and so has why this Mac cannot choose nxkit (Beta)
+            if !engine.usesEngineStore, upstream != nil || engineRow.message != nil {
                 CardDivider()
-                CardRow(loc.t("engine.title"), detail: engineRow.detail ?? "", message: engineRow.message) {
+                CardRow(loc.t("engine.title"), detail: engineRow.detail ?? (upstream == nil ? "nxnative" : ""), message: engineRow.message) {
                     if let menu = engineRow.menu { menu.view }
-                    upstream
+                    if let upstream { upstream }
                 }
             }
             builder   // the build source rows belong to the build tools (#1458)

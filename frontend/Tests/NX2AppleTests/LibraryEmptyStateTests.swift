@@ -65,8 +65,8 @@ import XCTest
             XCTAssertTrue(stores.build.gameDir.isEmpty, "An empty result must not activate the hidden game's shortcut")
         }
         pad.show(default: "library.filter"); pad.activate(); settle()
-        XCTAssertNotNil(testDefaults.string(forKey: "libraryFilter"), "the filter is saved to the stores' defaults")
-        XCTAssertNil(UserDefaults.standard.object(forKey: "libraryFilter"), "a test's window never writes the shared defaults")
+        XCTAssertNotNil(testDefaults.string(forKey: "desktopLibraryFilter"), "the filter is saved to the stores' defaults")
+        XCTAssertNil(UserDefaults.standard.object(forKey: "desktopLibraryFilter"), "a test's window never writes the shared defaults")
         XCTAssertEqual(try frame("library.filter").minY, filter.minY, accuracy: 1)
         XCTAssertTrue(pad.frames["main", default: []].contains { $0.id == "card." + game.id.uuidString })
     }

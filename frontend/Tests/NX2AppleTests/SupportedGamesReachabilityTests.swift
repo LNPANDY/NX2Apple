@@ -174,8 +174,7 @@ import XCTest
         XCTAssertTrue(olderDetail.contains("1.4.0"), olderDetail)
         XCTAssertEqual(SupportedGamesSheet.shortVersion("1.2.2"), "1.2.2")
         let noVersion = SupportedGame(titleID: "0100000000009998", name: "No Version", edition: .switch1, version: nil, notes: "")
-        XCTAssertEqual(SupportedGamesSheet.detailText(for: noVersion, appVersion: "1.5.0", t: en), "Profile version unknown · Widescreen",
-                       "Widescreen is a property in the subtitle, not a tag")
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: noVersion, appVersion: "1.5.0", t: en), "Profile version unknown")
         XCTAssertEqual(uncatalogedDetail, String(format: L10n.string("supported.version", .en), "1.0.0"))
 
         XCTAssertTrue(SupportedGamesSheet.isUpdatedInCurrentRelease(titleID: currentGame.titleID, appVersion: "1.5.0-rc3"))

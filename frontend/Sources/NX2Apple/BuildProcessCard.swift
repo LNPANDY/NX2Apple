@@ -9,7 +9,7 @@ struct BuildProcessCard: View {
     @ObservedObject var build: BuildStore
     var availableHeight: CGFloat = 0
     var logOpen = false
-    var onShowSteps: (() -> Void)? = nil   // every stage is a row here, so the steps sheet is not offered
+    var onShowSteps: (() -> Void)? = nil   // Show all steps: the steps sheet
     @EnvironmentObject private var loc: Localizer
 
     private var stages: [Stage] { build.stages.isEmpty ? [Stage(id: -1, name: loc.t("library.preparing"))] : build.stages }
@@ -42,6 +42,12 @@ struct BuildProcessCard: View {
                 if !single { BuildProcessRows(stages: stages) }
                 if build.stages.contains(where: { $0.state == .running && $0.isScanningLastShaderFiles }) {
                     Text(loc.t("prog.lastShaderFiles")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                }
+                if let onShowSteps, build.stages.count > 1 {
+                    // each stage's detail and times in the steps sheet (#1457)
+                    Button(loc.t("prog.showAllSteps"), action: onShowSteps)
+                        .buttonStyle(DSTextButtonStyle())
+                        .padTarget("set.build.steps", scope: "main", radius: DS.Radius.chip, activate: onShowSteps)
                 }
             }
             .padding(DS.Space.m).frame(maxWidth: .infinity, alignment: .leading)
@@ -82,35 +88,6 @@ struct BuildUpNextSection: View {
                         .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.s)
                         .accessibilityElement(children: .contain)
                     }
-                }
-            }
-        }
-    }
-}
-
-/// The log as a closed disclosure row at the end of a build page ("Show log"), opening to the log view.
-struct BuildLogDisclosure: View {
-    @ObservedObject var build: BuildStore
-    @Binding var isOpen: Bool
-    @EnvironmentObject private var loc: Localizer
-
-    var body: some View {
-        CardGroup("") {
-            VStack(alignment: .leading, spacing: 0) {
-                Button { isOpen.toggle() } label: {
-                    HStack(spacing: DS.Space.s) {
-                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(DS.Color.symbolDefault)
-                            .rotationEffect(.degrees(isOpen ? 90 : 0))
-                        Text(loc.t(isOpen ? "log.hide" : "log.show")).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
-                        Spacer()
-                    }.contentShape(Rectangle()).padding(.horizontal, DS.Space.m).frame(height: 44)
-                }
-                .buttonStyle(.plain)
-                .padTarget("set.build.log", scope: "main", activate: { isOpen.toggle() })
-                .accessibilityValue(loc.t(isOpen ? "log.hide" : "log.show"))
-                if isOpen {
-                    CardDivider()
-                    BuildLogView(log: build.log, placeholder: loc.t("log.placeholder"), height: 220).padding(DS.Space.s)
                 }
             }
         }

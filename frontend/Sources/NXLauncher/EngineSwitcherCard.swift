@@ -103,7 +103,7 @@ package struct EngineSwitcherCard: View {
                             .padding(.horizontal, 9)
                             .padding(.vertical, 3)
                             .background(LauncherPalette.secondaryFill, in: Capsule())
-                            .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                            .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
                             .fixedSize()
                             .disabled(build.running)
                         }
@@ -587,7 +587,7 @@ private struct EngineExperimentalBadge: View {
             .padding(.horizontal, compact ? 6 : 7)
             .padding(.vertical, compact ? 1.5 : 2)
             .background(LauncherPalette.building.opacity(0.14), in: Capsule())
-            .overlay(Capsule().strokeBorder(LauncherPalette.building.opacity(0.35)))
+            .overlay(DSPill().strokeBorder(LauncherPalette.building.opacity(0.35)))
             .fixedSize()
     }
 }
