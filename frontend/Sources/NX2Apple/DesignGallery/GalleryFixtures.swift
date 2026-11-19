@@ -231,6 +231,7 @@ import NXLauncher
         case .consoleBuilds: root = console { $0.openBuilds() }
         case .consoleOptions: root = console { driver in driver.state.games.first.map { driver.openOptions($0.id) } }
         case .consoleControllers: root = console(.controllers) { $0.openControllers() }
+        case .cardStates: root = AnyView(GalleryCardStates())
         }
         let frame = size ?? scene.size
         return AnyView(root.environmentObject(PadFocus()).environmentObject(stores.localizer).launcherDropdownHost()

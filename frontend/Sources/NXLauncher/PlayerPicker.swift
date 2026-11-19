@@ -33,7 +33,12 @@ package struct PlayerPicker: View {
             } label: {
                 if compact { chip { icon } } else {
                     ViewThatFits(in: .horizontal) {
-                        chip { HStack(spacing: 7) { icon; Text(name).font(.manrope(13.5, .semibold)).lineLimit(1).truncationMode(.tail) }
+                        chip { HStack(spacing: 7) {
+                                icon; Text(name).font(.manrope(13.5, .semibold)).lineLimit(1).truncationMode(.tail)
+                                // a pop-up: it shows the player in use, so the up and down chevron (Apple HIG)
+                                Image(systemName: LauncherDropdownKind.popUp.indicator).font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(DS.Color.symbolDefault).accessibilityHidden(true)
+                            }
                             .frame(maxWidth: Self.maxWidth, alignment: .leading) }
                         chip { icon }
                     }
@@ -57,7 +62,7 @@ package struct PlayerPicker: View {
     private func chip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
             .padding(.horizontal, 12).frame(height: LauncherControl.height)
-            .launcherGlass(in: Capsule())
+            .launcherGlass(in: DSPill())
             .contentShape(Capsule())
     }
 }

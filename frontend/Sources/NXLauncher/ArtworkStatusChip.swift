@@ -24,7 +24,7 @@ package struct ArtworkStatusChip: View {
         .font(.manrope(fontSize, .semibold)).foregroundStyle(color)
         .padding(.horizontal, 8 * fontSize / 11).padding(.vertical, 4 * fontSize / 11)
         .background(.black, in: Capsule())
-        .overlay(Capsule().strokeBorder(color, lineWidth: Self.strokeWidth))
+        .overlay(DSPill().strokeBorder(color, lineWidth: Self.strokeWidth))
         .accessibilityElement(children: .combine)
     }
 }

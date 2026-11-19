@@ -22,7 +22,8 @@ import XCTest
         }
     }
 
-    func testAdvisoryChipKeepsWhiteTextAndBlueAccentInBothAppearances() throws {
+    /// The advisory is the info tone (the cream, DS.Color.statusInfo), no raw system blue (#1458).
+    func testAdvisoryChipKeepsWhiteTextAndTheInfoAccent() throws {
         for dark in [true] {   // the launcher is dark only (#1458)
             let host = NSHostingView(rootView: ArtworkStatusChip(title: "Older iOS build", color: LauncherPalette.advisory, textColor: .white)
                 .fixedSize().environment(\.colorScheme, dark ? .dark : .light))
@@ -38,7 +39,7 @@ import XCTest
             for y in 0..<rep.pixelsHigh {
                 for x in 0..<rep.pixelsWide {
                     guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                    if c.blueComponent > 0.6 && c.blueComponent > c.redComponent + 0.2 { blue += 1 }
+                    if c.redComponent > 0.9 && c.greenComponent > 0.85 && c.blueComponent > 0.7 && c.blueComponent < c.redComponent - 0.08 { blue += 1 }   // the cream
                     if x > rep.pixelsWide / 5 && x < rep.pixelsWide * 4 / 5 && y > rep.pixelsHigh / 3 && y < rep.pixelsHigh * 2 / 3,
                        c.redComponent > 0.85 && c.greenComponent > 0.85 && c.blueComponent > 0.85 { white += 1 }
                 }

@@ -9,10 +9,10 @@ import NXModel
 extension StepState {
     package var color: Color {
         switch self {
-        case .pending: return .gray
-        case .running: return .yellow
-        case .done: return .green
-        case .failed: return .red
+        case .pending: return DS.Color.textTertiary
+        case .running: return DS.Color.statusWarning
+        case .done: return DS.Color.statusSuccess
+        case .failed: return DS.Color.statusError
         }
     }
 }
@@ -119,10 +119,14 @@ package struct CardRow<Trailing: View>: View {
     let open: Bool?
     let trailing: Trailing
     let info: (id: String, text: String)?
+    let message: DSRowMessage?
     @Environment(\.launcherSettingsLayout) private var settingsLayout
 
+    /// `message` is the row's own warning, error or note, under its title and subtitle (DSRowMessage). The layout rules:
+    /// the status dot is centred in the 20 pt leading slot and on the centre of the title line, the trailing control is centred on
+    /// the title and subtitle, and a message makes the row grow downwards without moving either.
     package init(_ title: String, detail: String = "", detail2: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil, info: (id: String, text: String)? = nil,
-                 @ViewBuilder trailing: () -> Trailing) {
+                 message: DSRowMessage? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.title = title
         self.info = info
         self.detail = detail
@@ -130,12 +134,29 @@ package struct CardRow<Trailing: View>: View {
         self.dot = dot
         self.help = help
         self.open = open
+        self.message = message
         self.trailing = trailing()
     }
 
     package var body: some View {
-        HStack(spacing: DS.Space.s) {
-            Circle().fill(dot ?? .clear).frame(width: 7, height: 7).frame(width: DS.Control.leadingSlot)
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            HStack(spacing: DS.Space.s) {
+                HStack(alignment: .dsTitleLine, spacing: DS.Space.s) {
+                    Circle().fill(dot ?? .clear).frame(width: 7, height: 7).frame(width: DS.Control.leadingSlot)
+                    texts
+                }
+                Spacer(minLength: DS.Space.s)
+                HStack(spacing: DS.Space.xs) { trailing }.launcherRowControls()
+            }
+            if let message {
+                DSRowMessageView(message).padding(.leading, DS.Control.leadingSlot + DS.Space.s)
+            }
+        }
+        .padding(.leading, DS.Space.xs).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.s)
+        .frame(minHeight: settingsLayout ? 60 : 52)
+    }
+
+    private var texts: some View {
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 HStack(spacing: DS.Space.xs) {
                     Text(title).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
@@ -145,6 +166,7 @@ package struct CardRow<Trailing: View>: View {
                             .rotationEffect(.degrees(open ? 90 : 0))
                     }
                 }
+                .alignmentGuide(.dsTitleLine) { $0[VerticalAlignment.center] }   // the status dot sits on the title line
                 if !detail.isEmpty {
                     // A path is technical text: the system's monospaced face, on one line, cut in the middle when
                     // too long. Everything else is prose in Manrope and wraps, so no word is ever cut.
@@ -161,11 +183,6 @@ package struct CardRow<Trailing: View>: View {
                         .lineLimit(1).truncationMode(.middle).help(detail2)
                 }
             }
-            Spacer(minLength: DS.Space.s)
-            HStack(spacing: DS.Space.xs) { trailing }.launcherRowControls()
-        }
-        .padding(.leading, DS.Space.xs).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.s)
-        .frame(minHeight: settingsLayout ? 60 : 52)
     }
 }
 

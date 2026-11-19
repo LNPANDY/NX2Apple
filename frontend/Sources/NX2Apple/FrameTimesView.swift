@@ -13,7 +13,7 @@ struct FrameTimesRecordingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(file.deletingPathExtension().lastPathComponent).font(.manrope(13, .medium))
+                Text(file.deletingPathExtension().lastPathComponent).font(DS.Font.body)
                 Spacer()
             }
             if let chart {
@@ -25,7 +25,7 @@ struct FrameTimesRecordingView: View {
                             LineMark(x: .value("s", f.time), y: .value("ms", f.frameMs)).interpolationMethod(.linear)
                         }
                         ForEach(chart.hitches, id: \.number) { f in
-                            PointMark(x: .value("s", f.time), y: .value("ms", f.frameMs)).foregroundStyle(.red).symbolSize(14)
+                            PointMark(x: .value("s", f.time), y: .value("ms", f.frameMs)).foregroundStyle(DS.Color.statusError).symbolSize(14)
                         }
                         RuleMark(y: .value("ms", s.frameP50)).foregroundStyle(.secondary.opacity(0.5)).lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                     }

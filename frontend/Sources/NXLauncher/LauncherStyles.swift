@@ -167,6 +167,56 @@ private struct LauncherRowControlFrame: ViewModifier {
     }
 }
 
+/// The colour of everything inside a button: its label, its symbols and its spinner (DSSpinner). Each button style sets it once
+/// from its role, so nothing inside a button picks its own colour (a cream spinner on the cream primary was invisible, #1458).
+package enum DSButtonForeground {
+    /// The primary action: black on the cream.
+    package static let primary = DS.Color.accentOn
+    /// Every flat or glass secondary button and icon button.
+    package static let flat = DS.Color.textPrimary
+    /// A destructive button: white on the error fill.
+    package static let destructive = DS.Color.statusErrorOn
+    /// Any disabled button.
+    package static let disabled = DS.Color.textTertiary
+}
+
+private struct DSButtonForegroundKey: EnvironmentKey { static let defaultValue: Color? = nil }
+
+extension EnvironmentValues {
+    /// Set by the launcher's button styles: the colour their content takes (DSButtonForeground). Nil outside a button.
+    package var dsButtonForeground: Color? {
+        get { self[DSButtonForegroundKey.self] }
+        set { self[DSButtonForegroundKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Gives a button's content its foreground: text and symbols through the foreground style, a system control through the tint,
+    /// a DSSpinner through the environment.
+    package func dsButtonContent(_ color: Color) -> some View {
+        foregroundStyle(color).tint(color).environment(\.dsButtonForeground, color)
+    }
+}
+
+/// The launcher's spinner. It is drawn in the colour of the button it sits in (DSButtonForeground), or in symbol.default outside
+/// one, because AppKit's small ProgressView ignores the tint and stays light on the cream.
+package struct DSSpinner: View {
+    package init(size: CGFloat = 14) { self.size = size }
+    let size: CGFloat
+    @Environment(\.dsButtonForeground) private var buttonForeground
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var turning = false
+    package var body: some View {
+        Circle().trim(from: 0.08, to: 0.78)
+            .stroke(buttonForeground ?? DS.Color.symbolDefault, style: StrokeStyle(lineWidth: max(1.5, size / 8), lineCap: .round))
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(turning ? 360 : 0))
+            .animation(reduceMotion ? nil : .linear(duration: 0.9).repeatForever(autoreverses: false), value: turning)
+            .onAppear { turning = true }
+            .accessibilityElement().accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
 package struct LauncherSecondaryButtonStyle: ButtonStyle {
     package init(accent: Color? = nil, height: CGFloat = LauncherControl.height) {
         self.accent = accent; self.height = height
@@ -175,7 +225,17 @@ package struct LauncherSecondaryButtonStyle: ButtonStyle {
     /// Text and border in this colour (the build bar's Stop); plain text otherwise.
     package var accent: Color? = nil
     package func makeBody(configuration: Configuration) -> some View {
-        LauncherSecondaryButton(configuration: configuration, accent: accent, height: height)
+        LauncherSecondaryButton(configuration: configuration, accent: accent, height: height, destructive: false)
+    }
+}
+
+/// A destructive action that stands on its own (Uninstall): the error fill with a white label. A destructive choice in a list or
+/// a "…" menu is a red row instead (LauncherDropdownRequest's destructiveValues).
+package struct DSDestructiveButtonStyle: ButtonStyle {
+    package init(height: CGFloat = LauncherControl.height) { self.height = height }
+    package let height: CGFloat
+    package func makeBody(configuration: Configuration) -> some View {
+        LauncherSecondaryButton(configuration: configuration, accent: nil, height: height, destructive: true)
     }
 }
 
@@ -184,6 +244,7 @@ private struct LauncherSecondaryButton: View {
     let configuration: ButtonStyleConfiguration
     let accent: Color?
     let height: CGFloat
+    let destructive: Bool
     private var fontSize: CGFloat { height > LauncherControl.height ? 16 : 13 }
     /// Inside a setting row, actions hug their labels up to the shared control-column width.
     @Environment(\.launcherControlWidth) private var width
@@ -207,8 +268,8 @@ private struct LauncherSecondaryButton: View {
             .frame(height: height)
             .frame(width: width)   // in a setting row every button is as wide as the control column (DS.Control.columnWidth)
             .contentShape(Capsule())
-            .launcherControlSurface(in: Capsule(), fallback: fill, border: accent?.opacity(0.75))
-            .foregroundStyle(enabled ? (accent ?? LauncherPalette.text) : DS.Color.textTertiary)
+            .launcherControlSurface(in: DSPill(), tint: destructive ? DS.Color.statusErrorFill : nil, fallback: fill, border: accent?.opacity(0.75))
+            .dsButtonContent(!enabled ? DSButtonForeground.disabled : destructive ? DSButtonForeground.destructive : (accent ?? DSButtonForeground.flat))
             .launcherMeasured(label: configuration.label.font(.manrope(fontSize, .semibold)), room: LauncherControl.buttonLabelWidth)
             .onHover { hovered = $0 }
             .launcherHover()
@@ -229,11 +290,17 @@ private struct LauncherActionButton: View {
     let configuration: ButtonStyleConfiguration
     let shape: LauncherActionButtonStyle.Outline
     @Environment(\.isEnabled) private var enabled
+    /// In a row's control column the primary is as wide as every other control there (DS.Control.columnWidth), never wider.
+    @Environment(\.launcherControlWidth) private var columnWidth
 
     var body: some View {
         configuration.label
-            .foregroundStyle(enabled ? LauncherPalette.onCream : DS.Color.textTertiary)   // disabled: the raised surface, tertiary text
+            .lineLimit(1).minimumScaleFactor(columnWidth == nil ? 1 : LauncherControl.minimumLabelScale)
+            .padding(.horizontal, columnWidth == nil ? 0 : 15)   // in a row the style pads, as the secondary style does
+            .frame(width: columnWidth)
+            .dsButtonContent(enabled ? DSButtonForeground.primary : DSButtonForeground.disabled)   // disabled: the raised surface, tertiary text
             .frame(minHeight: LauncherControl.height)
+            .launcherMeasured(label: configuration.label.font(DS.Font.bodyStrong), room: LauncherControl.buttonLabelWidth)
             .contentShape(Rectangle())
             .modifier(Tinted(shape: shape))
     }
@@ -242,7 +309,7 @@ private struct LauncherActionButton: View {
         let shape: LauncherActionButtonStyle.Outline
         @ViewBuilder func body(content: Content) -> some View {
             switch shape {
-            case .capsule: content.launcherControlSurface(in: Capsule(), tint: LauncherPalette.cream)
+            case .capsule: content.launcherControlSurface(in: DSPill(), tint: LauncherPalette.cream)
             case .rounded(let radius): content.launcherControlSurface(in: RoundedRectangle(cornerRadius: radius), tint: LauncherPalette.cream)
             }
         }
@@ -300,8 +367,7 @@ package struct LauncherHeroActionLabel: View {
     package var body: some View {
         HStack(spacing: LauncherHeroAction.iconSpacing) {
             if loading {
-                ProgressView().controlSize(.small).tint(LauncherPalette.onCream)
-                    .frame(width: LauncherHeroAction.iconSlot)
+                DSSpinner(size: 15).frame(width: LauncherHeroAction.iconSlot)   // the button's foreground: black on the cream
             } else { Image(systemName: symbol).frame(width: LauncherHeroAction.iconSlot) }
             Text(title).lineLimit(1).minimumScaleFactor(LauncherControl.minimumLabelScale)
         }
@@ -362,7 +428,7 @@ package struct LauncherSegmented: View {
                         .padding(.horizontal, 12)
                         .frame(maxWidth: .infinity, minHeight: LauncherControl.height - 6)
                         .background(on ? LauncherPalette.segmentSelected : .clear, in: Capsule())
-                        .overlay(Capsule().strokeBorder(on ? LauncherPalette.segmentSelectedBorder : .clear))
+                        .overlay(DSPill().strokeBorder(on ? LauncherPalette.segmentSelectedBorder : .clear))
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -371,7 +437,7 @@ package struct LauncherSegmented: View {
         }
         .padding(3)
         .background(LauncherPalette.segmentTrack, in: Capsule())
-        .overlay(Capsule().strokeBorder(LauncherPalette.segmentTrackBorder))
+        .overlay(DSPill().strokeBorder(LauncherPalette.segmentTrackBorder))
         .opacity(enabled ? 1 : 0.45)
 
     }

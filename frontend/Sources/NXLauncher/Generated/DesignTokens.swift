@@ -28,6 +28,10 @@ package enum DS {
         package static let statusReady = SwiftUI.Color(nsColor: nsStatusReady)
         package static let statusWarning = SwiftUI.Color(nsColor: nsStatusWarning)
         package static let statusError = SwiftUI.Color(nsColor: nsStatusError)
+        /// The fill of a destructive button: deeper than status.error, so its white label reads at 4.5:1
+        package static let statusErrorFill = SwiftUI.Color(nsColor: nsStatusErrorFill)
+        /// Text, symbols and spinners on the destructive fill
+        package static let statusErrorOn = SwiftUI.Color(nsColor: nsStatusErrorOn)
         /// A notice's info symbol
         package static let statusInfo = SwiftUI.Color(nsColor: nsStatusInfo)
         /// Done, a passed check, a notice's success symbol
@@ -48,6 +52,8 @@ package enum DS {
         package static let nsStatusReady = rgb(0x40D678, alpha: 1.0)
         package static let nsStatusWarning = rgb(0xFFC73D, alpha: 1.0)
         package static let nsStatusError = rgb(0xFF6B66, alpha: 1.0)
+        package static let nsStatusErrorFill = rgb(0xC62F2B, alpha: 1.0)
+        package static let nsStatusErrorOn = rgb(0xFFFFFF, alpha: 1.0)
         package static let nsStatusInfo = rgb(0xFFF0D6, alpha: 1.0)
         package static let nsStatusSuccess = rgb(0x40D678, alpha: 1.0)
         package static let nsSymbolDefault = rgb(0xFFFFFF, alpha: 0.6)
@@ -133,5 +139,23 @@ package enum DS {
     package enum Motion {
         package static let quick: Double = 0.12
         package static let standard: Double = 0.2
+    }
+
+    /// How a card answers the pointer, the press, the focus and selection (DSCardArt, DesignComponents.swift).
+    package enum Interaction {
+        /// White over the artwork under the pointer
+        package static let hoverOverlay: CGFloat = 0.06
+        /// White over the artwork while pressed
+        package static let pressedOverlay: CGFloat = 0.12
+        /// The artwork of the card the controller or the keyboard is on, around its centre
+        package static let focusScale: CGFloat = 1.03
+        /// The accent ring around the artwork of the selected card (the hero's game)
+        package static let selectedRing: CGFloat = 2
+        /// The focus ring around the artwork of the focused card
+        package static let focusRing: CGFloat = 2
+        /// Between the artwork and the focus ring
+        package static let focusRingGap: CGFloat = 3
+        /// A status chip's distance from the top and leading edge of the artwork, clear of the corner radius
+        package static let chipInset: CGFloat = 8
     }
 }

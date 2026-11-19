@@ -269,7 +269,7 @@ package struct BuildQueueCard: View {
         switch status {
         case .done: return LauncherPalette.ready
         case .running: return LauncherPalette.building
-        case .failed: return .red
+        case .failed: return DS.Color.statusError
         case .queued, .skipped, .stopped: return .secondary
         }
     }

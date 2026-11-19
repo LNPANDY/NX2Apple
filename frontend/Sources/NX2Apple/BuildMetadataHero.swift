@@ -31,6 +31,11 @@ struct BuildMetadataHero<Trailing: View>: View {
     @State private var icon: NSImage?
     private var game: LibraryGame? { library?.games.first { $0.titleID == titleID } }
     private var chosen: Bool { !build.basePath.isEmpty || build.gameFolder != nil || queuedGame != nil }
+    /// A finished build: success, or a warning while data is still missing. Nil while it runs or before it starts.
+    private var finishedOutcome: ArtworkOutcomeBadge.Outcome? {
+        guard !build.running, let status = build.completionStatus else { return nil }
+        return status == .needsData ? .warning : .success
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: DS.Space.m) {
@@ -40,6 +45,12 @@ struct BuildMetadataHero<Trailing: View>: View {
                 } else {
                     BuildIconReveal(image: icon ?? queuedGame.flatMap { queueIcons[$0.titleID] }, progress: reveal)
                         .id((titleID ?? "") + build.runningTarget)
+                        // the finished build's verdict lives here, on the icon's bottom-trailing corner, not in a card of its own
+                        .overlay(alignment: .bottomTrailing) {
+                            if let outcome = finishedOutcome {
+                                ArtworkOutcomeBadge(outcome, artworkSize: DS.Control.headerIcon).offset(x: DS.Space.xs, y: DS.Space.xs)
+                            }
+                        }
                 }
             }
             VStack(alignment: .leading, spacing: DS.Space.xxs) {

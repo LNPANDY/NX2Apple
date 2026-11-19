@@ -28,12 +28,14 @@ struct FilesCard: View {
                 VStack(spacing: 0) {
                     fileRow(loc.t("files.folder"), subtitle: build.gameDir.isEmpty ? loc.t("files.folderNote") : URL(fileURLWithPath: build.gameDir).lastPathComponent,
                             help: build.gameDir, chosen: !build.gameDir.isEmpty) {
-                        if build.gameDir.isEmpty {
-                            Button(action: pickFolder) { Text(loc.t("files.chooseFolder")).font(DS.Font.bodyStrong).padding(.horizontal, 15).frame(maxWidth: .infinity) }
+                        // One primary per screen: the folder is the way forward only while the footer's Continue is disabled
+                        // (nothing chosen yet). Then it is a row button and Continue is the primary (frontend/README.md).
+                        if folderIsTheWayForward {
+                            Button(action: pickFolder) { Text(loc.t("files.chooseFolder")).font(DS.Font.bodyStrong) }
                                 .buttonStyle(DSPrimaryButtonStyle())
                                 .padTarget("set.build.folder", scope: "main", focusColor: LauncherPalette.onCream, enabled: !build.running, activate: pickFolder)
                         } else {
-                            Button(loc.t("data.change"), action: pickFolder)
+                            Button(loc.t(build.gameDir.isEmpty ? "data.choose" : "data.change"), action: pickFolder)
                                 .padTarget("set.build.folder", scope: "main", enabled: !build.running, activate: pickFolder)
                         }
                     }
@@ -68,15 +70,17 @@ struct FilesCard: View {
                     fileRow(loc.t("files.keys"), subtitle: build.keysPath.isEmpty ? loc.t("data.notSelected") : URL(fileURLWithPath: build.keysPath).lastPathComponent,
                             help: (build.keysFromSettings ? loc.t("keys.fromSettings") + "\n" : "") + build.keysPath,
                             chosen: build.keysReady && !keyCheckNeedsAttention, problem: build.keysReady && keyCheckNeedsAttention,
-                            extra: keyCheck.map { AnyView(KeyCheckLine(outcome: $0.outcome, detailed: $0, t: loc.t)) }) {
+                            message: keyCheck.map { KeyCheckMessage.row($0, t: loc.t) }) {
                         Button(loc.t(build.keysPath.isEmpty ? "data.choose" : "data.change")) { build.pickFiles(kind: .keys) }
                             .padTarget("set.build.file.keys", scope: "main", activate: { build.pickFiles(kind: .keys) })
                     }
                 }
             }
-            CardGroup(loc.t("build.saveTo"), help: ("set.build.output.help", loc.t("msg.workdirHint"))) {
+            // The section names the place, the row the action: no "Save to" twice. The row's help is its info button beside the
+            // title (as DSRow's `info`), not one beside the section header.
+            CardGroup(loc.t("build.destination")) {
                 fileRow(loc.t("build.saveTo"), subtitle: build.outDir.isEmpty && build.inputFolder.isEmpty ? loc.t("build.saveDefault") : destination.path,
-                        help: destination.path, chosen: nil) {
+                        help: destination.path, chosen: nil, info: ("set.build.output.help", loc.t("msg.workdirHint"))) {
                     HStack(spacing: DS.Space.xs) {
                         if !(build.outDir.isEmpty && build.inputFolder.isEmpty) {
                             Button { NSWorkspace.shared.open(destination) } label: { Image(systemName: "folder") }
@@ -133,6 +137,12 @@ struct FilesCard: View {
         guard let keyCheck else { return false }
         switch keyCheck.outcome { case .fits, .cannotCheck: return false; default: return true }
     }
+    /// The step's Continue is disabled (no base game and no scanned folder) and no folder is chosen: then Choose folder is the
+    /// step's one primary. BuildPage's footer enables Continue on the same condition.
+    private var folderIsTheWayForward: Bool {
+        build.gameDir.isEmpty && !build.slot("base").ok && build.gameFolder == nil
+    }
+
     private var baseText: String {
         if let text = build.gameFolderRowText("base") { return text }
         if build.basePath.isEmpty { return loc.t("data.notSelected") }
@@ -142,7 +152,9 @@ struct FilesCard: View {
     /// One row of the list: a thumbnail-sized leading slot (the cover, a dot once chosen, empty otherwise), the title, one
     /// secondary line and the trailing control column. `chosen` nil leaves the slot out (the Save to row).
     private func fileRow<Trailing: View>(_ title: String, subtitle: String, help: String, chosen: Bool?, problem: Bool = false, thumbnail: NSImage? = nil,
-                                         extra: AnyView? = nil, @ViewBuilder trailing: () -> Trailing) -> some View {
+                                         message: DSRowMessage? = nil, info: (id: String, text: String)? = nil,
+                                         @ViewBuilder trailing: () -> Trailing) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
         HStack(spacing: DS.Space.s) {
             if let chosen {
                 ZStack {
@@ -157,12 +169,21 @@ struct FilesCard: View {
                 .accessibilityHidden(true)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+                HStack(spacing: DS.Space.xs) {
+                    Text(title).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+                    if let info { LauncherInfoHelp(id: info.id, label: title, text: info.text) }
+                }
                 Text(subtitle).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).truncationMode(.middle).help(help)
-                if let extra { extra.padding(.top, DS.Space.xxs) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            trailing().frame(width: DS.Control.columnWidth, alignment: .trailing)
+            // the control column: every row button is exactly its width (launcherRowControls), never wider
+            trailing().frame(minWidth: DS.Control.columnWidth, alignment: .trailing).launcherRowControls()
+        }
+        // the row's message under the title and subtitle, its symbol at their leading edge; the control stays centred on them
+        if let message {
+            DSRowMessageView(message).padding(.leading, chosen == nil ? 0 : DS.Control.thumbnail + DS.Space.s)
+                .padding(.trailing, DS.Control.columnWidth + DS.Space.s)
+        }
         }
         .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.s)
         .frame(minHeight: 60)

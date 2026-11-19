@@ -162,7 +162,7 @@ private struct PadTargetModifier: ViewModifier {
                     } else if abs(bounds.size.width - bounds.size.height) < 0.5 {
                         Circle().strokeBorder(color ?? LauncherPalette.focusRing, lineWidth: on && ringStyle != .none ? LauncherPalette.focusRingWidth : 0)
                     } else {
-                        Capsule().strokeBorder(color ?? LauncherPalette.focusRing, lineWidth: on && ringStyle != .none ? LauncherPalette.focusRingWidth : 0)
+                        DSPill().strokeBorder(color ?? LauncherPalette.focusRing, lineWidth: on && ringStyle != .none ? LauncherPalette.focusRingWidth : 0)
                     }
                 }
                 .padding(ringStyle == .outset ? -4 : 0)

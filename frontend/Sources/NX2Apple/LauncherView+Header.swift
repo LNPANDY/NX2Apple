@@ -20,8 +20,8 @@ extension LauncherView {
                 Button { page = destination; if destination == .builds { buildEditorOpen = false } } label: {
                     // The selected tab is bold. The bold text also sizes the (hidden) slot, so a tab never changes width as the selection moves.
                     ZStack {
-                        navLabel(destination, compact: compact).font(.manrope(13, .bold)).hidden()
-                        navLabel(destination, compact: compact).font(.manrope(13, page == destination ? .bold : .medium))
+                        navLabel(destination, compact: compact).font(DS.Font.bodyStrong).hidden()
+                        navLabel(destination, compact: compact).font(page == destination ? DS.Font.bodyStrong : DS.Font.body)
                     }
                         .padding(.horizontal, tabInset).frame(height: LauncherControl.height - 6)
                         .foregroundStyle(page == destination ? LauncherPalette.segmentSelectedText : LauncherPalette.text)
@@ -132,7 +132,7 @@ extension LauncherView {
         .padding(.horizontal, searching ? 12 : 0)
         .frame(height: 36)
         .launcherGlass(in: Capsule())
-        .overlay { if searching && searchFocused { Capsule().strokeBorder(LauncherPalette.cream, lineWidth: 2) } }
+        .overlay { if searching && searchFocused { DSPill().strokeBorder(LauncherPalette.cream, lineWidth: 2) } }
         .transaction { $0.animation = nil }
         .onChange(of: searchFocused) { focused in
             if !focused && search.isEmpty { closeSearch() }

@@ -27,7 +27,7 @@ struct SkippedLibraryItemsOverlay: View {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(loc.t("macLibDiag.sheetTitle"))
-                        .font(.manrope(24, .heavy))
+                        .font(DS.Font.title)
                         .tracking(-0.5)
                     Text(loc.t("macLibDiag.sheetNote"))
                         .font(DS.Font.body)
@@ -62,11 +62,11 @@ struct SkippedLibraryItemsOverlay: View {
                     if needsKeysAction {
                         Button(action: openKeysSettings) {
                             Label(loc.t("macLibDiag.chooseKeys"), systemImage: "key")
-                                .font(.manrope(12.5, .semibold))
+                                .font(DS.Font.bodyStrong)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 7)
                                 .background(LauncherPalette.menuFill, in: Capsule())
-                                .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                                .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
                         }
                         .buttonStyle(.plain)
                         .launcherHover()
@@ -78,7 +78,7 @@ struct SkippedLibraryItemsOverlay: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 7)
                             .background(LauncherPalette.menuFill, in: Capsule())
-                            .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                            .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
                     }
                     .buttonStyle(.plain)
                     .launcherHover()
@@ -163,11 +163,11 @@ private struct SkippedItemRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(item.name)
-                        .font(.manrope(13.5, .semibold))
+                        .font(DS.Font.bodyStrong)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Text(reasonTitle)
-                        .font(.manrope(11, .semibold))
+                        .font(DS.Font.footnote)
                         .foregroundStyle(iconColor)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)

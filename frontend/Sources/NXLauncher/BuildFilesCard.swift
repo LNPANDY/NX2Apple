@@ -45,16 +45,17 @@ package struct BuildFilesCard: View {
         let removing = store.removing == entry.id
         let detail = building ? loc.t("buildfiles.building") : removing ? loc.t("buildfiles.removing") : Self.bytes(entry.bytes)
         return CardRow(entry.name, detail: detail, help: entry.folder) {
-            if removing { ProgressView().controlSize(.small) }
+            if removing { DSSpinner() }
+            // one action in the control column, Remove (destructive) in the "…" beside it
+            DSOverflowMenu(label: String(format: loc.t("buildfiles.removeNamed"), entry.name),
+                           options: [("remove", loc.t("buildfiles.remove"))], padID: "set.buildfiles.\(index)", destructiveValues: ["remove"]) { _ in
+                if !building && store.removing == nil { store.ask(entry.id, building: building) }
+            }
+            .disabled(building || store.removing != nil)
             Button(loc.t("buildfiles.details")) { details(entry.id) }
                 .disabled(removing)
                 .accessibilityLabel(String(format: loc.t("buildfiles.detailsNamed"), entry.name))
                 .padTarget("set.buildfiles.details.\(index)", scope: "main", enabled: !removing) { if !removing { details(entry.id) } }
-            Button(loc.t("buildfiles.remove"), role: .destructive) { store.ask(entry.id, building: building) }
-                .buttonStyle(LauncherSecondaryButtonStyle(accent: .red))
-                .disabled(building || store.removing != nil)
-                .accessibilityLabel(String(format: loc.t("buildfiles.removeNamed"), entry.name))
-                .padTarget("set.buildfiles.\(index)", scope: "main", enabled: !building && store.removing == nil) { if !building && store.removing == nil { store.ask(entry.id, building: building) } }
         }
     }
 }

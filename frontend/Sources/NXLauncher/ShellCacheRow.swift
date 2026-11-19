@@ -156,10 +156,10 @@ package struct ShellCacheRow: View {
     private func note(_ kind: NoteKind, _ text: String) -> some View {
         let (symbol, color): (String, Color) = {
             switch kind {
-            case .done: return ("checkmark.circle.fill", LauncherPalette.ready)
-            case .info: return ("info.circle", .secondary)
-            case .warning: return ("exclamationmark.triangle.fill", LauncherPalette.building)
-            case .blocked: return ("exclamationmark.triangle.fill", .red)
+            case .done: return (DSTone.success.symbol, DSTone.success.color)   // one symbol per tone (DSTone)
+            case .info: return (DSTone.info.symbol, DS.Color.symbolDefault)
+            case .warning: return (DSTone.warning.symbol, DSTone.warning.color)
+            case .blocked: return (DSTone.error.symbol, DSTone.error.color)
             }
         }()
         return HStack(alignment: .firstTextBaseline, spacing: 7) {

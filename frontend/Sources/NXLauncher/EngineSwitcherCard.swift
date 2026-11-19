@@ -170,10 +170,10 @@ package struct EngineSwitcherCard: View {
                 .minimumScaleFactor(0.85)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.leading, 14)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(LauncherPalette.secondaryText)
-                .rotationEffect(.degrees(open ? 180 : 0))
+            Image(systemName: LauncherDropdownKind.popUp.indicator)   // a pop-up: it shows the engine in use (Apple HIG)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(DS.Color.symbolDefault)
+                .accessibilityHidden(true)
                 .padding(.trailing, 14)
         }
         .padding(.horizontal, 15)
@@ -335,7 +335,7 @@ package struct EngineDropdownPanel: View {
                             .lineLimit(1)
                         Text(loc.t(badgeKey))
                             .font(.manrope(10.5, .semibold))
-                            .foregroundStyle(selected ? LauncherPalette.accent : LauncherPalette.secondaryText)
+                            .foregroundStyle(selected ? DS.Color.textPrimary : DS.Color.textSecondary)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1.5)
                             .background(LauncherPalette.secondaryFill, in: Capsule())
@@ -358,7 +358,7 @@ package struct EngineDropdownPanel: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(LauncherPalette.secondaryFill, in: Capsule())
-                        .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                        .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
                 }
             }
             .padding(.horizontal, 12)
@@ -464,7 +464,7 @@ package struct EngineDropdownPanel: View {
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
                     .background(LauncherPalette.secondaryFill, in: Capsule())
-                    .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                    .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
             }
             .buttonStyle(.plain)
             .keyboardShortcut(shortcut(kind))
@@ -502,7 +502,7 @@ package struct EngineDropdownPanel: View {
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
                     .background(LauncherPalette.secondaryFill, in: Capsule())
-                    .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                    .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
             }
             .buttonStyle(.plain)
             .disabled(build.running)

@@ -13,6 +13,8 @@ extension LauncherView {
                                    focus: displayed(game).artwork.focus(for: .thumbnail),
                                    state: LibraryArtworkState(game, building: m.running && activeBuildID == game.id),
                                    width: width, selected: selected,
+                                   // the pad's focus, or the arrow keys on a card that is not the hero (a click selects it as well)
+                                   focused: (padFocus.visible && padFocus.focused == "card." + game.id.uuidString) || (keyboardCard == game.id && !selected),
                                    select: { if let choose { choose() } else { library.selectedID = game.id; keyboardCard = game.id } })
             .focusable()
             .focused($keyboardCard, equals: game.id)

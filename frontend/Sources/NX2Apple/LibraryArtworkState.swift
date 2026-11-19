@@ -25,9 +25,8 @@ struct LibraryArtworkState: Equatable {
         return mac && ios ? "laptopcomputer.and.iphone" : "iphone"
     }
     var color: Color {
-        if attention == .none { return .white.opacity(0.9) }
-        if attention == .building { return Color(red: 1, green: 0.94, blue: 0.84) }
-        return Color(red: 1, green: 0.78, blue: 0.24)
+        if attention == .none || attention == .building { return DS.Color.textPrimary }   // a property or a running build: neutral
+        return DS.Color.statusWarning   // needs attention
     }
     init(mac: Bool, ios: Bool, attention: Attention) {
         self.mac = mac
@@ -81,10 +80,10 @@ struct LibraryProfileChip: View {
                 Text(title)
                 Image(systemName: "info.circle").accessibilityHidden(true)
             }
-            .font(.manrope(11, .semibold)).foregroundStyle(.white.opacity(0.9))
+            .font(DS.Font.footnote.weight(.semibold)).foregroundStyle(DS.Color.textPrimary)
             .padding(.horizontal, 8).padding(.vertical, 4)
             .background(.black, in: Capsule())
-            .overlay(Capsule().strokeBorder(ArtworkStatusChip.neutralColor, lineWidth: ArtworkStatusChip.strokeWidth))
+            .overlay(DSPill().strokeBorder(ArtworkStatusChip.neutralColor, lineWidth: ArtworkStatusChip.strokeWidth))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain).accessibilityHint(explanation)

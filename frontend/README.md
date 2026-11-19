@@ -303,6 +303,13 @@ Screens compose the components in `Sources/NXLauncher/DesignComponents.swift` in
 | Anything the player is told outside a sheet | `DSNotice` (`LauncherNotice`), in the slot under the top bar |
 | The bar under a wizard | `DSWizardFooter` with `DSContinueLabel` |
 | A row's button ("Choose…", "Change…", a notice's action) | `DSRowButtonStyle` |
+| A destructive action on its own (Uninstall) | `DSDestructiveButtonStyle` |
+| A row's second and further actions | `DSOverflowMenu` ("…") |
+| A link-like action in a line of text | `DSTextButtonStyle` |
+| A row's warning, error or note | `DSRow(…, message: .warning(text))` (`DSRowMessage`, tone `DSTone`) |
+| A spinner, also inside a button | `DSSpinner` |
+| A card of artwork (library row and grid) | `DSCardButtonStyle` with `dsCardArt` |
+| A capsule or round outline | `DSPill` |
 | Controls side by side that wrap | `DSFlowRow` |
 | The engine on a build page | `EngineFootnote` ("Built with nxnative · Change") |
 
@@ -311,6 +318,35 @@ controls over the library hero, the carousel arrows and the wizard footer. Those
 there do the button styles draw glass. In lists, cards, rows, sheets and notices the same styles are flat: the raised surface
 with a hairline, the accent fill for a primary action, and the raised surface with tertiary text when disabled.
 `DesignRulesTests` refuses glass anywhere else.
+
+A dropdown that shows its current value is a pop-up with the up and down chevron (`LauncherDropdown`, kind `.popUp`): the
+language, the game display, the engine and its channel, the build source, the sort, the player. A pull-down that runs actions
+has the down chevron (`.pullDown`), and a row's further actions sit in the "…" of `DSOverflowMenu` (Apple HIG).
+
+Everything inside a button takes the button's foreground (`DSButtonForeground`, set once by each style): `accentOn` on the
+primary, `text.primary` on the others, white on the destructive fill (`DSDestructiveButtonStyle`, `status.errorFill`), and
+`text.tertiary` when disabled. A spinner in a button is `DSSpinner`, which draws in that colour (AppKit's small spinner ignores
+the tint).
+
+Cards answer through their artwork only (`DSCardButtonStyle` with `dsCardArt`, tokens `interaction.*`): under the pointer a
+white veil of 6 %, pressed 12 %, the selected card (the hero's game) a 2 pt accent ring, the card the controller or the
+keyboard is on the focus ring and a scale of 1.03. No plate, no shadow, nothing moves. A chip on artwork sits 8 pt in from the
+top and leading edge, above the clip. Rows answer the pointer with the raised surface (`dsRowHover`), never a scale. The
+console mode's cards keep their own focus look. The gallery's Design system › Card and row states shows each state.
+
+A row (`DSRow`) keeps one rule set. The status dot is centred in the 20 pt leading slot and on the centre of the title line, a
+thumbnail is centred on the whole row. Every control in the trailing column is exactly `DS.Control.columnWidth` wide, the
+primary too, and a toggle sits at the column's trailing edge. A row with a second action keeps one in the column and the
+others in a "…" just before the column, so the column keeps its edges. A row's own warning, error or note is its `message` (`.warning(text)`): the tone's symbol at the
+title's leading edge, 4 pt to the text, both in callout, the text wrapping under itself. The control stays centred on the title
+and subtitle, and the row grows downwards. A row's help is an info button beside its title, not one beside the section header.
+
+One primary per screen. In a wizard step the footer's Continue is the primary as soon as it is enabled. An action in the
+content may be primary only while Continue is disabled and that action is the way forward (Choose folder before anything is
+chosen). After that it is a row button ("Change…").
+
+"Built with nxnative · Change" is callout in `text.secondary`, Change a `DSTextButtonStyle` (semibold, `text.primary`,
+underlined under the pointer) with the controller's ring, its leading edge on the section headers'.
 
 Symbols take `symbol.default`, or `symbol.accent` when selected. Status dots and notice symbols take the status colours. A
 notice has one symbol per tone (info, warning, error, success), never its own. `DesignRulesTests` also checks the contrast

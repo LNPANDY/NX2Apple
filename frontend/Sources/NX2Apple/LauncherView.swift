@@ -226,7 +226,7 @@ struct LauncherView: View {
             if page != .library {
                 topBar.background(LauncherPalette.background).zIndex(1)
                 LauncherTopBarRule()
-                EngineSyncBanner(engine: engine, m: m)
+                if page != .settings { EngineSyncBanner(engine: engine, m: m) }   // Settings shows them in its content (SettingsPage)
             }
             if page == .library {
                 VStack(spacing: 0) {
@@ -493,7 +493,7 @@ struct LauncherView: View {
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(LauncherPalette.secondaryText)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(m.operationTitle ?? loc.t(devices.shellCopy != nil || devices.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
-                                 ? "activity.transfer" : (m.runningTarget == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
+                                 ? "activity.transfer" : (m.runningTarget == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(DS.Font.headline)
                             .lineLimit(2)
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
                             let badge = m.currentStagePosition.map { "[\($0.current)/\($0.total)]" } ?? ""
@@ -747,5 +747,5 @@ struct LauncherView: View {
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
-    static let ringRoom: CGFloat = 6
+    static let ringRoom: CGFloat = 10   // the focused artwork's scale and ring (DSCardRoom), given back outside
 }

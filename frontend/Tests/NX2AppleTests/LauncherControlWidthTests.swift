@@ -254,7 +254,9 @@ import NXModel
                 let at = "\(lang), \(scenario.name)"
                 XCTAssertGreaterThanOrEqual(samples.count, scenario.atLeast, "\(at): the page showed fewer controls than expected")
                 for (index, sample) in samples.enumerated() {
-                    XCTAssertLessThanOrEqual(sample.size.width, LauncherControl.width, "\(at), control \(index)")
+                    // every button and pop-up in a Settings row is exactly the control column wide, the primary too (#1458): a
+                    // narrower or wider one breaks the column. Toggles report no sample.
+                    XCTAssertEqual(sample.size.width, LauncherControl.width, accuracy: 0.5, "\(at), control \(index): not the column's width")
                     XCTAssertEqual(sample.size.height, LauncherControl.height, "\(at), control \(index)")
                     XCTAssertLessThanOrEqual(sample.labelWidth, sample.room,
                                              "\(at), control \(index): its label needs \(sample.labelWidth) pt on one line, the control has \(sample.room)")
