@@ -83,7 +83,7 @@ struct LauncherView: View {
          toolsAssessments: [UUID: GameRefreshAssessment] = [:],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
          enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, recorder: BuildRecorder? = nil, qaPrompt: Bool = false, qaLaunching: Bool = false, qaSkippedOpen: Bool = false,
-         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, dropdowns: LauncherDropdownState? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared, completionDismissal: BuildCompletionDismissal? = nil) {
+         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, dropdowns: LauncherDropdownState? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared, completionDismissal: BuildCompletionDismissal? = nil, allGamesOpen: Bool = false) {
         _completionDismissal = StateObject(wrappedValue: completionDismissal ?? BuildCompletionDismissal())
         _padFocus = StateObject(wrappedValue: padFocus ?? PadFocus())
         _dropdowns = StateObject(wrappedValue: dropdowns ?? LauncherDropdownState())
@@ -118,6 +118,7 @@ struct LauncherView: View {
         _page = State(initialValue: initialPage)
         _buildEditorOpen = State(initialValue: initialBuildEditorOpen)
         _settingsCategory = State(initialValue: settingsCategory)
+        _allGamesOpen = State(initialValue: allGamesOpen)   // visual QA: the All games grid open
         self.performStartupChecks = performStartupChecks
     }
 
@@ -154,12 +155,9 @@ struct LauncherView: View {
         libraryFilter.visibleGames(library.games, matching: search, lang: loc.lang, sort: librarySort)
     }
 
-    /// The hero's game: the selection, unless the filter hides it, then the first game the filter shows.
-    var heroGame: LibraryGame? {
-        let visible = filteredGames
-        if let selected = library.selected, visible.contains(where: { $0.id == selected.id }) { return selected }
-        return visible.first
-    }
+    /// The hero's game: the selection, else the most recently played game. The hero stands over the Recently played row, which
+    /// no filter narrows (#1458), so neither does the hero.
+    var heroGame: LibraryGame? { library.selected ?? recentGames.first }
 
     var libraryInputAvailable: Bool {
         currentPadScope == "main" && padFocus.scope == "main" && dropdowns.request == nil && dropdowns.custom == nil && manageOpenFor == nil && removing == nil && !consolePrompt && !profileHelpOpen
@@ -477,6 +475,11 @@ struct LauncherView: View {
     @State var libraryHeaderHeight: CGFloat = 64
     /// The hero's height with the panel closed, kept while it is open so the scaled-down hero keeps its proportions.
     @State var closedHeroHeight: CGFloat = 498
+    /// The Recently played row's height: the hero takes the rest of the window (LauncherView+Carousel.swift).
+    @State var recentRowHeight: CGFloat = 0
+    /// The All games grid, opened by Show all (#1458). A search shows it too.
+    @State var allGamesOpen = false
+    @StateObject var rowScroller = RowScroller()   // the row's scroll position, for its pager buttons
 
     private var activityBar: some View {
         VStack(spacing: 0) {
@@ -683,7 +686,7 @@ struct LauncherView: View {
         if renaming != nil && [.b, .x, .l, .r].contains(action) { if action == .b { renaming = nil }; return }
         if action == .b {
             if batchRefreshOpen { batchRefreshOpen = false } else if missingImgGuideFor != nil { missingImgGuideFor = nil } else if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsCancelRequest += 1 }
-            else if searching { searching = false; search = "" } else if page == .builds && buildEditorOpen { buildEditorOpen = false } else if page != .library { page = .library }
+            else if searching { searching = false; search = "" } else if page == .library && allGamesOpen { closeAllGames() } else if page == .builds && buildEditorOpen { buildEditorOpen = false } else if page != .library { page = .library }
             return
         }
         if !padFocus.visible {

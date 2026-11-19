@@ -14,70 +14,78 @@ extension LauncherView {
 
     var libraryPage: some View {
         GeometryReader { geometry in
-            let editing = artworkEditor != nil
-            let width = max(0, geometry.size.width - (editing ? ArtworkPanel.width + 1 : 0))
-            ScrollViewReader { proxy in
+            if showsAllGames {
+                allGamesPage(size: geometry.size)
+            } else {
+                recentPage(geometry)
+            }
+        }
+    }
+
+    /// The hero of the selected game, the Recently played row under it. The hero takes what the row leaves, the row's height
+    /// grows with the window's width (its cards do, up to 300 pt).
+    private func recentPage(_ geometry: GeometryProxy) -> some View {
+        let editing = artworkEditor != nil
+        let width = max(0, geometry.size.width - (editing ? ArtworkPanel.width + 1 : 0))
+        let row = recentRowHeight > 0 ? recentRowHeight : 124 + LibraryCarouselLayout.cardWidth(in: geometry.size.width) / LibraryCardLayout.aspect
+        let hero = heroGame
+        return ScrollViewReader { proxy in
             ScrollView {
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 0) {
                         let full = CGSize(width: geometry.size.width,
-                            height: editing ? closedHeroHeight : LibraryHeroLayout.height(
-                                available: geometry.size.height - libraryReservedHeaderHeight - 274,
-                                hasDeviceActions: library.games.contains { !$0.installedDevice.isEmpty }))
+                            height: editing ? closedHeroHeight : max(LibraryHeroLayout.height(available: 0, hasDeviceActions: library.games.contains { !$0.installedDevice.isEmpty }),
+                                                                     geometry.size.height - libraryReservedHeaderHeight - row))
                         let scale = min(1, width / max(1, full.width))
-                        hero(heroGame, width: full.width, height: full.height)
+                        self.hero(hero, width: full.width, height: full.height)
                             .scaleEffect(scale, anchor: .topLeading)
                             .frame(width: width, height: editing ? full.height * scale : nil, alignment: .topLeading)
                             .opacity(dimmed(.hero))
+                            .overlay(alignment: .topLeading) {   // the notice slot, under the top bar
+                                if !editing { noticeSlot(libraryNotices(hero: hero)).padding(.top, libraryHeaderHeight - libraryReservedHeaderHeight + 12) }
+                            }
                             .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
                                 if !editing {
                                     closedHeroHeight = size.height
                                     artworkHeroAspect = size.width / max(1, size.height)
                                 }
                             }
-                        collection(width: width)
+                        recentRow(width: width)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                                if abs(height - recentRowHeight) > 0.5 { recentRowHeight = height }
+                            }
                             .opacity(dimmed(.thumbnail))
                     }.frame(width: width)
                     if editing { Color.clear.frame(width: ArtworkPanel.width + 1) }
                 }
             }
             .onChange(of: padFocus.focused) { id in
-                if let id, id.hasPrefix("card.") {
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo(id) }
-                } else if id == "library.sort" || id == "library.filter",
-                          let id, let frame = padFocus.frame(of: id),
-                          frame.minY < libraryHeaderHeight || frame.maxY > geometry.size.height {
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo("library.collection.header", anchor: .center) }
+                if let id, id.hasPrefix("card.") || id.hasPrefix("library."), let frame = padFocus.frame(of: id),
+                   frame.minY < libraryHeaderHeight || frame.maxY > geometry.size.height {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo("library.collection.header", anchor: .top) }
                 }
             }
-            .onChange(of: keyboardCard) { id in
-                if let id { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo("card." + id.uuidString) } }
-            }
-            }
-            .coordinateSpace(name: "library.scroll")
-            .modifier(LibraryScrollUnderlap())
-            .animation(.easeOut(duration: 0.18), value: artworkSlot)
-            .onChange(of: library.selectedID) { _ in toolsAge.cancelSingleRefreshProbe() }
-            .onChange(of: m.running) { running in if running { toolsAge.cancelSingleRefreshProbe() } }
-            .onDisappear { toolsAge.cancelSingleRefreshProbe() }
-            .allowsHitTesting(!editing)
-            .overlay(alignment: .trailing) {
-                if let editor = artworkEditor {
-                    HStack(spacing: 0) {
-                        Divider().opacity(0.3)
-                        ArtworkPanel(editor: editor, labels: loc.t, save: { closeArtwork(save: true) }, cancel: { closeArtwork(save: false) })
-                            .onReceive(editor.$draft) { refreshPreview($0) }
-                            .onReceive(editor.$slot) { artworkSlot = $0 }
-                            .onChange(of: artworkHeroAspect) { editor.heroAspect = $0 }
-                    }.frame(width: ArtworkPanel.width + 1)
-                        .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
-                }
-            }
-            .modifier(LibraryHeaderBar(header: VStack(spacing: 0) {
-                topBar
-                EngineSyncBanner(engine: stores.engineSync, m: m)
-            }.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { libraryHeaderHeight = $0 }))
         }
+        .coordinateSpace(name: "library.scroll")
+        .modifier(LibraryScrollUnderlap())
+        .animation(.easeOut(duration: 0.18), value: artworkSlot)
+        .onChange(of: library.selectedID) { _ in toolsAge.cancelSingleRefreshProbe() }
+        .onChange(of: m.running) { running in if running { toolsAge.cancelSingleRefreshProbe() } }
+        .onDisappear { toolsAge.cancelSingleRefreshProbe() }
+        .allowsHitTesting(!editing)
+        .overlay(alignment: .trailing) {
+            if let editor = artworkEditor {
+                HStack(spacing: 0) {
+                    Divider().opacity(0.3)
+                    ArtworkPanel(editor: editor, labels: loc.t, save: { closeArtwork(save: true) }, cancel: { closeArtwork(save: false) })
+                        .onReceive(editor.$draft) { refreshPreview($0) }
+                        .onReceive(editor.$slot) { artworkSlot = $0 }
+                        .onChange(of: artworkHeroAspect) { editor.heroAspect = $0 }
+                }.frame(width: ArtworkPanel.width + 1)
+                    .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .modifier(LibraryHeaderBar(header: libraryHeader))
     }
 
     func hero(_ game: LibraryGame?, width: CGFloat, height: CGFloat) -> some View {
@@ -155,34 +163,6 @@ extension LauncherView {
                                 .animation(LibraryHeroTransition.metadata(reduceMotion: reduceMotion), value: game.id)
                             }
                             heroActions(game, compact: width < 760)
-                            if game.onDevice, let expiry = signatureExpiry[game.id], AppSignature.isUrgent(expiry) {
-                                Label(AppSignature.describe(expiry, loc.t), systemImage: "exclamationmark.triangle.fill")
-                                    .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.building)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            if isLaunchingMacGame(game) && showGatekeeperHint {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "checkmark.shield").font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(LauncherPalette.cream.opacity(0.85))
-                                    Text(loc.t("library.gatekeeperHint"))
-                                        .font(.manrope(12.5))
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
-                            if !(m.running && activeBuildID == game.id), let refreshNote = heroRefreshNote(for: game) {
-                                Text(refreshNote)
-                                    .font(.manrope(12.5))
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            if game.switch2EditionContentFound, !GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {
-                                Text(loc.t("library.switch2Content")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)   // #1057
-                            }
-                            if let resignNote {
-                                Text(resignNote).font(.manrope(12)).foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.horizontal, 34).padding(.bottom, 24)
@@ -215,55 +195,46 @@ extension LauncherView {
     /// Narrow windows place collection controls on a separate line.
     static let collectionWideHeaderWidth: CGFloat = 1100
 
+    /// The All games grid (LauncherView+Carousel.swift opens it): the whole library, filtered, ordered and counted.
     func collection(width: CGFloat) -> some View {
         let cardWidth = LibraryCardLayout.width(in: width)
         let columns = LibraryCardLayout.columns(in: width)
         let games = filteredGames
         let heroID = heroGame?.id
+        let compactHeader = width < Self.collectionWideHeaderWidth
         return VStack(alignment: .leading, spacing: 18) {
-            let headerLayout = width < Self.collectionWideHeaderWidth
+            let headerLayout = compactHeader
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
                 : AnyLayout(HStackLayout(spacing: 16))
             headerLayout {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(loc.t("library.yourLibrary")).font(.manrope(28, .bold)).tracking(-0.6).fixedSize()
-                    Text("(" + String(format: loc.t("library.gameCount"), games.count) + ")").font(.manrope(12)).foregroundStyle(.secondary)
-                    Button(loc.t("supported.title"), action: openSupportedGames)
-                        .buttonStyle(LauncherSecondaryButtonStyle())
-                        .padTarget("library.supported", scope: "main", activate: openSupportedGames)
-                }
+                allGamesHeader(count: games.count, compact: compactHeader)
                 HStack(spacing: 12) {
                 Spacer(minLength: 0)
-                let compactHeader = width < Self.collectionWideHeaderWidth
-                if !library.games.isEmpty {
-                    collectionBatchRefreshButton(compact: compactHeader)
+                LauncherGlassGroup {
+                    HStack(spacing: 12) {
+                        if !library.games.isEmpty { collectionBatchRefreshButton(compact: compactHeader) }
+                        Button(loc.t("supported.title"), action: openSupportedGames)
+                            .buttonStyle(LauncherSecondaryButtonStyle())
+                            .padTarget("library.supported", scope: "main", activate: openSupportedGames)
+                        HStack(spacing: 8) {
+                            // a narrow window keeps the menu without the word before it (the menu's accessible label says Sort)
+                            if !compactHeader { Text(loc.t("sort.label")).font(.manrope(12)).foregroundStyle(.secondary).fixedSize() }
+                            LauncherDropdown(options: LibrarySort.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: librarySort.rawValue,
+                                             label: loc.t("sort.label"), style: .button) { setLibrarySort(LibrarySort(rawValue: $0) ?? .recent) }
+                                .padTarget("library.sort", scope: "main",
+                                           activate: { setLibrarySort(librarySort == .recent ? .name : .recent) },
+                                           adjust: { setLibrarySort($0 > 0 ? .name : .recent) })
+                        }
+                        LauncherSegmented(options: LibraryFilter.libraryOptions.map { ($0.rawValue, loc.t($0.labelKey)) },
+                                          selection: libraryFilter.rawValue) { setLibraryFilter(LibraryFilter(rawValue: $0) ?? .owned) }
+                            .compactFrame(minWidth: LauncherControl.width)
+                            .padTarget("library.filter", scope: "main",
+                                       activate: { setLibraryFilter(libraryFilter == .ios ? .owned : libraryFilter.adjusted(1)) },
+                                       adjust: { setLibraryFilter(libraryFilter.adjusted($0)) })
+                    }
                 }
-                HStack(spacing: 8) {
-                    // a narrow window keeps the menu without the word before it (the menu's accessible label says Sort)
-                    if !compactHeader { Text(loc.t("sort.label")).font(.manrope(12)).foregroundStyle(.secondary).fixedSize() }
-                    LauncherDropdown(options: LibrarySort.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: librarySort.rawValue,
-                                     label: loc.t("sort.label"), style: .button) { setLibrarySort(LibrarySort(rawValue: $0) ?? .recent) }
-                        .padTarget("library.sort", scope: "main",
-                                   activate: { setLibrarySort(librarySort == .recent ? .name : .recent) },
-                                   adjust: { setLibrarySort($0 > 0 ? .name : .recent) })
-                }
-                LauncherSegmented(options: LibraryFilter.libraryOptions.map { ($0.rawValue, loc.t($0.labelKey)) },
-                                  selection: libraryFilter.rawValue) { setLibraryFilter(LibraryFilter(rawValue: $0) ?? .owned) }
-                    .compactFrame(minWidth: LauncherControl.width)
-                    .padTarget("library.filter", scope: "main",
-                               activate: { setLibraryFilter(libraryFilter == .ios ? .owned : libraryFilter.adjusted(1)) },
-                               adjust: { setLibraryFilter(libraryFilter.adjusted($0)) })
-
                 }
             }.id("library.collection.header")
-            if library.showsSkippedBanner {
-                LibrarySkippedBanner(
-                    items: library.skippedItems,
-                    enabled: artworkEditor == nil,
-                    openDetails: { skippedItemsOpen = true },
-                    dismiss: { library.dismissSkippedBanner() }
-                )
-            }
             if games.isEmpty && !library.games.isEmpty {
                 Text(loc.t(search.isEmpty ? "console.allGames.empty" : "library.noResults"))
                     .font(.manrope(17)).foregroundStyle(.secondary)
@@ -276,7 +247,8 @@ extension LauncherView {
                 } else {
                     ForEach(games) { game in
                         let _ = LauncherWork.count(.card)
-                        collectionCard(game, width: cardWidth, selected: game.id == heroID, columns: columns)
+                        collectionCard(game, width: cardWidth, selected: game.id == heroID, in: games, columns: columns,
+                                       choose: { chooseFromAllGames(game) })
                     }
                 }
             }.padding(.top, 8)

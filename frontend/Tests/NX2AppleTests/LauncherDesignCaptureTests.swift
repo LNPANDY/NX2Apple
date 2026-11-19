@@ -16,10 +16,10 @@ import NXModel
         NSApplication.shared.setActivationPolicy(.accessory)
         let lang = CaptureLanguage.current(.en)
         let fixtures = GalleryFixtures(lang: lang)
-        let size = NSSize(width: GalleryScene.size.width, height: GalleryScene.size.height)
+
         for scene in GalleryScene.allCases {
             let host = NSHostingView(rootView: fixtures.view(scene))
-            let window = OffscreenWindow(size: size, styleMask: [.titled, .closable, .resizable, .fullSizeContentView])
+            let window = OffscreenWindow(size: NSSize(width: scene.size.width, height: scene.size.height), styleMask: [.titled, .closable, .resizable, .fullSizeContentView])
             window.appearance = NSAppearance(named: .darkAqua)
             window.contentView = host
             window.orderFront(nil)

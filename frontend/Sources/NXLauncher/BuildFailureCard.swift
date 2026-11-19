@@ -147,16 +147,15 @@ package struct EngineSyncBanner: View {
         self.m = m
     }
 
+    /// The engine being fetched, as a notice (LauncherNotice). The library shows it, and the failure, in its own notice slot.
+    package static func notice(_ engine: EngineSyncStore, t: (String) -> String) -> LauncherNoticeItem? {
+        engine.syncing ? LauncherNoticeItem(id: "engine.syncing", tone: .info, title: t("engine.syncing"), busy: true) : nil
+    }
+
     package var body: some View {
-        if engine.syncing {
-            HStack(spacing: 10) {
-                ProgressView().controlSize(.small)
-                Text(loc.t("engine.syncing")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 24).padding(.vertical, 10)
-            .accessibilityIdentifier("engine.syncing")
+        if let notice = Self.notice(engine, t: loc.t) {
+            LauncherNotice(notice).padding(.horizontal, 24).padding(.vertical, 10)
+                .accessibilityIdentifier("engine.syncing")
         } else if let f = engine.failure {
             BuildFailureCard(m: m, engine: engine, failure: f).padding(.horizontal, 24).padding(.vertical, 10)
         }

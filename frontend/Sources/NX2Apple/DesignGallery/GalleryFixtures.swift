@@ -9,12 +9,23 @@ import NXLauncher
 /// anything or runs the engine: each scene gets its own stores on a private defaults suite and a library in a temporary folder,
 /// with generated artwork. Not shown anywhere in the app yet.
 enum GalleryScene: String, CaseIterable, Identifiable {
-    case libraryGames, libraryEmpty, libraryEngineUpdate, libraryNoticeWarning, libraryNoticeError
+    /// The library: more games than the Recently played row holds (Show all), fewer (no Show all), none, the narrowest window,
+    /// each notice tone, and the All games grid.
+    case libraryGames, libraryFew, libraryEmpty, libraryNarrow, libraryEngineUpdate, libraryNoticeWarning, libraryNoticeError, allGames
     case gamePage, buildsIdle, buildsRunning, buildFailed, settings, consoleHome
 
     var id: String { rawValue }
-    /// The window size of every scene: the launcher's ideal width at a common laptop height.
+    /// The launcher's ideal width at a common laptop height, and its minimum window for the narrow scene.
     static let size = CGSize(width: 1280, height: 800)
+    var size: CGSize { self == .libraryNarrow ? CGSize(width: 900, height: 680) : Self.size }
+    /// How many of the fixture games the scene's library holds.
+    var gameCount: Int {
+        switch self {
+        case .libraryEmpty: return 0
+        case .libraryFew: return 6
+        default: return GalleryFixtures.games.count
+        }
+    }
 }
 
 /// Builds the scenes. Keep one alive while its view is shown: it owns the temporary folder and removes it when released.
@@ -40,22 +51,29 @@ enum GalleryScene: String, CaseIterable, Identifiable {
         ("0100000000030000", "Paper Comet", 0.83), ("0100000000040000", "Tidewater Run", 0.47),
         ("0100000000050000", "Echo Garden", 0.30), ("0100000000060000", "Iron Meadow", 0.0),
         ("0100000000070000", "Night Ferry", 0.66), ("0100000000080000", "Saltglass", 0.13),
+        ("0100000000090000", "Copper Lanterns", 0.04), ("01000000000A0000", "Glass Harbor", 0.52),
+        ("01000000000B0000", "Moss and Mortar", 0.36), ("01000000000C0000", "Starling Road", 0.74),
+        ("01000000000D0000", "Quiet Engines", 0.92), ("01000000000E0000", "Lighthouse Nine", 0.18),
     ]
 
     func view(_ scene: GalleryScene) -> AnyView {
         let stores = makeStores()
-        let library = makeLibrary(empty: scene == .libraryEmpty)
+        let library = makeLibrary(count: scene.gameCount)
         let hero = library.games.first?.id
         // the library's own artwork folder and no title list: the player's artwork and the network stay out of every scene
         let artworkStore = ArtworkStore(directory: library.artworkDirectory, titleList: directory.appendingPathComponent("no-titles.json"), fallbacks: [:])
-        func launcher(_ page: LauncherPage, editor: Bool = false, olderTools: Set<UUID> = [], assessments: [UUID: GameRefreshAssessment] = [:]) -> LauncherView {
+        func launcher(_ page: LauncherPage, editor: Bool = false, olderTools: Set<UUID> = [], assessments: [UUID: GameRefreshAssessment] = [:],
+                      allGames: Bool = false) -> LauncherView {
             LauncherView(stores: stores, library: library, initialPage: page, initialBuildEditorOpen: editor, settingsCategory: .general,
-                         performStartupChecks: false, olderTools: olderTools, toolsAssessments: assessments, artworkStore: artworkStore)
+                         performStartupChecks: false, olderTools: olderTools, toolsAssessments: assessments, artworkStore: artworkStore,
+                         allGamesOpen: allGames)
         }
         let root: AnyView
         switch scene {
-        case .libraryGames, .libraryEmpty:
+        case .libraryGames, .libraryFew, .libraryEmpty, .libraryNarrow:
             root = AnyView(launcher(.library))
+        case .allGames:
+            root = AnyView(launcher(.library, allGames: true))
         case .libraryEngineUpdate:
             let assessments = hero.map { [$0: GameRefreshAssessment(heroState: .generalSync(fast: true), hasSpecificUpdate: false, versionLabel: "",
                                                                     canFastRefreshMac: true, canFastRefreshIOS: false, needsMissingImgGuideIOS: false,
@@ -92,7 +110,7 @@ enum GalleryScene: String, CaseIterable, Identifiable {
             root = AnyView(ConsoleView(driver: MockConsoleDriver(scenario: .full, lang: lang, animated: false), lang: lang))
         }
         return AnyView(root.environmentObject(PadFocus()).environmentObject(stores.localizer).launcherDropdownHost()
-            .frame(width: GalleryScene.size.width, height: GalleryScene.size.height).background(LauncherPalette.background))
+            .frame(width: scene.size.width, height: scene.size.height).background(LauncherPalette.background))
     }
 
     private func makeStores() -> LauncherStores {
@@ -110,14 +128,14 @@ enum GalleryScene: String, CaseIterable, Identifiable {
         return stores
     }
 
-    private func makeLibrary(empty: Bool) -> GameLibrary {
+    private func makeLibrary(count: Int) -> GameLibrary {
         let folder = directory.appendingPathComponent("library-" + UUID().uuidString, isDirectory: true)
         let artwork = folder.appendingPathComponent("artwork", isDirectory: true)
         try? FileManager.default.createDirectory(at: artwork, withIntermediateDirectories: true)
         let library = GameLibrary(file: folder.appendingPathComponent("library.json"), artwork: artwork)
         library.applicationFolders = []
-        guard !empty else { return library }
-        for (index, game) in Self.games.enumerated() {
+        guard count > 0 else { return library }
+        for (index, game) in Self.games.prefix(count).enumerated() {
             Self.writeArtwork(for: game.titleID, hue: game.hue, in: artwork)
             var entry = LibraryGame(titleID: game.titleID, name: game.name)
             entry.inputs["base"] = ["/Volumes/Games/\(game.name) [\(game.titleID)].nsp"]

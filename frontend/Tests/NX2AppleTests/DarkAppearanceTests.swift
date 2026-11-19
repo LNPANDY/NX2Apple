@@ -46,7 +46,7 @@ final class DarkAppearanceTests: IsolatedDefaultsTestCase {
         NSApplication.shared.setActivationPolicy(.accessory)
         testDefaults.set("light", forKey: "appearance")
         let fixtures = GalleryFixtures()
-        let host = NSHostingView(rootView: fixtures.view(.libraryGames).launcherAppearance().defaultAppStorage(testDefaults))
+        let host = NSHostingView(rootView: fixtures.view(.libraryFew).launcherAppearance().defaultAppStorage(testDefaults))
         let window = OffscreenWindow(size: NSSize(width: GalleryScene.size.width, height: GalleryScene.size.height), styleMask: [.titled, .closable, .resizable])
         window.appearance = NSAppearance(named: .aqua)
         window.contentView = host

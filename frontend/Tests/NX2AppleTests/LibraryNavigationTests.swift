@@ -18,7 +18,7 @@ import XCTest
             try JSONEncoder().encode(games).write(to: file)
             let library = GameLibrary(file: file), stores = LauncherStores(defaults: testDefaults), focus = PadFocus()
             let window = OffscreenWindow(size: .init(width: width, height: 900))
-            window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library, performStartupChecks: false, padFocus: focus))
+            window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library, performStartupChecks: false, padFocus: focus, allGamesOpen: true))   // the grid is All games (#1458)
             window.orderFront(nil)
             defer { window.contentView = nil; window.orderOut(nil) }
             settle(0.5)
@@ -220,7 +220,7 @@ import XCTest
         var consoleEntries = 0
         let window = OffscreenWindow(size: .init(width: 1000, height: 680))
         window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library,
-            performStartupChecks: false, enterConsole: { consoleEntries += 1 }, gamepad: gamepad, padFocus: focus, dropdowns: dropdowns))
+            performStartupChecks: false, enterConsole: { consoleEntries += 1 }, gamepad: gamepad, padFocus: focus, dropdowns: dropdowns, allGamesOpen: true))
         window.orderFront(nil)
         defer { window.contentView = nil; window.orderOut(nil); gamepad.deactivate() }
         func press(_ usage: Int) {
