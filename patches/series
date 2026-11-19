@@ -54,9 +54,3 @@
 0056-tools-shader-lib-a-failed-write-removes-its-part.patch
 0057-motion-a-controller-is-a-source-once-its-rotatio.patch
 0058-test-native-controller-motion-primes-the-adapter.patch
-0059-ios-pad-place-and-size-the-touch-controls-by-gro.patch
-0060-ios-pad-adjust-gamepad-layout-an-in-game-editor.patch
-0061-ios-pad-a-self-test-for-the-layout-editor.patch
-0062-ios-pad-on-a-phone-the-layout-editor-s-panel-is.patch
-0063-ios-tests-the-duo-harness-links-again-the-layout.patch
-0064-ios-pad-the-editor-s-two-choices-pick-in-the-card.patch
