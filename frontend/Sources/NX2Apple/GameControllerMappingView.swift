@@ -37,8 +37,7 @@ import NXLauncher
                     { copy(global.environment) }
                 })
             } else {
-                DSSheet(width: 600, subject: .game(GameLibrary.appIcon(for: game, banners: ArtworkStore.shared.directory)),
-                        title: game.displayName(loc.lang), message: loc.t("controls.savingDisabled")) {
+                DSSheet(width: 600, title: game.displayName(loc.lang), message: loc.t("controls.savingDisabled")) {
                     EmptyView()
                 } buttons: {
                     DSSheetPrimaryButton(loc.t("launch.done")) { dismiss() }

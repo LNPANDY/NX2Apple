@@ -696,6 +696,7 @@
   "delete.part.ipa": "IPA",
   "delete.part.log": "게임 로그",
   "delete.part.macApp": "Mac 앱",
+  "delete.part.onDevice": "기기에 있음",
   "delete.part.shellFramework": "iOS 공유 앱 안",
   "delete.part.shellFrameworkNote": "공유 앱의 다음 설치 때 빠집니다. 그때까지는 기기에 남아 있습니다.",
   "delete.question": "“%@”을(를) 삭제할까요?",

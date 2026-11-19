@@ -386,7 +386,7 @@ struct LauncherView: View {
             Button(loc.t("library.ok")) { launchError = nil; library.error = nil }
         } message: { Text(launchError ?? library.error ?? "") }
         .sheet(item: $removing) { game in
-            LauncherConfirmSheet(subject: .game(GameLibrary.appIcon(for: game, banners: library.artworkDirectory)), title: loc.t("library.removeQuestion"), subtitle: game.displayName(loc.lang), note: loc.t("library.removeNote"),
+            LauncherConfirmSheet(title: loc.t("library.removeQuestion"), subtitle: game.displayName(loc.lang), note: loc.t("library.removeNote"),
                 cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("library.remove"), destructive: true, scope: "remove",
                 cancel: { removing = nil }, confirm: { library.remove(game.id); removing = nil }).environmentObject(padFocus)
         }
@@ -441,7 +441,7 @@ struct LauncherView: View {
         .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates, build: m).environmentObject(padFocus) }
         .onChange(of: updates.showUpdateSheet) { _ in padFocus.scope = currentPadScope }
         .sheet(isPresented: Binding(get: { updates.uninstallPlan != nil }, set: { if !$0 { updates.uninstallPlan = nil } })) {
-            LauncherConfirmSheet(subject: .app, title: loc.t("uninstall.title"), subtitle: "", note: loc.t("uninstall.confirm"),
+            LauncherConfirmSheet(title: loc.t("uninstall.title"), subtitle: "", note: loc.t("uninstall.confirm"),
                 cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("uninstall.confirmButton"), destructive: true, scope: "uninstall",
                 cancel: { updates.uninstallPlan = nil }, confirm: { updates.confirmUninstall() }).environmentObject(padFocus)
         }

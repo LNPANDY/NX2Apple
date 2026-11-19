@@ -4,7 +4,7 @@ import NXCore
 import NXModel
 import NXLauncher
 
-/// The question before a game is deleted (#559): the same words as the iPhone and iPad app, the game's icon over the question,
+/// The question before a game is deleted (#559): the same words as the iPhone and iPad app,
 /// the list of what goes to the Trash with its size, the saves as a separate switch that starts off, and Cancel as the default
 /// button: Return and Escape both cancel (DSSheetKeys), only a click or the controller deletes.
 struct DeleteGameSheet: View {
@@ -38,7 +38,7 @@ struct DeleteGameSheet: View {
     private var trashes: Bool { plan.map { !$0.items.isEmpty || $0.saves != nil } ?? true }
 
     var body: some View {
-        DSSheet(subject: .game(icon), title: String(format: loc.t("delete.question"), game.displayName(loc.lang)),
+        DSSheet(title: String(format: loc.t("delete.question"), game.displayName(loc.lang)),
                 message: trashes ? loc.t("delete.note") : "") {
             if let plan {
                 DSSection("") {
@@ -93,6 +93,9 @@ struct DeleteGameSheet: View {
     private func row(_ item: GameDeletion.Item) -> some View {
         DSRow(title(item.kind), detail: detail(item), help: item.paths.first ?? "") {
             if item.bytes > 0 { sizeText(item.bytes) }
+            else if item.kind == .shellFramework {   // nothing here to measure: the size column says where it is (#1458)
+                Text(loc.t("delete.part.onDevice")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize()
+            }
         }
     }
 

@@ -201,7 +201,7 @@ struct SaveImportSheet: View {
     @EnvironmentObject var loc: Localizer
 
     var body: some View {
-        LauncherConfirmSheet(subject: .game(icon), title: loc.t("savesloc.importTitle"), subtitle: gameName, note: loc.t("savesloc.importNote"),
+        LauncherConfirmSheet(title: loc.t("savesloc.importTitle"), subtitle: gameName, note: loc.t("savesloc.importNote"),
                              cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("savesloc.importButton"), destructive: true,
                              scope: "saveimport", cancel: cancel, confirm: confirm) {
             DSSection("") {

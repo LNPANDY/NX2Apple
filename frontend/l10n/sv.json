@@ -696,6 +696,7 @@
   "delete.part.ipa": "IPA",
   "delete.part.log": "Spellogg",
   "delete.part.macApp": "Mac-app",
+  "delete.part.onDevice": "På enheten",
   "delete.part.shellFramework": "I den delade appen för iOS",
   "delete.part.shellFrameworkNote": "Lämnar den delade appen vid nästa installation. Fram till dess finns det kvar på enheten.",
   "delete.question": "Radera ”%@”?",

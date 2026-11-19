@@ -31,13 +31,17 @@ final class DSRowAlignmentTests: IsolatedDefaultsTestCase {
     }
 
     /// The vertical span of the pixels whose colour `matches` (sRGB components), in points from the top.
-    static func span(in rep: NSBitmapImageRep, where matches: (CGFloat, CGFloat, CGFloat) -> Bool) -> Span? {
+    /// `maxX`: only the pixels left of it (points), the leading slot.
+    static func span(in rep: NSBitmapImageRep, maxX: CGFloat = .infinity, where matches: (CGFloat, CGFloat, CGFloat) -> Bool) -> Span? {
+        guard let pixels = pixels(rep) else { return nil }
         let scale = CGFloat(rep.pixelsHigh) / rep.size.height
+        let columns = maxX.isFinite ? min(pixels.width, Int(maxX * scale)) : pixels.width
         var top: Int?, bottom: Int?
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.9,
-                      matches(c.redComponent, c.greenComponent, c.blueComponent) else { continue }
+        for y in 0..<pixels.height {
+            for x in 0..<columns {
+                let i = (y * pixels.width + x) * 4
+                guard pixels.data[i + 3] > 230,
+                      matches(CGFloat(pixels.data[i]) / 255, CGFloat(pixels.data[i + 1]) / 255, CGFloat(pixels.data[i + 2]) / 255) else { continue }
                 if top == nil { top = y }
                 bottom = y
                 break
@@ -45,6 +49,17 @@ final class DSRowAlignmentTests: IsolatedDefaultsTestCase {
         }
         guard let top, let bottom else { return nil }
         return Span(top: CGFloat(top) / scale, bottom: CGFloat(bottom + 1) / scale)
+    }
+
+    /// The image as 8 bit sRGB RGBA, row by row from the top.
+    static func pixels(_ rep: NSBitmapImageRep) -> (data: [UInt8], width: Int, height: Int)? {
+        let width = rep.pixelsWide, height = rep.pixelsHigh
+        var data = [UInt8](repeating: 0, count: width * height * 4)
+        guard let image = rep.cgImage, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: &data, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return (data, width, height)
     }
     static func isRed(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Bool { r > 0.7 && g < 0.3 && b < 0.3 }
     static func isGreen(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Bool { g > 0.7 && r < 0.4 && b < 0.4 }
@@ -58,7 +73,7 @@ final class DSRowAlignmentTests: IsolatedDefaultsTestCase {
         if let dir = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] {
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("rowalign-\(name).png"))
         }
-        let dot = try XCTUnwrap(Self.span(in: rep, where: Self.isRed), "\(name): no dot", file: file, line: line)
+        let dot = try XCTUnwrap(Self.span(in: rep, maxX: DSRowInset.title - DS.Space.xs, where: Self.isRed), "\(name): no dot", file: file, line: line)
         let control = try XCTUnwrap(Self.span(in: rep, where: Self.isGreen), "\(name): no control", file: file, line: line)
         XCTAssertEqual(dot.centre, control.centre, accuracy: 1, "\(name): the dot's centre \(dot.centre) is not the control's \(control.centre)", file: file, line: line)
     }
@@ -76,6 +91,33 @@ final class DSRowAlignmentTests: IsolatedDefaultsTestCase {
         try assertCentred("message", detail: "Not set", message: .warning("Choose a folder before you build a game."))
         try assertCentred("long message", detail: "Not set",
                           message: .error(String(repeating: "This message wraps onto several lines under the row. ", count: 5)), width: 520)
+    }
+
+    /// A group reserves the leading slot only when one of its rows has a dot: a list without dots starts its titles at the card's
+    /// inset, a list with one keeps every title past the slot.
+    @MainActor func testAGroupReservesTheLeadingSlotOnlyWhenARowUsesIt() throws {
+        func leftmostText(_ rep: NSBitmapImageRep) throws -> CGFloat {
+            let pixels = try XCTUnwrap(Self.pixels(rep))
+            var best = pixels.width
+            for y in 0..<pixels.height {
+                for x in 0..<min(best, pixels.width) {
+                    let i = (y * pixels.width + x) * 4
+                    if pixels.data[i] > 200, pixels.data[i + 1] > 200, pixels.data[i + 2] > 200 { best = x; break }   // the white title
+                }
+            }
+            return CGFloat(best) * rep.size.width / CGFloat(pixels.width)
+        }
+        func group(dot: Color?) -> some View {
+            CardGroup("") {
+                CardRow("Cloud saves") { EmptyView() }
+                CardDivider()
+                CardRow("Default save folder", dot: dot) { EmptyView() }
+            }
+        }
+        let plain = try leftmostText(Self.render(group(dot: nil), width: 520))
+        let dotted = try leftmostText(Self.render(group(dot: Self.red), width: 520))
+        XCTAssertEqual(plain, DS.Space.m, accuracy: 2, "a list without dots starts at the card's inset")
+        XCTAssertEqual(dotted, DSRowInset.title, accuracy: 2, "every title of a list with a dot starts past the slot")
     }
 
     /// A notice's detail wraps (never cut), the notice grows, and its symbol stays centred on the title and detail.

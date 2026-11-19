@@ -695,6 +695,7 @@
   "delete.part.ipa": "IPA",
   "delete.part.log": "Game log",
   "delete.part.macApp": "Mac app",
+  "delete.part.onDevice": "On the device",
   "delete.part.shellFramework": "In the shared app for iOS",
   "delete.part.shellFrameworkNote": "Leaves the shared app at its next install. Until then it stays on the device.",
   "delete.question": "Delete “%@”?",

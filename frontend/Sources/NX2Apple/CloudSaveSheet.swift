@@ -52,8 +52,6 @@ struct CloudSaveSheet: View {
         _picked = State(initialValue: picked)   // visual QA: a row already chosen
     }
 
-    private var subject: DSSheetSubject { .game(gate.titleID.flatMap(icon)) }
-
     var body: some View {
         Group {
             switch gate.step {
@@ -66,7 +64,7 @@ struct CloudSaveSheet: View {
     }
 
     private func fetching(_ name: String, long: Bool) -> some View {
-        DSSheet(subject: subject, title: loc.t("cloudCheck.fetching.title"), message: String(format: loc.t("cloudCheck.fetching.note"), name)) {
+        DSSheet(title: loc.t("cloudCheck.fetching.title"), message: String(format: loc.t("cloudCheck.fetching.note"), name)) {
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.s) {
                 ProgressView().controlSize(.small)
                 Text(long ? loc.t("cloudCheck.fetching.long") : loc.t("cloudCheck.fetching.wait")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
@@ -83,7 +81,7 @@ struct CloudSaveSheet: View {
 
     @ViewBuilder private func asking(_ q: CloudSaveQuestion) -> some View {
         if q.outcome == .unreadable {
-            DSSheet(subject: subject, title: loc.t("cloudCheck.unreadable.title"), message: String(format: loc.t("cloudCheck.unreadable.note"), q.gameName)) {
+            DSSheet(title: loc.t("cloudCheck.unreadable.title"), message: String(format: loc.t("cloudCheck.unreadable.note"), q.gameName)) {
                 if let reason = q.reason { DSInlineWarning(reason) }
                 Text(loc.t("cloudCheck.playLocal.detail")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             } buttons: {
@@ -95,7 +93,7 @@ struct CloudSaveSheet: View {
                     .padTarget("cloudsave.retry", scope: "cloudsave", focusColor: DS.Color.accentOn) { gate.retry() }
             }
         } else {
-            DSSheet(subject: subject, title: loc.t("cloudCheck.choose.title"), message: q.gameName) {
+            DSSheet(title: loc.t("cloudCheck.choose.title"), message: q.gameName) {
                 DSSection("") {
                     option("cloudCheck.row.cloud", detail: CloudSaveText.cloudDetail(q, loc.t, lang: loc.lang.code), symbol: "icloud", id: "cloudsave.cloud", value: .cloud)
                     DSRowDivider()

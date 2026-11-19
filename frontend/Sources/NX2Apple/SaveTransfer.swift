@@ -394,8 +394,7 @@ struct SavesView: View {
     private var transfer: SaveTransfer { model.found ?? model.template }
 
     var body: some View {
-        DSScrollingSheet(width: 600, height: 560, subject: .game(game.flatMap { GameLibrary.appIcon(for: $0, banners: library.artworkDirectory) }),
-                         title: loc.t("saves.title"), message: game?.displayName(loc.lang) ?? "") {
+        DSScrollingSheet(width: 600, height: 560, title: loc.t("saves.title"), message: game?.displayName(loc.lang) ?? "") {
             if model.showsSelector {
                 HStack(spacing: DS.Space.s) {
                     Text(loc.t("saves.device")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)

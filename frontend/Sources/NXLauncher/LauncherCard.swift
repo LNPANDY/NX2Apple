@@ -55,9 +55,26 @@ extension EnvironmentValues {
     }
 }
 
-/// A titled group: a label over one card of rows.
+/// Whether a row of the group uses the leading slot (a status dot): a group reserves the slot for all its rows only then.
+package struct DSRowLeadingSlotKey: PreferenceKey {
+    package static let defaultValue = false
+    package static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
+private struct DSRowReservesSlotKey: EnvironmentKey { static let defaultValue = true }
+extension EnvironmentValues {
+    /// Set by the group (DSSection): whether its rows keep the 20 pt leading slot. A row outside a group keeps it.
+    package var dsRowReservesSlot: Bool {
+        get { self[DSRowReservesSlotKey.self] }
+        set { self[DSRowReservesSlotKey.self] = newValue }
+    }
+}
+
+/// A titled group: a label over one card of rows. The group reserves the rows' leading slot only when one of its rows uses it
+/// (a status dot), so a list without dots starts its text at the card's inset (#1458).
 package struct CardGroup<Content: View>: View {
     @Environment(\.launcherSectionTitleFont) private var titleFont
+    @State private var reservesSlot = false
     let label: String
     let insetTitle: Bool
     let qualifier: String
@@ -84,6 +101,9 @@ package struct CardGroup<Content: View>: View {
                 if insetTitle && !label.isEmpty { heading.padding(.horizontal, DS.Space.m).padding(.top, DS.Space.m) }
                 content
             }
+                .environment(\.dsRowReservesSlot, reservesSlot)
+                .onPreferenceChange(DSRowLeadingSlotKey.self) { reservesSlot = $0 }
+                .transformPreference(DSRowLeadingSlotKey.self) { $0 = false }   // the group's own, not the one around it
                 .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                 .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(LauncherPalette.cardBorder))
             if !footnote.isEmpty {
@@ -107,7 +127,8 @@ package struct CardGroup<Content: View>: View {
 
 }
 
-/// One line of a card (`DSRow`): a leading slot for the status dot that every row reserves, so every title starts at one x, the
+/// One line of a card (`DSRow`): a leading slot for the status dot that every row of its group reserves when one of them has a dot,
+/// so every title of the group starts at one x, the
 /// title (with a disclosure chevron beside it when `open` is given), one secondary line, and the trailing control column, whose
 /// buttons and dropdowns share one width (`DS.Control.columnWidth`).
 package struct CardRow<Trailing: View>: View {
@@ -121,6 +142,7 @@ package struct CardRow<Trailing: View>: View {
     let info: (id: String, text: String)?
     let message: DSRowMessage?
     @Environment(\.launcherSettingsLayout) private var settingsLayout
+    @Environment(\.dsRowReservesSlot) private var reservesSlot
 
     /// `message` is the row's own warning, error or note, under its title and subtitle (DSRowMessage). The layout rules:
     /// the status dot is centred in the 20 pt leading slot, and it and the trailing control are both centred on the text block (title
@@ -142,19 +164,23 @@ package struct CardRow<Trailing: View>: View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(spacing: DS.Space.s) {
                 HStack(alignment: .center, spacing: DS.Space.s) {   // the dot centred on the title and subtitle, as the control
-                    Circle().fill(dot ?? .clear).frame(width: 7, height: 7).frame(width: DS.Control.leadingSlot)
+                    if slot { Circle().fill(dot ?? .clear).frame(width: 7, height: 7).frame(width: DS.Control.leadingSlot) }
                     texts
                 }
                 Spacer(minLength: DS.Space.s)
                 HStack(spacing: DS.Space.xs) { trailing }.launcherRowControls()
             }
             if let message {
-                DSRowMessageView(message).padding(.leading, DS.Control.leadingSlot + DS.Space.s)
+                DSRowMessageView(message).padding(.leading, slot ? DS.Control.leadingSlot + DS.Space.s : 0)
             }
         }
-        .padding(.leading, DS.Space.xs).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.s)
+        .padding(.leading, slot ? DS.Space.xs : DS.Space.m).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.s)
         .frame(minHeight: settingsLayout ? 60 : 52)
+        .preference(key: DSRowLeadingSlotKey.self, value: dot != nil)
     }
+
+    /// The slot is drawn when the group reserves it, and always for a row with a dot (before the group has heard of it).
+    private var slot: Bool { reservesSlot || dot != nil }
 
     private var texts: some View {
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
@@ -187,7 +213,11 @@ package struct CardRow<Trailing: View>: View {
 
 package struct CardDivider: View {
     package init() {}
-    package var body: some View { DS.Color.separator.frame(height: 1).padding(.leading, DS.Space.xs + DS.Control.leadingSlot + DS.Space.s) }
+    @Environment(\.dsRowReservesSlot) private var reservesSlot
+    /// Under the rows' titles: past the leading slot when the group reserves it.
+    package var body: some View {
+        DS.Color.separator.frame(height: 1).padding(.leading, reservesSlot ? DSRowInset.title : DS.Space.m)
+    }
 }
 
 /// A row that opens the rows under it.

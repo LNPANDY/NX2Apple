@@ -315,16 +315,16 @@ Screens compose the components in `Sources/NXLauncher/DesignComponents.swift` in
 | The engine on a build page | `EngineFootnote` ("Built with nxnative · Change") |
 | A question or a short task in a sheet | `DSSheet` (`LauncherConfirmSheet` for a confirmation) |
 | A sheet whose list scrolls | `DSScrollingSheet` |
-| What a sheet is about, above its title | `DSSheetSubject` (`.game(icon)`, `.app`) |
 | Cancel and the sheet's action | `DSSheetConfirmButtons`, `DSSheetPrimaryButton` for Done or Save |
 | An action that removes something | `DSDestructiveButtonStyle` |
 | A path in a sheet | `DSPathText` (a row's `detail` does the same) |
 
-Every sheet has one layout: the icon of what it is about at the top leading corner (a game's square icon, the app's icon,
-or none, never a symbol in a circle), the title in `DS.Font.title` and its message under it, the content, then the button
-row with Cancel left of the primary, both on the trailing side. The insets are 32 pt at the sides and 24 pt at the top
-and the bottom, a confirmation is `DS.Control.sheetWidth` wide and as high as its content, and no hairline sits above the
-button row. Escape is Cancel. Return presses the primary action only when it is safe: a destructive action never takes
+Every sheet has one layout: the title in `DS.Font.title` and its message under it (no icon above the title, in a
+confirmation neither: the title and the message name what it is about), the content, then the button row with Cancel left
+of the primary, both on the trailing side. The insets are 32 pt at the sides and 24 pt at the top and the bottom, a
+confirmation is `DS.Control.sheetWidth` wide and as high as its content, and no hairline sits above the button row. A sheet
+is never higher than the screen allows (`dsSheetMaxHeight`): higher content scrolls between the fixed header and button
+row, in `DSSheet` and `DSScrollingSheet` alike. Escape is Cancel. Return presses the primary action only when it is safe: a destructive action never takes
 Return, in its sheet Return is Cancel (`DSSheetKeys`, Apple HIG "Alerts"). The destructive fill is `status.errorFill`,
 deeper than `status.error`, so its white label reads at 4.5:1.
 
@@ -351,7 +351,8 @@ console mode's cards keep their own focus look. The gallery's Design system › 
 
 A row (`DSRow`) keeps one rule set. The leading slot's content (a status dot, a thumbnail, an icon) is centred in the slot and
 vertically on the row's text block (title and subtitle), the same centre as the trailing control, so dot and control sit on one
-line. A row with a message centres both on the title and subtitle, not on the message. Every control in the trailing column is exactly `DS.Control.columnWidth` wide, the
+line. A row with a message centres both on the title and subtitle, not on the message. A group (`DSSection`) reserves the
+leading slot only when one of its rows uses it: a list without dots or icons starts its titles at the card's 16 pt inset. Every control in the trailing column is exactly `DS.Control.columnWidth` wide, the
 primary too, and a toggle sits at the column's trailing edge. A row with a second action keeps one in the column and the
 others in a "…" just before the column, so the column keeps its edges. A row's own warning, error or note is its `message` (`.warning(text)`): the tone's symbol at the
 title's leading edge, 4 pt to the text, both in callout, the text wrapping under itself. Dot and control stay centred on the

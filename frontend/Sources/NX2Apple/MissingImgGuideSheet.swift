@@ -126,7 +126,7 @@ struct MissingImgGuideSheet: View {
     }
 
     private var headerSection: some View {
-        DSSheetHeader(subject: .game(icon), title: loc.t("imgGuide.title"), message: String(format: loc.t("imgGuide.subtitle"), gameDisplayName))
+        DSSheetHeader(title: loc.t("imgGuide.title"), message: String(format: loc.t("imgGuide.subtitle"), gameDisplayName))
     }
 
     /// A line under an option when its step failed: the error symbol and the reason.

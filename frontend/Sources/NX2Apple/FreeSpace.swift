@@ -263,8 +263,7 @@ struct FreeSpaceView: View {
     private var chain: String? { BuildFolder.currentChain(repo: m.repo.path) }
 
     var body: some View {
-        DSScrollingSheet(width: 560, height: 690, subject: .game(icon),
-                         title: loc.t("free.title"), message: game.displayName(loc.lang)) {
+        DSScrollingSheet(width: 560, height: 690, title: loc.t("free.title"), message: game.displayName(loc.lang)) {
             Text(loc.t("free.note")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             if let survey {
                 if survey.parts.isEmpty {
@@ -304,8 +303,7 @@ struct FreeSpaceView: View {
         .padScope("free", focus)
         .onAppear { if survey == nil && measures { measure() } }
         .sheet(isPresented: $confirming) {
-            LauncherConfirmSheet(subject: .game(icon),
-                title: String(format: loc.t("free.confirm"), Self.bytes(chosenBytes)), subtitle: game.displayName(loc.lang),
+            LauncherConfirmSheet(title: String(format: loc.t("free.confirm"), Self.bytes(chosenBytes)), subtitle: game.displayName(loc.lang),
                 note: ([loc.t("free.confirmNote")] + BuildFolderPart.allCases.filter { chosen.contains($0) && !($0 == .oldShaders && chosen.contains(.shaders)) }.map { loc.t("free.cost." + $0.rawValue) }).joined(separator: "\n"),
                 cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("free.confirmButton"), destructive: true, scope: "freeconfirm",
                 cancel: { confirming = false }, confirm: { confirming = false; removeChosen() })

@@ -64,21 +64,18 @@ package struct BuildFilesCard: View {
 /// focus) and Remove in red.
 package struct BuildFilesRemoveSheet: View {
     let entry: BuildFilesStore.Entry
-    /// The game's icon over the title.
-    let subject: DSSheetSubject?
     let cancel: () -> Void
     let confirm: () -> Void
     @EnvironmentObject var loc: Localizer
 
-    package init(entry: BuildFilesStore.Entry, subject: DSSheetSubject? = nil, cancel: @escaping () -> Void, confirm: @escaping () -> Void) {
-        self.subject = subject
+    package init(entry: BuildFilesStore.Entry, cancel: @escaping () -> Void, confirm: @escaping () -> Void) {
         self.entry = entry
         self.cancel = cancel
         self.confirm = confirm
     }
 
     package var body: some View {
-        LauncherConfirmSheet(subject: subject, title: loc.t("buildfiles.title"), subtitle: entry.name, note: loc.t("buildfiles.note"),
+        LauncherConfirmSheet(title: loc.t("buildfiles.title"), subtitle: entry.name, note: loc.t("buildfiles.note"),
                              cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("buildfiles.remove"), destructive: true,
                              scope: "buildfiles", cancel: cancel, confirm: confirm) {
             DSSection("") {

@@ -696,6 +696,7 @@
   "delete.part.ipa": "IPA",
   "delete.part.log": "Registro do jogo",
   "delete.part.macApp": "App para Mac",
+  "delete.part.onDevice": "No dispositivo",
   "delete.part.shellFramework": "No app compartilhado para iOS",
   "delete.part.shellFrameworkNote": "Sai do app compartilhado na próxima instalação. Até lá, continua no dispositivo.",
   "delete.question": "Excluir “%@”?",

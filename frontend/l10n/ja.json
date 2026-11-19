@@ -695,6 +695,7 @@
   "delete.part.ipa": "IPA",
   "delete.part.log": "ゲームログ",
   "delete.part.macApp": "Mac アプリ",
+  "delete.part.onDevice": "デバイス上",
   "delete.part.shellFramework": "iOS の共有アプリ内",
   "delete.part.shellFrameworkNote": "次に共有アプリをインストールしたときに削除されます。それまではデバイスに残ります。",
   "delete.question": "“%@” を削除しますか？",

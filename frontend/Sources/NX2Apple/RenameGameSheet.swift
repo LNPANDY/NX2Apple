@@ -26,7 +26,7 @@ struct RenameGameSheet: View {
     }
 
     var body: some View {
-        DSSheet(subject: .game(icon), title: loc.t("rename.title"), message: loc.t("rename.note")) {
+        DSSheet(title: loc.t("rename.title"), message: loc.t("rename.note")) {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 TextField(game.ownName(loc.lang), text: $text)
                     .textFieldStyle(.plain).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)

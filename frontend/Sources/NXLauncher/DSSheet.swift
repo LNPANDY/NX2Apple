@@ -1,68 +1,42 @@
 import SwiftUI
 import AppKit
 
-// The launcher's sheets (the questions, the short tasks, the editors) on one layout: what the sheet is about as an icon at the top
-// leading corner, the title and the message under it, the content, then the button row. Flat like every other content surface,
+// The launcher's sheets (the questions, the short tasks, the editors) on one layout: the title and the message under it (no icon,
+// #1458), the content, then the button row. Flat like every other content surface,
 // 32 pt at the sides and 24 pt at the top and the bottom, as high as its content. No hairline above the button row in any sheet.
 // frontend/README.md, "Design tokens and components", has the table.
 
-/// What a sheet is about, drawn above its title as a macOS alert shows the icon of the app or document it asks about. A sheet about
-/// nothing that has an icon has no subject: no symbol stands in for one.
-package enum DSSheetSubject {
-    /// A game's square icon. nil while it has none: a quiet tile with a controller, the size of the icon.
-    case game(NSImage?)
-    /// The launcher itself: an app update, the app's uninstall.
-    case app
-}
-
-/// The subject's icon: `DS.Control.sheetIcon` square with the card radius and a hairline, the app's own icon unclipped.
-package struct DSSheetIcon: View {
-    package init(_ subject: DSSheetSubject) { self.subject = subject }
-    let subject: DSSheetSubject
-    package var body: some View {
-        Group {
-            switch subject {
-            case .game(let image?):
-                Image(nsImage: image).resizable().interpolation(.high).scaledToFill()
-                    .frame(width: DS.Control.sheetIcon, height: DS.Control.sheetIcon)
-                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card))
-                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(DS.Color.separator))
-            case .game(nil):
-                Image(systemName: "gamecontroller.fill").font(.system(size: 22)).foregroundStyle(DS.Color.symbolDefault)
-                    .frame(width: DS.Control.sheetIcon, height: DS.Control.sheetIcon)
-                    .background(DS.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(DS.Color.separator))
-            case .app:
-                Image(nsImage: NSApplication.shared.applicationIconImage).resizable().interpolation(.high)
-                    .frame(width: DS.Control.sheetIcon, height: DS.Control.sheetIcon)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-}
-
-/// A sheet's header: the subject's icon, then the title (DS.Font.title) and its message in secondary text, all leading-aligned with
-/// the content under them.
+/// A sheet's header: the title (DS.Font.title) and its message in secondary text, leading-aligned with the content under them. No
+/// sheet has an icon above its title, a confirmation neither (#1458): the title and the message name what it is about.
 package struct DSSheetHeader: View {
-    package init(subject: DSSheetSubject? = nil, title: String, message: String = "") {
-        self.subject = subject; self.title = title; self.message = message
+    package init(title: String, message: String = "") {
+        self.title = title; self.message = message
     }
-    let subject: DSSheetSubject?
     let title: String
     let message: String
     package var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.m) {
-            if let subject { DSSheetIcon(subject) }
-            VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                Text(title).font(DS.Font.title).tracking(DS.Font.titleTracking).foregroundStyle(DS.Color.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                if !message.isEmpty {
-                    Text(message).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
-                }
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Text(title).font(DS.Font.title).tracking(DS.Font.titleTracking).foregroundStyle(DS.Color.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+            if !message.isEmpty {
+                Text(message).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct DSSheetMaxHeightKey: EnvironmentKey {
+    static var defaultValue: CGFloat { LauncherSheet.maxHeight(screen: NSScreen.main?.visibleFrame.height ?? 800) }
+}
+
+extension EnvironmentValues {
+    /// The most a sheet may be high: the screen's visible height less a margin (720 at most). A sheet whose content is higher keeps
+    /// its header and button row and scrolls the content between them. The state gallery sets it from its window size.
+    package var dsSheetMaxHeight: CGFloat {
+        get { self[DSSheetMaxHeightKey.self] }
+        set { self[DSSheetMaxHeightKey.self] = newValue }
     }
 }
 
@@ -96,39 +70,58 @@ package extension DSSheetButtonRow where Leading == EmptyView {
 }
 
 /// A whole sheet of the launcher: the header, the content and the button row inside the shared insets, `DS.Control.sheetWidth`
-/// wide (or the width a larger sheet needs) and as high as its content.
+/// wide (or the width a larger sheet needs) and as high as its content, at most `dsSheetMaxHeight`: higher content scrolls
+/// between the fixed header and button row, so neither is ever cut (#1458).
 package struct DSSheet<Content: View, Leading: View, Buttons: View>: View {
-    package init(width: CGFloat = DS.Control.sheetWidth, subject: DSSheetSubject? = nil, title: String, message: String = "",
+    package init(width: CGFloat = DS.Control.sheetWidth, title: String, message: String = "",
                  @ViewBuilder content: () -> Content, @ViewBuilder leading: () -> Leading, @ViewBuilder buttons: () -> Buttons) {
-        self.width = width; self.subject = subject; self.title = title; self.message = message
+        self.width = width; self.title = title; self.message = message
         self.content = content(); self.leading = leading(); self.buttons = buttons()
     }
     let width: CGFloat
-    let subject: DSSheetSubject?
     let title: String
     let message: String
     let content: Content
     let leading: Leading
     let buttons: Buttons
+    @Environment(\.dsSheetMaxHeight) private var maxHeight
+    @State private var contentHeight: CGFloat = 0
+    @State private var headerHeight: CGFloat = 0   // with its insets
+    @State private var footerHeight: CGFloat = 0   // the button row with its insets
+
+    /// The height the content gets: all of it while the sheet fits, else what is left beside the header and the buttons.
+    static func contentFrame(content: CGFloat, chrome: CGFloat, maxHeight: CGFloat) -> CGFloat? {
+        guard content > 0 else { return nil }
+        return min(content, max(120, maxHeight - chrome))   // a sliver of content at the least
+    }
 
     package var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DSSheetHeader(subject: subject, title: title, message: message)
-            VStack(alignment: .leading, spacing: DSSheetInsets.gap) { content }
-                .padding(.top, DSSheetInsets.gap)
-            DSSheetButtonRow(leading: { leading }, buttons: { buttons }).padding(.top, DSSheetInsets.buttons)
+            DSSheetHeader(title: title, message: message)
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: DSSheetInsets.gap) { content }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.gap)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+            }
+            .frame(height: Self.contentFrame(content: contentHeight, chrome: headerHeight + footerHeight, maxHeight: maxHeight))
+            DSSheetButtonRow(leading: { leading }, buttons: { buttons })
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.buttons).padding(.bottom, DSSheetInsets.vertical)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }
         }
-        .padding(.horizontal, DSSheetInsets.horizontal).padding(.vertical, DSSheetInsets.vertical)
         .frame(width: width, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .dsSheetSurface()
     }
+
 }
 
 package extension DSSheet where Leading == EmptyView {
-    init(width: CGFloat = DS.Control.sheetWidth, subject: DSSheetSubject? = nil, title: String, message: String = "",
+    init(width: CGFloat = DS.Control.sheetWidth, title: String, message: String = "",
          @ViewBuilder content: () -> Content, @ViewBuilder buttons: () -> Buttons) {
-        self.init(width: width, subject: subject, title: title, message: message, content: content, leading: { EmptyView() }, buttons: buttons)
+        self.init(width: width, title: title, message: message, content: content, leading: { EmptyView() }, buttons: buttons)
     }
 }
 
@@ -136,16 +129,15 @@ package extension DSSheet where Leading == EmptyView {
 /// button row as DSSheet, the header and the buttons fixed and the content between them scrolling. It has the size it is given.
 package struct DSScrollingSheet<Content: View, Leading: View, Buttons: View>: View {
     /// `scrollTarget`: the id (`.id`) the list scrolls to when it changes, the controller's focus.
-    package init(width: CGFloat, height: CGFloat? = nil, subject: DSSheetSubject? = nil, title: String, message: String = "",
+    package init(width: CGFloat, height: CGFloat? = nil, title: String, message: String = "",
                  scrollTarget: String? = nil,
                  @ViewBuilder content: () -> Content, @ViewBuilder leading: () -> Leading, @ViewBuilder buttons: () -> Buttons) {
-        self.width = width; self.height = height; self.subject = subject; self.title = title; self.message = message
+        self.width = width; self.height = height; self.title = title; self.message = message
         self.scrollTarget = scrollTarget
         self.content = content(); self.leading = leading(); self.buttons = buttons()
     }
     let width: CGFloat
     let height: CGFloat?
-    let subject: DSSheetSubject?
     let title: String
     let message: String
     let scrollTarget: String?
@@ -153,10 +145,11 @@ package struct DSScrollingSheet<Content: View, Leading: View, Buttons: View>: Vi
     let leading: Leading
     let buttons: Buttons
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dsSheetMaxHeight) private var maxHeight
 
     package var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DSSheetHeader(subject: subject, title: title, message: message)
+            DSSheetHeader(title: title, message: message)
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
             ScrollViewReader { proxy in
                 ScrollView {
@@ -171,7 +164,7 @@ package struct DSScrollingSheet<Content: View, Leading: View, Buttons: View>: Vi
             DSSheetButtonRow(leading: { leading }, buttons: { buttons })
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.gap).padding(.bottom, DSSheetInsets.vertical)
         }
-        .frame(width: width, height: height)
+        .frame(width: width, height: height.map { min($0, maxHeight) })   // never higher than the screen (#1458)
         .dsSheetSurface()
     }
 }

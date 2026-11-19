@@ -43,8 +43,7 @@ struct CheatsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DSSheetHeader(subject: .game(game.flatMap { GameLibrary.appIcon(for: $0, banners: library.artworkDirectory) }),
-                          title: loc.t("cheats.title"), message: game?.displayName(loc.lang) ?? "")
+            DSSheetHeader(title: loc.t("cheats.title"), message: game?.displayName(loc.lang) ?? "")
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
             VStack(alignment: .leading, spacing: DSSheetInsets.gap) {
                 buildCard

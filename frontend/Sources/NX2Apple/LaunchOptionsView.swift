@@ -60,8 +60,7 @@ struct LaunchOptionsView: View {
         let shown = destination.categories.contains(category) ? category : (destination.categories.first ?? .game)
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .bottom) {
-                DSSheetHeader(subject: .game(game.flatMap { GameLibrary.appIcon(for: $0, banners: library.artworkDirectory) }),
-                              title: loc.t("launch.title"), message: game?.displayName(loc.lang) ?? "")
+                DSSheetHeader(title: loc.t("launch.title"), message: game?.displayName(loc.lang) ?? "")
                 Spacer()
                 // One action at the top while a setting differs from its tested value: it asks first and names how many change (#453)
                 if destination == .mac, let game, let settings, !Self.changed(settings, value: { value($0, game) }).isEmpty {
@@ -94,7 +93,7 @@ struct LaunchOptionsView: View {
         .sheet(isPresented: $askingTested) {
             if let game, let settings {
                 let count = Self.changed(settings, value: { value($0, game) }).count
-                LauncherConfirmSheet(subject: .game(GameLibrary.appIcon(for: game, banners: library.artworkDirectory)), title: loc.t("launch.useTested"), subtitle: game.displayName(loc.lang),
+                LauncherConfirmSheet(title: loc.t("launch.useTested"), subtitle: game.displayName(loc.lang),
                                      note: count == 1 ? loc.t("launch.useTestedOne") : String(format: loc.t("launch.useTestedMany"), count),
                                      cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("launch.useTested"), scope: "tested",
                                      cancel: { askingTested = false }, confirm: { askingTested = false; reset(settings) })

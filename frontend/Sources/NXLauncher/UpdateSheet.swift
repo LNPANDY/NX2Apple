@@ -36,7 +36,7 @@ package struct UpdateSheet: View {
 
     package var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DSSheetHeader(subject: .app, title: loc.t("update.title"), message: String(format: loc.t("update.fromTo"), updates.version, update?.tag ?? ""))
+            DSSheetHeader(title: loc.t("update.title"), message: String(format: loc.t("update.fromTo"), updates.version, update?.tag ?? ""))
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
 
             ScrollView {

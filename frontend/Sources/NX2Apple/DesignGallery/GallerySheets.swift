@@ -121,9 +121,9 @@ extension GalleryFixtures {
         let name = game.displayName(lang)
         let icon = GameLibrary.appIcon(for: game, banners: library.artworkDirectory)
         let t = stores.localizer.t
-        func confirm(subject: DSSheetSubject? = nil, _ title: String, subtitle: String = "", note: String = "", cancel: String = "saves.cancel",
+        func confirm(_ title: String, subtitle: String = "", note: String = "", cancel: String = "saves.cancel",
                      _ action: String, destructive: Bool = true) -> AnyView {
-            AnyView(LauncherConfirmSheet(subject: subject, title: title, subtitle: subtitle, note: note, cancelTitle: t(cancel), confirmTitle: action,
+            AnyView(LauncherConfirmSheet(title: title, subtitle: subtitle, note: note, cancelTitle: t(cancel), confirmTitle: action,
                                          destructive: destructive, scope: "gallery", cancel: {}, confirm: {}))
         }
         let now = Date(timeIntervalSince1970: 1_790_000_000)
@@ -140,7 +140,7 @@ extension GalleryFixtures {
         case .deleteGameMeasuring:
             return AnyView(DeleteGameSheet(game: game, shellRoot: "", icon: icon, measures: false))
         case .removeGame:
-            return confirm(subject: .game(icon), t("library.removeQuestion"), subtitle: name, note: t("library.removeNote"), t("library.remove"))
+            return confirm(t("library.removeQuestion"), subtitle: name, note: t("library.removeNote"), t("library.remove"))
         case .controllersSheet:
             return AnyView(ConsoleControllersSheet(driver: MockConsoleDriver(scenario: .controllers, lang: lang, animated: false), lang: lang, close: {}))
         case .controlsSheet:
@@ -158,13 +158,13 @@ extension GalleryFixtures {
         case .freeSpaceMeasuring:
             return AnyView(FreeSpaceView(m: stores.build, game: game, icon: icon, survey: nil, measures: false))
         case .freeSpaceConfirm:
-            return confirm(subject: .game(icon), String(format: t("free.confirm"), FreeSpaceView.bytes(14_200_000_000)), subtitle: name,
+            return confirm(String(format: t("free.confirm"), FreeSpaceView.bytes(14_200_000_000)), subtitle: name,
                            note: [t("free.confirmNote"), t("free.cost.extracted"), t("free.cost.oldShaders")].joined(separator: "\n"), t("free.confirmButton"))
         case .buildFilesRemove:
             return AnyView(BuildFilesRemoveSheet(entry: BuildFilesStore.Entry(id: game.id, name: name, folder: "/Volumes/Games/\(game.name)/\(game.titleID)_build",
-                                                                              bytes: 18_900_000_000), subject: .game(icon), cancel: {}, confirm: {}))
+                                                                              bytes: 18_900_000_000), cancel: {}, confirm: {}))
         case .confirmUninstall:
-            return confirm(subject: .app, t("uninstall.title"), note: t("uninstall.confirm"), t("uninstall.confirmButton"))
+            return confirm(t("uninstall.title"), note: t("uninstall.confirm"), t("uninstall.confirmButton"))
         case .confirmEngineChannel:
             return confirm(t("engine.switch.title"), note: t("engine.switch.toExperimental"), cancel: "engine.switch.cancel",
                            String(format: t("engine.switch.go"), t("engine.channel.experimental")), destructive: false)
@@ -177,7 +177,7 @@ extension GalleryFixtures {
         case .confirmCancelQueue:
             return confirm(String(format: t("queue.cancelConfirm"), 3), cancel: "queue.keep", t("queue.cancel"))
         case .confirmCancelDraft:
-            return confirm(subject: .game(icon), t("flow.cancelTitle"), subtitle: name, note: t("flow.cancelNote"), t("flow.cancel"))
+            return confirm(t("flow.cancelTitle"), subtitle: name, note: t("flow.cancelNote"), t("flow.cancel"))
         case .rename, .renameCustom:
             var named = game
             if sheet == .renameCustom { named.customName = "Orchard" }
@@ -237,7 +237,7 @@ extension GalleryFixtures {
         case .cheats:
             return AnyView(CheatsView(m: stores.build, library: library, gameID: game.id))
         case .confirmTestedValues:
-            return confirm(subject: .game(icon), t("launch.useTested"), subtitle: name, note: String(format: t("launch.useTestedMany"), 3), t("launch.useTested"), destructive: false)
+            return confirm(t("launch.useTested"), subtitle: name, note: String(format: t("launch.useTestedMany"), 3), t("launch.useTested"), destructive: false)
         }
     }
 }

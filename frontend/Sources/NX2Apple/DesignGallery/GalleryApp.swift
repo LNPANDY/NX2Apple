@@ -75,7 +75,12 @@ struct GalleryWindow: View {
 
     private var lang: Lang { Lang.find(langCode) ?? .en }
 
-    private func size(of scene: GalleryScene) -> CGSize { scene.resizable ? preset.size : scene.size }
+    /// A sheet keeps its width and is at most as high as a sheet may be in a window of the preset's height (dsSheetMaxHeight).
+    private func size(of scene: GalleryScene) -> CGSize {
+        if scene.isSheet { return CGSize(width: scene.size.width, height: min(scene.size.height, sheetCap)) }
+        return scene.resizable ? preset.size : scene.size
+    }
+    private var sheetCap: CGFloat { LauncherSheet.maxHeight(screen: preset.size.height) }
 
     /// The scale that fits a scene of `size` into `width`: 1 when it fits, never larger.
     static func fit(_ size: CGSize, into width: CGFloat) -> CGFloat {
@@ -145,7 +150,7 @@ struct GalleryWindow: View {
                 Picker("Window size", selection: $preset) {
                     ForEach(SizePreset.allCases) { Text($0.rawValue).tag($0) }
                 }
-                .help("The window size of the scene. A sheet keeps its own size.")
+                .help("The window size of the scene. A sheet keeps its width and fits the height.")
                 Button("Export PNG", action: exportCurrent).disabled(selection == nil)
                 Button("Export all…", action: exportAll)
                 Picker("Covers", selection: $realCovers) {

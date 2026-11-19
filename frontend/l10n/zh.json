@@ -696,6 +696,7 @@
   "delete.part.ipa": "IPA",
   "delete.part.log": "游戏日志",
   "delete.part.macApp": "Mac 应用",
+  "delete.part.onDevice": "在设备上",
   "delete.part.shellFramework": "iOS 共享应用中的游戏",
   "delete.part.shellFrameworkNote": "下次安装共享应用时移除。在那之前它仍在设备上。",
   "delete.question": "删除“%@”？",

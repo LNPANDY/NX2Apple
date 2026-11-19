@@ -133,8 +133,6 @@ package enum DS {
         package static let headerIcon: CGFloat = 64
         /// A game's cover in a row's leading slot, and the slot of every row in that list
         package static let thumbnail: CGFloat = 40
-        /// The icon of what a sheet is about, above its title, as a macOS alert shows it
-        package static let sheetIcon: CGFloat = 56
         /// A question or a short task in a sheet: every confirmation has this width
         package static let sheetWidth: CGFloat = 520
     }

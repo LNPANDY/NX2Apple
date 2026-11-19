@@ -223,6 +223,7 @@ import NXLauncher
         let frame = size ?? scene.size
         let scoped = root.environmentObject(PadFocus()).environmentObject(stores.localizer).launcherDropdownHost()
             .defaultAppStorage(defaults)   // @AppStorage in the views reads and writes the scene's suite, not the app's defaults
+            .environment(\.dsSheetMaxHeight, scene.isSheet ? frame.height : LauncherSheet.maxHeight(screen: frame.height))   // a sheet higher scrolls
         if scene.fitsContent { return AnyView(scoped.fixedSize().background(LauncherPalette.background)) }   // the sheet's own size
         return AnyView(scoped.frame(width: frame.width, height: frame.height).background(LauncherPalette.background))
     }
