@@ -234,7 +234,10 @@ import XCTest
         }
         settle()
         focus.show(default: "card." + games[0].id.uuidString)
-        for _ in 1..<games.count { press(15) }
+        for _ in 1..<games.count {
+            press(15)
+            for _ in 0..<25 where focus.focused.flatMap({ focus.frame(of: $0) }) == nil { settle(0.02) }
+        }
         settle(0.5)
         XCTAssertEqual(library.selectedID, games.last?.id)
         let frame = try XCTUnwrap(focus.frames["main"]?.first { $0.id == "card." + games.last!.id.uuidString }?.frame)

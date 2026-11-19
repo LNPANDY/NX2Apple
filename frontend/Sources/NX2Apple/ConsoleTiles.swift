@@ -68,7 +68,7 @@ struct ConsoleGameTile: View {
         VStack(alignment: .leading, spacing: 12) {
             ZStack {
                 ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus)
-                    .saturation(game.status == .ready && !game.olderTools ? 1 : 0)
+                    .grayscale(game.status == .ready && !game.olderTools ? 0 : 1)
                     .drawingGroup()
                 Color.black.opacity(selected ? 0 : 0.55)
             }

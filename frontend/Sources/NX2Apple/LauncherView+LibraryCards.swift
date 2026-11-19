@@ -35,7 +35,7 @@ extension LauncherView {
               filteredGames.indices.contains(index + delta) else { return false }
         let id = filteredGames[index + delta].id
         keyboardCard = id
-        if padFocus.visible { padFocus.focused = "card." + id.uuidString }
+        if padFocus.visible { padFocus.focusAfterScroll("card." + id.uuidString) }
         return true
     }
     func activateLibraryCard(_ game: LibraryGame) {
