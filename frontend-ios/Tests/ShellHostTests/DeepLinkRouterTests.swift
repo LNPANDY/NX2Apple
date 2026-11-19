@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreVideo
 import Foundation
 import ImageIO
 import ShellUI
@@ -621,14 +622,331 @@ private final class LockedBox<Value>: @unchecked Sendable {
         #expect(yml.contains("UIFileSharingEnabled: true"))
         #expect(yml.contains("LSSupportsOpeningDocumentsInPlace: true"))
         #expect(yml.contains("NSPhotoLibraryAddUsageDescription:"))
+        #expect(yml.contains("UIBackgroundModes:"))
+        #expect(yml.contains("- audio"))
         #expect(yml.contains("CFBundleURLTypes:"))
         #expect(yml.contains("CFBundleURLName: org.nxnative.shell"))
         #expect(yml.contains("CFBundleURLRole: Editor"))
         #expect(yml.contains("CFBundleURLSchemes:"))
         #expect(yml.contains("- nx2apple"))
+        #expect(!yml.contains("app-extension"), "PiP guide must stay zero-extension to preserve free 7-day Bundle ID quota")
+
+        let demoYml = try String(contentsOf: iosRoot.appendingPathComponent("Demo/project.yml"), encoding: .utf8)
+        #expect(demoYml.contains("UIBackgroundModes:"))
+        #expect(demoYml.contains("- audio"))
 
         let intentsSource = try String(contentsOf: iosRoot.appendingPathComponent("Shell/App/ShellShortcuts.swift"), encoding: .utf8)
         #expect(intentsSource.contains("struct LaunchGameIntent: AppIntent"))
         #expect(intentsSource.contains("struct ShellShortcutsProvider: AppShortcutsProvider"))
+    }
+
+    @Test func homeScreenGuideSixStepsAndShortcutsSubsetAreComplete() {
+        let all = HomeScreenGuideSteps.allSteps()
+        #expect(all.count == 6)
+        for step in all {
+            #expect(!step.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            #expect(!step.contains(";") && !step.contains("；"))
+        }
+        let floating = HomeScreenGuideSteps.shortcutsSteps()
+        #expect(floating.count == 5)
+        #expect(floating == Array(all.dropFirst()))
+        let hint = HomeScreenGuideSteps.pipControlsHint()
+        #expect(!hint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        #expect(!hint.contains(";") && !hint.contains("；"))
+    }
+
+    @Test func homeScreenGuideStepperNavigatesAndClampsAtBounds() {
+        let steps = HomeScreenGuideSteps.shortcutsSteps()
+        var stepper = HomeScreenGuideStepper(gameTitle: "Orbit Fixture", steps: steps)
+        #expect(stepper.totalSteps == 5)
+        #expect(stepper.currentStepNumber == 1)
+        #expect(stepper.progressText == "1 / 5")
+        #expect(stepper.canStepBackward == false)
+        #expect(stepper.canStepForward == true)
+        #expect(stepper.stepBackward() == false)
+        #expect(stepper.applySkip(seconds: -15) == false)
+        #expect(stepper.applySkip(seconds: 0) == false)
+
+        for expectedStep in 2...5 {
+            #expect(stepper.applySkip(seconds: 15) == true)
+            #expect(stepper.currentStepNumber == expectedStep)
+            #expect(stepper.progressText == "\(expectedStep) / 5")
+            #expect(stepper.currentStepText == steps[expectedStep - 1])
+        }
+        #expect(stepper.canStepForward == false)
+        #expect(stepper.stepForward() == false)
+        #expect(stepper.applySkip(seconds: 15) == false)
+        #expect(stepper.currentStepNumber == 5)
+
+        #expect(stepper.applySkip(seconds: -15) == true)
+        #expect(stepper.currentStepNumber == 4)
+
+        var empty = HomeScreenGuideStepper(gameTitle: "Empty", steps: [])
+        #expect(empty.totalSteps == 0)
+        #expect(empty.progressText == "0 / 0")
+        #expect(empty.currentStepText.isEmpty)
+        #expect(empty.stepForward() == false)
+        #expect(empty.stepBackward() == false)
+    }
+
+    @Test func homeScreenGuideCardRendererProducesDistinctIOSurfacePixelBuffers() throws {
+        let steps = HomeScreenGuideSteps.shortcutsSteps()
+        let iconPNG = try #require(HomeScreenShortcutSupport.renderSquareIconPNG(title: "Orbit Fixture", seed: Fixtures.orbit, size: 128))
+        var stepper = HomeScreenGuideStepper(gameTitle: "Orbit Fixture", steps: steps)
+        let hint = HomeScreenGuideSteps.pipControlsHint()
+
+        let pb1 = try #require(HomeScreenGuideCardRenderer.renderPixelBuffer(stepper: stepper, iconPNG: iconPNG, hintText: hint))
+        #expect(CVPixelBufferGetWidth(pb1) == 960)
+        #expect(CVPixelBufferGetHeight(pb1) == 540)
+        #expect(CVPixelBufferGetPixelFormatType(pb1) == kCVPixelFormatType_32BGRA)
+        #expect(CVPixelBufferGetIOSurface(pb1) != nil)
+
+        let bytes1 = pixelBufferBytes(pb1)
+        #expect(bytes1.contains(where: { $0 != 0 }))
+
+        #expect(stepper.stepForward() == true)
+        let pb2 = try #require(HomeScreenGuideCardRenderer.renderPixelBuffer(stepper: stepper, iconPNG: nil, hintText: hint))
+        let bytes2 = pixelBufferBytes(pb2)
+        #expect(bytes2.contains(where: { $0 != 0 }))
+        #expect(bytes1 != bytes2, "advancing the step must redraw distinct pixels for PiP")
+
+        let cgImage = try #require(HomeScreenGuideCardRenderer.renderCGImage(stepper: stepper, iconPNG: iconPNG, hintText: hint))
+        #expect(cgImage.width == 960)
+        #expect(cgImage.height == 540)
+    }
+
+    @Test func homeScreenGuidePiPToggleAndLifecycleRespectsUserChoice() async throws {
+        let box = try FrameworkBox()
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Fixture", bundleID: "org.nxnative.orbit", box: box
+        )
+        let harness = DeepLinkHarness()
+        let startedRequests = LockedBox<[HomeScreenGuideRequest]>([])
+        let stopCount = LockedBox<Int>(0)
+        let photoSaveShouldSucceed = LockedBox<Bool>(true)
+        let pipStartShouldSucceed = LockedBox<Bool>(true)
+
+        let cfg = ShellHostConfig(
+            gamesRoot: box.frameworks,
+            appDataRoot: box.documents.appendingPathComponent("games", isDirectory: true),
+            openURL: { harness.openedURLs.append($0) },
+            copyToPasteboard: { harness.copiedStrings.append($0) },
+            saveImageToPhotos: { _ in photoSaveShouldSucceed.withLock { $0 } },
+            startFloatingGuide: { req in
+                startedRequests.withLock { $0.append(req) }
+                return pipStartShouldSucceed.withLock { $0 }
+            },
+            stopFloatingGuide: {
+                stopCount.withLock { $0 += 1 }
+            }
+        )
+        let model = ShellHostModel(config: cfg)
+        let withGuide = try #require(model.actions.onAddToHomeScreenWithGuide)
+
+        // 1) Toggle ON: starts PiP with 5 Shortcuts steps and opens Shortcuts.
+        #expect(await withGuide(Fixtures.orbit, true) == true)
+        let firstBatch = startedRequests.withLock { $0 }
+        #expect(firstBatch.count == 1)
+        #expect(firstBatch[0].gameTitle == "Orbit Fixture")
+        #expect(firstBatch[0].steps.count == 5)
+        #expect(firstBatch[0].iconPNG != nil)
+        #expect(harness.openedURLs == [HomeScreenShortcutSupport.createShortcutURL])
+
+        // 2) PiP unsupported/failed: graceful fallback still opens Shortcuts without error.
+        pipStartShouldSucceed.withLock { $0 = false }
+        #expect(await withGuide(Fixtures.orbit, true) == true)
+        #expect(startedRequests.withLock { $0.count } == 2)
+        #expect(harness.openedURLs.count == 2)
+
+        // 3) Toggle OFF: stops any active PiP instead of starting, still opens Shortcuts.
+        #expect(await withGuide(Fixtures.orbit, false) == true)
+        #expect(startedRequests.withLock { $0.count } == 2)
+        #expect(stopCount.withLock { $0 } == 1)
+        #expect(harness.openedURLs.count == 3)
+
+        // 4) Photo access denied: neither starts PiP nor opens Shortcuts.
+        photoSaveShouldSucceed.withLock { $0 = false }
+        #expect(await withGuide(Fixtures.orbit, true) == false)
+        #expect(startedRequests.withLock { $0.count } == 2)
+        #expect(harness.openedURLs.count == 3)
+
+        // 5) Direct stop lifecycle cleans controller state cleanly.
+        let controller = HomeScreenGuidePiPController()
+        controller.stop()
+        #expect(controller.isActive == false)
+        #expect(controller.activeStepper == nil)
+        model.stopHomeScreenFloatingGuide()
+        #expect(stopCount.withLock { $0 } == 2)
+    }
+
+    @Test func homeScreenGuidePiPStartGenerationAndAudioSessionRestoreGuard() async {
+        // 1) Generation increments on both start() and stop(), invalidating stale async callbacks.
+        let controller = HomeScreenGuidePiPController()
+        let g0 = controller.startGeneration
+        #expect(controller.isCurrentGeneration(g0))
+        controller.stop()
+        let g1 = controller.startGeneration
+        #expect(g1 > g0)
+        #expect(controller.isCurrentGeneration(g0) == false)
+        #expect(controller.isCurrentGeneration(g1))
+
+        let req = HomeScreenGuideRequest(gameTitle: "Orbit", steps: ["Step 1"], hintText: "Hint")
+        _ = await controller.start(req)
+        let g2 = controller.startGeneration
+        #expect(g2 > g1)
+        #expect(controller.isCurrentGeneration(g1) == false)
+        #expect(controller.isCurrentGeneration(g2))
+
+        controller.stop()
+        let g3 = controller.startGeneration
+        #expect(g3 > g2)
+        #expect(controller.isCurrentGeneration(g2) == false)
+
+        // 2) Audio session guard snapshots original (category, mode, options), deactivates before restoring on stop().
+        struct FakeAudioState: Equatable {
+            var category: String
+            var mode: String
+            var options: UInt
+        }
+        var current = FakeAudioState(category: "ambient", mode: "default", options: 0x04)
+        var events: [String] = []
+        var failActivation = false
+
+        let audioGuard = HomeScreenGuideAudioSessionGuard<FakeAudioState>(
+            capture: { current },
+            applyGuideCategory: {
+                events.append("applyGuide")
+                current = FakeAudioState(category: "playback", mode: "moviePlayback", options: 0x01)
+            },
+            restoreCategory: { saved in
+                events.append("restore:\(saved.category)/\(saved.mode)/\(saved.options)")
+                current = saved
+            },
+            setActive: { active, notifyOthers in
+                events.append("setActive:\(active):notify=\(notifyOthers)")
+                if active && failActivation {
+                    throw DeepLinkLaunchError(message: "audio busy")
+                }
+            }
+        )
+
+        #expect(audioGuard.activate() == true)
+        #expect(audioGuard.isActivated == true)
+        #expect(current == FakeAudioState(category: "playback", mode: "moviePlayback", options: 0x01))
+
+        audioGuard.deactivateAndRestore()
+        #expect(audioGuard.isActivated == false)
+        #expect(current == FakeAudioState(category: "ambient", mode: "default", options: 0x04))
+        #expect(events == [
+            "applyGuide",
+            "setActive:true:notify=false",
+            "setActive:false:notify=true",
+            "restore:ambient/default/4",
+        ])
+
+        // Second deactivate is a no-op.
+        audioGuard.deactivateAndRestore()
+        #expect(events.count == 4)
+
+        // 3) If setActive(true) throws, original (category, mode, options) is immediately restored.
+        events.removeAll()
+        current = FakeAudioState(category: "playAndRecord", mode: "gameChat", options: 0x08)
+        failActivation = true
+        #expect(audioGuard.activate() == false)
+        #expect(audioGuard.isActivated == false)
+        #expect(current == FakeAudioState(category: "playAndRecord", mode: "gameChat", options: 0x08))
+        #expect(events == [
+            "applyGuide",
+            "setActive:true:notify=false",
+            "restore:playAndRecord/gameChat/8",
+        ])
+    }
+
+    @Test func homeScreenGuidePrepareAndCancelPreparedLifecycleProtectsStartedSession() async throws {
+        let box = try FrameworkBox()
+        _ = try makePlayableFramework(
+            in: box.frameworks, folder: "DmGame\(Fixtures.orbit).framework", titleID: Fixtures.orbit,
+            title: "Orbit Fixture", bundleID: "org.nxnative.orbit", box: box
+        )
+        let harness = DeepLinkHarness()
+        let preparedRequests = LockedBox<[HomeScreenGuideRequest]>([])
+        let cancelCount = LockedBox<Int>(0)
+        let startedRequests = LockedBox<[HomeScreenGuideRequest]>([])
+
+        let cfg = ShellHostConfig(
+            gamesRoot: box.frameworks,
+            appDataRoot: box.documents.appendingPathComponent("games", isDirectory: true),
+            openURL: { harness.openedURLs.append($0) },
+            copyToPasteboard: { harness.copiedStrings.append($0) },
+            saveImageToPhotos: { _ in true },
+            prepareFloatingGuide: { req in
+                preparedRequests.withLock { $0.append(req) }
+            },
+            cancelPreparedFloatingGuide: {
+                cancelCount.withLock { $0 += 1 }
+            },
+            startFloatingGuide: { req in
+                startedRequests.withLock { $0.append(req) }
+                return true
+            }
+        )
+        let model = ShellHostModel(config: cfg)
+        let onPrepare = try #require(model.actions.onPrepareHomeScreenGuide)
+        let onCancelPrepared = try #require(model.actions.onCancelPreparedHomeScreenGuide)
+        let onAddWithGuide = try #require(model.actions.onAddToHomeScreenWithGuide)
+
+        // 1) Opening the guide sheet triggers prepare, closing without launching triggers cancelPrepared.
+        onPrepare(Fixtures.orbit)
+        let prepared = preparedRequests.withLock { $0 }
+        #expect(prepared.count == 1)
+        #expect(prepared[0].gameTitle == "Orbit Fixture")
+        #expect(prepared[0].steps.count == 5)
+        #expect(prepared[0].iconPNG != nil)
+
+        onCancelPrepared()
+        #expect(cancelCount.withLock { $0 } == 1)
+
+        // 2) Controller pre-warm state: cancelPrepared cleans up before start, but is a no-op once start() was requested.
+        let controller = HomeScreenGuidePiPController()
+        let req = HomeScreenGuideRequest(gameTitle: "Orbit Fixture", steps: HomeScreenGuideSteps.shortcutsSteps(), hintText: "Hint")
+        controller.prepare(req)
+        #expect(controller.isPrepared == true)
+        #expect(controller.hasRequestedStart == false)
+        #expect(controller.activeStepper?.gameTitle == "Orbit Fixture")
+
+        // Repeated prepare while already prepared refreshes in place without bumping generation.
+        let genAfterPrepare = controller.startGeneration
+        controller.prepare(req)
+        #expect(controller.startGeneration == genAfterPrepare)
+
+        // Closing before start tears down the prepared session.
+        controller.cancelPrepared()
+        #expect(controller.isPrepared == false)
+        #expect(controller.hasRequestedStart == false)
+        #expect(controller.activeStepper == nil)
+
+        // Once saveIconAndOpenShortcuts starts the session, cancelPrepared must not interrupt it.
+        controller.prepare(req)
+        _ = await controller.start(req)
+        #expect(controller.hasRequestedStart == true)
+        let genAfterStart = controller.startGeneration
+        controller.cancelPrepared()
+        #expect(controller.startGeneration == genAfterStart)
+        #expect(controller.hasRequestedStart == true)
+        #expect(controller.activeStepper?.gameTitle == "Orbit Fixture")
+
+        // Model-level flow: prepare -> saveIconAndOpenShortcuts opens Shortcuts after starting PiP.
+        onPrepare(Fixtures.orbit)
+        #expect(await onAddWithGuide(Fixtures.orbit, true) == true)
+        #expect(startedRequests.withLock { $0.count } == 1)
+        #expect(harness.openedURLs == [HomeScreenShortcutSupport.createShortcutURL])
+    }
+
+    private func pixelBufferBytes(_ buffer: CVPixelBuffer) -> Data {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return Data() }
+        return Data(bytes: base, count: CVPixelBufferGetBytesPerRow(buffer) * CVPixelBufferGetHeight(buffer))
     }
 }

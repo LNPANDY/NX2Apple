@@ -45,6 +45,8 @@ targets:
         UIFileSharingEnabled: true          # Documents (log.txt, shell-log.txt, games/<id>/) visible in the Files app
         LSSupportsOpeningDocumentsInPlace: true
         NSPhotoLibraryAddUsageDescription: "Saves square game icons to Photos so you can use them on the Home Screen."
+        UIBackgroundModes:
+          - audio
         CFBundleURLTypes:
           - CFBundleURLName: org.nxnative.shell
             CFBundleURLRole: Editor

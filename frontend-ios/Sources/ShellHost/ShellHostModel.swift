@@ -24,6 +24,10 @@ public struct ShellHostConfig: Sendable {
     public var openURL: @MainActor @Sendable (URL) -> Void
     public var copyToPasteboard: @MainActor @Sendable (String) -> Void
     public var saveImageToPhotos: @MainActor @Sendable (Data) async -> Bool
+    public var prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)?
+    public var cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)?
+    public var startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)?
+    public var stopFloatingGuide: (@MainActor @Sendable () -> Void)?
     public var activeRunningGameID: @MainActor @Sendable () -> String?
     public var requestStopRunningGame: @MainActor @Sendable () -> Void
     /// The clock, for the last-played date and its wording.
@@ -40,6 +44,10 @@ public struct ShellHostConfig: Sendable {
                 openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen,
                 copyToPasteboard: @escaping @MainActor @Sendable (String) -> Void = ShellHostConfig.systemCopyToPasteboard,
                 saveImageToPhotos: @escaping @MainActor @Sendable (Data) async -> Bool = ShellHostConfig.systemSaveImageToPhotos,
+                prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)? = nil,
+                cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)? = nil,
+                startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)? = nil,
+                stopFloatingGuide: (@MainActor @Sendable () -> Void)? = nil,
                 activeRunningGameID: @escaping @MainActor @Sendable () -> String? = { nil },
                 requestStopRunningGame: @escaping @MainActor @Sendable () -> Void = {},
                 now: @escaping @Sendable () -> Date = { Date() },
@@ -54,6 +62,10 @@ public struct ShellHostConfig: Sendable {
         self.openURL = openURL
         self.copyToPasteboard = copyToPasteboard
         self.saveImageToPhotos = saveImageToPhotos
+        self.prepareFloatingGuide = prepareFloatingGuide
+        self.cancelPreparedFloatingGuide = cancelPreparedFloatingGuide
+        self.startFloatingGuide = startFloatingGuide
+        self.stopFloatingGuide = stopFloatingGuide
         self.activeRunningGameID = activeRunningGameID
         self.requestStopRunningGame = requestStopRunningGame
         self.now = now
@@ -131,6 +143,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private let launcher: any GameLauncher
     @ObservationIgnored private let picker: any FolderPicker
     @ObservationIgnored private let adapter = GamepadAdapter()
+    @ObservationIgnored private let homeScreenGuidePiP = HomeScreenGuidePiPController()
     @ObservationIgnored private var dataStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var cloudStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var artwork: [URL: Artwork] = [:]
@@ -222,7 +235,9 @@ public struct ShellHostConfig: Sendable {
         #if canImport(UIKit)
         foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, !self.launchingGame, !self.isDeepLinkLaunching else { return }
+                guard let self else { return }
+                self.stopHomeScreenFloatingGuide()
+                guard !self.launchingGame, !self.isDeepLinkLaunching else { return }
                 self.reload()
             }
         }
@@ -744,7 +759,17 @@ public struct ShellHostConfig: Sendable {
             onCopyShortcutURL: { [weak self] id in self?.copyShortcutURL(for: id) },
             onAddToHomeScreen: { [weak self] id in
                 guard let self else { return false }
-                return await self.saveIconAndOpenShortcuts(for: id)
+                return await self.saveIconAndOpenShortcuts(for: id, showFloatingGuide: true)
+            },
+            onAddToHomeScreenWithGuide: { [weak self] id, showFloatingGuide in
+                guard let self else { return false }
+                return await self.saveIconAndOpenShortcuts(for: id, showFloatingGuide: showFloatingGuide)
+            },
+            onPrepareHomeScreenGuide: { [weak self] id in
+                self?.prepareHomeScreenFloatingGuide(for: id)
+            },
+            onCancelPreparedHomeScreenGuide: { [weak self] in
+                self?.cancelPreparedHomeScreenFloatingGuide()
             })
     }
 
@@ -974,8 +999,34 @@ public struct ShellHostConfig: Sendable {
         config.copyToPasteboard(DeepLinkRouter.shortcutURLString(for: entry))
     }
 
+    public func prepareHomeScreenFloatingGuide(for id: String) {
+        guard let currentEntry = entry(id) else { return }
+        let iconPNG = HomeScreenShortcutSupport.renderSquareIconPNG(for: currentEntry, size: 512)
+        let request = HomeScreenGuideRequest(
+            gameTitle: currentEntry.title,
+            iconPNG: iconPNG,
+            steps: HomeScreenGuideSteps.shortcutsSteps(),
+            hintText: HomeScreenGuideSteps.pipControlsHint()
+        )
+        if let customPrepare = config.prepareFloatingGuide {
+            customPrepare(request)
+        } else {
+            homeScreenGuidePiP.prepare(request)
+        }
+    }
+
+    public func cancelPreparedHomeScreenFloatingGuide() {
+        homeScreenGuidePiP.cancelPrepared()
+        config.cancelPreparedFloatingGuide?()
+    }
+
+    public func stopHomeScreenFloatingGuide() {
+        homeScreenGuidePiP.stop()
+        config.stopFloatingGuide?()
+    }
+
     @discardableResult
-    public func saveIconAndOpenShortcuts(for id: String) async -> Bool {
+    public func saveIconAndOpenShortcuts(for id: String, showFloatingGuide: Bool = true) async -> Bool {
         guard let initialEntry = entry(id),
               let pngData = HomeScreenShortcutSupport.renderSquareIconPNG(for: initialEntry, size: 512) else {
             return false
@@ -984,6 +1035,21 @@ public struct ShellHostConfig: Sendable {
         guard let currentEntry = entry(id) else { return false }
         config.copyToPasteboard(currentEntry.title)
         guard saved else { return false }
+        if showFloatingGuide {
+            let request = HomeScreenGuideRequest(
+                gameTitle: currentEntry.title,
+                iconPNG: pngData,
+                steps: HomeScreenGuideSteps.shortcutsSteps(),
+                hintText: HomeScreenGuideSteps.pipControlsHint()
+            )
+            if let customStart = config.startFloatingGuide {
+                _ = await customStart(request)
+            } else {
+                _ = await homeScreenGuidePiP.start(request)
+            }
+        } else {
+            stopHomeScreenFloatingGuide()
+        }
         config.openURL(HomeScreenShortcutSupport.createShortcutURL)
         return true
     }
@@ -1194,6 +1260,7 @@ public struct ShellHostConfig: Sendable {
               details.first(where: { $0.id == id })?.game.state == .playable else {
             return .failed(nil)
         }
+        stopHomeScreenFloatingGuide()
         cloudCheckGeneration &+= 1
         let checkGeneration = cloudCheckGeneration
         pendingCloudLaunch = nil
