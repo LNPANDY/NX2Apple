@@ -14,7 +14,7 @@ struct BuildMetadataHero: View {
     @State private var queueIcons: [String: NSImage] = [:]
     @EnvironmentObject private var loc: Localizer
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var reveal: Double { build.running && build.buildingGame ? min(max(build.gameTitleID == titleID ? (build.overallProgress ?? 0) : 0, 0), 1) : (build.completionStatus != nil ? 1 : 0) }
+    private var reveal: Double { build.running && build.buildingGame ? min(max(build.gameTitleID == titleID ? (build.overallProgress ?? 0) : 0, 0), 1) : 1 }   // grey only while the build runs, in colour idle and finished (#1458)
     var artworkGames: [QueueGame] {
         guard let current = queueGames.first(where: \.running) else { return Array(queueGames.prefix(4)) }
         return Array(([current] + queueGames.filter { $0.id != current.id }).prefix(4))
@@ -192,7 +192,6 @@ struct QueueArtworkStack: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.15))
-        .saturation(index == 0 ? 1 : 0)
         .overlay(Color.black.opacity(index == 0 ? 0 : 0.2), in: RoundedRectangle(cornerRadius: size * 0.15))
         .scaleEffect(index == 0 ? 1 : max(0.7, 0.9 - Double(index) * 0.06))
         .rotation3DEffect(.degrees(index == 0 ? 0 : 22), axis: (x: 0, y: 1, z: 0))

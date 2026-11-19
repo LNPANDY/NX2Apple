@@ -24,6 +24,8 @@ struct LaunchOptionsView: View {
     @State private var askingTested = false   // Use tested values asks first (#453)
     /// Build this game…: the launcher closes the sheet and opens the Builds page with this game's form (nil in a test).
     var onBuild: (LibraryGame) -> Void = { _ in }
+    /// The game's verified profile fills a wide screen without black bars: the picture fit row says so (#1458).
+    var widescreen = false
     /// The cheats and the saves have sheets of their own: the launcher closes this one and opens them (nil: the row does nothing).
     var openCheats: ((UUID) -> Void)? = nil
     var openSaves: ((UUID) -> Void)? = nil
@@ -287,6 +289,14 @@ struct LaunchOptionsView: View {
                 card {
                     ForEach(inSection) { s in
                         row(s, game, all: all)
+                        if widescreen && s.env == "DM_PICTURE_FIT" {
+                            Label(loc.t("launch.widescreenNative"), systemImage: "aspectratio")
+                                .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 18).padding(.top, -6).padding(.bottom, 12)
+                                .help(loc.t("widescreen.help"))
+                                .accessibilityIdentifier("launch.widescreenNative")
+                        }
                         if s.id != inSection.last?.id { divider }
                     }
                 }

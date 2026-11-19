@@ -391,6 +391,7 @@ struct LauncherView: View {
         .sheet(isPresented: Binding(get: { optionsFor != nil }, set: { if !$0 { optionsFor = nil } })) {
             if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id, globalControls: controls, controllerMappingPresentation: $controllerMappingOpen,
                               onBuild: { game in DispatchQueue.main.async { configureBuild(game) } },
+                              widescreen: library.games.first { $0.id == id }.map(verifiedProfiles.supportsFullScreen) ?? false,
                               openCheats: { id in optionsFor = nil; DispatchQueue.main.async { cheatsFor = id } },
                               openSaves: { id in optionsFor = nil; DispatchQueue.main.async { savesFor = id } }).environmentObject(padFocus).environmentObject(stores.saveSettings).environmentObject(stores.players).launcherDropdownHost(dropdowns, pad: padFocus) }
         }

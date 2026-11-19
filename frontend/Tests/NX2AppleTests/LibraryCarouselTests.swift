@@ -79,6 +79,54 @@ import XCTest
         XCTAssertNil(pad.frame(of: "library.skippedBanner"))
     }
 
+    /// A game that is not built keeps its cover in colour, only dimmed a little (#1458): the chip tells the state.
+    func testAnUnbuiltCardStaysInColour() throws {
+        let image = NSImage(size: NSSize(width: 360, height: 200), flipped: false) { rect in
+            NSColor(srgbRed: 0.1, green: 0.4, blue: 0.95, alpha: 1).setFill(); rect.fill(); return true
+        }
+        let state = LibraryArtworkState(LibraryGame(titleID: "0100000000000000", name: "Example"))
+        XCTAssertTrue(state.monochrome, "an unbuilt game needs attention")
+        let card = LibraryGameCard(title: "Example", image: image, focus: .center, state: state, width: 300, selected: false, select: {})
+            .environmentObject(Localizer(.en)).launcherAppearance()
+        let host = NSHostingView(rootView: card)
+        let window = OffscreenWindow(size: host.fittingSize)
+        window.contentView = host; window.orderFront(nil); settle()
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let pixel = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide / 2, y: rep.pixelsHigh / 3)?.usingColorSpace(.sRGB))
+        XCTAssertGreaterThan(Double(pixel.blueComponent - pixel.redComponent), 0.3, "the cover keeps its colour, not grey")
+    }
+
+    /// A widescreen game says so as a quiet line under its title, not as a status chip (#1458).
+    func testWidescreenIsAQuietLineInTheHero() throws {
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")   // SwiftUI builds its accessibility tree
+        let previous = NSApplication.shared.accessibilityAttributeValue(enhanced)
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(previous ?? false, forAttribute: enhanced) }
+        let fixtures = GalleryFixtures()
+        let host = NSHostingView(rootView: fixtures.view(.libraryWidescreen))
+        let window = OffscreenWindow(size: NSSize(width: GalleryScene.size.width, height: GalleryScene.size.height))
+        window.contentView = host; window.orderFront(nil); settle(0.8)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        let labels = Self.texts(in: host)
+        XCTAssertTrue(labels.contains(L10n.string("widescreen.badge", .en)), "the hero shows Widescreen: \(labels)")
+    }
+
+    private static func texts(in view: NSView) -> [String] {
+        var out: [String] = []
+        func visit(_ node: NSObject) {
+            for selector in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
+                let sel = NSSelectorFromString(selector)
+                if node.responds(to: sel), let value = node.perform(sel)?.takeUnretainedValue() as? String, !value.isEmpty { out.append(value) }
+            }
+            let children = NSSelectorFromString("accessibilityChildren")
+            if node.responds(to: children), let list = node.perform(children)?.takeUnretainedValue() as? [NSObject] { list.forEach(visit) }
+        }
+        visit(view)
+        return out
+    }
+
     func testBackLeavesAllGames() throws {
         let (_, pad, _, _) = try host(games: 14, allGames: true)
         XCTAssertTrue(ids(pad).contains("allGames.back"))

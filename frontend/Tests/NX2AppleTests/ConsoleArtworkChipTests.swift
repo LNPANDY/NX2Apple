@@ -92,7 +92,8 @@ import XCTest
         }
     }
 
-    func testUnavailableSelectedArtworkIsMonochromeWithoutInactiveDimming() throws {
+    /// Covers stay in colour (#1458): an unavailable game is dimmed a little, never grey, and the chip says why.
+    func testUnavailableSelectedArtworkStaysInColourAndIsDimmedALittle() throws {
         var game = MockConsoleDriver(scenario: .full, animated: false).state.games[0]
         game.olderTools = false
         game.artwork = NSImage(size: NSSize(width: 360, height: 200), flipped: false) { bounds in
@@ -113,8 +114,7 @@ import XCTest
         }
         let active = try pixel(status: .needsBuild, selected: true)
         let inactive = try pixel(status: .needsBuild, selected: false)
-        XCTAssertEqual(active.redComponent, active.greenComponent, accuracy: 0.02)
-        XCTAssertEqual(active.greenComponent, active.blueComponent, accuracy: 0.02)
+        XCTAssertGreaterThan(active.redComponent, active.greenComponent + 0.4, "in colour, not grey")
         XCTAssertGreaterThan(active.redComponent, inactive.redComponent + 0.02)
         let ready = try pixel(status: .ready, selected: true)
         XCTAssertGreaterThan(ready.redComponent, ready.greenComponent + 0.5)

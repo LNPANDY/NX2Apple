@@ -21,7 +21,7 @@ struct ConsoleBuildIndicator: View {
                                bottomTrailingRadius: height / 2, topTrailingRadius: height / 2)
     }
     private var borderWidth: CGFloat { pad.visible && pad.focused == "console.build.activity" ? 4 : 2 }
-    private var progress: Double { row.outcome == .failure ? 0 : row.outcome == .success ? 1 : min(max(row.progress ?? 0, 0), 1) }
+    private var progress: Double { row.outcome != nil ? 1 : min(max(row.progress ?? 0, 0), 1) }   // grey only while it builds
 
     var body: some View {
         Button(action: open) {
@@ -31,7 +31,7 @@ struct ConsoleBuildIndicator: View {
                     else { Image(systemName: "gamecontroller.fill").frame(maxWidth: .infinity, maxHeight: .infinity).background(LauncherPalette.surface) }
                 }
                 .frame(width: artSize, height: artSize).clipShape(RoundedRectangle(cornerRadius: 6))
-                .saturation(row.outcome == .failure ? 0 : 1)
+                // in colour whatever the outcome: the badge says how it ended (#1458)
                 .overlay(alignment: .bottomTrailing) {
                     if let outcome = row.outcome {
                         ArtworkOutcomeBadge(outcome == .success ? .success : outcome == .warning ? .warning : .failure, artworkSize: artSize)
@@ -51,7 +51,7 @@ struct ConsoleBuildIndicator: View {
             .padding(.leading, gutter).padding(.trailing, 16)
             .frame(height: height)
             .background {
-                if let image = row.artwork ?? row.icon { BuildFooterReveal(image: image, progress: progress).saturation(row.outcome == .failure ? 0 : 1).id(row.id).transition(.opacity) }
+                if let image = row.artwork ?? row.icon { BuildFooterReveal(image: image, progress: progress).id(row.id).transition(.opacity) }
                 else { LauncherPalette.surface }
             }
             .clipShape(shape)

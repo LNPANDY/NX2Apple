@@ -9,6 +9,7 @@ struct LibraryArtworkState: Equatable {
     let mac: Bool
     let ios: Bool
     let attention: Attention
+    /// The art is dimmed a little, never grey (#1458): the chip says why.
     var monochrome: Bool { attention != .none }
     var chipKey: String? {
         switch attention {

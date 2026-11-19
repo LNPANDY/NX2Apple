@@ -24,7 +24,7 @@ struct ConsoleBackdrop: View {
                     if starting { cover(game).overlay(Color.black.opacity(0.55)) }   // a scrim keeps the Starting text readable on any cover
                     else { home(game) }
                 }
-                .saturation(game.status == .ready && !game.olderTools ? 1 : 0)
+                .opacity(game.status == .ready && !game.olderTools ? 1 : 0.85)   // in colour, dimmed a little when not ready (#1458)
                 .id(game.id).transition(.opacity)
             }
         }

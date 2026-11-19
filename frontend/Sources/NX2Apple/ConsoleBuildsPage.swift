@@ -67,7 +67,7 @@ import NXLauncher
                         else { Image(systemName: "hammer.fill").font(.system(size: 28)).frame(maxWidth: .infinity, maxHeight: .infinity).background(LauncherPalette.surface) }
                     }
                     .frame(width: 80, height: 80).clipShape(RoundedRectangle(cornerRadius: 14))
-                    .saturation(row.outcome == .success ? 1 : 0)
+                    .opacity(row.outcome == .success ? 1 : 0.85)   // dimmed a little, never grey (#1458)
                     .overlay(alignment: .bottomTrailing) {
                         if let outcome = row.outcome {
                             ArtworkOutcomeBadge(outcome == .success ? .success : outcome == .warning ? .warning : .failure, artworkSize: 80)

@@ -147,7 +147,7 @@ import NXLauncher
             .frame(maxWidth: 680, alignment: .leading)
             if !compact {
                 ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus)
-                    .saturation(game.status == .ready && !game.olderTools ? 1 : 0).drawingGroup()
+                    .opacity(game.status == .ready && !game.olderTools ? 1 : 0.85).drawingGroup()   // never grey (#1458)
                     .aspectRatio(1.8, contentMode: .fit)
                     .frame(maxWidth: 520)
                     .clipShape(RoundedRectangle(cornerRadius: 16))

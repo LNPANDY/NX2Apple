@@ -11,13 +11,19 @@ import NXLauncher
 enum GalleryScene: String, CaseIterable, Identifiable {
     /// The library: more games than the Recently played row holds (Show all), fewer (no Show all), none, the narrowest window,
     /// each notice tone, and the All games grid.
-    case libraryGames, libraryFew, libraryEmpty, libraryNarrow, libraryEngineUpdate, libraryNoticeWarning, libraryNoticeError, allGames
-    case gamePage, buildsIdle, buildsRunning, buildFailed, settings, consoleHome
+    case libraryGames, libraryFew, libraryEmpty, libraryNarrow, libraryEngineUpdate, libraryNoticeWarning, libraryNoticeError, libraryWidescreen, allGames
+    case gamePage, gameOptions, buildsIdle, buildsRunning, buildFailed, settings, consoleHome
 
     var id: String { rawValue }
     /// The launcher's ideal width at a common laptop height, and its minimum window for the narrow scene.
     static let size = CGSize(width: 1280, height: 800)
-    var size: CGSize { self == .libraryNarrow ? CGSize(width: 900, height: 680) : Self.size }
+    var size: CGSize {
+        switch self {
+        case .libraryNarrow: return CGSize(width: 900, height: 680)
+        case .gameOptions: return CGSize(width: 680, height: 720)   // a sheet
+        default: return Self.size
+        }
+    }
     /// How many of the fixture games the scene's library holds.
     var gameCount: Int {
         switch self {
@@ -57,7 +63,7 @@ enum GalleryScene: String, CaseIterable, Identifiable {
     ]
 
     func view(_ scene: GalleryScene) -> AnyView {
-        let stores = makeStores()
+        let stores = makeStores(widescreen: scene == .libraryWidescreen)
         let library = makeLibrary(count: scene.gameCount)
         let hero = library.games.first?.id
         // the library's own artwork folder and no title list: the player's artwork and the network stay out of every scene
@@ -70,7 +76,7 @@ enum GalleryScene: String, CaseIterable, Identifiable {
         }
         let root: AnyView
         switch scene {
-        case .libraryGames, .libraryFew, .libraryEmpty, .libraryNarrow:
+        case .libraryGames, .libraryFew, .libraryEmpty, .libraryNarrow, .libraryWidescreen:
             root = AnyView(launcher(.library))
         case .allGames:
             root = AnyView(launcher(.library, allGames: true))
@@ -104,6 +110,10 @@ enum GalleryScene: String, CaseIterable, Identifiable {
             configureBuild(stores, library: library)
             stores.build.failure = BuildFailure(kind: .diskFull, gameName: nil, detail: "12")
             root = AnyView(launcher(.builds, editor: true))
+        case .gameOptions:   // the launch options of a built widescreen game: the Picture row says it fills the screen natively
+            let id = makeMacApp(for: 0, in: library)
+            root = AnyView(LaunchOptionsView(m: stores.build, library: library, gameID: id ?? UUID(), widescreen: true)
+                .environmentObject(stores.saveSettings).environmentObject(stores.players))
         case .settings:
             root = AnyView(launcher(.settings))
         case .consoleHome:
@@ -113,7 +123,7 @@ enum GalleryScene: String, CaseIterable, Identifiable {
             .frame(width: scene.size.width, height: scene.size.height).background(LauncherPalette.background))
     }
 
-    private func makeStores() -> LauncherStores {
+    private func makeStores(widescreen: Bool = false) -> LauncherStores {
         let suite = "nx.gallery." + UUID().uuidString
         suites.append(suite)
         let stores = LauncherStores(localizer: Localizer(lang), defaults: UserDefaults(suiteName: suite) ?? .standard)
@@ -121,6 +131,13 @@ enum GalleryScene: String, CaseIterable, Identifiable {
         let marker = engine.appendingPathComponent(EngineLayout.marker)
         try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? Data().write(to: marker)
+        // a verified profile for every fixture game, the first one with a widescreen aspect in the widescreen scene
+        for (index, game) in Self.games.enumerated() {
+            let folder = engine.appendingPathComponent("dm/games/" + game.titleID, isDirectory: true)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let aspect = widescreen && index == 0 ? "screen_aspect\tauto\n" : ""
+            try? "title_id\t\(game.titleID)\nname\t\(game.name)\n\(aspect)".write(to: folder.appendingPathComponent("game.tsv"), atomically: true, encoding: .utf8)
+        }
         stores.repo.path = engine.path
         stores.dependencies.checked = true
         stores.dependencies.deps = [Dep(id: "xcode", name: "Xcode", hint: "", present: true, installCmd: [])]
@@ -144,6 +161,34 @@ enum GalleryScene: String, CaseIterable, Identifiable {
         }
         library.selectedID = library.games.first?.id
         return library
+    }
+
+    /// A stand-in Mac build of fixture game `index` (its executables point at /usr/bin/true, nothing runs), with a few launch options.
+    private func makeMacApp(for index: Int, in library: GameLibrary) -> UUID? {
+        let game = Self.games[index]
+        let app = directory.appendingPathComponent("apps-" + UUID().uuidString + "/\(game.name).app")
+        let dm = app.appendingPathComponent("Contents/Resources/dm")
+        let fm = FileManager.default
+        try? fm.createDirectory(at: app.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+        try? fm.createDirectory(at: dm, withIntermediateDirectories: true)
+        for exe in ["nxnative", "dmhost"] {
+            try? fm.createSymbolicLink(at: app.appendingPathComponent("Contents/MacOS/" + exe), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+        }
+        let info: [String: Any] = ["DMTitleID": game.titleID, "CFBundleDisplayName": game.name, "CFBundleExecutable": "nxnative",
+                                   "CFBundleShortVersionString": "1.0.0", "CFBundleIdentifier": "org.nxnative.gallery." + UUID().uuidString]
+        try? PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
+        let settings = [
+            #"{"env": "DM_FULLSCREEN", "kind": "toggle", "label": "Full screen", "note": "", "default": "0", "section": "Game", "level": "basic"}"#,
+            #"{"env": "DM_PICTURE_FIT", "kind": "choice", "label": "Picture", "note": "", "default": "fit", "section": "Game", "level": "basic", "options": [["fit", "Fit"], ["fill", "Fill"]]}"#,
+            #"{"env": "DM_RUMBLE", "kind": "toggle", "label": "Rumble", "note": "", "default": "1", "section": "Game", "level": "basic"}"#,
+            #"{"env": "DM_FPS_TARGET", "kind": "choice", "label": "Frame rate", "note": "", "default": "60", "section": "Performance", "level": "basic", "options": [["30", "30"], ["60", "60"]]}"#,
+        ].joined(separator: ", ")
+        try? #"{"game": "\#(game.titleID)", "settings": [\#(settings)]}"#.write(to: dm.appendingPathComponent("launcher.json"), atomically: true, encoding: .utf8)
+        guard var entry = library.games.first(where: { $0.titleID == game.titleID }) else { return nil }
+        entry.appPath = app.path
+        entry.lastTarget = BuildTarget.mac
+        library.upsert(entry)
+        return entry.id
     }
 
     private func configureBuild(_ stores: LauncherStores, library: GameLibrary) {

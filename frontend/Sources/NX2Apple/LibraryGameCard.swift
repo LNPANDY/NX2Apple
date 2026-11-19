@@ -25,7 +25,7 @@ struct LibraryGameCard: View {
                         Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
                     }
                 }
-                .saturation(state.monochrome ? 0 : 1)
+                .opacity(state.monochrome ? 0.85 : 1)   // in colour, dimmed a little when it needs attention (#1458)
                 .frame(width: width, height: width / LibraryCardLayout.aspect).clipped()
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .overlay(alignment: .topLeading) { LibraryArtworkChip(state: state).padding(8) }

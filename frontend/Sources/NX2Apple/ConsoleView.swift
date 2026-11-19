@@ -342,7 +342,7 @@ enum ConsoleInput: Equatable {
                     GeometryReader { size in
                         ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus)
                             .frame(width: size.size.width, height: size.size.height)
-                            .saturation(game.status == .ready && !game.olderTools ? 1 : 0)
+                            .opacity(game.status == .ready && !game.olderTools ? 1 : 0.85)
                             .overlay(.black.opacity(0.66))   // dimmed, not blurred (#1458)
                     }.clipped()
                 }

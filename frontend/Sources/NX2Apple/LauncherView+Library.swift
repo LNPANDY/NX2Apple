@@ -103,7 +103,7 @@ extension LauncherView {
                     ZStack {
                         if let game, let image = heroImage(for: game) {
                             ArtworkFill(image: image, focus: displayed(game).artwork.focus(for: .hero))
-                                .saturation(LibraryArtworkState(game, building: m.running && activeBuildID == game.id).monochrome ? 0 : 1)
+                                .opacity(LibraryArtworkState(game, building: m.running && activeBuildID == game.id).monochrome ? 0.85 : 1)   // never grey (#1458)
                                 .id(game.id).transition(.opacity)
                         } else {
                             LibraryFallbackArtwork(size: CGSize(width: width + 96, height: backdropHeight + pull + 96))
@@ -161,6 +161,13 @@ extension LauncherView {
                                         .id(game.id).transition(.opacity)
                                 }
                                 .animation(LibraryHeroTransition.metadata(reduceMotion: reduceMotion), value: game.id)
+                                if verifiedProfiles.supportsFullScreen(game) {
+                                    // A quiet property, not a status chip (#1458): the game fills a wide screen
+                                    Label(loc.t("widescreen.badge"), systemImage: "aspectratio")
+                                        .font(.manrope(13, .medium)).foregroundStyle(LauncherPalette.secondaryText)
+                                        .help(loc.t("widescreen.help"))
+                                        .accessibilityIdentifier("hero.widescreen")
+                                }
                             }
                             heroActions(game, compact: width < 760)
                         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -270,10 +277,6 @@ extension LauncherView {
             if GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {   // #445
                 ArtworkStatusChip(title: loc.t("switch2.badge"), color: LauncherPalette.notice, showsIndicator: false)
                     .help(loc.t("switch2.help"))
-            }
-            if verifiedProfiles.supportsFullScreen(game) {
-                ArtworkStatusChip(title: loc.t("widescreen.badge"), color: LauncherPalette.ready, textColor: .white)
-                    .help(loc.t("widescreen.help"))
             }
             if verifiedProfiles.isUnverified(game) {
                 LibraryProfileChip(title: loc.t("macLibVerify.badge"), explanation: loc.t("macLibVerify.note"), showingHelp: $profileHelpOpen).id(game.id)

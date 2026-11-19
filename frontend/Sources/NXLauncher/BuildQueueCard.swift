@@ -131,7 +131,7 @@ package struct BuildQueueCard: View {
                 }
             }
             .frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 8))
-            .saturation(staged || Self.outcome(game) == .success ? 1 : 0)
+            .opacity(staged || Self.outcome(game) == .success ? 1 : 0.85)   // never grey (#1458)
             .overlay(alignment: .bottomTrailing) {
                 if let outcome = Self.outcome(game) { ArtworkOutcomeBadge(outcome, artworkSize: 48) }
             }.accessibilityHidden(true)
