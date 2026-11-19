@@ -130,7 +130,7 @@ final class DesignRulesTests: XCTestCase {
     /// Label with the accent itself. Console mode below still does, with the count it may keep.
     private static let accentTextComponents: Set<String> = [
         "NXLauncher/LauncherStyles.swift", "NXLauncher/LauncherDropdown.swift", "NXLauncher/DesignComponents.swift",
-        "NXLauncher/LauncherGlass.swift", "NXLauncher/LauncherWordmark.swift", "NXLauncher/LauncherBrandMark.swift", "NXLauncher/PadFocus.swift",
+        "NXLauncher/LauncherGlass.swift", "NXLauncher/PadFocus.swift",   // the wordmark is text like any other (#1458)
     ]
     private static let accentTextAllowed: [String: Int] = [
         "NX2Apple/ConsoleCloudSaveView.swift": 1, "NX2Apple/ConsoleCloudSaves.swift": 1, "NX2Apple/ConsolePages.swift": 2,

@@ -8,7 +8,7 @@ package struct LauncherWordmark: View {
     package var body: some View {
         Text(Self.text)
             .font(.manrope(17, .bold)).tracking(-0.4)
-            .foregroundStyle(LauncherPalette.cream)
+            .foregroundStyle(DS.Color.textPrimary)   // cream is for the selected and the primary only (#1458)
             .lineLimit(1).fixedSize()
             .accessibilityAddTraits(.isHeader)
             .accessibilityIdentifier("launcher.wordmark")

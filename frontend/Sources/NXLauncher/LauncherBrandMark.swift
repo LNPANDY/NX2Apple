@@ -2,7 +2,9 @@ import SwiftUI
 
 package struct LauncherBrandMark: View {
     var onHero: Bool
-    package init(onHero: Bool = false) { self.onHero = onHero }
+    /// The mark's colour off the hero: text.primary, the accent only where its card is selected (#1458).
+    var tint: Color
+    package init(onHero: Bool = false, tint: Color = DS.Color.textPrimary) { self.onHero = onHero; self.tint = tint }
     // Inline SVG keeps the mark available without a bundle resource lookup.
     package static let svg = """
 <svg xmlns="http://www.w3.org/2000/svg" width="592" height="424" viewBox="216.21 288.35 591.58 424.39">
@@ -21,7 +23,7 @@ package struct LauncherBrandMark: View {
                 Image(nsImage: image).resizable().renderingMode(.template).scaledToFit()
             }
         }
-        .foregroundStyle(onHero ? Color.white : LauncherPalette.cream)
+        .foregroundStyle(onHero ? Color.white : tint)
         .frame(width: 36, height: 26)
         .accessibilityLabel("NX2Apple")
         .allowsHitTesting(false)

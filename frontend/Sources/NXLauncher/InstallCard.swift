@@ -180,7 +180,7 @@ package struct InstallCard: View {
                     if oneGame || framework {
                         Image(systemName: framework ? "shippingbox.fill" : "app.fill").font(.system(size: 26, weight: .light))
                             .foregroundStyle(selected ? LauncherPalette.accent : .secondary)
-                    } else { LauncherBrandMark().accessibilityHidden(true) }
+                    } else { LauncherBrandMark(tint: selected ? LauncherPalette.accent : .secondary).accessibilityHidden(true) }
                 }.frame(height: 26)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(loc.t(framework ? "shell.ipaFramework" : oneGame ? "shell.choiceSingle" : "shell.choiceLauncher")).font(.manrope(16, .semibold))
