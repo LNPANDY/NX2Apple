@@ -39,7 +39,7 @@ struct FilesCard: View {
                                 .padTarget("set.build.folder", scope: "main", enabled: !build.running, activate: pickFolder)
                         }
                     }
-                    CardDivider()
+                    FileRowDivider()
                     fileRow(loc.t("data.base"), subtitle: baseText, help: build.gameFolderRowText("base") ?? build.slot("base").summary(loc.t),
                             chosen: build.slot("base").ok || build.gameFolder != nil, thumbnail: artwork) {
                         if build.gameFolderRowText("base") == nil || build.gameFolder == nil {
@@ -48,7 +48,7 @@ struct FilesCard: View {
                         }
                     }
                     ForEach(build.slots.filter(\.optional), id: \.id) { slot in
-                        CardDivider()
+                        FileRowDivider()
                         let folderText = build.gameFolderRowText(slot.id)
                         fileRow(loc.t(slot.id == "dlc" ? "data.dlc" : slot.title),
                                 subtitle: folderText ?? (slot.paths.isEmpty ? loc.t("files.optional") : slot.summary(loc.t)),
@@ -66,7 +66,7 @@ struct FilesCard: View {
                             }
                         }
                     }
-                    CardDivider()
+                    FileRowDivider()
                     fileRow(loc.t("files.keys"), subtitle: build.keysPath.isEmpty ? loc.t("data.notSelected") : URL(fileURLWithPath: build.keysPath).lastPathComponent,
                             help: (build.keysFromSettings ? loc.t("keys.fromSettings") + "\n" : "") + build.keysPath,
                             chosen: build.keysReady && !keyCheckNeedsAttention, problem: build.keysReady && keyCheckNeedsAttention,
@@ -149,45 +149,13 @@ struct FilesCard: View {
         return game?.displayName(loc.lang) ?? (build.gameName.isEmpty ? build.slot("base").summary(loc.t) : build.gameName)
     }
 
-    /// One row of the list: a thumbnail-sized leading slot (the cover, a dot once chosen, empty otherwise), the title, one
-    /// secondary line and the trailing control column. `chosen` nil leaves the slot out (the Save to row).
+    /// One row of the list (FileRow): a thumbnail-sized leading slot (the cover, a dot once chosen, empty otherwise), the title,
+    /// one secondary line and the trailing control column. `chosen` nil leaves the slot out (the Save to row).
     private func fileRow<Trailing: View>(_ title: String, subtitle: String, help: String, chosen: Bool?, problem: Bool = false, thumbnail: NSImage? = nil,
                                          message: DSRowMessage? = nil, info: (id: String, text: String)? = nil,
                                          @ViewBuilder trailing: () -> Trailing) -> some View {
-        VStack(alignment: .leading, spacing: DS.Space.xs) {
-        HStack(spacing: DS.Space.s) {
-            if let chosen {
-                ZStack {
-                    if let thumbnail, chosen {
-                        Image(nsImage: thumbnail).resizable().scaledToFill()
-                            .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail).clipShape(RoundedRectangle(cornerRadius: DS.Radius.chip))
-                    } else if chosen || problem {
-                        Circle().fill(problem ? DS.Color.statusWarning : DS.Color.statusSuccess).frame(width: 8, height: 8)
-                    }
-                }
-                .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail)
-                .accessibilityHidden(true)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: DS.Space.xs) {
-                    Text(title).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
-                    if let info { LauncherInfoHelp(id: info.id, label: title, text: info.text) }
-                }
-                Text(subtitle).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).truncationMode(.middle).help(help)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // the control column: every row button is exactly its width (launcherRowControls), never wider
-            trailing().frame(minWidth: DS.Control.columnWidth, alignment: .trailing).launcherRowControls()
-        }
-        // the row's message under the title and subtitle, its symbol at their leading edge; the control stays centred on them
-        if let message {
-            DSRowMessageView(message).padding(.leading, chosen == nil ? 0 : DS.Control.thumbnail + DS.Space.s)
-                .padding(.trailing, DS.Control.columnWidth + DS.Space.s)
-        }
-        }
-        .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.s)
-        .frame(minHeight: 60)
-        .accessibilityElement(children: .contain)
+        FileRow(title: title, subtitle: subtitle, help: help, chosen: chosen, problem: problem, thumbnail: thumbnail, message: message, info: info,
+                trailing: trailing())
     }
     private func pickFolder() { Self.pickFolder(build) }
 
@@ -196,5 +164,71 @@ struct FilesCard: View {
         let d = NSOpenPanel()
         d.canChooseDirectories = true; d.canChooseFiles = false
         if d.runModal() == .OK, let u = d.url { build.scan(folder: u.path) }
+    }
+}
+
+/// A row of the game files list. The list reserves the 40 pt leading slot only while a row shows something in it (a dot, the
+/// cover), as every group does (DSRowLeadingSlotKey, #1458): with nothing chosen yet the titles start at the card's inset. Slot
+/// content and control are centred on the title and subtitle.
+private struct FileRow<Trailing: View>: View {
+    let title: String
+    let subtitle: String
+    let help: String
+    let chosen: Bool?
+    let problem: Bool
+    let thumbnail: NSImage?
+    let message: DSRowMessage?
+    let info: (id: String, text: String)?
+    let trailing: Trailing
+    @Environment(\.dsRowReservesSlot) private var reservesSlot
+
+    /// Something is drawn in the slot.
+    private var uses: Bool { chosen == true || problem }
+    private var slot: Bool { chosen != nil && (reservesSlot || uses) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            HStack(spacing: DS.Space.s) {
+                if slot, let chosen {
+                    ZStack {
+                        if let thumbnail, chosen {
+                            Image(nsImage: thumbnail).resizable().scaledToFill()
+                                .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail).clipShape(RoundedRectangle(cornerRadius: DS.Radius.chip))
+                        } else if chosen || problem {
+                            Circle().fill(problem ? DS.Color.statusWarning : DS.Color.statusSuccess).frame(width: 8, height: 8)
+                        }
+                    }
+                    .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail)
+                    .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: DS.Space.xs) {
+                        Text(title).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+                        if let info { LauncherInfoHelp(id: info.id, label: title, text: info.text) }
+                    }
+                    Text(subtitle).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).truncationMode(.middle).help(help)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // the control column: every row button is exactly its width (launcherRowControls), never wider
+                trailing.frame(minWidth: DS.Control.columnWidth, alignment: .trailing).launcherRowControls()
+            }
+            // the row's message under the title and subtitle, its symbol at their leading edge: the control stays centred on them
+            if let message {
+                DSRowMessageView(message).padding(.leading, slot ? DS.Control.thumbnail + DS.Space.s : 0)
+                    .padding(.trailing, DS.Control.columnWidth + DS.Space.s)
+            }
+        }
+        .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.s)
+        .frame(minHeight: 60)
+        .accessibilityElement(children: .contain)
+        .preference(key: DSRowLeadingSlotKey.self, value: uses)
+    }
+}
+
+/// The divider between file rows, under their titles: past the thumbnail slot while the list reserves it.
+private struct FileRowDivider: View {
+    @Environment(\.dsRowReservesSlot) private var reservesSlot
+    var body: some View {
+        DS.Color.separator.frame(height: 1).padding(.leading, reservesSlot ? DS.Space.m + DS.Control.thumbnail + DS.Space.s : DS.Space.m)
     }
 }
