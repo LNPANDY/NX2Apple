@@ -52,27 +52,4 @@ final class SupportedGamesTests: XCTestCase {
         XCTAssertLessThanOrEqual(text.count, SupportedGames.noteLimit)
         XCTAssertTrue(text.hasSuffix("profile."))
     }
-
-    func testFullScreenReadsScreenAspectRowAndSyncedEngineProfiles() throws {
-        try profile("0100000000010000", tsv: "title_id\t0100000000010000\nname\tDefault Off\n")
-        try profile("0100000000020000", tsv: "title_id\t0100000000020000\nname\tExplicit Off\nscreen_aspect\toff\n")
-        try profile("0100000000030000", tsv: "title_id\t0100000000030000\nname\tTall Aspect\nscreen_aspect\ton\n")
-        try profile("0100000000040000", tsv: "title_id\t0100000000040000\nname\tWide Aspect\nscreen_aspect\twide\n")
-        try profile("0100000000050000", tsv: "title_id\t0100000000050000\nname\tBoth Aspects\nscreen_aspect\tboth\n")
-        let byID = Dictionary(uniqueKeysWithValues: SupportedGames.list(engineRoot: root.path).map { ($0.titleID, $0.fullScreen) })
-        XCTAssertEqual(byID["0100000000010000"], false)
-        XCTAssertEqual(byID["0100000000020000"], false)
-        XCTAssertEqual(byID["0100000000030000"], true)
-        XCTAssertEqual(byID["0100000000040000"], true)
-        XCTAssertEqual(byID["0100000000050000"], true)
-
-        var repo = URL(fileURLWithPath: #filePath)
-        for _ in 0..<4 { repo.deleteLastPathComponent() }
-        let engineRoot = EngineLayout.root(repo.path)
-        let real = SupportedGames.list(engineRoot: engineRoot)
-        if !real.isEmpty {
-            let fullScreenIDs = Set(real.filter(\.fullScreen).map(\.titleID))
-            XCTAssertTrue(fullScreenIDs.isSuperset(of: ["01006F8002326000", "01007EF00011E000", "0400486024DEC000", "0400A3A01EE4C000"]), "\(fullScreenIDs)")
-        }
-    }
 }

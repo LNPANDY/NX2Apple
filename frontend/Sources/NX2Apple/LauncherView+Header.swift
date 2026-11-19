@@ -17,7 +17,7 @@ extension LauncherView {
     private func navigationTabs(compact: Bool = false, tabInset: CGFloat) -> some View {
         HStack(spacing: 2) {
             ForEach([LauncherPage.library, .builds], id: \.self) { destination in
-                Button { page = destination; if destination == .builds { buildEditorOpen = false } } label: {
+                Button { page = destination } label: {
                     // The selected tab is bold. The bold text also sizes the (hidden) slot, so a tab never changes width as the selection moves.
                     ZStack {
                         navLabel(destination, compact: compact).font(DS.Font.bodyStrong).hidden()
@@ -31,29 +31,12 @@ extension LauncherView {
                 }
                 .buttonStyle(.plain).launcherHover().help(loc.t("nav." + destination.rawValue))
                 .accessibilityAddTraits(page == destination ? .isSelected : [])
-                .padTarget("tab." + destination.rawValue, scope: "main", focusColor: page == destination ? LauncherPalette.segmentSelectedText : nil) { page = destination; if destination == .builds { buildEditorOpen = false } }
+                .padTarget("tab." + destination.rawValue, scope: "main", focusColor: page == destination ? LauncherPalette.segmentSelectedText : nil) { page = destination }
             }
         }
         .padding(3)
         .launcherGlass(in: Capsule())
         .fixedSize(horizontal: true, vertical: false)
-    }
-
-    /// The build wizard's own navigation, at the top of its content column instead of beside the wordmark (#1458): back to the
-    /// Builds list and the wizard's options.
-    var buildWizardBar: some View {
-        HStack(spacing: DS.Space.xs) {
-            BuildHeaderControls(build: m, onBack: {
-                buildEditorOpen = false; padFocus.focused = "builds.first"
-            }, onInstallExisting: {
-                m.target = BuildTarget.ios; devices.exportIPA = false; buildStep = 2
-            }, onExport: {
-                m.target = BuildTarget.ios; devices.exportIPA = true; buildStep = 2
-            }, onCancel: { confirmingBuildCancel = true }, logOpen: $buildLogOpen, onShowSteps: { allBuildStepsOpen = true }, onEdit: { editingBuildResult = true; buildStep = 0 })
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, DS.Space.xl).padding(.vertical, DS.Space.s)
-        .frame(maxWidth: DS.Control.contentWidth).frame(maxWidth: .infinity)
     }
 
     var topBar: some View {
@@ -103,7 +86,7 @@ extension LauncherView {
         HStack(spacing: 8) {
             Button {
                 searching = true
-                if page == .builds { buildEditorOpen = false } else { page = .library }
+                page = .library
                 searchFocused = true
             } label: {
                 Image(systemName: "magnifyingglass").font(.system(size: 16, weight: .medium))

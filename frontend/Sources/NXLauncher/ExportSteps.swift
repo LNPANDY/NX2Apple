@@ -1,3 +1,4 @@
+import CoreText
 import SwiftUI
 import NXCore
 import NXModel
@@ -84,11 +85,12 @@ package struct ExportSteps: View {
 
     /// Step 3, the game data to the device or a drive: only for the shared app, whose IPA leaves the data out.
     private var sendStep: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let whereLabels = [loc.t("shell.whereDevice"), loc.t("shell.whereDrive")]
+        return VStack(alignment: .leading, spacing: 0) {
             step(resultOnly ? (exported ? 2 : 1) : 3, sentDone ? .done : exported || !inert ? .current : .upcoming, title: loc.t("shell.step3Title"), sub: loc.t("shell.step3Sub")) {
-                LauncherSegmented(options: [(SendWhere.device, loc.t("shell.whereDevice")), (SendWhere.drive, loc.t("shell.whereDrive"))],
+                LauncherSegmented(options: [(SendWhere.device, whereLabels[0]), (SendWhere.drive, whereLabels[1])],
                                   selection: devices.sendWhere) { devices.sendWhere = $0; build.refreshDrive() }
-                    .frame(width: ExportGrid.switchWidth)
+                    .frame(width: ExportGrid.segmentedWidth(for: whereLabels))
                     .opacity(inert ? ExportGrid.quiet : 1)
                     .disabled(build.running)
                     .padTarget("set.build.export.where", scope: "main", enabled: !inert && !build.running, activate: { changeDestination() }, adjust: { _ in changeDestination() })
@@ -170,7 +172,7 @@ package struct ExportSteps: View {
     }
 
     private var deviceRow: some View {
-        HStack(spacing: ExportGrid.gap) {
+        VStack(alignment: .leading, spacing: ExportGrid.tight) {
             HStack(spacing: ExportGrid.tight) {
                 LauncherDropdown(options: deviceOptions, selection: devices.installDevice, label: loc.t("dev.target"),
                                  style: .button, fill: true, leading: true) { devices.installDevice = $0 }
@@ -178,9 +180,12 @@ package struct ExportSteps: View {
                     .padTarget("set.build.export.device", scope: "main", enabled: !inert && !build.running, activate: { stepDevice(1) }, adjust: stepDevice)
                 RefreshDevicesButton(devices: devices)
             }
-            action(loc.t("shell.sendButton"), id: "send", enabled: build.canSendToDevice) { build.sendGameData() }
-            action(loc.t("shell.selectGamesButton"), id: "sendAll", enabled: build.canSendAllGameData) { selectSheetMode = .device }
-                .help(loc.t("shell.sendAllNote"))
+            HStack(spacing: ExportGrid.gap) {
+                Spacer(minLength: 0)
+                action(loc.t("shell.sendButton"), id: "send", enabled: build.canSendToDevice) { build.sendGameData() }
+                action(loc.t("shell.selectGamesButton"), id: "sendAll", enabled: build.canSendAllGameData) { selectSheetMode = .device }
+                    .help(loc.t("shell.sendAllNote"))
+            }
         }
     }
 
@@ -245,7 +250,7 @@ package struct ExportSteps: View {
     // MARK: To a drive or folder
 
     private var driveRow: some View {
-        HStack(spacing: ExportGrid.gap) {
+        VStack(alignment: .leading, spacing: ExportGrid.tight) {
             HStack(spacing: ExportGrid.tight) {
                 // The folder, drawn as a field: the same height and text inset as the device's dropdown in the other mode.
                 let none = devices.driveFolder.isEmpty
@@ -253,7 +258,7 @@ package struct ExportSteps: View {
                     .font(none ? .manrope(13) : .mono(12)).foregroundStyle(none ? .tertiary : .primary)
                     .lineLimit(1).truncationMode(.middle)
                     .padding(.horizontal, 15)
-                    .frame(maxWidth: .infinity, minHeight: LauncherControl.height, maxHeight: LauncherControl.height, alignment: .leading)
+                    .frame(minWidth: 200, maxWidth: .infinity, minHeight: LauncherControl.height, maxHeight: LauncherControl.height, alignment: .leading)
                     .background(ExportGrid.well, in: RoundedRectangle(cornerRadius: 9))
                     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(LauncherPalette.ink(0.08)))
                     .opacity(inert ? ExportGrid.quiet : 1)
@@ -262,13 +267,16 @@ package struct ExportSteps: View {
                     .disabled(build.running)
                     .padTarget("set.build.export.folder", scope: "main", enabled: !inert && !build.running) { if !build.running { build.chooseDriveFolder() } }
             }
-            if copying {
-                action(loc.t("btn.stop"), id: "stop", accent: LauncherPalette.building) { build.stopDriveCopy() }
-            } else {
-                action(loc.t("shell.driveCopy"), id: "copy", enabled: build.canCopyToDrive) { build.copyToDrive() }
-                if !build.sharedAppDataSources().isEmpty {
-                    action(loc.t("shell.selectGamesButton"), id: "selectDrive", enabled: build.canSelectGamesForDrive) { selectSheetMode = .drive }
-                        .help(loc.t("shell.selectGamesDriveNote"))
+            HStack(spacing: ExportGrid.gap) {
+                Spacer(minLength: 0)
+                if copying {
+                    action(loc.t("btn.stop"), id: "stop", accent: LauncherPalette.building) { build.stopDriveCopy() }
+                } else {
+                    action(loc.t("shell.driveCopy"), id: "copy", enabled: build.canCopyToDrive) { build.copyToDrive() }
+                    if !build.sharedAppDataSources().isEmpty {
+                        action(loc.t("shell.selectGamesButton"), id: "selectDrive", enabled: build.canSelectGamesForDrive) { selectSheetMode = .drive }
+                            .help(loc.t("shell.selectGamesDriveNote"))
+                    }
                 }
             }
         }
@@ -381,9 +389,26 @@ enum ExportGrid {
     static let gap: CGFloat = 12        // a control group to the action
     static let tight: CGFloat = 8       // a control to its own small button
     static let noteGap: CGFloat = 12    // the controls to the notes under them
-    static let switchWidth: CGFloat = 330   // the two switches of the card are equally wide and end on one edge
+    static let switchWidth: CGFloat = 330   // fallback default
     static let quiet: Double = 0.45     // step 3 before there is an IPA, as a switched-off launcher switch
     static let well = LauncherPalette.well   // a field's inside: the folder, devicectl's own text
+
+    /// Adaptive equal-share width for two-option export switches so long translations (French/German) fit on one line.
+    static func segmentedWidth(for labels: [String], minWidth: CGFloat = 260, maxWidth: CGFloat = 440) -> CGFloat {
+        guard !labels.isEmpty else { return minWidth }
+        let maxLabel: CGFloat
+        if let ct = Typography.manropeFont(size: 12.5, weight: .bold) {
+            maxLabel = labels.map { label in
+                let attr = NSAttributedString(string: label, attributes: [kCTFontAttributeName as NSAttributedString.Key: ct])
+                return ceil(CTLineGetBoundsWithOptions(CTLineCreateWithAttributedString(attr), []).width) + 2
+            }.max() ?? 0
+        } else {
+            maxLabel = CGFloat(labels.map(\.count).max() ?? 0) * 8.2
+        }
+        let count = CGFloat(labels.count)
+        let needed = ceil((maxLabel + 24) * count + 6 + 2 * max(0, count - 1))
+        return min(max(minWidth, needed), maxWidth)
+    }
 }
 
 /// Shared manual-transfer instructions for the export and automatic-install failure cards.

@@ -11,8 +11,10 @@ struct FilesCard: View {
     @ObservedObject var build: BuildStore
     var library: GameLibrary? = nil
     var artworkStore: ArtworkStore = .shared
+    var fetchMetadata = true
     @State private var artwork: NSImage?
     @EnvironmentObject var loc: Localizer
+    @Environment(\.launcherSectionTitleFont) private var titleFont
     @Binding var extrasOpen: Bool   // the optional input rows, kept by the page so they stay as they were when it is left and back
     @State private var keyCheck: KeyCheck.DetailedOutcome?   // prod.keys against the chosen files (KeyCheck.swift)
 
@@ -96,10 +98,10 @@ struct FilesCard: View {
         .buttonStyle(DSRowButtonStyle())
         .task(id: (build.gameTitleID ?? "") + loc.lang.code) {
             artwork = nil
-            guard let id = build.gameTitleID else { return }
+            guard fetchMetadata, let id = build.gameTitleID else { return }
             let url = await artworkStore.fetchIcon(id, language: loc.lang.code)
             guard !Task.isCancelled, build.gameTitleID == id else { return }
-            if let url { artwork = NSImage(contentsOf: url) }
+            if let url { artwork = ArtworkImages.shared.image(at: url, maxPixel: 160) }
         }
         .task(id: currentKeyInputs) {
             let inputs = currentKeyInputs

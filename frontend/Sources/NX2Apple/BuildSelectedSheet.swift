@@ -27,6 +27,11 @@ struct BuildSelectedSheet: View {
     private var canAdd: Bool { candidates.contains { checked.contains($0.id) && available($0) } }
     private var sourceGames: [LibraryGame] { library.games.filter { $0.inputs[GameLibrary.folderInput] != nil || !($0.inputs["base"] ?? []).isEmpty } }
 
+    private var iconLoadKey: String {
+        let entries = sourceGames.map { "\($0.id.uuidString)|\($0.titleID)|\($0.appPath)|\($0.inputs["base"]?.first ?? "")" }
+        return loc.lang.code + "\n" + entries.joined(separator: "\n")
+    }
+
     private var candidates: [LibraryGame] { sourceGames.filter(available) }
 
     var body: some View {
@@ -76,10 +81,26 @@ struct BuildSelectedSheet: View {
         })
         .environment(\.padRingStyle, .hug)
         .padScope("batch", focus)
-        .task {
-            icons = Dictionary(uniqueKeysWithValues: sourceGames.compactMap { game in
-                GameLibrary.appIcon(for: game, banners: library.artworkDirectory).map { (game.id, $0) }
-            })
+        .task(id: iconLoadKey) {
+            let games = sourceGames
+            let banners = library.artworkDirectory
+            let language = loc.lang.code
+            let fallbackKeys = library.keysFile()
+            var loaded: [UUID: NSImage] = [:]
+            for game in games {
+                guard !Task.isCancelled else { return }
+                if let image = await GameLibrary.loadAppIcon(
+                    for: game,
+                    banners: banners,
+                    language: language,
+                    fallbackKeys: fallbackKeys,
+                    maxPixel: ArtworkImages.iconPixels
+                ) {
+                    loaded[game.id] = image
+                }
+            }
+            guard !Task.isCancelled else { return }
+            icons = loaded
         }
         .onChange(of: selectedTarget) { _ in
             checked.removeAll()

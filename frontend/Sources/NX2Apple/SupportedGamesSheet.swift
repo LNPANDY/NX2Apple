@@ -63,20 +63,13 @@ struct SupportedGamesSheet: View {
     }
 
     /// The search finds a game by its name, title ID, the owned game's name, the release its profile was improved in, and by the
-    /// words of its Widescreen property and its Improved tag (in `badgeName` and `improvedName`, else in every language).
-    static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String, badgeName: String = "", improvedName: String = "",
+    /// words of its Improved tag (in `improvedName`, else in every language).
+    static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String, improvedName: String = "",
                               appVersion: String = AppUpdateStore.appVersion) -> Bool {
         let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
         let updated = GameUpdateCatalog.catalogVersion(for: game.titleID) ?? ""
         var fields = [game.name, game.titleID, ownedName, updated]
-        if game.fullScreen {
-            if badgeName.isEmpty {
-                fields.append(contentsOf: Lang.all.map { L10n.string("widescreen.badge", $0) })
-            } else {
-                fields.append(badgeName)
-            }
-        }
         if isUpdatedInCurrentRelease(titleID: game.titleID, appVersion: appVersion) {
             if improvedName.isEmpty {
                 fields.append(contentsOf: Lang.all.compactMap { lang in improvedTag(for: game.titleID, appVersion: appVersion, t: { L10n.string($0, lang) }) })
@@ -89,13 +82,12 @@ struct SupportedGamesSheet: View {
         }
     }
 
-    /// The subtitle: the edition, the game version the profile was made with, Widescreen (a quiet property, no tag), and the release
+    /// The subtitle: the edition, the game version the profile was made with, and the release
     /// that last changed the profile unless it is this one (the Improved tag says that).
     static func detailText(for game: SupportedGame, appVersion: String = AppUpdateStore.appVersion, t: (String) -> String) -> String {
         var parts: [String] = []
         if game.edition == .switch2 { parts.append(t("switch2.badge")) }
         parts.append(game.version.map { String(format: t("supported.version"), $0) } ?? t("supported.noVersion"))
-        if game.fullScreen { parts.append(t("widescreen.badge")) }
         if let updated = GameUpdateCatalog.catalogVersion(for: game.titleID), !isUpdatedInCurrentRelease(titleID: game.titleID, appVersion: appVersion) {
             parts.append(String(format: t("supported.lastUpdated"), updated))
         }
@@ -103,9 +95,8 @@ struct SupportedGamesSheet: View {
     }
 
     var shown: [SupportedGame] {
-        let badge = loc.t("widescreen.badge")
-        return games.filter { game in
-            Self.matchesSearch(game, needle: search, ownedName: owned(game.titleID)?.displayName(loc.lang) ?? "", badgeName: badge,
+        games.filter { game in
+            Self.matchesSearch(game, needle: search, ownedName: owned(game.titleID)?.displayName(loc.lang) ?? "",
                                improvedName: improvedTag(game) ?? "", appVersion: appVersion)
         }
     }

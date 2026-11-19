@@ -683,6 +683,16 @@ class MainWindow(QMainWindow):
         )
         box.exec()
 
+    @staticmethod
+    def _library_build_tier(game: lib.LibraryGame, building_title_id: str = '') -> int:
+        if game.has_app:
+            return 0
+        if game.is_ready_for_ios:
+            return 1
+        if game.has_any_build or (building_title_id and game.title_id.upper() == building_title_id) or bool(game.app_path):
+            return 2
+        return 3
+
     def _filtered_games(self) -> list[lib.LibraryGame]:
         games = list(self.m.library.games)
         if self._library_filter == 'built':
@@ -690,7 +700,8 @@ class MainWindow(QMainWindow):
         if self._search_query:
             q = self._search_query.lower()
             games = [g for g in games if q in g.name.lower() or q in g.title_id.lower()]
-        return games
+        building_tid = (self.m.build_key or '').upper() if getattr(self.m, 'running', False) else ''
+        return sorted(games, key=lambda g: self._library_build_tier(g, building_tid))
 
     def _refresh_library(self) -> None:
         self._refresh_defender()
@@ -1368,6 +1379,14 @@ class MainWindow(QMainWindow):
         self.body_col.addStretch(1)
         return body
 
+    @staticmethod
+    def _experimental_badge_style() -> str:
+        return (
+            f'QLabel {{ color: {style.AMBER}; background: rgba(255, 189, 56, 36); '
+            f'border: 1px solid rgba(255, 189, 56, 92); border-radius: 9px; '
+            f'padding: 1px 7px; font-size: 11px; font-weight: 600; }}'
+        )
+
     def _build_engine_switcher_card(self) -> CardGroup:
         grp = CardGroup(title=self.m.t('engine.title'))
         self._eng_last_auto_rev = getattr(self.m, 'upstream_auto_switch_revision', 0)
@@ -1382,18 +1401,34 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.eng_active_dot)
 
         col = QVBoxLayout()
-        col.setSpacing(2)
-        self.eng_active_title = QLabel('nxnative · ' + self.m.t('upstream.builtinBadge'))
+        col.setSpacing(3)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(7)
+        self.eng_active_title = QLabel(self.m.t('engine.switcherTitle'))
         self.eng_active_title.setObjectName('rowTitle')
-        self.eng_active_sub = QLabel(self.m.t('upstream.nxnativeCardNote'))
+        self.eng_experimental_badge = QLabel(self.m.t('engine.experimental'))
+        self.eng_experimental_badge.setStyleSheet(self._experimental_badge_style())
+        title_row.addWidget(self.eng_active_title)
+        title_row.addWidget(self.eng_experimental_badge)
+        title_row.addStretch(1)
+
+        self.eng_active_sub = QLabel(self.m.t('engine.switcherNote'))
         self.eng_active_sub.setObjectName('muted')
         self.eng_active_sub.setWordWrap(True)
-        col.addWidget(self.eng_active_title)
+
+        self.eng_status_lbl = QLabel('')
+        self.eng_status_lbl.setStyleSheet(f'color: {style.AMBER}; font-size: 12px;')
+        self.eng_status_lbl.setWordWrap(True)
+        self.eng_status_lbl.setVisible(False)
+
+        col.addLayout(title_row)
         col.addWidget(self.eng_active_sub)
+        col.addWidget(self.eng_status_lbl)
         lay.addLayout(col, 1)
 
         self.eng_dropdown_btn = QPushButton('nxnative  ▾')
-        self.eng_dropdown_btn.setFixedWidth(168)
+        self.eng_dropdown_btn.setMinimumWidth(168)
         self.eng_dropdown_btn.setCursor(Qt.PointingHandCursor)
         self.eng_dropdown_btn.clicked.connect(self._toggle_engine_dropdown)
         lay.addWidget(self.eng_dropdown_btn)
@@ -1413,7 +1448,7 @@ class MainWindow(QMainWindow):
 
         popup = QFrame(self, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         popup.setObjectName('engineDropdownPopup')
-        popup.setFixedWidth(376)
+        popup.setFixedWidth(436)
         popup.setStyleSheet(
             f'QFrame#engineDropdownPopup {{ background: {style.SURFACE}; border: 1px solid {style.BORDER}; border-radius: 12px; }}'
             f'QFrame#engPopupRow {{ background: transparent; border-radius: 8px; }}'
@@ -1427,7 +1462,7 @@ class MainWindow(QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setMaximumHeight(260)
+        scroll.setMaximumHeight(280)
 
         inner = QWidget()
         inner.setStyleSheet('background: transparent;')
@@ -1447,8 +1482,18 @@ class MainWindow(QMainWindow):
 
             tcol = QVBoxLayout()
             tcol.setSpacing(3)
+            hdr = QHBoxLayout()
+            hdr.setContentsMargins(0, 0, 0, 0)
+            hdr.setSpacing(6)
             title_lbl = QLabel(upstream_store.upstream_display_name(kind))
             title_lbl.setObjectName('rowTitle')
+            exp_badge = QLabel(self.m.t('engine.experimental'))
+            exp_badge.setStyleSheet(self._experimental_badge_style())
+            exp_badge.setVisible(not upstream_store.upstream_is_builtin(kind))
+            hdr.addWidget(title_lbl)
+            hdr.addWidget(exp_badge)
+            hdr.addStretch(1)
+
             pbar = QProgressBar()
             pbar.setFixedHeight(6)
             pbar.setTextVisible(False)
@@ -1456,13 +1501,13 @@ class MainWindow(QMainWindow):
             sub_lbl = QLabel(self.m.t(upstream_store.upstream_note_key(kind)))
             sub_lbl.setObjectName('muted')
             sub_lbl.setWordWrap(True)
-            tcol.addWidget(title_lbl)
+            tcol.addLayout(hdr)
             tcol.addWidget(pbar)
             tcol.addWidget(sub_lbl)
             rlay.addLayout(tcol, 1)
 
             act_btn = QPushButton()
-            act_btn.setFixedWidth(104)
+            act_btn.setMinimumWidth(104)
             act_btn.setCursor(Qt.PointingHandCursor)
             act_btn.clicked.connect(lambda _=False, k=kind: self._on_engine_popup_action(k))
             rlay.addWidget(act_btn)
@@ -1481,6 +1526,7 @@ class MainWindow(QMainWindow):
                 'frame': item_frame,
                 'dot': dot,
                 'title': title_lbl,
+                'exp_badge': exp_badge,
                 'bar': pbar,
                 'sub': sub_lbl,
                 'btn': act_btn,
@@ -1504,7 +1550,7 @@ class MainWindow(QMainWindow):
             w['frame'].sizeHint().height()  # type: ignore[union-attr]
             for w in self._eng_popup_rows.values()
         ) + max(0, len(self._eng_popup_rows) - 1) * 4 + 20
-        popup.setFixedHeight(min(max(content_h, 64), 260))
+        popup.setFixedHeight(min(max(content_h, 64), 280))
         btn_bl = self.eng_dropdown_btn.mapToGlobal(QPoint(self.eng_dropdown_btn.width() - popup.width(), self.eng_dropdown_btn.height() + 6))
         popup.move(btn_bl)
         popup.show()
@@ -1538,12 +1584,15 @@ class MainWindow(QMainWindow):
             frame: QFrame = refs['frame']  # type: ignore[assignment]
             dot: StatusDot = refs['dot']  # type: ignore[assignment]
             title_lbl: QLabel = refs['title']  # type: ignore[assignment]
+            exp_badge: QLabel = refs['exp_badge']  # type: ignore[assignment]
             pbar: QProgressBar = refs['bar']  # type: ignore[assignment]
             sub_lbl: QLabel = refs['sub']  # type: ignore[assignment]
             btn: QPushButton = refs['btn']  # type: ignore[assignment]
 
             disp = upstream_store.upstream_display_name(kind)
             is_builtin = upstream_store.upstream_is_builtin(kind)
+            exp_badge.setText(t('engine.experimental'))
+            exp_badge.setVisible(not is_builtin)
             is_active = active_kind == kind
             st_kind, frac, detail = self.m.upstream_state(kind)
 
@@ -1605,22 +1654,27 @@ class MainWindow(QMainWindow):
         self.engine_group.set_title(t('engine.title'))
         active_kind = getattr(self.m, 'build_upstream', 'nxnative')
         disp = upstream_store.upstream_display_name(active_kind)
-        badge = t('upstream.builtinBadge' if upstream_store.upstream_is_builtin(active_kind) else 'upstream.installedBadge')
-        self.eng_active_title.setText(f'{disp} · {badge}')
+        self.eng_active_title.setText(t('engine.switcherTitle'))
+        self.eng_experimental_badge.setText(t('engine.experimental'))
+        self.eng_active_sub.setText(t('engine.switcherNote'))
 
-        busy_line = ''
+        status_line = ''
         for kind in upstream_store.available_upstreams():
             st_kind, _frac, detail = self.m.upstream_state(kind)
             if st_kind == 'downloading':
                 prog = t('upstream.downloadingProgress', detail) if detail else t('upstream.downloading')
-                busy_line = f'{upstream_store.upstream_display_name(kind)} · {prog}'
+                status_line = f'{upstream_store.upstream_display_name(kind)} · {prog}'
                 break
             if st_kind == 'extracting':
-                busy_line = f"{upstream_store.upstream_display_name(kind)} · {t('upstream.extracting')}"
+                status_line = f"{upstream_store.upstream_display_name(kind)} · {t('upstream.extracting')}"
                 break
+            if st_kind == 'failed' and not status_line:
+                msg = t('upstream.downloadFailed' if detail == 'download' else 'upstream.extractFailed')
+                status_line = f'{upstream_store.upstream_display_name(kind)} · {msg}'
 
-        _set_dot(self.eng_active_dot, style.AMBER if busy_line else style.GREEN)
-        self.eng_active_sub.setText(busy_line if busy_line else t(upstream_store.upstream_note_key(active_kind)))
+        _set_dot(self.eng_active_dot, style.AMBER if status_line else style.GREEN)
+        self.eng_status_lbl.setText(status_line)
+        self.eng_status_lbl.setVisible(bool(status_line))
         self.eng_dropdown_btn.setText(f'{disp}  ▾')
         self.eng_dropdown_btn.setEnabled(not self.m.running)
         if self.m.running and self._eng_popup is not None and self._eng_popup.isVisible():
@@ -1632,7 +1686,7 @@ class MainWindow(QMainWindow):
                     w['frame'].sizeHint().height()  # type: ignore[union-attr]
                     for w in self._eng_popup_rows.values()
                 ) + max(0, len(self._eng_popup_rows) - 1) * 4 + 20
-                self._eng_popup.setFixedHeight(min(max(content_h, 64), 260))
+                self._eng_popup.setFixedHeight(min(max(content_h, 64), 280))
 
     def _build_setup_hint_card(self) -> CardGroup:
         grp = CardGroup(title=self.m.t('section.setup'))

@@ -24,12 +24,10 @@ package struct SupportedGame: Identifiable, Equatable {
     package let version: String?
     /// The first paragraph of the profile's README, markup removed, at most `SupportedGames.noteLimit` characters. Empty without a README.
     package let notes: String
-    /// Whether the profile sets `screen_aspect` (`on`, `wide` or `both`) for full-screen or wide display aspect ratios.
-    package let fullScreen: Bool
     package var id: String { titleID }
 
-    package init(titleID: String, name: String, edition: GameEdition, version: String?, notes: String, fullScreen: Bool = false) {
-        self.titleID = titleID; self.name = name; self.edition = edition; self.version = version; self.notes = notes; self.fullScreen = fullScreen
+    package init(titleID: String, name: String, edition: GameEdition, version: String?, notes: String) {
+        self.titleID = titleID; self.name = name; self.edition = edition; self.version = version; self.notes = notes
     }
 }
 
@@ -50,7 +48,7 @@ package enum SupportedGames {
 
     package static func read(_ folder: URL) -> SupportedGame? {
         guard let text = try? String(contentsOf: folder.appendingPathComponent("game.tsv"), encoding: .utf8) else { return nil }
-        var titleID = "", name = "", package = "", fullScreen = false
+        var titleID = "", name = "", package = ""
         var builds: [String: String] = [:]   // package id -> display version
         var first = ""
         for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
@@ -62,16 +60,13 @@ package enum SupportedGames {
             case "name": name = cols[1]
             case "package": if package.isEmpty { package = cols[1] }
             case "build": if cols.count >= 3, builds[cols[1]] == nil { builds[cols[1]] = cols[2] }
-            case "screen_aspect":
-                let aspect = cols[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                fullScreen = !aspect.isEmpty && aspect != "off"
             default: break
             }
         }
         guard titleID.count == 16, !name.isEmpty else { return nil }
         let shown = builds[package].flatMap { $0.isEmpty || $0 == "?" ? nil : $0 } ?? (package.isEmpty ? nil : package)
         return SupportedGame(titleID: titleID, name: name, edition: GameEdition.parse(headerLine: first), version: shown,
-                             notes: notes(readme: folder.appendingPathComponent("README.md")), fullScreen: fullScreen)
+                             notes: notes(readme: folder.appendingPathComponent("README.md")))
     }
 
     /// The first paragraph after the README's title line, with backticks and links reduced to their words, cut at a sentence end when too long.

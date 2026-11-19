@@ -10,6 +10,7 @@ struct BuildMetadataHero<Trailing: View>: View {
     @ObservedObject var build: BuildStore
     var library: GameLibrary?
     var artworkStore: ArtworkStore = .shared
+    var fetchMetadata = true
     var queueGames: [QueueGame] = []
     var queueArtwork: (QueueEntry) -> NSImage? = { _ in nil }
     var platformTargets: [String] = []
@@ -76,9 +77,34 @@ struct BuildMetadataHero<Trailing: View>: View {
         .task(id: (titleID ?? "") + loc.lang.code) {
             icon = nil; metadataName = nil
             guard let id = titleID else { return }
+            // the icon from the game's own files first (offline), the shop's after
+            if let game {
+                let offlineIcon = await GameLibrary.loadAppIcon(
+                    for: game,
+                    banners: artworkStore.directory,
+                    language: loc.lang.code,
+                    fallbackKeys: library?.keysFile() ?? "",
+                    maxPixel: ArtworkImages.iconPixels
+                )
+                guard !Task.isCancelled, titleID == id else { return }
+                if let offlineIcon { icon = offlineIcon }
+            } else {
+                let offlineIcon = await GameLibrary.loadAppIcon(
+                    titleID: id,
+                    appPath: build.macAppPath,
+                    banners: artworkStore.directory,
+                    maxPixel: ArtworkImages.iconPixels
+                )
+                guard !Task.isCancelled, titleID == id else { return }
+                if let offlineIcon { icon = offlineIcon }
+            }
+            guard fetchMetadata else { return }
             let iconURL = await artworkStore.fetchIcon(id, language: loc.lang.code)
             guard !Task.isCancelled, titleID == id else { return }
-            if let iconURL { icon = NSImage(contentsOf: iconURL) }
+            if let iconURL, let online = await ArtworkImages.shared.loadImage(at: iconURL, maxPixel: ArtworkImages.iconPixels) {
+                guard !Task.isCancelled, titleID == id else { return }
+                icon = online
+            }
             if game == nil {
                 let name = await artworkStore.cachedName(id, language: loc.lang.code)
                 guard !Task.isCancelled, titleID == id else { return }
@@ -89,9 +115,9 @@ struct BuildMetadataHero<Trailing: View>: View {
 }
 
 extension BuildMetadataHero where Trailing == EmptyView {
-    init(build: BuildStore, library: GameLibrary? = nil, artworkStore: ArtworkStore = .shared, queueGames: [QueueGame] = [],
+    init(build: BuildStore, library: GameLibrary? = nil, artworkStore: ArtworkStore = .shared, fetchMetadata: Bool = true, queueGames: [QueueGame] = [],
          queueArtwork: @escaping (QueueEntry) -> NSImage? = { _ in nil }, platformTargets: [String] = [], statusLine: String = "") {
-        self.init(build: build, library: library, artworkStore: artworkStore, queueGames: queueGames, queueArtwork: queueArtwork,
+        self.init(build: build, library: library, artworkStore: artworkStore, fetchMetadata: fetchMetadata, queueGames: queueGames, queueArtwork: queueArtwork,
                   platformTargets: platformTargets, statusLine: statusLine, trailing: { EmptyView() })
     }
 }

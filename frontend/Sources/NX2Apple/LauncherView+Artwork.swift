@@ -16,6 +16,7 @@ extension LauncherView {
 
     func refreshArtwork() {
         previewGeneration += 1
+        heroIcon = nil
         artwork = Dictionary(uniqueKeysWithValues: library.games.compactMap { game in
             GameLibrary.artwork(for: displayed(game), slot: .thumbnail, repo: stores.repo.path, banners: library.artworkDirectory, maxPixel: ArtworkImages.cardPixels).map { (game.id, $0) }
         })
@@ -38,16 +39,41 @@ extension LauncherView {
     }
 
     /// The eShop key art of the games that have none yet, in the launcher's language: the cards and the hero redraw as it arrives.
-    /// A change of language picks every banner again (ArtworkStore.fetchMissing).
+    /// A change of language picks every banner again (ArtworkStore.fetchMissing). Also warms offline Control NCA icons in the
+    /// background for local unbuilt ROMs that lack a dedicated square icon.
     func fetchArtwork() {
-        let ids = library.games.map(\.titleID), language = loc.lang.code, store = artworkStore
+        let games = library.games
+        let ids = games.map(\.titleID), language = loc.lang.code, store = artworkStore
+        let banners = library.artworkDirectory, fallbackKeys = library.keysFile()
+        let allowRemote = performStartupChecks || artworkStore !== ArtworkStore.shared
         artworkFetchGeneration &+= 1
         let generation = artworkFetchGeneration
-        Task {
-            let added = await store.fetchMissing(ids, language: language)
-            guard !added.isEmpty else { return }
+        if allowRemote {
+            Task {
+                let added = await store.fetchMissing(ids, language: language)
+                guard !added.isEmpty else { return }
+                await MainActor.run {
+                    guard artworkFetchGeneration == generation, loc.lang.code == language else { return }
+                    refreshArtwork()
+                }
+            }
+        }
+        Task.detached(priority: .utility) {
+            var extractedAny = false
+            for game in games where !GameLibrary.hasDedicatedIcon(for: game, banners: banners) {
+                if let url = PackageControl.extractControlIcon(
+                    from: game,
+                    preferredLanguage: language,
+                    fallbackKeys: fallbackKeys,
+                    artworkDirectory: banners
+                ) {
+                    ArtworkImages.shared.invalidate(at: url)
+                    extractedAny = true
+                }
+            }
+            guard extractedAny else { return }
             await MainActor.run {
-                guard artworkFetchGeneration == generation, loc.lang.code == language else { return }
+                guard artworkFetchGeneration == generation else { return }
                 refreshArtwork()
             }
         }

@@ -67,7 +67,7 @@ import NXLauncher
     }
 
     func view(_ scene: GalleryScene, size: CGSize? = nil) -> AnyView {
-        let (stores, defaults) = makeStores(widescreen: scene == .libraryWidescreen)
+        let (stores, defaults) = makeStores()
         let library = makeLibrary(count: scene.gameCount)
         let hero = library.games.first?.id
         let controls = ControlLayout(defaults: defaults)
@@ -82,7 +82,7 @@ import NXLauncher
         }
         let root: AnyView
         switch scene {
-        case .libraryGames, .libraryFew, .libraryEmpty, .libraryNarrow, .libraryWidescreen:
+        case .libraryGames, .libraryFew, .libraryEmpty, .libraryNarrow:
             root = AnyView(launcher(.library))
         case .libraryEngineSyncing:
             stores.engineSync.showSyncingForGallery()
@@ -116,9 +116,9 @@ import NXLauncher
             root = AnyView(launcher(.library, search: "Lantern"))
         case .allGamesNoResults:
             root = AnyView(launcher(.library, search: "Zebra Quest"))
-        case .gameOptions:   // the launch options of a built widescreen game: the Picture row says it fills the screen natively
+        case .gameOptions:   // the launch options of a built game
             let id = makeMacApp(for: 0, in: library)
-            root = AnyView(LaunchOptionsView(m: stores.build, library: library, gameID: id ?? UUID(), widescreen: true)
+            root = AnyView(LaunchOptionsView(m: stores.build, library: library, gameID: id ?? UUID())
                 .environmentObject(stores.saveSettings).environmentObject(stores.players))
         case .addGame:
             root = AnyView(launcher(.builds, editor: true))
@@ -265,7 +265,7 @@ import NXLauncher
     }
 
     /// Stores with nothing of the player's: a private defaults suite, no process (GalleryProcessRunner), no release source.
-    private func makeStores(widescreen: Bool = false) -> (LauncherStores, UserDefaults) {
+    private func makeStores() -> (LauncherStores, UserDefaults) {
         let suite = "nx.gallery." + UUID().uuidString
         suites.append(suite)
         let defaults = UserDefaults(suiteName: suite) ?? UserDefaults()
@@ -277,12 +277,11 @@ import NXLauncher
         let marker = engine.appendingPathComponent(EngineLayout.marker)
         try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? Data().write(to: marker)
-        // a verified profile for every fixture game, the first one with a widescreen aspect in the widescreen scene
-        for (index, game) in catalog.enumerated() {
+        // a verified profile for every fixture game
+        for game in catalog {
             let folder = engine.appendingPathComponent("dm/games/" + game.titleID, isDirectory: true)
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let aspect = widescreen && index == 0 ? "screen_aspect\tauto\n" : ""
-            try? "title_id\t\(game.titleID)\nname\t\(game.name)\n\(aspect)".write(to: folder.appendingPathComponent("game.tsv"), atomically: true, encoding: .utf8)
+            try? "title_id\t\(game.titleID)\nname\t\(game.name)\n".write(to: folder.appendingPathComponent("game.tsv"), atomically: true, encoding: .utf8)
         }
         stores.repo.path = engine.path
         stores.dependencies.checked = true

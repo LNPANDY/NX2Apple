@@ -187,7 +187,7 @@ extension GalleryFixtures {
         case .supportedGames, .supportedGamesExpanded:
             let supported = catalog.enumerated().map { index, entry in
                 SupportedGame(titleID: entry.titleID, name: entry.name, edition: .switch1, version: index % 3 == 0 ? nil : "1.\(index).0",
-                              notes: index == 0 ? "Runs at full speed. The first start compiles its shaders, which takes a few minutes." : "", fullScreen: index % 4 == 1)
+                              notes: index == 0 ? "Runs at full speed. The first start compiles its shaders, which takes a few minutes." : "")
             }
             return AnyView(SupportedGamesSheet(games: supported, owned: { id in library.games.first { $0.titleID.uppercased() == id.uppercased() } },
                                                covers: .saved(in: library.artworkDirectory, maxPixel: SupportedGamesSheet.coverPixels), showInLibrary: { _ in },

@@ -21,8 +21,8 @@ import XCTest
         return (file, games)
     }
 
-    /// Supported games lives beside New build on the Builds page and remains controller reachable.
-    func testBuildsHeaderShowsSupportedGamesBesideNewBuild() throws {
+    /// Supported games lives in the Library collection header and remains controller reachable; the single-screen Builds workbench stays free of duplicate header controls.
+    func testLibraryHeaderShowsSupportedGamesAndBuildsHeaderStaysClean() throws {
         let (file, games) = try libraryFile()
         for width in [CGFloat(900), 1440] {
             let stores = LauncherStores(defaults: testDefaults)
@@ -37,16 +37,14 @@ import XCTest
             library.selectedID = games[0].id
             let focus = PadFocus()
             let window = OffscreenWindow(size: NSSize(width: width, height: 760))
-            window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false, padFocus: focus))
+            window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library, initialPage: .library, performStartupChecks: false, padFocus: focus))
             window.orderFront(nil)
-            defer { window.orderOut(nil) }
+            defer { window.contentView = nil; window.orderOut(nil); window.close() }
             settle()
             let frames = try XCTUnwrap(focus.frames["main"])
-            let button = try XCTUnwrap(frames.first { $0.id == "builds.supported" }?.frame, "the header shows Supported games at \(width)")
-            let sort = try XCTUnwrap(frames.first { $0.id == "builds.first" }?.frame)
-            XCTAssertLessThan(button.maxX, sort.minX, "before New build")
-            XCTAssertEqual(button.height, sort.height, accuracy: 1, "same height as New build")
-            XCTAssertEqual(button.midY, sort.midY, accuracy: 1, "on New build's line")
+            let button = try XCTUnwrap(frames.first { $0.id == "library.supported" }?.frame, "the library header shows Supported games at \(width)")
+            XCTAssertGreaterThan(button.width, 0)
+            XCTAssertGreaterThan(button.height, 0)
         }
     }
 
@@ -175,7 +173,7 @@ import XCTest
         XCTAssertFalse(SupportedGamesSheet.matchesSearch(olderCatalogGame, needle: "improved", ownedName: "", appVersion: "1.5.0"))
         XCTAssertTrue(olderDetail.contains("1.4.0"), olderDetail)
         XCTAssertEqual(SupportedGamesSheet.shortVersion("1.2.2"), "1.2.2")
-        let noVersion = SupportedGame(titleID: "0100000000009998", name: "No Version", edition: .switch1, version: nil, notes: "", fullScreen: true)
+        let noVersion = SupportedGame(titleID: "0100000000009998", name: "No Version", edition: .switch1, version: nil, notes: "")
         XCTAssertEqual(SupportedGamesSheet.detailText(for: noVersion, appVersion: "1.5.0", t: en), "Profile version unknown · Widescreen",
                        "Widescreen is a property in the subtitle, not a tag")
         XCTAssertEqual(uncatalogedDetail, String(format: L10n.string("supported.version", .en), "1.0.0"))
@@ -192,10 +190,5 @@ import XCTest
         XCTAssertEqual(state.supportedShown.map(\.titleID), [olderCatalogGame.titleID])
         state.supportedText = "9.9.9"
         XCTAssertTrue(state.supportedShown.isEmpty)
-
-        let fullScreenGame = SupportedGame(titleID: "01006F8002326000", name: "Animal Crossing: New Horizons", edition: .switch1, version: "3.0.3", notes: "", fullScreen: true)
-        XCTAssertTrue(SupportedGamesSheet.matchesSearch(fullScreenGame, needle: "Widescreen", ownedName: "", badgeName: L10n.string("widescreen.badge", .en)))
-        XCTAssertTrue(SupportedGamesSheet.matchesSearch(fullScreenGame, needle: "宽屏", ownedName: "", badgeName: L10n.string("widescreen.badge", .zh)))
-        XCTAssertFalse(SupportedGamesSheet.matchesSearch(currentGame, needle: "Widescreen", ownedName: "", badgeName: L10n.string("widescreen.badge", .en)))
     }
 }

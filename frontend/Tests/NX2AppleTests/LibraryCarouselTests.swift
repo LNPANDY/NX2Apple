@@ -98,35 +98,6 @@ import XCTest
         XCTAssertGreaterThan(Double(pixel.blueComponent - pixel.redComponent), 0.3, "the cover keeps its colour, not grey")
     }
 
-    /// A widescreen game says so as a quiet line under its title, not as a status chip (#1458).
-    func testWidescreenIsAQuietLineInTheHero() throws {
-        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")   // SwiftUI builds its accessibility tree
-        let previous = NSApplication.shared.accessibilityAttributeValue(enhanced)
-        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
-        defer { NSApplication.shared.accessibilitySetValue(previous ?? false, forAttribute: enhanced) }
-        let fixtures = GalleryFixtures()
-        let host = NSHostingView(rootView: fixtures.view(.libraryWidescreen))
-        let window = OffscreenWindow(size: NSSize(width: GalleryScene.size.width, height: GalleryScene.size.height))
-        window.contentView = host; window.orderFront(nil); settle(0.8)
-        defer { window.orderOut(nil); window.contentView = nil; window.close() }
-        let labels = Self.texts(in: host)
-        XCTAssertTrue(labels.contains(L10n.string("widescreen.badge", .en)), "the hero shows Widescreen: \(labels)")
-    }
-
-    private static func texts(in view: NSView) -> [String] {
-        var out: [String] = []
-        func visit(_ node: NSObject) {
-            for selector in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
-                let sel = NSSelectorFromString(selector)
-                if node.responds(to: sel), let value = node.perform(sel)?.takeUnretainedValue() as? String, !value.isEmpty { out.append(value) }
-            }
-            let children = NSSelectorFromString("accessibilityChildren")
-            if node.responds(to: children), let list = node.perform(children)?.takeUnretainedValue() as? [NSObject] { list.forEach(visit) }
-        }
-        visit(view)
-        return out
-    }
-
     func testBackLeavesAllGames() throws {
         let (_, pad, _, _) = try host(games: 14, allGames: true)
         XCTAssertTrue(ids(pad).contains("allGames.back"))

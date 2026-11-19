@@ -8,7 +8,8 @@ import NXLauncher
 struct BuildProcessCard: View {
     @ObservedObject var build: BuildStore
     var availableHeight: CGFloat = 0
-    let logOpen: Bool
+    var logOpen = false
+    var onShowSteps: (() -> Void)? = nil   // every stage is a row here, so the steps sheet is not offered
     @EnvironmentObject private var loc: Localizer
 
     private var stages: [Stage] { build.stages.isEmpty ? [Stage(id: -1, name: loc.t("library.preparing"))] : build.stages }
@@ -133,13 +134,16 @@ struct BuildProcessRows: View {
                         }
                     }.font(.system(size: 15)).frame(width: DS.Control.leadingSlot, height: DS.Control.leadingSlot)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage.state)
-                    Text(stage.displayName(loc.t)).font(DS.Font.body).lineLimit(1)
+                    Text(stage.displayName(loc.t)).font(DS.Font.body).lineLimit(1).truncationMode(.tail)
                         .foregroundStyle(stage.state == .pending ? DS.Color.textTertiary : stage.state == .done ? DS.Color.textSecondary : DS.Color.textPrimary)
                     Spacer(minLength: DS.Space.xs)
                     TimelineView(.periodic(from: Date(), by: 1)) { context in
-                        Text(stage.state == .running ? stage.clock(at: context.date, left: loc.t("prog.etaEstimate")) : "")
-                            .font(DS.Font.callout).monospacedDigit().foregroundStyle(DS.Color.textSecondary).lineLimit(1)
-                    }
+                        let clock = stage.state == .running ? stage.clock(at: context.date, left: loc.t("prog.etaEstimate")) : ""
+                        let detail = stage.state == .running ? stage.detail : ""
+                        Text([detail, clock].filter { !$0.isEmpty }.joined(separator: " · "))
+                            .font(DS.Font.callout).monospacedDigit().foregroundStyle(DS.Color.textSecondary)
+                            .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    }.layoutPriority(1)
                     Text(stage.state == .running ? stage.percent.map { "\(Int($0))%" } ?? "" : "")
                         .font(DS.Font.body).monospacedDigit().foregroundStyle(DS.Color.textPrimary).frame(width: 44, alignment: .trailing)
                 }.frame(height: 36)

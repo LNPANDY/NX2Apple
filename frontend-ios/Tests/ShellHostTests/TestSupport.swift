@@ -15,6 +15,7 @@ final class Sandbox: @unchecked Sendable {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("shellhost-\(UUID().uuidString)", isDirectory: true)
     var games: URL { root.appendingPathComponent("Games", isDirectory: true) }
     var appData: URL { root.appendingPathComponent("Documents/games", isDirectory: true) }
+    var banners: URL { root.appendingPathComponent("Documents/Banners", isDirectory: true) }
     let suite = "shellhost.tests.\(UUID().uuidString)."
 
     init() throws {
@@ -50,10 +51,13 @@ final class Sandbox: @unchecked Sendable {
 
     func config(chain: String? = "b-3f9a2c", os: OperatingSystemVersion = OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0),
                 updateURL: URL? = nil, open: @escaping @MainActor @Sendable (URL) -> Void = { _ in },
+                fetchBannerData: @escaping @Sendable (URL) async -> Data? = { _ in nil },
                 now: @escaping @Sendable () -> Date = { Date() }) -> ShellHostConfig {
         let suite = suite
-        return ShellHostConfig(gamesRoot: games, appDataRoot: appData, environment: HostEnvironment(chain: chain, osVersion: os),
-                               updateURL: updateURL, defaults: { UserDefaults(suiteName: suite + $0)! }, openURL: open, now: now)
+        return ShellHostConfig(gamesRoot: games, appDataRoot: appData, bannersRoot: banners,
+                               environment: HostEnvironment(chain: chain, osVersion: os),
+                               updateURL: updateURL, defaults: { UserDefaults(suiteName: suite + $0)! },
+                               openURL: open, fetchBannerData: fetchBannerData, now: now)
     }
 
     /// The game's app data folder with the marker file the orbit fixture's manifest names (not game data: an empty file).

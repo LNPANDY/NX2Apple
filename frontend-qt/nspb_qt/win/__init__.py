@@ -14,10 +14,10 @@ from __future__ import annotations
 #: cross-compiled objects must agree with it or the linker warns about platform versions.
 IOS_DEPLOYMENT = '26.0'
 
-#: CPU the host is compiled for. Matches the reference implementation that was verified on a
-#: real device; a lower core would leave performance on the table, a higher one (a18) would
-#: let clang emit instructions older iPads lack.
-IOS_CPU = 'apple-a16'
+#: CPU the host is compiled for. Matches `dm/ios/project.yml` (`apple-m1`), the oldest supported
+#: chip (M1 iPad): provides LSE atomics without promising A15+ `I8MM` / `BF16` instructions that
+#: cause `dav1d` to trap with `SIGILL` on M1 iPads.
+IOS_CPU = 'apple-m1'
 
 #: Environment variable names this package sets for the build. They all carry the `NSPB_`
 #: prefix so they cannot collide with the upstream script's own vocabulary.

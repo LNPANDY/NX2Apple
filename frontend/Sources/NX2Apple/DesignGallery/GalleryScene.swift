@@ -5,7 +5,7 @@ import NXCore
 /// each one with fixture data. The titles are English only: the gallery is a developer window that ships to no player.
 enum GalleryScene: Hashable, Identifiable, CaseIterable {
     // Library
-    case libraryGames, libraryFew, libraryEmpty, libraryNarrow, libraryWidescreen
+    case libraryGames, libraryFew, libraryEmpty, libraryNarrow
     case libraryEngineSyncing, libraryEngineUpdate, libraryNoticeWarning, libraryNoticeError, librarySwitch2, libraryGatekeeper
     // All games
     case allGames, allGamesSearch, allGamesNoResults
@@ -59,7 +59,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     }
 
     static var allCases: [GalleryScene] {
-        [.libraryGames, .libraryFew, .libraryEmpty, .libraryNarrow, .libraryWidescreen,
+        [.libraryGames, .libraryFew, .libraryEmpty, .libraryNarrow,
          .libraryEngineSyncing, .libraryEngineUpdate, .libraryNoticeWarning, .libraryNoticeError, .librarySwitch2, .libraryGatekeeper,
          .allGames, .allGamesSearch, .allGamesNoResults, .gameOptions,
          .addGame, .addGameFound, .addGamePartial, .gamePage, .wizardPlatform, .wizardInstall, .buildsIdle, .buildsRunning,
@@ -86,7 +86,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
 
     var group: Group {
         switch self {
-        case .libraryGames, .libraryFew, .libraryEmpty, .libraryNarrow, .libraryWidescreen, .libraryEngineSyncing, .libraryEngineUpdate,
+        case .libraryGames, .libraryFew, .libraryEmpty, .libraryNarrow, .libraryEngineSyncing, .libraryEngineUpdate,
              .libraryNoticeWarning, .libraryNoticeError, .librarySwitch2, .libraryGatekeeper: return .library
         case .allGames, .allGamesSearch, .allGamesNoResults: return .allGames
         case .gameOptions: return .gameOptions
@@ -108,7 +108,6 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .libraryFew: return "Few games, no Show all"
         case .libraryEmpty: return "Empty library"
         case .libraryNarrow: return "Narrowest window"
-        case .libraryWidescreen: return "Widescreen game"
         case .libraryEngineSyncing: return "Notice: engine syncing"
         case .libraryEngineUpdate: return "Notice: engine update"
         case .libraryNoticeWarning: return "Notice: skipped files"

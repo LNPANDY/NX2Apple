@@ -148,6 +148,8 @@ final class GameLibrary: ObservableObject {
     private var scanGeneration = 0
     private var pendingRescanRepo: String?
     private let file: URL
+    private let artworkStateCache = LibraryArtworkStateCache()
+    private var activeObserver: NSObjectProtocol?
     let artworkDirectory: URL   // where this library's artwork lives: the store's, or a temporary one in tests
     private struct Snapshot: Codable {
         let games: [LibraryGame]
@@ -172,7 +174,28 @@ final class GameLibrary: ObservableObject {
             catch { self.error = error.localizedDescription }
         }
         pruneMissingPaths(volumes: volumes)
-        selectedID = games.first?.id
+        selectedID = defaultSelectedID()
+        activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.invalidateArtworkStates()
+        }
+    }
+
+    deinit {
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
+    }
+
+    func artworkState(for game: LibraryGame, building: Bool = false) -> LibraryArtworkState {
+        artworkStateCache.state(for: game, building: building)
+    }
+
+    func cachedArtworkStates(buildingID: UUID? = nil) -> [UUID: LibraryArtworkState] {
+        artworkStateCache.states(for: games, buildingID: buildingID)
+    }
+
+    func invalidateArtworkStates(for id: UUID? = nil) { artworkStateCache.invalidate(id: id) }
+
+    private func defaultSelectedID() -> UUID? {
+        LibrarySort.load().ordered(games, lang: Lang.initial(), states: cachedArtworkStates()).first?.id
     }
 
     /// A path on an external volume (`/Volumes/<name>/...`) whose mount point is absent: the drive is not connected, so the file is
@@ -200,7 +223,7 @@ final class GameLibrary: ObservableObject {
                 changed = true
             }
         }
-        if changed { save() }
+        if changed { invalidateArtworkStates(); save() }
     }
 
     var selected: LibraryGame? { games.first { $0.id == selectedID } }
@@ -487,7 +510,9 @@ final class GameLibrary: ObservableObject {
                     let knownIDs = Self.knownBaseTitleIDSet(from: self.games.map(\.titleID) + sources.map(\.titleID))
                     self.applySkippedItems(Self.resolveSkippedItems(rawSkipped, knownBaseTitleIDs: knownIDs))
                     self.pruneMissingPaths()
-                    self.selectedID = previousSelection ?? self.games.first?.id
+                    self.invalidateArtworkStates()
+                    let validPrevious = previousSelection.flatMap { id in self.games.contains { $0.id == id } ? id : nil }
+                    self.selectedID = validPrevious ?? self.defaultSelectedID()
                 }
                 if let nextRepo = self.pendingRescanRepo {
                     self.pendingRescanRepo = nil
@@ -619,7 +644,7 @@ final class GameLibrary: ObservableObject {
             guard let settings = LaunchSetting.read(app: game.appPath) else { continue }
             SavedChoices(app: game.appPath, titleID: game.titleID).preselectLanguage(settings)
         }
-        if changed { save() }
+        if changed { invalidateArtworkStates(); save() }
     }
 
     func resetLaunchOptions(for id: UUID) {
@@ -717,14 +742,16 @@ final class GameLibrary: ObservableObject {
 
     func remove(_ id: UUID) {
         games.removeAll { $0.id == id }
+        invalidateArtworkStates(for: id)
         try? FileManager.default.removeItem(at: ArtworkStore.customDirectory(for: id, in: artworkDirectory))   // our copies, never the game's files
-        if selectedID == id { selectedID = games.first?.id }
+        if selectedID == id { selectedID = defaultSelectedID() }
         save()
     }
 
     @discardableResult func upsert(_ game: LibraryGame) -> Bool {   // internal: LibraryGame+Names.swift
         if let index = games.firstIndex(where: { $0.id == game.id }) { games[index] = game }
         else { games.append(game) }
+        invalidateArtworkStates(for: game.id)
         if !skippedItems.isEmpty, game.titleID.count == 16, UInt64(game.titleID, radix: 16) != nil {
             let baseUpper = game.titleID.uppercased()
             applySkippedItems(skippedItems.filter { $0.expectedBaseTitleID != baseUpper })

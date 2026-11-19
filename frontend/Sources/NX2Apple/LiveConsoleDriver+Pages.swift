@@ -106,17 +106,43 @@ extension LiveConsoleDriver {
         buildQueue = queue
         var icons: [String: NSImage] = [:]
         var artwork: [String: NSImage] = [:]
+        var missingIconCheck: [String: (appPath: String, at: Date)] = [:]
+        var missingArtCheck: [String: (fingerprint: String, at: Date)] = [:]
+        let missingRecheckInterval: TimeInterval = 5
         let standaloneID = UUID()
         var pendingSnapshot: ConsoleBuilds?
         var settling: Task<Void, Never>?
         let update: () -> Void = { [weak self, weak build, weak queue] in
             guard let self, let build else { return }
+            let now = Date()
             let currentID = build.operation?.titleID ?? build.gameTitleID
             let titleIDs = Set((queue?.entries ?? []).map(\.titleID) + [currentID].compactMap { $0 })
-            for id in titleIDs where icons[id] == nil {
-                if let game = self.library.games.first(where: { $0.titleID.caseInsensitiveCompare(id) == .orderedSame }) {
-                    icons[id] = GameLibrary.appIcon(for: game, banners: self.library.artworkDirectory)
-                    artwork[id] = GameLibrary.artwork(for: game, repo: self.repo(), banners: self.library.artworkDirectory)
+            for id in titleIDs where icons[id] == nil || artwork[id] == nil {
+                guard let game = self.library.games.first(where: { $0.titleID.caseInsensitiveCompare(id) == .orderedSame }) else { continue }
+                if icons[id] == nil {
+                    let prev = missingIconCheck[id]
+                    let canCheck = prev == nil || prev!.appPath != game.appPath || now.timeIntervalSince(prev!.at) >= missingRecheckInterval
+                    if canCheck {
+                        if let icon = GameLibrary.appIcon(for: game, banners: self.library.artworkDirectory, maxPixel: ArtworkImages.iconPixels) {
+                            icons[id] = icon
+                            missingIconCheck.removeValue(forKey: id)
+                        } else {
+                            missingIconCheck[id] = (game.appPath, now)
+                        }
+                    }
+                }
+                if artwork[id] == nil {
+                    let fp = "\(game.artwork)|\(game.artworkPath)|\(game.appPath)"
+                    let prev = missingArtCheck[id]
+                    let canCheck = prev == nil || prev!.fingerprint != fp || now.timeIntervalSince(prev!.at) >= missingRecheckInterval
+                    if canCheck {
+                        if let art = GameLibrary.artwork(for: game, slot: .thumbnail, repo: self.repo(), banners: self.library.artworkDirectory, maxPixel: ArtworkImages.cardPixels) {
+                            artwork[id] = art
+                            missingArtCheck.removeValue(forKey: id)
+                        } else {
+                            missingArtCheck[id] = (fp, now)
+                        }
+                    }
                 }
             }
             let progress = build.buildingGame ? build.overallProgress : build.stages.first { $0.state == .running }?.percent.map { $0 / 100 }

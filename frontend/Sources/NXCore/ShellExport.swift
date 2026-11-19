@@ -170,7 +170,7 @@ extension ShellInstaller {
         // icon.png is the fallback): a game rebuilt since its last install gets its banner back too
         for game in library.games {
             let picked = game.titleID == titleID ? pickedArtwork : nil
-            if let banner = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked) {
+            if let banner = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked, ensureCached: ensureBanner) {
                 log("banner: \(game.titleID) \(banner)\n")
             }
         }

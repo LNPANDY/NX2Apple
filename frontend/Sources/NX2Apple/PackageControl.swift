@@ -1,23 +1,118 @@
 import Foundation
+import ImageIO
+import NXCore
 
-// The base game's control data (`control.nacp`) read straight from its package with the player's keys, for the names of a game
-// whose app was packed before `DMTitleNames` (LNPANDY/NX2Apple#895). The engine's nx_extract writes the control data only as part
-// of a full extraction, and it is a prebuilt binary whose sources the engine pins, so the launcher reads it itself, as
-// `PackageTitleID` reads the NCA headers: the package's file table (an NSP or NSZ is a PFS0, an XCI or XCZ keeps its NCAs in the
-// secure HFS0 partition), the Control NCA's header (header_key), its key (a common ticket's title key under titlekek_XX, else the
-// key area under key_area_key_<area>_XX), then its RomFS (AES-CTR), whose root holds control.nacp. Only a few kilobytes are read.
-// nsz leaves the Control NCA uncompressed. Key values are never logged or shown.
+// The base game's control data (`control.nacp`) and square icon (`icon_<Lang>.dat`) read straight from its package with the player's
+// keys, for the names of a game whose app was packed before `DMTitleNames` (LNPANDY/NX2Apple#895) and for offline square game icons.
+// The engine's nx_extract writes the control data only as part of a full extraction, and it is a prebuilt binary whose sources the
+// engine pins, so the launcher reads it itself, as `PackageTitleID` reads the NCA headers: the package's file table (an NSP or NSZ
+// is a PFS0, an XCI or XCZ keeps its NCAs in the secure HFS0 partition), the Control NCA's header (header_key), its key (a common
+// ticket's title key under titlekek_XX, else the key area under key_area_key_<area>_XX), then its RomFS (AES-CTR), whose root holds
+// `control.nacp` and `icon_<Lang>.dat` (256×256 JPEG). Only a few kilobytes are read. nsz leaves the Control NCA uncompressed. Key
+// values are never logged or shown.
 
 enum PackageControl {
+    /// Maximum size accepted for a Control NCA `icon_<Lang>.dat` JPEG (real 256×256 icons are ~10–120 KB).
+    private static let maxIconBytes: UInt64 = 512 << 10
+
     /// The control data of the package's Control NCA for `titleID` (any Control NCA when nil or when none has that ID), nil when the
     /// package cannot be read, has no control data or the keys do not open it.
     static func read(package path: String, keysFile: String, titleID: UInt64?) -> Data? {
-        guard let data = FileManager.default.contents(atPath: keysFile),
-              let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else { return nil }
-        return read(package: path, keys: KeyCheck.parseKeys(text), titleID: titleID)
+        guard let keys = loadKeys(from: keysFile) else { return nil }
+        return read(package: path, keys: keys, titleID: titleID)
     }
 
     static func read(package path: String, keys: [String: [UInt8]], titleID: UInt64?) -> Data? {
+        guard let opened = openControlNCAs(package: path, keys: keys, titleID: titleID) else { return nil }
+        for control in opened.controls {
+            guard let key = sectionKey(header: control.header, keys: keys, tickets: opened.tickets, file: opened.file),
+                  let nacp = controlNACP(opened.file, nca: control.entry.offset, header: control.header, key: key) else { continue }
+            return nacp
+        }
+        return nil
+    }
+
+    /// Reads the official 256×256 JPEG `icon_<Lang>.dat` directly from the Control NCA RomFS, preferring `preferredLanguage` and
+    /// falling back to the first valid non-empty `icon_*.dat` in the root directory.
+    static func readIcon(package path: String, keysFile: String, titleID: UInt64?, preferredLanguage: String = "en") -> Data? {
+        guard let keys = loadKeys(from: keysFile) else { return nil }
+        return readIcon(package: path, keys: keys, titleID: titleID, preferredLanguage: preferredLanguage)
+    }
+
+    static func readIcon(package path: String, keys: [String: [UInt8]], titleID: UInt64?, preferredLanguage: String = "en") -> Data? {
+        guard let opened = openControlNCAs(package: path, keys: keys, titleID: titleID) else { return nil }
+        for control in opened.controls {
+            guard let key = sectionKey(header: control.header, keys: keys, tickets: opened.tickets, file: opened.file),
+                  let icon = controlIcon(opened.file, nca: control.entry.offset, header: control.header, key: key, preferredLanguage: preferredLanguage) else { continue }
+            return icon
+        }
+        return nil
+    }
+
+    /// Offline extracts the official 256×256 Control NCA icon from a local NSP/NSZ/XCI/XCZ package and caches it at
+    /// `<artworkDirectory>/<TITLEID>/nacp-icon.jpg` without touching user-imported artwork or `icon.jpg`.
+    @discardableResult
+    static func extractControlIcon(
+        from packagePath: String,
+        keysFile: String,
+        titleID: String,
+        preferredLanguage: String = "en",
+        artworkDirectory: URL
+    ) -> URL? {
+        guard let keys = loadKeys(from: keysFile) else { return nil }
+        return extractControlIcon(from: packagePath, keys: keys, titleID: titleID, preferredLanguage: preferredLanguage, artworkDirectory: artworkDirectory)
+    }
+
+    @discardableResult
+    static func extractControlIcon(
+        from packagePath: String,
+        keys: [String: [UInt8]],
+        titleID: String,
+        preferredLanguage: String = "en",
+        artworkDirectory: URL
+    ) -> URL? {
+        guard let destination = BannerCache.nacpIconFile(titleID, in: artworkDirectory) else { return nil }
+        if isReadableIconFile(destination) { return destination }
+        let tid = UInt64(titleID, radix: 16)
+        guard let data = readIcon(package: packagePath, keys: keys, titleID: tid, preferredLanguage: preferredLanguage) else { return nil }
+        return writeNacpIcon(data, to: destination)
+    }
+
+    /// Offline extracts and caches `nacp-icon.jpg` for a library game, checking extracted `icon_*.dat` beside leftover `control.nacp`
+    /// first, then reading the base package's Control NCA RomFS with candidate keys.
+    @discardableResult
+    static func extractControlIcon(
+        from game: LibraryGame,
+        preferredLanguage: String = "en",
+        fallbackKeys: String = "",
+        artworkDirectory: URL,
+        fm: FileManager = .default
+    ) -> URL? {
+        guard let destination = BannerCache.nacpIconFile(game.titleID, in: artworkDirectory) else { return nil }
+        if isReadableIconFile(destination) { return destination }
+        if let leftoverDir = TitleNameLookup.leftoverControl(for: game, fm: fm)?.deletingLastPathComponent(),
+           let data = readLeftoverIcon(in: leftoverDir, preferredLanguage: preferredLanguage, fm: fm) {
+            return writeNacpIcon(data, to: destination)
+        }
+        guard let package = TitleNameLookup.packageFile(of: game, fm: fm) else { return nil }
+        let tid = UInt64(game.titleID, radix: 16)
+        for keysPath in TitleNameLookup.candidateKeys(of: game, fallbackKeys: fallbackKeys, fm: fm) {
+            if let data = readIcon(package: package, keysFile: keysPath, titleID: tid, preferredLanguage: preferredLanguage) {
+                return writeNacpIcon(data, to: destination)
+            }
+        }
+        return nil
+    }
+
+    private static func loadKeys(from keysFile: String) -> [String: [UInt8]]? {
+        guard !keysFile.isEmpty,
+              let data = FileManager.default.contents(atPath: keysFile),
+              let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else { return nil }
+        return KeyCheck.parseKeys(text)
+    }
+
+    private static func openControlNCAs(package path: String, keys: [String: [UInt8]], titleID: UInt64?)
+        -> (file: Reader, controls: [(entry: Entry, header: [UInt8], id: UInt64)], tickets: [Entry])? {
         guard let headerKey = keys["header_key"], headerKey.count == 32, let file = Reader(path) else { return nil }
         let entries = file.entries()
         var controls: [(entry: Entry, header: [UInt8], id: UInt64)] = []
@@ -25,11 +120,97 @@ enum PackageControl {
             guard let header = ncaHeader(file, at: entry.offset, key: headerKey), header[0x205] == 2 else { continue }   // 2: Control
             controls.append((entry, header, le(header, 0x210, 8)))
         }
+        guard !controls.isEmpty else { return nil }
         let wanted = controls.filter { $0.id == titleID }
-        for control in (wanted.isEmpty ? controls : wanted) {
-            guard let key = sectionKey(header: control.header, keys: keys, tickets: entries.filter { $0.name.hasSuffix(".tik") }, file: file),
-                  let nacp = controlNACP(file, nca: control.entry.offset, header: control.header, key: key) else { continue }
-            return nacp
+        let tickets = entries.filter { $0.name.hasSuffix(".tik") }
+        return (file, wanted.isEmpty ? controls : wanted, tickets)
+    }
+
+    private static func writeNacpIcon(_ data: Data, to destination: URL) -> URL? {
+        guard isValidJPEG(data) else { return nil }
+        do {
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: destination, options: .atomic)
+            return destination
+        } catch {
+            return nil
+        }
+    }
+
+    private static func isReadableIconFile(_ url: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
+        return isValidJPEG(data)
+    }
+
+    /// Checks JPEG SOI + marker prefix (`FF D8 FF`) and verifies ImageIO can read positive pixel dimensions.
+    static func isValidJPEG(_ data: Data) -> Bool {
+        guard data.count >= 16, UInt64(data.count) <= maxIconBytes,
+              data[data.startIndex] == 0xFF,
+              data[data.index(after: data.startIndex)] == 0xD8,
+              data[data.index(data.startIndex, offsetBy: 2)] == 0xFF,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? Int, w > 0,
+              let h = props[kCGImagePropertyPixelHeight] as? Int, h > 0 else { return false }
+        return true
+    }
+
+    /// Preferred `icon_<Lang>.dat` filenames for a launcher or Horizon language tag, best first.
+    static func preferredIconNames(for preferredLanguage: String) -> [String] {
+        let tokenByCode: [String: String] = Dictionary(uniqueKeysWithValues: RomFSLanguages.table.map { entry in
+            (entry.code.lowercased(), entry.label.replacingOccurrences(of: " ", with: ""))
+        })
+        let trimmed = preferredLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+        var ordered: [String] = []
+        func appendToken(_ token: String?) {
+            guard let token, !token.isEmpty else { return }
+            let fileName = "icon_\(token).dat"
+            if !ordered.contains(where: { $0.caseInsensitiveCompare(fileName) == .orderedSame }) {
+                ordered.append(fileName)
+            }
+        }
+        if !trimmed.isEmpty {
+            let lower = trimmed.lowercased()
+            if let exact = tokenByCode[lower] {
+                appendToken(exact)
+            } else if tokenByCode.values.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+                appendToken(tokenByCode.values.first { $0.caseInsensitiveCompare(trimmed) == .orderedSame })
+            }
+            for code in GameTitleNames.codes(for: Lang(lower)) {
+                appendToken(tokenByCode[code.lowercased()])
+            }
+        }
+        for code in GameTitleNames.codes(for: .en) {
+            appendToken(tokenByCode[code.lowercased()])
+        }
+        return ordered
+    }
+
+    private static func readLeftoverIcon(in folder: URL, preferredLanguage: String, fm: FileManager) -> Data? {
+        guard let names = try? fm.contentsOfDirectory(atPath: folder.path) else { return nil }
+        let icons = names.filter { name in
+            let lower = name.lowercased()
+            return lower.hasPrefix("icon_") && lower.hasSuffix(".dat")
+        }
+        guard !icons.isEmpty else { return nil }
+        let preferred = preferredIconNames(for: preferredLanguage)
+        var candidates: [String] = []
+        for want in preferred {
+            if let hit = icons.first(where: { $0.caseInsensitiveCompare(want) == .orderedSame }) {
+                candidates.append(hit)
+            }
+        }
+        for name in icons.sorted() where !candidates.contains(name) {
+            candidates.append(name)
+        }
+        for name in candidates {
+            let url = folder.appendingPathComponent(name)
+            guard let attr = try? fm.attributesOfItem(atPath: url.path),
+                  let size = (attr[.size] as? NSNumber)?.uint64Value,
+                  size > 0, size <= maxIconBytes,
+                  let data = try? Data(contentsOf: url), isValidJPEG(data) else { continue }
+            return data
         }
         return nil
     }
@@ -141,8 +322,20 @@ enum PackageControl {
         return Array(t[(data + 0x40)..<(data + 0x50)])
     }
 
-    /// control.nacp from the root of section 0's RomFS (IVFC level 6), decrypted with `key` when the section is AES-CTR.
-    static func controlNACP(_ file: Reader, nca: UInt64, header h: [UInt8], key: [UInt8]) -> Data? {
+    private struct RomFSRootFile {
+        let name: String
+        let offset: UInt64
+        let size: UInt64
+    }
+
+    /// Reads the root file table of section 0's RomFS (IVFC level 6) and hands back a bounded reader + root file list.
+    private static func readControlRomFS<T>(
+        _ file: Reader,
+        nca: UInt64,
+        header h: [UInt8],
+        key: [UInt8],
+        body: (_ files: [RomFSRootFile], _ readData: (UInt64, Int) -> [UInt8]?) -> T?
+    ) -> T? {
         let fs = 0x400
         guard let start = add(nca, le(h, 0x240, 4) * 0x200), let end = add(nca, le(h, 0x244, 4) * 0x200),
               end > start, h[fs + 2] == 0, h[fs + 3] == 3, [1, 3].contains(h[fs + 4]),   // RomFS, hierarchical integrity, no crypto or CTR
@@ -164,6 +357,7 @@ enum PackageControl {
         guard let head = read(0, 0x50), le(head, 0, 8) == 0x50 else { return nil }
         let dirMeta = le(head, 0x18, 8), fileMeta = le(head, 0x38, 8), fileMetaSize = le(head, 0x40, 8), data = le(head, 0x48, 8)
         guard fileMetaSize > 0, fileMetaSize <= 1 << 20, let root = read(dirMeta, 0x18), let files = read(fileMeta, Int(fileMetaSize)) else { return nil }
+        var rootFiles: [RomFSRootFile] = []
         var next = le(root, 0xC, 4)   // the root's first file, then each file's sibling
         var seen = 0
         while next != 0xFFFF_FFFF, seen < 4096 {
@@ -172,15 +366,53 @@ enum PackageControl {
             guard files.count >= 0x20, e <= files.count - 0x20 else { return nil }
             let length = Int(le(files, e + 0x1C, 4))
             guard length <= files.count - 0x20 - e else { return nil }
-            if String(decoding: files[(e + 0x20)..<(e + 0x20 + length)], as: UTF8.self) == "control.nacp" {
-                let size = le(files, e + 0x10, 8)
-                guard size > 0, size <= 0x10000, let nacpOffset = add(data, le(files, e + 8, 8)),
-                      let nacp = read(nacpOffset, Int(size)) else { return nil }
-                return Data(nacp)
-            }
+            let name = String(decoding: files[(e + 0x20)..<(e + 0x20 + length)], as: UTF8.self)
+            let fileOffset = le(files, e + 8, 8)
+            let fileSize = le(files, e + 0x10, 8)
+            rootFiles.append(RomFSRootFile(name: name, offset: fileOffset, size: fileSize))
             next = le(files, e + 4, 4)
         }
-        return nil
+        return body(rootFiles) { relOffset, count in
+            guard let absOffset = add(data, relOffset) else { return nil }
+            return read(absOffset, count)
+        }
+    }
+
+    /// control.nacp from the root of section 0's RomFS (IVFC level 6), decrypted with `key` when the section is AES-CTR.
+    static func controlNACP(_ file: Reader, nca: UInt64, header h: [UInt8], key: [UInt8]) -> Data? {
+        readControlRomFS(file, nca: nca, header: h, key: key) { files, readData in
+            guard let entry = files.first(where: { $0.name == "control.nacp" }),
+                  entry.size > 0, entry.size <= 0x10000,
+                  let nacp = readData(entry.offset, Int(entry.size)) else { return nil }
+            return Data(nacp)
+        }
+    }
+
+    /// Official 256×256 JPEG `icon_<Lang>.dat` from the root of section 0's RomFS, with fallback to the first valid `icon_*.dat`.
+    static func controlIcon(_ file: Reader, nca: UInt64, header h: [UInt8], key: [UInt8], preferredLanguage: String = "en") -> Data? {
+        readControlRomFS(file, nca: nca, header: h, key: key) { files, readData in
+            let iconEntries = files.filter { entry in
+                let lower = entry.name.lowercased()
+                return lower.hasPrefix("icon_") && lower.hasSuffix(".dat") && entry.size > 0 && entry.size <= maxIconBytes
+            }
+            guard !iconEntries.isEmpty else { return nil }
+            let preferred = preferredIconNames(for: preferredLanguage)
+            var ordered: [RomFSRootFile] = []
+            for want in preferred {
+                if let match = iconEntries.first(where: { $0.name.caseInsensitiveCompare(want) == .orderedSame }) {
+                    ordered.append(match)
+                }
+            }
+            for entry in iconEntries where !ordered.contains(where: { $0.name == entry.name }) {
+                ordered.append(entry)
+            }
+            for entry in ordered {
+                guard let raw = readData(entry.offset, Int(entry.size)) else { continue }
+                let data = Data(raw)
+                if isValidJPEG(data) { return data }
+            }
+            return nil
+        }
     }
 
     // MARK: Bytes

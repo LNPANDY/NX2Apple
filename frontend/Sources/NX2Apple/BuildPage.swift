@@ -3,10 +3,12 @@ import NXCore
 import NXLauncher
 import NXModel
 
-/// Presentation steps over the release stores. Queue, export and recovery keep their existing owners.
+/// Unified single-screen Build workbench: combines the hero, stage progress, and outcome cards
+/// with direct access to engine switching, game files, target, iOS install/export, batch queue, and logs.
 struct BuildPage: View {
     var library: GameLibrary? = nil
     var artworkStore: ArtworkStore = .shared
+    var fetchMetadata = true
     @Binding var step: Int
     @ObservedObject var build: BuildStore
     let running: Bool
@@ -27,16 +29,26 @@ struct BuildPage: View {
     var queuePlayEnabled = true
     var editingResult: Binding<Bool> = .constant(false)
     var onOpenSettings: () -> Void = {}
+    @State private var showRunningSetup = false
     @State private var confirmingQueueCancel = false
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private func queueIcon(_ entry: QueueEntry) -> NSImage? {
-        if let game = library?.games.first(where: { $0.id == entry.gameID }), !game.appPath.isEmpty,
-           let icon = NSImage(contentsOfFile: game.appPath + "/Contents/Resources/AppIcon.icns") { return icon }
         guard let library else { return nil }
-        return NSImage(contentsOf: library.artworkDirectory.appendingPathComponent(entry.titleID.uppercased()).appendingPathComponent("icon.jpg"))
+        if let game = library.games.first(where: { $0.id == entry.gameID }),
+           let icon = GameLibrary.appIcon(for: game, banners: library.artworkDirectory, maxPixel: ArtworkImages.iconPixels) {
+            return icon
+        }
+        if let cached = BannerCache.cachedIcon(entry.titleID, in: library.artworkDirectory),
+           let icon = ArtworkImages.shared.image(at: cached, maxPixel: ArtworkImages.iconPixels) {
+            return icon
+        }
+        if let banner = ArtworkStore.cachedBanner(entry.titleID, in: library.artworkDirectory) {
+            return ArtworkImages.shared.image(at: banner, maxPixel: ArtworkImages.iconPixels, squareCrop: true)
+        }
+        return nil
     }
 
     private func canPlayQueued(_ game: QueueGame) -> Bool {
@@ -49,39 +61,15 @@ struct BuildPage: View {
     }
     private var processActive: Bool { !hasActiveTransfer && ((running && build.buildingGame) || (queue.isAdvancing && queue.packaging.isEmpty)) }
     private var completionActive: Bool { build.completionStatus != nil && !editingResult.wrappedValue && !queue.active && !queue.hasWaiting && queue.running == nil }
+    private var stagingQueue: Bool { !running && !queue.active && queue.hasWaiting }
     private var queueReview: Bool { !running && !queue.active && (queue.hasWaiting || queue.games.contains(where: \.retryable)) }
-    private var lastStep: Int { build.target == BuildTarget.mac ? 1 : 2 }
-    private var showingActions: Bool { step >= lastStep || queue.hasWaiting || running || build.done || build.failure != nil }
-    private var labels: [String] {
-        [loc.t("section.files"), loc.t("section.target")] + (build.target == BuildTarget.mac ? [] : [loc.t("dev.section")])
+    private var hasHeroContext: Bool {
+        !build.basePath.isEmpty || build.gameFolder != nil || running || processActive || build.done || build.completionStatus != nil || build.failure != nil || !queue.isEmpty
     }
-    /// A stopped build with a failure the player can act on: the failure takes the place of the progress.
+    /// A stopped build with a failure the player can act on: the failure comes first, under the header (#1458).
     private var failedResult: Bool { !running && !processActive && build.failure != nil && !queueReview }
     private var titleNames: [String: String] {
         Dictionary((library?.games ?? []).map { ($0.titleID.uppercased(), $0.displayName(loc.lang)) }, uniquingKeysWith: { first, _ in first })
-    }
-    /// "Step 1 of 2 · Game files" while the wizard is set up, the build's state otherwise (BuildHeaderLine).
-    private var stepLine: String {
-        guard !running && !queueReview && !showingActions else { return "" }
-        let current = min(step, lastStep)
-        return String(format: loc.t("wizard.step"), current + 1, lastStep + 1) + " · " + labels[current]
-    }
-    @ViewBuilder private var header: some View {
-        if queueReview {
-            BuildQueueHero(games: queue.games.filter { $0.waiting || $0.running || $0.retryable }, artwork: queueIcon, onSelectGames: onSelectGames)
-        } else {
-            BuildMetadataHero(build: build, library: library, artworkStore: artworkStore,
-                              queueGames: (running || queue.active) ? queue.games.filter { $0.running || $0.waiting } : [], queueArtwork: queueIcon,
-                              platformTargets: queue.games.first { $0.titleID == build.gameTitleID }?.entries.map(\.target) ?? [],
-                              statusLine: stepLine) {
-                if processActive {
-                    Button(role: .destructive) { build.stop() } label: { Text(loc.t(build.stopping ? "library.stopping" : "build.stop")) }
-                        .buttonStyle(DSSecondaryButtonStyle(accent: DS.Color.statusError)).disabled(build.stopping)
-                        .keyboardShortcut(pad.scope == "main" ? KeyboardShortcut(.return, modifiers: .command) : nil)
-                        .padTarget("set.build.action", scope: "main", enabled: !build.stopping) { if !build.stopping { build.stop() } }
-                }
-            }
-        }
     }
     /// nxkit (Beta), #1460: the quiet question after an nxkit build, finished or failed, asked once.
     @ViewBuilder private var nxkitFeedback: some View {
@@ -91,74 +79,82 @@ struct BuildPage: View {
     }
 
     var body: some View {
-        // A task page (#1458): the compact header, then the work, in one column. No artwork hero.
-        LauncherPageScroll(memoryKey: "builds.flow.\(step)") {
-            header
-            if completionActive {
+        // One page for the whole build (#1457) in the task page's look (#1458): the compact header, then the work, in one column.
+        LauncherPageScroll(memoryKey: "builds.page") {
+            topHeader
+            if running || processActive {
+                if processActive {
+                    BuildProcessCard(build: build, onShowSteps: { allStepsOpen.wrappedValue = true })
+                    BuildUpNextSection(queue: queue, artwork: queueIcon)
+                } else {
+                    ProgressCard(build: build)
+                }
+                CardGroup("") {
+                    CardDisclosure(loc.t("section.setup"), detail: build.gameName, isOpen: showRunningSetup) { showRunningSetup.toggle() }
+                        .accessibilityLabel(loc.t("section.setup"))
+                        .accessibilityValue([build.gameName, loc.t(showRunningSetup ? "onboarding.expanded" : "onboarding.collapsed")]
+                            .filter { !$0.isEmpty }.joined(separator: ", "))
+                        .padTarget("set.build.runningSetup", scope: "main") { showRunningSetup.toggle() }
+                }
+                .onDisappear { showRunningSetup = false }
+            }
+            if completionActive && !running && !processActive {
                 OutcomeCard(build: build, devices: devices, onViewGame: onViewGame, onPlayGame: onPlayGame)
                 nxkitFeedback   // nxkit (Beta), #1460: "Did it work?" once per build, under the result's actions
-                if build.completionStatus == .exported || build.completionStatus == .needsData {
+                let inlineExportShown = !stagingQueue && build.target != BuildTarget.mac && devices.exportIPA
+                if (build.completionStatus == .exported || build.completionStatus == .needsData) && !inlineExportShown {
                     CardGroup(loc.t("result.next")) { ExportSteps(build: build, devices: devices, resultOnly: true) }
                 }
-                if !queue.isEmpty { BuildQueueCard(queue: queue, artwork: queueIcon, onSelectGames: onSelectGames, playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) }) }
-                TransferCard(transfers: transfers) { build.revealTransfer($0) }
-                ShellCopyCard(devices: devices)
-                BuildLogDisclosure(build: build, isOpen: $logOpen)
-            } else if processActive {
-                BuildProcessCard(build: build, logOpen: logOpen)
-                BuildUpNextSection(queue: queue, artwork: queueIcon)
-                TransferCard(transfers: transfers) { build.revealTransfer($0) }
-                BuildLogDisclosure(build: build, isOpen: $logOpen)
-            } else if failedResult {
-                // The failure is the page's main content, directly under the header, the log last (#1458)
+            }
+            if failedResult {
                 BuildFailureCard(m: build, titleNames: titleNames) { id in
                     library.flatMap { NSImage(contentsOf: $0.artworkDirectory.appendingPathComponent(id.uppercased()).appendingPathComponent("icon.jpg")) }
                 }
                 nxkitFeedback
-                // then the step the player was on, where the fix is often made (another platform, another file)
-                if step == 0 { FilesCard(build: build, library: library, artworkStore: artworkStore, extrasOpen: $extrasOpen) }
-                else if step == 1 { TargetCard(build: build) }
-                else if !queueReview { InstallCard(devices: devices, build: build) }
-                if !queue.isEmpty && !queueReview { BuildQueueCard(queue: queue, artwork: queueIcon, onSelectGames: onSelectGames, playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) }) }
-                ProgressCard(build: build)
-                BuildLogDisclosure(build: build, isOpen: $logOpen)
-            } else {
-                if running { ProgressCard(build: build) }
-                if queueReview {
-                    BuildQueueCard(queue: queue, showsHeading: false, artwork: queueIcon, onSelectGames: onSelectGames, playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) })
-                    if queue.hasIOS { InstallCard(devices: devices, build: build, forQueue: true) }
-                } else if step == 0 && !running {
-                    FilesCard(build: build, library: library, artworkStore: artworkStore, extrasOpen: $extrasOpen)
-                } else if step == 1 && !running {
+            }
+            if (!running && !processActive) || showRunningSetup {
+                SetupHintCard(repo: repo, dependencies: dependencies, usesExternalUpstream: build.usesExternalUpstreamRepo, onOpenSettings: onOpenSettings)
+                if stagingQueue {
+                    queueSection(showsHeading: !queueReview)
+                } else {
+                    FilesCard(build: build, library: library, artworkStore: artworkStore, fetchMetadata: fetchMetadata, extrasOpen: $extrasOpen)
                     TargetCard(build: build)
                 }
-                if step == 2 && !queueReview && !running { InstallCard(devices: devices, build: build) }
-                if showingActions {
-                    // Existing operations remain reachable without forcing a new source selection.
-                    if running || (!queueReview && step != 2 && build.done) { InstallCard(devices: devices, build: build) }
-                    if !queue.isEmpty && !queueReview { BuildQueueCard(queue: queue, artwork: queueIcon, onSelectGames: onSelectGames, playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) }) }
-                    TransferCard(transfers: transfers) { build.revealTransfer($0) }
-                    ShellCopyCard(devices: devices)
-                    if running || (step >= lastStep && (build.done || !build.stages.isEmpty || logOpen || BuildNotifier.shared.showLog)) {
-                        LogCard(log: build.log, devices: devices, isOpen: $logOpen,
-                                showRequests: BuildNotifier.shared.$showLog.eraseToAnyPublisher(),
-                                didShow: { BuildNotifier.shared.showLog = false })
-                    }
-                    if !running && build.done { ProgressCard(build: build) }
-                }
-                if step == 0 || queueReview { EngineFootnote(build: build, change: onOpenSettings) }
             }
+            if stagingQueue {
+                if queue.hasIOS { InstallCard(devices: devices, build: build, showLocked: showRunningSetup, forQueue: true) }
+            } else {
+                InstallCard(devices: devices, build: build, showLocked: showRunningSetup)
+            }
+            if !stagingQueue {
+                queueSection(showsHeading: !queueReview)
+            }
+            TransferCard(transfers: transfers) { build.revealTransfer($0) }
+            LogCard(log: build.log, devices: devices, isOpen: $logOpen,
+                    showRequests: BuildNotifier.shared.$showLog.eraseToAnyPublisher(),
+                    didShow: { BuildNotifier.shared.showLog = false })
+            if !processActive {
+                ActionCard(build: build, dependencies: dependencies, repo: repo)
+            }
+            Group {
+                ShellCopyCard(devices: devices)
+                if !failedResult && !running { BuildFailureCard(m: build, titleNames: titleNames) }
+                if !running && !processActive && !build.stages.isEmpty && (build.done || build.failure != nil) {
+                    ProgressCard(build: build)
+                }
+            }
+            // the engine is chosen in Settings › Tools (#1458): which one builds, and the way there
+            if !running && !processActive { EngineFootnote(build: build, change: onOpenSettings) }
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: completionActive)
-        .sheet(isPresented: allStepsOpen, onDismiss: { pad.scope = "main"; if pad.visible { pad.focused = "set.build.options" } }) {
+        .sheet(isPresented: allStepsOpen, onDismiss: { pad.scope = "main"; if pad.visible { pad.focused = "set.build.steps" } }) {
             BuildProcessStepsSheet(build: build) { allStepsOpen.wrappedValue = false; pad.scope = "main" }
                 .environmentObject(loc).environmentObject(pad)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { if !processActive && !completionActive { footer } }
         .sheet(isPresented: $confirmingCancel, onDismiss: { pad.scope = "main" }) {
             LauncherConfirmSheet(title: loc.t("flow.cancelTitle"), subtitle: build.gameName, note: loc.t("flow.cancelNote"),
                                  cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("flow.cancel"), destructive: true,
-                                 scope: "canceldraft", cancel: { confirmingCancel = false; pad.scope = "main"; if pad.visible { pad.focused = "set.build.options" } },
+                                 scope: "canceldraft", cancel: { confirmingCancel = false; pad.scope = "main" },
                                  confirm: { confirmingCancel = false; pad.scope = "main"; cancelDraft() })
                 .environmentObject(loc).environmentObject(pad)
         }
@@ -169,52 +165,49 @@ struct BuildPage: View {
                 .environmentObject(loc).environmentObject(pad)
         }
         .onChange(of: confirmingQueueCancel) { open in pad.scope = open ? "queuecancel" : "main" }
-        .background { if !showingActions || completionActive { Color.clear.staleFrameworksPrompt(build) } }
-        .onAppear { if queue.hasWaiting { step = 1 } }
-        .onChange(of: queue.hasWaiting) { waiting in if waiting { step = max(1, step) } }
+        .background { if processActive { Color.clear.staleFrameworksPrompt(build) } }
         .onChange(of: completionActive) { completed in
             if completed && pad.visible && pad.scope == "main" { pad.focused = "set.build.done.library" }
         }
-        .onChange(of: build.basePath) { path in if step == 0, pad.visible, !path.isEmpty { pad.focused = "set.build.file.base" } }
-        .onChange(of: build.target) { _ in step = min(step, lastStep) }
-        .onChange(of: BuildNotifier.shared.showLog) { show in if show { step = lastStep; logOpen = true; BuildNotifier.shared.showLog = false } }
-        .onChange(of: running) { active in if active { editingResult.wrappedValue = false } else { allStepsOpen.wrappedValue = false } }
-        .onChange(of: logOpen) { _ in if pad.visible { pad.focused = "set.build.options" } }
+        .onChange(of: BuildNotifier.shared.showLog) { show in if show { logOpen = true; BuildNotifier.shared.showLog = false } }
+        .onChange(of: running) { active in if active { editingResult.wrappedValue = false } else { allStepsOpen.wrappedValue = false; showRunningSetup = false } }
     }
-    /// Back on the leading side, where the player is in the middle, Next with its trailing chevron on the trailing side (#1458).
-    private var footer: some View {
-        let current = min(step, lastStep)
-        let progress: String? = nil   // the step is the header's line (#1458)
-        return DSWizardFooter(progress: progress) {
-            if !queue.isEmpty {
-                Button(loc.t("queue.cancel")) { confirmingQueueCancel = true }
-                    .disabled(queue.queued.isEmpty)
-                    .padTarget("set.build.queue.cancel", scope: "main", enabled: !queue.queued.isEmpty) { confirmingQueueCancel = true }
+
+    /// The compact header (#1458): the game's icon, its name and the build's state, Stop beside it while a build runs.
+    @ViewBuilder private var topHeader: some View {
+        if queueReview {
+            BuildQueueHero(games: queue.games.filter { $0.waiting || $0.running || $0.retryable }, artwork: queueIcon, onSelectGames: onSelectGames)
+        } else if hasHeroContext {
+            BuildMetadataHero(build: build, library: library, artworkStore: artworkStore, fetchMetadata: fetchMetadata,
+                              queueGames: (running || queue.active) ? queue.games.filter { $0.running || $0.waiting } : [], queueArtwork: queueIcon,
+                              platformTargets: queue.games.first { $0.titleID == build.gameTitleID }?.entries.map(\.target) ?? []) {
+                if processActive {
+                    Button(role: .destructive) { build.stop() } label: { Text(loc.t(build.stopping ? "library.stopping" : "build.stop")) }
+                        .buttonStyle(DSSecondaryButtonStyle(accent: DS.Color.statusError)).disabled(build.stopping)
+                        .keyboardShortcut(pad.scope == "main" ? KeyboardShortcut(.return, modifiers: .command) : nil)
+                        .padTarget("set.build.action", scope: "main", enabled: !build.stopping) { if !build.stopping { build.stop() } }
+                }
             }
-            if step > 0 && !running && !queueReview {
-                Button(loc.t("onboarding.back")) { move(-1) }
-                    .padTarget("set.build.previous", scope: "main", activate: { move(-1) })
-            }
-        } trailing: {
-            if showingActions {
-                if !queueReview || queue.hasWaiting { ActionCard(build: build, dependencies: dependencies, repo: repo) }
-            } else {
-                Button { move(1) } label: { DSContinueLabel(loc.t("flow.next")) }
-                    .buttonStyle(DSPrimaryButtonStyle())
-                    .keyboardShortcut(pad.scope == "main" ? KeyboardShortcut(.return, modifiers: []) : nil)
-                    .disabled(step == 0 && !build.slot("base").ok && build.gameFolder == nil)
-                    .padTarget("set.build.next", scope: "main", focusColor: LauncherPalette.onCream, enabled: step != 0 || build.slot("base").ok || build.gameFolder != nil, activate: { move(1) })
+        } else {
+            CardPageHeading(loc.t("build.heading"), note: loc.t("build.intro"))
+        }
+    }
+
+    @ViewBuilder private func queueSection(showsHeading: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            BuildQueueCard(queue: queue, showsHeading: showsHeading, artwork: queueIcon, onSelectGames: onSelectGames,
+                           playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) })
+            if !queue.queued.isEmpty {
+                HStack {
+                    Spacer(minLength: 0)
+                    Button(loc.t("queue.cancel")) { confirmingQueueCancel = true }
+                        .buttonStyle(DSSecondaryButtonStyle()).fixedSize()
+                        .padTarget("set.build.queue.cancel", scope: "main", activate: { confirmingQueueCancel = true })
+                }
             }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityValue(String(format: loc.t("onboarding.stepCount"), current + 1, lastStep + 1))
-        .buttonStyle(DSSecondaryButtonStyle())
     }
-    private func move(_ delta: Int) {
-        guard !build.running else { return }
-        step = max(0, min(lastStep, step + delta))
-        if pad.visible { pad.focused = step == 0 ? (build.basePath.isEmpty ? "set.build.folder" : "set.build.file.base") : step == 1 ? "set.build.target." + build.target : "set.build.install.mode" }
-    }
+
     private func cancelDraft() {
         guard !build.running else { return }
         build.leaveGameFolder()
