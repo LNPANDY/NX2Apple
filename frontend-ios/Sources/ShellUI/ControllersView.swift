@@ -5,6 +5,8 @@ public struct ControllersView: View {
     @Environment(\.shellOpenPadMapping) private var openMapping
     @Environment(\.shellOpenButtonTest) private var openTest
     @Environment(\.shellNativeBars) private var nativeBars
+    @Environment(\.shellIgnoresPress) private var ignoresPress
+    @State private var rumbleResults: [String: [ControllerRumbleTarget: ControllerRumbleResult]] = [:]
     /// The ID the shell's own button mapping goes by where a game's ID would.
     public static let mappingID = "global-pad"
     public var padMap: PadMap
@@ -16,9 +18,11 @@ public struct ControllersView: View {
     public var onBack: () -> Void
     public var canOpenHomeButtonSettings: Bool
     public var onOpenHomeButtonSettings: () -> Void
+    public var onRumbleTest: (@MainActor (String, ControllerRumbleTarget) async -> ControllerRumbleResult)?
     public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}, padMap: PadMap = PadMap(),
                 padMerge: Bool = false, onPadMergeChange: @escaping (Bool) -> Void = { _ in },
-                canOpenHomeButtonSettings: Bool = false, onOpenHomeButtonSettings: @escaping () -> Void = {}) {
+                canOpenHomeButtonSettings: Bool = false, onOpenHomeButtonSettings: @escaping () -> Void = {},
+                onRumbleTest: (@MainActor (String, ControllerRumbleTarget) async -> ControllerRumbleResult)? = nil) {
         self.padMap = padMap
         self.padMerge = padMerge
         self.onPadMergeChange = onPadMergeChange
@@ -26,6 +30,7 @@ public struct ControllersView: View {
         self.onBack = onBack
         self.canOpenHomeButtonSettings = canOpenHomeButtonSettings
         self.onOpenHomeButtonSettings = onOpenHomeButtonSettings
+        self.onRumbleTest = onRumbleTest
     }
     public var body: some View {
         ScrollViewReader { proxy in
@@ -90,6 +95,27 @@ public struct ControllersView: View {
                     Text(ShellStrings.text("Buttons"))
                 }
 
+                if onRumbleTest != nil {
+                    Section {
+                        if controllers.isEmpty {
+                            Text(ShellStrings.text("No controllers connected")).foregroundStyle(.secondary)
+                        } else {
+                            ForEach(controllers) { controller in
+                                LabeledContent(controller.name, value: controller.player)
+                                ForEach(ControllerRumbleTarget.allCases, id: \.self) { target in
+                                    rumbleRow(controller, target: target)
+                                }
+                            }
+                        }
+                    } header: {
+                        Text(ShellStrings.text("Rumble test"))
+                    } footer: {
+                        if !controllers.isEmpty {
+                            Text(ShellStrings.text("Check whether you feel the vibration in the controller grip or in the phone."))
+                        }
+                    }
+                }
+
                 Section {
                     VStack(alignment: .leading, spacing: 14) {
                         hint(Image(systemName: "dpad"), ShellStrings.text("Move between controls"))
@@ -132,6 +158,10 @@ public struct ControllersView: View {
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
             .background(ShellPalette.background)
+            .onChange(of: controllers.map(\.id)) { _, ids in
+                let connected = Set(ids)
+                rumbleResults = rumbleResults.filter { connected.contains($0.key) }
+            }
             .onChange(of: focus.id) { _, id in
                 guard let id, id.hasPrefix("ctl.") else { return }
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
@@ -142,6 +172,54 @@ public struct ControllersView: View {
         }
         .tint(ShellPalette.cream)
         .foregroundStyle(.primary).preferredColorScheme(.dark)
+    }
+
+    private func rumbleRow(_ controller: ControllerInfo, target: ControllerRumbleTarget) -> some View {
+        let title: String = switch target {
+        case .leftHandle: ShellStrings.text("Left grip")
+        case .rightHandle: ShellStrings.text("Right grip")
+        case .systemDefault: ShellStrings.text("Default output")
+        case .handles: ShellStrings.text("Both grips")
+        case .all: ShellStrings.text("All outputs")
+        }
+        let id = "\(controller.id).\(target.rawValue)"
+        let result = rumbleResults[controller.id]?[target].map { rumbleMessage($0) }
+        let action = {
+            guard !ignoresPress(), let onRumbleTest else { return }
+            Task { @MainActor in
+                let outcome = await onRumbleTest(controller.id, target)
+                rumbleResults[controller.id, default: [:]][target] = outcome
+                AccessibilityNotification.Announcement(rumbleMessage(outcome)).post()
+            }
+        }
+        return Button(action: action) {
+            Label {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                    if let result {
+                        Text(result).font(.subheadline).foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "waveform")
+            }
+            .labelStyle(SettingsRowLabelStyle())
+        }
+        .accessibilityValue(result ?? "")
+        .accessibilityIdentifier("rumbleTest.\(id)")
+        .shellTarget("ctl.rumble.\(id)", action: action)
+    }
+
+    private func rumbleMessage(_ result: ControllerRumbleResult) -> String {
+        switch result {
+        case .started: ShellStrings.text("Test vibration sent.")
+        case .unsupported: ShellStrings.text("The system does not report support for this output.")
+        case .engineUnavailable: ShellStrings.text("This output is unavailable. Check the controller vibration setting.")
+        case .disconnected: ShellStrings.text("The controller disconnected.")
+        case .failed: ShellStrings.text("Could not start the controller vibration.")
+        }
     }
 
     private func actionLabel(_ title: String, note: String, symbol: String, value: String = "") -> some View {

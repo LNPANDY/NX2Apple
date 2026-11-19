@@ -190,6 +190,14 @@ public struct ControllerInfo: Identifiable, Equatable, Sendable {
     }
 }
 
+public enum ControllerRumbleTarget: String, CaseIterable, Sendable {
+    case leftHandle, rightHandle, systemDefault, handles, all
+}
+
+public enum ControllerRumbleResult: Equatable, Sendable {
+    case started, unsupported, engineUnavailable, disconnected, failed
+}
+
 /// Which kind of controller a family of glyphs belongs to, from GameController's `productCategory`.
 /// The buttons are read by label, as on the Mac: GameController's buttonA is the cross on a PlayStation controller,
 /// A at the bottom on an Xbox controller and A on the right on a Nintendo controller, so each confirms with its own.
@@ -292,6 +300,8 @@ public struct ShellActions {
     public var onGlobalPadMapReset: () -> Void
     /// The button test opened (true) or closed: the host sends `PadSnapshot`s only in between.
     public var onButtonTest: (Bool) -> Void
+    /// Requests a short vibration at the selected output for the given controller.
+    public var onRumbleTest: (@MainActor (String, ControllerRumbleTarget) async -> ControllerRumbleResult)?
     /// Toggles `DM_PAD_MERGE` so every connected controller and touch controls drive player 1 together.
     public var onPadMergeChange: (Bool) -> Void
     /// Restores the newest backup in `<appFolder>/save-backups/` for `gameID` after backing up the current local save.
@@ -320,6 +330,7 @@ public struct ShellActions {
                 onClearShellCloud: @escaping () -> Void = {},
                 onGlobalPadMapChange: @escaping (String, String) -> Void = { _, _ in },
                 onGlobalPadMapReset: @escaping () -> Void = {}, onButtonTest: @escaping (Bool) -> Void = { _ in },
+                onRumbleTest: (@MainActor (String, ControllerRumbleTarget) async -> ControllerRumbleResult)? = nil,
                 onPadMergeChange: @escaping (Bool) -> Void = { _ in },
                 onRestoreSaveBackup: @escaping (String) -> Void = { _ in },
                 onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in },
@@ -345,6 +356,7 @@ public struct ShellActions {
         self.onGlobalPadMapChange = onGlobalPadMapChange
         self.onGlobalPadMapReset = onGlobalPadMapReset
         self.onButtonTest = onButtonTest
+        self.onRumbleTest = onRumbleTest
         self.onPadMergeChange = onPadMergeChange
         self.onRestoreSaveBackup = onRestoreSaveBackup
         self.onDeleteGame = onDeleteGame

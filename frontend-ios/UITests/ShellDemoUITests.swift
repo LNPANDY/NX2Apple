@@ -385,6 +385,41 @@ import XCTest
         XCTAssertTrue(app.buttons["controllers.open"].waitForExistence(timeout: 5))
     }
 
+    func testRumbleTestReportsIndependentOutputResults() {
+        extraArguments = ["--samples"]
+        launch("library")
+        app.buttons["controllers.open"].tap()
+        XCTAssertTrue(app.buttons["controllers.close"].waitForExistence(timeout: 5))
+
+        let left = app.buttons["rumbleTest.one.leftHandle"]
+        reveal(left)
+        left.tap()
+        XCTAssertEqual(left.value as? String, "Test vibration sent.")
+
+        let right = app.buttons["rumbleTest.one.rightHandle"]
+        reveal(right)
+        right.tap()
+        XCTAssertEqual(right.value as? String, "The system does not report support for this output.")
+
+        let defaultOutput = app.buttons["rumbleTest.one.systemDefault"]
+        reveal(defaultOutput)
+        defaultOutput.tap()
+        XCTAssertEqual(defaultOutput.value as? String, "Test vibration sent.")
+        XCTAssertEqual(right.value as? String, "The system does not report support for this output.")
+
+        for target in ["handles", "all"] {
+            let output = app.buttons["rumbleTest.one.\(target)"]
+            reveal(output)
+            output.tap()
+            XCTAssertEqual(output.value as? String, "Test vibration sent.")
+        }
+
+        let unavailable = app.buttons["rumbleTest.three.rightHandle"]
+        reveal(unavailable)
+        unavailable.tap()
+        XCTAssertEqual(unavailable.value as? String, "This output is unavailable. Check the controller vibration setting.")
+    }
+
     func testControllerShortcutsKeepTheVisibleMenuInSync() {
         launch("controllers")
         app.typeKey("o", modifierFlags: [])

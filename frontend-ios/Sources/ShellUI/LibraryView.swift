@@ -379,7 +379,8 @@ public struct LibraryView: View {
                     ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap,
                                     padMerge: padMerge, onPadMergeChange: menuActions.onPadMergeChange,
                                     canOpenHomeButtonSettings: canOpenHomeButtonSettings,
-                                    onOpenHomeButtonSettings: menuActions.onOpenHomeButtonSettings)
+                                    onOpenHomeButtonSettings: menuActions.onOpenHomeButtonSettings,
+                                    onRumbleTest: actions.onRumbleTest)
                         .background(ShellPalette.background)
                         .accessibilityHidden(choice != nil || padMapping != nil || buttonTestOpen || retention.isLeaving(.controllers, open: controllersOpen))
                         .allowsHitTesting(!retention.isLeaving(.controllers, open: controllersOpen))

@@ -64,6 +64,7 @@ targets:
         DMShowFPS: false
         LSSupportsGameMode: true
         GCSupportsControllerUserInteraction: true
+        UISupportedExternalAccessoryProtocols: [com.xiaoji.M2boot]
         GCSupportedGameControllers:
           - ProfileName: ExtendedGamepad
         CADisableMinimumFrameDurationOnPhone: true

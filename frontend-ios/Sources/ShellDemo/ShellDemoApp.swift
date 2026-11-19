@@ -204,6 +204,16 @@ struct DemoScreen: View {
                      onButtonTest: { open in
             gamepads.onSnapshot = open ? { padSnapshot = $0 } : nil
             if !open { padSnapshot = nil }
+        }, onRumbleTest: { id, target in
+            if args.contains("--samples") {
+                switch (id, target) {
+                case ("one", .leftHandle), ("one", .systemDefault), ("one", .handles), ("one", .all): return .started
+                case ("one", .rightHandle), ("two", _): return .unsupported
+                case ("three", .rightHandle): return .engineUnavailable
+                default: return .failed
+                }
+            }
+            return await gamepads.testRumble(controllerID: id, target: target)
         }, onCopyShortcutURL: { id in
             let shortcut = "nx2apple://launch?id=\(id)"
             #if canImport(UIKit)
