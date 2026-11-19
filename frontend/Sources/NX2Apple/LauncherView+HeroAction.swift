@@ -105,6 +105,7 @@ extension LauncherView {
         m.openOnDevice(udid: game.installedDevice, app: game.iosAppPath) { error in
             endGameLaunch()
             if let error { launchError = error }
+            else { library.recordPlayed(game.id) }
         }
     }
 

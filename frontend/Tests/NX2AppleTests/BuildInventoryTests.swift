@@ -25,7 +25,7 @@ import XCTest
         XCTAssertTrue(BuildInventoryFilter.owned.includes(exported))
     }
 
-    func testHubActionsOpenBuilderAndBackKeepsDraft() throws {
+    func testBuildsTabOpensWorkbenchDirectlyAndKeepsDraftAcrossTabs() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -41,31 +41,27 @@ import XCTest
         let library = GameLibrary(file: file)
         let pad = PadFocus()
         let view = LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false, padFocus: pad)
-        let window = OffscreenWindow(size: NSSize(width: 1100, height: 850))
+        let window = OffscreenWindow(size: NSSize(width: 1100, height: 1400))
         window.contentView = NSHostingView(rootView: view)
         window.orderFront(nil)
         defer { window.orderOut(nil) }
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.3)) }
         settle()
-        XCTAssertTrue(pad.frames["main", default: []].contains { $0.id == "builds.first" })
-        XCTAssertTrue(pad.frames["main", default: []].contains { $0.id == "builds.supported" })
-        XCTAssertFalse(pad.frames["main", default: []].contains { $0.id == "top.build" })
-        pad.show(default: "builds.first"); pad.activate(); settle()
-        XCTAssertTrue(pad.frames["main", default: []].contains { $0.id == "builds.back" })
+        let ids = Set(pad.frames["main", default: []].map(\.id))
+        XCTAssertTrue(ids.contains("set.build.engine"))
+        XCTAssertTrue(ids.contains("set.build.folder"))
+        XCTAssertTrue(ids.contains("set.build.file.base"))
+        XCTAssertTrue(ids.contains("set.build.queue.select"))
+        XCTAssertFalse(ids.contains("builds.back"))
         stores.build.gameDir = "/tmp/draft"
-        pad.focused = "builds.back"; pad.activate(); settle()
+        pad.show(default: "tab.library"); pad.activate(); settle()
         XCTAssertEqual(stores.build.gameDir, "/tmp/draft")
-        XCTAssertTrue(pad.frames["main", default: []].contains { $0.id == "builds.resume" })
         stores.build.running = true
         settle()
-        pad.focused = "builds.first"; pad.activate(); settle()
-        XCTAssertEqual(stores.build.gameDir, "/tmp/draft", "New build must not clear running inputs")
-        XCTAssertFalse(pad.frames["main", default: []].contains { $0.id == "builds.back" })
-        pad.focused = "builds.resume"; pad.activate(); settle()
+        XCTAssertTrue(pad.frames["main", default: []].contains { $0.id == "build.activity" })
+        pad.focused = "build.activity"; pad.activate(); settle()
         XCTAssertTrue(stores.build.running)
-        XCTAssertTrue(pad.frames["main", default: []].contains { $0.id == "builds.back" })
-        pad.focused = "builds.back"; pad.activate(); settle()
-        XCTAssertTrue(stores.build.running, "Returning to the inventory must not stop work")
+        XCTAssertFalse(pad.frames["main", default: []].contains { $0.id == "build.activity" })
         stores.build.running = false
     }
 

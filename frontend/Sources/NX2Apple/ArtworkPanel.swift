@@ -1,3 +1,4 @@
+import AppKit
 import NXCore
 import NXLauncher
 import SwiftUI
@@ -19,6 +20,10 @@ struct ArtworkPanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var gridFocused: Bool
     @FocusState private var framingFocused: Bool
+    @State private var tileImages: [URL: NSImage] = [:]
+    @State private var framingPreviewImage: (file: URL, image: NSImage)?
+
+    private var tileFiles: [URL] { editor.tiles.compactMap(\.file) }
 
     private func t(_ key: String) -> String { labels(key) }
     private var slotName: String { editor.slot.rawValue }
@@ -41,7 +46,35 @@ struct ArtworkPanel: View {
                     if editor.needsFraming { framing }
                 }
                 .padding(.horizontal, 24).padding(.top, 6).padding(.bottom, 16)
-                .task(id: editor.selectedFile) { await editor.measureSelected() }
+                .task(id: editor.selectedFile) {
+                    await editor.measureSelected()
+                    guard let file = editor.selectedFile else {
+                        framingPreviewImage = nil
+                        return
+                    }
+                    if let cached = ArtworkImages.shared.cachedImage(at: file, maxPixel: 800) {
+                        framingPreviewImage = (file, cached)
+                        return
+                    }
+                    let decoded = await ArtworkImages.shared.loadImage(at: file, maxPixel: 800)
+                    guard !Task.isCancelled, editor.selectedFile == file else { return }
+                    framingPreviewImage = decoded.map { (file, $0) }
+                }
+                .task(id: tileFiles) {
+                    let pending = tileFiles.filter { tileImages[$0] == nil }
+                    guard !pending.isEmpty else { return }
+                    for file in pending {
+                        guard !Task.isCancelled else { return }
+                        if let cached = ArtworkImages.shared.cachedImage(at: file, maxPixel: 480) {
+                            tileImages[file] = cached
+                            continue
+                        }
+                        if let decoded = await ArtworkImages.shared.loadImage(at: file, maxPixel: 480) {
+                            guard !Task.isCancelled else { return }
+                            tileImages[file] = decoded
+                        }
+                    }
+                }
               }
               .onChange(of: focus.focused) { id in
                   guard focus.scope == "artwork", let id else { return }
@@ -125,7 +158,7 @@ struct ArtworkPanel: View {
         Button { editor.select(tile) } label: {
             Color.clear.aspectRatio(editor.tileAspect, contentMode: .fit)
                 .overlay {
-                    if let file = tile.file, let image = ArtworkImages.shared.image(at: file, maxPixel: 480) {
+                    if let file = tile.file, let image = tileImages[file] ?? ArtworkImages.shared.cachedImage(at: file, maxPixel: 480) {
                         ArtworkFill(image: image)
                     } else {
                         ZStack {
@@ -208,7 +241,9 @@ struct ArtworkPanel: View {
             let fitted = Self.fit(image, in: area.size)
             let slot = Self.band(band, in: fitted, focus: focus)
             ZStack(alignment: .topLeading) {
-                if let file, let picture = ArtworkImages.shared.image(at: file, maxPixel: 800) {
+                if let file,
+                   let picture = (framingPreviewImage?.file == file ? framingPreviewImage?.image : nil)
+                    ?? ArtworkImages.shared.cachedImage(at: file, maxPixel: 800) {
                     Image(nsImage: picture).resizable().frame(width: fitted.width, height: fitted.height)
                         .offset(x: fitted.minX, y: fitted.minY)
                 }

@@ -27,6 +27,11 @@ struct BuildSelectedSheet: View {
     private var canAdd: Bool { candidates.contains { checked.contains($0.id) && available($0) } }
     private var sourceGames: [LibraryGame] { library.games.filter { $0.inputs[GameLibrary.folderInput] != nil || !($0.inputs["base"] ?? []).isEmpty } }
 
+    private var iconLoadKey: String {
+        let entries = sourceGames.map { "\($0.id.uuidString)|\($0.titleID)|\($0.appPath)|\($0.inputs["base"]?.first ?? "")" }
+        return loc.lang.code + "\n" + entries.joined(separator: "\n")
+    }
+
     private var candidates: [LibraryGame] { sourceGames.filter(available) }
 
     var body: some View {
@@ -122,14 +127,28 @@ struct BuildSelectedSheet: View {
         .environment(\.padRingStyle, .hug)
         .padScope("batch", focus)
         .frame(width: 680)
-        .frame(maxHeight: min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80))
+        .frame(minHeight: min(420, maxSheetHeight), maxHeight: maxSheetHeight)
         .background(LauncherPalette.background)
-        .task {
-            icons = Dictionary(uniqueKeysWithValues: sourceGames.compactMap { game in
-                let image = NSImage(contentsOfFile: game.appPath + "/Contents/Resources/AppIcon.icns")
-                    ?? NSImage(contentsOf: library.artworkDirectory.appendingPathComponent(game.titleID.uppercased()).appendingPathComponent("icon.jpg"))
-                return image.map { (game.id, $0) }
-            })
+        .task(id: iconLoadKey) {
+            let games = sourceGames
+            let banners = library.artworkDirectory
+            let language = loc.lang.code
+            let fallbackKeys = library.keysFile()
+            var loaded: [UUID: NSImage] = [:]
+            for game in games {
+                guard !Task.isCancelled else { return }
+                if let image = await GameLibrary.loadAppIcon(
+                    for: game,
+                    banners: banners,
+                    language: language,
+                    fallbackKeys: fallbackKeys,
+                    maxPixel: ArtworkImages.iconPixels
+                ) {
+                    loaded[game.id] = image
+                }
+            }
+            guard !Task.isCancelled else { return }
+            icons = loaded
         }
         .onChange(of: selectedTarget) { _ in
             checked.removeAll()
@@ -144,6 +163,7 @@ struct BuildSelectedSheet: View {
         }
     }
 
+    private var maxSheetHeight: CGFloat { min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80) }
     private var targets: [String] { selectedTarget == "both" ? [BuildTarget.mac, BuildTarget.ios] : [selectedTarget] }
     private func changeTarget() { adjustTarget(1) }
     private func adjustTarget(_ by: Int) {

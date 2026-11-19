@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import SwiftUI
 import NXCore
 import NXModel
@@ -30,7 +31,10 @@ package struct SendSelectedSheet: View {
         self.close = close
     }
 
+    private static let iconPixels = 192
+    private var maxSheetHeight: CGFloat { min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80) }
     private var sources: [TransferSource] { build.sharedAppDataSources() }
+    private var iconLoadKey: String { artworkDirectory.path + "\n" + sources.map { $0.titleID.uppercased() }.joined(separator: ",") }
 
     private var selectedSources: [TransferSource] {
         sources.filter { checked.contains($0.titleID.uppercased()) }
@@ -162,14 +166,25 @@ package struct SendSelectedSheet: View {
         .environment(\.padRingStyle, .hug)
         .padScope(Self.scope, pad)
         .frame(width: 680)
-        .frame(maxHeight: min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80))
+        .frame(minHeight: min(420, maxSheetHeight), maxHeight: maxSheetHeight)
         .background(LauncherPalette.background)
         .launcherAppearance()
+        .task(id: iconLoadKey) {
+            let keys = sources.map { $0.titleID.uppercased() }
+            let directory = artworkDirectory
+            let loaded = await Task.detached(priority: .userInitiated) {
+                var result: [String: NSImage] = [:]
+                for key in keys {
+                    if let image = Self.loadDownsampledIcon(for: key, in: directory, maxPixel: Self.iconPixels) {
+                        result[key] = image
+                    }
+                }
+                return result
+            }.value
+            guard !Task.isCancelled else { return }
+            icons = loaded
+        }
         .onAppear {
-            icons = Dictionary(uniqueKeysWithValues: sources.compactMap { source in
-                NSImage(contentsOf: artworkDirectory.appendingPathComponent(source.titleID.uppercased()).appendingPathComponent("icon.jpg"))
-                    .map { (source.titleID.uppercased(), $0) }
-            })
             parentScope = pad.scope; parentFocus = pad.focused
             pad.scope = Self.scope
             pad.focused = sources.first.map { "sendSelected.game." + $0.titleID.uppercased() } ?? "sendSelected.cancel"
@@ -249,6 +264,52 @@ package struct SendSelectedSheet: View {
             build.copySelectedToDrive(titleIDs: checked)
         }
         close()
+    }
+
+    /// Downsampled off-main-thread icon loader: cached `icon.jpg` → offline `nacp-icon.jpg` → center-cropped banner.
+    private static func loadDownsampledIcon(for titleID: String, in directory: URL, maxPixel: Int) -> NSImage? {
+        if let icon = BannerCache.cachedIcon(titleID, in: directory),
+           let image = decodeThumbnail(at: icon, maxPixel: maxPixel, squareCrop: false) {
+            return image
+        }
+        if let banner = BannerCache.cached(titleID, in: directory),
+           let image = decodeThumbnail(at: banner, maxPixel: maxPixel, squareCrop: true) {
+            return image
+        }
+        return nil
+    }
+
+    private static func decodeThumbnail(at url: URL, maxPixel: Int, squareCrop: Bool) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? Int, w > 0,
+              let h = props[kCGImagePropertyPixelHeight] as? Int, h > 0 else { return nil }
+        let longSide = max(w, h)
+        let shortSide = max(1, min(w, h))
+        let requestedMax: Int
+        if squareCrop && w != h {
+            let scaled = Int(ceil(Double(maxPixel) * Double(longSide) / Double(shortSide)))
+            requestedMax = min(longSide, min(maxPixel * 4, max(maxPixel, scaled)))
+        } else {
+            requestedMax = min(maxPixel, longSide)
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: requestedMax,
+        ]
+        guard let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        let finalCG: CGImage
+        if squareCrop && thumb.width != thumb.height {
+            let side = min(thumb.width, thumb.height)
+            let rect = CGRect(x: (thumb.width - side) / 2, y: (thumb.height - side) / 2, width: side, height: side)
+            finalCG = thumb.cropping(to: rect) ?? thumb
+        } else {
+            finalCG = thumb
+        }
+        let image = NSImage(size: NSSize(width: finalCG.width, height: finalCG.height))
+        image.addRepresentation(NSBitmapImageRep(cgImage: finalCG))
+        return image
     }
 }
 

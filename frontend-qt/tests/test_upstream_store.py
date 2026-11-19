@@ -317,10 +317,18 @@ class QtEngineDropdownTests(unittest.TestCase):
         self.assertFalse(hasattr(win, 'sub_label'))
         self.assertEqual(win.title_label.text(), 'NX2Apple')
 
+        self.assertEqual(win.eng_active_title.text(), m.t('engine.switcherTitle'))
+        self.assertEqual(win.eng_experimental_badge.text(), m.t('engine.experimental'))
+        self.assertEqual(win.eng_active_sub.text(), m.t('engine.switcherNote'))
+        self.assertEqual(win.eng_dropdown_btn.text(), 'nxnative  ▾')
+
         popup = win._ensure_engine_popup()
         win._refresh_engine_popup()
         self.assertEqual(tuple(win._eng_popup_rows.keys()), ('nxnative', 's2arm'))
         self.assertEqual(win._eng_popup_rows['s2arm']['btn'].text(), m.t('upstream.download'))
+        self.assertTrue(win._eng_popup_rows['nxnative']['exp_badge'].isHidden())
+        self.assertFalse(win._eng_popup_rows['s2arm']['exp_badge'].isHidden())
+        self.assertEqual(win._eng_popup_rows['s2arm']['exp_badge'].text(), m.t('engine.experimental'))
         self.assertFalse(popup.isVisible())
 
 

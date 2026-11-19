@@ -27,8 +27,8 @@ package struct EngineSwitcherCard: View {
     @State private var fallbackPopoverOpen = false
     @State private var didApplyInitialOpen = false
 
-    package static let panelWidth: CGFloat = 376
-    package static let panelMaxHeight: CGFloat = 260
+    package static let panelWidth: CGFloat = 436
+    package static let panelMaxHeight: CGFloat = 280
 
     package init(build: BuildStore, initiallyOpen: Bool = false) {
         self.build = build
@@ -52,31 +52,63 @@ package struct EngineSwitcherCard: View {
         return nil
     }
 
+    private var backgroundFailedEngine: (kind: EngineUpstreamKind, reason: UpstreamInstallState.FailureReason)? {
+        for kind in build.availableUpstreams {
+            if case .failed(let reason) = build.upstreamState(kind) {
+                return (kind, reason)
+            }
+        }
+        return nil
+    }
+
     package var body: some View {
         let active = build.buildUpstream
-        let badgeKey = active.isBuiltIn ? "upstream.builtinBadge" : "upstream.installedBadge"
         let busy = backgroundBusyEngine
+        let failed = busy == nil ? backgroundFailedEngine : nil
         return CardGroup(loc.t("engine.title")) {
             HStack(spacing: 12) {
                 Circle()
-                    .fill(busy != nil ? LauncherPalette.building : LauncherPalette.ready)
+                    .fill((busy != nil || failed != nil) ? LauncherPalette.building : LauncherPalette.ready)
                     .frame(width: 7, height: 7)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
-                        Text(active.displayName)
+                        Text(loc.t("engine.switcherTitle"))
                             .font(.manrope(14, .semibold))
                             .foregroundStyle(LauncherPalette.text)
-                        Text(loc.t(badgeKey))
-                            .font(.manrope(11, .semibold))
-                            .foregroundStyle(LauncherPalette.secondaryText)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
-                            .background(LauncherPalette.secondaryFill, in: Capsule())
+                            .lineLimit(1)
+                        EngineExperimentalBadge(text: loc.t("engine.experimental"))
                     }
-                    Text(collapsedSubtitle(active: active, busy: busy))
+                    Text(loc.t("engine.switcherNote"))
                         .font(.manrope(12.5))
                         .foregroundStyle(LauncherPalette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let busy {
+                        Text(busyStatusText(busy))
+                            .font(.manrope(12))
+                            .monospacedDigit()
+                            .foregroundStyle(LauncherPalette.building)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if let failed {
+                        HStack(spacing: 8) {
+                            Text(failedStatusText(failed))
+                                .font(.manrope(12))
+                                .foregroundStyle(LauncherPalette.building)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Button(loc.t("upstream.retry")) {
+                                build.downloadUpstream(failed.kind)
+                            }
+                            .buttonStyle(.plain)
+                            .font(.manrope(11.5, .semibold))
+                            .foregroundStyle(LauncherPalette.text)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 3)
+                            .background(LauncherPalette.secondaryFill, in: Capsule())
+                            .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                            .fixedSize()
+                            .disabled(build.running)
+                        }
+                        .padding(.top, 2)
+                    }
                 }
                 Spacer(minLength: 12)
                 triggerButton(active: active)
@@ -100,13 +132,9 @@ package struct EngineSwitcherCard: View {
         }
     }
 
-    private func collapsedSubtitle(
-        active: EngineUpstreamKind,
-        busy: (kind: EngineUpstreamKind, state: UpstreamInstallState)?
+    private func busyStatusText(
+        _ busy: (kind: EngineUpstreamKind, state: UpstreamInstallState)
     ) -> String {
-        guard let busy else {
-            return loc.t(active.cardNoteKey)
-        }
         switch busy.state {
         case .downloading(_, let progressText):
             let progress = progressText.isEmpty
@@ -116,8 +144,15 @@ package struct EngineSwitcherCard: View {
         case .extracting:
             return "\(busy.kind.displayName) · \(loc.t("upstream.extracting"))"
         default:
-            return loc.t(active.cardNoteKey)
+            return ""
         }
+    }
+
+    private func failedStatusText(
+        _ failed: (kind: EngineUpstreamKind, reason: UpstreamInstallState.FailureReason)
+    ) -> String {
+        let key = failed.reason == .download ? "upstream.downloadFailed" : "upstream.extractFailed"
+        return "\(failed.kind.displayName) · \(loc.t(key))"
     }
 
     @ViewBuilder
@@ -163,21 +198,18 @@ package struct EngineSwitcherCard: View {
 
     private func triggerFace(title: String, open: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: 9)
-        return HStack(spacing: 0) {
+        return HStack(spacing: 8) {
             Text(title)
                 .font(.manrope(13, .semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.leading, 14)
             Image(systemName: "chevron.down")
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(LauncherPalette.secondaryText)
                 .rotationEffect(.degrees(open ? 180 : 0))
-                .padding(.trailing, 14)
         }
         .padding(.horizontal, 15)
-        .padding(.vertical, 9)
         .frame(width: LauncherControl.width, height: LauncherControl.height)
         .background(open ? LauncherPalette.secondaryPressed : LauncherPalette.secondaryFill, in: shape)
         .overlay(shape.strokeBorder(open ? LauncherPalette.dropdownOpenBorder : LauncherPalette.secondaryBorder))
@@ -227,6 +259,7 @@ package struct EngineDropdownPanel: View {
     @ObservedObject var build: BuildStore
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var pad: PadFocus
+    @Environment(\.launcherDropdownMaxHeight) private var envMaxHeight
     let maxHeight: CGFloat
     let close: () -> Void
     @State private var hoveredKind: EngineUpstreamKind?
@@ -238,15 +271,17 @@ package struct EngineDropdownPanel: View {
     }
 
     package var body: some View {
+        let limit = max(80, min(maxHeight, envMaxHeight ?? maxHeight))
         ViewThatFits(in: .vertical) {
             rowsList
+                .fixedSize(horizontal: false, vertical: true)
             ScrollView(.vertical) {
                 rowsList
             }
-            .frame(maxHeight: maxHeight)
+            .frame(height: limit)
         }
         .padScope("engineDropdown", pad)
-        .background(PadKeyboardInput(focus: pad, scope: "engineDropdown", back: close))
+        .background(PadKeyboardInput(focus: pad, scope: "engineDropdown", back: close).frame(width: 0, height: 0))
         .overlay(alignment: .topLeading) {
             Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
                 .padTarget("engineDropdown.cancel", scope: "engineDropdown", activate: close)
@@ -339,6 +374,10 @@ package struct EngineDropdownPanel: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1.5)
                             .background(LauncherPalette.secondaryFill, in: Capsule())
+                            .fixedSize()
+                        if !kind.isBuiltIn {
+                            EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
+                        }
                     }
                     Text(loc.t(kind.cardNoteKey))
                         .font(.manrope(11.5))
@@ -355,10 +394,12 @@ package struct EngineDropdownPanel: View {
                     Text(loc.t("upstream.switchBtn"))
                         .font(.manrope(12, .semibold))
                         .foregroundStyle(LauncherPalette.secondaryText)
+                        .lineLimit(1)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(LauncherPalette.secondaryFill, in: Capsule())
                         .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                        .fixedSize()
                 }
             }
             .padding(.horizontal, 12)
@@ -390,10 +431,15 @@ package struct EngineDropdownPanel: View {
                 .fill(LauncherPalette.unbuilt.opacity(0.45))
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 2) {
-                Text(kind.displayName)
-                    .font(.manrope(13.5, .semibold))
-                    .foregroundStyle(LauncherPalette.text)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(kind.displayName)
+                        .font(.manrope(13.5, .semibold))
+                        .foregroundStyle(LauncherPalette.text)
+                        .lineLimit(1)
+                    if !kind.isBuiltIn {
+                        EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
+                    }
+                }
                 Text(loc.t(kind.cardNoteKey))
                     .font(.manrope(11.5))
                     .foregroundStyle(LauncherPalette.secondaryText)
@@ -410,6 +456,7 @@ package struct EngineDropdownPanel: View {
                     .padding(.vertical, 5)
             }
             .buttonStyle(LauncherActionButtonStyle(.capsule))
+            .fixedSize()
             .disabled(build.running)
             .keyboardShortcut(shortcut(kind))
             .padTarget(actionID(kind), scope: "engineDropdown", enabled: !build.running, activate: { build.downloadUpstream(kind) }, vertical: { move(kind, by: $0) })
@@ -430,6 +477,9 @@ package struct EngineDropdownPanel: View {
                         .font(.manrope(13.5, .semibold))
                         .foregroundStyle(LauncherPalette.text)
                         .lineLimit(1)
+                    if !kind.isBuiltIn {
+                        EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
+                    }
                     if fraction == nil {
                         ProgressView()
                             .controlSize(.mini)
@@ -467,6 +517,7 @@ package struct EngineDropdownPanel: View {
                     .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
             }
             .buttonStyle(.plain)
+            .fixedSize()
             .keyboardShortcut(shortcut(kind))
             .padTarget(actionID(kind), scope: "engineDropdown", activate: { build.cancelUpstreamDownload(kind) }, vertical: { move(kind, by: $0) })
         }
@@ -482,10 +533,15 @@ package struct EngineDropdownPanel: View {
                 .fill(LauncherPalette.building)
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 2) {
-                Text(kind.displayName)
-                    .font(.manrope(13.5, .semibold))
-                    .foregroundStyle(LauncherPalette.text)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(kind.displayName)
+                        .font(.manrope(13.5, .semibold))
+                        .foregroundStyle(LauncherPalette.text)
+                        .lineLimit(1)
+                    if !kind.isBuiltIn {
+                        EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
+                    }
+                }
                 Text(loc.t(messageKey))
                     .font(.manrope(11.5))
                     .foregroundStyle(LauncherPalette.building)
@@ -505,6 +561,7 @@ package struct EngineDropdownPanel: View {
                     .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
             }
             .buttonStyle(.plain)
+            .fixedSize()
             .disabled(build.running)
             .keyboardShortcut(shortcut(kind))
             .padTarget(actionID(kind), scope: "engineDropdown", enabled: !build.running, activate: { build.downloadUpstream(kind) }, vertical: { move(kind, by: $0) })
@@ -512,5 +569,23 @@ package struct EngineDropdownPanel: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .background(LauncherPalette.ink(0.035), in: RoundedRectangle(cornerRadius: 9))
+    }
+}
+
+/// Compact amber pill marking the multi-engine switcher feature and non-bundled engines as experimental.
+private struct EngineExperimentalBadge: View {
+    let text: String
+    var compact = false
+
+    var body: some View {
+        Text(text)
+            .font(.manrope(compact ? 10.5 : 11, .semibold))
+            .foregroundStyle(LauncherPalette.building)
+            .lineLimit(1)
+            .padding(.horizontal, compact ? 6 : 7)
+            .padding(.vertical, compact ? 1.5 : 2)
+            .background(LauncherPalette.building.opacity(0.14), in: Capsule())
+            .overlay(Capsule().strokeBorder(LauncherPalette.building.opacity(0.35)))
+            .fixedSize()
     }
 }

@@ -171,7 +171,7 @@ import NXModel
 
         let none = LibraryFilter.built.reconcile(games: [unbuilt], selectedID: unbuilt.id, focused: nil)
         XCTAssertNil(none.selectedID)
-        XCTAssertEqual(LibraryFilter.owned.reconcile(games: games, selectedID: nil, focused: nil).selectedID, unbuilt.id)
+        XCTAssertEqual(LibraryFilter.owned.reconcile(games: games, selectedID: nil, focused: nil).selectedID, built.id)
     }
 
     func testReadyRequiresMatchingGameAndCompleteExecutables() throws {

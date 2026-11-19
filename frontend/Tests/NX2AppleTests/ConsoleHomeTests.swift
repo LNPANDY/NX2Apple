@@ -23,8 +23,8 @@ import AppKit
         let sections = ConsoleHome.sections(games)
         XCTAssertEqual(sections.map(\.row), [.continuePlaying, .ready, .attention])
         XCTAssertEqual(sections[0].gameIDs, ["d", "b"], "played games ready on this Mac, the one played last first")
-        XCTAssertEqual(sections[1].gameIDs, ["a"], "ready, never played, current tools")
-        XCTAssertEqual(sections[2].gameIDs, ["c", "e", "f", "g", "h", "i"], "not built, older tools, no game data, iPhone only, incomplete: in the library's order")
+        XCTAssertEqual(sections[1].gameIDs, ["a", "e"], "ready, never played, including games built with older tools")
+        XCTAssertEqual(sections[2].gameIDs, ["c", "f", "g", "h", "i"], "not built, no game data, iPhone only, incomplete: in the library's order")
         XCTAssertEqual(Set(sections.flatMap(\.gameIDs)).count, games.count, "every game is in exactly one row")
 
         XCTAssertEqual(ConsoleHome.sections([game("a"), game("b")]).map(\.row), [.ready], "no game played and none needs anything: one row")

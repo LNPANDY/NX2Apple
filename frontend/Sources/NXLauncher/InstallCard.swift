@@ -38,25 +38,42 @@ package struct InstallCard: View {
         let needsCertificate = devices.teams.first { $0.id == devices.signingTeam }.map { !$0.hasCertificate } ?? false
         let footnote = devices.exportIPA ? ""
             : devices.installDevice.isEmpty ? "" : (needsCertificate ? loc.t("dev.teamNoCert") + " " : "") + loc.t("dev.note")
+        let modeLabels = [loc.t("shell.modeInstall"), loc.t("shell.modeExport")]
+        let modeSwitch = LauncherSegmented(options: [("install", modeLabels[0]), ("export", modeLabels[1])],
+                                           selection: devices.exportIPA ? "export" : "install") { devices.exportIPA = $0 == "export" }
+            .frame(width: ExportGrid.segmentedWidth(for: modeLabels))
+            .disabled(build.running)
+            .padTarget("set.build.install.mode", scope: "main", enabled: !build.running, activate: { if !build.running { devices.exportIPA.toggle() } }, adjust: { _ in if !build.running { devices.exportIPA.toggle() } })
         return VStack(alignment: .leading, spacing: 10) {
             // The two ways, a switch of their own: exporting is never chosen for the player (#416)
-            HStack {
-                Text(loc.t(forQueue ? "queue.iosOptions" : "dev.section")).font(titleFont)
-                    .foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
-                Spacer(minLength: 8)
-                LauncherSegmented(options: [("install", loc.t("shell.modeInstall")), ("export", loc.t("shell.modeExport"))],
-                                  selection: devices.exportIPA ? "export" : "install") { devices.exportIPA = $0 == "export" }
-                    .frame(width: ExportGrid.switchWidth)
-                    .disabled(build.running)
-                    .padTarget("set.build.install.mode", scope: "main", enabled: !build.running, activate: { if !build.running { devices.exportIPA.toggle() } }, adjust: { _ in if !build.running { devices.exportIPA.toggle() } })
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    Text(loc.t(forQueue ? "queue.iosOptions" : "dev.section")).font(titleFont)
+                        .foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 8)
+                    modeSwitch
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(loc.t(forQueue ? "queue.iosOptions" : "dev.section")).font(titleFont)
+                        .foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+                    modeSwitch
+                }
             }
             CardGroup("") {
                 if devices.exportIPA {
-                    HStack(spacing: 14) {
-                        appKindCard("shared")
-                        appKindCard("one")
-                        appKindCard("framework")
-                    }.fixedSize(horizontal: false, vertical: true).padding(18)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 14) {
+                            appKindCard("shared").frame(minWidth: 210)
+                            appKindCard("one").frame(minWidth: 210)
+                            appKindCard("framework").frame(minWidth: 210)
+                        }.fixedSize(horizontal: false, vertical: true)
+                        VStack(spacing: 12) {
+                            appKindCard("shared")
+                            appKindCard("one")
+                            appKindCard("framework")
+                        }
+                    }.padding(18)
                     CardDivider()
                     if !forQueue { ExportSteps(build: build, devices: devices) }
                 } else {

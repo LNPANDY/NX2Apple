@@ -113,8 +113,8 @@ import XCTest
         }
         let active = try pixel(status: .needsBuild, selected: true)
         let inactive = try pixel(status: .needsBuild, selected: false)
-        XCTAssertEqual(active.redComponent, active.greenComponent, accuracy: 0.02)
-        XCTAssertEqual(active.greenComponent, active.blueComponent, accuracy: 0.02)
+        XCTAssertGreaterThan(active.redComponent, active.greenComponent + 0.5, "selected unbuilt tile restores full color")
+        XCTAssertGreaterThan(inactive.redComponent, inactive.greenComponent + 0.12, "inactive unbuilt tile uses soft muted color, not grayscale")
         XCTAssertGreaterThan(active.redComponent, inactive.redComponent + 0.02)
         let ready = try pixel(status: .ready, selected: true)
         XCTAssertGreaterThan(ready.redComponent, ready.greenComponent + 0.5)

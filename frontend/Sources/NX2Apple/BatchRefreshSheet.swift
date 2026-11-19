@@ -229,6 +229,15 @@ struct BatchRefreshSheet: View {
         rows.first(where: { !$0.enabledTargets.isEmpty }).map { "batchRefresh.game.\($0.id.uuidString)" } ?? "batchRefresh.cancel"
     }
 
+    private var maxSheetHeight: CGFloat {
+        min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80)
+    }
+
+    private var iconLoadKey: String {
+        let entries = rows.map { "\($0.id.uuidString)|\($0.game.titleID)|\($0.game.appPath)|\($0.game.inputs["base"]?.first ?? "")" }
+        return loc.lang.code + "\n" + entries.joined(separator: "\n")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerSection
@@ -282,18 +291,36 @@ struct BatchRefreshSheet: View {
                 .padding(.vertical, 16)
         }
         .frame(width: 680)
-        .frame(maxHeight: min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80))
+        .frame(minHeight: min(420, maxSheetHeight), maxHeight: maxSheetHeight)
         .background(LauncherPalette.background)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .background(PadKeyboardInput(focus: pad, scope: "batchRefresh", back: close))
         .environment(\.padRingStyle, .hug)
         .padScope("batchRefresh", pad)
+        .task(id: iconLoadKey) {
+            let games = rows.map(\.game)
+            let banners = library.artworkDirectory
+            let language = loc.lang.code
+            let fallbackKeys = library.keysFile()
+            var loaded: [UUID: NSImage] = [:]
+            for game in games {
+                guard !Task.isCancelled else { return }
+                if let image = await GameLibrary.loadAppIcon(
+                    for: game,
+                    banners: banners,
+                    language: language,
+                    fallbackKeys: fallbackKeys,
+                    maxPixel: ArtworkImages.iconPixels
+                ) {
+                    loaded[game.id] = image
+                }
+            }
+            guard !Task.isCancelled else { return }
+            icons = loaded
+        }
         .onAppear {
             pad.scope = "batchRefresh"
-            icons = Dictionary(uniqueKeysWithValues: library.games.compactMap { game in
-                GameLibrary.appIcon(for: game, banners: library.artworkDirectory).map { (game.id, $0) }
-            })
             seedSelectionIfNeeded()
             scanExternalDriveIfNeeded()
             if pad.visible {

@@ -37,17 +37,34 @@ package struct BuildQueueCard: View {
 
     package var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if showsHeading { HStack(spacing: 12) {
-                Text(loc.t("queue.title")).font(titleFont).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
-                Spacer(minLength: 8)
-                if queue.hasFinished {
-                    Button(loc.t("queue.clear")) { queue.clearFinished() }.buttonStyle(LauncherSecondaryButtonStyle())
-                        .padTarget("set.build.queue.clear", scope: "main", activate: { queue.clearFinished() })
+            if showsHeading {
+                let controls = HStack(spacing: 10) {
+                    if queue.hasFinished {
+                        Button(loc.t("queue.clear")) { queue.clearFinished() }.buttonStyle(LauncherSecondaryButtonStyle()).fixedSize()
+                            .padTarget("set.build.queue.clear", scope: "main", activate: { queue.clearFinished() })
+                    }
+                    if queue.paused {
+                        Text(loc.t("queue.paused")).font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.building).fixedSize()
+                    }
+                    Button(loc.t("queue.select"), action: onSelectGames).buttonStyle(LauncherSecondaryButtonStyle()).fixedSize()
+                        .padTarget("set.build.queue.select", scope: "main", activate: onSelectGames)
                 }
-                if queue.paused { Text(loc.t("queue.paused")).font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.building) }
-                Button(loc.t("queue.select"), action: onSelectGames).buttonStyle(LauncherSecondaryButtonStyle())
-                    .padTarget("set.build.queue.select", scope: "main", activate: onSelectGames)
-            } }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        Text(loc.t("queue.title")).font(titleFont).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+                            .fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 8)
+                        controls
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(loc.t("queue.title")).font(titleFont).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+                        HStack {
+                            Spacer(minLength: 0)
+                            controls
+                        }
+                    }
+                }
+            }
             CardGroup("") {
                 if queue.awaitingResume {
                     VStack(alignment: .leading, spacing: 6) {
@@ -58,6 +75,12 @@ package struct BuildQueueCard: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).padding(.vertical, 13)
                     if !queue.entries.isEmpty { CardDivider() }
+                } else if queue.games.isEmpty {
+                    Text(loc.t("queue.selectNote"))
+                        .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 18).padding(.vertical, 14)
                 }
                 ForEach(Array(queue.games.enumerated()), id: \.element.id) { index, entry in
                     if index > 0 { CardDivider() }

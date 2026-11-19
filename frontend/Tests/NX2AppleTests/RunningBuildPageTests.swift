@@ -123,10 +123,12 @@ import NXModel
     func testRunningBuildShowsCenteredProgressWithoutSetupOrAnAlwaysOpenLog() throws {
         try withLauncher(on: .builds) { stores, host in
             let build = stores.build
-            wait(in: host, for: [build.t("section.progress"), build.t("build.stop")],
-                 without: [build.t("section.setup"), build.t("section.files"), build.t("section.target"),
-                           build.t("section.log"), build.t("library.viewBuild")])
+            wait(in: host, for: [build.t("section.progress"), build.t("build.stop"), build.t("section.setup")],
+                 without: [build.t("section.files"), build.t("section.target"),
+                           build.t("log.placeholder"), build.t("library.viewBuild")])
             waitForText(in: host, containing: "Shaders")
+            _ = texts(in: host, pressing: build.t("section.setup"))
+            wait(in: host, for: [build.t("section.files"), build.t("section.target")])
         }
     }
 
@@ -167,15 +169,13 @@ import NXModel
             wait(in: host, for: [progress, stop], without: [files, target])
             build.running = false
             build.doneNote = build.t("msg.stopped")
-            wait(in: host, for: [files], without: [progress, target])
-            _ = texts(in: host, pressing: build.t("flow.next"))
-            wait(in: host, for: [target], without: [files, progress])
+            wait(in: host, for: [files, target], without: [progress])
             build.running = true
             build.buildingGame = true
             wait(in: host, for: [progress, stop], without: [files, target])
             build.running = false
             build.failure = BuildFailure(kind: .cloudFolder, gameName: nil)
-            wait(in: host, for: [target, progress], without: [files])
+            wait(in: host, for: [files, target, progress])
         }
     }
 

@@ -8,7 +8,7 @@ import XCTest
 @MainActor final class BuildNavigationTests: IsolatedDefaultsTestCase {
     private func settle(_ seconds: Double = 0.25) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
-    private func withBuilds(count: Int = 3, editor: Bool = false, ready: Bool = true,
+    private func withBuilds(count: Int = 3, page: LauncherPage = .builds, ready: Bool = true, height: CGFloat = 1400,
         check: (LauncherStores, GameLibrary, PadFocus, LauncherGamepad, NSWindow, (Int) -> Void) throws -> Void) throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("build-navigation-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -30,9 +30,9 @@ import XCTest
         stores.build.target = BuildTarget.mac
         let focus = PadFocus(), source = SteamLinkGamepads(observeSystem: false)
         let pad = LauncherGamepad(steam: source, observeSystem: false, appIsActive: { true })
-        let window = OffscreenWindow(size: .init(width: 1100, height: 720))
-        window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library, initialPage: .builds,
-            initialBuildEditorOpen: editor, performStartupChecks: false, gamepad: pad, padFocus: focus))
+        let window = OffscreenWindow(size: .init(width: 1100, height: height))
+        window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library, initialPage: page,
+            performStartupChecks: false, gamepad: pad, padFocus: focus))
         window.orderFront(nil)
         defer { window.contentView = nil; window.orderOut(nil); pad.deactivate(); stores.build.running = false }
         settle(0.5)
@@ -69,7 +69,7 @@ import XCTest
     }
 
     func testAdvancingQueueKeepsProgressDuringIdleGapAndUsesExactRowHeight() throws {
-        try withBuilds(editor: true) { stores, library, focus, _, window, _ in
+        try withBuilds { stores, library, focus, _, window, _ in
             let queue = BuildQueueStore(file: nil, engineID: { "fixture" }, busy: { true }, start: { _ in nil })
             queue.enqueue([QueueEntry(game: library.games[0], engineID: "fixture")])
             queue.start()
@@ -78,13 +78,13 @@ import XCTest
             stores.build.buildingGame = false
             stores.build.running = false
             stores.build.stages = (0..<3).map { Stage(id: $0, name: "Step \($0)") }
-            window.contentView = NSHostingView(rootView: BuildPage(step: .constant(1), build: stores.build, running: false,
+            window.contentView = NSHostingView(rootView: BuildPage(step: .constant(0), build: stores.build, running: false,
                 repo: stores.repo, dependencies: stores.dependencies, devices: stores.deviceStore, queue: queue, transfers: stores.transfers,
                 extrasOpen: .constant(false), logOpen: .constant(false), confirmingCancel: .constant(false))
                 .environmentObject(stores.localizer).environmentObject(focus).padScope("main", focus))
             settle()
             XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.action" }, "The progress card must remain mounted between queue jobs")
-            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "set.build.target.mac" || $0.id == "set.build.queue.cancel" })
+            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "set.build.target.mac" })
             for count in [1, 3, 5] {
                 let rows = NSHostingView(rootView: BuildProcessRows(stages: (0..<count).map { Stage(id: $0, name: "Step") }).environmentObject(stores.localizer))
                 XCTAssertEqual(rows.fittingSize.height, CGFloat(count * 60 - 16), accuracy: 0.1)
@@ -92,12 +92,11 @@ import XCTest
         }
     }
 
-    func testMissingSetupBlocksEditorAndRoutesToToolsWithoutLosingDraft() throws {
-        try withBuilds(editor: true, ready: false) { stores, library, focus, pad, _, _ in
+    func testMissingSetupShowsHintAndRoutesToToolsWithoutLosingDraft() throws {
+        try withBuilds(ready: false) { stores, library, focus, pad, _, _ in
             let source = library.games[0].inputs["base"]!
             stores.build.take(picked: source, kind: .base); settle()
             XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.setup" })
-            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "set.build.folder" || $0.id == "set.build.next" || $0.id == "builds.first" || $0.id == "builds.batch" })
             aim("set.build.setup", focus); pad.perform(.a); settle()
             XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.repoChoose" })
             XCTAssertEqual(stores.build.basePath, source[0])
@@ -107,38 +106,36 @@ import XCTest
         }
     }
 
-    func testRunningProcessMenuOwnsLogsAndStepsWithoutExposingSetupActions() throws {
-        try withBuilds(editor: true) { stores, _, focus, pad, window, _ in
+    func testRunningBuildExposesStepsSheetAndCollapsibleSetupAndLogs() throws {
+        try withBuilds { stores, _, focus, pad, window, _ in
             stores.build.buildingGame = true
             stores.build.stages = [Stage(id: 1, name: "Extract", state: .done), Stage(id: 2, name: "Shaders", percent: 42)]
             stores.build.running = true; settle()
-            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "set.build.next" || $0.id == "set.build.file.base" })
-            aim("set.build.options", focus); pad.perform(.a); settle()
-            XCTAssertEqual(focus.frames["dropdown", default: []].count, 2)
-            aim("dropdown.0", focus); pad.perform(.a); settle()
+            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "set.build.file.base" })
+            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.action" })
+            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.runningSetup" })
+            aim("set.build.log", focus); pad.perform(.a); settle()
             XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.logContent" })
             window.setContentSize(.init(width: 900, height: 680)); settle()
             XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.action" })
-            aim("set.build.options", focus); pad.perform(.a); settle()
-            aim("dropdown.1", focus); pad.perform(.a); settle(0.5)
+            aim("set.build.steps", focus); pad.perform(.a); settle(0.5)
             XCTAssertEqual(focus.scope, "build.steps")
             pad.perform(.b); settle(0.5)
             XCTAssertEqual(focus.scope, "main")
-            XCTAssertEqual(focus.focused, "set.build.options")
+            XCTAssertEqual(focus.focused, "set.build.steps")
             stores.build.running = false; settle()
-            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "set.build.action" })
+            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.file.base" })
         }
     }
 
-    func testMinimizedBuildFooterReturnsToBuilderAndHidesWhenStopped() throws {
-        try withBuilds { stores, _, focus, pad, _, _ in
+    func testMinimizedBuildFooterShowsOutsideBuildsAndHidesOnBuilds() throws {
+        try withBuilds(page: .settings) { stores, _, focus, pad, _, _ in
             stores.build.running = true
             settle()
             XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "build.activity" })
             aim("build.activity", focus); pad.perform(.a); settle()
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "builds.back" })
             XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "build.activity" })
-            aim("builds.back", focus); pad.perform(.a); settle()
+            aim("top.settings", focus); pad.perform(.a); settle()
             XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "build.activity" })
             stores.build.running = false; settle()
             XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "build.activity" })
@@ -147,7 +144,7 @@ import XCTest
 
     func testBatchSheetOwnsControllerInputAndStagesOnlyCheckedGames() throws {
         try withBuilds { stores, library, focus, pad, _, _ in
-            aim("builds.batch", focus); pad.perform(.a); settle(0.5)
+            aim("set.build.queue.select", focus); pad.perform(.a); settle(0.5)
             XCTAssertEqual(focus.scope, "batch")
             guard focus.scope == "batch" else { return }
             for action in [LauncherGamepad.Action.l, .r, .x, .y, .select] { pad.perform(action) }
@@ -166,7 +163,7 @@ import XCTest
     func testBatchPlatformChoiceCommitsOnAddAndCancelLeavesItUnchanged() throws {
         try withBuilds { stores, library, focus, pad, _, _ in
             XCTAssertEqual(stores.build.target, BuildTarget.mac)
-            aim("builds.batch", focus); pad.perform(.a); settle(0.5)
+            aim("set.build.queue.select", focus); pad.perform(.a); settle(0.5)
             aim("batch.platform", focus); pad.perform(.right); settle()
             XCTAssertEqual(stores.build.target, BuildTarget.mac, "the choice remains a draft until Add")
             aim("batch.game." + library.games[0].id.uuidString, focus); pad.perform(.a); settle()
@@ -185,7 +182,7 @@ import XCTest
     func testAddingIOSMergesWithMacIntoOneVisibleGameAndPreventsDuplicateRequests() throws {
         try withBuilds { stores, library, focus, pad, _, _ in
             let game = library.games[0]
-            aim("builds.batch", focus); pad.perform(.a); settle(0.5)
+            aim("set.build.queue.select", focus); pad.perform(.a); settle(0.5)
             aim("batch.game." + game.id.uuidString, focus); pad.perform(.a); settle()
             aim("batch.add", focus); pad.perform(.a); settle(0.5)
             let first = stores.queue.games[0].id
@@ -211,7 +208,7 @@ import XCTest
 
     func testBothSelectionStagesTwoConsecutiveJobsInOneGameRow() throws {
         try withBuilds { stores, library, focus, pad, _, _ in
-            aim("builds.batch", focus); pad.perform(.a); settle(0.5)
+            aim("set.build.queue.select", focus); pad.perform(.a); settle(0.5)
             aim("batch.platform", focus); pad.perform(.right); pad.perform(.right); settle()
             aim("batch.game." + library.games[0].id.uuidString, focus); pad.perform(.a); settle()
             aim("batch.add", focus); pad.perform(.a); settle(0.5)
@@ -227,7 +224,7 @@ import XCTest
         try withBuilds { stores, library, focus, pad, _, _ in
             let first = library.games[0], second = library.games[1]
             stores.queue.enqueue([QueueEntry(game: first, engineID: stores.engineSync.selection.engineID, target: BuildTarget.ios)])
-            aim("builds.batch", focus); pad.perform(.a); settle(0.5)
+            aim("set.build.queue.select", focus); pad.perform(.a); settle(0.5)
             aim("batch.game." + first.id.uuidString, focus); pad.perform(.a); settle()
             aim("batch.platform", focus); pad.perform(.right); settle()
             XCTAssertFalse(focus.frames["batch", default: []].contains { $0.id == "batch.game." + first.id.uuidString || $0.id == "batch.add" })
@@ -240,7 +237,7 @@ import XCTest
 
     func testBatchKeyboardEnterTogglesTheFocusedRowWithoutSubmitting() throws {
         try withBuilds { stores, library, focus, pad, window, _ in
-            aim("builds.batch", focus); pad.perform(.a); settle(0.5)
+            aim("set.build.queue.select", focus); pad.perform(.a); settle(0.5)
             let sheet = try XCTUnwrap(window.attachedSheet)
             @MainActor func keyboard(in view: NSView) -> ConsoleKeyboardInput.KeyView? {
                 if let key = view as? ConsoleKeyboardInput.KeyView { return key }
@@ -266,18 +263,15 @@ import XCTest
         }
     }
 
-    func testBuilderControlsAreReachableAndDisabledWhileRunning() throws {
-        try withBuilds(editor: true) { stores, library, focus, pad, _, _ in
+    func testSingleScreenBuilderControlsAreReachableAndDisabledWhileRunning() throws {
+        try withBuilds { stores, library, focus, pad, _, _ in
             let ids = Set(focus.frames["main", default: []].map(\.id))
-            XCTAssertTrue(ids.isSuperset(of: ["set.build.folder", "set.build.file.base", "set.build.output", "set.build.file.update", "set.build.file.dlc"]))
-            XCTAssertFalse(ids.contains("set.build.target.ios"), "platform options belong to the next step")
+            XCTAssertTrue(ids.isSuperset(of: ["set.build.engine", "set.build.folder", "set.build.file.base", "set.build.file.keys", "set.build.output", "set.build.file.update", "set.build.file.dlc", "set.build.target.ios", "set.build.queue.select", "set.build.log"]))
             stores.build.take(picked: library.games[0].inputs["base"]!, kind: .base); settle()
-            aim("set.build.next", focus); pad.perform(.a); settle()
             aim("set.build.target.ios", focus)
             guard focus.focused == "set.build.target.ios" else { return }
             pad.perform(.a); settle()
             XCTAssertEqual(stores.build.target, BuildTarget.ios)
-            aim("set.build.next", focus); pad.perform(.a); settle()
             XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.install.mode" })
             aim("set.build.install.mode", focus); pad.perform(.right); settle()
             XCTAssertTrue(stores.deviceStore.exportIPA)
@@ -287,110 +281,21 @@ import XCTest
         }
     }
 
-    func testDraftCancellationKeepsFilesSavedKeysAndQueue() throws {
-        try withBuilds(editor: true) { stores, library, focus, pad, _, _ in
-            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "set.build.cancel" }, "draft cancellation lives only in the header menu")
-            let source = library.games[0].inputs["base"]!
-            stores.build.take(picked: source, kind: .base)
-            let keys = URL(fileURLWithPath: source[0]).deletingLastPathComponent().appendingPathComponent("prod.keys")
-            try Data("header_key = 00".utf8).write(to: keys)
-            stores.build.saveKeys(keys.path)
-            stores.build.slots[1].note = "Previous update choice"
-            stores.queue.enqueue([QueueEntry(game: library.games[1], engineID: stores.engineSync.selection.engineID)])
-            settle()
-            aim("set.build.options", focus); pad.perform(.a); settle()
-            aim("dropdown.4", focus); pad.perform(.a); settle(0.5)
-            XCTAssertEqual(focus.scope, "canceldraft")
-            pad.perform(.b); settle(0.5)
-            XCTAssertEqual(stores.build.basePath, source[0], "Back keeps the draft")
-            aim("set.build.options", focus); pad.perform(.a); settle()
-            aim("dropdown.4", focus); pad.perform(.a); settle(0.5)
-            aim("canceldraft.confirm", focus); pad.perform(.a); settle(0.5)
-            XCTAssertTrue(stores.build.basePath.isEmpty)
-            XCTAssertTrue(stores.build.slots.allSatisfy { $0.note.isEmpty })
-            XCTAssertTrue(FileManager.default.fileExists(atPath: source[0]))
-            XCTAssertEqual(stores.build.savedKeys, keys.path)
-            XCTAssertEqual(stores.queue.queued.count, 1)
-            XCTAssertFalse(stores.build.running)
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "builds.batch" })
-        }
-    }
-
-    func testFileStepFooterAndOverflowStayReachableWithoutBuilding() throws {
-        try withBuilds(editor: true) { stores, library, focus, pad, window, _ in
-            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "set.build.next" }, "Next stays disabled until a base exists")
-            stores.build.take(picked: library.games[0].inputs["base"]!, kind: .base); settle()
-            let next = try XCTUnwrap(focus.frames["main"]?.first { $0.id == "set.build.next" })
-            XCTAssertGreaterThan(next.frame.minY, 600)
-            XCTAssertLessThanOrEqual(next.frame.maxY, window.contentView!.bounds.height)
-            aim("set.build.options", focus); pad.perform(.a); settle()
-            XCTAssertEqual(focus.scope, "dropdown")
-            pad.perform(.b); settle()
-            XCTAssertEqual(focus.scope, "main")
-            XCTAssertEqual(stores.build.basePath, library.games[0].inputs["base"]?.first)
-            aim("set.build.next", focus); pad.perform(.a); settle()
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.target." + BuildTarget.mac })
-            XCTAssertFalse(stores.build.running)
-            aim("set.build.previous", focus); pad.perform(.a); settle()
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.file.base" })
-        }
-    }
-
-    func testSetupStepsHideLogUntilAnOperationStarts() throws {
-        try withBuilds(editor: true) { stores, library, focus, pad, _, _ in
-            stores.build.take(picked: library.games[0].inputs["base"]!, kind: .base)
-            settle()
-            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "set.build.log" })
-            aim("set.build.next", focus); pad.perform(.a); settle()
-            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "set.build.log" })
-            stores.build.running = true; settle()
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.options" })
-        }
-    }
-
-    func testFailureLogRequestFromFilesRevealsLogWithoutLosingSource() throws {
-        try withBuilds(editor: true) { stores, library, focus, _, _, _ in
+    func testFailureLogRequestRevealsLogWithoutLosingSource() throws {
+        try withBuilds { stores, library, focus, _, _, _ in
             stores.build.take(picked: library.games[0].inputs["base"]!, kind: .base)
             stores.build.log.append("Fixture build error")
             defer { BuildNotifier.shared.showLog = false }
             BuildNotifier.shared.showLog = true
             settle(0.5)
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.log" })
+            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.logContent" })
             XCTAssertEqual(stores.build.basePath, library.games[0].inputs["base"]?.first)
             XCTAssertFalse(stores.build.running)
         }
     }
 
-    func testExistingInstallAndExportRoutesNeedNoNewSource() throws {
-        try withBuilds(editor: true) { stores, _, focus, pad, _, _ in
-            aim("set.build.options", focus); pad.perform(.a); settle()
-            // The shared dropdown initially focuses its first item.
-            for _ in 0..<2 { pad.perform(.down); settle(0.05) }
-            XCTAssertEqual(focus.focused, "dropdown.2")
-            guard focus.focused == "dropdown.2" else { return }
-            pad.perform(.a); settle()
-            XCTAssertEqual(stores.build.target, BuildTarget.ios)
-            XCTAssertTrue(stores.build.basePath.isEmpty)
-            XCTAssertFalse(stores.deviceStore.exportIPA)
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.install.mode" })
-            XCTAssertEqual(focus.scope, "main")
-            guard focus.scope == "main" else { return }
-            aim("set.build.options", focus)
-            XCTAssertEqual(focus.focused, "set.build.options")
-            guard focus.focused == "set.build.options" else { return }
-            pad.perform(.a); settle()
-            for _ in 0..<3 { pad.perform(.down); settle(0.05) }
-            XCTAssertEqual(focus.focused, "dropdown.3")
-            guard focus.focused == "dropdown.3" else { return }
-            pad.perform(.a); settle()
-            XCTAssertTrue(stores.deviceStore.exportIPA)
-            XCTAssertTrue(stores.build.basePath.isEmpty)
-            XCTAssertFalse(stores.build.running)
-        }
-    }
-
     func testHeaderTabsStayCenteredAcrossWidthsAndExpandedSearch() throws {
-        try withBuilds(editor: true) { stores, _, focus, _, window, _ in
+        try withBuilds(height: 720) { stores, _, focus, _, window, _ in
             _ = stores.players.create(name: "A deliberately long player name")
             stores.appUpdates.update = .init(tag: "v9.9.9", url: "", digest: nil)
             func checkCenter() throws {
@@ -408,11 +313,7 @@ import XCTest
             for width in [900.0, 1100.0, 1600.0] {
                 window.setContentSize(.init(width: width, height: 720)); settle()
                 try checkCenter()
-                let back = try XCTUnwrap(focus.frames["main"]?.first { $0.id == "builds.back" })
-                let options = try XCTUnwrap(focus.frames["main"]?.first { $0.id == "set.build.options" })
-                XCTAssertLessThanOrEqual(back.frame.maxY, 64)
-                XCTAssertLessThanOrEqual(options.frame.maxY, 64)
-                XCTAssertLessThan(back.frame.maxX, options.frame.minX)
+                XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "builds.back" || $0.id == "set.build.options" })
             }
             window.setContentSize(.init(width: 900, height: 720)); settle()
             let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
@@ -423,21 +324,8 @@ import XCTest
         }
     }
 
-    func testHeaderBackAndContinueKeepTheCurrentBuildStep() throws {
-        try withBuilds(editor: true) { stores, library, focus, pad, _, _ in
-            stores.build.take(picked: library.games[0].inputs["base"]!, kind: .base); settle()
-            aim("set.build.next", focus); pad.perform(.a); settle()
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.target." + BuildTarget.mac })
-            aim("builds.back", focus); pad.perform(.a); settle()
-            aim("builds.resume", focus); pad.perform(.a); settle()
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "set.build.target." + BuildTarget.mac })
-            XCTAssertEqual(focus.frames["main", default: []].filter { $0.id == "set.build.options" }.count, 1)
-            XCTAssertEqual(stores.build.basePath, library.games[0].inputs["base"]?.first)
-        }
-    }
-
     func testOutputHelpOwnsControllerInputAndBackRestoresTheIcon() throws {
-        try withBuilds(editor: true) { stores, _, focus, pad, _, _ in
+        try withBuilds { stores, _, focus, pad, _, _ in
             aim("set.build.output.help", focus); settle()
             XCTAssertEqual(focus.focused, "set.build.output.help")
             pad.perform(.a); settle(0.5)
@@ -452,54 +340,8 @@ import XCTest
         }
     }
 
-    func testLongTableRevealsRowsAndYManagesTheFocusedGame() throws {
-        try withBuilds(count: 35) { _, library, focus, pad, _, press in
-            let games = library.games.sorted { $0.name < $1.name }
-            aim("builds.game." + games[0].id.uuidString, focus)
-            for _ in 1..<games.count { press(13); settle(0.03) }
-            settle(0.4)
-            XCTAssertEqual(focus.focused, "builds.game." + games.last!.id.uuidString)
-            XCTAssertEqual(library.selectedID, games.last?.id, "table focus owns the context-menu game")
-            let frame = try XCTUnwrap(focus.frames["main"]?.first { $0.id == focus.focused }?.frame)
-            XCTAssertGreaterThan(frame.minY, 64)
-            XCTAssertLessThan(frame.maxY, 720)
-            press(4); settle()
-            XCTAssertEqual(focus.scope, "manage")
-            press(2); settle()
-            XCTAssertEqual(focus.scope, "main")
-        }
-    }
-
-    func testCancellingBatchSelectionReturnsToInventoryAndKeepsDraft() throws {
-        try withBuilds { stores, _, focus, pad, _, _ in
-            stores.build.gameDir = "/fixture/draft"
-            aim("builds.batch", focus); pad.perform(.a); settle(0.5)
-            pad.perform(.b); settle(0.5)
-            XCTAssertEqual(focus.scope, "main")
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "builds.batch" })
-            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "builds.back" })
-            XCTAssertEqual(stores.build.gameDir, "/fixture/draft")
-            XCTAssertTrue(stores.queue.entries.isEmpty)
-        }
-    }
-
-    func testPlatformActionsConfigureCorrectTargetAndBackPreservesInputs() throws {
-        try withBuilds { stores, library, focus, pad, _, _ in
-            let game = library.games[1]
-            for target in [BuildTarget.mac, BuildTarget.ios] {
-                aim("builds.platform." + target + "." + game.id.uuidString, focus)
-                pad.perform(.a); settle(0.5)
-                XCTAssertEqual(stores.build.target, target)
-                XCTAssertEqual(stores.build.basePath, game.inputs["base"]?.first)
-                pad.perform(.b); settle(0.5)
-                XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "builds.batch" })
-                XCTAssertEqual(stores.build.basePath, game.inputs["base"]?.first)
-            }
-        }
-    }
-
     func testQueueReorderRemoveAndCancelAreReachableAndDoNotStartWork() throws {
-        try withBuilds(editor: true) { stores, library, focus, pad, _, _ in
+        try withBuilds { stores, library, focus, pad, _, _ in
             stores.queue.enqueue(library.games.map { QueueEntry(game: $0, engineID: stores.engineSync.selection.engineID) })
             focus.show(default: nil)
             settle()
@@ -572,19 +414,6 @@ import XCTest
         XCTAssertEqual(outer.contentView.bounds.minY, pageBefore)
     }
 
-    func testCommandFFromBuilderSearchesInventoryWithoutDiscardingDraft() throws {
-        try withBuilds(editor: true) { stores, _, focus, _, window, _ in
-            stores.build.gameDir = "/fixture/draft"
-            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
-                windowNumber: window.windowNumber, context: nil, characters: "f", charactersIgnoringModifiers: "f", isARepeat: false, keyCode: 3))
-            XCTAssertTrue(window.performKeyEquivalent(with: event)); settle()
-            XCTAssertTrue(window.firstResponder is NSTextView)
-            XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "builds.batch" })
-            XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "builds.back" })
-            XCTAssertEqual(stores.build.gameDir, "/fixture/draft")
-        }
-    }
-
     func testCompletedQueueRowPlayUsesItsGameAndKeepsQueueResults() throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
         defer { try? FileManager.default.removeItem(at: file) }
@@ -647,26 +476,34 @@ import XCTest
         window.contentView = host; window.orderFront(nil)
         defer { window.contentView = nil; window.orderOut(nil) }
         settle()
-        let image = NSImage(size: NSSize(width: 96, height: 96))
-        image.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 96, height: 96).fill(); image.unlockFocus()
+        let beforeBitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: beforeBitmap)
+        let beforeColor = try XCTUnwrap(beforeBitmap.colorAt(x: beforeBitmap.pixelsWide / 2, y: beforeBitmap.pixelsHigh / 2)?.usingColorSpace(.sRGB))
+        XCTAssertLessThan(beforeColor.redComponent - beforeColor.greenComponent, 0.1, "placeholder must not be red before artwork arrives")
+        let cs = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let ctx = try XCTUnwrap(CGContext(
+            data: nil, width: 96, height: 96, bitsPerComponent: 8, bytesPerRow: 96 * 4,
+            space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: 96, height: 96))
+        let image = NSImage(cgImage: try XCTUnwrap(ctx.makeImage()), size: NSSize(width: 96, height: 96))
         host.rootView = QueueArtworkStack(items: [.init(id: "current", image: image)], size: 96)
         settle()
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
-        let color = try XCTUnwrap(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
+        let color = try XCTUnwrap(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.sRGB))
         XCTAssertGreaterThan(color.redComponent, 0.8)
-        XCTAssertLessThan(color.greenComponent, 0.2)
+        XCTAssertGreaterThan(color.redComponent - color.greenComponent, 0.5)
     }
 
     func testDeviceTeamExportAndDriveSelectorsKeepStateAndRunningGuards() throws {
-        try withBuilds(editor: true) { stores, library, focus, pad, _, _ in
+        try withBuilds(height: 1800) { stores, library, focus, pad, _, _ in
             stores.build.target = BuildTarget.ios
             stores.deviceStore.devices = [AppleDevice(id: "fixture-device", name: "Fixture iPad", model: "iPad", os: "27", reachable: true)]
             stores.deviceStore.teams = [SigningTeam(id: "fixture-team", identity: "Fixture Team")]
             settle()
             stores.build.take(picked: library.games[0].inputs["base"]!, kind: .base); settle()
-            aim("set.build.next", focus); pad.perform(.a); settle()
-            aim("set.build.next", focus); pad.perform(.a); settle()
             aim("set.build.install.device.fixture-device", focus); pad.perform(.a); settle()
             XCTAssertEqual(stores.deviceStore.installDevice, "fixture-device")
             aim("set.build.install.team", focus); pad.perform(.a); settle()
@@ -698,7 +535,7 @@ import XCTest
     }
 
     func testBuildOverrideAndStaleFrameworkQuestionsCancelWithoutArmingOrRemoving() throws {
-        try withBuilds(editor: true) { stores, _, focus, pad, _, _ in
+        try withBuilds { stores, _, focus, pad, _, _ in
             stores.build.failure = BuildFailure(kind: .damagedNSP, gameName: "Fixture")
             settle()
             aim("set.build.failure.override", focus); pad.perform(.a); settle(0.5)
@@ -718,8 +555,9 @@ import XCTest
             XCTAssertEqual(focus.scope, "main")
         }
     }
-    func testCompletionReplacesSetupAndKeepsControllerResultAndHistoryActions() throws {
-        try withBuilds(editor: true) { stores, _, focus, pad, _, _ in
+
+    func testCompletionShowsOutcomeAndKeepsWorkbenchReachable() throws {
+        try withBuilds(height: 1800) { stores, _, focus, _, _, _ in
             let build = stores.build
             build.runningTarget = BuildTarget.mac
             build.macAppPath = "/fixture/Game.app"; build.done = true
@@ -727,12 +565,7 @@ import XCTest
             func ids() -> Set<String> { Set(focus.frames["main", default: []].map(\.id)) }
             XCTAssertTrue(ids().contains("set.build.done.library"))
             XCTAssertTrue(ids().contains("set.build.done.reveal"))
-            XCTAssertFalse(ids().contains("set.build.next"))
-            XCTAssertFalse(ids().contains("set.build.action"))
-            XCTAssertFalse(ids().contains("set.build.file.base"))
-            aim("set.build.options", focus); pad.perform(.a); settle()
-            XCTAssertEqual(focus.scope, "dropdown")
-            pad.perform(.b); settle()
+            XCTAssertTrue(ids().contains("set.build.file.base"))
             build.exportedIPAPath = "/fixture/Game.ipa"; settle()
             XCTAssertTrue(ids().contains("set.build.export.reveal"))
             XCTAssertTrue(ids().contains("set.build.export.where"))
@@ -750,8 +583,8 @@ import XCTest
         }
     }
 
-    func testCompletedFooterCanBeDismissedWithoutClearingTheResultAndReturnsForNewWork() throws {
-        try withBuilds { stores, _, focus, pad, _, _ in
+    func testCompletedFooterCanBeDismissedOutsideBuildsWithoutClearingTheResult() throws {
+        try withBuilds(page: .settings) { stores, _, focus, pad, _, _ in
             stores.build.macAppPath = "/fixture/Game.app"
             stores.build.runningTarget = BuildTarget.mac
             stores.build.done = true; settle()
@@ -768,5 +601,4 @@ import XCTest
             XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "build.activity.dismiss" })
         }
     }
-
 }

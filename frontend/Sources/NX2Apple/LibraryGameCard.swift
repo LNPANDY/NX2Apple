@@ -12,26 +12,37 @@ struct LibraryGameCard: View {
     let width: CGFloat
     let selected: Bool
     let select: () -> Void
+    var doubleClick: () -> Void = {}
+    var contextMenuItems: (() -> [ManageItem])? = nil
     @EnvironmentObject private var loc: Localizer
     @State private var hovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var isColorActive: Bool { hovered || selected }
     var body: some View {
         Button(action: select) {
             VStack(alignment: .leading, spacing: LibraryCardLayout.titleSpacing) {
                 ZStack {
-                    if let image { ArtworkFill(image: image, focus: focus) }
-                    else {
-                        LauncherPalette.surface
-                        Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
+                    LauncherPalette.surface
+                    Group {
+                        if let image { ArtworkFill(image: image, focus: focus) }
+                        else {
+                            Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
+                        }
                     }
+                    .saturation(LibraryArtworkTone.saturation(muted: state.monochrome, active: isColorActive))
+                    .opacity(LibraryArtworkTone.artworkOpacity(muted: state.monochrome, active: isColorActive))
                 }
-                .saturation(state.monochrome ? 0 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isColorActive)
                 .frame(width: width, height: width / LibraryCardLayout.aspect).clipped()
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .overlay(alignment: .topLeading) { LibraryArtworkChip(state: state).padding(8) }
                 .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(selected ? LauncherPalette.cream : LauncherPalette.cardBorder,
                                                                                      lineWidth: selected ? 2 : 1))
-                Text(title).font(.manrope(16, .semibold)).lineLimit(1)
+                Text(title)
+                    .font(.manrope(16, .semibold))
+                    .lineLimit(1)
+                    .opacity(LibraryArtworkTone.titleOpacity(muted: state.monochrome, active: isColorActive))
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isColorActive)
             }
             .frame(width: width, alignment: .leading)
             .padding(LibraryCardLayout.inset)
@@ -43,9 +54,44 @@ struct LibraryGameCard: View {
         }
         .buttonStyle(.plain).launcherHover(lightBrightness: 0)
         .onHover { hovered = $0 }
+        .simultaneousGesture(TapGesture(count: 2).onEnded { doubleClick() })
+        .modifier(LibraryCardContextMenu(select: select, items: contextMenuItems))
         .accessibilityLabel(title)
         .accessibilityValue(state.chipKey.map { loc.t($0) } ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+private struct LibraryCardContextMenu: ViewModifier {
+    let select: () -> Void
+    let items: (() -> [ManageItem])?
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if let items {
+            content.contextMenu {
+                LibraryCardContextMenuContent(select: select, items: items)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+private struct LibraryCardContextMenuContent: View {
+    let select: () -> Void
+    let items: () -> [ManageItem]
+
+    var body: some View {
+        ForEach(items()) { item in
+            if item.separatorBefore { Divider() }
+            Button(role: item.destructive ? .destructive : nil) {
+                select()
+                item.run()
+            } label: {
+                Label(item.title, systemImage: item.symbol)
+            }
+            .disabled(!item.enabled)
+        }
     }
 }
 

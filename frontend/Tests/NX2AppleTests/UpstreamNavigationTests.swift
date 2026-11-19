@@ -75,4 +75,28 @@ import XCTest
         pad.focused = "set.upstream"; pad.horizontal(1)
         XCTAssertEqual(build.buildUpstream, .s2arm)
     }
+
+    func testEngineDropdownScrollsCleanlyInShortWindow() throws {
+        let oldMNG = MacNativeGamesBuilder.featureEnabled, oldS2 = S2ArmBuilder.featureEnabled
+        MacNativeGamesBuilder.featureEnabled = true; S2ArmBuilder.featureEnabled = true
+        defer { MacNativeGamesBuilder.featureEnabled = oldMNG; S2ArmBuilder.featureEnabled = oldS2 }
+        let stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
+        let dropdowns = LauncherDropdownState()
+        let window = OffscreenWindow(size: .init(width: 900, height: 240))
+        defer { window.contentView = nil; window.orderOut(nil); window.close() }
+        window.contentView = NSHostingView(rootView: EngineSwitcherCard(build: stores.build)
+            .environmentObject(stores.localizer)
+            .environmentObject(pad)
+            .padScope("main", pad)
+            .launcherDropdownHost(dropdowns, pad: pad))
+        window.orderFront(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        pad.show(default: "set.build.engine"); pad.activate()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(pad.scope, "engineDropdown")
+        XCTAssertNotNil(pad.frame(of: "set.build.engine.nxnative"))
+        dropdowns.close()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        XCTAssertEqual(pad.scope, "main")
+    }
 }

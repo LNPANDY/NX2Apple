@@ -170,6 +170,30 @@ private struct LauncherDropdownHost: ViewModifier {
     }
 }
 
+private struct LauncherDropdownMaxHeightKey: EnvironmentKey { static let defaultValue: CGFloat? = nil }
+extension EnvironmentValues {
+    package var launcherDropdownMaxHeight: CGFloat? {
+        get { self[LauncherDropdownMaxHeightKey.self] }
+        set { self[LauncherDropdownMaxHeightKey.self] = newValue }
+    }
+}
+
+private struct LauncherDropdownCapLayout: Layout {
+    let maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let first = subviews.first else { return .zero }
+        let cap = max(0, min(maxHeight, proposal.height ?? maxHeight))
+        let size = first.sizeThatFits(ProposedViewSize(width: proposal.width, height: cap))
+        return CGSize(width: size.width, height: min(size.height, cap))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let first = subviews.first else { return }
+        first.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+
 private struct LauncherCustomDropdownBox: View {
     let custom: LauncherCustomDropdown
     let maxHeight: CGFloat
@@ -177,12 +201,13 @@ private struct LauncherCustomDropdownBox: View {
     @State private var monitor: Any?
 
     var body: some View {
-        custom.content(close)
-            .environment(\.launcherControlWidth, nil)
-            .frame(width: custom.width)
-            .frame(maxHeight: maxHeight)
-            .fixedSize(horizontal: false, vertical: true)
-            .launcherDropdownSurface()
+        LauncherDropdownCapLayout(maxHeight: maxHeight) {
+            custom.content(close)
+                .environment(\.launcherControlWidth, nil)
+                .environment(\.launcherDropdownMaxHeight, maxHeight)
+                .frame(width: custom.width)
+        }
+        .launcherDropdownSurface()
             .accessibilityElement(children: .contain)
             .accessibilityLabel(custom.label)
             .accessibilityAddTraits(.isModal)
