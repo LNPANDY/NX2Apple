@@ -2464,8 +2464,6 @@
   "upstream.s2armPickMessage": "Wähle den S2Arm-Repository-Ordner",
   "upstream.switchBtn": "Wechseln",
   "upstream.title": "Build-Quelle",
-  "widescreen.badge": "Vollbild",
-  "widescreen.help": "Passt sich an Vollbild- und Breitbild-Seitenverhältnisse an.",
   "xcodeChoice.choose": "Xcode auswählen…",
   "xcodeChoice.finishSetup": "Schließe die Einrichtung im ausgewählten Xcode ab und klicke dann auf „Erneut versuchen“.",
   "xcodeChoice.invalid": "Wähle eine Xcode-App mit den Entwicklerwerkzeugen aus.",

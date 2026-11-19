@@ -162,10 +162,10 @@ index 6cde102..8c0640f 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 1221d51..278b24b 100755
+index 2dde42a..0018b90 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -337,7 +337,19 @@ fi
+@@ -352,7 +352,19 @@ fi
  # game's per-game resources into it, so one folder is one game: the pipeline archive (pso/, DM_PSO_BUNDLE) and the icon the shell's library shows.
  # The shader libraries are stripped from the framework (msl/ removed); their source metadata is recorded under .msl-cache/<id>.json.
  # The game files and add-on content stay out (data, Documents/games/<id>/)
@@ -185,7 +185,7 @@ index 1221d51..278b24b 100755
    t "xcodebuild (Release, unsigned, the game framework $FW_NAME with its own host)"
    mkdir -p "$O" "$FRAMEWORK_ONLY" || die "mkdir $FRAMEWORK_ONLY"
    xcodebuild -project DmIOS.xcodeproj -target DmShellGame -configuration Release -sdk iphoneos \
-@@ -349,7 +361,8 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
+@@ -364,7 +376,8 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
    [ -f "$BUILT/$FW_NAME" ] || die "no built framework $BUILT"
    OUTFW=$FRAMEWORK_ONLY/$FW_NAME.framework; mkdir -p "$OUTFW"
    t "copying resources into $FW_NAME.framework"
@@ -195,7 +195,7 @@ index 1221d51..278b24b 100755
    rm -rf "$OUTFW/msl"
    LIB=$(lib_path "$MSL_IOS/$MSLDIR") || die "shader libraries $MSL_IOS/$MSLDIR"
    PROG_DATA=
-@@ -431,7 +444,7 @@ with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+@@ -446,7 +459,7 @@ with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
  target_json = os.path.join(cache_dir, f'{game}.json')
  os.replace(tmp_file, target_json)
  EOF

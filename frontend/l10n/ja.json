@@ -2462,8 +2462,6 @@
   "upstream.s2armPickMessage": "S2Arm リポジトリのフォルダを選択してください",
   "upstream.switchBtn": "切り替える",
   "upstream.title": "ビルド元",
-  "widescreen.badge": "フルスクリーン",
-  "widescreen.help": "フルスクリーンやワイド画面のアスペクト比に対応します。",
   "xcodeChoice.choose": "Xcode を選択…",
   "xcodeChoice.finishSetup": "選択した Xcode でセットアップを完了してから、「再試行」を押してください。",
   "xcodeChoice.invalid": "開発者ツールを含む Xcode アプリを選んでください。",

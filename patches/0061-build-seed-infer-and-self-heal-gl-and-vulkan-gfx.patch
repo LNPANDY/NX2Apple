@@ -1,21 +1,23 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
-Date: Tue, 17 Nov 2026 05:26:07 +0800
+Date: Thu, 19 Nov 2026 04:35:56 +0800
 Subject: [PATCH] build_seed: infer and self-heal GL and Vulkan gfx_api across
  adopt and refresh
 
+Allow OpenGL and Vulkan build seeds to pass seed validation when shader/ios and metal-sources are empty, while keeping the non-empty shader requirement for NVN seeds.
+
 Upstream-Status: pending
-Reason: Infer and self-heal OpenGL and Vulkan gfx_api in persistent build seeds
+Reason: Infer, self-heal and validate OpenGL and Vulkan gfx_api in persistent build seeds
 Issue: none
 ---
- dm/tools/build_seed.py                    | 152 ++++++++++++++++++++--
- dm/tools/tests/test_build_seed_gfx_api.py | 118 +++++++++++++++++
+ dm/tools/build_seed.py                    | 154 ++++++++++++++++++++--
+ dm/tools/tests/test_build_seed_gfx_api.py | 153 +++++++++++++++++++++
  scripts/build_ipa_from_nsp.py             |  21 ++-
- 3 files changed, 275 insertions(+), 16 deletions(-)
+ 3 files changed, 311 insertions(+), 17 deletions(-)
  create mode 100644 dm/tools/tests/test_build_seed_gfx_api.py
 
 diff --git a/dm/tools/build_seed.py b/dm/tools/build_seed.py
-index 5a45afe..db46ca6 100755
+index 5a45afe..1b77aae 100755
 --- a/dm/tools/build_seed.py
 +++ b/dm/tools/build_seed.py
 @@ -484,7 +484,7 @@ def _discover_b_libs_in_dir(parent_dir):
@@ -167,6 +169,15 @@ index 5a45afe..db46ca6 100755
      reason = None
      if not has_exefs:
          reason = 'missing or empty ExeFS directory'
+@@ -807,7 +910,7 @@ def inspect_seed(seed_dir_or_root, title_id=None):
+         reason = 'missing shader/pkg directory'
+     elif not os.path.isdir(ios_dir):
+         reason = 'missing shader/ios directory'
+-    elif not has_shader_ios and not has_metal_sources:
++    elif gfx_api == 'nvn' and not has_shader_ios and not has_metal_sources:
+         reason = 'seed has neither shader/ios outputs nor metal-sources'
+     elif gfx_api == 'nvn' and not has_tables:
+         reason = 'missing shader/tables/{c1_full.tsv, cb_extent.tsv}'
 @@ -1044,12 +1147,7 @@ def save_seed(
              except (OSError, ValueError):
                  prev_seed = {}
@@ -249,10 +260,10 @@ index 5a45afe..db46ca6 100755
              _link_or_copy_file(sp, os.path.join(work_shader, stamp_name), quota)
 diff --git a/dm/tools/tests/test_build_seed_gfx_api.py b/dm/tools/tests/test_build_seed_gfx_api.py
 new file mode 100644
-index 0000000..a759f2e
+index 0000000..dcfe887
 --- /dev/null
 +++ b/dm/tools/tests/test_build_seed_gfx_api.py
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,153 @@
 +#!/usr/bin/env python3
 +"""Regression tests for GL/Vulkan gfx_api inference and self-healing in build_seed.py and --from-seed."""
 +
@@ -368,14 +379,49 @@ index 0000000..a759f2e
 +        self.assertEqual(prep['gfx'], 'gl')
 +        self.assertTrue((prep['game'] / 'gl_capture' / '0123456789abcdef.glsl').is_file())
 +
++    def test_gl_and_vulkan_seeds_allow_empty_shader_outputs_while_nvn_rejects(self):
++        # Well Dweller (010076E026AC4000) is an OpenGL game with no NVN metal-sources or shader/ios outputs on Mac builds.
++        for api, tid in (('gl', '010076E026AC4000'), ('vulkan', '0100535012974000')):
++            work = self.root / f'{tid}_{api}_empty_shaders'
++            ver_dir = work / 'extract' / 'v0'
++            (ver_dir / 'ExeFS').mkdir(parents=True)
++            (ver_dir / 'ExeFS' / 'main').write_bytes(b'DUMMY_MAIN')
++            (work / 'shader' / 'pkg').mkdir(parents=True)
++            seed_root = self.root / f'seeds_{api}'
++
++            info = build_seed.save_seed(
++                seed_root,
++                tid,
++                {'title_id': tid, 'pkg_ver': 'v0', 'gfx_api': api},
++                work,
++            )
++            self.assertTrue(info['valid'], info.get('reason'))
++            self.assertEqual(info['seed']['gfx_api'], api)
++            self.assertFalse(info['has_shader_ios'])
++            self.assertFalse(info['has_metal_sources'])
++
++        # NVN seeds without shader/ios or metal-sources must still be rejected.
++        nvn_tid = '01007EF00011E000'
++        nvn_work = self.root / 'nvn_empty_shaders'
++        (nvn_work / 'extract' / 'v0' / 'ExeFS').mkdir(parents=True)
++        (nvn_work / 'extract' / 'v0' / 'ExeFS' / 'main').write_bytes(b'DUMMY_MAIN')
++        (nvn_work / 'shader' / 'pkg').mkdir(parents=True)
++        with self.assertRaisesRegex(ValueError, 'neither shader/ios outputs nor metal-sources'):
++            build_seed.save_seed(
++                self.root / 'seeds_nvn_empty',
++                nvn_tid,
++                {'title_id': nvn_tid, 'pkg_ver': 'v0', 'gfx_api': 'nvn'},
++                nvn_work,
++            )
++
 +
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 3e98a01..83aa280 100755
+index d26d193..871a9fa 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -4020,6 +4020,21 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+@@ -4054,6 +4054,21 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
      if out_hint and out_hint.suffix == '.app' and out_hint.is_dir() and out_hint not in prefill_msl:
          prefill_msl.append(out_hint)
  
@@ -397,7 +443,7 @@ index 3e98a01..83aa280 100755
      return {
          'app': app,
          'nsp_dir': nsp_dir,
-@@ -4034,7 +4049,7 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+@@ -4068,7 +4083,7 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
          'seed_dir': seed_dir,
          'seed': seed,
          'seed_romfs_id': seed.get('romfs_identity'),
@@ -406,7 +452,7 @@ index 3e98a01..83aa280 100755
      }
  
  
-@@ -4385,11 +4400,11 @@ def main(args=None):
+@@ -4444,11 +4459,11 @@ def main(args=None):
      if uedec: decode_ue_shaders(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
      sh = work / 'shader'
      if gfx == 'vulkan':   # the packed version's merged RomFS holds the SPIR-V files the game loads; a capture holds those it generates. A damaged copy (ALLOW_DAMAGED) is keyed by its files' times, as split_shaders keys it

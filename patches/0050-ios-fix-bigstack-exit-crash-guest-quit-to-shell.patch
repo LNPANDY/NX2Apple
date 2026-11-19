@@ -10,9 +10,9 @@ Upstream-Status: pending
 Reason: Fix SIGSEGV in bs_free on active bigstack, SIGTRAP in AudRen/AudioOut shell teardown, route guest exit back to shell, reset GL state on teardown, and add - + + 2s hold to quit
 Issue: LNPANDY/NX2Apple#1314
 ---
- dm/gfx/gl/hle_gl.m              |  62 ++++--
+ dm/gfx/gl/hle_gl.m              |  62 +++--
  dm/host/dm.h                    |   7 +-
- dm/host/hle_audio.c             | 373 ++++++++++++++++++++++++++------
+ dm/host/hle_audio.c             | 390 ++++++++++++++++++++++++++------
  dm/host/hle_audren.c            |  70 +++++-
  dm/host/hle_bigstack.c          |  52 ++++-
  dm/host/hle_lifecycle.c         |  46 +++-
@@ -20,17 +20,17 @@ Issue: LNPANDY/NX2Apple#1314
  dm/host/hle_thread.c            |  10 +
  dm/host/home_quit.h             |   5 +
  dm/host/tests/Makefile          |   2 +-
- dm/host/tests/t_audio.c         | 305 +++++++++++++++++++++++++-
- dm/host/tests/t_audio_spsc.c    | 109 +++++++++-
+ dm/host/tests/t_audio.c         | 305 ++++++++++++++++++++++++-
+ dm/host/tests/t_audio_spsc.c    | 109 ++++++++-
  dm/host/tests/t_audren_layout.c |   1 +
  dm/host/tests/t_audren_work.c   |   1 +
  dm/host/tests/t_bigstack.c      |  29 +++
  dm/host/tests/t_home_quit.c     |   9 +
- dm/ios/Sources/DmGamepad.m      | 122 ++++++++++-
+ dm/ios/Sources/DmGamepad.m      | 122 +++++++++-
  dm/ios/Sources/front_ios.m      |  47 +++-
  dm/ios/framework/ShellGlue.h    |   1 +
  dm/ios/framework/ShellGlue.m    |   4 +
- 20 files changed, 1148 insertions(+), 122 deletions(-)
+ 20 files changed, 1162 insertions(+), 125 deletions(-)
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
 index 18d7469..f524db1 100644
@@ -172,10 +172,10 @@ index 7f1ebd3..4a56b3f 100644
 +int  dm_teardown_is_guest_thread(void);
 +void dm_teardown_park_self(void);
 diff --git a/dm/host/hle_audio.c b/dm/host/hle_audio.c
-index 18cbd1b..398ecba 100644
+index 7469ecc..fe3d6d8 100644
 --- a/dm/host/hle_audio.c
 +++ b/dm/host/hle_audio.c
-@@ -49,6 +49,9 @@ typedef struct {
+@@ -60,6 +60,9 @@ typedef struct {
      _Atomic uint64_t cb_n;             // device callbacks of this output (the watchdog's evidence that the device still plays it)
      uint64_t wd_n, wd_t;               // watchdog: callback count last seen and when it last moved (under g_aos_lock)
      int stalled, retry_ms; uint64_t retry_at;   // the device stopped calling back (or would not start): the silent sink stands in and the watchdog retries the AudioUnit at retry_at, backing off
@@ -185,12 +185,17 @@ index 18cbd1b..398ecba 100644
  } aout;
  
  // Registry of open outputs: suspended / resumed all at once by the front-end lifecycle (going to background).
-@@ -60,8 +63,19 @@ static pthread_mutex_t g_aos_lock __attribute__((section("__DATA,__dm_keep"))) =
+@@ -71,6 +74,7 @@ static pthread_mutex_t g_aos_lock __attribute__((section("__DATA,__dm_keep"))) =
  static pthread_cond_t g_aos_cv __attribute__((section("__DATA,__dm_keep"))) = PTHREAD_COND_INITIALIZER;
  static pthread_t g_wd_th;
  static int g_wd_on;
 +static int g_wd_stop;
  static int g_suspended;
+ static _Atomic uint32_t g_io_buffer_hint_frames;
+ 
+@@ -115,6 +119,16 @@ void dm_audio_io_buffer_hint(unsigned frames) {
+     pthread_mutex_unlock(&g_aos_lock);
+ }
  static aout *ao(const void *g) { aout *a = objmap_get(g); if (!a) die("AudioOut %p was not created by the host", g); return a; }
 +static aout *ao_find_locked(const void *g) {
 +    if (!g) return NULL;
@@ -205,13 +210,14 @@ index 18cbd1b..398ecba 100644
  // the call site as "module+offset"; "host" when the host itself calls (in-process audio renderer)
  static const char *site(void *lr, char *buf, size_t n) {
      module_t *m = lr ? module_of(lr) : NULL;
-@@ -435,10 +449,25 @@ static void au_replace(aout *a, int route) {
+@@ -569,11 +583,34 @@ static void au_replace(aout *a, int route) {
      a->reset_pending = 0;
  }
  static void aout_free(aout *a) {
 -    if (a->au) au_dispose(a->au);
 -    dispatch_release(a->notify_sem);
 -    if (a->rel_sem) dispatch_release(a->rel_sem);
+-    free(a->owned_pcm);
 -    pthread_mutex_destroy(&a->m); free(a);
 +    if (!a || atomic_exchange_explicit(&a->freed, 1, memory_order_acq_rel)) return;
 +    AudioUnit au = a->au; a->au = NULL;
@@ -220,13 +226,22 @@ index 18cbd1b..398ecba 100644
 +    if (a->free_blocks) {
 +        uint32_t qh = atomic_load_explicit(&a->q_head, memory_order_acquire);
 +        uint32_t qt = atomic_load_explicit(&a->q_tail, memory_order_acquire);
-+        for (; qh != qt; qh++) { free(a->q[qh & (QMAX - 1)]); a->q[qh & (QMAX - 1)] = NULL; }
++        for (; qh != qt; qh++) {
++            aout_buf *b = a->q[qh & (QMAX - 1)];
++            if (owned_slot(a, b) < 0) free(b);
++            a->q[qh & (QMAX - 1)] = NULL;
++        }
 +        atomic_store_explicit(&a->q_head, qt, memory_order_relaxed);
 +        uint32_t rh = atomic_load_explicit(&a->rel_head, memory_order_acquire);
 +        uint32_t rt = atomic_load_explicit(&a->rel_tail, memory_order_acquire);
 +        for (; rh != rt; rh++) { free(a->rel[rh & (RELMAX - 1)]); a->rel[rh & (RELMAX - 1)] = NULL; }
 +        atomic_store_explicit(&a->rel_head, rt, memory_order_relaxed);
++        for (; a->early_head != a->early_tail; a->early_head++) {
++            free(a->early_rel[a->early_head & (RELMAX - 1)]);
++            a->early_rel[a->early_head & (RELMAX - 1)] = NULL;
++        }
 +    }
++    free(a->owned_pcm); a->owned_pcm = NULL;
 +    if (au) au_dispose(au);
 +    if (notify_sem) dispatch_release(notify_sem);
 +    if (rel_sem) dispatch_release(rel_sem);
@@ -235,7 +250,7 @@ index 18cbd1b..398ecba 100644
  }
  // A HAL start can block for seconds. Each output keeps consuming on the silent sink while its
  // own start is in flight. Stop/suspend cancel it without waiting; Close leaves the unit and the output to this worker.
-@@ -466,7 +495,7 @@ static void au_start_device(void *p) {
+@@ -601,7 +638,7 @@ static void au_start_device(void *p) {
      pthread_mutex_unlock(&g_aos_lock);
  }
  static void au_request_start(aout *a) {
@@ -244,7 +259,7 @@ index 18cbd1b..398ecba 100644
      a->start_phase = AU_STARTING;
      dispatch_async_f(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), a, au_start_device);
  }
-@@ -504,8 +533,8 @@ static void *au_watchdog(void *p) {
+@@ -639,8 +676,8 @@ static void *au_watchdog(void *p) {
          ts.tv_nsec += WD_TICK_MS * 1000000L;
          if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
          pthread_mutex_lock(&g_aos_lock);
@@ -255,7 +270,7 @@ index 18cbd1b..398ecba 100644
          uint64_t t = now_ns(), gap = t - last; last = t;
          for (int i = 0; i < AOMAX; i++) {
              aout *a = g_aos[i]; if (!a || !a->au) continue;
-@@ -555,7 +584,7 @@ HLE_FORCE("_ZN2nn5audio13ListAudioOutsEPNS0_12AudioOutInfoEi", "audio output dev
+@@ -690,7 +727,7 @@ HLE_FORCE("_ZN2nn5audio13ListAudioOutsEPNS0_12AudioOutInfoEi", "audio output dev
  // middleware that checks the first word before it stops and closes its output skipped the close while the host left it zero, freed the PCM buffers and the host's consumer read freed memory (Luigi's Mansion 3, PR #109)
  static void au_info(void *g, int ch, int state) { uint32_t *f = g; f[0] = RATE; f[1] = (uint32_t)ch; f[2] = FMT_PCM16; f[3] = (uint32_t)state; }
  static void route_sync(int route);
@@ -264,16 +279,20 @@ index 18cbd1b..398ecba 100644
      static _Atomic int nopen;
      int ch = *(const uint16_t *)(param + 4); int rate = *(const int32_t *)param;
      if (!ch) ch = 2;
-@@ -565,14 +594,17 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
+@@ -700,10 +737,11 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
      }
      aout *a = calloc(1, sizeof *a);
      const char *mute = getenv("DM_AUDIO_MUTE"); a->mute = mute && atoi(mute);
 -    pthread_mutex_init(&a->m, NULL); a->event = ev; a->ch = ch; a->dev_ch = ch; a->sink_pcm = sink_pcm;
 +    pthread_mutex_init(&a->m, NULL); a->event = ev; a->ch = ch; a->dev_ch = ch; a->sink_pcm = sink_pcm; a->free_blocks = free_blocks;
+     a->owned_pcm = calloc(OWNED_N, (size_t)OWNED_MAX_FRAMES * (size_t)ch * sizeof(int16_t));
+     if (!a->owned_pcm) die("AudioOut owned_pcm calloc");
+     for (int i = 0; i < OWNED_N; i++) atomic_init(&a->owned_busy[i], 0);
 +    atomic_init(&a->freed, 0);
      atomic_init(&a->state, STATE_STOPPED); atomic_init(&a->vol, 0x3f800000u);
      atomic_init(&a->q_head, 0); atomic_init(&a->q_tail, 0);
      atomic_init(&a->rel_head, 0); atomic_init(&a->rel_tail, 0);
+@@ -712,7 +750,9 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
      atomic_init(&a->null_run, 0); atomic_init(&a->notify_run, 1);
      atomic_init(&a->notify_pending, 0); atomic_init(&a->notify_armed, 0);
      atomic_init(&a->st_pending, 0);
@@ -284,7 +303,7 @@ index 18cbd1b..398ecba 100644
      pthread_create(&a->notify_th, NULL, event_notify, a);
      if (ev) hle_bind_system_event(ev, 1);   // Buffer release event: bind a kernel event on the guest thread (auto-clear), afterwards signaled by the audio thread
      char sb[64]; int use_au = real_audio();
-@@ -580,19 +612,21 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
+@@ -720,19 +760,21 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
      // The helper finishes (and is joined) before lifecycle/watchdog readers can find this output.
      // Keep construction outside g_aos_lock: joining the helper can yield the guest core.
      if (use_au) au_open(a);
@@ -309,7 +328,7 @@ index 18cbd1b..398ecba 100644
  HLE_FORCE("_ZN2nn5audio12OpenAudioOutEPNS0_8AudioOutEPNS_2os11SystemEventEPKcRKNS0_17AudioOutParameterE", "connect to the audout service; host AudioUnit / silent sink",
            Result, h_au_Open, void *g, void *ev, const char *name, const uint8_t *param) { return au_open_at(g, ev, name, param, dm_bigstack_caller(__builtin_return_address(0)), 0); }
  // The two default-device overloads (Engage, SDK 12): as OpenAudioOut with the default device name; the overload without an event binds no release event (the game polls GetReleasedAudioOutBuffer)
-@@ -604,8 +638,13 @@ HLE_FORCE("_ZN2nn5audio19OpenDefaultAudioOutEPNS0_8AudioOutEPNS_2os11SystemEvent
+@@ -744,8 +786,13 @@ HLE_FORCE("_ZN2nn5audio19OpenDefaultAudioOutEPNS0_8AudioOutEPNS_2os11SystemEvent
  HLE_FORCE("_ZN2nn5audio19OpenDefaultAudioOutEPNS0_8AudioOutERKNS0_17AudioOutParameterE", "connect to the audout service (default device, no event); same as OpenAudioOut",
            Result, h_au_OpenDef0, void *g, const uint8_t *param) { return au_open_at(g, NULL, NULL, param, dm_bigstack_caller(__builtin_return_address(0)), 0); }
  static Result au_start_at(void *g, void *lr) {
@@ -322,9 +341,9 @@ index 18cbd1b..398ecba 100644
 +        return RES_OK;
 +    }
      int was = atomic_exchange_explicit(&a->state, STATE_STARTED, memory_order_acq_rel);
+     au_sync_mix_hint(a);
      au_note(a, was == STATE_STARTED ? "Start (already playing)" : g_suspended ? "Start (app in the background: the silent sink takes over for now)" : "Start", lr);
-     if (was != STATE_STARTED) {
-@@ -637,29 +676,41 @@ static void au_release_pending(aout *a) {
+@@ -788,29 +835,41 @@ static void au_release_pending(aout *a) {
      pthread_mutex_unlock(&a->m);
      if (released) { if (a->event) notify_release(a); if (a->rel_sem) dispatch_semaphore_signal(a->rel_sem); }
  }
@@ -376,7 +395,7 @@ index 18cbd1b..398ecba 100644
      int in_flight = a->start_phase == AU_CANCELED;
      a->closed = in_flight; a->reset_pending = 0;
      pthread_mutex_unlock(&g_aos_lock);
-@@ -668,29 +719,71 @@ static void au_close(void *g, void *lr) {
+@@ -819,31 +878,76 @@ static void au_close(void *g, void *lr) {
      au_info(g, ch, STATE_STOPPED);
  }
  HLE_FORCE("_ZN2nn5audio13CloseAudioOutEPNS0_8AudioOutE", "close the audio output", void, h_au_Close, void *g) { au_close(g, dm_bigstack_caller(__builtin_return_address(0))); }
@@ -392,10 +411,17 @@ index 18cbd1b..398ecba 100644
  // Pokémon Legends: Z-A (SDK 19): Wwise's sink wakeup thread (main+0x30faae8) asks after every release event and marks the sink starved at 0; the SDK's own version read the audout session the host never made
  HLE_FORCE("_ZN2nn5audio22GetAudioOutBufferCountEPKNS0_8AudioOutE", "buffers appended and not yet played to the end (the one playing included)", unsigned, h_au_BufCount, const void *g) {
 -    aout *a = ao(g);
--    return atomic_load_explicit(&a->q_tail, memory_order_acquire) - atomic_load_explicit(&a->q_head, memory_order_acquire);
+-    unsigned gq = atomic_load_explicit(&a->guest_in_q, memory_order_acquire);
+-    unsigned qd = atomic_load_explicit(&a->q_tail, memory_order_acquire) - atomic_load_explicit(&a->q_head, memory_order_acquire);
+-    return gq ? gq : (qd ? 1u : 0u);
 +    pthread_mutex_lock(&g_aos_lock);
 +    aout *a = ao_find_locked(g);
-+    unsigned n = a ? atomic_load_explicit(&a->q_tail, memory_order_acquire) - atomic_load_explicit(&a->q_head, memory_order_acquire) : 0;
++    unsigned n = 0;
++    if (a) {
++        unsigned gq = atomic_load_explicit(&a->guest_in_q, memory_order_acquire);
++        unsigned qd = atomic_load_explicit(&a->q_tail, memory_order_acquire) - atomic_load_explicit(&a->q_head, memory_order_acquire);
++        n = gq ? gq : (qd ? 1u : 0u);
++    }
 +    pthread_mutex_unlock(&g_aos_lock);
 +    if (!a && !au_was_opened(g)) die("AudioOut %p was not created by the host", g);
 +    return n;
@@ -458,8 +484,8 @@ index 18cbd1b..398ecba 100644
      // Diagnostic switch DM_AUDIO_DUMP=<file>: every PCM block the game appends is written out as is (16-bit, 48 kHz, channel count per the OpenAudioOut log, usually 6). Used to judge "did a given sound play or not":
      // cross-correlate the original game's audio against it (this is how the tier-one drop sound was verified). The file is opened only when the variable is set; when unset this costs only one extra cached check
      { static FILE *df; static int on = -1; if (on < 0) { const char *e = getenv("DM_AUDIO_DUMP"); on = e != NULL; if (on && !(df = fopen(e, "wb"))) LOG("[RED] DM_AUDIO_DUMP cannot open %s", e); }
-@@ -703,8 +796,16 @@ HLE_FORCE("_ZN2nn5audio20AppendAudioOutBufferEPNS0_8AudioOutEPNS0_14AudioOutBuff
-     pthread_mutex_unlock(&a->m);
+@@ -887,8 +991,16 @@ HLE_FORCE("_ZN2nn5audio20AppendAudioOutBufferEPNS0_8AudioOutEPNS0_14AudioOutBuff
+     }
      return ok;      // bool: false when the queue is full (the real device has a limit too)
  }
 -HLE_FORCE("_ZN2nn5audio25GetReleasedAudioOutBufferEPNS0_8AudioOutE", "get a played buffer; NULL if none", aout_buf *, h_au_Released, void *g) {
@@ -477,7 +503,7 @@ index 18cbd1b..398ecba 100644
      pthread_mutex_lock(&a->m);
      uint32_t rr = atomic_load_explicit(&a->rel_head, memory_order_relaxed);
      uint32_t rw = atomic_load_explicit(&a->rel_tail, memory_order_acquire);
-@@ -712,6 +813,14 @@ HLE_FORCE("_ZN2nn5audio25GetReleasedAudioOutBufferEPNS0_8AudioOutE", "get a play
+@@ -901,6 +1013,14 @@ HLE_FORCE("_ZN2nn5audio25GetReleasedAudioOutBufferEPNS0_8AudioOutE", "get a play
      pthread_mutex_unlock(&a->m);
      return b;
  }
@@ -492,7 +518,7 @@ index 18cbd1b..398ecba 100644
  
  // Audio input (a microphone): the host has none. SDL3's Switch audio driver lists the input devices when its audio starts (Absolum); the SDK's versions reach the audin service.
  // No device is listed and an open fails, so the calls that need an open AudioIn are never reached; they still answer without touching the guest object, in case a game ignores the open's result.
-@@ -746,11 +855,49 @@ HLE_FORCE("_ZN2nn5audio22GetAudioInSampleFormatEPKNS0_7AudioInE", "recording sam
+@@ -935,11 +1055,49 @@ HLE_FORCE("_ZN2nn5audio22GetAudioInSampleFormatEPKNS0_7AudioInE", "recording sam
  // so the free count is the capacity less the frames still queued and the event fires as blocks play. States as the game reads them: 0 not open, 1 open (stopped), 2 started
  // (main+0xad1310: a started stream is stopped, then purged and closed). Without these the SDK connected to auddmg:u itself and aborted with 0xa99 (sdk+0x221520)
  enum { OS_NONE = 0, OS_STOPPED = 1, OS_STARTED = 2, OS_FLOAT = 5, OS_PCM16 = 2 };
@@ -545,7 +571,7 @@ index 18cbd1b..398ecba 100644
  }
  enum { VDEV_NAME = 0x100 };   // nn::audio::AudioDeviceName
  static const char VDEV_OUT[] = "AudioVirtualOutput";   // the host's one virtual output device, a name of the host's
-@@ -777,11 +924,16 @@ static Result os_open(void *g, void *ev, const int32_t *fmt, int frames, void *l
+@@ -966,11 +1124,16 @@ static Result os_open(void *g, void *ev, const int32_t *fmt, int frames, void *l
      if (rate && rate != RATE) { LOG("[RED] OutputStream sample rate %d: not supported (48 kHz only), the open fails", rate); return RES_FAIL; }
      if (ch <= 0 || frames <= 0) return RES_FAIL;
      ostream *o = calloc(1, sizeof *o); if (!o) die("OutputStream calloc");
@@ -565,7 +591,7 @@ index 18cbd1b..398ecba 100644
      return RES_OK;
  }
  HLE_FORCE("_ZN2nn5audio16OpenOutputStreamEPNS0_16OutputStreamTypeEPNS_2os11SystemEventEPvmRKNS0_15AudioDeviceNameERKNS0_12StreamFormatEiiNS_4util10BitFlagSetILi32ENS0_16OutputStreamFlagEEE",
-@@ -801,48 +953,75 @@ HLE_FORCE("_ZN2nn5audio16OpenOutputStreamEPNS0_16OutputStreamTypeEPvmRKNS0_15Aud
+@@ -990,48 +1153,75 @@ HLE_FORCE("_ZN2nn5audio16OpenOutputStreamEPNS0_16OutputStreamTypeEPvmRKNS0_15Aud
      return os_open(g, NULL, fmt, frames, dm_bigstack_caller(__builtin_return_address(0)));
  }
  HLE_FORCE("_ZN2nn5audio17StartOutputStreamEPNS0_16OutputStreamTypeE", "start the stream's output", Result, h_os_Start, void *g) {
@@ -656,7 +682,7 @@ index 18cbd1b..398ecba 100644
      oblock *k = malloc(sizeof *k + (size_t)frames * o->ch * 2); if (!k) die("OutputStream block malloc");
      size_t n = (size_t)frames * o->ch;
      if (o->fmt == OS_FLOAT) {
-@@ -853,17 +1032,26 @@ HLE_FORCE("_ZN2nn5audio17WriteOutputStreamEPNS0_16OutputStreamTypeEPKvi", "frame
+@@ -1042,17 +1232,26 @@ HLE_FORCE("_ZN2nn5audio17WriteOutputStreamEPNS0_16OutputStreamTypeEPKvi", "frame
          }
      } else memcpy(k->pcm, data, n * 2);
      k->b.ptr = k->pcm; k->b.cap = k->b.size = (uint64_t)frames * o->ch * 2; k->frames = frames;
@@ -686,7 +712,7 @@ index 18cbd1b..398ecba 100644
      return n;
  }
  // The statistics, returned by value through x8, 24 bytes: Star Fox keeps them at sp with its stack canary right behind them at sp+0x18 (main+0xbce9b90), so a larger result ends in
-@@ -927,18 +1115,44 @@ HLE_FORCE("_ZN2nn5audio18SetInputStreamGainEPNS0_15InputStreamTypeEfNS_8TimeSpan
+@@ -1116,18 +1315,44 @@ HLE_FORCE("_ZN2nn5audio18SetInputStreamGainEPNS0_15InputStreamTypeEfNS_8TimeSpan
  // Host-internal PCM output (used by the in-process audio renderer, see hle_audren.c): the same AudioOut machinery (real output / silent sink / background take-over), keyed by a host-allocated dummy object
  static void *pcmout_open(int ch, int sink_pcm) {
      void *key = calloc(1, 64); uint8_t param[8] = {0}; *(uint16_t *)(param + 4) = (uint16_t)ch;
@@ -736,7 +762,7 @@ index 18cbd1b..398ecba 100644
  
  // Front-end lifecycle / audio session interruption: suspend real audio output, with the silent sink taking over real-time consumption meanwhile (pacing unbroken); switch back to the AudioUnit on resume.
  // The front end calls with 1 on going to background / interruption began, and with 0 on returning to foreground / interruption ended (shouldResume).
-@@ -1012,20 +1226,33 @@ void dm_audio_route_changed(void) {
+@@ -1201,20 +1426,33 @@ void dm_audio_route_changed(void) {
  }
  void dm_audio_stop_all(void) {
      aout *stopped[AOMAX] = {0};
@@ -774,7 +800,7 @@ index 18cbd1b..398ecba 100644
      for (int i = 0; i < AOMAX; i++) if (stopped[i]) {
          aout *a = stopped[i];
          atomic_store_explicit(&a->notify_run, 0, memory_order_release);
-@@ -1037,4 +1264,12 @@ void dm_audio_stop_all(void) {
+@@ -1226,4 +1464,12 @@ void dm_audio_stop_all(void) {
          pthread_mutex_unlock(&g_aos_lock);
          if (!in_flight) aout_free(a);
      }
@@ -1945,7 +1971,7 @@ index cbe68d4..699b357 100644
          [self wakeMenu];
      }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 1fef932..4f34c05 100644
+index c4d2712..5bfde66 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -303,6 +303,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
@@ -1978,7 +2004,7 @@ index 1fef932..4f34c05 100644
      return false;
  }
  @implementation DmTVSceneDelegate
-@@ -658,8 +674,10 @@ static void save_sync_background(void) {
+@@ -663,8 +679,10 @@ static void save_sync_background(void) {
  }
  
  static _Atomic int g_quitting;
@@ -1990,7 +2016,7 @@ index 1fef932..4f34c05 100644
      switch (ev) {
          case 0: quit_close(); dm_movie_active(0); dm_gamepad_reset(); dm_focus_set(2); break;
          case 1: UIApplication.sharedApplication.idleTimerDisabled = NO; dm_focus_set(3); g_audio_bg = 1; front_ios_audio_apply(); guest_clock_freeze_for(1, 1); dm_gfx_suspend(1); save_sync_background(); break;
-@@ -669,12 +687,23 @@ void front_ios_focus_event(int ev) {
+@@ -674,12 +692,23 @@ void front_ios_focus_event(int ev) {
              if (g_audio_intr) { LOG("audio session: active again with no interruption-ended notice; resuming"); g_audio_intr = 0; g_session_off = 1; }
              if (g_session_off) front_ios_audio_session();
              front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); dm_movie_active(1); break;
@@ -2015,7 +2041,7 @@ index 1fef932..4f34c05 100644
  // while it is held). A tap on Quit or A quits, a tap on Cancel or outside the card, B or a new press of Home closes it. While it is open the game is told it lost
  // the focus, as the Switch's HOME menu does, and gets no touch or controller input.
  // Quitting ends the process: one game runs per process (dm_profile() and the host's early loading run once, the shell's ShellMain.m), so the engine cannot hand
-@@ -729,7 +758,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
+@@ -734,7 +763,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
      *home = *a = *b = 0;
      for (GCController *c in GCController.controllers) {
          GCExtendedGamepad *g = c.extendedGamepad; if (!g) continue;
@@ -2024,7 +2050,7 @@ index 1fef932..4f34c05 100644
          *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed;
      }
  }
-@@ -795,9 +824,21 @@ static void front_ios_teardown(void) {
+@@ -800,9 +829,21 @@ static void front_ios_teardown(void) {
          g_root = nil;
      }
      g_layer = nil;

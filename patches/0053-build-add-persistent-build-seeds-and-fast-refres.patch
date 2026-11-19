@@ -1,20 +1,24 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
-Date: Sat, 14 Nov 2026 12:25:17 +0800
+Date: Thu, 19 Nov 2026 04:35:55 +0800
 Subject: [PATCH] build: add persistent build seeds and fast refresh cache
 
+Verify candidate RomFS images against seed_romfs_id (including images carrying a DMMSLTR1 shader trailer) during --from-seed fast refresh so stale RomFS images are rejected with a clear warning and never overwrite seed.json's romfs_identity.
+
 Upstream-Status: pending
-Reason: Persist build seeds and wire fast refresh cache without source packages
+Reason: Persist build seeds and wire fast refresh cache without source packages while guarding seed romfs_identity against stale images
 Issue: none
 ---
- dm/ios/tests/test_bundle_id.py      |    2 +-
- dm/ios/tools/build_ipa.sh           |   72 +-
- dm/tools/build_seed.py              | 1996 +++++++++++++++++++++++++++
- dm/tools/romfs_image.py             |  147 +-
- dm/tools/tests/test_nsp_progress.py |    1 +
- scripts/build_ipa_from_nsp.py       |  890 +++++++++---
- 6 files changed, 2897 insertions(+), 211 deletions(-)
+ dm/ios/tests/test_bundle_id.py                |    2 +-
+ dm/ios/tools/build_ipa.sh                     |   72 +-
+ dm/tools/build_seed.py                        | 1996 +++++++++++++++++
+ dm/tools/romfs_image.py                       |  147 +-
+ dm/tools/tests/test_build_seed_romfs_guard.py |  243 ++
+ dm/tools/tests/test_nsp_progress.py           |    1 +
+ scripts/build_ipa_from_nsp.py                 |  949 ++++++--
+ 7 files changed, 3199 insertions(+), 211 deletions(-)
  create mode 100755 dm/tools/build_seed.py
+ create mode 100644 dm/tools/tests/test_build_seed_romfs_guard.py
 
 diff --git a/dm/ios/tests/test_bundle_id.py b/dm/ios/tests/test_bundle_id.py
 index 75631a4..27ffa2a 100644
@@ -2325,6 +2329,255 @@ index 769d0b3..6a9f1f8 100755
          if args.append_msl or args.replace_msl:
              if len(args.pos) != 2:
                  raise ValueError('expected IMAGE and MSL_SRC arguments')
+diff --git a/dm/tools/tests/test_build_seed_romfs_guard.py b/dm/tools/tests/test_build_seed_romfs_guard.py
+new file mode 100644
+index 0000000..de1e9f0
+--- /dev/null
++++ b/dm/tools/tests/test_build_seed_romfs_guard.py
+@@ -0,0 +1,243 @@
++#!/usr/bin/env python3
++"""Regression tests for --from-seed RomFS image identity verification against seed_romfs_id."""
++
++import contextlib
++import importlib.util
++import io
++import json
++import os
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++HERE = Path(__file__).resolve().parent
++REPO = HERE.parent.parent.parent
++if str(REPO) not in sys.path:
++    sys.path.insert(0, str(REPO))
++
++from dm.tools import build_seed, romfs_image  # noqa: E402
++
++
++def _load_nsp_script():
++    spec = importlib.util.spec_from_file_location('build_ipa_from_nsp_romfs_guard_test', REPO / 'scripts' / 'build_ipa_from_nsp.py')
++    mod = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(mod)
++    return mod
++
++
++class BuildSeedRomfsGuardTests(unittest.TestCase):
++    def setUp(self):
++        self._tmp = tempfile.TemporaryDirectory()
++        self.root = Path(self._tmp.name)
++
++    def tearDown(self):
++        self._tmp.cleanup()
++
++    def _pack_romfs(self, name, files_dict):
++        src = self.root / f'src_{name}'
++        src.mkdir(parents=True)
++        for rel, data in files_dict.items():
++            p = src / rel
++            p.parent.mkdir(parents=True, exist_ok=True)
++            p.write_bytes(data)
++        img = self.root / f'{name}.img'
++        romfs_image.pack(src, img)
++        return img
++
++    def _create_stardew_like_seed(self, seed_root, tid, v1_id):
++        work = self.root / 'seed_src_work'
++        ex = work / 'extract' / 'v1048576'
++        (ex / 'ExeFS').mkdir(parents=True)
++        (ex / 'ExeFS' / 'main').write_bytes(b'STARDEW_V1615_MAIN')
++        (ex / 'ExeFS' / 'sdk').write_bytes(b'STARDEW_V1615_SDK')
++        (work / 'shader' / 'pkg').mkdir(parents=True)
++        (work / 'shader' / 'ios' / 'gl').mkdir(parents=True)
++        (work / 'shader' / 'ios' / 'gl' / 'gl_shaders.metallib').write_bytes(b'IOS_GL_LIB')
++        (work / 'shader' / 'gl').mkdir(parents=True)
++        (work / 'shader' / 'gl' / 'gl_shaders.metallib').write_bytes(b'MAC_GL_LIB')
++
++        info = build_seed.save_seed(
++            seed_root,
++            tid,
++            {
++                'title_id': tid,
++                'pkg_ver': 'v1048576',
++                'app_name': 'Stardew Valley',
++                'app_version': '1.6.15',
++                'gfx_api': 'gl',
++                'romfs_identity': v1_id,
++            },
++            work,
++        )
++        self.assertTrue(info['valid'], info.get('reason'))
++        return Path(info['path'])
++
++    def test_from_seed_rejects_mismatched_romfs_from_and_app_romfs_without_polluting_seed(self):
++        tid = '0100E65002BB8000'
++        v1_img = self._pack_romfs('v1615', {
++            'Content/Data/Achievements.xnb': b'v1.6.15-achievements',
++            'Content/Strings/1_6_Strings.xnb': b'new-1.6-content',
++            'Content/TileSheets/crops.xnb': b'crops-v1615',
++        })
++        v0_stale_img = self._pack_romfs('v0_base', {
++            'Content/Data/Achievements.xnb': b'v1.0-old-base-only-payload-' + (b'X' * 512),
++        })
++        v1_id = romfs_image.identity(str(v1_img), tid, '1.6.15', 'v1048576')
++        v0_id = romfs_image.identity(str(v0_stale_img), tid, '1.0.0', 'v0')
++        self.assertFalse(romfs_image.same_identity(v1_id, v0_id))
++
++        seed_root = self.root / 'seeds'
++        seed_dir = self._create_stardew_like_seed(seed_root, tid, v1_id)
++
++        # Also place the stale v0 image inside an existing .app bundle to test both ROMFS_FROM and .app candidates.
++        stale_app = self.root / 'Stardew Valley.app'
++        app_res = stale_app / 'Contents' / 'Resources'
++        app_res.mkdir(parents=True)
++        (app_res / 'romfs.img').write_bytes(v0_stale_img.read_bytes())
++
++        nsp = _load_nsp_script()
++        nsp.check_prereqs = lambda *a, **kw: None
++        nsp.check_native_python = lambda *a, **kw: None
++        nsp.apple_silicon = lambda: True
++        nsp.rewrite = lambda py, repo, exe, patched, env, logs, g, provisional: g
++        nsp.mac_host = lambda *a, **kw: (self.root / 'host_dummy', self.root / 'font_dummy')
++        nsp.mac_app = lambda *a, **kw: None
++        nsp.glslang_probe_bypass = True
++
++        out_work = self.root / 'refresh_mac_work'
++        buf = io.StringIO()
++        orig_which = nsp.shutil.which
++        nsp.shutil.which = lambda cmd, *a, **kw: '/usr/bin/true' if cmd == 'glslangValidator' else orig_which(cmd, *a, **kw)
++        nsp.layer_shaders = lambda py, repo, api, name, roots, sh, key, logs, env, mac, from_seed=False: sh if mac else (sh / 'ios')
++        with contextlib.redirect_stdout(buf):
++            with self.assertRaises(nsp.BuildError):
++                nsp.main(nsp.parse_args([
++                    '--from-seed',
++                    '--platform', 'mac-app',
++                    '--title-id', tid,
++                    '--seed-cache-dir', str(seed_root),
++                    '--work-dir', str(out_work),
++                    '--romfs-from', str(v0_stale_img),
++                    '-o', str(stale_app),
++                    '--app-name', 'Stardew Valley',
++                ]))
++
++        output = buf.getvalue()
++        self.assertIn('identity mismatch', output)
++        self.assertFalse((out_work / 'extract' / 'v1048576' / 'RomFS.img').exists())
++
++        # seed.json's romfs_identity MUST remain intact (never overwritten with v0_stale_img's identity).
++        after_seed = json.loads((seed_dir / 'seed.json').read_text(encoding='utf-8'))
++        self.assertEqual(after_seed['romfs_identity'], v1_id)
++
++    def test_from_seed_accepts_matching_romfs_image_with_dmmsltr1_trailer(self):
++        tid = '0100E65002BB8000'
++        v1_img = self._pack_romfs('v1615_trailer', {
++            'Content/Data/Achievements.xnb': b'v1.6.15-achievements',
++            'Content/Strings/1_6_Strings.xnb': b'new-1.6-content',
++        })
++        v1_id = romfs_image.identity(str(v1_img), tid, '1.6.15', 'v1048576')
++
++        # Append a real DMMSLTR1 shader trailer to the image and verify identity still matches seed_romfs_id.
++        msl_dir = self.root / 'msl_gl'
++        (msl_dir / 'gl').mkdir(parents=True)
++        (msl_dir / 'gl' / 'gl_shaders.metallib').write_bytes(b'DUMMY_METALLIB')
++        romfs_image.append_msl(str(v1_img), str(msl_dir), gfx_api='gl')
++        self.assertTrue(romfs_image.inspect_msl(str(v1_img))['has_trailer'])
++
++        seed_root = self.root / 'seeds_trailer'
++        seed_dir = self._create_stardew_like_seed(seed_root, tid, v1_id)
++
++        nsp = _load_nsp_script()
++        nsp.check_prereqs = lambda *a, **kw: None
++        nsp.check_native_python = lambda *a, **kw: None
++        nsp.apple_silicon = lambda: True
++        orig_which = nsp.shutil.which
++        nsp.shutil.which = lambda cmd, *a, **kw: '/usr/bin/true' if cmd == 'glslangValidator' else orig_which(cmd, *a, **kw)
++        nsp.layer_shaders = lambda py, repo, api, name, roots, sh, key, logs, env, mac, from_seed=False: sh if mac else (sh / 'ios')
++
++        def _stop_at_mac_host(*a, **kw):
++            raise RuntimeError('REACHED_MAC_HOST_AFTER_ROMFS_REUSE')
++
++        nsp.mac_host = _stop_at_mac_host
++        nsp.rewrite = lambda py, repo, exe, patched, env, logs, g, provisional: g
++        nsp.uses_jit = lambda *a, **kw: False
++
++        out_work = self.root / 'refresh_ok_work'
++        buf = io.StringIO()
++        with contextlib.redirect_stdout(buf):
++            with self.assertRaisesRegex(RuntimeError, 'REACHED_MAC_HOST_AFTER_ROMFS_REUSE'):
++                nsp.main(nsp.parse_args([
++                    '--from-seed',
++                    '--platform', 'mac',
++                    '--title-id', tid,
++                    '--seed-cache-dir', str(seed_root),
++                    '--work-dir', str(out_work),
++                    '--romfs-from', str(v1_img),
++                    '--app-name', 'Stardew Valley',
++                ]))
++
++        self.assertIn('reusing the RomFS image from', buf.getvalue())
++        self.assertTrue((out_work / 'extract' / 'v1048576' / 'RomFS.img').is_file())
++        after_seed = json.loads((seed_dir / 'seed.json').read_text(encoding='utf-8'))
++        self.assertEqual(after_seed['romfs_identity'], v1_id)
++
++    def test_from_seed_shell_framework_ignores_mismatched_romfs_from_and_preserves_seed_identity(self):
++        tid = '0100E65002BB8000'
++        v1_img = self._pack_romfs('v1615_fw', {
++            'Content/Data/Achievements.xnb': b'v1.6.15-achievements',
++            'Content/Strings/1_6_Strings.xnb': b'new-1.6-content',
++        })
++        v0_stale_img = self._pack_romfs('v0_stale_fw', {
++            'Content/Data/Achievements.xnb': b'v1.0-old-base-only-' + (b'Z' * 256),
++        })
++        v1_id = romfs_image.identity(str(v1_img), tid, '1.6.15', 'v1048576')
++        seed_root = self.root / 'seeds_fw'
++        seed_dir = self._create_stardew_like_seed(seed_root, tid, v1_id)
++
++        nsp = _load_nsp_script()
++        nsp.check_prereqs = lambda *a, **kw: None
++        nsp.check_native_python = lambda *a, **kw: None
++        nsp.rewrite = lambda py, repo, exe, patched, env, logs, g, provisional: g
++        nsp.uses_jit = lambda *a, **kw: False
++        nsp.resolve_team_id = lambda *a, **kw: 'TEAM123456'
++        nsp.layer_shaders = lambda py, repo, api, name, roots, sh, key, logs, env, mac, from_seed=False: sh if mac else (sh / 'ios')
++
++        captured_ipa_env = {}
++        fw_out = self.root / 'fw_out'
++
++        def _fake_run(cmd, log, env=None, on_line=None, fatal=True):
++            if env and 'DM_FRAMEWORK_ONLY' in env:
++                captured_ipa_env.update(env)
++                fw_dir = Path(env['DM_FRAMEWORK_ONLY']) / f'DmGame{tid}.framework'
++                fw_dir.mkdir(parents=True, exist_ok=True)
++                (fw_dir / 'game.manifest.json').write_text(
++                    json.dumps({'title_id': tid, 'romfs_identity': env.get('DM_ROMFS_IDENTITY', '')}),
++                    encoding='utf-8',
++                )
++            return 0
++
++        nsp.run = _fake_run
++        out_work = self.root / 'refresh_fw_work'
++        buf = io.StringIO()
++        with contextlib.redirect_stdout(buf):
++            nsp.main(nsp.parse_args([
++                '--from-seed',
++                '--shell-framework', str(fw_out),
++                '--title-id', tid,
++                '--seed-cache-dir', str(seed_root),
++                '--work-dir', str(out_work),
++                '--romfs-from', str(v0_stale_img),
++                '--app-name', 'Stardew Valley',
++            ]))
++
++        self.assertIn('identity mismatch', buf.getvalue())
++        self.assertFalse((out_work / 'extract' / 'v1048576' / 'RomFS.img').exists())
++        self.assertEqual(captured_ipa_env.get('DM_ROMFS_IDENTITY'), v1_id)
++        after_seed = json.loads((seed_dir / 'seed.json').read_text(encoding='utf-8'))
++        self.assertEqual(after_seed['romfs_identity'], v1_id)
++
++
++if __name__ == '__main__':
++    unittest.main()
 diff --git a/dm/tools/tests/test_nsp_progress.py b/dm/tools/tests/test_nsp_progress.py
 index 7a7fbfe..b4a8f9c 100644
 --- a/dm/tools/tests/test_nsp_progress.py
@@ -2338,7 +2591,7 @@ index 7a7fbfe..b4a8f9c 100644
              )
              with contextlib.ExitStack() as stack:
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index fffe616..3e98a01 100755
+index fffe616..d26d193 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -45,6 +45,8 @@ import tree_tar   # one file in place of a build's folders of many small files
@@ -2572,7 +2825,7 @@ index fffe616..3e98a01 100755
      say('the game files are not in this build. Copy them to the phone once, with the app installed (it is needed again only when the image changed, a new game version or another extraction):')
      PROG.say(f'  scripts/push_romfs.sh <device UDID> {bundle_id} "{image}"')
      # the file on disk, as build_ipa.sh's [ -f "$ROMFS" ] decides whether romfs.id is written: rfs.source() is a romfs.Path, whose is_dir() is True for an image's root (GitHub issue #530)
-@@ -3723,14 +3795,258 @@ def provisional_version(have, builds, requested, profile_root):
+@@ -3723,14 +3795,292 @@ def provisional_version(have, builds, requested, profile_root):
      return version
  
  
@@ -2610,6 +2863,35 @@ index fffe616..3e98a01 100755
 +        os.environ['DM_GAMES_FIRST'] = env['DM_GAMES_FIRST'] = '1'
 +
 +
++def _romfs_image_identity(img_path, title='', version='', build=''):
++    """Computes the DMROMFSID1 identity of a RomFS.img, ignoring any valid DMMSLTR1 shader trailer."""
++    return romfs_image.identity(str(img_path), title, version, build)
++
++
++def _seed_romfs_candidate_matches(src_img, seed_romfs_id):
++    """Verifies src_img is a valid RomFS.img (with or without a DMMSLTR1 trailer) and matches seed_romfs_id when set."""
++    try:
++        cand_id = _romfs_image_identity(src_img)
++    except (OSError, ValueError) as exc:
++        say(f'[RED] not reusing RomFS image from {src_img}: invalid or incomplete RomFS image ({exc})')
++        return False
++    if not seed_romfs_id:
++        return True
++    try:
++        if romfs_image.same_identity(cand_id, seed_romfs_id):
++            return True
++        want = romfs_image.parse_identity(seed_romfs_id)
++        got = romfs_image.parse_identity(cand_id)
++        say(
++            f'[RED] not reusing RomFS image from {src_img}: RomFS identity mismatch '
++            f'(seed expects size={want["size"]} index={want["index"]}, '
++            f'candidate has size={got["size"]} index={got["index"]})'
++        )
++    except ValueError as exc:
++        say(f'[RED] not reusing RomFS image from {src_img}: invalid RomFS identity ({exc})')
++    return False
++
++
 +def _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang,
 +                        have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon,
 +                        fallback_romfs_id=None):
@@ -2619,7 +2901,12 @@ index fffe616..3e98a01 100755
 +        rom_src = Path(str(rfs.source(game)))
 +        romfs_id = None
 +        if rom_src.is_file():
-+            romfs_id = romfs_image.identity(str(rom_src), g.id, app_version or '', pkg_ver)
++            cand_romfs_id = _romfs_image_identity(rom_src, g.id, app_version or '', pkg_ver)
++            if fallback_romfs_id and not romfs_image.same_identity(cand_romfs_id, fallback_romfs_id):
++                say(f'[RED] keeping existing build seed romfs_identity: {rom_src} does not match {fallback_romfs_id}')
++                romfs_id = fallback_romfs_id
++            else:
++                romfs_id = cand_romfs_id
 +        elif fallback_romfs_id:
 +            romfs_id = fallback_romfs_id
 +        ctrl_p = control if control and Path(control).is_file() else None
@@ -2836,7 +3123,7 @@ index fffe616..3e98a01 100755
      here = Path(globals().get('__file__') or sys.argv[0]).resolve()
      if sys.version_info < (3, 12): raise BuildError('Direct RomFS image builds require Python 3.12 or newer')
      repo = find_repo(here)
-@@ -3761,14 +4077,14 @@ def main(args=None):
+@@ -3761,14 +4111,14 @@ def main(args=None):
      if romfs_mode == 'separate' and not keep: raise BuildError('--romfs separate requires --keep-extracted: the image must remain available for the one-time transfer to the phone')
      shader_files = SHADER_FILES if args.shader_files is None else args.shader_files
      if shader_files and (mac or prepare_xcode): raise BuildError('SHADER_FILES / --shader-files shapes the IPA for install tools that cannot copy a large file: it cannot be combined with ' + (f'--platform {platform}' if mac else '--prepare-xcode, which Xcode installs'))
@@ -2859,7 +3146,7 @@ index fffe616..3e98a01 100755
      user_icon = icon_file(args.icon or ICON, '--icon / ICON'); spare_icon = icon_file(args.fallback_icon or FALLBACK_ICON, '--fallback-icon / FALLBACK_ICON')
      sys.path.insert(0, str(repo / 'dm/games')); import game as gamemod   # game profiles
      global pg; import profile_guess as pg   # dm/games: a provisional profile's keys from the game files and from the heap check
-@@ -3782,140 +4098,257 @@ def main(args=None):
+@@ -3782,140 +4132,282 @@ def main(args=None):
      py = sys.executable
      want = args.title_id or TITLE_ID
      if want and not re.fullmatch(r'[0-9A-Fa-f]{16}', want): raise BuildError(f'--title-id / TITLE_ID takes a title ID, 16 hex digits: {want}')
@@ -2927,25 +3214,50 @@ index fffe616..3e98a01 100755
 +        if mac_pack and not (args.out or OUT_IPA):
 +            out_ipa = work.parent / f'{mac_app_name(app_name)}{"-provisional" if shadowed else ""}.app'
 +        in_sub_prog = getattr(args, 'in_programs', None) is not None
++        rejected_romfs = False
++        existing_work_rom = game / 'RomFS.img'
++        if existing_work_rom.is_file() and not _seed_romfs_candidate_matches(existing_work_rom, seed_romfs_id):
++            rmtree(existing_work_rom)
++            rmtree(game / 'RomFS.img.id')
++            rejected_romfs = True
 +        if not Path(str(rfs.source(game))).exists() and (mac or romfs_mode == 'bundle' or (not in_sub_prog and ROMFS_FROM)):
 +            rom_cands = [] if in_sub_prog else list(ROMFS_FROM)
 +            rel_rom = Path('Contents/Resources') / f'p{PROGRAM_INDEX}' / 'romfs.img' if in_sub_prog else Path('Contents/Resources/romfs.img')
-+            if mac_pack and (out_ipa / rel_rom).is_file():
-+                rom_cands.append(out_ipa / rel_rom)
++            rel_gd_rom = Path('Contents/PlugIns/GameData.bundle') / rel_rom
++            if mac_pack:
++                for rel_cand in (rel_rom, rel_gd_rom):
++                    if (out_ipa / rel_cand).is_file():
++                        rom_cands.append(out_ipa / rel_cand)
 +            for cand_p in prefill_msl:
-+                app_rom = cand_p / rel_rom
-+                if cand_p.suffix == '.app' and app_rom.is_file():
-+                    rom_cands.append(app_rom)
++                if cand_p.suffix == '.app':
++                    for rel_cand in (rel_rom, rel_gd_rom):
++                        app_rom = cand_p / rel_cand
++                        if app_rom.is_file():
++                            rom_cands.append(app_rom)
++            seen_cands = set()
 +            for src_img in rom_cands:
-+                if src_img.is_file() and _clone_or_link_file(src_img, game / 'RomFS.img'):
++                if not src_img.is_file():
++                    continue
++                real_src = src_img.resolve()
++                if real_src in seen_cands:
++                    continue
++                seen_cands.add(real_src)
++                if not _seed_romfs_candidate_matches(src_img, seed_romfs_id):
++                    rejected_romfs = True
++                    continue
++                if _clone_or_link_file(src_img, game / 'RomFS.img'):
 +                    id_side = Path(f'{src_img}.id')
 +                    if id_side.is_file() and not (game / 'RomFS.img.id').is_file():
 +                        _clone_or_link_file(id_side, game / 'RomFS.img.id')
 +                    say(f'reusing the RomFS image from {src_img}')
 +                    break
 +        if mac and not Path(str(rfs.source(game))).exists():
++            if rejected_romfs:
++                raise BuildError('Mac fast refresh refused candidate RomFS image(s) due to RomFS identity mismatch against build seed; pass a matching --romfs-from image or rebuild from NSPs')
 +            raise BuildError('Mac fast refresh requires an existing .app bundle or --romfs-from RomFS image')
 +        if not mac and romfs_mode == 'bundle' and not Path(str(rfs.source(game))).exists():
++            if rejected_romfs:
++                raise BuildError('--from-seed with --romfs bundle refused candidate RomFS image(s) due to RomFS identity mismatch against build seed; pass a matching --romfs-from image')
 +            raise BuildError('--from-seed with --romfs bundle requires --romfs-from (or use --romfs separate / --shell-framework)')
 +        if mac and prep['gfx'] == 'nvn':
 +            cur_chain = chain_of(repo)
@@ -3249,7 +3561,7 @@ index fffe616..3e98a01 100755
      if not app_name and not (mac and not mac_pack): raise BuildError(f'no game name in the base extraction ({base / "control.nacp"}; an older extraction did not save it: delete extract/ and run again, or give --app-name)')
      team_id = resolve_team_id(args, env, saved_signing, prepare_xcode)
      bundle_id = resolve_bundle_id(app, args, env, saved_signing, team_id, mac=mac, shell_fw=shell_fw)
-@@ -3923,7 +4356,7 @@ def main(args=None):
+@@ -3923,7 +4415,7 @@ def main(args=None):
          try: xcode_projects.check_bundle_id(workspace, project, bundle_id)
          except ValueError as e: raise BuildError(str(e)) from e
      # the app version is the packed version's display version (app_display_version): never the base game's when an update is packed
@@ -3258,7 +3570,7 @@ index fffe616..3e98a01 100755
      if mac_pack and not (args.out or OUT_IPA): out_ipa = work.parent / f'{mac_app_name(app_name)}{"-provisional" if shadowed else ""}.app'
      icon, stand_in = app_icon(user_icon, spare_icon, game, base)
      if (not mac or mac_pack) and getattr(args, 'in_programs', None) is None:   # an app is made, once: a program packed with the application's first (in_programs) is part of its app
-@@ -3931,10 +4364,10 @@ def main(args=None):
+@@ -3931,10 +4423,10 @@ def main(args=None):
          say_game(app, app_name, app_version or '1.0', bundle_id, None if prepare_xcode else out_ipa, icon)
      # the game language: Horizon gives the game one of the languages its control data lists (the packed version's, which an update may extend), so the one packed must be among them
      control = languages_control(game, base)
@@ -3272,7 +3584,7 @@ index fffe616..3e98a01 100755
  
      patched = work / f'patched_{pkg_ver}'
      g = rewrite(py, repo, game / 'ExeFS', patched, env, logs, g, provisional)
-@@ -3942,55 +4375,82 @@ def main(args=None):
+@@ -3942,55 +4434,82 @@ def main(args=None):
      chain_header(py, repo, env, logs)   # before any host is built
      if provisional or derived:   # (provisional) the heap check, then the region check (both only change keys the host is built with, not the rewrite or the shader steps)
          provisional_prep(py, repo, env, logs, g)
@@ -3384,7 +3696,7 @@ index fffe616..3e98a01 100755
          say(f'done: {out_ipa} ({tree_size(out_ipa)[1] / 2**30:.1f} GB); '
              f'open it from Finder. Its save is in ~/Library/Application Support/nxnative/{app:016X}/, its log in ~/Library/Logs/nxnative/{app:016X}.log')
          if seen_shaders: say('a partial shader library: where a shader is missing, the log says so in red and the draw goes without it. Run this script again with --seen-shaders to add what the log names, or without it for the whole map')
-@@ -4002,8 +4462,11 @@ def main(args=None):
+@@ -4002,8 +4521,11 @@ def main(args=None):
          parts = {'font': font}
          cmd = mac_run(work, game, patched, host, font, ios, aoc, gfx, lang, env, logs, g, env_file, partial=seen_shaders, parts=parts, jit=jit)
          rmtree(work / 'tmp')
@@ -3397,7 +3709,7 @@ index fffe616..3e98a01 100755
          if programs: cmd = cmd.replace(' && ', f' && DM_PROGRAMS={shlex.quote(str(programs))} ', 1)
          say(f'done: the game runs on the Mac with this command (its save in {work / "run/save"}, kept from run to run; DM_WINDOW=1 opens a window, DM_AUDIO=1 plays sound):')
          PROG.say(cmd)
-@@ -4012,7 +4475,9 @@ def main(args=None):
+@@ -4012,7 +4534,9 @@ def main(args=None):
          return
  
      if getattr(args, 'in_programs', None) is not None:   # a program of the game: the app its first program's build packs takes these
@@ -3408,7 +3720,7 @@ index fffe616..3e98a01 100755
      programs = other_programs(args, g)
      if programs and romfs_mode == 'separate': raise BuildError('a game of several programs keeps its files in the app (ROMFS / --romfs bundle): Documents holds one RomFS image, one program\'s')
      if not prepare_xcode and not shell_fw and free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
-@@ -4021,11 +4486,24 @@ def main(args=None):
+@@ -4021,11 +4545,24 @@ def main(args=None):
      if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)
      if args.framework: ipa_env['DM_FRAMEWORK'] = '1'; say('route C: the game\'s modules go into DmIOS.app/Frameworks/DmGame.framework (DM_FRAMEWORK=1)')
      separate = romfs_mode == 'separate'
@@ -3435,7 +3747,7 @@ index fffe616..3e98a01 100755
      if env_file: ipa_env['DM_ENV_FILE'] = str(Path(os.path.expanduser(env_file)).resolve())
      show_fps = SHOW_FPS if args.show_fps is None else args.show_fps
      ipa_env['DM_SHOW_FPS'] = '1' if show_fps else '0'
-@@ -4049,8 +4527,12 @@ def main(args=None):
+@@ -4049,8 +4586,12 @@ def main(args=None):
          if not (fw / 'game.manifest.json').is_file(): raise BuildError(f'no game framework at {fw}')
          PROG.end(fw.name)
          rmtree(work / 'tmp')
@@ -3449,7 +3761,7 @@ index fffe616..3e98a01 100755
          report_profile_status(g, reg, pkg_ver, derived, provisional, 'shell framework', patched)
          return
      if prepare_xcode:
-@@ -4060,6 +4542,7 @@ def main(args=None):
+@@ -4060,6 +4601,7 @@ def main(args=None):
          except ValueError as e: raise BuildError(str(e)) from e
          PROG.end()
          rmtree(work / 'tmp')
@@ -3457,7 +3769,7 @@ index fffe616..3e98a01 100755
          say(f'ready: {workspace}')
          say(f'game project: {project}')
          say(f'Xcode derived data: {work / "xcode-derived-data"}')
-@@ -4076,6 +4559,7 @@ def main(args=None):
+@@ -4076,6 +4618,7 @@ def main(args=None):
      tree_tar.pack(xcode_data, say)
      PROG.end(f'{out_ipa.name}, {amount(out_ipa.stat().st_size, "B")}')
      rmtree(work / 'tmp')

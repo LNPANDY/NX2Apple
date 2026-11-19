@@ -11,11 +11,11 @@
 | Donkey Kong Bananza | `040074A01BF12000` | 在 Mac 上可玩（更新 v458752），测试到第一关开头 | 通过启动器构建，并在 Mac、iPhone 和 iPad 上玩过，Mac 和 iPhone 上没有发现问题，iPad 上基本没有问题。此前用命令行构建后，在 iPhone 17 Pro Max（iOS 27.0.1）上玩过一次（#445） |
 | Splatoon Raiders | `0400380020056000` | 在 Mac 上可玩（更新 v65536）。没有构建过 IPA：它的内存布局目前超出 iOS 的限制 | 没有试过 |
 | Fire Emblem Fortune's Weave | `04007EF01F8AE000` | 在 Mac 上可玩（v131072），60 fps。没有构建过 IPA | 已在 iPhone 18 Pro Max 上验证可玩（v131072，单游戏 App 配合 increased-memory-limit，#1143），稳定锁 60 fps。CPU 仅 1.51 W，常驻内存 2.1 GB，0 掉帧 |
-| Pokémon Pokopia | `0400A3A01EE4C000` | 在 Mac 上可玩（更新 v655360）。没有构建过 IPA | 支持全面屏（v327680 宽屏比例） |
+| Pokémon Pokopia | `0400A3A01EE4C000` | 在 Mac 上可玩（更新 v655360）。没有构建过 IPA | 没有试过 |
 | Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | 在 Mac 上能玩到第一片原野（更新 v196608），从 NUP 构建。没有构建过 IPA | 没有试过 |
 | Mario Kart World | `0400C3F00006E000` | 在 Mac 上能玩到比赛（v0），60 fps。没有构建过 IPA | 没有试过 |
 | Mario Tennis Fever | `0400D4201C6EA000` | 在 Mac 上可玩（更新 v327680），60 fps。没有构建过 IPA | 没有试过 |
-| The Legend of Zelda: Ocarina of Time | `0400486024DEC000` | 在 Mac 上能玩到标题画面、开场和科吉里森林（更新 v131072），约 59 fps。目前仅 Mac | 从命令行构建，在 Mac 上玩到盖侬城堡内部：2 小时 41 分钟共 462,601 帧，帧时间 p50 16.66 ms，没有崩溃，支持全面屏（宽屏比例）。用的是 host `92aa1222`，落后 `main` 240 个提交，之后的进度没有覆盖 |
+| The Legend of Zelda: Ocarina of Time | `0400486024DEC000` | 在 Mac 上能玩到标题画面、开场和科吉里森林（更新 v131072），约 59 fps。目前仅 Mac | 从命令行构建，在 Mac 上玩到盖侬城堡内部：2 小时 41 分钟共 462,601 帧，帧时间 p50 16.66 ms，没有崩溃。用的是 host `92aa1222`，落后 `main` 240 个提交，之后的进度没有覆盖 |
 
 引擎读取的文件夹结构（`updates` 和 `dlc` 可选）：
 
@@ -102,7 +102,7 @@ shader 表、每个游戏各自的开关。本 fork 在此基础上加了 RomFS 
 | 塞尔达传说 织梦岛 | `01006BB00C6F0000` | 1.1.0 (v131072) | 上游报告 iPhone 可玩 |
 | 勇者斗恶龙 XI S 寻觅逝去的时光 决定版 | `01006C300E9F0000` | 1.0.4 (v262144) | 有 profile，未在手机上验证 |
 | 马力欧＆路易吉 RPG 兄弟齐航！ | `01006D0017F7A000` | 无（v0） | 有 profile，未在手机上验证 |
-| 集合啦！动物森友会 | `01006F8002326000` | 3.0.3 (v2228224) | **本 fork 已验证** —— 构建、安装、在 iPhone 上流畅运行，支持全面屏 |
+| 集合啦！动物森友会 | `01006F8002326000` | 3.0.3 (v2228224) | **本 fork 已验证** —— 构建、安装、在 iPhone 上流畅运行 |
 | 马力欧派对 超级巨星 | `01006FE013472000` | 1.1.1 (v131072) | 有 profile，未在手机上验证 |
 | AI 梦境档案 涅槃肇始 | `0100713016CCC000` | 1.0.2 (v131072) | 上游报告 iPhone 可玩 |
 | 异界锁链 | `01007300020FA000` | 1.0.1 (v65536) | 上游报告 iPhone 可玩 |
@@ -112,7 +112,7 @@ shader 表、每个游戏各自的开关。本 fork 在此基础上加了 RomFS 
 | 碧姬公主 表演时刻！ | `01007A3009184000` | 无（v0） | 有 profile，未在手机上验证 |
 | 传送门 | `01007BB017812000` | 1.0.3 (v196608) | 上游报告 iPhone 可玩 |
 | 星之卡比 新星同盟 | `01007E3006DDA000` | 4.0.0a (v393216) | 有 profile，未在手机上验证 |
-| 塞尔达传说 旷野之息 | `01007EF00011E000` | 1.9.0 (v1114112) | 上游报告 iPhone 可玩，支持全面屏 |
+| 塞尔达传说 旷野之息 | `01007EF00011E000` | 1.9.0 (v1114112) | 上游报告 iPhone 可玩 |
 | BALL x PIT | `010086A022444000` | 1.293 (v393216) | 上游报告 iPhone 可玩 |
 | AI 梦境档案 | `010089B00D09C000` | 1.0.1 (v65536) | 上游报告 iPhone 可玩 |
 | SteamWorld Heist II | `010089C01E9CA000` | 1.5.1 (v262144) | 有 profile，未在手机上验证 |
@@ -174,10 +174,10 @@ shader 表、每个游戏各自的开关。本 fork 在此基础上加了 RomFS 
 | Xenoblade Chronicles: Definitive Edition | `0100FF500E34A000` | 1.1.2 (v196608) | 有 profile，未在手机上验证 |
 | Splatoon Raiders（Switch 2） | `0400380020056000` | v65536 | 有 profile，未在手机上验证 |
 | 塞尔达无双 封印战记（Switch 2） | `04003F40232DE000` | v196608 | 有 profile，未在手机上验证 |
-| 塞尔达传说 时之笛（Switch 2） | `0400486024DEC000` | v131072 | **本 fork 已验证** —— 在 Mac 上可玩，玩到盖侬城堡内部（2 小时 41 分钟 462,601 帧），支持全面屏（宽屏比例） |
+| 塞尔达传说 时之笛（Switch 2） | `0400486024DEC000` | v131072 | **本 fork 已验证** —— 在 Mac 上可玩，玩到盖侬城堡内部（2 小时 41 分钟 462,601 帧） |
 | 咚奇刚 蕉力全开（Switch 2） | `040074A01BF12000` | v458752 | **本 fork 已验证** —— 构建、安装、在 iPhone 上运行 |
 | Fire Emblem Fortune's Weave（Switch 2） | `04007EF01F8AE000` | v131072 | **已在 iPhone 验证** —— iPhone 18 Pro Max 60 fps 可玩（#1143） |
-| Pokémon Pokopia（Switch 2） | `0400A3A01EE4C000` | v655360 | 有 profile，未在手机上验证，支持全面屏（v327680 宽屏比例） |
+| Pokémon Pokopia（Switch 2） | `0400A3A01EE4C000` | v655360 | 有 profile，未在手机上验证 |
 | 马力欧卡丁车世界（Switch 2） | `0400C3F00006E000` | 无（v0） | 有 profile，未在手机上验证 |
 | Mario Tennis Fever（Switch 2） | `0400D4201C6EA000` | v327680 | 有 profile，未在手机上验证 |
 

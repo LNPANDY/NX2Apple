@@ -2462,8 +2462,6 @@
   "upstream.s2armPickMessage": "Choose the S2Arm repository folder",
   "upstream.switchBtn": "Switch",
   "upstream.title": "Builder upstream",
-  "widescreen.badge": "Full screen",
-  "widescreen.help": "Adapts to full-screen and wide display aspect ratios.",
   "xcodeChoice.choose": "Choose Xcode…",
   "xcodeChoice.finishSetup": "Finish setup in the selected Xcode, then click Retry.",
   "xcodeChoice.invalid": "Choose an Xcode app that contains the developer tools.",

@@ -335,10 +335,6 @@ extension LauncherView {
                 ArtworkStatusChip(title: loc.t("switch2.badge"), color: LauncherPalette.notice, showsIndicator: false)
                     .help(loc.t("switch2.help"))
             }
-            if verifiedProfiles.supportsFullScreen(game) {
-                ArtworkStatusChip(title: loc.t("widescreen.badge"), color: LauncherPalette.ready, textColor: .white)
-                    .help(loc.t("widescreen.help"))
-            }
             if verifiedProfiles.isUnverified(game) {
                 LibraryProfileChip(title: loc.t("macLibVerify.badge"), explanation: loc.t("macLibVerify.note"), showingHelp: $profileHelpOpen).id(game.id)
             }

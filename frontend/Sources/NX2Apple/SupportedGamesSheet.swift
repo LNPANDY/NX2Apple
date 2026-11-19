@@ -39,19 +39,11 @@ struct SupportedGamesSheet: View {
         GameUpdateCatalog.catalogVersion(for: titleID) == GameUpdateCatalog.releaseBaseVersion(appVersion)
     }
 
-    static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String, badgeName: String = "") -> Bool {
+    static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String) -> Bool {
         let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
         let updated = GameUpdateCatalog.catalogVersion(for: game.titleID) ?? ""
-        var fields = [game.name, game.titleID, ownedName, updated]
-        if game.fullScreen {
-            if badgeName.isEmpty {
-                fields.append(contentsOf: Lang.all.map { L10n.string("widescreen.badge", $0) })
-            } else {
-                fields.append(badgeName)
-            }
-        }
-        return fields.contains {
+        return [game.name, game.titleID, ownedName, updated].contains {
             $0.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
         }
     }
@@ -67,9 +59,8 @@ struct SupportedGamesSheet: View {
     }
 
     var shown: [SupportedGame] {
-        let badge = loc.t("widescreen.badge")
-        return games.filter { game in
-            Self.matchesSearch(game, needle: search, ownedName: owned(game.titleID)?.displayName(loc.lang) ?? "", badgeName: badge)
+        games.filter { game in
+            Self.matchesSearch(game, needle: search, ownedName: owned(game.titleID)?.displayName(loc.lang) ?? "")
         }
     }
 
@@ -179,18 +170,6 @@ private struct SupportedGameRow: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .center, spacing: 8) {
                             Text(game.name).font(.manrope(14.5, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
-                            if game.fullScreen {
-                                Text(loc.t("widescreen.badge"))
-                                    .font(.manrope(10.5, .bold))
-                                    .foregroundStyle(LauncherPalette.ready)
-                                    .lineLimit(1)
-                                    .fixedSize()
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 2)
-                                    .background(LauncherPalette.ready.opacity(0.12), in: Capsule())
-                                    .overlay(Capsule().strokeBorder(LauncherPalette.ready.opacity(0.38)))
-                                    .help(loc.t("widescreen.help"))
-                            }
                             if isCurrentUpdate {
                                 Text(loc.t("supported.updatedCurrent"))
                                     .font(.manrope(10.5, .semibold))
