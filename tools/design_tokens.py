@@ -108,7 +108,23 @@ def render(tokens: dict) -> str:
     out += ['    /// Animation durations in seconds.', '    package enum Motion {']
     for path, token in leaves(tokens['motion']):
         out.append(doc(token) + f'        package static let {camel(path)}: Double = {ms(token["$value"])}')
-    out += ['    }', '}', '']
+    out += ['    }']
+    if 'interaction' in tokens:
+        out += ['', '    /// How a card answers the pointer, the press, the focus and selection (DSCardArt, DesignComponents.swift).',
+                '    package enum Interaction {']
+        for path, token in leaves(tokens['interaction']):
+            kind = token.get('$type')
+            if kind == 'number':
+                value = token['$value']
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    raise ValueError(f'not a number: {value!r}')
+                out.append(doc(token) + f'        package static let {camel(path)}: CGFloat = {float(value)!r}')
+            elif kind == 'dimension':
+                out.append(doc(token) + f'        package static let {camel(path)}: CGFloat = {px(token["$value"])}')
+            else:
+                raise ValueError(f'interaction tokens are numbers or dimensions: {path} is {kind!r}')
+        out += ['    }']
+    out += ['}', '']
     return '\n'.join(line for line in out)
 
 

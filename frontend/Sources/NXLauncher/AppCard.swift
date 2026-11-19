@@ -181,7 +181,7 @@ package struct AppCard: View {
             CardGroup(loc.t("settings.removalGroup")) {
                 CardRow(loc.t("uninstall.title"), detail: loc.t("uninstall.note")) {
                     Button(loc.t("uninstall.button"), role: .destructive) { updates.uninstallPlan = uninstallPlan() }
-                        .buttonStyle(LauncherSecondaryButtonStyle(accent: .red)).disabled(buildRunning)
+                        .buttonStyle(DSDestructiveButtonStyle()).disabled(buildRunning)
                         .padTarget("set.uninstall", scope: "main", enabled: !buildRunning) { if !buildRunning { updates.uninstallPlan = uninstallPlan() } }
                 }
             }

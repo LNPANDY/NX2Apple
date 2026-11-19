@@ -107,11 +107,10 @@ private struct LauncherIconButton: View {
     var body: some View {
         configuration.label
             .font(.system(size: size * 0.42, weight: .medium))
-            .foregroundStyle(selected ? LauncherPalette.onCream : LauncherPalette.text)
+            .dsButtonContent(!enabled ? DSButtonForeground.disabled : selected ? DSButtonForeground.primary : DSButtonForeground.flat)
             .frame(width: size, height: size)
             .contentShape(Circle())
             .launcherControlSurface(in: Circle(), tint: selected ? LauncherPalette.cream : nil)
-            .opacity(enabled ? 1 : 0.45)
             .launcherHover()
     }
 }
