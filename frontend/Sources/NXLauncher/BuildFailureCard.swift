@@ -15,10 +15,22 @@ package struct BuildFailureCard: View {
     /// The failure to show: the build's (`m.failure`) unless the caller passes another one, such as the engine sync's.
     var failure: BuildFailure?
 
-    package init(m: BuildStore, engine: EngineSyncStore? = nil, failure: BuildFailure? = nil) {
+    /// Names of games the launcher knows, by upper-case title ID, for the choice of several titles.
+    var titleNames: [String: String] = [:]
+
+    package init(m: BuildStore, engine: EngineSyncStore? = nil, failure: BuildFailure? = nil, titleNames: [String: String] = [:]) {
         self.m = m
         self.engine = engine
         self.failure = failure
+        self.titleNames = titleNames
+    }
+
+    /// A stop the player fixes with a choice or a file is a warning, a broken input or an unknown failure an error.
+    package static func isError(_ kind: BuildFailureKind) -> Bool {
+        switch kind {
+        case .damagedNSP, .a32Program, .shaderRegression, .updateMismatch, .shellDataIncomplete, .engineSync, .unknown: return true
+        default: return false
+        }
     }
 
     package var body: some View {
@@ -27,20 +39,27 @@ package struct BuildFailureCard: View {
                 Text(loc.t("fail.section")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Circle().fill(LauncherPalette.building).frame(width: 7, height: 7)
-                        Text(m.failureWhat(f)).font(DS.Font.bodyStrong).fixedSize(horizontal: false, vertical: true)
+                        Circle().fill(Self.isError(f.kind) ? DS.Color.statusError : DS.Color.statusWarning).frame(width: 7, height: 7)
+                        Text(m.failureWhat(f)).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
                     }
                     let chooseTitle = !f.titleIDs.isEmpty && !m.experimentalBuilder
                     Text(loc.t(chooseTitle ? "fail.severalGames.choose" : f.kind.nextKey)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true).padding(.leading, 17)
                     if chooseTitle {
-                        VStack(alignment: .leading, spacing: 6) {
+                        // Side by side, wrapping on a narrow window: the game's name when it is known, its ID in mono under it (#1458)
+                        DSFlowRow(spacing: DS.Space.xs) {
                             ForEach(f.titleIDs, id: \.self) { id in
-                                Button(id) { m.buildTitle(id) }
-                                    .padTarget("set.build.failure.title." + id, scope: "main", enabled: m.canBuild) { if m.canBuild { m.buildTitle(id) } }
+                                Button { m.buildTitle(id) } label: {
+                                    VStack(spacing: 0) {
+                                        if let name = titleNames[id.uppercased()] { Text(name).font(DS.Font.bodyStrong).lineLimit(1) }
+                                        Text(id).font(DS.Font.mono).foregroundStyle(DS.Color.textSecondary)
+                                    }.padding(.vertical, titleNames[id.uppercased()] == nil ? 0 : DS.Space.xxs)
+                                }
+                                .buttonStyle(DSRowButtonStyle(height: titleNames[id.uppercased()] == nil ? DS.Control.height : 48))
+                                .padTarget("set.build.failure.title." + id, scope: "main", enabled: m.canBuild) { if m.canBuild { m.buildTitle(id) } }
                             }
                         }
-                        .buttonStyle(LauncherSecondaryButtonStyle()).padding(.leading, 17)
+                        .padding(.leading, 17)
                         .disabled(!m.canBuild)
                     } else {
                         buttons(f.kind).padding(.leading, 17).padding(.top, 2)

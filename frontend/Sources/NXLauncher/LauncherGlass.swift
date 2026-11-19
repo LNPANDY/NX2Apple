@@ -35,6 +35,49 @@ extension View {
     }
 }
 
+private struct LauncherGlassLayerKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// True inside the navigation layer that floats above the content (the top bar, the controls over the library hero, the
+    /// carousel arrows, the wizard footer). Only there do the button styles draw Liquid Glass. Everywhere else, in lists, cards,
+    /// rows, sheets and notices, they are flat (Apple HIG for Liquid Glass on macOS 26, #1458).
+    package var launcherGlassLayer: Bool {
+        get { self[LauncherGlassLayerKey.self] }
+        set { self[LauncherGlassLayerKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Marks this view as the navigation layer: its buttons are glass. DesignTokenGuardTests allows it only in the
+    /// navigation-layer components.
+    package func launcherGlassLayer() -> some View { environment(\.launcherGlassLayer, true) }
+
+    /// A button style's surface: glass in the navigation layer, flat in the content layer (the surface fill with a hairline, or
+    /// the accent fill for a primary action). A disabled primary has the disabled look: the raised surface without the accent.
+    package func launcherControlSurface<S: InsettableShape>(in shape: S, tint: Color? = nil, fallback: Color? = nil, border: Color? = nil) -> some View {
+        modifier(LauncherControlSurface(shape: shape, tint: tint, fallback: fallback, border: border))
+    }
+}
+
+private struct LauncherControlSurface<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let tint: Color?
+    let fallback: Color?
+    let border: Color?
+    @Environment(\.launcherGlassLayer) private var glassLayer
+    @Environment(\.isEnabled) private var enabled
+    @ViewBuilder func body(content: Content) -> some View {
+        if glassLayer {
+            content.launcherGlass(in: shape, tint: enabled ? tint : nil, fallback: fallback, border: border)
+        } else if let tint, enabled {
+            content.background(tint, in: shape)
+        } else {
+            content.background(fallback ?? DS.Color.surfaceRaised, in: shape)
+                .overlay(shape.strokeBorder(border ?? DS.Color.separator))
+        }
+    }
+}
+
 /// Glass buttons that sit together share one container, so their glass blends and morphs as one group.
 package struct LauncherGlassGroup<Content: View>: View {
     package init(spacing: CGFloat = 8, @ViewBuilder content: () -> Content) { self.spacing = spacing; self.content = content() }
@@ -67,7 +110,7 @@ private struct LauncherIconButton: View {
             .foregroundStyle(selected ? LauncherPalette.onCream : LauncherPalette.text)
             .frame(width: size, height: size)
             .contentShape(Circle())
-            .launcherGlass(in: Circle(), tint: selected ? LauncherPalette.cream : nil)
+            .launcherControlSurface(in: Circle(), tint: selected ? LauncherPalette.cream : nil)
             .opacity(enabled ? 1 : 0.45)
             .launcherHover()
     }

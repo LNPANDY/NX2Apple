@@ -187,6 +187,7 @@ extension LauncherView {
             .frame(height: height)
             .accessibilityLabel(loc.t(symbol == "chevron.left" ? "library.scrollBack" : "library.scrollForward"))
             .transition(.opacity)
+            .launcherGlassLayer()   // over the artwork: glass (#1458)
     }
 
     // MARK: All games

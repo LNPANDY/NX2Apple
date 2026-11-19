@@ -3,93 +3,68 @@ import NXCore
 import NXModel
 import NXLauncher
 
+/// The build pages' compact header (#1458): the app icon (or the fanned stack of the queued games), the title and one status line,
+/// with an optional trailing action. The build pages are task pages: no artwork hero, the icon fills with colour as the build runs.
 /// Metadata is optional presentation. Source validation and build state remain in BuildStore.
-struct BuildMetadataHero: View {
+struct BuildMetadataHero<Trailing: View>: View {
     @ObservedObject var build: BuildStore
     var library: GameLibrary?
     var artworkStore: ArtworkStore = .shared
     var queueGames: [QueueGame] = []
     var queueArtwork: (QueueEntry) -> NSImage? = { _ in nil }
     var platformTargets: [String] = []
+    /// The line under the title: the wizard's step, or the build's state. Empty works it out from the build.
+    var statusLine: String = ""
+    @ViewBuilder var trailing: () -> Trailing
     @State private var queueIcons: [String: NSImage] = [:]
     @EnvironmentObject private var loc: Localizer
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var reveal: Double { build.running && build.buildingGame ? min(max(build.gameTitleID == titleID ? (build.overallProgress ?? 0) : 0, 0), 1) : 1 }   // grey only while the build runs, in colour idle and finished (#1458)
+    /// Grey only while the build runs, in colour idle and finished (#1458).
+    private var reveal: Double { build.running && build.buildingGame ? min(max(build.gameTitleID == titleID ? (build.overallProgress ?? 0) : 0, 0), 1) : 1 }
     var artworkGames: [QueueGame] {
         guard let current = queueGames.first(where: \.running) else { return Array(queueGames.prefix(4)) }
         return Array(([current] + queueGames.filter { $0.id != current.id }).prefix(4))
     }
     private var queuedGame: QueueGame? { artworkGames.first }
     private var titleID: String? { queuedGame?.titleID ?? build.gameTitleID }
-    @State private var queueBanners: [String: NSImage] = [:]
-    private var shownBanner: NSImage? { titleID.flatMap { queueBanners[$0] } ?? (bannerID == titleID ? banner : nil) }
     @State private var metadataName: String?
     @State private var icon: NSImage?
-    @State private var banner: NSImage?
-    @State private var bannerID: String?
     private var game: LibraryGame? { library?.games.first { $0.titleID == titleID } }
-    /// "Mac", "iPhone" or both, for the line under the title.
-    private var platformLine: String {
-        let targets = (platformTargets.isEmpty ? [build.running ? build.runningTarget : build.target] : platformTargets).map(BuildTarget.normalized)
-        return [BuildTarget.mac, BuildTarget.ios].filter(targets.contains).map { loc.t($0 == BuildTarget.mac ? "library.section.mac" : "build.ios") }.joined(separator: " · ")
-    }
+    private var chosen: Bool { !build.basePath.isEmpty || build.gameFolder != nil || queuedGame != nil }
 
     var body: some View {
-        HStack(spacing: 22) {
-            if !build.basePath.isEmpty || build.gameFolder != nil {
-                if !queueGames.isEmpty {
-                    QueueArtworkStack(items: artworkGames.map { QueueArtworkItem(id: $0.titleID, image: queueIcons[$0.titleID]) }, size: 96)
+        HStack(alignment: .center, spacing: DS.Space.m) {
+            if chosen {
+                if artworkGames.count > 1 {
+                    QueueArtworkStack(items: artworkGames.map { QueueArtworkItem(id: $0.titleID, image: queueIcons[$0.titleID]) }, size: DS.Control.headerIcon)
                 } else {
-                Group {
-                    if let icon { Image(nsImage: icon).resizable().scaledToFit() }
-                    else { Image(systemName: "gamecontroller.fill").font(.system(size: 30)).frame(maxWidth: .infinity, maxHeight: .infinity).background(.black.opacity(0.25)) }
-                }.frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 14)).accessibilityHidden(true)
+                    BuildIconReveal(image: icon ?? queuedGame.flatMap { queueIcons[$0.titleID] }, progress: reveal)
+                        .id((titleID ?? "") + build.runningTarget)
                 }
             }
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                // The page's title is the largest text on the page, the platforms a quiet line under it (#1458)
-                ZStack(alignment: .leading) {
-                    Text(game?.displayName(loc.lang) ?? queuedGame?.entries.first?.name ?? metadataName ?? (build.gameName.isEmpty ? loc.t("build.heading") : build.gameName))
-                        .font(DS.Font.largeTitle).tracking(DS.Font.largeTitleTracking).lineLimit(3).fixedSize(horizontal: false, vertical: true)
-                        .accessibilityAddTraits(.isHeader)
-                        .id(titleID).transition(LibraryHeroTransition.blurredMetadata(reduceMotion: reduceMotion))
-                }.animation(LibraryHeroTransition.queue(reduceMotion: reduceMotion), value: titleID)
-                Text(platformLine).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                Text(game?.displayName(loc.lang) ?? queuedGame?.entries.first?.name ?? metadataName ?? (build.gameName.isEmpty ? loc.t("build.addGame") : build.gameName))
+                    .font(DS.Font.title).foregroundStyle(DS.Color.textPrimary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                let line = statusLine.isEmpty ? BuildHeaderLine.text(build, loc.t) : statusLine
+                if !line.isEmpty {
+                    TimelineView(.periodic(from: Date(), by: 1)) { context in
+                        Text(statusLine.isEmpty ? BuildHeaderLine.text(build, loc.t, now: context.date) : statusLine)
+                            .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1).monospacedDigit()
+                    }
+                }
             }.frame(maxWidth: .infinity, alignment: .leading)
+            trailing()
         }
-        .padding(.top, DS.Space.xl * 2).padding(.bottom, DS.Space.l).padding(.horizontal, DS.Space.xl).frame(maxWidth: DS.Control.contentWidth, alignment: .leading)
-        .frame(maxWidth: .infinity, minHeight: 176)
-        .foregroundStyle(.white)
-        .background {
-            GeometryReader { box in
-                ZStack {
-                    Color.black
-                    ZStack {
-                        if let shownBanner {
-                            BuildHeroReveal(image: shownBanner, progress: reveal)
-                                .id((titleID ?? "") + build.runningTarget).transition(.opacity)
-                        }
-                    }.animation(LibraryHeroTransition.queue(reduceMotion: reduceMotion), value: (titleID ?? "") + build.runningTarget)
-                    // the artwork sharp and dimmed, darker where the title sits, fading into the page at the bottom (#1458)
-                    LinearGradient(stops: [.init(color: .black.opacity(0.72), location: 0), .init(color: .black.opacity(0.45), location: 0.55),
-                                           .init(color: .black.opacity(0.3), location: 1)], startPoint: .leading, endPoint: .trailing)
-                    LinearGradient(colors: [.clear, LauncherPalette.background], startPoint: .center, endPoint: .bottom)
-                }.clipped()
-            }
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: artworkGames.map(\.id)) {
             for game in artworkGames {
                 if let image = queueArtwork(game.entries[0]) { queueIcons[game.titleID] = image }
-                if let record = library?.games.first(where: { $0.titleID == game.titleID }),
-                   let image = GameLibrary.artwork(for: record, repo: "", banners: artworkStore.directory) { queueBanners[game.titleID] = image }
             }
         }
         .task(id: (titleID ?? "") + loc.lang.code) {
             icon = nil; metadataName = nil
             guard let id = titleID else { return }
-            if let game, let image = GameLibrary.artwork(for: game, repo: "", banners: artworkStore.directory) {
-                banner = image; bannerID = id
-            }
             let iconURL = await artworkStore.fetchIcon(id, language: loc.lang.code)
             guard !Task.isCancelled, titleID == id else { return }
             if let iconURL { icon = NSImage(contentsOf: iconURL) }
@@ -98,13 +73,59 @@ struct BuildMetadataHero: View {
                 guard !Task.isCancelled, titleID == id else { return }
                 metadataName = name
             }
-            if bannerID != id {
-                _ = await artworkStore.fetchMissing([id], language: loc.lang.code, waits: true)
-                guard !Task.isCancelled, titleID == id else { return }
-                if let url = ArtworkStore.cachedBanner(id, in: artworkStore.directory), let image = NSImage(contentsOf: url) { banner = image; bannerID = id }
-            }
-
         }
+    }
+}
+
+extension BuildMetadataHero where Trailing == EmptyView {
+    init(build: BuildStore, library: GameLibrary? = nil, artworkStore: ArtworkStore = .shared, queueGames: [QueueGame] = [],
+         queueArtwork: @escaping (QueueEntry) -> NSImage? = { _ in nil }, platformTargets: [String] = [], statusLine: String = "") {
+        self.init(build: build, library: library, artworkStore: artworkStore, queueGames: queueGames, queueArtwork: queueArtwork,
+                  platformTargets: platformTargets, statusLine: statusLine, trailing: { EmptyView() })
+    }
+}
+
+/// The header's status line: "Building for Mac · Shaders · About 2 min left", "Built for Mac", "Build failed · Shaders".
+@MainActor enum BuildHeaderLine {
+    static func platform(_ target: String, _ t: (String) -> String) -> String {
+        t(BuildTarget.normalized(target) == BuildTarget.mac ? "library.section.mac" : "build.ios")
+    }
+    static func text(_ build: BuildStore, _ t: (String) -> String, now: Date = Date()) -> String {
+        let target = platform(build.running ? build.runningTarget : build.target, t)
+        if build.running {
+            let stage = build.stages.last { $0.state == .running }
+            let eta = stage.flatMap { $0.remaining(at: now) }.map { String(format: t("prog.etaEstimate"), BuildProgress.duration($0)) }
+            return ([String(format: t("build.header.building"), target)] + [stage?.displayName(t), eta].compactMap { $0 }).joined(separator: " · ")
+        }
+        if build.failure != nil || build.stages.contains(where: { $0.state == .failed }) {
+            return ([t("build.header.failed")] + [build.stages.last { $0.state == .failed }?.displayName(t)].compactMap { $0 }).joined(separator: " · ")
+        }
+        if build.done || build.completionStatus != nil { return String(format: t("build.header.built"), target) }
+        return ""
+    }
+}
+
+/// The app icon at header size. While a build runs it is grey and fills with colour from the leading edge as the build moves on.
+struct BuildIconReveal: View {
+    let image: NSImage?
+    let progress: Double
+    var body: some View {
+        ZStack {
+            tile.saturation(0)
+            tile.mask { BuildProgressRevealMask(progress: progress) }
+        }
+        .frame(width: DS.Control.headerIcon, height: DS.Control.headerIcon)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.sheet))
+        .accessibilityHidden(true)
+    }
+    private var tile: some View {
+        Group {
+            if let image { Image(nsImage: image).resizable().scaledToFill() }
+            else {
+                Image(systemName: "gamecontroller.fill").font(.system(size: 24)).foregroundStyle(DS.Color.symbolDefault)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity).background(DS.Color.surfaceRaised)
+            }
+        }.frame(width: DS.Control.headerIcon, height: DS.Control.headerIcon)
     }
 }
 
@@ -118,22 +139,16 @@ struct BuildQueueHero: View {
     @State private var icons: [UUID: NSImage] = [:]
 
     var body: some View {
-        HStack(spacing: 24) {
-            QueueArtworkStack(items: games.prefix(4).map { QueueArtworkItem(id: $0.titleID, image: icons[$0.id]) }, size: 96)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(games.count == 1 ? loc.t("queue.oneGame") : String(format: loc.t("library.gameCount"), games.count)).font(.manrope(14)).foregroundStyle(.secondary)
-                Text(loc.t("queue.title")).font(DS.Font.largeTitle).tracking(DS.Font.largeTitleTracking).accessibilityAddTraits(.isHeader)
+        HStack(spacing: DS.Space.m) {
+            QueueArtworkStack(items: games.prefix(4).map { QueueArtworkItem(id: $0.titleID, image: icons[$0.id]) }, size: DS.Control.headerIcon)
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                Text(loc.t("queue.title")).font(DS.Font.title).foregroundStyle(DS.Color.textPrimary).accessibilityAddTraits(.isHeader)
+                Text(games.count == 1 ? loc.t("queue.oneGame") : String(format: loc.t("library.gameCount"), games.count))
+                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
             }.frame(maxWidth: .infinity, alignment: .leading)
             Button(loc.t("queue.select"), action: onSelectGames)
-                .buttonStyle(LauncherSecondaryButtonStyle())
+                .buttonStyle(DSSecondaryButtonStyle())
                 .padTarget("set.build.queue.select", scope: "main", activate: onSelectGames)
-        }
-        .padding(.horizontal, DS.Space.xl).padding(.top, DS.Space.xl * 2).padding(.bottom, DS.Space.l).frame(maxWidth: DS.Control.contentWidth)
-        .frame(maxWidth: .infinity, minHeight: 176)
-        .background {
-            GeometryReader { box in
-                LibraryFallbackArtwork(size: box.size)
-            }.clipped()
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: games.map(\.id))
         .task(id: games.map(\.id)) {
@@ -141,7 +156,6 @@ struct BuildQueueHero: View {
         }
     }
 }
-
 /// Current work keeps a fixed anchor, with upcoming games receding into the leading gutter.
 struct QueueArtworkItem: Identifiable {
     let id: String
@@ -205,21 +219,6 @@ struct QueueArtworkStack: View {
     }
 }
 
-private struct BuildHeroReveal: View {
-    let image: NSImage
-    let progress: Double
-    var body: some View {
-        GeometryReader { box in
-            ZStack {
-                artwork(box.size).saturation(0)
-                artwork(box.size).mask { BuildProgressRevealMask(progress: progress) }
-            }.clipped()
-        }
-    }
-    private func artwork(_ size: CGSize) -> some View {
-        Image(nsImage: image).resizable().scaledToFill().frame(width: size.width, height: size.height)
-    }
-}
 
 /// Retargets continuously within one run. The caller resets identity for the next game/platform.
 struct BuildProgressRevealMask: View {

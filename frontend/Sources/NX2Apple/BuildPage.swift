@@ -55,64 +55,94 @@ struct BuildPage: View {
     private var labels: [String] {
         [loc.t("section.files"), loc.t("section.target")] + (build.target == BuildTarget.mac ? [] : [loc.t("dev.section")])
     }
-    var body: some View {
-        VStack(spacing: 0) {
-            if queueReview {
-                BuildQueueHero(games: queue.games.filter { $0.waiting || $0.running || $0.retryable }, artwork: queueIcon, onSelectGames: onSelectGames)
-            } else {
-                BuildMetadataHero(build: build, library: library, artworkStore: artworkStore,
-                                  queueGames: (running || queue.active) ? queue.games.filter { $0.running || $0.waiting } : [], queueArtwork: queueIcon,
-                                  platformTargets: queue.games.first { $0.titleID == build.gameTitleID }?.entries.map(\.target) ?? [])
-            }
-            GeometryReader { viewport in
-            LauncherPageScroll(memoryKey: "builds.flow.\(step)") {
-                if completionActive {
-                    OutcomeCard(build: build, devices: devices, onViewGame: onViewGame, onPlayGame: onPlayGame)
-                    if build.completionStatus == .exported || build.completionStatus == .needsData {
-                        CardGroup(loc.t("result.next")) { ExportSteps(build: build, devices: devices, resultOnly: true) }
-                    }
-                    if !queue.isEmpty { BuildQueueCard(queue: queue, artwork: queueIcon, onSelectGames: onSelectGames, playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) }) }
-                    TransferCard(transfers: transfers) { build.revealTransfer($0) }
-                    ShellCopyCard(devices: devices)
-                    if logOpen { BuildLogView(log: build.log, placeholder: loc.t("log.placeholder")) }
-                } else if running || processActive {
-                    if processActive { BuildProcessCard(build: build, availableHeight: viewport.size.height, logOpen: logOpen) }
-                    else { ProgressCard(build: build) }
-                } else {
-                    if step == 0 || queueReview { EngineSwitcherCard(build: build) }
-                    if queueReview {
-                        BuildQueueCard(queue: queue, showsHeading: false, artwork: queueIcon, onSelectGames: onSelectGames, playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) })
-                        if queue.hasIOS { InstallCard(devices: devices, build: build, forQueue: true) }
-                    } else if step == 0 {
-                        FilesCard(build: build, library: library, artworkStore: artworkStore, extrasOpen: $extrasOpen)
-                    } else if step == 1 {
-                        TargetCard(build: build)
-                    }
-                    if step == 2 && !queueReview { InstallCard(devices: devices, build: build) }
+    /// A stopped build with a failure the player can act on: the failure takes the place of the progress.
+    private var failedResult: Bool { !running && !processActive && build.failure != nil && !queueReview }
+    private var titleNames: [String: String] {
+        Dictionary((library?.games ?? []).map { ($0.titleID.uppercased(), $0.displayName(loc.lang)) }, uniquingKeysWith: { first, _ in first })
+    }
+    /// "Step 1 of 2 · Game files" while the wizard is set up, the build's state otherwise (BuildHeaderLine).
+    private var stepLine: String {
+        guard !running && !queueReview && !showingActions else { return "" }
+        let current = min(step, lastStep)
+        return String(format: loc.t("wizard.step"), current + 1, lastStep + 1) + " · " + labels[current]
+    }
+    @ViewBuilder private var header: some View {
+        if queueReview {
+            BuildQueueHero(games: queue.games.filter { $0.waiting || $0.running || $0.retryable }, artwork: queueIcon, onSelectGames: onSelectGames)
+        } else {
+            BuildMetadataHero(build: build, library: library, artworkStore: artworkStore,
+                              queueGames: (running || queue.active) ? queue.games.filter { $0.running || $0.waiting } : [], queueArtwork: queueIcon,
+                              platformTargets: queue.games.first { $0.titleID == build.gameTitleID }?.entries.map(\.target) ?? [],
+                              statusLine: stepLine) {
+                if processActive {
+                    Button(role: .destructive) { build.stop() } label: { Text(loc.t(build.stopping ? "library.stopping" : "build.stop")) }
+                        .buttonStyle(DSSecondaryButtonStyle(accent: DS.Color.statusError)).disabled(build.stopping)
+                        .keyboardShortcut(pad.scope == "main" ? KeyboardShortcut(.return, modifiers: .command) : nil)
+                        .padTarget("set.build.action", scope: "main", enabled: !build.stopping) { if !build.stopping { build.stop() } }
                 }
-                if showingActions && !completionActive {
+            }
+        }
+    }
+    var body: some View {
+        // A task page (#1458): the compact header, then the work, in one column. No artwork hero.
+        LauncherPageScroll(memoryKey: "builds.flow.\(step)") {
+            header
+            if completionActive {
+                OutcomeCard(build: build, devices: devices, onViewGame: onViewGame, onPlayGame: onPlayGame)
+                if build.completionStatus == .exported || build.completionStatus == .needsData {
+                    CardGroup(loc.t("result.next")) { ExportSteps(build: build, devices: devices, resultOnly: true) }
+                }
+                if !queue.isEmpty { BuildQueueCard(queue: queue, artwork: queueIcon, onSelectGames: onSelectGames, playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) }) }
+                TransferCard(transfers: transfers) { build.revealTransfer($0) }
+                ShellCopyCard(devices: devices)
+                BuildLogDisclosure(build: build, isOpen: $logOpen)
+            } else if processActive {
+                BuildProcessCard(build: build, logOpen: logOpen)
+                BuildUpNextSection(queue: queue, artwork: queueIcon)
+                TransferCard(transfers: transfers) { build.revealTransfer($0) }
+                BuildLogDisclosure(build: build, isOpen: $logOpen)
+            } else if failedResult {
+                // The failure is the page's main content, directly under the header, the log last (#1458)
+                BuildFailureCard(m: build, titleNames: titleNames)
+                // then the step the player was on, where the fix is often made (another platform, another file)
+                if step == 0 { FilesCard(build: build, library: library, artworkStore: artworkStore, extrasOpen: $extrasOpen) }
+                else if step == 1 { TargetCard(build: build) }
+                else if !queueReview { InstallCard(devices: devices, build: build) }
+                if !queue.isEmpty && !queueReview { BuildQueueCard(queue: queue, artwork: queueIcon, onSelectGames: onSelectGames, playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) }) }
+                ProgressCard(build: build)
+                BuildLogDisclosure(build: build, isOpen: $logOpen)
+            } else {
+                if running { ProgressCard(build: build) }
+                if queueReview {
+                    BuildQueueCard(queue: queue, showsHeading: false, artwork: queueIcon, onSelectGames: onSelectGames, playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) })
+                    if queue.hasIOS { InstallCard(devices: devices, build: build, forQueue: true) }
+                } else if step == 0 && !running {
+                    FilesCard(build: build, library: library, artworkStore: artworkStore, extrasOpen: $extrasOpen)
+                } else if step == 1 && !running {
+                    TargetCard(build: build)
+                }
+                if step == 2 && !queueReview && !running { InstallCard(devices: devices, build: build) }
+                if showingActions {
                     // Existing operations remain reachable without forcing a new source selection.
-                    if (running && !processActive) || (!queueReview && step != 2 && (build.done || build.failure != nil)) { InstallCard(devices: devices, build: build) }
+                    if running || (!queueReview && step != 2 && build.done) { InstallCard(devices: devices, build: build) }
                     if !queue.isEmpty && !queueReview { BuildQueueCard(queue: queue, artwork: queueIcon, onSelectGames: onSelectGames, playEnabled: queuePlayEnabled, canPlay: canPlayQueued, onPlay: { onPlayQueuedGame($0.titleID) }) }
                     TransferCard(transfers: transfers) { build.revealTransfer($0) }
-                    if !processActive && (running || (step >= lastStep && (build.done || build.failure != nil || !build.stages.isEmpty || logOpen || BuildNotifier.shared.showLog))) {
+                    ShellCopyCard(devices: devices)
+                    if running || (step >= lastStep && (build.done || !build.stages.isEmpty || logOpen || BuildNotifier.shared.showLog)) {
                         LogCard(log: build.log, devices: devices, isOpen: $logOpen,
                                 showRequests: BuildNotifier.shared.$showLog.eraseToAnyPublisher(),
                                 didShow: { BuildNotifier.shared.showLog = false })
                     }
-                    ShellCopyCard(devices: devices)
-                    BuildFailureCard(m: build)
-                    if !running && (build.done || build.failure != nil) { ProgressCard(build: build) }
+                    if !running && build.done { ProgressCard(build: build) }
                 }
-            }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: completionActive)
+                if step == 0 || queueReview { EngineFootnote(build: build, change: onOpenSettings) }
             }
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: completionActive)
         .sheet(isPresented: allStepsOpen, onDismiss: { pad.scope = "main"; if pad.visible { pad.focused = "set.build.options" } }) {
             BuildProcessStepsSheet(build: build) { allStepsOpen.wrappedValue = false; pad.scope = "main" }
                 .environmentObject(loc).environmentObject(pad)
         }
-        .environment(\.launcherSectionTitleFont, DS.Font.title)   // a step header, below the page title (#1458)
         .safeAreaInset(edge: .bottom, spacing: 0) { if !processActive && !completionActive { footer } }
         .sheet(isPresented: $confirmingCancel, onDismiss: { pad.scope = "main" }) {
             LauncherConfirmSheet(title: loc.t("flow.cancelTitle"), subtitle: build.gameName, note: loc.t("flow.cancelNote"),
@@ -143,8 +173,7 @@ struct BuildPage: View {
     /// Back on the leading side, where the player is in the middle, Next with its trailing chevron on the trailing side (#1458).
     private var footer: some View {
         let current = min(step, lastStep)
-        let progress = running || queueReview || showingActions ? nil
-            : String(format: loc.t("wizard.step"), current + 1, lastStep + 1) + " · " + labels[current]
+        let progress: String? = nil   // the step is the header's line (#1458)
         return DSWizardFooter(progress: progress) {
             if !queue.isEmpty {
                 Button(loc.t("queue.cancel")) { confirmingQueueCancel = true }

@@ -8,8 +8,7 @@ import NXLauncher
 /// (LNPANDY/NX2Apple#387), the state stays in LauncherView.
 extension LauncherView {
     private var libraryReservedHeaderHeight: CGFloat {
-        if #available(macOS 26, *) { return 0 }
-        return libraryHeaderHeight
+        libraryHeaderHeight + 1   // the solid bar and its hairline sit above the hero on every macOS (#1458)
     }
 
     var libraryPage: some View {
@@ -42,7 +41,7 @@ extension LauncherView {
                             .frame(width: width, height: editing ? full.height * scale : nil, alignment: .topLeading)
                             .opacity(dimmed(.hero))
                             .overlay(alignment: .topLeading) {   // the notice slot, under the top bar
-                                if !editing { noticeSlot(libraryNotices(hero: hero)).padding(.top, libraryHeaderHeight - libraryReservedHeaderHeight + 12) }
+                                if !editing { noticeSlot(libraryNotices(hero: hero)).padding(.top, DS.Space.s) }
                             }
                             .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
                                 if !editing {
@@ -89,12 +88,11 @@ extension LauncherView {
     }
 
     func hero(_ game: LibraryGame?, width: CGFloat, height: CGFloat) -> some View {
-        let layout = LibraryHeroLayout.content(width: width, height: height, headerHeight: libraryHeaderHeight)
+        let layout = LibraryHeroLayout.content(width: width, height: height, headerHeight: 0)   // the hero starts below the bar
         let titleSize = layout.titleSize
         let titleTopInset = Typography.manropeFont(size: titleSize, weight: .heavy).map { max(0, CTFontGetAscent($0) - CTFontGetCapHeight($0)) } ?? 0
-        let iconSize = layout.iconSize
         let contentGap = layout.columnGap
-        let textWidth = max(0, width - 68 - iconSize - contentGap)
+        let textWidth = max(0, width - 68)   // no cover tile beside the title (#1458): the text starts at the content edge
         return ZStack(alignment: .bottomLeading) {
             GeometryReader { position in
                 let pull = max(0, position.frame(in: .named("library.scroll")).minY)
@@ -130,22 +128,6 @@ extension LauncherView {
             Group {
                 if let game {
                     HStack(alignment: .bottom, spacing: contentGap) {
-                        ZStack {
-                            Group {
-                                if let icon = GameLibrary.appIcon(for: game, banners: library.artworkDirectory) {
-                                    Image(nsImage: icon).resizable().scaledToFill()
-                                } else {
-                                    ZStack {
-                                        LauncherPalette.surface
-                                        Image(systemName: "gamecontroller").font(.system(size: iconSize * 0.3)).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }.id(game.id).transition(.opacity)
-                        }
-                        .animation(LibraryHeroTransition.metadata(reduceMotion: reduceMotion), value: game.id)
-                        .frame(width: iconSize, height: iconSize)
-                        .clipShape(RoundedRectangle(cornerRadius: iconSize / 12))
-                        .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: layout.titleActionGap) {
                             VStack(alignment: .leading, spacing: layout.badgeTitleGap) {
                                 heroBadges(game)

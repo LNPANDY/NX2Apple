@@ -6,20 +6,24 @@ import SwiftUI
 /// the top bar (LauncherNoticeStack), the most serious first.
 package struct LauncherNoticeItem: Identifiable {
     package enum Tone: Int, Comparable {
-        case error, warning, info
+        case error, warning, info, success
         package static func < (a: Tone, b: Tone) -> Bool { a.rawValue < b.rawValue }
+        /// The tone's status token. A notice's symbol is always in it (#1458).
         var color: Color {
             switch self {
-            case .error: return LauncherPalette.danger
-            case .warning: return LauncherPalette.building
-            case .info: return LauncherPalette.accent
+            case .error: return DS.Color.statusError
+            case .warning: return DS.Color.statusWarning
+            case .info: return DS.Color.statusInfo
+            case .success: return DS.Color.statusSuccess
             }
         }
-        var symbol: String {
+        /// One fixed symbol per tone: no notice brings its own (#1458).
+        package var symbol: String {
             switch self {
             case .error: return "xmark.octagon.fill"
             case .warning: return "exclamationmark.triangle.fill"
             case .info: return "info.circle.fill"
+            case .success: return "checkmark.circle.fill"
             }
         }
     }
@@ -33,7 +37,7 @@ package struct LauncherNoticeItem: Identifiable {
 
     package init(id: String, tone: Tone, symbol: String? = nil, title: String, detail: String? = nil, busy: Bool = false,
                  action: Action? = nil, dismiss: (label: String, perform: () -> Void)? = nil) {
-        self.id = id; self.tone = tone; self.symbol = symbol ?? tone.symbol; self.title = title; self.detail = detail; self.busy = busy
+        self.id = id; self.tone = tone; self.symbol = tone.symbol; _ = symbol; self.title = title; self.detail = detail; self.busy = busy
         self.action = action; self.dismiss = dismiss
     }
     package let id: String

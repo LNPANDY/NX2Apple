@@ -48,6 +48,7 @@ extension LauncherView {
                 }
             }
         }
+        .launcherGlassLayer()   // the hero's actions float over its artwork: glass (#1458)
     }
 
     private func heroManage(_ game: LibraryGame) -> some View {

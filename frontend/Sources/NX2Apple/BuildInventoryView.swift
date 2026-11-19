@@ -91,7 +91,7 @@ struct BuildInventoryView: View {
                 .padTarget("builds.first", scope: "main", focusColor: LauncherPalette.onCream, enabled: !build.running && !needsSetup, activate: { if !build.running && !needsSetup { newBuild() } })
 
             }
-            EngineSwitcherCard(build: build)
+            EngineFootnote(build: build, change: onOpenSettings)   // the engine is chosen in Settings › Tools (#1458)
             SetupHintCard(repo: repo, dependencies: dependencies, usesExternalUpstream: build.usesExternalUpstreamRepo, onOpenSettings: onOpenSettings)
             Group {
                 CurrentBuildEntry(build: build, hasDraft: hasDraft, artwork: inventory.first(where: { $0.game.titleID == build.gameTitleID }).flatMap { artwork[$0.id] },

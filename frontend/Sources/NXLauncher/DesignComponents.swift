@@ -12,11 +12,15 @@ package typealias DSSection = CardGroup
 package typealias DSRow = CardRow
 /// The hairline between two rows, aligned with the row titles.
 package typealias DSRowDivider = CardDivider
-/// The one primary action of a screen: Liquid Glass tinted with the accent.
+/// The one primary action of a screen: the accent. Glass in the navigation layer (`launcherGlassLayer()`), a flat accent fill in
+/// the content. Disabled, it is the raised surface with tertiary text.
 package typealias DSPrimaryButtonStyle = LauncherActionButtonStyle
-/// Every other button: clear Liquid Glass. In a row it is as wide as the control column.
+/// Every other button. Glass in the navigation layer, flat in the content (raised surface, hairline). In a row it is as wide as
+/// the control column.
 package typealias DSSecondaryButtonStyle = LauncherSecondaryButtonStyle
-/// A round glass button with a symbol.
+/// A row's button ("Choose…", "Change…", "Copy", a notice's action): always in the content layer, so always flat.
+package typealias DSRowButtonStyle = LauncherSecondaryButtonStyle
+/// A round button with a symbol, glass only in the navigation layer.
 package typealias DSIconButtonStyle = LauncherIconButtonStyle
 /// A status chip: a state that needs attention (Missing data, Not built), never a quiet property.
 package typealias DSChip = ArtworkStatusChip
@@ -64,6 +68,7 @@ package struct DSWizardFooter<Leading: View, Trailing: View>: View {
             .frame(maxWidth: DS.Control.contentWidth).frame(maxWidth: .infinity)
         }
         .background(DS.Color.background)
+        .launcherGlassLayer()   // the footer bar stays over the scrolling content: its buttons are glass (#1458)
     }
 }
 
