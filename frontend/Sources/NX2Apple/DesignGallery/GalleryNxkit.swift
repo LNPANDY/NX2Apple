@@ -24,7 +24,7 @@ extension GalleryFixtures {
             for name in ["nxb", "nxkit-host"] {
                 fm.createFile(atPath: pair.appendingPathComponent(name).path, contents: Data("#!/bin/sh\nexit 1\n".utf8), attributes: [.posixPermissions: 0o755])
             }
-            try? Data(#"{"format":1,"version":"0.10.2","platform":"macos","arch":"arm64","macos_min":"26.0","files":{"nxb":"ba20f1b45d8a","nxkit-host":"e01c6312144767845a60021bc69fb597dd0c6f4eec353ae6739e9e586e5e374b"}}"#.utf8)
+            try? Data(#"{"format":1,"version":"0.10.3","platform":"macos","arch":"arm64","macos_min":"26.0","files":{"nxb":"ba20f1b45d8a","nxkit-host":"e01c6312144767845a60021bc69fb597dd0c6f4eec353ae6739e9e586e5e374b"}}"#.utf8)
                 .write(to: pair.appendingPathComponent("MANIFEST.json"))
         }
         build.nxkitBundledFolder = pair.path
@@ -40,7 +40,7 @@ extension GalleryFixtures {
         let game = catalog[0]
         func prompt(_ moment: NxkitFeedbackPrompt.Moment, exit: Int32?) -> NxkitFeedbackPrompt {
             NxkitFeedbackPrompt(buildID: "gallery", moment: moment, titleID: game.titleID, gameName: game.name, gameVersion: "1.0.0",
-                                nxkitVersion: "0.10.2", engineBuild: "e01c6312144767845a60021bc69fb597dd0c6f4eec353ae6739e9e586e5e374b",
+                                nxkitVersion: "0.10.3", engineBuild: "e01c6312144767845a60021bc69fb597dd0c6f4eec353ae6739e9e586e5e374b",
                                 exitCode: exit, log: Self.nxkitFailureLines.joined(separator: "\n"))
         }
         switch scene {
@@ -62,7 +62,7 @@ extension GalleryFixtures {
             build.stages = [Stage(id: 1, name: "Extract", state: .done), Stage(id: 2, name: "RomFS", state: .done),
                             Stage(id: 3, name: "Shaders", state: .running, detail: "231 / 412", percent: 56, started: Date().addingTimeInterval(-61), eta: 48, etaAt: Date()),
                             Stage(id: 4, name: "App", state: .pending)]
-            build.say(String(format: build.t("nxkit.logHeaderBundled"), "0.10.2", "e01c63121447"))
+            build.say(String(format: build.t("nxkit.logHeaderBundled"), "0.10.3", "e01c63121447"))
             return launcher(.builds, 0, .general)
         case .nxkitFinished:
             configureBuild(stores, library: library)
@@ -84,7 +84,7 @@ extension GalleryFixtures {
         default:   // .nxkitLibrary: the hero of a game nxkit built, after its first start
             _ = makeNxkitApp(for: 0, in: library)
             var records = build.nxkitRecords
-            records[game.titleID.uppercased()] = NxkitBuildRecord(version: "0.10.2", hostBuild: "e01c6312144767845a60021bc69fb597",
+            records[game.titleID.uppercased()] = NxkitBuildRecord(version: "0.10.3", hostBuild: "e01c6312144767845a60021bc69fb597",
                                                                   buildID: "gallery-" + UUID().uuidString, date: Date(timeIntervalSince1970: 1_789_000_000))
             build.nxkitRecords = records
             return launcher(.library, 0, .general)

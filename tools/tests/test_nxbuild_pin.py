@@ -147,5 +147,47 @@ class Pin(unittest.TestCase):
             self.assertEqual(url_mock.call_count, 0)
 
 
+class Signature(unittest.TestCase):
+    """SHA256SUMS.sig: the key is the launcher's, a good signature passes, a changed SHA256SUMS or a missing swift fails, an unsigned release
+    is checked against its checksums only. The fixture is nxkit 0.10.3's own SHA256SUMS and signature."""
+    SUMS = (b'b33ea345b7fa87ff030fed96cadd2ba93aa45a4fb698f5a2627be1de6e232e2a  nxb-v0.10.3-macos-arm64.zip\n'
+            b'39714b211b833e8ae52d5238023b95e849987dfbaaa34cb58a2c30b04978c49b  nxb-v0.10.3-macos-arm64/nxb\n'
+            b'5d4951458aaaa209a886444294c513c935b4b113c19ebf3a9d0cf8f136d84356  nxb-v0.10.3-macos-arm64/nxkit-host\n'
+            b'608f27fa32f5e72dd5832530375643db89593b8f95fc638a25a640ffa7045c60  nxb-v0.10.3-macos-arm64/MANIFEST.json\n')
+    SIG = b'CLchW16dXzSRviRCR+jAgusqh2R0KZbaqFTYLNoSCfb5FoZN/nacOWushmH4onO3zRSUkFkpiJAPOEvSu7StBQ==\n'
+
+    def test_the_key_is_the_launchers(self):
+        self.assertEqual(nxbuild.public_key(), '9FKs7HGStVtytRbhJN38vwPyBmXjWs70Mn1hqKrug7M=')
+
+    @unittest.skipUnless(nxbuild.shutil.which('swift'), 'needs swift (CryptoKit)')
+    def test_a_good_signature_verifies_and_a_changed_file_does_not(self):
+        with tempfile.TemporaryDirectory() as t:
+            sums, sig = Path(t, 'SHA256SUMS'), Path(t, 'SHA256SUMS.sig')
+            sums.write_bytes(self.SUMS); sig.write_bytes(self.SIG)
+            self.assertTrue(nxbuild.verify_signature(sums, sig))
+            sums.write_bytes(self.SUMS.replace(b'b33e', b'b33f'))
+            self.assertFalse(nxbuild.verify_signature(sums, sig))
+
+    def test_signed_sums_fails_on_a_bad_signature_and_accepts_an_unsigned_release(self):
+        err404 = urllib.error.HTTPError('https://x/SHA256SUMS.sig', 404, 'Not Found', {}, None)
+        def fake_download(url, dest=None, **_):
+            if url.endswith('.sig'):
+                if unsigned: raise err404
+                Path(dest).write_bytes(self.SIG)
+                return self.SIG
+            Path(dest).write_bytes(self.SUMS)
+            return self.SUMS
+        with tempfile.TemporaryDirectory() as t, mock.patch.object(nxbuild, 'download', side_effect=fake_download):
+            unsigned = True
+            self.assertEqual(nxbuild.signed_sums('https://x', Path(t)), self.SUMS.decode())
+            unsigned = False
+            with mock.patch.object(nxbuild, 'verify_signature', return_value=False):
+                with self.assertRaises(SystemExit): nxbuild.signed_sums('https://x', Path(t))
+            with mock.patch.object(nxbuild, 'verify_signature', return_value=True):
+                self.assertEqual(nxbuild.signed_sums('https://x', Path(t)), self.SUMS.decode())
+            with mock.patch.object(nxbuild.shutil, 'which', return_value=None):
+                with self.assertRaises(SystemExit): nxbuild.verify_signature(Path(t, 'SHA256SUMS'), Path(t, 'SHA256SUMS.sig'))
+
+
 if __name__ == '__main__':
     unittest.main()

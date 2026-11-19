@@ -6,8 +6,11 @@
                                                 and sign both ad hoc (the app's codesign --deep does not reach code in Resources). A placeholder
                                                 digest bundles nothing and says so (exit 0).
   nxbuild.py bump <version>                     pin a new release: its digest from the release's SHA256SUMS
+When the release has SHA256SUMS.sig (0.10.3 and later), fetch and bump first verify it over the exact bytes of SHA256SUMS with the launcher's
+Ed25519 key (NxkitUpdate.publicKey, read from NxkitUpdate.swift), through frontend/tools/verify_ed25519.swift (CryptoKit, the same check as
+the launcher). A signature that does not verify fails the step. A release without one (0.10.2 and older) is checked against its checksums only.
 Nothing here runs nxb: a zip whose digest differs is deleted and the step fails, a program whose digest differs is not bundled."""
-import hashlib, json, os, re, shutil, subprocess, sys, time, urllib.error, urllib.request, zipfile
+import hashlib, json, os, re, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.request, zipfile
 from pathlib import Path
 
 PIN = Path(__file__).resolve().parents[1] / 'nxbuild.pin'
@@ -16,6 +19,42 @@ GH_RELEASE_RE = re.compile(r'^https://github\.com/([^/]+/[^/]+)/releases/downloa
 PROGRAMS = ('nxb', 'nxkit-host')                       # both are checked and signed, the app needs the pair
 EXTRAS = ('MANIFEST.json', 'LICENSE', 'THIRD_PARTY.md')   # copied beside them when the release has them, MANIFEST.json is required
 MANIFEST_FORMATS = {1}
+NXKIT_UPDATE = Path(__file__).resolve().parents[1] / 'Sources' / 'NXCore' / 'NxkitUpdate.swift'
+VERIFIER = Path(__file__).resolve().parent / 'verify_ed25519.swift'
+SIGNATURE = 'SHA256SUMS.sig'
+
+
+def public_key(source=NXKIT_UPDATE):
+    """The launcher's Ed25519 key for nxkit releases, base64 of 32 bytes: one place for it, NxkitUpdate.publicKey."""
+    m = re.search(r'static let publicKey = "([A-Za-z0-9+/=]+)"', Path(source).read_text())
+    if not m: raise SystemExit(f'{source}: no publicKey')
+    return m[1]
+
+
+def verify_signature(sums_path, sig_path, key=None):
+    """True when sig_path (base64 of 64 bytes) is an Ed25519 signature of sums_path's exact bytes by the launcher's key."""
+    swift = shutil.which('swift')
+    if not swift: raise SystemExit(f'[RED] {SIGNATURE} cannot be verified: no swift (Xcode command line tools) on PATH')
+    r = subprocess.run([swift, str(VERIFIER), key or public_key(), str(sums_path), str(sig_path)])
+    if r.returncode == 2: raise SystemExit(f'[RED] {VERIFIER.name} could not read the key, {sums_path} or {sig_path}')
+    return r.returncode == 0
+
+
+def signed_sums(base_url, work):
+    """The release's SHA256SUMS, verified with its SHA256SUMS.sig when the release has one. Writes both into work."""
+    work.mkdir(parents=True, exist_ok=True)
+    sums_path, sig_path = work / 'SHA256SUMS', work / SIGNATURE
+    sums = download(base_url + '/SHA256SUMS', sums_path)
+    try:
+        download(base_url + '/' + SIGNATURE, sig_path, retries=2)
+    except urllib.error.HTTPError as e:
+        if e.code != 404: raise
+        print(f'nxkit: the release has no {SIGNATURE}, checked against SHA256SUMS only')
+        return sums.decode()
+    if not verify_signature(sums_path, sig_path):
+        raise SystemExit(f'[RED] {SIGNATURE} does not verify with NxkitUpdate.publicKey: not bundled')
+    print(f'nxkit: {SIGNATURE} verifies (Ed25519, NxkitUpdate.publicKey)')
+    return sums.decode()
 
 
 def _gh_release_download(url, part):
@@ -136,7 +175,7 @@ def fetch(resources, work):
     work.mkdir(parents=True, exist_ok=True)
     z = work / Path(pin['url']).name
     download(pin['url'], z)
-    sums = download(pin['url'].rsplit('/', 1)[0] + '/SHA256SUMS').decode()
+    sums = signed_sums(pin['url'].rsplit('/', 1)[0], work)
     programs = unpack(z, pin['sha256'], resources / 'nxbuild', sums)
     for p in programs:
         subprocess.run(['codesign', '--force', '--sign', '-', str(p)], check=True)
@@ -147,7 +186,8 @@ def fetch(resources, work):
 def bump(version, pin=PIN):
     old = pin.read_text()
     url = read(pin)['url'].replace(read(pin)['version'], version)
-    sums = download(url.rsplit('/', 1)[0] + '/SHA256SUMS').decode()
+    with tempfile.TemporaryDirectory() as work:
+        sums = signed_sums(url.rsplit('/', 1)[0], Path(work))
     sha = sums_digest(sums, Path(url).name)
     new = re.sub(r'^version\t.*$', f'version\t{version}', old, flags=re.M)
     pin.write_text(re.sub(r'^sha256\t.*$', f'sha256\t{sha}', new, flags=re.M))
