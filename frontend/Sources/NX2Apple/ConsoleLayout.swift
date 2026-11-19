@@ -64,8 +64,11 @@ struct ConsoleHintItem: Identifiable {
 struct ConsoleHintBar: View {
     let items: [ConsoleHintItem]
     var trailing: [ConsoleHintItem] = []
+    /// The items centred under the content column instead of at its ends (the starting screen's Back, #1458).
+    var centered = false
     var body: some View {
         HStack(spacing: DS.Console.Space.xl) {
+            if centered { Spacer(minLength: DS.Console.Space.m) }
             ForEach(items) { item in hint(item) }
             Spacer(minLength: DS.Console.Space.m)
             ForEach(trailing) { item in hint(item) }

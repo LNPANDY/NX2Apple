@@ -486,25 +486,12 @@ enum ConsoleInput: Equatable {
         .padding(compact ? 24 : 40)
     }
 
-    /// Starting a game: its cover over the dimmed artwork, the title once, a labelled progress (the shader count when it is measured,
-    /// "Starting…" otherwise) and the buttons in the hint bar. The cover flies in from the home screen's card.
+    /// Starting a game: the title once over the full, dimmed artwork (the start transition), a labelled progress (the shader count when
+    /// it is measured, "Starting…" otherwise) and Back centred under it. No cover above the title: the artwork is the game (#1458).
     private func starting(_ game: ConsoleGame, compact: Bool) -> some View {
         VStack(spacing: 0) {
             Spacer(minLength: DS.Console.Space.xl)
             VStack(spacing: DS.Console.Space.xl) {
-                Group {
-                    if let icon = game.icon {
-                        Image(nsImage: icon).resizable().scaledToFill()
-                            .frame(width: DS.Console.Control.appIcon, height: DS.Console.Control.appIcon)
-                    } else {
-                        ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus)
-                            .aspectRatio(1.8, contentMode: .fit).frame(width: compact ? 280 : 480)
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: DS.Console.Radius.card))
-                .overlay(RoundedRectangle(cornerRadius: DS.Console.Radius.card).strokeBorder(DS.Color.separator))
-                .modifier(ConsoleLaunchArtwork(namespace: reduceMotion ? nil : launchArtwork, id: game.id))
-                .accessibilityHidden(true)
                 Text(game.title).font(compact ? DS.Console.Font.title : DS.Console.Font.largeTitle).tracking(DS.Console.Font.largeTitleTracking)
                     .foregroundStyle(DS.Color.textPrimary)
                     .multilineTextAlignment(.center).lineLimit(2).accessibilityAddTraits(.isHeader)
@@ -547,7 +534,7 @@ enum ConsoleInput: Equatable {
             }
             .frame(height: DS.Console.Control.hintBar)
         } else {
-            ConsoleHintBar(items: [], trailing: [backHint])
+            ConsoleHintBar(items: [backHint], centered: true)
         }
     }
     private var startingLabel: String {
