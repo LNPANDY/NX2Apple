@@ -109,7 +109,9 @@ import NXLauncher
             if !nxkit { try capture(stores, filename: URL(fileURLWithPath: path).lastPathComponent) }
             XCTAssertEqual(path, output.appendingPathComponent("雪 - The - Journey.app").path)
             XCTAssertTrue(build.log.text.contains(path))
-            XCTAssertTrue(fm.fileExists(atPath: output.appendingPathComponent(titleID + "_build").path))
+            // the script keeps its build folder, nxkit's work folder is under Caches and its empty `<id>_build` is tidied
+            XCTAssertEqual(fm.fileExists(atPath: output.appendingPathComponent(titleID + "_build").path), !nxkit)
+            if nxkit { XCTAssertEqual(build.nxkitRecord(titleID)?.version, "0.10.2", "the game remembers nxkit built it") }
             XCTAssertTrue(fm.fileExists(atPath: output.appendingPathComponent(".nx2apple-library").path))
             library.recordCompletedApp(path: path, for: entry)
             XCTAssertEqual(library.games.first?.appPath, path)

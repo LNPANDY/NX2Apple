@@ -86,6 +86,7 @@ extension BuildStore {
         s2armRun = false
         s2armEventsPath = ""
         nxkitRun = false
+        nxkitFeedback = nil   // the last build's question goes with its result (#1460)
         if isMacNativeGamesSelected {
             if let why = macNativeGamesProblem() {
                 fail(why)
