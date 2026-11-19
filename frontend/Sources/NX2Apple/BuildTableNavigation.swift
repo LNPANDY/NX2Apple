@@ -1,31 +1,18 @@
 import SwiftUI
 
-/// SwiftUI Table owns selection and keyboard input. Controllers also need to reveal rows not yet materialized on macOS 13.
+/// The controller moves the selection row by row, and a row it reaches may be outside the list's visible part. The list
+/// hands its scroll view's proxy here, and `reveal` scrolls the row into view by the least distance, as the table did.
 final class BuildTableNavigation: ObservableObject {
-    weak var table: NSTableView?
-    func reveal(row: Int) {
-        guard let table, row >= 0, row < table.numberOfRows else { return }
-        table.scrollRowToVisible(row)
-    }
+    var scroll: ((UUID) -> Void)?
+    func reveal(_ id: UUID) { scroll?(id) }
 }
 
-struct BuildTableProbe: NSViewRepresentable {
-    let navigation: BuildTableNavigation
-    final class Probe: NSView {
-        weak var navigation: BuildTableNavigation?
-        func attach() {
-            var ancestor: NSView? = self
-            while let view = ancestor {
-                if let table = view as? NSTableView { navigation?.table = table; return }
-                ancestor = view.superview
-            }
-        }
-        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); attach() }
-    }
-    func makeNSView(context: Context) -> Probe { let view = Probe();view.navigation = navigation;return view }
-    func updateNSView(_ view: Probe, context: Context) {
-        view.navigation = navigation
-        guard navigation.table == nil else { return }   // every row has a probe: one that found the table is enough
-        DispatchQueue.main.async { [weak view] in view?.attach() }
+/// Arrow keys on the Builds list. Up and down move the selection one row and stop at the ends. With no row selected,
+/// down selects the first row and up the last.
+enum BuildListKeys {
+    static func moved(from selection: UUID?, by step: Int, in ids: [UUID]) -> UUID? {
+        guard !ids.isEmpty else { return nil }
+        guard let selection, let at = ids.firstIndex(of: selection) else { return step > 0 ? ids.first : ids.last }
+        return ids[min(max(at + step, 0), ids.count - 1)]
     }
 }

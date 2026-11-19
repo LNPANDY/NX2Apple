@@ -69,7 +69,6 @@ struct BuildInventoryView: View {
 
     var body: some View {
         let entries = self.entries
-        let controller = pad, localizer = loc
         return VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .top, spacing: 12) {
                 CardPageHeading(loc.t("nav.builds"), note: "")
@@ -132,8 +131,10 @@ struct BuildInventoryView: View {
                         .disabled(build.running || needsSetup)
                         .padTarget("builds.batch", scope: "main", enabled: !build.running && !needsSetup, activate: { if !build.running && !needsSetup { selectGames() } })
                 }
-                Table(entries, selection: $selection) {
-                    TableColumn(loc.t("builds.game")) { entry in
+                BuildInventoryList(entries: entries, selection: $selection, navigation: tableNavigation,
+                                   titles: (loc.t("builds.game"), loc.t("library.section.mac"), loc.t("library.section.mobile")),
+                                   separatorLead: { artwork[$0.id] == nil ? 0 : 84 }) { entry in
+                    BuildColumnsRow {
                         HStack(spacing: 12) {
                             if let image = artwork[entry.id] {
                                 Image(nsImage: image).resizable().scaledToFill().frame(width: 72, height: 40).clipped()
@@ -150,52 +151,36 @@ struct BuildInventoryView: View {
                             .padTarget("builds.game." + entry.id.uuidString, scope: "main", radius: 5, activate: {
                                 if !build.running { configure(entry.game) }
                             }, vertical: { moveFocus(from: entry.id, direction: $0, entries: entries, manage: false) })
-                            .background(BuildTableProbe(navigation: tableNavigation))
-                            .environmentObject(controller)
-                    }.width(min: 220, ideal: 320)
-                    TableColumn(loc.t("library.section.mac")) { entry in
-                        platformCell(entry, target: BuildTarget.mac, entries: entries).environmentObject(localizer).environmentObject(controller)
-                    }.width(100)
-                    TableColumn(loc.t("library.section.mobile")) { entry in
-                        platformCell(entry, target: BuildTarget.ios, entries: entries).environmentObject(localizer).environmentObject(controller)
-                    }.width(160)
-                    TableColumn("") { entry in
-                            Button { manage(entry.game) } label: {
-                                Image(systemName: "ellipsis")
-                                    .frame(width: LauncherControl.height, height: LauncherControl.height)
-                                    .contentShape(Rectangle())
-                            }
-                                .buttonStyle(.plain).launcherHover()
-                                .accessibilityLabel(loc.t("library.manage") + ": " + entry.game.name)
-                                .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { managedID == entry.id ? $0 : nil }
-                                .padTarget("builds.manage." + entry.id.uuidString, scope: "main", activate: { manage(entry.game) },
-                                           vertical: { moveFocus(from: entry.id, direction: $0, entries: entries, manage: true) })
-                            .environmentObject(controller)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    }.width(52)
+                    } mac: {
+                        platformCell(entry, target: BuildTarget.mac, entries: entries)
+                    } mobile: {
+                        platformCell(entry, target: BuildTarget.ios, entries: entries)
+                    } manage: {
+                        Button { manage(entry.game) } label: {
+                            Image(systemName: "ellipsis")
+                                .frame(width: LauncherControl.height, height: LauncherControl.height)
+                                .contentShape(Rectangle())
+                        }
+                            .buttonStyle(.plain).launcherHover()
+                            .accessibilityLabel(loc.t("library.manage") + ": " + entry.game.name)
+                            .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { managedID == entry.id ? $0 : nil }
+                            .padTarget("builds.manage." + entry.id.uuidString, scope: "main", activate: { manage(entry.game) },
+                                       vertical: { moveFocus(from: entry.id, direction: $0, entries: entries, manage: true) })
+                    }
+                } menu: { entry in
+                    Button(loc.t("builds.configure")) { configure(entry.game) }.disabled(build.running || needsSetup)
+                    if let path = entry.game.revealTarget {
+                        Button(loc.t("install.reveal")) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+                    }
+                } primaryAction: { entry in
+                    if !build.running { configure(entry.game) }
                 }
-                .tableStyle(.inset(alternatesRowBackgrounds: false))
-                // The table's first row height guess. At AppKit's 24 points it builds about twice the rows that fit, and opening the
-                // tab costs that. 44 is the lowest row there is (the 36 point Manage button and the row inset), so no row changes.
-                .environment(\.defaultMinListRowHeight, LauncherControl.height + 8)
-                .scrollContentBackground(.hidden)
                 .background(LauncherPalette.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .strokeBorder(LauncherPalette.cardBorder, lineWidth: 1)
                         .allowsHitTesting(false)
-                }
-                .contextMenu(forSelectionType: UUID.self) { selected in
-                    if let id = selected.first, let entry = entries.first(where: { $0.id == id }) {
-                        Button(loc.t("builds.configure")) { configure(entry.game) }.disabled(build.running || needsSetup)
-                        if let path = entry.game.revealTarget {
-                            Button(loc.t("install.reveal")) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
-                        }
-                    }
-                } primaryAction: { selected in
-                    guard !build.running, let id = selected.first, let entry = entries.first(where: { $0.id == id }) else { return }
-                    configure(entry.game)
                 }
                 .overlay {
                     if entries.isEmpty { Text(loc.t(search.isEmpty ? "console.allGames.empty" : "library.noResults")).foregroundStyle(.secondary).allowsHitTesting(false) }
@@ -237,7 +222,7 @@ struct BuildInventoryView: View {
                     let indices = direction > 0 ? Array(entries.indices.dropFirst(index + 1)) : Array(entries.indices.prefix(index).reversed())
                     guard let next = indices.first(where: { target == BuildTarget.mac ? !entries[$0].mac : entries[$0].mobile == .none }) else { return false }
                     selection = entries[next].id
-                    tableNavigation.reveal(row: next)
+                    tableNavigation.reveal(entries[next].id)
                     pad.focused = "builds.platform." + target + "." + entries[next].id.uuidString
                     return true
                 })
@@ -248,7 +233,7 @@ struct BuildInventoryView: View {
         guard let at = entries.firstIndex(where: { $0.id == id }), entries.indices.contains(at + direction) else { return false }
         let row = at + direction, next = entries[row].id
         selection = next
-        tableNavigation.reveal(row: row)
+        tableNavigation.reveal(next)
         pad.focused = (manage ? "builds.manage." : "builds.game.") + next.uuidString
         return true
     }
