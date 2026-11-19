@@ -414,7 +414,7 @@ package struct LauncherDropdown: View {
 
     fileprivate func face(open: Bool, rowWidth: CGFloat?) -> some View {
         let rounded = style == .button
-        let shape = Capsule()
+        let shape = DSPill()
         let width = fill ? nil : rowWidth
         return HStack(spacing: 0) {
             Text(current).font(.manrope(rounded ? 13 : 12.5, .semibold)).lineLimit(1)

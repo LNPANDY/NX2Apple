@@ -110,7 +110,7 @@ private struct LauncherIconButton: View {
             .dsButtonContent(!enabled ? DSButtonForeground.disabled : selected ? DSButtonForeground.primary : DSButtonForeground.flat)
             .frame(width: size, height: size)
             .contentShape(Circle())
-            .launcherControlSurface(in: Circle(), tint: selected ? LauncherPalette.cream : nil)
+            .launcherControlSurface(in: DSPill(), tint: selected ? LauncherPalette.cream : nil)
             .launcherHover()
     }
 }

@@ -358,7 +358,7 @@ package struct EngineDropdownPanel: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(LauncherPalette.secondaryFill, in: Capsule())
-                        .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                        .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
                 }
             }
             .padding(.horizontal, 12)
@@ -464,7 +464,7 @@ package struct EngineDropdownPanel: View {
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
                     .background(LauncherPalette.secondaryFill, in: Capsule())
-                    .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                    .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
             }
             .buttonStyle(.plain)
             .keyboardShortcut(shortcut(kind))
@@ -502,7 +502,7 @@ package struct EngineDropdownPanel: View {
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
                     .background(LauncherPalette.secondaryFill, in: Capsule())
-                    .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                    .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
             }
             .buttonStyle(.plain)
             .disabled(build.running)

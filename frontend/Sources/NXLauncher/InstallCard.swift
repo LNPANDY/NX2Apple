@@ -82,7 +82,7 @@ package struct InstallCard: View {
                                                 if recentDevice == device.id {
                                                     Text(loc.t("flow.recent")).font(.manrope(10, .semibold)).padding(.horizontal, 7).padding(.vertical, 3)
                                                         .background(LauncherPalette.surface, in: Capsule())
-                                                        .overlay(Capsule().strokeBorder(LauncherPalette.cardBorder, lineWidth: 1))
+                                                        .overlay(DSPill().strokeBorder(LauncherPalette.cardBorder, lineWidth: 1))
                                                 }
                                                 Spacer()
                                                 Image(systemName: device.model.lowercased().contains("ipad") ? "ipad" : "iphone").font(.system(size: 24))

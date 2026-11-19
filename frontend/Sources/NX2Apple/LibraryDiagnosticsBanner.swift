@@ -66,7 +66,7 @@ struct SkippedLibraryItemsOverlay: View {
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 7)
                                 .background(LauncherPalette.menuFill, in: Capsule())
-                                .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                                .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
                         }
                         .buttonStyle(.plain)
                         .launcherHover()
@@ -78,7 +78,7 @@ struct SkippedLibraryItemsOverlay: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 7)
                             .background(LauncherPalette.menuFill, in: Capsule())
-                            .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                            .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
                     }
                     .buttonStyle(.plain)
                     .launcherHover()

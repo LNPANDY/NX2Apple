@@ -23,10 +23,12 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     case onboarding(MockOnboardingDriver.Scenario)
     // Console mode
     case consoleHome, consoleEmpty, consoleGamePage, consoleBuilds, consoleOptions, consoleControllers, consoleStarting
+    // The design system's own check scenes
+    case cardStates
 
     enum Group: String, CaseIterable, Identifiable {
         case library = "Library", allGames = "All games", gameOptions = "Game options", builds = "Builds", failures = "Build failures"
-        case settings = "Settings", sheets = "Sheets", onboarding = "Onboarding", console = "Console mode"
+        case settings = "Settings", sheets = "Sheets", onboarding = "Onboarding", console = "Console mode", design = "Design system"
         var id: String { rawValue }
     }
 
@@ -40,6 +42,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         + [.settings, .settingsLibrary, .settingsControls, .settingsTools, .settingsEngineError, .deleteGame, .controlsSheet, .controllersSheet]
         + MockOnboardingDriver.Scenario.allCases.map(GalleryScene.onboarding)
         + [.consoleHome, .consoleEmpty, .consoleGamePage, .consoleBuilds, .consoleOptions, .consoleControllers, .consoleStarting]
+        + [.cardStates]
     }
 
     /// A stable name: the file name of its capture and the gallery's selection.
@@ -64,6 +67,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .deleteGame, .controlsSheet, .controllersSheet: return .sheets
         case .onboarding: return .onboarding
         case .consoleHome, .consoleEmpty, .consoleGamePage, .consoleBuilds, .consoleOptions, .consoleControllers, .consoleStarting: return .console
+        case .cardStates: return .design
         }
     }
 
@@ -116,6 +120,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .consoleOptions: return "Options panel"
         case .consoleControllers: return "Controllers"
         case .consoleStarting: return "Starting a game"
+        case .cardStates: return "Card and row states"
         }
     }
 

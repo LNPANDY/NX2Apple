@@ -132,7 +132,7 @@ extension LauncherView {
         .padding(.horizontal, searching ? 12 : 0)
         .frame(height: 36)
         .launcherGlass(in: Capsule())
-        .overlay { if searching && searchFocused { Capsule().strokeBorder(LauncherPalette.cream, lineWidth: 2) } }
+        .overlay { if searching && searchFocused { DSPill().strokeBorder(LauncherPalette.cream, lineWidth: 2) } }
         .transaction { $0.animation = nil }
         .onChange(of: searchFocused) { focused in
             if !focused && search.isEmpty { closeSearch() }

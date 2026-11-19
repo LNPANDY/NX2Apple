@@ -84,7 +84,7 @@ package struct ProgressCard: View {
                             .foregroundStyle(build.done && build.failure == nil ? LauncherPalette.ready : LauncherPalette.cream)
                             .padding(.horizontal, 10).padding(.vertical, 4)
                             .background(LauncherPalette.ink(0.08), in: Capsule())
-                            .overlay(Capsule().strokeBorder(LauncherPalette.ink(0.14)))
+                            .overlay(DSPill().strokeBorder(LauncherPalette.ink(0.14)))
                         Text(loc.t("prog.overallTitle"))
                             .font(.manrope(13.5, .semibold))
                             .foregroundStyle(LauncherPalette.secondaryText)

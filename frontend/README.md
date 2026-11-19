@@ -312,6 +312,21 @@ there do the button styles draw glass. In lists, cards, rows, sheets and notices
 with a hairline, the accent fill for a primary action, and the raised surface with tertiary text when disabled.
 `DesignRulesTests` refuses glass anywhere else.
 
+A dropdown that shows its current value is a pop-up with the up and down chevron (`LauncherDropdown`, kind `.popUp`): the
+language, the game display, the engine and its channel, the build source, the sort, the player. A pull-down that runs actions
+has the down chevron (`.pullDown`), and a row's further actions sit in the "…" of `DSOverflowMenu` (Apple HIG).
+
+Everything inside a button takes the button's foreground (`DSButtonForeground`, set once by each style): `accentOn` on the
+primary, `text.primary` on the others, white on the destructive fill (`DSDestructiveButtonStyle`, `status.errorFill`), and
+`text.tertiary` when disabled. A spinner in a button is `DSSpinner`, which draws in that colour (AppKit's small spinner ignores
+the tint).
+
+Cards answer through their artwork only (`DSCardButtonStyle` with `dsCardArt`, tokens `interaction.*`): under the pointer a
+white veil of 6 %, pressed 12 %, the selected card (the hero's game) a 2 pt accent ring, the card the controller or the
+keyboard is on the focus ring and a scale of 1.03. No plate, no shadow, nothing moves. A chip on artwork sits 8 pt in from the
+top and leading edge, above the clip. Rows answer the pointer with the raised surface (`dsRowHover`), never a scale. The
+console mode's cards keep their own focus look. The gallery's Design system › Card and row states shows each state.
+
 Symbols take `symbol.default`, or `symbol.accent` when selected. Status dots and notice symbols take the status colours. A
 notice has one symbol per tone (info, warning, error, success), never its own. `DesignRulesTests` also checks the contrast
 of the text, symbol and status colours on every surface from `tokens.json`, refuses raw SwiftUI colours outside a short list,

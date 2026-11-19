@@ -62,7 +62,7 @@ extension LauncherView {
                 .foregroundStyle(LauncherPalette.text)
                 .frame(width: LauncherHeroAction.height, height: LauncherHeroAction.height)
                 .contentShape(Circle())
-                .launcherGlass(in: Circle())
+                .launcherGlass(in: DSPill())
         }
         .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).accessibilityLabel(label)
         .help(label).padTarget(id, scope: "main", activate: action)
@@ -90,7 +90,7 @@ extension LauncherView {
             LauncherHeroActionLabel(title: title, symbol: symbol)
                 .foregroundStyle(LauncherPalette.text)
                 .contentShape(Capsule())
-                .launcherGlass(in: Capsule())
+                .launcherGlass(in: DSPill())
         }
         .buttonStyle(.plain).fixedSize(horizontal: false, vertical: true).disabled(!enabled || artworkEditor != nil)
         .opacity(enabled && artworkEditor == nil ? 1 : 0.45)

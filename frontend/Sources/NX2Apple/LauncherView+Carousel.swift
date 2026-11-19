@@ -166,17 +166,18 @@ extension LauncherView {
                 }
                 .foregroundStyle(LauncherPalette.text)
                 .frame(width: width, height: width / LibraryCardLayout.aspect)
-                .background(LauncherPalette.ink(0.05), in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(LauncherPalette.cardBorder))
+                .background(LauncherPalette.ink(0.05), in: RoundedRectangle(cornerRadius: LibraryCardLayout.radius))
+                .dsCardArt(radius: LibraryCardLayout.radius, selected: false, focused: padFocus.visible && padFocus.focused == "library.showAllCard")
                 Text(loc.t("library.showAll")).font(DS.Font.headline).lineLimit(1)
             }
             .frame(width: width, alignment: .leading)
             .padding(LibraryCardLayout.inset)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
+        .buttonStyle(DSCardButtonStyle()).disabled(artworkEditor != nil)
         .accessibilityLabel(loc.t("library.allGames"))
         .padTarget("library.showAllCard", scope: "main", radius: 7, activate: openAllGames)
+        .environment(\.padRingStyle, .none)   // the artwork draws the focus ring (dsCardArt)
     }
 
     /// A round glass button over the row's edge, centred on the artwork, shown while the row scrolls that way.

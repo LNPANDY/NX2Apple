@@ -268,7 +268,7 @@ private struct LauncherSecondaryButton: View {
             .frame(height: height)
             .frame(width: width)   // in a setting row every button is as wide as the control column (DS.Control.columnWidth)
             .contentShape(Capsule())
-            .launcherControlSurface(in: Capsule(), tint: destructive ? DS.Color.statusErrorFill : nil, fallback: fill, border: accent?.opacity(0.75))
+            .launcherControlSurface(in: DSPill(), tint: destructive ? DS.Color.statusErrorFill : nil, fallback: fill, border: accent?.opacity(0.75))
             .dsButtonContent(!enabled ? DSButtonForeground.disabled : destructive ? DSButtonForeground.destructive : (accent ?? DSButtonForeground.flat))
             .launcherMeasured(label: configuration.label.font(.manrope(fontSize, .semibold)), room: LauncherControl.buttonLabelWidth)
             .onHover { hovered = $0 }
@@ -303,7 +303,7 @@ private struct LauncherActionButton: View {
         let shape: LauncherActionButtonStyle.Outline
         @ViewBuilder func body(content: Content) -> some View {
             switch shape {
-            case .capsule: content.launcherControlSurface(in: Capsule(), tint: LauncherPalette.cream)
+            case .capsule: content.launcherControlSurface(in: DSPill(), tint: LauncherPalette.cream)
             case .rounded(let radius): content.launcherControlSurface(in: RoundedRectangle(cornerRadius: radius), tint: LauncherPalette.cream)
             }
         }
@@ -422,7 +422,7 @@ package struct LauncherSegmented: View {
                         .padding(.horizontal, 12)
                         .frame(maxWidth: .infinity, minHeight: LauncherControl.height - 6)
                         .background(on ? LauncherPalette.segmentSelected : .clear, in: Capsule())
-                        .overlay(Capsule().strokeBorder(on ? LauncherPalette.segmentSelectedBorder : .clear))
+                        .overlay(DSPill().strokeBorder(on ? LauncherPalette.segmentSelectedBorder : .clear))
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -431,7 +431,7 @@ package struct LauncherSegmented: View {
         }
         .padding(3)
         .background(LauncherPalette.segmentTrack, in: Capsule())
-        .overlay(Capsule().strokeBorder(LauncherPalette.segmentTrackBorder))
+        .overlay(DSPill().strokeBorder(LauncherPalette.segmentTrackBorder))
         .opacity(enabled ? 1 : 0.45)
 
     }

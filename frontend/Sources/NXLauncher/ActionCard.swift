@@ -38,7 +38,7 @@ package struct ActionCard: View {
                       systemImage: build.running ? "stop.fill" : "hammer.fill")
                     .font(DS.Font.bodyStrong).padding(.horizontal, 20).frame(height: LauncherControl.height)
                     .foregroundStyle(build.running ? LauncherPalette.onBuilding : LauncherPalette.onCream).background(build.running ? LauncherPalette.building : LauncherPalette.cream, in: Capsule())
-                    .overlay(Capsule().strokeBorder(LauncherPalette.actionBorder))
+                    .overlay(DSPill().strokeBorder(LauncherPalette.actionBorder))
             }
             .buttonStyle(.plain)
             .disabled(buildDisabled)

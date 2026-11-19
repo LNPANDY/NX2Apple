@@ -90,7 +90,7 @@ package struct LauncherTargetOptionLabel: View {
                 if let badge {
                     Text(badge).font(.manrope(11.5, .semibold)).padding(.horizontal, 8).padding(.vertical, 4)
                         .background(LauncherPalette.ink(0.06), in: Capsule())
-                        .overlay(Capsule().strokeBorder(LauncherPalette.ink(0.12)))
+                        .overlay(DSPill().strokeBorder(LauncherPalette.ink(0.12)))
                 }
             }.frame(height: 32, alignment: .top)
             if titleAtBottom { Spacer(minLength: 0) }

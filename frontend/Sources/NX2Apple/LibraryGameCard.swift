@@ -11,10 +11,10 @@ struct LibraryGameCard: View {
     let state: LibraryArtworkState
     let width: CGFloat
     let selected: Bool
+    /// The controller or the keyboard is on this card: the focus ring and the focus scale on the artwork (dsCardArt).
+    var focused = false
     let select: () -> Void
     @EnvironmentObject private var loc: Localizer
-    @State private var hovered = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Button(action: select) {
             VStack(alignment: .leading, spacing: LibraryCardLayout.titleSpacing) {
@@ -22,27 +22,22 @@ struct LibraryGameCard: View {
                     if let image { ArtworkFill(image: image, focus: focus) }
                     else {
                         LauncherPalette.surface
-                        Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
+                        Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(DS.Color.symbolDefault)
                     }
                 }
                 .opacity(state.monochrome ? 0.85 : 1)   // in colour, dimmed a little when it needs attention (#1458)
                 .frame(width: width, height: width / LibraryCardLayout.aspect).clipped()
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-                .overlay(alignment: .topLeading) { LibraryArtworkChip(state: state).padding(8) }
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(selected ? LauncherPalette.cream : LauncherPalette.cardBorder,
-                                                                                     lineWidth: selected ? 2 : 1))
+                .clipShape(RoundedRectangle(cornerRadius: LibraryCardLayout.radius))
+                // the chip above the clip, inset from the top and leading edge, clear of the corner radius
+                .overlay(alignment: .topLeading) { LibraryArtworkChip(state: state).padding(DS.Interaction.chipInset) }
+                .dsCardArt(radius: LibraryCardLayout.radius, selected: selected, focused: focused)
                 Text(title).font(DS.Font.headline).lineLimit(1)
             }
             .frame(width: width, alignment: .leading)
             .padding(LibraryCardLayout.inset)
-            .background(hovered ? LauncherPalette.ink(0.08) : .clear, in: RoundedRectangle(cornerRadius: 10))
-            .scaleEffect(hovered && !reduceMotion ? 1.025 : 1)
-            .offset(y: hovered && !reduceMotion ? -4 : 0)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovered)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain).launcherHover()
-        .onHover { hovered = $0 }
+        .buttonStyle(DSCardButtonStyle())
         .accessibilityLabel(title)
         .accessibilityValue(state.chipKey.map { loc.t($0) } ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -52,6 +47,8 @@ struct LibraryGameCard: View {
 /// The populated and placeholder cards share the same artwork and title footprint.
 enum LibraryCardLayout {
     static let aspect: CGFloat = 1.8
+    /// The artwork's corner radius. A chip on it sits DS.Interaction.chipInset in, clear of it.
+    static let radius: CGFloat = 5
     static let inset: CGFloat = 6
     static let titleSpacing: CGFloat = 8
     static let gridSpacing: CGFloat = 16

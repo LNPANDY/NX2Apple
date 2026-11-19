@@ -747,5 +747,5 @@ struct LauncherView: View {
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
-    static let ringRoom: CGFloat = 6
+    static let ringRoom: CGFloat = 10   // the focused artwork's scale and ring (DSCardRoom), given back outside
 }
