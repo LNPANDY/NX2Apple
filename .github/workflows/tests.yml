@@ -135,7 +135,7 @@ jobs:
     runs-on: xcode-27
     needs: [stack, changes]
     if: ${{ !cancelled() && (needs.stack.result != 'success' || needs.stack.outputs.is_tip == 'true') && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
-    timeout-minutes: 15
+    timeout-minutes: 25   # upstream 0b5fd60 has 260 test files here, a full run takes about 17 minutes
     defaults:
       run:
         working-directory: engine
