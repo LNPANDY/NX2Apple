@@ -168,11 +168,7 @@ struct CheatsView: View {
             Image(systemName: "doc.text").font(.system(size: 15, weight: .light)).foregroundStyle(DS.Color.symbolDefault).frame(width: 26)
             Text(file.buildID + ".txt").font(DS.Font.mono)
             Spacer(minLength: 8)
-            Text(isCurrent ? loc.t("cheats.thisBuild") : loc.t("cheats.otherBuild")).font(DS.Font.footnote)
-                .foregroundStyle(isCurrent ? DS.Color.textPrimary : DS.Color.textSecondary)
-                .padding(.horizontal, DS.Space.xs).padding(.vertical, 2)
-                .background(DS.Color.surfaceRaised, in: Capsule())
-                .overlay(Capsule().strokeBorder(DS.Color.separator))
+            DSTag(isCurrent ? loc.t("cheats.thisBuild") : loc.t("cheats.otherBuild"), emphasized: isCurrent)
         }
         .padding(.horizontal, 18).padding(.vertical, 9)
         .opacity(isCurrent ? 1 : 0.6)

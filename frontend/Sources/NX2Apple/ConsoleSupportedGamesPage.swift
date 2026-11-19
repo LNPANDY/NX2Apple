@@ -173,7 +173,7 @@ import NXLauncher
                                     .padding(.horizontal, compact ? 8 : 10)
                                     .padding(.vertical, 3)
                                     .background(LauncherPalette.ready.opacity(0.14), in: Capsule())
-                                    .overlay(Capsule().strokeBorder(LauncherPalette.ready.opacity(0.38)))
+                                    .overlay(DSPill().strokeBorder(LauncherPalette.ready.opacity(0.38)))
                             }
                             if isCurrentUpdate {
                                 Text(t("supported.updatedCurrent"))

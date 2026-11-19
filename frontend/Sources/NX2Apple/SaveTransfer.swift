@@ -465,10 +465,7 @@ struct SavesView: View {
             }
             Spacer(minLength: DS.Space.s)
             if newer == side && (side == .mac || deviceSave != nil) {   // a quiet tag: newer is a property, not a selection
-                Text(loc.t("saves.newer")).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary).lineLimit(1).fixedSize()
-                    .padding(.horizontal, DS.Space.xs).padding(.vertical, 2)
-                    .background(DS.Color.surfaceRaised, in: Capsule())
-                    .overlay(Capsule().strokeBorder(DS.Color.separator))
+                DSTag(loc.t("saves.newer"))
             }
         }
         .padding(.leading, DS.Space.xs).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.s)

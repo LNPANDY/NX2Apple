@@ -283,7 +283,7 @@ struct ControlsView: View {
                         .foregroundStyle(on ? DS.Color.accentOn : key == nil ? DS.Color.textTertiary : DS.Color.textPrimary)
                         .frame(maxWidth: .infinity).padding(.vertical, 6)
                         .background(on ? DS.Color.accent : DS.Color.surfaceRaised, in: Capsule())
-                        .overlay(Capsule().strokeBorder(on ? Color.clear : DS.Color.separator))
+                        .overlay(DSPill().strokeBorder(on ? Color.clear : DS.Color.separator))
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)

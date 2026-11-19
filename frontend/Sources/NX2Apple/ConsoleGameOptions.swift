@@ -58,7 +58,7 @@ struct ConsoleChoiceRow: View {
                 .frame(maxWidth: .infinity, minHeight: compact ? 44 : 50)
                 .foregroundStyle(isChosen ? LauncherPalette.background : .white.opacity(0.85))
                 .background(isChosen ? LauncherPalette.cream : .white.opacity(0.055), in: Capsule())
-                .overlay(Capsule().strokeBorder(.white.opacity(isChosen ? 0 : 0.08)))
+                .overlay(DSPill().strokeBorder(.white.opacity(isChosen ? 0 : 0.08)))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)

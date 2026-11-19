@@ -592,7 +592,7 @@ struct OnboardingStatusIcon: View {
             case .met: Image(systemName: "checkmark.circle.fill").foregroundStyle(DS.Color.statusSuccess)
             case .todo: Image(systemName: "circle").foregroundStyle(DS.Color.symbolDefault)
             case .problem: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(DS.Color.statusWarning)
-            case .working: OnboardingWaiting(label: label).frame(width: 16, height: 16)
+            case .working: DSSpinner(size: 12).accessibilityLabel(label).frame(width: 16, height: 16)
             }
         }
         .font(.system(size: 16, weight: .regular))
@@ -669,18 +669,6 @@ struct OnboardingDropZone: View {
             }
             return true
         }
-    }
-}
-
-struct OnboardingWaiting: View {
-    let label: String
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
-            Circle().trim(from: 0.05, to: 0.76).stroke(DS.Color.symbolDefault, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .padding(2)
-                .rotationEffect(.degrees(reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6 * 360))
-        }.accessibilityLabel(label)
     }
 }
 

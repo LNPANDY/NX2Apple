@@ -179,11 +179,11 @@ final class DesignRulesTests: XCTestCase {
     }
 
     /// A capsule or round outline is drawn by DSPill: `Capsule().strokeBorder` comes out with bars past its round ends in AppKit's
-    /// bitmap caching, so captures showed buttons and chips cut at their sides. The shared components and screens outside console,
-    /// onboarding and the sheets have none left.
+    /// bitmap caching, so captures showed buttons and chips cut at their sides. No file has one left: the components, the screens,
+    /// the sheets, the onboarding and console mode.
     func testCapsuleOutlinesUseDSPill() throws {
-        let pattern = try NSRegularExpression(pattern: #"Capsule\(\)\.stroke"#)
-        for (path, text) in try Self.sources() where path.hasPrefix("NXLauncher/") && !path.contains("Sheet") && !path.contains("ExportSteps") && !path.contains("TransferCard") {
+        let pattern = try NSRegularExpression(pattern: #"Capsule\(\)\s*\.stroke"#)
+        for (path, text) in try Self.sources() {
             XCTAssertEqual(Self.matches(pattern, text), 0, "\(path): use DSPill().strokeBorder")
         }
     }

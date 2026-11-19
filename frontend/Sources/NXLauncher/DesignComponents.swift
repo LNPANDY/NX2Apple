@@ -228,6 +228,22 @@ package struct DSPill: InsettableShape {
     package func inset(by amount: CGFloat) -> DSPill { var pill = self; pill.inset += amount; return pill }
 }
 
+/// A quiet tag beside a row's title or value: a property, never a state that needs attention (that is DSChip). Newer, This
+/// build, Widescreen, why a file was skipped. Footnote text in text.secondary (text.primary when `emphasized`) on the raised
+/// surface, in a DSPill with a hairline.
+package struct DSTag: View {
+    package init(_ title: String, emphasized: Bool = false) { self.title = title; self.emphasized = emphasized }
+    let title: String
+    let emphasized: Bool
+    package var body: some View {
+        Text(title).font(DS.Font.footnote).foregroundStyle(emphasized ? DS.Color.textPrimary : DS.Color.textSecondary)
+            .lineLimit(1).fixedSize()
+            .padding(.horizontal, DS.Space.xs).padding(.vertical, 2)
+            .background(DS.Color.surfaceRaised, in: DSPill())
+            .overlay(DSPill().strokeBorder(DS.Color.separator))
+    }
+}
+
 // MARK: Card interaction
 
 /// A state of a card forced for a capture or the state gallery, where no pointer or controller is there to make it.

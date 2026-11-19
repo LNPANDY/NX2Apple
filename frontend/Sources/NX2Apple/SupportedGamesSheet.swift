@@ -89,7 +89,7 @@ struct SupportedGamesSheet: View {
                 }
                 .padding(.horizontal, DS.Space.s).frame(height: DS.Control.height)
                 .background(DS.Color.surfaceRaised, in: Capsule())
-                .overlay(Capsule().strokeBorder(searchFocused ? DS.Color.accent : DS.Color.separator))
+                .overlay(DSPill().strokeBorder(searchFocused ? DS.Color.accent : DS.Color.separator))
             }
             .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
             DS.Color.separator.frame(height: 1)   // the top edge of the full-width list
@@ -176,8 +176,8 @@ private struct SupportedGameRow: View {
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         HStack(alignment: .center, spacing: DS.Space.xs) {
                             Text(game.name).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
-                            if game.fullScreen { SupportedTag(loc.t("widescreen.badge")).help(loc.t("widescreen.help")) }
-                            if isCurrentUpdate { SupportedTag(loc.t("supported.updatedCurrent")) }
+                            if game.fullScreen { DSTag(loc.t("widescreen.badge")).help(loc.t("widescreen.help")) }
+                            if isCurrentUpdate { DSTag(loc.t("supported.updatedCurrent")) }
                         }
                         Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).multilineTextAlignment(.leading)
                     }
@@ -218,13 +218,3 @@ private struct SupportedGameRow: View {
 
 /// A quiet property of a supported game (Widescreen, Updated in this version): footnote text in a raised capsule. Not a DSChip,
 /// which is for a state that needs attention.
-private struct SupportedTag: View {
-    init(_ title: String) { self.title = title }
-    let title: String
-    var body: some View {
-        Text(title).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary).lineLimit(1).fixedSize()
-            .padding(.horizontal, DS.Space.xs).padding(.vertical, 2)
-            .background(DS.Color.surfaceRaised, in: Capsule())
-            .overlay(Capsule().strokeBorder(DS.Color.separator))
-    }
-}

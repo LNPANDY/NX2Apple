@@ -454,7 +454,7 @@ struct BatchRefreshSheet: View {
             .padding(.horizontal, DS.Space.s)
             .frame(height: 30)
             .background(DS.Color.surfaceRaised, in: Capsule())
-            .overlay(Capsule().strokeBorder(isOn ? DS.Color.accent : DS.Color.separator))
+            .overlay(DSPill().strokeBorder(isOn ? DS.Color.accent : DS.Color.separator))
             .opacity(disabled ? 0.4 : 1)
             .contentShape(Capsule())
         }

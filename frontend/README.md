@@ -310,6 +310,7 @@ Screens compose the components in `Sources/NXLauncher/DesignComponents.swift` in
 | A spinner, also inside a button | `DSSpinner` |
 | A card of artwork (library row and grid) | `DSCardButtonStyle` with `dsCardArt` |
 | A capsule or round outline | `DSPill` |
+| A quiet property beside a title (Newer, This build) | `DSTag` |
 | Controls side by side that wrap | `DSFlowRow` |
 | The engine on a build page | `EngineFootnote` ("Built with nxnative · Change") |
 | A question or a short task in a sheet | `DSSheet` (`LauncherConfirmSheet` for a confirmation) |
