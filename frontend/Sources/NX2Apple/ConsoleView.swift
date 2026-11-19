@@ -330,7 +330,15 @@ enum ConsoleInput: Equatable {
                     .frame(width: 80, height: 80).clipShape(RoundedRectangle(cornerRadius: 14)).accessibilityHidden(true)
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    if let game { Text(game.title).font(.manrope(compact ? 17 : 20, .semibold)).lineLimit(2) }
+                    if let game {
+                        HStack(spacing: 10) {
+                            Text(game.title).font(.manrope(compact ? 17 : 20, .semibold)).lineLimit(2)
+                            if game.isMacNativeGames {
+                                ArtworkStatusChip(title: t("library.chip.mng"), color: LauncherPalette.accent, fontSize: compact ? 11 : 12, showsIndicator: false)
+                                    .help(t("library.mng.help"))
+                            }
+                        }
+                    }
                     if !floatingTitle { Text(t(sheetTitle(sheet))).font(.manrope(compact ? 28 : 34, .bold)).accessibilityAddTraits(.isHeader) }
                 }
                 Spacer(minLength: 0)

@@ -164,10 +164,9 @@ package enum MacNativeGamesBuilder {
 
     package enum Route: Equatable, Sendable {
         case unifiedBuildApp
-        case perGameScript(relativePath: String, supportsPlatformFlag: Bool, supportsUpdateFlag: Bool)
     }
 
-    package static let unifiedTitleIDs: Set<String> = [
+    package static let supportedTitleIDs: Set<String> = [
         "0100F2C0115B6000",
         "01007EF00011E000",
         "0400486024DEC000",
@@ -175,14 +174,19 @@ package enum MacNativeGamesBuilder {
         "0400A3A01EE4C000"
     ]
 
-    package static let perGameRoutes: [String: Route] = [
-        "010093801237C000": .perGameScript(relativePath: "games/dread/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true),
-        "01002DA013484000": .perGameScript(relativePath: "games/ss/build.py", supportsPlatformFlag: false, supportsUpdateFlag: true),
-        "010048900CF64000": .perGameScript(relativePath: "games/worldend/build.py", supportsPlatformFlag: false, supportsUpdateFlag: false)
-    ]
+    /// Returns true only when `titleID` normalizes to one of the 5 upstream-maintained MacNativeGames 16-hex IDs.
+    package static func supportsTitleID(_ titleID: String?) -> Bool {
+        normalizedHex16(titleID).map { supportedTitleIDs.contains($0) } ?? false
+    }
 
-    package static var supportedTitleIDs: Set<String> {
-        unifiedTitleIDs.union(perGameRoutes.keys)
+    /// Normalizes a 16-character hexadecimal title ID string, returning nil for empty or non-16-hex values.
+    package static func normalizedHex16(_ titleID: String?) -> String? {
+        guard let raw = titleID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              raw.count == 16,
+              raw.allSatisfy(\.isHexDigit) else {
+            return nil
+        }
+        return raw.uppercased()
     }
 
     package static func isUsableTree(_ directory: String, fileManager fm: FileManager = .default) -> Bool {
@@ -194,55 +198,13 @@ package enum MacNativeGamesBuilder {
         switch route {
         case .unifiedBuildApp:
             return prefix + "build_app.py"
-        case .perGameScript(let relativePath, _, _):
-            return prefix + relativePath
         }
     }
 
-    package static func route(forTitleID titleID: String?, in tree: String, fileManager fm: FileManager = .default) -> Route? {
-        guard let titleID else { return .unifiedBuildApp }
-        let upper = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        if upper.isEmpty {
-            return .unifiedBuildApp
-        }
-        if unifiedTitleIDs.contains(upper) {
-            return .unifiedBuildApp
-        }
-        if let known = perGameRoutes[upper] {
-            return known
-        }
-        if !tree.isEmpty {
-            let prefix = tree.hasSuffix("/") ? tree : tree + "/"
-            let gamesDir = prefix + "games"
-            if let entries = try? fm.contentsOfDirectory(atPath: gamesDir) {
-                for entry in entries {
-                    let gameJSONPath = gamesDir + "/" + entry + "/game.json"
-                    guard fm.fileExists(atPath: gameJSONPath),
-                          let data = try? Data(contentsOf: URL(fileURLWithPath: gameJSONPath)),
-                          let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                          let tid = json["title_id"] as? String,
-                          tid.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == upper,
-                          let buildRel = json["build"] as? String,
-                          !buildRel.isEmpty,
-                          !buildRel.hasPrefix("/"),
-                          !buildRel.contains("..") else {
-                        continue
-                    }
-                    let filesDict = json["files"] as? [String: Any]
-                    let updateArr = filesDict?["update"] as? [Any]
-                    let supportsUpdate = !(updateArr?.isEmpty ?? true)
-                    let scriptFullPath = prefix + buildRel
-                    let scriptText = (try? String(contentsOfFile: scriptFullPath, encoding: .utf8)) ?? ""
-                    let supportsPlatform = scriptText.contains("--platform")
-                    return .perGameScript(
-                        relativePath: buildRel,
-                        supportsPlatformFlag: supportsPlatform,
-                        supportsUpdateFlag: supportsUpdate
-                    )
-                }
-            }
-        }
-        return nil
+    package static func route(forTitleID titleID: String?, in tree: String = "", fileManager fm: FileManager = .default) -> Route? {
+        _ = tree
+        _ = fm
+        return supportsTitleID(titleID) ? .unifiedBuildApp : nil
     }
 
     package static func arguments(
@@ -278,14 +240,6 @@ package enum MacNativeGamesBuilder {
             }
             for dlc in externalDLCs {
                 args += ["--dlc", dlc]
-            }
-        case .perGameScript(_, let supportsPlatformFlag, let supportsUpdateFlag):
-            if supportsPlatformFlag {
-                args += ["--platform", "macos"]
-            }
-            args += ["-o", outputAppPath, "--work", workDir]
-            if supportsUpdateFlag && includesUpdate {
-                args += ["--update", updatePath]
             }
         }
         return args

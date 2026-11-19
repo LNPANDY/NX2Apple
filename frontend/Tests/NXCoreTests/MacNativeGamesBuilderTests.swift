@@ -32,20 +32,25 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         XCTAssertFalse(MacNativeGamesBuilder.isUsableTree(incompleteTree.path))
     }
 
-    func testRouteForTitleIDKnownAndFallback() throws {
+    func testRouteAndSupportsTitleIDStrictlyEnforceFiveSupportedGames() throws {
         let tree = try makeFakeMNGTree()
 
-        XCTAssertEqual(MacNativeGamesBuilder.route(forTitleID: nil, in: tree), .unifiedBuildApp)
-        XCTAssertEqual(MacNativeGamesBuilder.route(forTitleID: "", in: tree), .unifiedBuildApp)
+        XCTAssertFalse(MacNativeGamesBuilder.supportsTitleID(nil))
+        XCTAssertFalse(MacNativeGamesBuilder.supportsTitleID(""))
+        XCTAssertFalse(MacNativeGamesBuilder.supportsTitleID("   "))
+        XCTAssertNil(MacNativeGamesBuilder.route(forTitleID: nil, in: tree))
+        XCTAssertNil(MacNativeGamesBuilder.route(forTitleID: "", in: tree))
 
-        let unified = [
+        let supportedFive = [
             "0100F2C0115B6000",
             "01007EF00011E000",
             "0400486024DEC000",
             "040074A01BF12000",
-            "0400A3A01EE4C000"
+            "0400A3A01EE4C000",
         ]
-        for tid in unified {
+        XCTAssertEqual(MacNativeGamesBuilder.supportedTitleIDs, Set(supportedFive))
+        for tid in supportedFive {
+            XCTAssertTrue(MacNativeGamesBuilder.supportsTitleID(tid.lowercased()), "\(tid) lowercase should be supported")
             XCTAssertEqual(
                 MacNativeGamesBuilder.route(forTitleID: tid, in: tree),
                 .unifiedBuildApp,
@@ -53,19 +58,13 @@ final class MacNativeGamesBuilderTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(
-            MacNativeGamesBuilder.route(forTitleID: "010093801237C000", in: tree),
-            .perGameScript(relativePath: "games/dread/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true)
-        )
-        XCTAssertEqual(
-            MacNativeGamesBuilder.route(forTitleID: "01002DA013484000", in: tree),
-            .perGameScript(relativePath: "games/ss/build.py", supportsPlatformFlag: false, supportsUpdateFlag: true)
-        )
-        XCTAssertEqual(
-            MacNativeGamesBuilder.route(forTitleID: "010048900CF64000", in: tree),
-            .perGameScript(relativePath: "games/worldend/build.py", supportsPlatformFlag: false, supportsUpdateFlag: false)
-        )
+        // Former per-game community entries and arbitrary titles must be blocked.
+        for blocked in ["010093801237C000", "01002DA013484000", "010048900CF64000", "0100000000010000"] {
+            XCTAssertFalse(MacNativeGamesBuilder.supportsTitleID(blocked))
+            XCTAssertNil(MacNativeGamesBuilder.route(forTitleID: blocked, in: tree))
+        }
 
+        // Dynamic games/*/game.json entries must NOT bypass the 5-title allowlist.
         let customDir = URL(fileURLWithPath: tree).appendingPathComponent("games/custom")
         try FileManager.default.createDirectory(at: customDir, withIntermediateDirectories: true)
         let gameJSON = """
@@ -81,13 +80,8 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         let scriptContent = "#!/usr/bin/env python3\n# parser.add_argument('--platform')\n"
         try Data(scriptContent.utf8).write(to: customDir.appendingPathComponent("build.py"))
 
-        let dynamicRoute = MacNativeGamesBuilder.route(forTitleID: "0100ABC001234000", in: tree)
-        XCTAssertEqual(
-            dynamicRoute,
-            .perGameScript(relativePath: "games/custom/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true)
-        )
-
-        XCTAssertNil(MacNativeGamesBuilder.route(forTitleID: "0100000000010000", in: tree))
+        XCTAssertFalse(MacNativeGamesBuilder.supportsTitleID("0100ABC001234000"))
+        XCTAssertNil(MacNativeGamesBuilder.route(forTitleID: "0100ABC001234000", in: tree))
     }
 
     func testScriptPath() {
@@ -98,13 +92,6 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         XCTAssertEqual(
             MacNativeGamesBuilder.scriptPath(for: .unifiedBuildApp, in: "/opt/mng/"),
             "/opt/mng/build_app.py"
-        )
-        XCTAssertEqual(
-            MacNativeGamesBuilder.scriptPath(
-                for: .perGameScript(relativePath: "games/dread/build.py", supportsPlatformFlag: true, supportsUpdateFlag: true),
-                in: "/opt/mng"
-            ),
-            "/opt/mng/games/dread/build.py"
         )
     }
 
@@ -147,37 +134,6 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         XCTAssertFalse(unencryptedArgs.contains("-k"))
         XCTAssertFalse(unencryptedArgs.contains("--update"))
         XCTAssertFalse(unencryptedArgs.contains("--dlc"))
-
-        let ssRoute = MacNativeGamesBuilder.perGameRoutes["01002DA013484000"]!
-        let ssArgs = MacNativeGamesBuilder.arguments(
-            route: ssRoute,
-            tree: "/opt/mng",
-            gameInput: "/games/ss.nsp",
-            keysPath: "/keys/prod.keys",
-            isUnencryptedInput: false,
-            updatePath: "/games/ss_update.nsp",
-            dlcPaths: [],
-            outputAppPath: "/out/SS.app",
-            workDir: "/work"
-        )
-        XCTAssertFalse(ssArgs.contains("--platform"))
-        XCTAssertTrue(ssArgs.contains("--update"))
-        XCTAssertEqual(ssArgs.first, "/opt/mng/games/ss/build.py")
-
-        let worldendRoute = MacNativeGamesBuilder.perGameRoutes["010048900CF64000"]!
-        let worldendArgs = MacNativeGamesBuilder.arguments(
-            route: worldendRoute,
-            tree: "/opt/mng",
-            gameInput: "/games/we.nsp",
-            keysPath: "/keys/prod.keys",
-            isUnencryptedInput: false,
-            updatePath: "/games/we_update.nsp",
-            dlcPaths: [],
-            outputAppPath: "/out/WE.app",
-            workDir: "/work"
-        )
-        XCTAssertFalse(worldendArgs.contains("--platform"))
-        XCTAssertFalse(worldendArgs.contains("--update"))
     }
 
     func testArgumentsOmitEmbeddedAddonsForUnencryptedAndContainedInputs() {
@@ -210,21 +166,6 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         XCTAssertFalse(dumpArgs.contains("--update"))
         XCTAssertFalse(dumpArgs.contains("--dlc"))
 
-        let ssRoute = MacNativeGamesBuilder.perGameRoutes["01002DA013484000"]!
-        let perGameUnencryptedArgs = MacNativeGamesBuilder.arguments(
-            route: ssRoute,
-            tree: "/opt/mng",
-            gameInput: "/games/ss_dump/",
-            keysPath: "/keys/prod.keys",
-            isUnencryptedInput: true,
-            updatePath: "/games/ss_dump/updates/65536",
-            dlcPaths: [],
-            outputAppPath: "/out/SS.app",
-            workDir: "/work"
-        )
-        XCTAssertFalse(perGameUnencryptedArgs.contains("-k"))
-        XCTAssertFalse(perGameUnencryptedArgs.contains("--update"))
-
         // Even if a caller leaves isUnencryptedInput false, a .nup or contained/same addon path must not be emitted.
         let containedAddonArgs = MacNativeGamesBuilder.arguments(
             route: .unifiedBuildApp,
@@ -241,20 +182,6 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         XCTAssertEqual(containedAddonArgs.filter { $0 == "--dlc" }.count, 1)
         XCTAssertTrue(containedAddonArgs.contains("/games/oot_dump_extra/dlc.nsp"))
         XCTAssertFalse(containedAddonArgs.contains("/games/oot_dump/dlc/0400486024DED001"))
-
-        let nupEvenWithFalseFlag = MacNativeGamesBuilder.arguments(
-            route: ssRoute,
-            tree: "/opt/mng",
-            gameInput: nupPath,
-            keysPath: "/keys/prod.keys",
-            isUnencryptedInput: false,
-            updatePath: "/games/other_update.nsp",
-            dlcPaths: [],
-            outputAppPath: "/out/OOT.app",
-            workDir: "/work"
-        )
-        XCTAssertFalse(nupEvenWithFalseFlag.contains("-k"))
-        XCTAssertFalse(nupEvenWithFalseFlag.contains("--update"))
     }
 
     func testEnvironment() {

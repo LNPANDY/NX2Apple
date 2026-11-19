@@ -33,9 +33,10 @@ class S2ArmBuilderTests(unittest.TestCase):
         return tree
 
     def test_feature_enabled(self):
-        self.assertTrue(s2arm_builder.feature_enabled({}))
-        self.assertFalse(s2arm_builder.feature_enabled({'NX2APPLE_MULTI_UPSTREAM': '0'}))
-        self.assertTrue(s2arm_builder.feature_enabled({'NX2APPLE_MULTI_UPSTREAM': '1'}))
+        self.assertFalse(s2arm_builder.feature_enabled({}))
+        self.assertFalse(s2arm_builder.feature_enabled({'NX2APPLE_MULTI_UPSTREAM': '1'}))
+        self.assertFalse(s2arm_builder.feature_enabled({'NX2APPLE_ENABLE_S2ARM': '0'}))
+        self.assertTrue(s2arm_builder.feature_enabled({'NX2APPLE_ENABLE_S2ARM': '1'}))
 
     def test_is_usable_tree(self):
         self.assertFalse(s2arm_builder.is_usable_tree(''))

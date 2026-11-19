@@ -39,11 +39,20 @@ struct SupportedGamesSheet: View {
         GameUpdateCatalog.catalogVersion(for: titleID) == GameUpdateCatalog.releaseBaseVersion(appVersion)
     }
 
+    static func isMacNativeGamesSupported(_ game: SupportedGame) -> Bool {
+        MacNativeGamesBuilder.featureEnabled && MacNativeGamesBuilder.supportsTitleID(game.titleID)
+    }
+
     static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String) -> Bool {
         let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
         let updated = GameUpdateCatalog.catalogVersion(for: game.titleID) ?? ""
-        return [game.name, game.titleID, ownedName, updated].contains {
+        var candidates = [game.name, game.titleID, ownedName, updated]
+        if isMacNativeGamesSupported(game) {
+            candidates.append(EngineUpstreamKind.macNativeGames.displayName)
+            candidates.append("MNG")
+        }
+        return candidates.contains {
             $0.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
         }
     }
@@ -170,6 +179,16 @@ private struct SupportedGameRow: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .center, spacing: 8) {
                             Text(game.name).font(.manrope(14.5, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                            if SupportedGamesSheet.isMacNativeGamesSupported(game) {
+                                Text(EngineUpstreamKind.macNativeGames.displayName)
+                                    .font(.manrope(10.5, .semibold))
+                                    .foregroundStyle(LauncherPalette.ready)
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(LauncherPalette.ready.opacity(0.14), in: Capsule())
+                            }
                             if isCurrentUpdate {
                                 Text(loc.t("supported.updatedCurrent"))
                                     .font(.manrope(10.5, .semibold))

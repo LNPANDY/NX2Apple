@@ -96,12 +96,23 @@ extension BuildStore {
         let dotnetMissingFmt = t("dep.dotnet.s2armMissing")
         let pyMissingFmt = t("dep.python.s2armMissing")
         let buildFailedReasonFmt = t("msg.buildFailedReason")
+        let cancel = installCancel
+        installCancel.set(false)
+        installPhaseActive = true
 
         Task.detached(priority: .userInitiated) { [weak self] in
+            if cancel.value {
+                hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                return
+            }
             var py = initialPy
 
             // 0. Ensure extracted S2Arm snapshots have a clean single-commit local Git repository
             _ = S2ArmBootstrap.ensureGitRepo(in: tree, runner: runner)
+            if cancel.value {
+                hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                return
+            }
 
             // 1. Auto-prepare dedicated `<s2arm>/.venv` matching pinned `requirements*.txt` + cmake/meson/ninja
             let s2armVenvPy = S2ArmBootstrap.venvPython(in: tree)
@@ -109,8 +120,9 @@ extension BuildStore {
                 py = s2armVenvPy
             } else {
                 hop {
-                    self?.beginExternalStage(name: installPyMsg)
-                    self?.say(installPyMsg)
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.beginExternalStage(name: installPyMsg)
+                    self.say(installPyMsg)
                 }
                 let venvRes = S2ArmBootstrap.ensureS2ArmVenv(
                     in: tree,
@@ -118,11 +130,21 @@ extension BuildStore {
                     home: homeDir,
                     runner: runner
                 ) { @Sendable line in
-                    hop { self?.append(line + "\n") }
+                    hop {
+                        guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                        self.append(line + "\n")
+                    }
+                }
+                if cancel.value {
+                    hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                    return
                 }
                 if venvRes.ok {
                     py = venvRes.python
-                    hop { self?.finishExternalStage(name: installPyMsg) }
+                    hop {
+                        guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                        self.finishExternalStage(name: installPyMsg)
+                    }
                 } else {
                     let stillMissingPkgs = S2ArmBuilder.missingPythonPackages(python: s2armVenvPy, tree: tree, runner: runner)
                     let stillMissingTools = S2ArmBootstrap.missingVenvBuildTools(python: s2armVenvPy)
@@ -130,10 +152,9 @@ extension BuildStore {
                     let list = (remaining.isEmpty ? S2ArmBootstrap.fallbackPythonSpecs : remaining).joined(separator: ", ")
                     hop {
                         guard let self, self.archiveGeneration == gen else { return }
-                        if self.stopping {
-                            self.stopping = false
-                            self.running = false
-                            self.doneNote = self.t("msg.stopped")
+                        self.installPhaseActive = false
+                        if self.stopping || self.installCancel.value {
+                            self.finishStoppedExternalPrep()
                             return
                         }
                         self.fail(String(format: pyMissingFmt, list))
@@ -142,62 +163,102 @@ extension BuildStore {
                 }
             }
 
+            if cancel.value {
+                hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                return
+            }
             // 2. Auto-prepare official .NET 10 SDK (>= 10.0.403) into $HOME/.dotnet (skipping Homebrew builds)
             let dnCandidates = S2ArmBuilder.dotnetCandidates(home: homeDir)
             var dnRes = S2ArmBuilder.findDotnet(dnCandidates, tree: tree, runner: runner)
             if !dnRes.ok {
+                if cancel.value {
+                    hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                    return
+                }
                 hop {
-                    self?.beginExternalStage(name: installDotnetMsg)
-                    self?.say(installDotnetMsg)
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.beginExternalStage(name: installDotnetMsg)
+                    self.say(installDotnetMsg)
                 }
                 var installEnv = ProxyEnvironment.merged(into: DependencyCheck.installEnvironment())
                 installEnv["HOME"] = homeDir
                 let installCmd = DependencyCheck.dotnetInstallCmd
                 _ = runner.runCaptured(installCmd, env: installEnv) { @Sendable line in
-                    hop { self?.append(line + "\n") }
+                    hop {
+                        guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                        self.append(line + "\n")
+                    }
+                }
+                if cancel.value {
+                    hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                    return
                 }
                 dnRes = S2ArmBuilder.findDotnet(dnCandidates, tree: tree, runner: runner)
                 if !dnRes.ok {
                     let reqVer = dnRes.requiredVersion
                     hop {
                         guard let self, self.archiveGeneration == gen else { return }
-                        if self.stopping {
-                            self.stopping = false
-                            self.running = false
-                            self.doneNote = self.t("msg.stopped")
+                        self.installPhaseActive = false
+                        if self.stopping || self.installCancel.value {
+                            self.finishStoppedExternalPrep()
                             return
                         }
                         self.fail(String(format: dotnetMissingFmt, reqVer))
                     }
                     return
                 }
-                hop { self?.finishExternalStage(name: installDotnetMsg) }
+                hop {
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.finishExternalStage(name: installDotnetMsg)
+                }
             }
 
+            if cancel.value {
+                hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                return
+            }
             // 3. Auto-prepare modern GNU Bash (>= 4) and symlink into <s2arm>/.nx2apple-shims/bash
             var modernBash = S2ArmBootstrap.findModernBash(home: homeDir, runner: runner)
             if modernBash == nil {
+                if cancel.value {
+                    hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                    return
+                }
                 hop {
-                    self?.beginExternalStage(name: installBashMsg)
-                    self?.say(installBashMsg)
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.beginExternalStage(name: installBashMsg)
+                    self.say(installBashMsg)
                 }
                 modernBash = S2ArmBootstrap.ensureModernBash(home: homeDir, runner: runner) { @Sendable line in
-                    hop { self?.append(line + "\n") }
+                    hop {
+                        guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                        self.append(line + "\n")
+                    }
+                }
+                if cancel.value {
+                    hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                    return
                 }
                 guard modernBash != nil else {
                     hop {
                         guard let self, self.archiveGeneration == gen else { return }
-                        if self.stopping {
-                            self.stopping = false
-                            self.running = false
-                            self.doneNote = self.t("msg.stopped")
+                        self.installPhaseActive = false
+                        if self.stopping || self.installCancel.value {
+                            self.finishStoppedExternalPrep()
                             return
                         }
                         self.fail(String(format: buildFailedReasonFmt, "Bash 5"))
                     }
                     return
                 }
-                hop { self?.finishExternalStage(name: installBashMsg) }
+                hop {
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.finishExternalStage(name: installBashMsg)
+                }
+            }
+            if cancel.value {
+                hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                return
             }
             let resolvedBash = modernBash ?? "/bin/bash"
             let bashShimDir = S2ArmBootstrap.linkBashShim(modernBash: resolvedBash, in: tree)
@@ -225,13 +286,18 @@ extension BuildStore {
             env["TMPDIR"] = effectiveTmpDir
             env["SHELL"] = resolvedBash
 
+            if cancel.value {
+                hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                return
+            }
             // 5. Auto-prepare <s2arm>/build/rewriter-deps when missing
             let prepareDepsScript = (tree.hasSuffix("/") ? tree : tree + "/") + "runtime/rewriter/prepare_deps.py"
             if !S2ArmBootstrap.isRewriterDepsReady(in: tree),
                FileManager.default.fileExists(atPath: prepareDepsScript) {
                 hop {
-                    self?.beginExternalStage(name: prepRewriterDepsMsg)
-                    self?.say(prepRewriterDepsMsg)
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.beginExternalStage(name: prepRewriterDepsMsg)
+                    self.say(prepRewriterDepsMsg)
                 }
                 let depsRes = S2ArmBootstrap.ensureRewriterDeps(
                     in: tree,
@@ -239,27 +305,40 @@ extension BuildStore {
                     environment: env,
                     runner: runner
                 ) { @Sendable line in
-                    hop { self?.append(line + "\n") }
+                    hop {
+                        guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                        self.append(line + "\n")
+                    }
+                }
+                if cancel.value {
+                    hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                    return
                 }
                 guard depsRes.ok else {
                     hop {
                         guard let self, self.archiveGeneration == gen else { return }
-                        if self.stopping {
-                            self.stopping = false
-                            self.running = false
-                            self.doneNote = self.t("msg.stopped")
+                        self.installPhaseActive = false
+                        if self.stopping || self.installCancel.value {
+                            self.finishStoppedExternalPrep()
                             return
                         }
                         self.fail(String(format: buildFailedReasonFmt, "S2Arm rewriter-deps"))
                     }
                     return
                 }
-                hop { self?.finishExternalStage(name: prepRewriterDepsMsg) }
+                hop {
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.finishExternalStage(name: prepRewriterDepsMsg)
+                }
             }
             if S2ArmBootstrap.isRewriterDepsReady(in: tree) {
                 env["S2A_REWRITER_DEPS"] = S2ArmBootstrap.rewriterDepsDirectory(in: tree)
             }
 
+            if cancel.value {
+                hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                return
+            }
             // 6. Auto-prepare SPIRV shader tools + pinned zstd 1.5.7 (`libzstd.1.dylib`) via `runtime_sources.py`
             let runtimeScript = (tree.hasSuffix("/") ? tree : tree + "/") + "launchers/macos/runtime_sources.py"
             let needsRuntimeBuild = !S2ArmBootstrap.isRuntimeToolsPrefixReady(S2ArmBootstrap.runtimeToolsPrefix(in: tree))
@@ -267,8 +346,9 @@ extension BuildStore {
                 && FileManager.default.fileExists(atPath: runtimeScript)
             if needsRuntimeBuild {
                 hop {
-                    self?.beginExternalStage(name: prepShaderToolsMsg)
-                    self?.say(prepShaderToolsMsg)
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.beginExternalStage(name: prepShaderToolsMsg)
+                    self.say(prepShaderToolsMsg)
                 }
             }
             let rtRes = S2ArmBootstrap.ensureRuntimeTools(
@@ -277,23 +357,32 @@ extension BuildStore {
                 environment: env,
                 runner: runner
             ) { @Sendable line in
-                hop { self?.append(line + "\n") }
+                hop {
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.append(line + "\n")
+                }
+            }
+            if cancel.value {
+                hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                return
             }
             if needsRuntimeBuild {
                 guard rtRes.ok else {
                     hop {
                         guard let self, self.archiveGeneration == gen else { return }
-                        if self.stopping {
-                            self.stopping = false
-                            self.running = false
-                            self.doneNote = self.t("msg.stopped")
+                        self.installPhaseActive = false
+                        if self.stopping || self.installCancel.value {
+                            self.finishStoppedExternalPrep()
                             return
                         }
                         self.fail(String(format: buildFailedReasonFmt, "SPIRV / zstd tools"))
                     }
                     return
                 }
-                hop { self?.finishExternalStage(name: prepShaderToolsMsg) }
+                hop {
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.finishExternalStage(name: prepShaderToolsMsg)
+                }
             }
             if let rtBin = rtRes.binDir, !rtBin.isEmpty {
                 env = S2ArmBuilder.environmentWithToolPaths(
@@ -306,6 +395,10 @@ extension BuildStore {
             }
             if let zstdLib = rtRes.zstdLib, !zstdLib.isEmpty {
                 env["S2A_ZSTD_LIB"] = zstdLib
+            }
+            if cancel.value {
+                hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                return
             }
             if let zstdBin = S2ArmBuilder.ensureZstdWrapper(workDir: workDir, python: py, pathEnv: env["PATH"] ?? "") {
                 env = S2ArmBuilder.environmentWithToolPaths(
@@ -321,10 +414,9 @@ extension BuildStore {
             let finalEnv = env
             hop {
                 guard let self, self.archiveGeneration == gen else { return }
-                if self.stopping {
-                    self.stopping = false
-                    self.running = false
-                    self.doneNote = self.t("msg.stopped")
+                self.installPhaseActive = false
+                if self.stopping || self.installCancel.value {
+                    self.finishStoppedExternalPrep()
                     return
                 }
                 let launch = self.s2armLaunch(
@@ -401,7 +493,14 @@ extension BuildStore {
                 let packStageName = t("upstream.s2armPackingMacApp")
                 beginExternalStage(name: packStageName)
                 say(packStageName)
+                let cancel = installCancel
+                installCancel.set(false)
+                installPhaseActive = true
                 Task.detached(priority: .userInitiated) { [weak self] in
+                    if cancel.value {
+                        hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                        return
+                    }
                     let res = S2ArmMacAppPacker.packApp(
                         s2armTree: tree,
                         macRootPath: root,
@@ -412,15 +511,17 @@ extension BuildStore {
                         home: homeDir,
                         runner: runner,
                         onLine: { line in
-                            hop { self?.append(line + "\n") }
+                            hop {
+                                guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                                self.append(line + "\n")
+                            }
                         }
                     )
                     hop {
                         guard let self, self.archiveGeneration == gen else { return }
-                        if self.stopping {
-                            self.stopping = false
-                            self.running = false
-                            self.doneNote = self.t("msg.stopped")
+                        self.installPhaseActive = false
+                        if self.stopping || self.installCancel.value {
+                            self.finishStoppedExternalPrep()
                             return
                         }
                         switch res {

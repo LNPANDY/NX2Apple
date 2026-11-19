@@ -95,7 +95,8 @@ import NXLauncher
 
     private var subtitle: String {
         let status = paused ? t("console.paused") : t(game.status.labelKey) + (game.status == .ready && game.olderTools ? " \u{00b7} " + t("library.olderTools") : "")
-        return game.version.isEmpty ? status : status + " \u{00b7} " + String(format: t("console.version"), game.version)
+        let withMNG = game.isMacNativeGames ? status + " \u{00b7} " + t("library.chip.mng") : status
+        return game.version.isEmpty ? withMNG : withMNG + " \u{00b7} " + String(format: t("console.version"), game.version)
     }
 
     // MARK: Tabs
@@ -127,6 +128,10 @@ import NXLauncher
     private var overview: some View {
         HStack(alignment: .top, spacing: 48) {
             VStack(alignment: .leading, spacing: 16) {
+                if game.isMacNativeGames {
+                    ArtworkStatusChip(title: t("library.chip.mng"), color: LauncherPalette.accent, fontSize: compact ? 11 : 12, showsIndicator: false)
+                        .help(t("library.mng.help"))
+                }
                 primary
                 if game.status == .ready {
                     facts([(t("console.lastPlayed"), game.lastPlayed.map { ConsoleTimes.relative($0, now: state.time, lang: lang) } ?? t("console.notPlayed")),

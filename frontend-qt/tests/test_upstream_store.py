@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -37,11 +38,15 @@ class UpstreamStoreTests(unittest.TestCase):
 
     def test_available_upstreams(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop('NX2APPLE_MULTI_UPSTREAM', None)
+            os.environ.pop('NX2APPLE_ENABLE_S2ARM', None)
+            self.assertEqual(upstream_store.available_upstreams(is_windows=True), ('nxnative',))
+            self.assertEqual(upstream_store.available_upstreams(is_windows=False), ('nxnative',))
+        with mock.patch.dict(os.environ, {'NX2APPLE_MULTI_UPSTREAM': '1'}, clear=False):
+            os.environ.pop('NX2APPLE_ENABLE_S2ARM', None)
+            self.assertEqual(upstream_store.available_upstreams(is_windows=True), ('nxnative',))
+        with mock.patch.dict(os.environ, {'NX2APPLE_ENABLE_S2ARM': '1'}, clear=False):
             self.assertEqual(upstream_store.available_upstreams(is_windows=True), ('nxnative', 's2arm'))
             self.assertEqual(upstream_store.available_upstreams(is_windows=False), ('nxnative', 's2arm'))
-        with mock.patch.dict(os.environ, {'NX2APPLE_MULTI_UPSTREAM': '0'}, clear=False):
-            self.assertEqual(upstream_store.available_upstreams(is_windows=True), ('nxnative',))
 
     def test_format_download_progress(self) -> None:
         frac, text = upstream_store.format_download_progress(10 * 1024 * 1024, 40 * 1024 * 1024)
@@ -412,7 +417,7 @@ class QtEngineDropdownTests(unittest.TestCase):
             os.environ,
             {
                 'NX2APPLE_UPSTREAMS_DIR': str(self.temp_dir / 'upstreams'),
-                'NX2APPLE_MULTI_UPSTREAM': '1',
+                'NX2APPLE_ENABLE_S2ARM': '1',
             },
             clear=False,
         )
@@ -535,6 +540,102 @@ class QtEngineDropdownTests(unittest.TestCase):
         upgraded_disk = upstream_store.read_local_receipt('s2arm', str(installed), is_windows=False)
         assert upgraded_disk is not None
         self.assertEqual(upgraded_disk.version, 'v0.5.8+')
+
+    def test_default_disabled_hides_s2arm_and_falls_back_persisted_setting(self) -> None:
+        from nspb_qt import model, ui
+
+        payload = self._make_s2arm_bytes()
+        zip_path = self.temp_dir / 's2arm-existing.zip'
+        zip_path.write_bytes(payload)
+        installed = upstream_store.install_upstream_zip(zip_path, 's2arm', self.temp_dir / 'upstreams', is_windows=False)
+
+        with mock.patch.dict(os.environ, {'NX2APPLE_ENABLE_S2ARM': '1'}, clear=False):
+            enabled_model = model.Model()
+            enabled_model.s2arm_path = str(installed)
+            self.assertTrue(enabled_model.select_upstream('s2arm'))
+            self.assertEqual(enabled_model.build_upstream, 's2arm')
+
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('NX2APPLE_ENABLE_S2ARM', None)
+            os.environ.pop('NX2APPLE_MULTI_UPSTREAM', None)
+            self.assertEqual(upstream_store.available_upstreams(), ('nxnative',))
+
+            disabled_model = model.Model()
+            # Simulate persisted settings from an earlier opt-in session.
+            disabled_model.settings.setValue('buildUpstream', 's2arm')
+            disabled_model.settings.setValue('s2armPath', str(installed))
+            reloaded = model.Model()
+            self.assertEqual(reloaded.build_upstream, 'nxnative')
+            self.assertFalse(reloaded.is_s2arm_selected)
+            self.assertFalse(reloaded.select_upstream('s2arm'))
+            self.assertIsNone(reloaded.download_upstream('s2arm'))
+            hits: list[str] = []
+            threads = reloaded.check_upstream_updates(
+                kinds=('s2arm',),
+                force=True,
+                fetch_text=lambda url: hits.append(url) or '',
+            )
+            for t in threads:
+                t.join(timeout=2.0)
+            self.assertEqual(hits, [])
+            self.assertEqual(reloaded.check_upstream_updates(force=True), [])
+
+            win = ui.MainWindow(reloaded, perform_startup_checks=False)
+            self.addCleanup(win.close)
+            win._ensure_engine_popup()
+            win._refresh_engine_popup()
+            self.assertEqual(tuple(win._eng_popup_rows.keys()), ('nxnative',))
+            self.assertEqual(win.eng_dropdown_btn.text(), 'nxnative  ▾')
+
+    def test_s2arm_and_upstream_store_work_with_pyside6_masked(self) -> None:
+        script_path = self.temp_dir / 'verify_no_pyside6.py'
+        script_path.write_text(
+            f"""import importlib.util
+import os
+import sys
+from unittest import mock
+
+class _BlockingFinderWrapper:
+    def __init__(self, inner):
+        self._inner = inner
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == 'PySide6' or fullname.startswith('PySide6.'):
+            return None
+        fn = getattr(self._inner, 'find_spec', None)
+        return fn(fullname, path, target) if fn is not None else None
+
+for k in list(sys.modules):
+    if k == 'PySide6' or k.startswith('PySide6.'):
+        del sys.modules[k]
+sys.meta_path[:] = [_BlockingFinderWrapper(f) for f in sys.meta_path]
+assert importlib.util.find_spec('PySide6') is None
+
+sys.path.insert(0, {repr(str(ROOT / 'frontend-qt'))})
+from nspb_qt import s2arm_builder, upstream_store
+
+with mock.patch.dict(os.environ, {{}}, clear=False):
+    os.environ.pop('NX2APPLE_ENABLE_S2ARM', None)
+    os.environ.pop('NX2APPLE_MULTI_UPSTREAM', None)
+    assert s2arm_builder.feature_enabled() is False
+    assert upstream_store.available_upstreams() == ('nxnative',)
+    os.environ['NX2APPLE_MULTI_UPSTREAM'] = '1'
+    assert s2arm_builder.feature_enabled() is False
+    assert upstream_store.available_upstreams() == ('nxnative',)
+
+with mock.patch.dict(os.environ, {{'NX2APPLE_ENABLE_S2ARM': '1'}}, clear=False):
+    assert s2arm_builder.feature_enabled() is True
+    assert upstream_store.available_upstreams() == ('nxnative', 's2arm')
+""",
+            encoding='utf-8',
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr or proc.stdout)
 
 
 if __name__ == '__main__':

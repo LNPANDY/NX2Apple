@@ -354,7 +354,7 @@ private final class EngineDownloadDelegate: NSObject, URLSessionDownloadDelegate
 /// URLSession, waited on from a background queue as the app update does (AppUpdateStore).
 /// Nothing is cached: the experimental release replaces its files under the same names.
 package struct URLSessionEngineTransport: EngineTransport {
-    private let session: URLSession = {
+    private static func makeSessionConfiguration() -> URLSessionConfiguration {
         let c = URLSessionConfiguration.ephemeral
         c.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         c.timeoutIntervalForRequest = 60
@@ -362,8 +362,10 @@ package struct URLSessionEngineTransport: EngineTransport {
         if let proxyDict = ProxyEnvironment.urlSessionProxyDictionary() {
             c.connectionProxyDictionary = proxyDict
         }
-        return URLSession(configuration: c)
-    }()
+        return c
+    }
+
+    private let session: URLSession = URLSession(configuration: URLSessionEngineTransport.makeSessionConfiguration())
 
     package init() {}
 
@@ -427,9 +429,7 @@ package struct URLSessionEngineTransport: EngineTransport {
             box.set(succeeded)
             sem.signal()
         }
-        let c = URLSessionConfiguration.ephemeral
-        c.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        c.timeoutIntervalForRequest = 60
+        let c = Self.makeSessionConfiguration()
         let streamSession = URLSession(configuration: c, delegate: delegate, delegateQueue: nil)
         defer { streamSession.finishTasksAndInvalidate() }
         let task = streamSession.downloadTask(with: url)

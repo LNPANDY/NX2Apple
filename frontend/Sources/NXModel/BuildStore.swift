@@ -112,16 +112,24 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                         doneNote = ""
                     }
                 }
+                enforceUpstreamForCurrentGame()
             }
         }
     }
     /// The program the player chose for this build, including its device checks and retries.
-    var selectedTitleID: String?
+    var selectedTitleID: String? {
+        didSet {
+            if selectedTitleID != oldValue {
+                enforceUpstreamForCurrentGame()
+            }
+        }
+    }
     /// The game folder the rows came from (BuildStore+GameFolder.swift), nil for packages.
     @Published package var gameFolder: GameFolder.Contents? {
         didSet {
             if gameFolder != oldValue {
                 invalidateKeyProblem()
+                enforceUpstreamForCurrentGame()
             }
         }
     }
@@ -215,6 +223,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var nxbRun = false   // the running build is `nxb build`, not the script: its exit code has its own messages
     @Published package var buildUpstream: EngineUpstreamKind {
         didSet {
+            if !running && MacNativeGamesBuilder.featureEnabled && buildUpstream == .macNativeGames && isMNGBlockedByCurrentGame {
+                buildUpstream = .nxnative
+                return
+            }
             defaults.set(buildUpstream.rawValue, forKey: Self.buildUpstreamKey)
             if MacNativeGamesBuilder.featureEnabled && buildUpstream == .macNativeGames && target != BuildTarget.mac {
                 target = BuildTarget.mac
@@ -296,7 +308,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     let installCancel = LockedFlag()
     var installPhaseActive = false
     package var fastRefreshActive = false
-    package var fastRefreshTitleID: String? = nil
+    package var fastRefreshTitleID: String? = nil {
+        didSet {
+            if fastRefreshTitleID != oldValue {
+                enforceUpstreamForCurrentGame()
+            }
+        }
+    }
     package var fastRefreshGameName: String? = nil
     package var fastRefreshBaseDir: String? = nil
     package var fastRefreshExternalImgPath: String? = nil

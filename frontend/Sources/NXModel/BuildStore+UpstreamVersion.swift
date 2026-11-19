@@ -102,8 +102,9 @@ extension BuildStore {
         now: Date = Date()
     ) -> Task<Void, Never> {
         refreshUpstreamLocalVersions()
+        let allowed = Set(availableUpstreams)
         let targets = (kinds ?? availableUpstreams).filter { kind in
-            !kind.isBuiltIn && isUpstreamInstalled(kind) && !(upstreamDownloads[kind]?.isBusy ?? false)
+            allowed.contains(kind) && !kind.isBuiltIn && isUpstreamInstalled(kind) && !(upstreamDownloads[kind]?.isBusy ?? false)
         }
         var spawned: [Task<Void, Never>] = []
         let transport = upstreamTransport

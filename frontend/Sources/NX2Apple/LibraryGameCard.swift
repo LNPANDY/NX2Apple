@@ -36,6 +36,13 @@ struct LibraryGameCard: View {
                 .frame(width: width, height: width / LibraryCardLayout.aspect).clipped()
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .overlay(alignment: .topLeading) { LibraryArtworkChip(state: state).padding(8) }
+                .overlay(alignment: .topTrailing) {
+                    if state.isMacNativeGames {
+                        ArtworkStatusChip(title: loc.t("library.chip.mng"), color: LauncherPalette.accent, fontSize: 10, showsIndicator: false)
+                            .help(loc.t("library.mng.help"))
+                            .padding(8)
+                    }
+                }
                 .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(selected ? LauncherPalette.cream : LauncherPalette.cardBorder,
                                                                                      lineWidth: selected ? 2 : 1))
                 Text(title)

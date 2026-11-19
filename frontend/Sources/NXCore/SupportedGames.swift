@@ -35,15 +35,75 @@ package enum SupportedGames {
     package static let noteLimit = 320
 
     /// Every profile under `<engineRoot>/dm/games`, by name. A folder that is not a profile (no `title_id`, no `name`) is left out.
-    package static func list(engineRoot: String) -> [SupportedGame] {
-        guard !engineRoot.isEmpty else { return [] }
-        let games = URL(fileURLWithPath: engineRoot).appendingPathComponent("dm/games")
-        let folders = (try? FileManager.default.contentsOfDirectory(atPath: games.path)) ?? []
-        return folders.compactMap { read(games.appendingPathComponent($0)) }
-            .sorted { left, right in
-                let order = left.name.localizedStandardCompare(right.name)
-                return order == .orderedSame ? left.titleID < right.titleID : order == .orderedAscending
+    /// When `includeMacNativeGames` is true, any missing title among the 5 MacNativeGames-supported games is appended cleanly.
+    package static func list(engineRoot: String, includeMacNativeGames: Bool = false) -> [SupportedGame] {
+        var loaded: [SupportedGame] = []
+        if !engineRoot.isEmpty {
+            let games = URL(fileURLWithPath: engineRoot).appendingPathComponent("dm/games")
+            let folders = (try? FileManager.default.contentsOfDirectory(atPath: games.path)) ?? []
+            loaded = folders.compactMap { read(games.appendingPathComponent($0)) }
+        }
+        if includeMacNativeGames {
+            loaded = withMacNativeGames(loaded)
+        }
+        return loaded.sorted { left, right in
+            let order = left.name.localizedStandardCompare(right.name)
+            return order == .orderedSame ? left.titleID < right.titleID : order == .orderedAscending
+        }
+    }
+
+    private static let macNativeGamesFallbackEntries: [SupportedGame] = [
+        SupportedGame(
+            titleID: "0100F2C0115B6000",
+            name: "The Legend of Zelda: Tears of the Kingdom",
+            edition: .switch1,
+            version: nil,
+            notes: "Supported by MacNativeGames for macOS native builds."
+        ),
+        SupportedGame(
+            titleID: "01007EF00011E000",
+            name: "The Legend of Zelda: Breath of the Wild",
+            edition: .switch1,
+            version: nil,
+            notes: "Supported by MacNativeGames for macOS native builds."
+        ),
+        SupportedGame(
+            titleID: "0400486024DEC000",
+            name: "The Legend of Zelda: Ocarina of Time",
+            edition: .switch2,
+            version: nil,
+            notes: "Switch 2 edition supported by MacNativeGames for macOS native builds."
+        ),
+        SupportedGame(
+            titleID: "040074A01BF12000",
+            name: "Donkey Kong Bananza",
+            edition: .switch2,
+            version: nil,
+            notes: "Switch 2 release supported by MacNativeGames for macOS native builds."
+        ),
+        SupportedGame(
+            titleID: "0400A3A01EE4C000",
+            name: "Pokémon Pokopia",
+            edition: .switch2,
+            version: nil,
+            notes: "Switch 2 release supported by MacNativeGames for macOS native builds."
+        ),
+    ]
+
+    /// Ensures all 5 MacNativeGames-supported titles appear in `games` without duplicating existing profiles.
+    package static func withMacNativeGames(_ games: [SupportedGame]) -> [SupportedGame] {
+        var existingIDs = Set(games.map { $0.titleID.uppercased() })
+        var out = games
+        for fallback in macNativeGamesFallbackEntries {
+            let tid = fallback.titleID.uppercased()
+            if existingIDs.insert(tid).inserted {
+                out.append(fallback)
             }
+        }
+        return out.sorted { left, right in
+            let order = left.name.localizedStandardCompare(right.name)
+            return order == .orderedSame ? left.titleID < right.titleID : order == .orderedAscending
+        }
     }
 
     package static func read(_ folder: URL) -> SupportedGame? {

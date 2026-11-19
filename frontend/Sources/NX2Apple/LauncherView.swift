@@ -576,8 +576,9 @@ struct LauncherView: View {
     /// Reads the engine's profiles and opens the Supported games sheet. The profiles are small files, read off the main thread.
     func openSupportedGames() {
         let root = EngineLayout.root(repo.path)
+        let includeMNG = MacNativeGamesBuilder.featureEnabled
         DispatchQueue.global(qos: .userInitiated).async {
-            let list = SupportedGames.list(engineRoot: root)
+            let list = SupportedGames.list(engineRoot: root, includeMacNativeGames: includeMNG)
             DispatchQueue.main.async { supportedGames = list }
         }
     }
@@ -594,6 +595,7 @@ struct LauncherView: View {
         guard !m.running else { page = .builds; return }
         buildStep = 0
         m.leaveGameFolder()
+        m.hintedTitleID = nil
         for index in m.slots.indices { m.slots[index].paths = []; m.slots[index].problem = ""; m.slots[index].note = "" }
         m.gameDir = ""; m.done = false; m.doneNote = ""; m.macAppPath = ""; m.stages = []
         if m.outDir.isEmpty && !library.folder.isEmpty { m.outDir = library.folder }
@@ -617,10 +619,11 @@ struct LauncherView: View {
             // scan, or from the last build. Falling back to the base's folder would put the update and DLC out of reach.
             m.gameDir = game.sourceFolder.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : game.sourceFolder
         }
+        m.applyKnownTitleID(game.titleID)
         m.macAppPath = game.appPath
         m.outDir = game.outputDirectory
         m.done = false; m.doneNote = ""; m.stages = []
-        m.target = game.lastTarget
+        m.target = m.isMacNativeGamesSelected ? BuildTarget.mac : game.lastTarget
         page = .builds
     }
 

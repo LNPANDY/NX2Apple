@@ -96,7 +96,10 @@ extension BuildStore {
         case .nxnative:
             return true
         case .macNativeGames:
-            return MacNativeGamesBuilder.featureEnabled && macNativeGamesInstalled && !(upstreamDownloads[.macNativeGames]?.isBusy ?? false)
+            return MacNativeGamesBuilder.featureEnabled
+                && macNativeGamesInstalled
+                && !(upstreamDownloads[.macNativeGames]?.isBusy ?? false)
+                && !isMNGBlockedByCurrentGame
         case .s2arm:
             return S2ArmBuilder.featureEnabled && s2armInstalled && !(upstreamDownloads[.s2arm]?.isBusy ?? false)
         }

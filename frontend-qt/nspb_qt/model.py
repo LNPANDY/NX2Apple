@@ -2905,7 +2905,9 @@ class Model(QObject):
         force: bool = False,
         fetch_text: Callable[[str], str | bytes | None] | None = None,
     ) -> list[threading.Thread]:
-        target_kinds = upstream_store.available_upstreams() if kinds is None else kinds
+        allowed = set(upstream_store.available_upstreams())
+        raw_kinds = upstream_store.available_upstreams() if kinds is None else kinds
+        target_kinds = tuple(k for k in raw_kinds if k in allowed)
         return self._upstream_version_checker.check_async(
             target_kinds,
             is_installed=self.is_upstream_installed,

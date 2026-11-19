@@ -131,6 +131,20 @@ import XCTest
         MacNativeGamesBuilder.featureEnabled = false
         let store3 = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
         XCTAssertEqual(store3.buildUpstream, .nxnative)
+        XCTAssertEqual(store3.availableUpstreams, [.nxnative])
+        XCTAssertFalse(store3.canSelectUpstream(.s2arm))
+        store3.selectUpstream(.s2arm)
+        XCTAssertEqual(store3.buildUpstream, .nxnative)
+
+        // When MacNativeGames is enabled and S2Arm stays off, UserDefaults="s2arm" falls back cleanly and availableUpstreams excludes S2Arm.
+        MacNativeGamesBuilder.featureEnabled = true
+        defaults.set(EngineUpstreamKind.s2arm.rawValue, forKey: BuildStore.buildUpstreamKey)
+        let store4 = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        XCTAssertEqual(store4.buildUpstream, .nxnative)
+        XCTAssertEqual(store4.availableUpstreams, [.nxnative, .macNativeGames])
+        XCTAssertFalse(store4.canSelectUpstream(.s2arm))
+        _ = store4.downloadUpstream(.s2arm)
+        XCTAssertNil(store4.upstreamDownloads[.s2arm])
     }
 
     func testTreeValidation() throws {
@@ -693,5 +707,105 @@ import XCTest
         XCTAssertEqual(pathParts.first, shimDir)
         XCTAssertEqual(pathParts.dropFirst().first, rtPrefix.appendingPathComponent("bin").path)
         XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: shimDir + "/bash"), managedBash)
+    }
+
+    func testStopDuringS2ArmPrepAndMacAppPackerResetsState() throws {
+        repo.isRepo = false
+        let validTree = try makeFakeS2ArmTree()
+        let fm = FileManager.default
+        let base = temporary.appendingPathComponent("Game [0100F2C0115B6000].nsp")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: base)
+        try Data([0]).write(to: keys)
+
+        // Part A: stop during S2Arm venv preparation skips remaining steps and resets state cleanly.
+        let prepRunner = ChunkedRunner()
+        var startedOneclick = false
+        prepRunner.onStartInspect = { _ in startedOneclick = true }
+        let prepStore = BuildStore(localizer: localizer, runner: prepRunner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        prepStore.home = temporary.path
+        prepStore.buildUpstream = .s2arm
+        prepStore.s2armPath = validTree
+        prepStore.target = BuildTarget.mac
+        prepStore.updateSlot("base") { $0.paths = [base.path] }
+        prepStore.updateSlot("keys") { $0.paths = [keys.path] }
+
+        prepRunner.streamHandler = { [weak prepStore] launch, _ in
+            if launch.arguments.contains("venv") {
+                let sem = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        prepStore?.stop()
+                        sem.signal()
+                    }
+                }
+                _ = sem.wait(timeout: .now() + 2)
+                return false
+            }
+            return true
+        }
+
+        prepStore.startBuild()
+        let dl1 = Date().addingTimeInterval(3)
+        while prepStore.running && Date() < dl1 {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertFalse(startedOneclick)
+        XCTAssertFalse(prepStore.running)
+        XCTAssertFalse(prepStore.stopping)
+        XCTAssertFalse(prepStore.installPhaseActive)
+        XCTAssertTrue(prepStore.stages.isEmpty)
+        XCTAssertEqual(prepStore.doneNote, localizer.t("msg.stopped"))
+
+        // Part B: stop during finishS2ArmBuild S2ArmMacAppPacker.packApp resets state cleanly.
+        try Data("all:\n".utf8).write(to: URL(fileURLWithPath: validTree).appendingPathComponent("Makefile"))
+        try fm.createDirectory(at: URL(fileURLWithPath: validTree).appendingPathComponent("launchers/macos"), withIntermediateDirectories: true)
+        try Data("# build.mk\n".utf8).write(to: URL(fileURLWithPath: validTree).appendingPathComponent("launchers/macos/build.mk"))
+        let packRunner = try makeReadyS2ArmRunner(tree: validTree)
+        let packStore = BuildStore(localizer: localizer, runner: packRunner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        packStore.home = temporary.path
+        packStore.buildUpstream = .s2arm
+        packStore.s2armPath = validTree
+        packStore.target = BuildTarget.mac
+        packStore.outDir = temporary.appendingPathComponent("out-pack").path
+        packStore.updateSlot("base") { $0.paths = [base.path] }
+        packStore.updateSlot("keys") { $0.paths = [keys.path] }
+
+        let macRoot = temporary.appendingPathComponent("MacRoot")
+        try fm.createDirectory(at: macRoot, withIntermediateDirectories: true)
+        packRunner.onStartInspect = { _ in
+            let eventsURL = URL(fileURLWithPath: packStore.s2armEventsPath)
+            let events = "{\"ev\": \"result\", \"ok\": true, \"root\": \"\(macRoot.path)\"}\n"
+            try? Data(events.utf8).write(to: eventsURL)
+        }
+        var sawPackMake = false
+        packRunner.streamHandler = { [weak packStore] launch, _ in
+            if launch.arguments.contains("host") {
+                sawPackMake = true
+                let sem = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        packStore?.stop()
+                        sem.signal()
+                    }
+                }
+                _ = sem.wait(timeout: .now() + 2)
+                return false
+            }
+            return true
+        }
+
+        packStore.startBuild()
+        let dl2 = Date().addingTimeInterval(3)
+        while (!sawPackMake || packStore.running) && Date() < dl2 {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertTrue(sawPackMake)
+        XCTAssertFalse(packStore.running)
+        XCTAssertFalse(packStore.stopping)
+        XCTAssertFalse(packStore.installPhaseActive)
+        XCTAssertTrue(packStore.stages.isEmpty)
+        XCTAssertTrue(packStore.macAppPath.isEmpty)
+        XCTAssertEqual(packStore.doneNote, localizer.t("msg.stopped"))
     }
 }

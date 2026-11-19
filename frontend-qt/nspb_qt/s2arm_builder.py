@@ -251,8 +251,8 @@ def missing_python_packages(
 
 
 def feature_enabled(env: Mapping[str, str] | None = None) -> bool:
-    """Return whether the multi-upstream feature toggle is enabled."""
-    return (env if env is not None else os.environ).get('NX2APPLE_MULTI_UPSTREAM') != '0'
+    """Return whether the optional S2Arm engine toggle is explicitly enabled (`NX2APPLE_ENABLE_S2ARM=1`)."""
+    return (env if env is not None else os.environ).get('NX2APPLE_ENABLE_S2ARM') == '1'
 
 
 def is_usable_tree(path: str, *, is_windows: bool | None = None) -> bool:
