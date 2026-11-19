@@ -12,7 +12,7 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.background.python",
         "onboarding.background.dotnet", "onboarding.demo.mario",
         "console.platform.mac", "console.platform.iphone", "console.version",
-        "saves.toDevice", "saves.toMac", "section.app", "app.version", "library.ok",
+        "saves.toDevice", "saves.toMac", "savespage.transfer", "section.app", "app.version", "library.ok",
         "build.ios", "data.keys", "delete.part.ipa", "dep.tool.xcodegen",
         "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator", "diag.title", "dep.brew",
         "dep.spirv.win", "dep.zstd.win", "dep.python.hint", "controls.mode.auto", "controls.fn.A",
