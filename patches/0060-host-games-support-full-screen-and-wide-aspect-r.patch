@@ -135,7 +135,7 @@ index 45ccc5e..94ef875 100644
 +# patches.py (v131072 main): DM_SCREEN_ASPECT wider than 16:9 widens 16:9 cameras (Hor+) and keeps 2D layouts and movies centered at 16:9
 +screen_aspect	wide
 diff --git a/dm/games/0400486024DEC000/patches.py b/dm/games/0400486024DEC000/patches.py
-index cade577..67eeae7 100644
+index 2e7727a..94ade22 100644
 --- a/dm/games/0400486024DEC000/patches.py
 +++ b/dm/games/0400486024DEC000/patches.py
 @@ -1,7 +1,168 @@
@@ -351,7 +351,7 @@ index cade577..67eeae7 100644
  MATCH_FRAME_STEP = {'main': [
      {'name': 'frame ratio from the host\'s step', 'size': 0x9b4, 'fingerprints': ['6ae2aff5344d14568e4dbaf93455e2d8278384bf892ed6c6eca87fef98fbcd1d'], 'stub': frame_step,   # v131072 main+0x6e6be0
       'others': {'dynamic resolution': {'size': 0x294, 'fingerprints': ['7af6ceb0aedf8e0c17dc08ce17fcd6a7cba6d394a0d09e3b504c6d668dc418e7']},   # v131072 main+0x8065e0
-@@ -84,4 +241,7 @@ BINDING = [
+@@ -133,4 +290,7 @@ BINDING = [
      {'what': 'dynamic resolution: full size, or a climb on the load measured at each level', 'now': 'game', 'goal': 'game', 'purpose': 'rendering',
       'why': "the game's own dynamic-resolution level function and update, found by their functions' fingerprints on any build that keeps both; switchable (DM_DYNAMIC_RESOLUTION)",
       'checked': 'v131072 main: one function with each fingerprint (the level function a leaf, x2..x11 / x16 / x17 / s0..s2 free), its callers, the update and the controller fields read by disassembly, the fields read in play (2026-11-08); the climb run natively against a model of the update and in play to full size (2026-11-09)'},
@@ -658,10 +658,10 @@ index 4db679f..ae07d54 100644
           f'#define DM_GAME_PRESENT_DISPLAY {int(pi == "display")}',
           f'#define DM_GAME_CORE_PREEMPT {int(cp == "on")}',
 diff --git a/dm/games/settings.py b/dm/games/settings.py
-index 7b7e253..9a821d0 100644
+index bd17f67..18177f6 100644
 --- a/dm/games/settings.py
 +++ b/dm/games/settings.py
-@@ -117,6 +117,7 @@ def build(gid, patched, control):
+@@ -120,6 +120,7 @@ def build(gid, patched, control, other_programs=()):
          if kind == 'choice':
              opts = [list(l) for l in langs] if values == 'languages' else [v.split('?', 1)[0].split('=', 1) for v in values.split(',') if offered(v, n)]
              if any(len(o) != 2 for o in opts): sys.exit(f'settings.tsv:{n}: choice values are value=label,...')
@@ -670,13 +670,13 @@ index 7b7e253..9a821d0 100644
              s['options'] = opts
              if values == 'languages' and not have: s['note'] = UNKNOWN_LANGUAGES
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 1b139d4..91c0017 100644
+index 10af37e..22f5ae8 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
-@@ -34,7 +34,7 @@ DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength		needs=DM_RUMBL
- DM_RUMBLE_MIN	range	0:0.9:0.05	0	always	Controls	Rumble cutoff
- DM_PAD_PRESS_TO_JOIN	toggle	-	0	always	Controls	Press a button to join
+@@ -37,7 +37,7 @@ DM_PAD_PRESS_TO_JOIN	toggle	-	0	always	Controls	Press a button to join
  DM_SW2	toggle	-	0	platform:mac	Controls	Switch 2 controllers	Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access.
+ DM_MIC	toggle	-	0	mac-mic	Controls	Microphone	Lets the game hear your microphone. macOS asks for access when you launch with this enabled.	level=basic
+ DM_MIC_GAIN	range	1:8:0.5	4	mac-mic	Controls	Microphone gain		needs=DM_MIC=1
 -DM_SCREEN_ASPECT	choice	auto=Match screen?platform:ios,1.43=iPhone Duo screen (1.43:1),0=16:9 (Switch)	auto|0	DM_GAME_SCREEN_ASPECT!=0	Game	Picture shape	Renders about a quarter more pixels: a little slower and warmer.
 +DM_SCREEN_ASPECT	choice	auto=Match screen,1.43=iPhone Duo screen (1.43:1)?DM_GAME_SCREEN_ASPECT!=2,0=16:9 (Switch)	auto|0	DM_GAME_SCREEN_ASPECT!=0	Game	Picture shape	Renders about a quarter more pixels: a little slower and warmer.
  DM_PRESENT_SNAP	toggle	-	DM_GAME_PRESENT_SNAP	gfxapi:nvn	Performance	Frame buffering	Up to one frame more display latency.
@@ -701,22 +701,22 @@ index c39b304..5c10295 100644
  }
  // SDK 22's overload with a LayerCreationSettings, which its constructor LayerCreationSettings(int w, int h) fills as {w, h, 2} (sdk+0x4526a0 in EA SPORTS FC 27; the SDK's own
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 19c5426..ba74b6c 100644
+index 4a56b3f..5f548d7 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
-@@ -79,6 +79,7 @@ typedef struct {
-     uint64_t fps_state_off;    // frame step state page (patch_nso.py FRAME_STEP: Tears of the Kingdom 1.4.3 and Breath of the Wild 1.9.0 main); 0 = none
+@@ -80,6 +80,7 @@ typedef struct {
      uint32_t step_max;         // the largest step the frame step stubs give the game (the fixups table's STEP_MAX, patch_nso.py ctx.step_max); 0 = FSTEP_MAX
      uint32_t render_scale_max; // a render-scale stub's largest scale (the fixups table's RENDER_SCALE, patch_nso.py): DM_RENDER_SCALE is held to it; 0 = no such stub
+     int movie_native_color_keys; // the movie SDK's MediaData uses the native buffer's colour index directly (MOVIE_NATIVE_COLOR_KEYS)
 +    int aspect_wide, aspect_anamorphic, aspect_height_wide;   // wide / anamorphic / height-adjusted wide screen-shape stubs in main.fixups.tsv
      int64_t patch_off;         // patch area relative to the base; negative = before the base (image too large, see patch_nso.py FAR), and size does not include it
      uint64_t image_size, file_image_len, patch_len;   // only with the patch area before the base: whole image (with bss and key page), length of the image part of the file, patch area length
      uint64_t back_off, back_len;   // a second patch area after the image (patch_nso.py TWO: a text longer than a B reaches), inside size; 0 = none
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index d658a69..db7c309 100644
+index 38cbf2a..cf87bff 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -29,6 +29,7 @@
+@@ -31,6 +31,7 @@
  #include <sys/stat.h>
  
  static CAMetalLayer *g_layer;
@@ -724,7 +724,7 @@ index d658a69..db7c309 100644
  static uint64_t g_btn;
  static key_state g_key_state;
  static int g_input_on = 1;   // main thread: the game window is key, so its keyboard, mouse and controllers reach the game (input_release / input_resume)
-@@ -1444,6 +1445,15 @@ void front_run(void (*guest)(void)) {
+@@ -1454,6 +1455,15 @@ void front_run(void (*guest)(void)) {
          }
          [win makeKeyAndOrderFront:nil];
          screen_refresh(win.screen ?: NSScreen.mainScreen);
@@ -778,12 +778,12 @@ index d28c15d..877e028 100644
      for (int id = 0; id < 16; id++) {
          if (!seen[id]) g_gf[id].down = 0;
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 18426a0..5dc4680 100644
+index ed64a01..04a2800 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
-@@ -283,6 +283,9 @@ static void read_layout(module_t *m, const char *dir) {
-         else if (!strcmp(key, "FPS_STATE_OFF")) m->fps_state_off = v;
+@@ -284,6 +284,9 @@ static void read_layout(module_t *m, const char *dir) {
          else if (!strcmp(key, "RENDER_SCALE")) m->render_scale_max = (uint32_t)v;
+         else if (!strcmp(key, "MOVIE_NATIVE_COLOR_KEYS")) m->movie_native_color_keys = v == 1;
          else if (!strcmp(key, "STEP_MAX")) m->step_max = (uint32_t)v;
 +        else if (!strcmp(key, "WIDE_ASPECT")) m->aspect_wide = v != 0;
 +        else if (!strcmp(key, "ANAMORPHIC_ASPECT")) m->aspect_anamorphic = v != 0;
@@ -791,7 +791,7 @@ index 18426a0..5dc4680 100644
          else if (!strcmp(key, "UE_MALLOC_VT")) m->ue_malloc_vt = v;
          else if (!strcmp(key, "UE_MALLOC_SLOT")) m->ue_malloc_slot = (unsigned)v;
          else if (!strcmp(key, "FPS_TARGET_PTR")) m->fps_target_ptr = v;
-@@ -327,10 +330,13 @@ uint8_t *dm_fps_state;
+@@ -328,10 +331,13 @@ uint8_t *dm_fps_state;
  int dm_fps_step_max;   // the largest step the stubs give the game (STEP_MAX in its fixups table; 0 = FSTEP_MAX): the frame step holds frames and pays back within it (hle_nvn.c)
  static const char *g_fps_mod;   // the module holding the state page (for the log)
  static float g_render_scale_max = 1.0f;   // the render-scale stub's largest scale (RENDER_SCALE in its fixups table; 1 for a stub that only lowers the game's size)
@@ -805,7 +805,7 @@ index 18426a0..5dc4680 100644
  }
  // The settings in the state page, written when the game starts (main.c, after host loading): on iOS the loading runs at app launch, before the launcher has set DM_FPS_TARGET and
  // DM_RENDER_SCALE (Launcher.swift), and nothing reads the page before the game runs
-@@ -350,35 +356,43 @@ void dm_fps_state_apply(void) {
+@@ -351,35 +357,43 @@ void dm_fps_state_apply(void) {
      const char *dr = getenv("DM_DYNAMIC_RESOLUTION"); uint32_t dyn = dr && !strcmp(dr, "1");
      if (dr && strcmp(dr, "0") && strcmp(dr, "1")) LOG("[RED] DM_DYNAMIC_RESOLUTION=%s: must be 0 or 1; keeping full resolution", dr);
      memcpy(dm_fps_state + 0x40, &dyn, sizeof dyn);
@@ -866,10 +866,10 @@ index 18426a0..5dc4680 100644
              if (hv && sscanf(hv, "%f,%f,%f,%f,%f", &anc[2], &anc[3], &anc[4], &anc[5], &anc[6]) < 4) LOG("[RED] DM_SCREEN_HUD=%s: <edge>,<listed>,<full width>,<full height>[,<tallest>]; keeping the rest", hv);
              memcpy(dm_fps_state + 0x80, anc, sizeof anc);
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index e2901fa..e3a8c88 100644
+index 4f34c05..c63f0e8 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -175,13 +175,13 @@ static void launcher_done(void) { [g_root startGame]; }
+@@ -177,13 +177,13 @@ - (void)startGame {
      front_hud_env();   // before the process's first Metal device, which reads MTL_HUD_ENABLED (an env file's DM_METAL_HUD sets it in main.m already; GitHub issue #840)
      const char *dev = front_ios_device_check();   // that first device: a GPU without BC textures is refused here, not at launch, so the launcher's HUD switch counts
      if (dev) { [self showHint:[NSString stringWithFormat:@"This device is not supported.\n%s", dev]]; return; }   // the host does not start

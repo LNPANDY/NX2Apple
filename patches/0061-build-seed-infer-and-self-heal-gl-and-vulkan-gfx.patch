@@ -372,10 +372,10 @@ index 0000000..a759f2e
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 6a231c8..20ceb97 100755
+index 3e98a01..83aa280 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -4004,6 +4004,21 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+@@ -4020,6 +4020,21 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
      if out_hint and out_hint.suffix == '.app' and out_hint.is_dir() and out_hint not in prefill_msl:
          prefill_msl.append(out_hint)
  
@@ -397,7 +397,7 @@ index 6a231c8..20ceb97 100755
      return {
          'app': app,
          'nsp_dir': nsp_dir,
-@@ -4018,7 +4033,7 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+@@ -4034,7 +4049,7 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
          'seed_dir': seed_dir,
          'seed': seed,
          'seed_romfs_id': seed.get('romfs_identity'),
@@ -406,7 +406,7 @@ index 6a231c8..20ceb97 100755
      }
  
  
-@@ -4367,11 +4382,11 @@ def main(args=None):
+@@ -4385,11 +4400,11 @@ def main(args=None):
      if uedec: decode_ue_shaders(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
      sh = work / 'shader'
      if gfx == 'vulkan':   # the packed version's merged RomFS holds the SPIR-V files the game loads; a capture holds those it generates. A damaged copy (ALLOW_DAMAGED) is keyed by its files' times, as split_shaders keys it

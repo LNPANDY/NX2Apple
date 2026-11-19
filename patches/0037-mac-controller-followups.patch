@@ -14,12 +14,12 @@ Issue: LNPANDY/NX2Apple#1150
  3 files changed, 350 insertions(+), 28 deletions(-)
 
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
-index c19a57f4..68784a4b 100644
+index 8cad868..13e927a 100644
 --- a/dm/host/controllers_mac.m
 +++ b/dm/host/controllers_mac.m
-@@ -168,6 +168,69 @@ static void s2_sink(int player, BOOL on) {
-     if(player<0 || player>=DM_PLAYERS || g_s2_sink[player]==on) return;
-     g_s2_sink[player]=on; dm_haptics_apple_set_sink(player,on ? dm_switch2_rumble : NULL);   // its rumble goes over Bluetooth, not to a Core Haptics engine
+@@ -169,6 +169,69 @@ static void controller_sink(int player, controller_sink_fn sink) {
+     if(player<0 || player>=DM_PLAYERS || g_sink[player]==sink) return;
+     g_sink[player]=sink; dm_haptics_apple_set_sink(player,sink);   // its rumble goes over Bluetooth or HID, not to a Core Haptics engine
  }
 +// Assign each physical Joy-Con pair or standalone half to its own GCController haptics
 +// instance without reusing one pair's left/right handle budgets for another pair.
@@ -85,9 +85,9 @@ index c19a57f4..68784a4b 100644
 +    return nil;
 +}
  static void controller_route_haptics(DMController *d, int player) {
-     if (d && d->s2) { s2_sink(player,YES); return; }
-     s2_sink(player,NO);
-@@ -182,19 +245,14 @@ static void controller_route_haptics(DMController *d, int player) {
+     if (d && d->s2) { controller_sink(player,dm_switch2_rumble); return; }
+     if (d && d->generic && hidpad_rumbles(d->generic)) { controller_sink(player,dm_hidpad_rumble); return; }   // a pad of Nintendo's protocol that answered (pad_hid_mac.h)
+@@ -184,19 +247,14 @@ static void controller_route_haptics(DMController *d, int player) {
          }
      });
      else if(d && d->joycon) {
@@ -102,14 +102,14 @@ index c19a57f4..68784a4b 100644
      } else dm_haptics_apple_controller(player,d.controller);
  }
  static BOOL controller_has_haptics(DMController *d) {
-     if(d->device || d->s2 || d.controller.haptics.supportedLocalities.count) return YES;
+     if(d->device || d->s2 || (d->generic && hidpad_rumbles(d->generic)) || d.controller.haptics.supportedLocalities.count) return YES;
 -    if(d->joycon) for(GCController *c in GCController.controllers)
 -        if(joycon_is_gc_controller(c) && c.haptics.supportedLocalities.count) return YES;
 +    if(d->joycon) return joycon_gc_for_pad(d->joycon,nil).haptics.supportedLocalities.count>0;
      return NO;
  }
  static void controller_merge_haptics(void) {
-@@ -512,13 +570,21 @@ static void hidpad_detach(hid_pad *hid) {
+@@ -532,13 +590,21 @@ static void hidpad_detach(hid_pad *hid) {
  static void joycon_read(joycon_pad *pad) {
      DMController *d=controller_for_joycon(pad); if(!d) return;
      joycon_pad *pri=d->joycon;
@@ -131,7 +131,7 @@ index c19a57f4..68784a4b 100644
      }
      if(!g_merge && d->slot>=0) {
          dm_joy_set(d->slot,joycon_side(pad->st.pid),g_focus ? pad->st.joy_buttons : 0,g_focus ? controller_axis(pad->st.joy_sx) : 0,g_focus ? controller_axis(pad->st.joy_sy) : 0);
-@@ -551,7 +617,10 @@ static void joycon_read_motion(joycon_pad *pad, const uint8_t *rep, size_t len)
+@@ -571,7 +637,10 @@ static void joycon_read_motion(joycon_pad *pad, const uint8_t *rep, size_t len)
  static void joycon_attach(joycon_pad *pad) {
      DMController *d=[DMController new]; d->joycon=pad;
      d.name=@(pad->name); d.model=[@"Nintendo / " stringByAppendingString:d.name];
@@ -143,7 +143,7 @@ index c19a57f4..68784a4b 100644
  }
  static void joycon_detach(joycon_pad *pad) {
      DMController *d=controller_for_joycon(pad); if(!d) return;
-@@ -572,6 +641,7 @@ static void joycon_pair_changed(joycon_pad *pri) {
+@@ -592,6 +661,7 @@ static void joycon_pair_changed(joycon_pad *pri) {
  }
  static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
      DMController *d=controller_for_joycon(pri);
@@ -151,7 +151,7 @@ index c19a57f4..68784a4b 100644
      int slot=d ? d->slot : -1;
      if(!g_merge && slot>=0) {
          int sec_side=joycon_side(sec->st.pid);
-@@ -581,6 +651,7 @@ static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
+@@ -601,6 +671,7 @@ static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
      joycon_pair_changed(pri);
      joycon_attach(sec);
      DMController *sd=controller_for_joycon(sec);
@@ -159,7 +159,7 @@ index c19a57f4..68784a4b 100644
      if(!sd || sd->slot<0) {
          if(sd) { controller_disconnect(sd); sd->joycon=NULL; [g_devices removeObject:sd]; }
          pri->partner=sec; sec->partner=pri; pri->primary=1; sec->primary=0;
-@@ -588,19 +659,21 @@ static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
+@@ -608,19 +679,21 @@ static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
          joycon_pair_changed(pri);
          return;
      }
@@ -183,7 +183,7 @@ index c19a57f4..68784a4b 100644
  }
  static void joycon_unpair_removed(joycon_pad *gone_pad, joycon_pad *keep_pad) {
      DMController *d=controller_for_joycon(gone_pad);
-@@ -613,25 +686,24 @@ static void joycon_unpair_removed(joycon_pad *gone_pad, joycon_pad *keep_pad) {
+@@ -633,25 +706,24 @@ static void joycon_unpair_removed(joycon_pad *gone_pad, joycon_pad *keep_pad) {
          }
          d->joycon=keep_pad;
      }
@@ -215,7 +215,7 @@ index c19a57f4..68784a4b 100644
          else dm_haptics_apple_controller_locality(d->slot,pair,d->joycon->st.pid==JOYCON_PID_L ? GCHapticsLocalityLeftHandle : GCHapticsLocalityRightHandle);
      }
 diff --git a/dm/host/pad_joycon_mac.h b/dm/host/pad_joycon_mac.h
-index 0ac115d1..fa5d1744 100644
+index 0ac115d..fa5d174 100644
 --- a/dm/host/pad_joycon_mac.h
 +++ b/dm/host/pad_joycon_mac.h
 @@ -19,6 +19,7 @@ typedef struct joycon_pad {
@@ -307,7 +307,7 @@ index 0ac115d1..fa5d1744 100644
  
  static void joycon_start(void) {
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index a2f565be..9619d973 100644
+index 45fe7d0..506d711 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
 @@ -5,6 +5,8 @@

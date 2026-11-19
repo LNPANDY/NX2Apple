@@ -34,7 +34,7 @@ Issue: LNPANDY/NX2Apple#1224
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/dm/host/input_preferences_mac.h b/dm/host/input_preferences_mac.h
-index b3a2deef..bedb78ad 100644
+index b3a2dee..bedb78a 100644
 --- a/dm/host/input_preferences_mac.h
 +++ b/dm/host/input_preferences_mac.h
 @@ -5,7 +5,7 @@
