@@ -205,8 +205,10 @@ import NXLauncher
         case .settingsControls:
             root = AnyView(launcher(.settings, category: .controls))
         case .settingsTools:
+            Self.releaseEngine(stores)
             root = AnyView(launcher(.settings, category: .tools))
         case .settingsEngineError:
+            Self.releaseEngine(stores)
             stores.engineSync.failure = BuildFailure(kind: .engineOffline, gameName: nil)
             root = AnyView(launcher(.settings, category: .tools))
         case .sheet(let sheet):
@@ -231,6 +233,13 @@ import NXLauncher
             OnboardingGame(id: $0.titleID, title: $0.name, version: "",
                            cover: GameLibrary.artwork(for: $0, slot: .thumbnail, repo: "", banners: artworkFolder, maxPixel: ArtworkImages.cardPixels))
         }
+    }
+
+    /// Settings > Tools as the released app shows it: the app's own engine (EngineSyncStore), not a checkout. The tree is never
+    /// read: the rows only ask whether there is one.
+    private static func releaseEngine(_ stores: LauncherStores) {
+        if stores.engineSync.bundle == nil { stores.engineSync.bundle = URL(fileURLWithPath: "/nonexistent/nx-gallery-engine") }
+        stores.engineSync.selection = EngineSelection(channel: .stable, engineID: String(repeating: "c", count: 40), version: "1.5.0", previousID: "")
     }
 
     /// What a failure's message adds to its row, as a build would give it.

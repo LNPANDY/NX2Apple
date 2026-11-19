@@ -68,7 +68,7 @@ import XCTest
         host(TargetCard(build: build))
         XCTAssertNotNil(pad.frame(of: "set.build.target." + BuildTarget.mac))
         XCTAssertNil(pad.frame(of: "set.build.target.ios"))
-        host(UpstreamBuilderRow(build: build))
+        host(VStack { UpstreamPicker(build: build); UpstreamBuilderRow(build: build) })
         for id in ["set.upstream", "set.upstream.mngFolder", "set.upstream.s2armFolder"] {
             XCTAssertNotNil(pad.frame(of: id))
         }

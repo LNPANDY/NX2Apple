@@ -100,14 +100,10 @@ struct SettingsPage: View {
         KeysCard(build: build)
         ToolsCard(repo: repo, engine: engine, dependencies: dependencies, buildRunning: build.running,
                   shellCache: { ShellCacheRow(build: build) }, builder: {
-            if ExperimentalBuilder.featureEnabled || MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled {
-                // rows of the build tools group, under its last row
-                CardDivider()
-                if ExperimentalBuilder.featureEnabled { ExperimentalBuilderRow(build: build) }
-                if ExperimentalBuilder.featureEnabled && (MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled) { CardDivider() }
-                if MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled { UpstreamBuilderRow(build: build) }
-            }
-        }) {
+            // rows of the build tools group, under its last row. Each brings the divider above it.
+            if ExperimentalBuilder.featureEnabled { CardDivider(); ExperimentalBuilderRow(build: build) }
+            if MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled { UpstreamBuilderRow(build: build) }
+        }, upstream: MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled ? { UpstreamPicker(build: build) } : nil) {
             DiagnosticsButton(report: diagnostics, game: library.selected)
         }
         .id("set.deps")

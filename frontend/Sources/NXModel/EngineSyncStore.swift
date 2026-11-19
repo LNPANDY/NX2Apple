@@ -333,9 +333,11 @@ import NXCore
         self.downloadStatus = status
     }
 
-    /// What Settings shows for the engine: its version and the pin it was built from.
+    /// What Settings shows for the engine, in words: not set up, its version and whether a newer one is there (#1458).
     package var detail: String {
         guard !selection.engineID.isEmpty else { return t("engine.none") }
-        return String(format: t("engine.detail"), selection.version.isEmpty ? "?" : selection.version, String(selection.engineID.prefix(8)))
+        guard !selection.version.isEmpty else { return t("engine.state.set") }
+        if let available { return String(format: t("engine.state.update"), selection.version, available.version) }
+        return String(format: t("engine.state.current"), selection.version)
     }
 }

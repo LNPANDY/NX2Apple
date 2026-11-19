@@ -3,6 +3,38 @@ import AppKit
 import NXCore
 import NXModel
 
+/// The engine pop-up (nxnative and the other engines that can build): the control of Settings > Tools > Build engine (#1458).
+package struct UpstreamPicker: View {
+    @ObservedObject var build: BuildStore
+    @EnvironmentObject var loc: Localizer
+
+    package init(build: BuildStore) { self.build = build }
+
+    package var body: some View {
+        LauncherDropdown(
+            options: UpstreamBuilderRow.options(build),
+            selection: build.buildUpstream.rawValue,
+            label: loc.t("engine.title"),
+            style: .button
+        ) { raw in
+            if let kind = EngineUpstreamKind(rawValue: raw) {
+                build.selectUpstream(kind)
+            }
+        }
+        .disabled(build.running)
+        .padTarget("set.upstream", scope: "main", enabled: !build.running, activate: { cycle(1) }, adjust: cycle)
+    }
+
+    private func cycle(_ by: Int) {
+        let options = UpstreamBuilderRow.options(build)
+        guard !build.running, let index = options.firstIndex(where: { $0.value == build.buildUpstream.rawValue }), !options.isEmpty,
+              let kind = EngineUpstreamKind(rawValue: options[(index + by + options.count) % options.count].value) else { return }
+        build.selectUpstream(kind)
+    }
+}
+
+/// The folder rows of the other engines (MacNativeGames, S2Arm), under the build tools' rows. Which engine builds is the
+/// Build engine row's pop-up (UpstreamPicker).
 package struct UpstreamBuilderRow: View {
     @ObservedObject var build: BuildStore
     @EnvironmentObject var loc: Localizer
@@ -11,7 +43,8 @@ package struct UpstreamBuilderRow: View {
         self.build = build
     }
 
-    private var availableOptions: [(value: String, label: String)] {
+    /// The engines the pop-up offers: nxnative, and each other one that is set up or chosen.
+    static func options(_ build: BuildStore) -> [(value: String, label: String)] {
         var opts: [(value: String, label: String)] = [
             (EngineUpstreamKind.nxnative.rawValue, "nxnative")
         ]
@@ -25,20 +58,6 @@ package struct UpstreamBuilderRow: View {
     }
 
     package var body: some View {
-        CardRow(loc.t("upstream.title"), detail: loc.t("upstream.note")) {
-            LauncherDropdown(
-                options: availableOptions,
-                selection: build.buildUpstream.rawValue,
-                label: loc.t("upstream.title"),
-                style: .button
-            ) { raw in
-                if let kind = EngineUpstreamKind(rawValue: raw) {
-                    build.selectUpstream(kind)
-                }
-            }
-            .disabled(build.running)
-            .padTarget("set.upstream", scope: "main", enabled: !build.running, activate: { cycle(1) }, adjust: cycle)
-        }
         if MacNativeGamesBuilder.featureEnabled && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames) {
             CardDivider()
             let usable = build.macNativeGamesInstalled
@@ -89,13 +108,6 @@ package struct UpstreamBuilderRow: View {
                 .padTarget("set.upstream.s2armFolder", scope: "main", enabled: !build.running) { if !build.running { pickS2Arm() } }
             }
         }
-    }
-
-    private func cycle(_ by: Int) {
-        let options = availableOptions
-        guard !build.running, let index = options.firstIndex(where: { $0.value == build.buildUpstream.rawValue }), !options.isEmpty,
-              let kind = EngineUpstreamKind(rawValue: options[(index + by + options.count) % options.count].value) else { return }
-        build.selectUpstream(kind)
     }
 
     private func pickMNG() {

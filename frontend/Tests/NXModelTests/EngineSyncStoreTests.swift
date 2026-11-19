@@ -270,12 +270,16 @@ import XCTest
         XCTAssertFalse(store.busy)
     }
 
-    func testTheDetailNamesTheVersionAndThePin() {
+    /// The state in words, no pin or "upstream" (#1458): not set up, set up, up to date, or a newer engine to install.
+    func testTheDetailSaysTheEngineStateInWords() {
         let store = makeStore(bundle: temporary)
         XCTAssertEqual(store.detail, t("engine.none"))
         store.selection = EngineSelection(channel: .stable, engineID: id("c"), version: "", previousID: "")
-        XCTAssertEqual(store.detail, String(format: t("engine.detail"), "?", "cccccccc"))
+        XCTAssertEqual(store.detail, t("engine.state.set"))
         store.selection.version = "1.2.3"
-        XCTAssertEqual(store.detail, String(format: t("engine.detail"), "1.2.3", "cccccccc"))
+        XCTAssertEqual(store.detail, String(format: t("engine.state.current"), "1.2.3"))
+        XCTAssertFalse(store.detail.contains("cccccccc"))
+        store.applyOutcome(.available(EngineUpdate.Engine(id: id("d"), version: "1.2.4")), channel: .stable, quiet: true)
+        XCTAssertEqual(store.detail, String(format: t("engine.state.update"), "1.2.3", "1.2.4"))
     }
 }

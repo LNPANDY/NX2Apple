@@ -8,7 +8,7 @@ import NXModel
 /// Observes the repository, engine sync and dependency stores. What it needs from the build store comes as values:
 /// whether a build runs. The cache row (ShellCacheRow, which observes the build store), the experimental builder's rows (ExperimentalBuilderRow, the same)
 /// and the diagnostics button come as views.
-package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: View {
+package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View, Upstream: View>: View {
     @ObservedObject var repo: RepoStore
     @ObservedObject var engine: EngineSyncStore
     @ObservedObject var dependencies: DependencyStore
@@ -18,17 +18,21 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
     let buildRunning: Bool
     let shellCache: ShellCache
     let builder: Builder
+    /// The engine pop-up (UpstreamPicker): the Build engine row's control when more than one engine can build.
+    let upstream: Upstream?
     let diagnostics: Diagnostics
     @EnvironmentObject var loc: Localizer
 
     package init(repo: RepoStore, engine: EngineSyncStore, dependencies: DependencyStore, buildRunning: Bool,
-                 @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder builder: () -> Builder, @ViewBuilder diagnostics: () -> Diagnostics) {
+                 @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder builder: () -> Builder, upstream: (() -> Upstream)?,
+                 @ViewBuilder diagnostics: () -> Diagnostics) {
         self.repo = repo
         self.engine = engine
         self.dependencies = dependencies
         self.buildRunning = buildRunning
         self.shellCache = shellCache()
         self.builder = builder()
+        self.upstream = upstream?()
         self.diagnostics = diagnostics()
     }
 
@@ -95,6 +99,10 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                     .padTarget("set.repoAuto", scope: "main") { repo.autoUpdate.toggle() }
                 }
             }
+            }
+            if !engine.usesEngineStore, let upstream {   // a checkout: the engine pop-up has a row of its own
+                CardDivider()
+                CardRow(loc.t("engine.title")) { upstream }
             }
             builder   // the build source rows belong to the build tools (#1458)
         }.onChange(of: engine.available?.version) { version in
@@ -186,9 +194,20 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
     /// The release app's engine (EngineSyncStore): which one the build uses, its channel, and the automatic update.
     @ViewBuilder private var engineRows: some View {
         let idle = !(engine.busy || buildRunning)
-        CardRow(loc.t("engine.title"), detail: engine.detail,
+        CardRow(loc.t("engine.title"), detail: engine.busy ? engineBusyTitle : engine.detail,
             dot: engine.selection.engineID.isEmpty ? LauncherPalette.building : LauncherPalette.ready, help: repo.path) {
-            if let next = engine.available {
+            if let upstream {
+                // One row for the engine (#1458): its state in the subtitle, the engine pop-up in the column, Install and Check
+                // for updates in the "…" before it.
+                let install = engine.available.map { [("install", String(format: loc.t("engine.install"), $0.version))] } ?? []
+                DSOverflowMenu(label: loc.t("repo.check"), options: install + [("check", loc.t("repo.check"))], padID: "set.engineCheck") { choice in
+                    guard idle else { return }
+                    if choice == "install" { installingEngine = true; engine.installAvailable() }
+                    else { installingEngine = false; engine.checkForUpdate() }
+                }
+                .disabled(!idle)
+                upstream
+            } else if let next = engine.available {
                 // one action in the column: the update. Checking again is the "…" before it (#1458)
                 DSOverflowMenu(label: loc.t("repo.check"), options: [("check", loc.t("repo.check"))], padID: "set.engineCheck") { _ in
                     if idle { installingEngine = false; engine.checkForUpdate() }
@@ -265,5 +284,14 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
         d.canChooseDirectories = true; d.canChooseFiles = false
         d.message = loc.t("repo.pickMessage")
         if d.runModal() == .OK, let u = d.url { repo.path = u.path }
+    }
+}
+
+extension ToolsCard where Upstream == EmptyView {
+    /// Without the engine pop-up: one engine builds, so the Build engine row's column keeps its update action.
+    package init(repo: RepoStore, engine: EngineSyncStore, dependencies: DependencyStore, buildRunning: Bool,
+                 @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder builder: () -> Builder, @ViewBuilder diagnostics: () -> Diagnostics) {
+        self.init(repo: repo, engine: engine, dependencies: dependencies, buildRunning: buildRunning, shellCache: shellCache, builder: builder,
+                  upstream: nil, diagnostics: diagnostics)
     }
 }
