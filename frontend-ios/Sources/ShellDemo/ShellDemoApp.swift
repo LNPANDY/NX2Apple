@@ -221,6 +221,18 @@ struct DemoScreen: View {
             UIPasteboard.general.string = title
             #endif
             return true
+        }, onSaveCustomCover: { id, jpegData in
+            if let i = games.firstIndex(where: { $0.id == id }),
+               let art = Artwork(id: "custom.\(id).\(UUID().uuidString)", data: jpegData) {
+                games[i].game.banner = art
+                games[i].game.hasCustomCover = true
+            }
+        }, onResetCustomCover: { id in
+            if let i = games.firstIndex(where: { $0.id == id }),
+               let original = SampleData.games.first(where: { $0.id == id }) {
+                games[i].game.banner = original.game.banner
+                games[i].game.hasCustomCover = false
+            }
         })
     }
 }

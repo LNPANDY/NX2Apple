@@ -14,6 +14,7 @@ public struct GameDetailView: View {
     @Environment(\.shellAskDelete) private var askDelete
     @Environment(\.shellAskRestoreBackup) private var askRestoreBackup
     @Environment(\.shellAskHomeScreen) private var askHomeScreen
+    @Environment(\.shellAskChangeCover) private var askChangeCover
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var localRestoreBackup = false
     @State private var localHomeScreen = false
@@ -144,6 +145,17 @@ public struct GameDetailView: View {
                 homeScreenButton
             }
         }
+        if askChangeCover != nil || actions.supportsCustomCover {
+            if nativeSections {
+                Section {
+                    coverButtons
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                }
+            } else {
+                coverButtons
+            }
+        }
         VStack(alignment: .leading, spacing: 10) {
             GameSettingsGlassButton(title: ShellStrings.text("Reset to tested defaults")) { actions.onResetDefaults(detail.id) }
                 .accessibilityIdentifier("set.reset")
@@ -183,6 +195,35 @@ public struct GameDetailView: View {
         }
         .accessibilityIdentifier("set.homeScreen")
         .shellTarget("set.homeScreen", action: requestHomeScreen)
+    }
+
+    private func requestChangeCover() {
+        askChangeCover?(detail.game)
+    }
+
+    private var coverButtons: some View {
+        GlassEffectContainer(spacing: 10) {
+            ViewThatFits(in: .horizontal) {
+                EqualRow(spacing: 10) { coverActionButtons }
+                VStack(spacing: 10) { coverActionButtons }
+            }
+        }
+    }
+
+    @ViewBuilder private var coverActionButtons: some View {
+        GameSettingsGlassButton(title: ShellStrings.text("Change Cover…")) {
+            requestChangeCover()
+        }
+        .accessibilityIdentifier("set.cover")
+        .shellTarget("set.cover", action: requestChangeCover)
+
+        if detail.game.hasCustomCover, let resetCover = actions.onResetCustomCover {
+            GameSettingsGlassButton(title: ShellStrings.text("Reset Cover")) {
+                resetCover(detail.id)
+            }
+            .accessibilityIdentifier("set.cover.reset")
+            .shellTarget("set.cover.reset") { resetCover(detail.id) }
+        }
     }
 
     private var header: some View {

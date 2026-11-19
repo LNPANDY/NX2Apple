@@ -69,9 +69,13 @@ public struct GameTile: Identifiable, Equatable, Sendable {
     public var recentlyPlayed: String?
     /// The engine's manifest says it is a Switch 2 game: the detail view marks it and warns about its memory.
     public var isSwitch2: Bool
+    /// True when the player has saved a custom cropped cover (`custom.jpg`) for this game.
+    public var hasCustomCover: Bool
     public init(id: String, title: String, subtitle: String = "", banner: Artwork? = nil, icon: Artwork? = nil,
-                state: GameState = .playable, recentlyPlayed: String? = nil, version: String = "", isSwitch2: Bool = false) {
+                state: GameState = .playable, recentlyPlayed: String? = nil, version: String = "", isSwitch2: Bool = false,
+                hasCustomCover: Bool = false) {
         self.isSwitch2 = isSwitch2
+        self.hasCustomCover = hasCustomCover
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -310,9 +314,17 @@ public struct ShellActions {
     public var onPrepareHomeScreenGuide: (@MainActor (String) -> Void)?
     /// Releases a pre-warmed floating PiP step guide if the sheet closes without launching Shortcuts.
     public var onCancelPreparedHomeScreenGuide: (@MainActor () -> Void)?
+    /// Persists a user-cropped 16:9 JPEG cover for `gameID` and refreshes its artwork.
+    public var onSaveCustomCover: ((_ gameID: String, _ jpegData: Data) -> Void)?
+    /// Removes the user's custom cover for `gameID` and restores the default banner/icon.
+    public var onResetCustomCover: ((_ gameID: String) -> Void)?
 
     public var supportsHomeScreen: Bool {
         onAddToHomeScreenWithGuide != nil || onAddToHomeScreen != nil || onCopyShortcutURL != nil
+    }
+
+    public var supportsCustomCover: Bool {
+        onSaveCustomCover != nil
     }
 
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
@@ -334,7 +346,9 @@ public struct ShellActions {
                 onAddToHomeScreen: (@MainActor (String) async -> Bool)? = nil,
                 onAddToHomeScreenWithGuide: (@MainActor (String, Bool) async -> Bool)? = nil,
                 onPrepareHomeScreenGuide: (@MainActor (String) -> Void)? = nil,
-                onCancelPreparedHomeScreenGuide: (@MainActor () -> Void)? = nil) {
+                onCancelPreparedHomeScreenGuide: (@MainActor () -> Void)? = nil,
+                onSaveCustomCover: ((_ gameID: String, _ jpegData: Data) -> Void)? = nil,
+                onResetCustomCover: ((_ gameID: String) -> Void)? = nil) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -363,5 +377,7 @@ public struct ShellActions {
         self.onAddToHomeScreenWithGuide = onAddToHomeScreenWithGuide
         self.onPrepareHomeScreenGuide = onPrepareHomeScreenGuide
         self.onCancelPreparedHomeScreenGuide = onCancelPreparedHomeScreenGuide
+        self.onSaveCustomCover = onSaveCustomCover
+        self.onResetCustomCover = onResetCustomCover
     }
 }

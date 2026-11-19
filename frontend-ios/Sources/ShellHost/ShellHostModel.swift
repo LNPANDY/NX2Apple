@@ -17,6 +17,8 @@ public struct ShellHostConfig: Sendable {
     public var hotFrameworksRoot: URL?
     /// The app's `Documents/games/`: `<title ID>/` holds a game's data, save, temp and log.txt (patch 0003's layout).
     public var appDataRoot: URL
+    /// Writable `Documents/Banners/` directory storing per-game `custom.jpg` and backfilled `auto.jpg` covers.
+    public var bannersRoot: URL
     public var environment: HostEnvironment
     /// Opened by "Update app". Nil: the shell says no address is configured.
     public var updateURL: URL?
@@ -24,6 +26,8 @@ public struct ShellHostConfig: Sendable {
     public var openURL: @MainActor @Sendable (URL) -> Void
     public var copyToPasteboard: @MainActor @Sendable (String) -> Void
     public var saveImageToPhotos: @MainActor @Sendable (Data) async -> Bool
+    /// Fetches official 16:9 banner bytes for games missing bundled banners. Injectable for offline tests.
+    public var fetchBannerData: @Sendable (URL) async -> Data?
     public var prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)?
     public var cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)?
     public var startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)?
@@ -39,11 +43,13 @@ public struct ShellHostConfig: Sendable {
     var onJoinProgress: (@Sendable (DataParts.Progress) -> Void)?
 
     public init(gamesRoot: URL, appDataRoot: URL, hotFrameworksRoot: URL? = nil,
+                bannersRoot: URL? = nil,
                 environment: HostEnvironment = HostEnvironment(), updateURL: URL? = nil,
                 defaults: @escaping @Sendable (String) -> UserDefaults = GameDefaults.suite(for:),
                 openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen,
                 copyToPasteboard: @escaping @MainActor @Sendable (String) -> Void = ShellHostConfig.systemCopyToPasteboard,
                 saveImageToPhotos: @escaping @MainActor @Sendable (Data) async -> Bool = ShellHostConfig.systemSaveImageToPhotos,
+                fetchBannerData: @escaping @Sendable (URL) async -> Data? = GameBannerStore.fetchRemoteBanner,
                 prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)? = nil,
                 cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)? = nil,
                 startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)? = nil,
@@ -56,12 +62,14 @@ public struct ShellHostConfig: Sendable {
         self.gamesRoot = gamesRoot
         self.hotFrameworksRoot = hotFrameworksRoot
         self.appDataRoot = appDataRoot
+        self.bannersRoot = bannersRoot ?? appDataRoot.deletingLastPathComponent().appendingPathComponent("Banners", isDirectory: true)
         self.environment = environment
         self.updateURL = updateURL
         self.defaults = defaults
         self.openURL = openURL
         self.copyToPasteboard = copyToPasteboard
         self.saveImageToPhotos = saveImageToPhotos
+        self.fetchBannerData = fetchBannerData
         self.prepareFloatingGuide = prepareFloatingGuide
         self.cancelPreparedFloatingGuide = cancelPreparedFloatingGuide
         self.startFloatingGuide = startFloatingGuide
@@ -104,6 +112,12 @@ public struct ShellHostConfig: Sendable {
     public static func defaultHotFrameworksRoot() -> URL {
         (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("Frameworks", isDirectory: true)
+    }
+
+    /// The app's writable `Documents/Banners/` directory for custom and backfilled covers.
+    public static func defaultBannersRoot() -> URL {
+        (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("Banners", isDirectory: true)
     }
 }
 
@@ -170,6 +184,9 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var backupScanGeneration: UInt64 = 0
     @ObservationIgnored private var backupScanTask: Task<Void, Never>?
     @ObservationIgnored private var latestBackups: [String: String] = [:]
+    @ObservationIgnored private var bannerFetchGeneration: UInt64 = 0
+    @ObservationIgnored private var bannerFetchTask: Task<Void, Never>?
+    @ObservationIgnored private var attemptedBannerFetches: Set<String> = []
     @ObservationIgnored private var signingCheckTask: Task<Void, Never>?
     @ObservationIgnored private var signingWarningDismissed = false
     @ObservationIgnored private var deepLinkGeneration: UInt64 = 0
@@ -209,6 +226,7 @@ public struct ShellHostConfig: Sendable {
         }
         let gamesRoot = config.gamesRoot
         let hotRoot = config.hotFrameworksRoot
+        let bannersRoot = config.bannersRoot
         startupJoinTask = Task { [weak self] in
             let joined = await Task.detached(priority: .utility) { () -> Bool in
                 let documents = dataRoot.deletingLastPathComponent()
@@ -217,6 +235,9 @@ public struct ShellHostConfig: Sendable {
                 let allEntries = GameCatalogue.scan(root: gamesRoot, hotRoot: hotRoot, gameDataRoot: dataRoot)
                 let claimed = LooseRomfsClaimer.claimAll(documents: documents, appDataRoot: dataRoot, entries: allEntries)
                 BackupExclusion.apply(appDataRoot: dataRoot)
+                if FileManager.default.fileExists(atPath: bannersRoot.path) {
+                    BackupExclusion.exclude(bannersRoot)
+                }
                 return !joined.isEmpty || !claimed.isEmpty
             }.value
             self?.finishJoinRun(joined: joined, generation: joinGen)
@@ -282,6 +303,7 @@ public struct ShellHostConfig: Sendable {
         await looseClaimTask?.value
         await signingCheckTask?.value
         await backupScanTask?.value
+        await bannerFetchTask?.value
         for task in romfsChecks.values.compactMap(\.task) {
             await task.value
         }
@@ -377,6 +399,7 @@ public struct ShellHostConfig: Sendable {
         await shellScan?.value
         await signingCheckTask?.value
         await backupScanTask?.value
+        await bannerFetchTask?.value
         for entry in entries { _ = await verifiedData(for: entry) }
     }
 
@@ -418,6 +441,7 @@ public struct ShellHostConfig: Sendable {
         details = built.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
         startShellScan(force: true)
         startBackupScan()
+        startMissingBannerFetch()
         if !afterClaim && !launchingGame {
             startLooseRomfsClaim()
         }
@@ -625,10 +649,13 @@ public struct ShellHostConfig: Sendable {
             state = .joiningGameData(percent: percent, doneSize: doneSize, totalSize: totalSize)
         }
         let played = lastPlayed(entry.id)
+        let bannerResolution = GameBannerStore.resolve(for: entry, bannersRoot: config.bannersRoot)
+        let resolvedBanner = bannerResolution.candidates.lazy.compactMap { self.image($0) }.first
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
-                            banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
+                            banner: resolvedBanner, icon: image(entry.iconURL), state: state,
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
-                            isSwitch2: entry.manifest?.console == "switch2")
+                            isSwitch2: entry.manifest?.console == "switch2",
+                            hasCustomCover: bannerResolution.hasCustomCover)
         guard let profile = profile(for: entry, data: data) else {
             resolvedProfiles.removeValue(forKey: entry.id)
             return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false, readiness: readiness))
@@ -770,7 +797,80 @@ public struct ShellHostConfig: Sendable {
             },
             onCancelPreparedHomeScreenGuide: { [weak self] in
                 self?.cancelPreparedHomeScreenFloatingGuide()
+            },
+            onSaveCustomCover: { [weak self] id, jpegData in
+                self?.saveCustomCover(for: id, jpegData: jpegData)
+            },
+            onResetCustomCover: { [weak self] id in
+                self?.resetCustomCover(for: id)
             })
+    }
+
+    // MARK: Custom and backfilled covers
+
+    /// Atomically saves a user-cropped 16:9 JPEG cover and immediately refreshes the game's artwork.
+    public func saveCustomCover(for id: String, jpegData: Data) {
+        guard entry(id) != nil else { return }
+        do {
+            let url = try GameBannerStore.saveCustomBanner(jpegData, for: id, bannersRoot: config.bannersRoot)
+            artwork.removeValue(forKey: url)
+            refresh(id)
+        } catch {
+            notice = hostText("The custom cover could not be saved.")
+        }
+    }
+
+    /// Removes the user's custom cover and immediately restores the default banner/icon.
+    public func resetCustomCover(for id: String) {
+        guard entry(id) != nil else { return }
+        if let removed = GameBannerStore.removeCustomBanner(for: id, bannersRoot: config.bannersRoot) {
+            artwork.removeValue(forKey: removed)
+        }
+        refresh(id)
+        startMissingBannerFetch()
+    }
+
+    /// Low-priority background backfill of official 16:9 banners for installed games lacking bundled/custom/auto banners.
+    /// Tries built-in `KnownGameBanners` first, then falls back to `https://api.nlib.cc/nx/<TID>/banner/720p`.
+    private func startMissingBannerFetch() {
+        let bannersRoot = config.bannersRoot
+        let candidates: [(id: String, urls: [URL])] = entries.compactMap { entry in
+            let key = entry.id.uppercased()
+            guard !attemptedBannerFetches.contains(key) else { return nil }
+            let urls = GameBannerStore.autoBackfillURLs(for: entry, bannersRoot: bannersRoot)
+            guard !urls.isEmpty else { return nil }
+            return (entry.id, urls)
+        }
+        guard !candidates.isEmpty else { return }
+        for item in candidates {
+            attemptedBannerFetches.insert(item.id.uppercased())
+        }
+
+        bannerFetchTask?.cancel()
+        bannerFetchGeneration &+= 1
+        let generation = bannerFetchGeneration
+        let fetcher = config.fetchBannerData
+
+        bannerFetchTask = Task { [weak self] in
+            for item in candidates {
+                guard !Task.isCancelled else { return }
+                let savedURL: URL? = await Task.detached(priority: .utility) { () -> URL? in
+                    for remoteURL in item.urls {
+                        guard !Task.isCancelled else { return nil }
+                        guard let data = await fetcher(remoteURL), !Task.isCancelled else { continue }
+                        if let url = try? GameBannerStore.saveAutoBanner(data, for: item.id, bannersRoot: bannersRoot) {
+                            return url
+                        }
+                    }
+                    return nil
+                }.value
+                guard let self, !Task.isCancelled, self.bannerFetchGeneration == generation else { return }
+                if let savedURL, self.entry(item.id) != nil {
+                    self.artwork.removeValue(forKey: savedURL)
+                    self.refresh(item.id)
+                }
+            }
+        }
     }
 
     public func change(_ id: String, setting: String, value: String) {
@@ -943,6 +1043,12 @@ public struct ShellHostConfig: Sendable {
         pickedDataNotes.removeValue(forKey: id)
         latestBackups.removeValue(forKey: id)
         resolvedProfiles.removeValue(forKey: id)
+        if let customURL = GameBannerStore.customBannerURL(for: id, bannersRoot: config.bannersRoot) {
+            artwork.removeValue(forKey: customURL)
+        }
+        if let autoURL = GameBannerStore.autoBannerURL(for: id, bannersRoot: config.bannersRoot) {
+            artwork.removeValue(forKey: autoURL)
+        }
         if pendingCloudLaunch?.game.titleID == id {
             cancelCloudConflict()
         }
