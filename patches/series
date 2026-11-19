@@ -60,3 +60,4 @@
 0062-mac-launcher-bring-the-last-played-save-along-al.patch
 0063-nvn-decode-cpu-bc-buffer-to-texture-copies-and-r.patch
 0064-older-devices-decode-bc-textures-across-the-cpu.patch
+0065-ios-a-game-framework-s-copies-are-clones-of-the.patch
