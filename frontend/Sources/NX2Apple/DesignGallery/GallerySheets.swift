@@ -12,6 +12,10 @@ enum GallerySheet: String, CaseIterable {
     case removeGame
     case controllersSheet
     case controlsSheet, controlsDiscard
+    case cloudFetching, cloudFetchingLong, cloudChoose, cloudChosen, cloudUnreadable
+    case freeSpace, freeSpaceMeasuring, freeSpaceConfirm, buildFilesRemove
+    case confirmUninstall, confirmEngineChannel, confirmStaleFrameworks, confirmBuildAnyway, confirmRemovePlayer
+    case confirmCancelQueue, confirmCancelDraft, confirmTestedValues
 
     var title: String {
         switch self {
@@ -23,6 +27,23 @@ enum GallerySheet: String, CaseIterable {
         case .controllersSheet: return "Controllers"
         case .controlsSheet: return "Keyboard controls"
         case .controlsDiscard: return "Keyboard controls: discard changes"
+        case .cloudFetching: return "Cloud save: fetching"
+        case .cloudFetchingLong: return "Cloud save: fetching, long"
+        case .cloudChoose: return "Cloud save: choose"
+        case .cloudChosen: return "Cloud save: one chosen"
+        case .cloudUnreadable: return "Cloud save: unreadable"
+        case .freeSpace: return "Free space"
+        case .freeSpaceMeasuring: return "Free space: measuring"
+        case .freeSpaceConfirm: return "Free space: confirm"
+        case .buildFilesRemove: return "Remove build files"
+        case .confirmUninstall: return "Uninstall the app"
+        case .confirmEngineChannel: return "Switch the engine channel"
+        case .confirmStaleFrameworks: return "Build installed games again"
+        case .confirmBuildAnyway: return "Build anyway"
+        case .confirmRemovePlayer: return "Remove a player"
+        case .confirmCancelQueue: return "Cancel the queue"
+        case .confirmCancelDraft: return "Cancel a build draft"
+        case .confirmTestedValues: return "Use tested values"
         }
     }
 
@@ -31,6 +52,7 @@ enum GallerySheet: String, CaseIterable {
         switch self {
         case .controllersSheet: return CGSize(width: 680, height: 720)   // console mode's view (ConsoleControllersView.swift), not this pass
         case .controlsSheet: return CGSize(width: 600, height: 700)
+        case .freeSpace, .freeSpaceMeasuring: return CGSize(width: 560, height: 690)
         default: return nil
         }
     }
@@ -50,9 +72,37 @@ extension GalleryFixtures {
             saves: .init(kind: .saves, paths: [out + "/save/\(id)"], bytes: 1_200_000), shellRoot: "/Volumes/Games/NX2Apple-shell")
     }
 
+    /// A build folder as the Free space sheet measures it: example sizes, no files.
+    private func survey(_ game: LibraryGame) -> BuildFolderSurvey {
+        BuildFolderSurvey(folder: "/Volumes/Games/\(game.name)/\(game.titleID)_build",
+                          sizes: [.extracted: 9_800_000_000, .shaders: 5_850_000_000, .oldShaders: 4_400_000_000, .xcode: 2_100_000_000, .caches: 610_000_000],
+                          kept: 48_000_000,
+                          oldShaders: [OldShaderVersion(name: "b-157e1b96c8da", bytes: 2_100_000_000), OldShaderVersion(name: "b-a78f966a7b38", bytes: 2_300_000_000)])
+    }
+
+    private func cloudGate(_ step: CloudSaveStep, titleID: String) -> CloudSaveGate {
+        let gate = CloudSaveGate()
+        gate.step = step
+        gate.qaTitleID = titleID
+        return gate
+    }
+
     func sheetView(_ sheet: GallerySheet, stores: LauncherStores, library: GameLibrary, controls: ControlLayout) -> AnyView {
         let game = library.games.first ?? LibraryGame(titleID: catalog[0].titleID, name: catalog[0].name)
+        let name = game.displayName(lang)
         let icon = GameLibrary.appIcon(for: game, banners: library.artworkDirectory)
+        let t = stores.localizer.t
+        func confirm(subject: DSSheetSubject? = nil, _ title: String, subtitle: String = "", note: String = "", cancel: String = "saves.cancel",
+                     _ action: String, destructive: Bool = true) -> AnyView {
+            AnyView(LauncherConfirmSheet(subject: subject, title: title, subtitle: subtitle, note: note, cancelTitle: t(cancel), confirmTitle: action,
+                                         destructive: destructive, scope: "gallery", cancel: {}, confirm: {}))
+        }
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let differ = CloudSaveQuestion(gameName: name, outcome: .bothChanged, local: .init(hash: "a", saved: now.addingTimeInterval(-20 * 60)),
+                                       cloud: .init(hash: "b", saved: now.addingTimeInterval(-26 * 3600), device: "iPhone17,1"), reason: nil,
+                                       backups: directory)
+        let unreadable = CloudSaveQuestion(gameName: name, outcome: .unreadable, local: .init(hash: "a", saved: now), cloud: nil,
+                                           reason: "The Internet connection appears to be offline.", backups: directory)
         switch sheet {
         case .deleteGame, .deleteGameSaves:
             return AnyView(DeleteGameSheet(game: game, shellRoot: "", icon: icon, plan: deletionPlan(game), saves: sheet == .deleteGameSaves))
@@ -61,17 +111,46 @@ extension GalleryFixtures {
         case .deleteGameMeasuring:
             return AnyView(DeleteGameSheet(game: game, shellRoot: "", icon: icon, measures: false))
         case .removeGame:
-            return AnyView(LauncherConfirmSheet(subject: .game(icon), title: stores.localizer.t("library.removeQuestion"), subtitle: game.displayName(lang),
-                                                note: stores.localizer.t("library.removeNote"), cancelTitle: stores.localizer.t("saves.cancel"),
-                                                confirmTitle: stores.localizer.t("library.remove"), destructive: true, scope: "remove", cancel: {}, confirm: {}))
+            return confirm(subject: .game(icon), t("library.removeQuestion"), subtitle: name, note: t("library.removeNote"), t("library.remove"))
         case .controllersSheet:
             return AnyView(ConsoleControllersSheet(driver: MockConsoleDriver(scenario: .controllers, lang: lang, animated: false), lang: lang, close: {}))
         case .controlsSheet:
             return AnyView(ControlsView(layout: controls))
         case .controlsDiscard:
-            return AnyView(LauncherConfirmSheet(title: stores.localizer.t("controls.discardTitle"), subtitle: "", note: stores.localizer.t("controls.discardNote"),
-                                                cancelTitle: stores.localizer.t("controls.keepEditing"), confirmTitle: stores.localizer.t("controls.discard"),
-                                                destructive: true, scope: "controldiscard", cancel: {}, confirm: {}))
+            return confirm(t("controls.discardTitle"), note: t("controls.discardNote"), cancel: "controls.keepEditing", t("controls.discard"))
+        case .cloudFetching, .cloudFetchingLong:
+            return AnyView(CloudSaveSheet(gate: cloudGate(.fetching(gameName: name, long: sheet == .cloudFetchingLong), titleID: game.titleID), icon: { _ in icon }))
+        case .cloudChoose, .cloudChosen:
+            return AnyView(CloudSaveSheet(gate: cloudGate(.asking(differ), titleID: game.titleID), icon: { _ in icon }, picked: sheet == .cloudChosen ? .cloud : nil))
+        case .cloudUnreadable:
+            return AnyView(CloudSaveSheet(gate: cloudGate(.asking(unreadable), titleID: game.titleID), icon: { _ in icon }))
+        case .freeSpace:
+            return AnyView(FreeSpaceView(m: stores.build, game: game, icon: icon, survey: survey(game), chosen: [.extracted, .oldShaders]))
+        case .freeSpaceMeasuring:
+            return AnyView(FreeSpaceView(m: stores.build, game: game, icon: icon, survey: nil, measures: false))
+        case .freeSpaceConfirm:
+            return confirm(subject: .game(icon), String(format: t("free.confirm"), FreeSpaceView.bytes(14_200_000_000)), subtitle: name,
+                           note: [t("free.confirmNote"), t("free.cost.extracted"), t("free.cost.oldShaders")].joined(separator: "\n"), t("free.confirmButton"))
+        case .buildFilesRemove:
+            return AnyView(BuildFilesRemoveSheet(entry: BuildFilesStore.Entry(id: game.id, name: name, folder: "/Volumes/Games/\(game.name)/\(game.titleID)_build",
+                                                                              bytes: 18_900_000_000), subject: .game(icon), cancel: {}, confirm: {}))
+        case .confirmUninstall:
+            return confirm(subject: .app, t("uninstall.title"), note: t("uninstall.confirm"), t("uninstall.confirmButton"))
+        case .confirmEngineChannel:
+            return confirm(t("engine.switch.title"), note: t("engine.switch.toExperimental"), cancel: "engine.switch.cancel",
+                           String(format: t("engine.switch.go"), t("engine.channel.experimental")), destructive: false)
+        case .confirmStaleFrameworks:
+            return confirm(t("stale.title"), note: String(format: t("stale.message"), "Lantern Coast, Paper Comet"), cancel: "stale.stop", t("stale.go"), destructive: false)
+        case .confirmBuildAnyway:
+            return confirm(t("fail.confirm.title"), note: t("fail.shaderRegression.risk"), cancel: "fail.confirm.cancel", t("fail.confirm.go"), destructive: false)
+        case .confirmRemovePlayer:
+            return confirm(String(format: t("players.removeAsk"), "Alex"), note: t("players.removeNote"), cancel: "players.cancel", t("players.remove"))
+        case .confirmCancelQueue:
+            return confirm(String(format: t("queue.cancelConfirm"), 3), cancel: "queue.keep", t("queue.cancel"))
+        case .confirmCancelDraft:
+            return confirm(subject: .game(icon), t("flow.cancelTitle"), subtitle: name, note: t("flow.cancelNote"), t("flow.cancel"))
+        case .confirmTestedValues:
+            return confirm(subject: .game(icon), t("launch.useTested"), subtitle: name, note: String(format: t("launch.useTestedMany"), 3), t("launch.useTested"), destructive: false)
         }
     }
 }

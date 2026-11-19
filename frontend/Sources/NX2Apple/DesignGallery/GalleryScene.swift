@@ -135,6 +135,8 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         if case .sheet = self { return false }
         return ![.gameOptions, .libraryNarrow].contains(self)
     }
+    /// A sheet: drawn without the window's title bar, as it opens over the launcher.
+    var isSheet: Bool { if case .sheet = self { return true } else { return false } }
     /// A sheet drawn at the size it takes: as wide as its frame, as high as its content (GallerySheet.size nil).
     var fitsContent: Bool {
         if case .sheet(let sheet) = self { return sheet.size == nil }

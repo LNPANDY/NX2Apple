@@ -97,7 +97,7 @@ struct LaunchOptionsView: View {
         .sheet(isPresented: $askingTested) {
             if let game, let settings {
                 let count = Self.changed(settings, value: { value($0, game) }).count
-                LauncherConfirmSheet(title: loc.t("launch.useTested"), subtitle: game.displayName(loc.lang),
+                LauncherConfirmSheet(subject: .game(GameLibrary.appIcon(for: game, banners: library.artworkDirectory)), title: loc.t("launch.useTested"), subtitle: game.displayName(loc.lang),
                                      note: count == 1 ? loc.t("launch.useTestedOne") : String(format: loc.t("launch.useTestedMany"), count),
                                      cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("launch.useTested"), scope: "tested",
                                      cancel: { askingTested = false }, confirm: { askingTested = false; reset(settings) })

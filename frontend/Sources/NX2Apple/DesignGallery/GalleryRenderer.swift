@@ -48,7 +48,7 @@ struct GalleryReleases: ReleaseSource {
         defer { LauncherGlass.forceStatic = wasStatic }
         let host = NSHostingView(rootView: fixtures.view(scene, size: frame))
         if scene.fitsContent { host.frame = NSRect(origin: .zero, size: host.fittingSize) }   // a sheet as high as its content
-        let window = Window(size: scene.fitsContent ? host.frame.size : NSSize(width: frame.width, height: frame.height), titled: !scene.fitsContent)
+        let window = Window(size: scene.fitsContent ? host.frame.size : NSSize(width: frame.width, height: frame.height), titled: !scene.isSheet)
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil); window.contentView = nil; window.close() }

@@ -132,6 +132,65 @@ package extension DSSheet where Leading == EmptyView {
     }
 }
 
+/// A sheet whose content scrolls (a list of games, the key bindings, the parts of a build folder): the same header, insets and
+/// button row as DSSheet, the header and the buttons fixed and the content between them scrolling. It has the size it is given.
+package struct DSScrollingSheet<Content: View, Leading: View, Buttons: View>: View {
+    /// `scrollTarget`: the id (`.id`) the list scrolls to when it changes, the controller's focus.
+    package init(width: CGFloat, height: CGFloat? = nil, subject: DSSheetSubject? = nil, title: String, message: String = "",
+                 scrollTarget: String? = nil,
+                 @ViewBuilder content: () -> Content, @ViewBuilder leading: () -> Leading, @ViewBuilder buttons: () -> Buttons) {
+        self.width = width; self.height = height; self.subject = subject; self.title = title; self.message = message
+        self.scrollTarget = scrollTarget
+        self.content = content(); self.leading = leading(); self.buttons = buttons()
+    }
+    let width: CGFloat
+    let height: CGFloat?
+    let subject: DSSheetSubject?
+    let title: String
+    let message: String
+    let scrollTarget: String?
+    let content: Content
+    let leading: Leading
+    let buttons: Buttons
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    package var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DSSheetHeader(subject: subject, title: title, message: message)
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DSSheetInsets.gap) { content }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DS.Space.xxs).padding(.bottom, DSSheetInsets.gap)
+                }
+                .onChange(of: scrollTarget) { id in
+                    if let id { withAnimation(reduceMotion ? nil : .easeInOut(duration: DS.Motion.standard)) { proxy.scrollTo(id, anchor: .center) } }
+                }
+            }
+            DSSheetButtonRow(leading: { leading }, buttons: { buttons })
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.gap).padding(.bottom, DSSheetInsets.vertical)
+        }
+        .frame(width: width, height: height)
+        .dsSheetSurface()
+    }
+}
+
+/// The primary button of a sheet's button row (Done, Save, Use selected): the accent, Return when `takesReturn`.
+package struct DSSheetPrimaryButton: View {
+    package init(_ title: String, takesReturn: Bool = true, action: @escaping () -> Void) {
+        self.title = title; self.takesReturn = takesReturn; self.action = action
+    }
+    let title: String
+    let takesReturn: Bool
+    let action: () -> Void
+    package var body: some View {
+        Button(action: action) { Text(title).font(DS.Font.bodyStrong).padding(.horizontal, DS.Space.m) }
+            .buttonStyle(DSPrimaryButtonStyle())
+            .keyboardShortcut(takesReturn ? .defaultAction : nil)
+    }
+}
+
 extension View {
     /// The sheet's page: the dark background, the body font, the dark appearance and the cream tint.
     package func dsSheetSurface() -> some View {

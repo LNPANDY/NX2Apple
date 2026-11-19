@@ -385,7 +385,7 @@ struct LauncherView: View {
             Button(loc.t("library.ok")) { launchError = nil; library.error = nil }
         } message: { Text(launchError ?? library.error ?? "") }
         .sheet(item: $removing) { game in
-            LauncherConfirmSheet(title: loc.t("library.removeQuestion"), subtitle: game.displayName(loc.lang), note: loc.t("library.removeNote"),
+            LauncherConfirmSheet(subject: .game(GameLibrary.appIcon(for: game, banners: library.artworkDirectory)), title: loc.t("library.removeQuestion"), subtitle: game.displayName(loc.lang), note: loc.t("library.removeNote"),
                 cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("library.remove"), destructive: true, scope: "remove",
                 cancel: { removing = nil }, confirm: { library.remove(game.id); removing = nil }).environmentObject(padFocus)
         }
@@ -400,7 +400,7 @@ struct LauncherView: View {
         .sheet(isPresented: $controlsOpen) { ControlsView(layout: controls, cancelRequest: controlsCancelRequest).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
             if let id = freeSpaceFor, let game = BuildFiles.freeSpaceGame(id: id, in: library.games, store: stores.buildFiles) {
-                FreeSpaceView(m: m, game: game).environmentObject(padFocus)
+                FreeSpaceView(m: m, game: game, icon: GameLibrary.appIcon(for: game, banners: library.artworkDirectory)).environmentObject(padFocus)
             }
         }
         .onChange(of: freeSpaceFor) { id in
@@ -418,7 +418,7 @@ struct LauncherView: View {
             }
         }
         .buildFilesWiring(stores.buildFiles, library: library, build: m, recorded: recorder.recorded, buildingID: m.running ? activeBuildID : nil, pad: padFocus, scope: { currentPadScope })
-        .cloudSaveSheet(cloudGate, pad: padFocus, scope: { currentPadScope })
+        .cloudSaveSheet(cloudGate, pad: padFocus, icon: { id in library.games.first { $0.titleID == id }.flatMap { GameLibrary.appIcon(for: $0, banners: library.artworkDirectory) } }, scope: { currentPadScope })
         .syncControllerLayouts(library: library, controls: controls)
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
         .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)
@@ -440,7 +440,7 @@ struct LauncherView: View {
         .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates, build: m).environmentObject(padFocus) }
         .onChange(of: updates.showUpdateSheet) { _ in padFocus.scope = currentPadScope }
         .sheet(isPresented: Binding(get: { updates.uninstallPlan != nil }, set: { if !$0 { updates.uninstallPlan = nil } })) {
-            LauncherConfirmSheet(title: loc.t("uninstall.title"), subtitle: "", note: loc.t("uninstall.confirm"),
+            LauncherConfirmSheet(subject: .app, title: loc.t("uninstall.title"), subtitle: "", note: loc.t("uninstall.confirm"),
                 cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("uninstall.confirmButton"), destructive: true, scope: "uninstall",
                 cancel: { updates.uninstallPlan = nil }, confirm: { updates.confirmUninstall() }).environmentObject(padFocus)
         }
