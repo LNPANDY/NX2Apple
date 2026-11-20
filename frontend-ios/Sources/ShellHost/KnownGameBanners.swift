@@ -185,16 +185,17 @@ public enum KnownGameBanners {
 
     public static func isAllowedURL(_ url: URL) -> Bool {
         guard url.scheme?.lowercased() == "https",
-              let host = url.host?.lowercased(), !host.isEmpty else { return false }
+              var host = url.host?.lowercased(), !host.isEmpty else { return false }
+        while host.hasSuffix(".") { host.removeLast() }
         return imageHosts.contains(host)
     }
 
-    /// True when `url` is an HTTPS Nintendo store page (`nintendo.com` or `*.nintendo.com`).
+    /// True when `url` is an HTTPS Nintendo store page (`nintendo.com`, `*.nintendo.com`, or `store.nintendo.com.hk`).
     public static func isAllowedStoreURL(_ url: URL) -> Bool {
         guard url.scheme?.lowercased() == "https",
               var host = url.host?.lowercased(), !host.isEmpty else { return false }
         while host.hasSuffix(".") { host.removeLast() }
-        return host == "nintendo.com" || host.hasSuffix(".nintendo.com")
+        return host == "nintendo.com" || host.hasSuffix(".nintendo.com") || host == "store.nintendo.com.hk"
     }
 
     /// Case-insensitive lookup by 16-hex Switch title ID.

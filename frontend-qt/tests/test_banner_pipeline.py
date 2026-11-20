@@ -469,6 +469,66 @@ print('OK')
                 self.assertTrue(store._try_store_banner('0400000000010000'))
                 self.assertTrue((store.banners_dir / '0400000000010000.png').is_file())
 
+    def test_pre_hop_redirect_handler_blocks_ssrf_downgrade_and_suffix_bypass(self) -> None:
+        # Host normalization & suffix-bypass checks
+        self.assertTrue(kb.is_allowed_store_url('https://www.nintendo.com/us/store/products/demo/'))
+        self.assertTrue(kb.is_allowed_store_url('https://store.nintendo.com.hk/70010000000001'))
+        self.assertTrue(kb.is_allowed_banner_url('HTTPS://assets.nintendo.com./image/upload/x'))
+        self.assertFalse(kb.is_allowed_store_url('https://evilnintendo.com/us/'))
+        self.assertFalse(kb.is_allowed_store_url('https://evilnintendo.com.hk/hk/'))
+        self.assertFalse(kb.is_allowed_store_url('https://evil-store.nintendo.com.hk/hk/'))
+        self.assertFalse(kb.is_allowed_store_url('http://www.nintendo.com/us/'))
+
+        store_handler = kb._AllowedRedirectHandler(kb.is_allowed_store_url)
+        img_handler = kb._AllowedRedirectHandler(kb.is_allowed_banner_url)
+        store_req = kb.urllib.request.Request('https://ec.nintendo.com/apps/04008E001F098000/US')
+        img_req = kb.urllib.request.Request('https://assets.nintendo.com/image/upload/demo')
+
+        # Disallowed hops must raise _PolicyRejectionError BEFORE any next-hop request is issued
+        for bad_target in (
+            'http://www.nintendo.com/us/store/products/demo/',
+            'https://127.0.0.1/admin',
+            'http://169.254.169.254/latest/meta-data/',
+            'https://evil.example/bounce',
+            'https://evilnintendo.com/us/store/',
+            'https://evilnintendo.com.hk/hk/',
+        ):
+            with self.assertRaises(kb._PolicyRejectionError, msg=bad_target):
+                store_handler.redirect_request(store_req, None, 302, 'Found', {}, bad_target)
+
+        for bad_img_target in (
+            'http://assets.nintendo.com/image/upload/demo',
+            'https://127.0.0.1/a.jpg',
+            'https://evil.example/a.jpg',
+            'https://evilassets.nintendo.com/a.jpg',
+        ):
+            with self.assertRaises(kb._PolicyRejectionError, msg=bad_img_target):
+                img_handler.redirect_request(img_req, None, 302, 'Found', {}, bad_img_target)
+
+        # Allowed hops produce a valid next-hop Request
+        ok_store = store_handler.redirect_request(
+            store_req, None, 302, 'Found', {}, 'https://store.nintendo.com.hk/70010000000001'
+        )
+        self.assertEqual(ok_store.full_url, 'https://store.nintendo.com.hk/70010000000001')
+        ok_img = img_handler.redirect_request(
+            img_req, None, 302, 'Found', {}, 'https://img-eshop.cdn.nintendo.net/i/abc123.jpg'
+        )
+        self.assertEqual(ok_img.full_url, 'https://img-eshop.cdn.nintendo.net/i/abc123.jpg')
+
+        # Policy rejection / oversized payload in _try_nlib_banner must NOT consume the 24s transient error budget
+        clock_now = [200.0]
+
+        def policy_rejected_urlopen(req, timeout=8):
+            clock_now[0] += 30.0
+            raise kb._PolicyRejectionError('disallowed redirect target')
+
+        with tempfile.TemporaryDirectory() as td:
+            store = lib.ArtworkStore(state_dir=Path(td), clock=lambda: clock_now[0])
+            with mock.patch('urllib.request.urlopen', side_effect=policy_rejected_urlopen):
+                self.assertFalse(store._try_nlib_banner('0100CAFE12340000'))
+            self.assertFalse(store._probe_budget_exhausted())
+            self.assertEqual(store._probe_error_elapsed, 0.0)
+
     def test_nintendo_store_fallback_works_without_pyside6(self) -> None:
         """Verify Nintendo store parser, pure-Python JPEG/PNG/WebP dimension checks, and ensure_cached_banner with PySide6 blocked."""
         script = f"""

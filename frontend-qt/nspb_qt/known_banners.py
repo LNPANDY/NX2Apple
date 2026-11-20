@@ -251,7 +251,7 @@ def is_allowed_store_url(url: str) -> bool:
     if parsed.scheme.lower() != 'https':
         return False
     host = (parsed.hostname or '').lower().rstrip('.')
-    return host == 'nintendo.com' or host.endswith('.nintendo.com')
+    return host == 'nintendo.com' or host.endswith('.nintendo.com') or host == 'store.nintendo.com.hk'
 
 
 def nlib_banner_url(title_id: str) -> str | None:
@@ -266,9 +266,51 @@ def is_allowed_banner_url(url: str, *, allow_file: bool = False) -> bool:
     if not url:
         return False
     parsed = urllib.parse.urlparse(url)
-    if allow_file and parsed.scheme == 'file':
+    scheme = parsed.scheme.lower()
+    if allow_file and scheme == 'file':
         return True
-    return parsed.scheme == 'https' and (parsed.hostname or '').lower() in ALLOWED_IMAGE_HOSTS
+    host = (parsed.hostname or '').lower().rstrip('.')
+    return scheme == 'https' and host in ALLOWED_IMAGE_HOSTS
+
+
+class _PolicyRejectionError(ValueError):
+    """Raised when an HTTP redirect or payload violates host/size policy (never counted as a transient network error)."""
+
+
+class _AllowedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Validates every 3xx redirect target against `validator` before issuing the next HTTP hop."""
+
+    def __init__(self, validator: Callable[[str], bool]) -> None:
+        super().__init__()
+        self._validator = validator
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urllib.parse.urljoin(req.full_url, newurl)
+        if not self._validator(target):
+            raise _PolicyRejectionError(f'disallowed redirect target: {target}')
+        return super().redirect_request(req, fp, code, msg, headers, target)
+
+
+def make_safe_opener(validator: Callable[[str], bool]) -> Callable:
+    """Build a `urllib` opener that validates every redirect hop before connecting."""
+    return urllib.request.build_opener(_AllowedRedirectHandler(validator)).open
+
+
+def open_allowed_url(
+    req: urllib.request.Request,
+    *,
+    timeout: float,
+    validator: Callable[[str], bool],
+    opener: Callable | None = None,
+):
+    """Open `req` with pre-hop redirect validation, preserving `unittest.mock.patch('urllib.request.urlopen')` hooks."""
+    if not validator(req.full_url):
+        raise _PolicyRejectionError(f'disallowed request url: {req.full_url}')
+    if opener is not None:
+        return opener(req, timeout=timeout)
+    if getattr(urllib.request.urlopen, '__module__', '') != 'urllib.request':
+        return urllib.request.urlopen(req, timeout=timeout)
+    return make_safe_opener(validator)(req, timeout=timeout)
 
 
 def is_valid_image_bytes(data: bytes) -> bool:
@@ -470,7 +512,6 @@ def fetch_nintendo_store_banner(
     tid = (title_id or '').strip().upper()
     if not is_valid_title_id(tid):
         return 'not_found', None
-    fetch = opener or urllib.request.urlopen
     eff_timeout = max(2.0, min(float(timeout), STORE_REQUEST_TIMEOUT))
     had_transient = False
 
@@ -486,7 +527,7 @@ def fetch_nintendo_store_banner(
             },
         )
         try:
-            with fetch(page_req, timeout=eff_timeout) as resp:
+            with open_allowed_url(page_req, timeout=eff_timeout, validator=is_allowed_store_url, opener=opener) as resp:
                 status = getattr(resp, 'status', 200)
                 if status in (404, 410):
                     continue
@@ -524,7 +565,7 @@ def fetch_nintendo_store_banner(
             },
         )
         try:
-            with fetch(img_req, timeout=eff_timeout) as img_resp:
+            with open_allowed_url(img_req, timeout=eff_timeout, validator=is_allowed_banner_url, opener=opener) as img_resp:
                 img_status = getattr(img_resp, 'status', 200)
                 if img_status is not None and img_status >= 500:
                     had_transient = True
@@ -671,7 +712,6 @@ def ensure_cached_banner(
                 seen_urls.add(cand)
                 primary_candidates.append((cand, timeout))
 
-    fetch = opener or urllib.request.urlopen
     bdir = Path(banners_dir)
 
     def _write_banner_bytes(raw_bytes: bytes) -> str | None:
@@ -698,7 +738,7 @@ def ensure_cached_banner(
             return None
         try:
             req = urllib.request.Request(cand, headers={'User-Agent': 'NX2Apple/1.5'})
-            with fetch(req, timeout=cand_timeout) as resp:
+            with open_allowed_url(req, timeout=cand_timeout, validator=is_allowed_banner_url, opener=opener) as resp:
                 status = getattr(resp, 'status', 200)
                 if status not in (None, 200):
                     return None

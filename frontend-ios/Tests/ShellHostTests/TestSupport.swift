@@ -52,6 +52,7 @@ final class Sandbox: @unchecked Sendable {
     func config(chain: String? = "b-3f9a2c", os: OperatingSystemVersion = OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0),
                 updateURL: URL? = nil, open: @escaping @MainActor @Sendable (URL) -> Void = { _ in },
                 fetchBannerData: @escaping @Sendable (URL) async -> Data? = { _ in nil },
+                fetchBannerOutcome: (@Sendable (URL) async -> GameBannerStore.DirectImageOutcome)? = nil,
                 fetchStoreResponse: GameBannerStore.StoreHTTPFetcher? = { req, _ in
                     GameBannerStore.RemoteResponse(statusCode: 404, finalURL: req.url ?? URL(string: "https://ec.nintendo.com/")!, data: Data())
                 },
@@ -61,6 +62,7 @@ final class Sandbox: @unchecked Sendable {
                                environment: HostEnvironment(chain: chain, osVersion: os),
                                updateURL: updateURL, defaults: { UserDefaults(suiteName: suite + $0)! },
                                openURL: open, fetchBannerData: fetchBannerData,
+                               fetchBannerOutcome: fetchBannerOutcome,
                                fetchStoreResponse: fetchStoreResponse, now: now)
     }
 

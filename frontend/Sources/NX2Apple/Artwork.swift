@@ -507,10 +507,24 @@ actor ArtworkStore {
         let maxAttempts = (url.isFileURL || timeout != nil) ? 1 : 2
         for attempt in 0..<maxAttempts {
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                if let http = response as? HTTPURLResponse {
-                    if http.statusCode != 200 { throw URLError(.badServerResponse) }
-                    if let finalURL = http.url, !allowed(finalURL) { throw ArtworkError.refused }
+                let data: Data
+                if url.isFileURL {
+                    let (fileData, _) = try await URLSession.shared.data(for: request)
+                    data = fileData
+                } else {
+                    do {
+                        let resp = try await NintendoStoreBanner.fetchAllowedImageAsync(
+                            from: url,
+                            timeout: timeout ?? 30,
+                            maxBytes: (20 << 20) - 1
+                        )
+                        if resp.statusCode != 200 { throw URLError(.badServerResponse) }
+                        data = resp.data
+                    } catch NintendoStoreBanner.TransportError.disallowedRedirect {
+                        throw ArtworkError.refused
+                    } catch NintendoStoreBanner.TransportError.responseTooLarge {
+                        throw ArtworkError.unreadable
+                    }
                 }
                 guard data.count < 20 << 20, NSImage(data: data) != nil else { throw ArtworkError.unreadable }
                 return data
@@ -685,8 +699,7 @@ actor ArtworkStore {
 
     /// Only Nintendo's image CDN or the verified fallback host over HTTPS: the list is third-party data.
     private func allowed(_ url: URL) -> Bool {
-        if allowsFileURLs && url.isFileURL { return true }
-        return url.scheme == "https" && Self.imageHosts.contains(url.host ?? "")
+        KnownGameBanners.isAllowedURL(url, allowsFileURLs: allowsFileURLs)
     }
 }
 

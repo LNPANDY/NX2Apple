@@ -50,6 +50,12 @@ public enum GameBannerStore {
         case transientFailure
     }
 
+    public enum DirectImageOutcome: Equatable, Sendable {
+        case image(Data)
+        case notFound
+        case transientFailure
+    }
+
     public enum BackfillOutcome: Equatable, Sendable {
         case saved(URL)
         case notFound
@@ -346,14 +352,32 @@ public enum GameBannerStore {
         for entry: CatalogueEntry,
         bannersRoot: URL,
         fetchBannerData: @escaping @Sendable (URL) async -> Data?,
+        fetchBannerOutcome: (@Sendable (URL) async -> DirectImageOutcome)? = nil,
         storeTransport: StoreHTTPFetcher? = nil,
         fileManager fm: FileManager = .default
     ) async -> BackfillOutcome {
         guard needsBackfill(for: entry, bannersRoot: bannersRoot, fileManager: fm) else { return .notFound }
 
+        var hadTransientFailure = false
+
+        func fetchDirect(_ url: URL) async -> Data? {
+            if let fetchBannerOutcome {
+                switch await fetchBannerOutcome(url) {
+                case .image(let data):
+                    return data
+                case .transientFailure:
+                    hadTransientFailure = true
+                    return nil
+                case .notFound:
+                    return nil
+                }
+            }
+            return await fetchBannerData(url)
+        }
+
         if let known = KnownGameBanners.url(for: entry.id) {
             if Task.isCancelled { return .transientFailure }
-            if let raw = await fetchBannerData(known), !Task.isCancelled {
+            if let raw = await fetchDirect(known), !Task.isCancelled {
                 let normalized = (known.host?.lowercased() == "assets.nintendo.com")
                     ? (normalizedJPEGData(raw) ?? raw) : raw
                 if let saved = try? saveAutoBanner(normalized, for: entry.id, bannersRoot: bannersRoot, fileManager: fm) {
@@ -362,56 +386,74 @@ public enum GameBannerStore {
             }
         }
 
-        let tryNlib: () async -> URL? = {
+        func tryNlib() async -> URL? {
             guard !Task.isCancelled, let nlib = nlibBannerURL(for: entry.id) else { return nil }
-            guard let data = await fetchBannerData(nlib), !Task.isCancelled else { return nil }
+            guard let data = await fetchDirect(nlib), !Task.isCancelled else { return nil }
             return try? saveAutoBanner(data, for: entry.id, bannersRoot: bannersRoot, fileManager: fm)
         }
-        let tryStore: () async -> BackfillOutcome = {
+        func tryStore() async -> URL? {
             switch await fetchNintendoStoreBanner(titleID: entry.id, transport: storeTransport) {
             case .image(let jpegData, _):
-                guard !Task.isCancelled else { return .transientFailure }
-                if let saved = try? saveAutoBanner(jpegData, for: entry.id, bannersRoot: bannersRoot, fileManager: fm) {
-                    return .saved(saved)
+                guard !Task.isCancelled else {
+                    hadTransientFailure = true
+                    return nil
                 }
-                return .notFound
+                return try? saveAutoBanner(jpegData, for: entry.id, bannersRoot: bannersRoot, fileManager: fm)
             case .transientFailure:
-                return .transientFailure
+                hadTransientFailure = true
+                return nil
             case .notFound:
-                return .notFound
+                return nil
             }
         }
 
         if KnownGameBanners.isSwitch2TitleID(entry.id) {
-            let storeResult = await tryStore()
-            if case .saved = storeResult { return storeResult }
+            if let saved = await tryStore() { return .saved(saved) }
             if let saved = await tryNlib() { return .saved(saved) }
-            return storeResult
         } else {
             if let saved = await tryNlib() { return .saved(saved) }
-            return await tryStore()
+            if let saved = await tryStore() { return .saved(saved) }
+        }
+        return (Task.isCancelled || hadTransientFailure) ? .transientFailure : .notFound
+    }
+
+    /// Bounded, redirect-guarded image fetch that distinguishes permanent 404/policy rejection from transient 5xx/network errors.
+    public static func fetchRemoteBannerOutcome(
+        from url: URL,
+        transport: StoreHTTPFetcher? = nil
+    ) async -> DirectImageOutcome {
+        guard KnownGameBanners.isAllowedURL(url) else { return .notFound }
+        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: remoteTimeout)
+        request.httpMethod = "GET"
+        request.setValue(browserUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("image/jpeg,image/png,image/*;q=0.8", forHTTPHeaderField: "Accept")
+        let run = transport ?? defaultStoreTransport
+        do {
+            let resp = try await run(request, maxRemoteBytes)
+            if resp.statusCode == 404 || resp.statusCode == 410 {
+                return .notFound
+            }
+            if resp.statusCode >= 500 {
+                return .transientFailure
+            }
+            guard (200...299).contains(resp.statusCode),
+                  KnownGameBanners.isAllowedURL(resp.finalURL),
+                  !resp.data.isEmpty,
+                  resp.data.count <= maxRemoteBytes else {
+                return .notFound
+            }
+            return .image(resp.data)
+        } catch {
+            return isPolicyRejection(error) ? .notFound : .transientFailure
         }
     }
 
     /// Default network fetcher for missing-banner backfill (`URLSession.shared`, 8 s timeout, system proxy, 16 MB cap).
     public static func fetchRemoteBanner(from url: URL) async -> Data? {
-        guard KnownGameBanners.isAllowedURL(url) else { return nil }
-        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: remoteTimeout)
-        request.httpMethod = "GET"
-        request.setValue(browserUserAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("image/jpeg,image/png,image/*;q=0.8", forHTTPHeaderField: "Accept")
-        do {
-            let resp = try await defaultStoreTransport(request, maxRemoteBytes)
-            guard (200...299).contains(resp.statusCode),
-                  KnownGameBanners.isAllowedURL(resp.finalURL),
-                  !resp.data.isEmpty,
-                  resp.data.count <= maxRemoteBytes else {
-                return nil
-            }
-            return resp.data
-        } catch {
-            return nil
+        if case .image(let data) = await fetchRemoteBannerOutcome(from: url) {
+            return data
         }
+        return nil
     }
 
     private static func extractFromNextData(_ html: String) -> URL? {
@@ -584,7 +626,7 @@ public enum GameBannerStore {
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
             let overflow = lock.withLock { () -> Bool in
-                if buffer.count + data.count > maxBytes {
+                if data.count > maxBytes - buffer.count {
                     capturedError = TransportError.responseTooLarge
                     return true
                 }

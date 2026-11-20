@@ -1621,7 +1621,7 @@ class ArtworkStore:
             return False
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'NX2Apple/1.5'})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with _kb.open_allowed_url(req, timeout=timeout, validator=_kb.is_allowed_banner_url) as resp:
                 status = getattr(resp, 'status', 200)
                 if status not in (None, 200):
                     return False
@@ -1675,7 +1675,7 @@ class ArtworkStore:
         started = self._clock()
         try:
             req = urllib.request.Request(direct_url, headers={'User-Agent': 'NX2Apple/1.5'})
-            with urllib.request.urlopen(req, timeout=8.0) as resp:
+            with _kb.open_allowed_url(req, timeout=8.0, validator=_kb.is_allowed_banner_url) as resp:
                 status = getattr(resp, 'status', 200)
                 if status is not None and status >= 500:
                     self._record_probe_transient_error(self._clock() - started)
@@ -1692,6 +1692,8 @@ class ArtworkStore:
         except urllib.error.HTTPError as exc:
             if exc.code >= 500:
                 self._record_probe_transient_error(self._clock() - started)
+        except ValueError:
+            return False
         except Exception:
             self._record_probe_transient_error(self._clock() - started)
         return False

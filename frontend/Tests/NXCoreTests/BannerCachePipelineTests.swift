@@ -55,6 +55,10 @@ final class BannerCachePipelineTests: XCTestCase {
         XCTAssertFalse(KnownGameBanners.isSwitch2TitleID("0100000000010000"))
         XCTAssertTrue(KnownGameBanners.isAllowedStoreURL(URL(string: "https://www.nintendo.com/us/store/products/demo/")!))
         XCTAssertTrue(KnownGameBanners.isAllowedStoreURL(URL(string: "https://ec.nintendo.com/HK/zh/titles/7001")!))
+        XCTAssertTrue(KnownGameBanners.isAllowedStoreURL(URL(string: "https://store.nintendo.com.hk/7001")!))
+        XCTAssertTrue(KnownGameBanners.isAllowedURL(URL(string: "HTTPS://assets.nintendo.com./image/upload/x")!))
+        XCTAssertFalse(KnownGameBanners.isAllowedStoreURL(URL(string: "https://evilnintendo.com/us/")!))
+        XCTAssertFalse(KnownGameBanners.isAllowedStoreURL(URL(string: "https://evilnintendo.com.hk/hk/")!))
         XCTAssertFalse(KnownGameBanners.isAllowedStoreURL(URL(string: "https://evil-nintendo.com/us/")!))
         XCTAssertFalse(KnownGameBanners.isAllowedStoreURL(URL(string: "http://www.nintendo.com/us/")!))
         XCTAssertEqual(

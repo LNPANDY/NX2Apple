@@ -31,7 +31,7 @@ package enum NintendoStoreBanner {
     package typealias AsyncTransport = @Sendable (URLRequest, Int) async throws -> HTTPResponse
     package typealias SyncTransport = @Sendable (URLRequest, Int) throws -> HTTPResponse
 
-    private enum TransportError: Error {
+    package enum TransportError: Error, Equatable {
         case responseTooLarge
         case disallowedRedirect
         case missingHTTPResponse
@@ -377,7 +377,7 @@ package enum NintendoStoreBanner {
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
             let overflow = lock.withLock { () -> Bool in
-                if buffer.count + data.count > maxBytes {
+                if data.count > maxBytes - buffer.count {
                     capturedError = TransportError.responseTooLarge
                     return true
                 }
@@ -467,5 +467,42 @@ package enum NintendoStoreBanner {
             throw TransportError.timedOut
         }
         return try box.result.get()
+    }
+
+    /// Bounded, redirect-guarded synchronous image fetch for allowed CDN hosts (`BannerCache.defaultFetcher`).
+    package static func fetchAllowedImageSync(
+        from url: URL,
+        timeout: TimeInterval = requestTimeout,
+        maxBytes: Int = (20 << 20) - 1,
+        userAgent: String = "NX2Apple/1.5"
+    ) -> Data? {
+        guard !isRunningUnderTests, KnownGameBanners.isAllowedURL(url) else { return nil }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: max(2, timeout))
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("image/jpeg,image/png,image/*;q=0.8", forHTTPHeaderField: "Accept")
+        guard let resp = try? defaultSyncTransport(request, maxBytes),
+              resp.statusCode == 200,
+              KnownGameBanners.isAllowedURL(resp.finalURL),
+              resp.data.count <= maxBytes else {
+            return nil
+        }
+        return resp.data
+    }
+
+    /// Bounded, redirect-guarded asynchronous image fetch for allowed CDN hosts (`ArtworkStore.fetchImageData`).
+    package static func fetchAllowedImageAsync(
+        from url: URL,
+        timeout: TimeInterval = 30,
+        maxBytes: Int = (20 << 20) - 1,
+        userAgent: String = "NX2Apple/1.5"
+    ) async throws -> HTTPResponse {
+        guard KnownGameBanners.isAllowedURL(url) else { throw TransportError.disallowedRedirect }
+        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: max(2, timeout))
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("image/jpeg,image/png,image/*;q=0.8", forHTTPHeaderField: "Accept")
+        let resp = try await defaultAsyncTransport(request, maxBytes)
+        guard KnownGameBanners.isAllowedURL(resp.finalURL) else { throw TransportError.disallowedRedirect }
+        guard resp.data.count <= maxBytes else { throw TransportError.responseTooLarge }
+        return resp
     }
 }

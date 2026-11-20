@@ -170,35 +170,7 @@ package enum BannerCache {
     }
 
     private static let defaultFetcher: DataFetcher = { url, timeout in
-        // Avoid accidental live internet traffic during XCTest runs that did not inject a fake fetcher.
-        if NSClassFromString("XCTestCase") != nil
-            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            return nil
-        }
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = max(2, timeout)
-        config.timeoutIntervalForResource = max(4, timeout * 1.5)
-        let session = URLSession(configuration: config)
-        defer { session.finishTasksAndInvalidate() }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: max(2, timeout))
-        request.setValue("NX2Apple/1.5", forHTTPHeaderField: "User-Agent")
-
-        final class Box: @unchecked Sendable { var data: Data? }
-        let box = Box()
-        let sema = DispatchSemaphore(value: 0)
-        let task = session.dataTask(with: request) { data, response, error in
-            defer { sema.signal() }
-            guard error == nil, let data else { return }
-            if let http = response as? HTTPURLResponse {
-                guard http.statusCode == 200,
-                      let finalURL = http.url,
-                      KnownGameBanners.isAllowedURL(finalURL) else { return }
-            }
-            box.data = data
-        }
-        task.resume()
-        _ = sema.wait(timeout: .now() + max(2, timeout * 1.5))
-        return box.data
+        NintendoStoreBanner.fetchAllowedImageSync(from: url, timeout: timeout, maxBytes: (20 << 20) - 1)
     }
 
     /// `<dir>/<TITLEID>/icon.jpg` (online square metadata icon).

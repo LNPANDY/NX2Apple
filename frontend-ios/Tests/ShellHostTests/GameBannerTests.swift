@@ -219,6 +219,11 @@ import UniformTypeIdentifiers
         #expect(KnownGameBanners.imageHosts.contains("assets.nintendo.com"))
         #expect(KnownGameBanners.url(for: "04008E001F098000") != nil)
         #expect(KnownGameBanners.isSwitch2TitleID("04008E001F098000"))
+        #expect(KnownGameBanners.isAllowedURL(URL(string: "HTTPS://assets.nintendo.com./image/upload/a")!))
+        #expect(KnownGameBanners.isAllowedStoreURL(URL(string: "https://store.nintendo.com.hk/7001")!))
+        #expect(!KnownGameBanners.isAllowedStoreURL(URL(string: "https://evilnintendo.com/us/")!))
+        #expect(!KnownGameBanners.isAllowedStoreURL(URL(string: "https://evilnintendo.com.hk/hk/")!))
+        #expect(!KnownGameBanners.isAllowedStoreURL(URL(string: "http://www.nintendo.com/us/")!))
 
         let sw2TID = "0400FACE12340000"
         let assetURL = "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000125145/60f801a1"
@@ -387,5 +392,94 @@ import UniformTypeIdentifiers
         #expect(FileManager.default.fileExists(atPath: autoURL.path))
         let detail = try #require(await MainActor.run { model.details.first(where: { $0.id == Fixtures.chain }) })
         #expect(detail.game.banner?.id == autoURL.path)
+    }
+
+    @Test func shellHostModelCancellationAndDirectTransientFailureNeverPoisonNegativeCache() async throws {
+        let sandbox = try Sandbox()
+        let wideJPEG = try solidJPEG(width: 1920, height: 1080, r: 0.1, g: 0.7, b: 0.4)
+
+        // 1. Mid-flight cancellation by a second reload() must not blacklist subsequent unattempted candidates.
+        actor CancelGate {
+            private var entered = false
+            private var released = false
+            private var enterWaiter: CheckedContinuation<Void, Never>?
+            private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+            func pauseFirstRequest() async {
+                if !entered {
+                    entered = true
+                    enterWaiter?.resume()
+                    enterWaiter = nil
+                    if !released {
+                        await withTaskCancellationHandler {
+                            await withCheckedContinuation { cont in
+                                if released { cont.resume() } else { releaseWaiters.append(cont) }
+                            }
+                        } onCancel: {
+                            Task { await self.releaseAll() }
+                        }
+                    }
+                }
+            }
+
+            func waitUntilEntered() async {
+                if !entered {
+                    await withCheckedContinuation { enterWaiter = $0 }
+                }
+            }
+
+            func releaseAll() {
+                released = true
+                let waiters = releaseWaiters
+                releaseWaiters.removeAll()
+                for w in waiters { w.resume() }
+            }
+        }
+
+        let gate = CancelGate()
+        let cancelConfig = sandbox.config(
+            fetchBannerOutcome: { _ in
+                await gate.pauseFirstRequest()
+                if Task.isCancelled { return .transientFailure }
+                return .image(wideJPEG)
+            }
+        )
+        let model = await MainActor.run { ShellHostModel(config: cancelConfig) }
+        await gate.waitUntilEntered()
+        // Trigger a second reload while the first candidate is paused, cancelling the initial backfill task mid-flight.
+        await MainActor.run { model.reload() }
+        await gate.releaseAll()
+        await model.waitForStartupTasks()
+
+        let orbitAuto = try #require(GameBannerStore.autoBannerURL(for: Fixtures.orbit, bannersRoot: sandbox.banners))
+        let chainAuto = try #require(GameBannerStore.autoBannerURL(for: Fixtures.chain, bannersRoot: sandbox.banners))
+        #expect(FileManager.default.fileExists(atPath: orbitAuto.path))
+        #expect(FileManager.default.fileExists(atPath: chainAuto.path))
+
+        // 2. Transient failure on KnownGameBanners / nlib.cc when store returns 404 must NOT permanently blacklist retry.
+        let sandbox2 = try Sandbox()
+        actor FailureToggle {
+            var directTransient = true
+            func setTransient(_ value: Bool) { directTransient = value }
+        }
+        let toggle = FailureToggle()
+        let directRetryConfig = sandbox2.config(
+            fetchBannerOutcome: { _ in
+                if await toggle.directTransient { return .transientFailure }
+                return .image(wideJPEG)
+            },
+            fetchStoreResponse: { req, _ in
+                GameBannerStore.RemoteResponse(statusCode: 404, finalURL: req.url!, data: Data())
+            }
+        )
+        let model2 = await MainActor.run { ShellHostModel(config: directRetryConfig) }
+        await model2.waitForStartupTasks()
+        let orbitAuto2 = try #require(GameBannerStore.autoBannerURL(for: Fixtures.orbit, bannersRoot: sandbox2.banners))
+        #expect(!FileManager.default.fileExists(atPath: orbitAuto2.path))
+
+        await toggle.setTransient(false)
+        await MainActor.run { model2.reload() }
+        await model2.waitForStartupTasks()
+        #expect(FileManager.default.fileExists(atPath: orbitAuto2.path))
     }
 }

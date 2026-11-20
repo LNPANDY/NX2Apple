@@ -230,16 +230,17 @@ package enum KnownGameBanners {
     package static func isAllowedURL(_ url: URL, allowsFileURLs: Bool = false) -> Bool {
         if allowsFileURLs && url.isFileURL { return true }
         guard url.scheme?.lowercased() == "https",
-              let host = url.host?.lowercased(), !host.isEmpty else { return false }
+              var host = url.host?.lowercased(), !host.isEmpty else { return false }
+        while host.hasSuffix(".") { host.removeLast() }
         return imageHosts.contains(host)
     }
 
-    /// True when `url` is an HTTPS Nintendo store page (`nintendo.com` or `*.nintendo.com`).
+    /// True when `url` is an HTTPS Nintendo store page (`nintendo.com`, `*.nintendo.com`, or `store.nintendo.com.hk`).
     package static func isAllowedStoreURL(_ url: URL) -> Bool {
         guard url.scheme?.lowercased() == "https",
               var host = url.host?.lowercased(), !host.isEmpty else { return false }
         while host.hasSuffix(".") { host.removeLast() }
-        return host == "nintendo.com" || host.hasSuffix(".nintendo.com")
+        return host == "nintendo.com" || host.hasSuffix(".nintendo.com") || host == "store.nintendo.com.hk"
     }
 
     /// Returns pixel dimensions when `data` is a bounded, decodable image with a recognized magic header.
