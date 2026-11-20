@@ -270,8 +270,12 @@ extension LauncherView {
             configureBuild(game)
             return
         }
+        if !m.running {
+            m.clearUnstartedDraft()
+            stores.queue.prepareForRefreshBatch()
+        }
         stores.queue.enqueue(ordered)
-        page = .builds; buildEditorOpen = true
+        page = .builds; buildEditorOpen = false; editingBuildResult = false; buildStep = 0
         if !m.running && m.canStartBuildOrQueue {
             m.startBuildOrQueue()
         }

@@ -98,7 +98,7 @@ enum GalleryCoverage {
         "MissingImgGuideSheet": [.sheet(.imgGuide)], "SavesView": [.sheet(.saves), .desktop(D.savesReady)], "SaveImportSheet": [.sheet(.saveImport)],
         "SkippedLibraryItemsOverlay": [.sheet(.skippedItems)], "SkippedItemRow": [.sheet(.skippedItems)], "UpdateSheet": [.sheet(.appUpdate)],
         "PlayerNameSheet": [.sheet(.playerName)], "BuildProcessStepsSheet": [.sheet(.buildSteps)],
-        "SendSelectedSheet": [.sheet(.sendSelectedDevice), .desktop(D.sendSelectedDrive)], "CheatsView": [.sheet(.cheats)],
+        "SendSelectedSheet": [.sheet(.sendSelectedDevice), .desktop(D.sendSelectedDrive)], "ShellCopySheet": [.sheet(.shellCopy)], "CheatsView": [.sheet(.cheats)],
         "LaunchOptionsView": [.gameOptions], "ChangedLabel": [.gameOptions], "GameSavesSection": [.gameOptions], "LauncherSlider": [.gameOptions],
         "GameControllerMappingView": [.desktop(D.controllerMapping)], "FrameTimesRecordingView": [.desktop(D.frameTimes)],
         // the first run
@@ -163,6 +163,7 @@ enum GalleryCoverage {
         "StaleFrameworksPrompt.swift .sheet LauncherConfirmSheet": [.sheet(.confirmStaleFrameworks)],
         "InstallCard.swift .sheet SendSelectedSheet": [.sheet(.sendSelectedDevice)],
         "ExportSteps.swift .sheet SendSelectedSheet": [.desktop(D.sendSelectedDrive)],
+        "ShellCopySheet.swift .sheet ShellCopySheet": [.sheet(.shellCopy)],
         "PlayersCard.swift .sheet PlayerNameSheet": [.sheet(.playerName)],
         "PlayersCard.swift .sheet LauncherConfirmSheet": [.sheet(.confirmRemovePlayer)],
     ]

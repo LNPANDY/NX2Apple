@@ -183,6 +183,16 @@ import NXCore
         persist()
     }
 
+    /// Clears stale unstarted drafts and settled history when the queue is idle so an explicit library refresh runs in isolation.
+    package func prepareForRefreshBatch() {
+        guard !active, running == nil, packaging.isEmpty, !entries.contains(where: { $0.packagePending != nil }) else { return }
+        let settled = settledEntryIDs
+        entries.removeAll { $0.status == .queued || settled.contains($0.id) }
+        awaitingResume = false
+        paused = false
+        persist()
+    }
+
     /// "Cancel queued builds": the waiting entries go, the running one and the results stay. When nothing runs, a shared-app batch
     /// has no job left, so its built games are packaged now, as Stop does (`buildEnded(stopped:)`). The build store holds them in
     /// `deferredShell` and would package them with the next batch otherwise. A running batch packages them when its build ends.
