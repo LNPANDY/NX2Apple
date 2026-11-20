@@ -27,6 +27,7 @@ package enum SendWhere {
     nonisolated package static let exportKey = "exportIPA"
     nonisolated package static let oneGameKey = "exportOneGame"
     nonisolated package static let frameworkKey = "exportFramework"
+    nonisolated package static let frameworkUnsignedKey = "exportFrameworkUnsigned"
     nonisolated package static let sendWhereKey = "sendWhere"
     nonisolated package static let driveFolderKey = "driveFolder"
     nonisolated package static let postBuildTransferModeKey = "postBuildTransferMode"
@@ -62,6 +63,10 @@ package enum SendWhere {
             defaults.set(exportFramework, forKey: Self.frameworkKey)
             if exportFramework && exportOneGame { exportOneGame = false }
         }
+    }
+    /// When true, standalone `.framework` export skips signing even if a local Xcode team certificate exists (for sideloading / on-device signing).
+    @Published package var exportFrameworkUnsigned: Bool {
+        didSet { defaults.set(exportFrameworkUnsigned, forKey: Self.frameworkUnsignedKey) }
     }
     /// Where step 3 of the export sends the game data: `SendWhere.device` or `.drive`. Saved when it changes.
     @Published package var sendWhere: String {
@@ -118,6 +123,7 @@ package enum SendWhere {
         let savedOneGame = defaults.bool(forKey: Self.oneGameKey)
         self.exportOneGame = savedOneGame
         self.exportFramework = !savedOneGame && defaults.bool(forKey: Self.frameworkKey)
+        self.exportFrameworkUnsigned = defaults.bool(forKey: Self.frameworkUnsignedKey)
         self.sendWhere = defaults.string(forKey: Self.sendWhereKey) ?? SendWhere.device
         self.driveFolder = defaults.string(forKey: Self.driveFolderKey) ?? ""
         let initialTransferMode = PostBuildTransferMode.fromStored(defaults.string(forKey: Self.postBuildTransferModeKey))

@@ -623,6 +623,8 @@ class StandaloneFrameworkExportTest(unittest.TestCase):
                 ok, note = m._export_standalone_framework(tid, out_dir=str(out_dir), fallback_name='Sample Game')
                 self.assertTrue(ok, note)
                 dest = out_dir / f'DmGame{tid}.framework'
+                self.assertEqual(note, m.t('shell.frameworkExportDone', str(dest)))
+                self.assertIn('.p12', note)
                 self.assertTrue(dest.is_dir())
                 self.assertTrue((dest / 'Info.plist').is_file())
                 self.assertEqual(m.ipa_path, str(dest))
