@@ -374,6 +374,132 @@ private final class ActiveGameFlag: @unchecked Sendable {
         #expect(watcher.activeDescriptorCount == 0)
     }
 
+    /// Case 7: Streaming writes into the final `.nxpart` file (including while growing past `baseRomfsSize` into the
+    /// trailer) must never be joined mid-write, and must auto-join once stable without any new directory vnode event.
+    @Test func streamingFinalPartWaitsUntilStableAndAutoJoinsWithoutExtraDirectoryEvents() async throws {
+        let env = try prepareStaleRomfsSandbox()
+        let partSize = env.partSize
+        let part0Data = Data(env.freshImage[0..<partSize])
+        let part1Data = Data(env.freshImage[partSize..<env.freshImage.count])
+        let imgURL = env.gameDir.appendingPathComponent("romfs.img")
+
+        var cfg = env.box.config()
+        cfg.joinPartSize = Int64(partSize)
+        cfg.directoryWatchDebounceInterval = 0.08
+        cfg.directoryWatchPartStableWindow = 0.25
+
+        let model = ShellHostModel(config: cfg)
+        await model.waitForStartupTasks()
+        await model.waitForDataChecks()
+        #expect(model.details.first { $0.id == Fixtures.orbit }?.game.state == .needsDataUpdate(staleChain: true))
+
+        // Land part 0 completely first.
+        let part0URL = env.gameDir.appendingPathComponent("romfs.img.nxpart.0000.0002")
+        try part0Data.write(to: part0URL, options: .atomic)
+
+        // Stream part 1 into an open FileHandle across 6 chunks spaced 75ms apart (> debounce 80ms total duration 450ms).
+        let part1URL = env.gameDir.appendingPathComponent("romfs.img.nxpart.0001.0002")
+        #expect(FileManager.default.createFile(atPath: part1URL.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: part1URL)
+        let chunks = 6
+        let step = max(1, part1Data.count / chunks)
+        for index in 0..<chunks {
+            let start = index * step
+            let end = (index == chunks - 1) ? part1Data.count : min(part1Data.count, start + step)
+            if start < end {
+                try handle.write(contentsOf: part1Data[start..<end])
+                try handle.synchronize()
+            }
+            if index < chunks - 1 {
+                try await Task.sleep(nanoseconds: 75_000_000)
+                // Must still be untouched while part 1 is actively growing.
+                #expect(FileManager.default.fileExists(atPath: part0URL.path))
+                #expect(FileManager.default.fileExists(atPath: part1URL.path))
+                #expect(try Data(contentsOf: imgURL) == env.staleImage)
+                #expect(model.details.first { $0.id == Fixtures.orbit }?.game.state == .needsDataUpdate(staleChain: true))
+            }
+        }
+        try handle.close()
+
+        // No new files or directory events are emitted after close(); watcher recheck must detect stability and auto-join.
+        for _ in 0..<150 {
+            if model.details.first(where: { $0.id == Fixtures.orbit })?.game.state == .playable { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        await model.waitForStartupTasks()
+
+        #expect(model.details.first { $0.id == Fixtures.orbit }?.game.state == .playable)
+        #expect(partLeftovers(in: env.gameDir).isEmpty)
+        #expect(try Data(contentsOf: imgURL) == env.freshImage)
+    }
+
+    /// Case 8: `DataParts.joinAll` rejects a `romfs.img` part set whose total bytes are smaller than the manifest's
+    /// expected base RomFS size, preventing a truncated final part from overwriting an existing image.
+    @Test func joinAllRejectsTruncatedRomfsBelowExpectedManifestSize() throws {
+        let env = try prepareStaleRomfsSandbox()
+        let imgURL = env.gameDir.appendingPathComponent("romfs.img")
+        let manifest = try #require(GameCatalogue.read(directory: env.box.games.appendingPathComponent(Fixtures.orbit)).manifest)
+        let expectedBaseSize = try #require(DataLocator.expectedImageSize(manifest))
+        let truncatedPartSize = max(1, Int(expectedBaseSize) / 2)
+        // Part 0 is full-sized (expectedBaseSize / 2), part 1 is truncated (10 bytes), so total < expectedBaseSize.
+        let part0 = Data(repeating: 0x11, count: truncatedPartSize)
+        let part1 = Data(repeating: 0x22, count: min(10, max(1, Int(expectedBaseSize) - truncatedPartSize - 1)))
+        try part0.write(to: env.gameDir.appendingPathComponent("romfs.img.nxpart.0000.0002"))
+        try part1.write(to: env.gameDir.appendingPathComponent("romfs.img.nxpart.0001.0002"))
+
+        let joined = DataParts.joinAll(
+            appDataRoot: env.box.appData,
+            partSize: Int64(truncatedPartSize),
+            minimumRomfsSizes: [Fixtures.orbit.uppercased(): expectedBaseSize]
+        )
+        #expect(joined.isEmpty)
+        #expect(try Data(contentsOf: imgURL) == env.staleImage)
+        #expect(partLeftovers(in: env.gameDir).count == 2)
+    }
+
+    /// Case 9: When a background join finishes with changes while the host became busy (game running), the skipped
+    /// `reload(afterClaim: true)` is remembered and replayed upon returning to the library even with no leftover parts.
+    @Test func joinFinishingWhileBusyDefersReloadUntilReturningToLibrary() async throws {
+        let env = try prepareStaleRomfsSandbox()
+        let partSize = max(1, (env.freshImage.count + 3) / 4)
+        let tracker = ConcurrentJoinTracker()
+        defer { tracker.release() }
+        let activeGame = ActiveGameFlag(nil)
+
+        var cfg = env.box.config()
+        cfg.joinPartSize = Int64(partSize)
+        cfg.activeRunningGameID = { activeGame.current }
+        cfg.onJoinProgress = { progress in
+            tracker.onProgress(progress, pauseFile: "romfs.img")
+        }
+
+        let model = ShellHostModel(config: cfg)
+        await model.waitForStartupTasks()
+        await model.waitForDataChecks()
+        #expect(model.details.first { $0.id == Fixtures.orbit }?.game.state == .needsDataUpdate(staleChain: true))
+
+        try writeSplitParts(env.freshImage, as: "romfs.img", partSize: partSize, in: env.gameDir)
+        model.reload()
+        #expect(await tracker.waitUntilPaused())
+
+        // Enter busy state mid-join, then let the background join finish writing romfs.img and deleting .nxpart files.
+        activeGame.current = Fixtures.orbit
+        tracker.release()
+        await model.waitForStartupTasks()
+
+        #expect(partLeftovers(in: env.gameDir).isEmpty)
+        #expect(try Data(contentsOf: env.gameDir.appendingPathComponent("romfs.img")) == env.freshImage)
+        #expect(model.details.first { $0.id == Fixtures.orbit }?.game.state != .playable)
+
+        // Return to library with no leftover parts on disk: pending reload must still refresh UI to `.playable`.
+        activeGame.current = nil
+        NotificationCenter.default.post(name: ShellHostModel.didReturnToLibraryNotification, object: nil)
+        await model.waitForStartupTasks()
+        await model.waitForDataChecks()
+
+        #expect(model.details.first { $0.id == Fixtures.orbit }?.game.state == .playable)
+    }
+
     #if canImport(UIKit)
     /// Case 7 (iOS UIKit): Posting `UIApplication.willEnterForegroundNotification` triggers reload + serial join
     /// when returning from background with newly landed `.nxpart` files.

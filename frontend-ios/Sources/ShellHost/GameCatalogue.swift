@@ -126,6 +126,8 @@ public enum GameCatalogue {
         return (files, bytes)
     }
 
+    private static let promotionLock = NSLock()
+
     /// True when `hotRoot` contains at least one `.staging-*` folder whose `.ready` marker has landed.
     public static func hasReadyStagedFramework(in hotRoot: URL, fileManager fm: FileManager = .default) -> Bool {
         guard let items = try? fm.contentsOfDirectory(atPath: hotRoot.path) else { return false }
@@ -143,6 +145,8 @@ public enum GameCatalogue {
     /// Staging folders without `.ready` that are newer than `staleAge` stay untouched (a transfer may still be in flight).
     public static func promoteStagedFrameworks(in hotRoot: URL, gameDataRoot: URL? = nil, now: Date = Date(),
                                                staleAge: TimeInterval = 3600, fileManager fm: FileManager = .default) {
+        promotionLock.lock()
+        defer { promotionLock.unlock() }
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: hotRoot.path, isDirectory: &isDir), isDir.boolValue else { return }
         let items = (try? fm.contentsOfDirectory(atPath: hotRoot.path)) ?? []

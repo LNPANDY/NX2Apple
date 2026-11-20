@@ -61,8 +61,15 @@ public enum DataParts {
     }
 
     /// Joins every complete set of parts under `appDataRoot` (`Documents/games`). Returns the files that were made whole.
+    /// - Parameters:
+    ///   - minimumRomfsSizes: Optional per-title minimum total byte count for `romfs.img` (keyed by uppercased title ID),
+    ///     used to reject truncated in-flight final parts smaller than the manifest's base RomFS size.
+    ///   - excludedPartPaths: Standardized paths of `.nxpart` files still actively being written; any set containing an
+    ///     excluded path is skipped untouched until it settles.
     @discardableResult
     public static func joinAll(appDataRoot: URL, partSize: Int64 = partSize, fileManager fm: FileManager = .default,
+                               minimumRomfsSizes: [String: Int64] = [:],
+                               excludedPartPaths: Set<String> = [],
                                onProgress: (@Sendable (Progress) -> Void)? = nil) -> [URL] {
         guard partSize > 0 else { return [] }
         var sets: [String: (folder: URL, file: String, count: Int, parts: [Int: URL])] = [:]
@@ -76,12 +83,20 @@ public enum DataParts {
             set.parts[name.index] = url
             sets[key] = set
         }
-        let ordered = sets.sorted { $0.key < $1.key }
+        let ordered = sets.sorted { $0.key < $1.key }.filter { _, set in
+            guard !excludedPartPaths.isEmpty else { return true }
+            return !set.parts.values.contains { excludedPartPaths.contains($0.resolvingSymlinksInPath().standardizedFileURL.path) }
+        }
+        func minBytes(for set: (folder: URL, file: String, count: Int, parts: [Int: URL]), titleID id: String) -> Int64 {
+            guard set.file.lowercased() == "romfs.img", !id.isEmpty else { return 0 }
+            return max(0, minimumRomfsSizes[id.uppercased()] ?? 0)
+        }
         if let onProgress {
             for (_, set) in ordered {
                 let id = titleID(for: set.folder, under: appDataRoot)
                 if !id.isEmpty, let plan = validatedPlan(file: set.folder.appendingPathComponent(set.file),
-                                                         count: set.count, parts: set.parts, partSize: partSize, fm: fm) {
+                                                         count: set.count, parts: set.parts, partSize: partSize,
+                                                         minimumTotalBytes: minBytes(for: set, titleID: id), fm: fm) {
                     onProgress(Progress(titleID: id, file: set.file, doneBytes: plan.initialDone, totalBytes: plan.totalBytes))
                 }
             }
@@ -91,7 +106,7 @@ public enum DataParts {
             let file = set.folder.appendingPathComponent(set.file)
             let id = titleID(for: set.folder, under: appDataRoot)
             if join(file: file, count: set.count, parts: set.parts, partSize: partSize, fm: fm,
-                    titleID: id, onProgress: onProgress) {
+                    titleID: id, minimumTotalBytes: minBytes(for: set, titleID: id), onProgress: onProgress) {
                 joined.append(file)
             }
         }
@@ -104,7 +119,8 @@ public enum DataParts {
         var totalBytes: Int64
     }
 
-    private static func validatedPlan(file: URL, count: Int, parts: [Int: URL], partSize: Int64, fm: FileManager) -> ValidatedPlan? {
+    private static func validatedPlan(file: URL, count: Int, parts: [Int: URL], partSize: Int64,
+                                      minimumTotalBytes: Int64 = 0, fm: FileManager) -> ValidatedPlan? {
         func size(_ url: URL) -> Int64? { ((try? fm.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value }
         guard partSize > 0, count > 0, count <= maxParts,
               let first = parts.keys.min(), let last = parts.keys.max(),
@@ -119,13 +135,15 @@ public enum DataParts {
                   index == count - 1 ? (s > 0 && s <= partSize && s <= Int64.max - prefixBytes) : s == partSize else { return nil }
             if index == count - 1 { lastSize = s }
         }
+        let totalBytes = prefixBytes + lastSize
+        guard totalBytes >= minimumTotalBytes else { return nil }
         let (done, doneOverflow) = Int64(first).multipliedReportingOverflow(by: partSize)
         guard !doneOverflow, done >= 0 else { return nil }
         if first > 0 {
             let joinURL = URL(fileURLWithPath: file.path + joinSuffix)
             guard let have = size(joinURL), have >= done else { return nil }
         }
-        return ValidatedPlan(first: first, initialDone: done, totalBytes: prefixBytes + lastSize)
+        return ValidatedPlan(first: first, initialDone: done, totalBytes: totalBytes)
     }
 
     static func titleID(for folder: URL, under appDataRoot: URL) -> String {
@@ -139,7 +157,8 @@ public enum DataParts {
 
     /// One set. True when `file` is whole now.
     static func join(file: URL, count: Int, parts: [Int: URL], partSize: Int64, fm: FileManager,
-                     titleID: String = "", onProgress: (@Sendable (Progress) -> Void)? = nil) -> Bool {
+                     titleID: String = "", minimumTotalBytes: Int64 = 0,
+                     onProgress: (@Sendable (Progress) -> Void)? = nil) -> Bool {
         func size(_ url: URL) -> Int64? { ((try? fm.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value }
         guard partSize > 0, count > 0, count <= maxParts,
               let first = parts.keys.min(), let last = parts.keys.max(),
@@ -156,6 +175,7 @@ public enum DataParts {
             if index == count - 1 { lastPartBytes = s }
         }
         let totalBytes = prefixBytes + lastPartBytes
+        guard totalBytes >= minimumTotalBytes else { return false }
         let join = URL(fileURLWithPath: file.path + joinSuffix)
         let (done, doneOverflow) = Int64(first).multipliedReportingOverflow(by: partSize)
         guard !doneOverflow, done >= 0 else { return false }

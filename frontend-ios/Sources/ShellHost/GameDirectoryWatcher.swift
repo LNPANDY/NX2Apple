@@ -5,11 +5,14 @@ import Foundation
 /// game directory, existing `msl`/`aoc` subfolders, and `Documents/Frameworks/` plus its `.staging-*` folders)
 /// using Darwin `kqueue` (`O_EVTONLY` + `DispatchSourceFileSystemObject`).
 ///
-/// Events are coalesced with a debounce window and all file descriptors are closed deterministically via each
-/// source's cancel handler on removal, `stop()`, or `deinit`.
+/// Filesystem events are coalesced with a debounce window, and `.nxpart` split files are gated by two-sample
+/// `(size, mtime)` stability plus a quiet window before firing so streaming writes are never joined mid-transfer
+/// and still trigger automatically once writing finishes without requiring a second directory vnode event.
 final class GameDirectoryWatcher: Sendable {
     struct ChangeHint: Equatable, Sendable {
         var hasReadyHotFramework: Bool
+        /// Canonical paths (`resolvingSymlinksInPath().standardizedFileURL.path`) of `.nxpart` files still settling.
+        var unstablePartPaths: Set<String>
     }
 
     private struct WatchedEntry {
@@ -18,28 +21,48 @@ final class GameDirectoryWatcher: Sendable {
         let ino: ino_t
     }
 
+    private struct PartSignature: Equatable {
+        let size: Int64
+        let mtimeSec: Int
+        let mtimeNsec: Int
+    }
+
+    private struct ObservedPart {
+        var signature: PartSignature
+        var stableSamples: Int
+        var lastChangedMonotonic: TimeInterval
+    }
+
     /// Mutable state owned exclusively by `queue`.
     private final class State: @unchecked Sendable {
         let appDataRoot: URL
         let documentsRoot: URL
         let hotFrameworksRoot: URL?
         let debounceInterval: TimeInterval
+        let partStableWindow: TimeInterval
+        let partRecheckInterval: TimeInterval
         let queue: DispatchQueue
         let onChange: @Sendable (ChangeHint) -> Void
         let maxDescriptors = 128
 
         var watchers: [String: WatchedEntry] = [:]
         var debounceWorkItem: DispatchWorkItem?
+        var partRecheckWorkItem: DispatchWorkItem?
+        var observedParts: [String: ObservedPart] = [:]
+        var lastNotifiedStableSnapshot: [String: PartSignature] = [:]
         var isPaused = false
         var dirtyWhilePaused = false
         var isStopped = false
 
         init(appDataRoot: URL, hotFrameworksRoot: URL?, debounceInterval: TimeInterval,
-             queue: DispatchQueue, onChange: @escaping @Sendable (ChangeHint) -> Void) {
+             partStableWindow: TimeInterval, queue: DispatchQueue,
+             onChange: @escaping @Sendable (ChangeHint) -> Void) {
             self.appDataRoot = appDataRoot
             self.documentsRoot = appDataRoot.deletingLastPathComponent()
             self.hotFrameworksRoot = hotFrameworksRoot
             self.debounceInterval = max(0, debounceInterval)
+            self.partStableWindow = max(0, partStableWindow)
+            self.partRecheckInterval = partStableWindow > 0 ? min(0.35, max(0.04, partStableWindow / 3.0)) : 0
             self.queue = queue
             self.onChange = onChange
         }
@@ -51,6 +74,8 @@ final class GameDirectoryWatcher: Sendable {
                 try? fm.createDirectory(at: appDataRoot, withIntermediateDirectories: true)
             }
             syncWatchesLocked()
+            // Seed snapshots for any pre-existing parts so startup changes are tracked cleanly.
+            _ = evaluatePartsLocked()
         }
 
         func setPausedLocked(_ paused: Bool) {
@@ -59,6 +84,11 @@ final class GameDirectoryWatcher: Sendable {
             if paused {
                 debounceWorkItem?.cancel()
                 debounceWorkItem = nil
+                partRecheckWorkItem?.cancel()
+                partRecheckWorkItem = nil
+                if !observedParts.isEmpty {
+                    dirtyWhilePaused = true
+                }
             } else {
                 syncWatchesLocked()
                 if dirtyWhilePaused {
@@ -73,6 +103,10 @@ final class GameDirectoryWatcher: Sendable {
             isStopped = true
             debounceWorkItem?.cancel()
             debounceWorkItem = nil
+            partRecheckWorkItem?.cancel()
+            partRecheckWorkItem = nil
+            observedParts.removeAll()
+            lastNotifiedStableSnapshot.removeAll()
             for entry in watchers.values {
                 entry.source.cancel()
             }
@@ -95,12 +129,113 @@ final class GameDirectoryWatcher: Sendable {
             let work = DispatchWorkItem { [weak self] in
                 guard let self, !self.isStopped, !self.isPaused else { return }
                 self.debounceWorkItem = nil
-                self.syncWatchesLocked()
-                let hasReadyHot = self.hotFrameworksRoot.map { GameCatalogue.hasReadyStagedFramework(in: $0) } ?? false
-                self.onChange(ChangeHint(hasReadyHotFramework: hasReadyHot))
+                self.evaluateAndNotifyLocked(fromDirectoryEvent: true)
             }
             debounceWorkItem = work
             queue.asyncAfter(deadline: .now() + debounceInterval, execute: work)
+        }
+
+        private func schedulePartRecheckLocked() {
+            guard partRecheckWorkItem == nil, !isStopped, !isPaused, partRecheckInterval > 0 else { return }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, !self.isStopped, !self.isPaused else { return }
+                self.partRecheckWorkItem = nil
+                self.evaluateAndNotifyLocked(fromDirectoryEvent: false)
+            }
+            partRecheckWorkItem = work
+            queue.asyncAfter(deadline: .now() + partRecheckInterval, execute: work)
+        }
+
+        private func evaluateAndNotifyLocked(fromDirectoryEvent: Bool) {
+            syncWatchesLocked()
+            let eval = evaluatePartsLocked()
+            let hasReadyHot = hotFrameworksRoot.map { GameCatalogue.hasReadyStagedFramework(in: $0) } ?? false
+
+            if !eval.unstablePaths.isEmpty {
+                schedulePartRecheckLocked()
+            } else {
+                partRecheckWorkItem?.cancel()
+                partRecheckWorkItem = nil
+            }
+
+            let stableChanged = eval.stableSnapshot != lastNotifiedStableSnapshot
+            let shouldNotify: Bool
+            if hasReadyHot {
+                shouldNotify = true
+            } else if stableChanged && !eval.stableSnapshot.isEmpty {
+                shouldNotify = true
+            } else if fromDirectoryEvent && eval.unstablePaths.isEmpty {
+                // Covers loose .img drops in Documents/ or deletions when no streaming .nxpart is active.
+                shouldNotify = true
+            } else {
+                shouldNotify = false
+            }
+
+            if eval.stableSnapshot.isEmpty && eval.unstablePaths.isEmpty {
+                lastNotifiedStableSnapshot.removeAll()
+            } else if shouldNotify {
+                lastNotifiedStableSnapshot = eval.stableSnapshot
+            }
+
+            if shouldNotify {
+                onChange(ChangeHint(hasReadyHotFramework: hasReadyHot, unstablePartPaths: eval.unstablePaths))
+            }
+        }
+
+        private func evaluatePartsLocked() -> (stableSnapshot: [String: PartSignature], unstablePaths: Set<String>) {
+            let fm = FileManager.default
+            guard let walk = fm.enumerator(at: appDataRoot, includingPropertiesForKeys: [.isRegularFileKey]) else {
+                observedParts.removeAll()
+                return ([:], [])
+            }
+            let nowMonotonic = ProcessInfo.processInfo.systemUptime
+            let nowWall = Date().timeIntervalSince1970
+
+            var found: [String: (sig: PartSignature, mtimeWall: TimeInterval)] = [:]
+            for case let url as URL in walk {
+                guard DataParts.parse(url.lastPathComponent) != nil else { continue }
+                let canonicalPath = url.resolvingSymlinksInPath().standardizedFileURL.path
+                var st = stat()
+                guard Darwin.lstat(canonicalPath, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { continue }
+                let sig = PartSignature(
+                    size: Int64(st.st_size),
+                    mtimeSec: Int(st.st_mtimespec.tv_sec),
+                    mtimeNsec: Int(st.st_mtimespec.tv_nsec)
+                )
+                let mtimeWall = Double(st.st_mtimespec.tv_sec) + Double(st.st_mtimespec.tv_nsec) / 1_000_000_000.0
+                found[canonicalPath] = (sig, mtimeWall)
+            }
+
+            // Drop records for removed or already-joined parts.
+            for path in Array(observedParts.keys) where found[path] == nil {
+                observedParts.removeValue(forKey: path)
+            }
+
+            var stableSnapshot: [String: PartSignature] = [:]
+            var unstablePaths = Set<String>()
+
+            for (path, info) in found {
+                var record: ObservedPart
+                if var existing = observedParts[path], existing.signature == info.sig {
+                    existing.stableSamples += 1
+                    record = existing
+                } else {
+                    record = ObservedPart(signature: info.sig, stableSamples: 0, lastChangedMonotonic: nowMonotonic)
+                }
+                observedParts[path] = record
+
+                let monotonicAge = nowMonotonic - record.lastChangedMonotonic
+                let wallAge = nowWall - info.mtimeWall
+                let isStable = (partStableWindow <= 0)
+                    || (record.stableSamples >= 1 && monotonicAge >= partStableWindow && wallAge >= partStableWindow)
+                if isStable {
+                    stableSnapshot[path] = info.sig
+                } else {
+                    unstablePaths.insert(path)
+                }
+            }
+
+            return (stableSnapshot, unstablePaths)
         }
 
         func syncWatchesLocked() {
@@ -204,11 +339,13 @@ final class GameDirectoryWatcher: Sendable {
     private let state: State
 
     init(appDataRoot: URL, hotFrameworksRoot: URL?, debounceInterval: TimeInterval = 0.6,
+         partStableWindow: TimeInterval = 1.0,
          onChange: @escaping @Sendable (ChangeHint) -> Void) {
         let queue = DispatchQueue(label: "dev.nx2apple.shell.directory-watcher", qos: .utility)
         self.queue = queue
         self.state = State(appDataRoot: appDataRoot, hotFrameworksRoot: hotFrameworksRoot,
-                           debounceInterval: debounceInterval, queue: queue, onChange: onChange)
+                           debounceInterval: debounceInterval, partStableWindow: partStableWindow,
+                           queue: queue, onChange: onChange)
     }
 
     deinit {

@@ -41,6 +41,8 @@ public struct ShellHostConfig: Sendable {
     /// Split-part byte size used by startup `DataParts.joinAll` (defaults to 512 MiB).
     public var joinPartSize: Int64
     var onJoinProgress: (@Sendable (DataParts.Progress) -> Void)?
+    var directoryWatchDebounceInterval: TimeInterval = 0.6
+    var directoryWatchPartStableWindow: TimeInterval = 1.0
 
     public init(gamesRoot: URL, appDataRoot: URL, hotFrameworksRoot: URL? = nil,
                 bannersRoot: URL? = nil,
@@ -178,6 +180,8 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var romfsChecks: [URL: RomfsCheck] = [:]
     @ObservationIgnored private var joinAndClaimTask: Task<Void, Never>?
     @ObservationIgnored private var pendingJoinAndClaim = false
+    @ObservationIgnored private var pendingReloadAfterClaim = false
+    @ObservationIgnored private var pendingExcludedPartPaths: Set<String> = []
     @ObservationIgnored private var joinGeneration: UInt64 = 0
     @ObservationIgnored private var joiningProgress: [String: DataParts.Progress] = [:]
     @ObservationIgnored nonisolated(unsafe) private var directoryWatcher: GameDirectoryWatcher?
@@ -220,7 +224,12 @@ public struct ShellHostConfig: Sendable {
         // the game files are kept out of the iCloud backup (#618), also what an earlier version put there. A joined file can make a
         // game playable, so the library is read again.
         scheduleJoinAndClaim(isStartup: true)
-        let watcher = GameDirectoryWatcher(appDataRoot: config.appDataRoot, hotFrameworksRoot: config.hotFrameworksRoot) { [weak self] hint in
+        let watcher = GameDirectoryWatcher(
+            appDataRoot: config.appDataRoot,
+            hotFrameworksRoot: config.hotFrameworksRoot,
+            debounceInterval: config.directoryWatchDebounceInterval,
+            partStableWindow: config.directoryWatchPartStableWindow
+        ) { [weak self] hint in
             Task { @MainActor [weak self] in
                 self?.handleDirectoryChange(hint)
             }
@@ -293,21 +302,29 @@ public struct ShellHostConfig: Sendable {
     private func handleBusyStateChanged() {
         let busy = isBusyWithGame
         directoryWatcher?.setPaused(busy)
-        if !busy && pendingJoinAndClaim {
-            scheduleJoinAndClaim()
+        drainDeferredWorkIfIdle()
+    }
+
+    private func drainDeferredWorkIfIdle() {
+        guard !isBusyWithGame else { return }
+        if pendingReloadAfterClaim {
+            pendingReloadAfterClaim = false
+            reload(afterClaim: true)
+        }
+        if pendingJoinAndClaim {
+            let excluded = pendingExcludedPartPaths
+            pendingExcludedPartPaths.removeAll()
+            scheduleJoinAndClaim(excludedPartPaths: excluded)
         }
     }
 
     private func handleDirectoryChange(_ hint: GameDirectoryWatcher.ChangeHint) {
         if isBusyWithGame {
             pendingJoinAndClaim = true
+            pendingExcludedPartPaths = hint.unstablePartPaths
             return
         }
-        if hint.hasReadyHotFramework {
-            reload()
-        } else {
-            scheduleJoinAndClaim()
-        }
+        scheduleJoinAndClaim(excludedPartPaths: hint.unstablePartPaths)
     }
 
     func waitForStartupTasks() async {
@@ -324,7 +341,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     private func applyJoinProgress(_ progress: DataParts.Progress, generation: UInt64) {
-        guard joinGeneration == generation, entries.contains(where: { $0.id == progress.titleID }) else { return }
+        guard joinGeneration == generation, !isBusyWithGame, entries.contains(where: { $0.id == progress.titleID }) else { return }
         joiningProgress[progress.titleID] = progress
         refresh(progress.titleID)
     }
@@ -337,10 +354,11 @@ public struct ShellHostConfig: Sendable {
         var hotRoot: URL?
         var bannersRoot: URL
         var partSize: Int64
+        var excludedPartPaths: Set<String>
         var progressHook: (@Sendable (DataParts.Progress) -> Void)?
     }
 
-    private func makeJoinPassInputs(isStartup: Bool) -> JoinPassInputs {
+    private func makeJoinPassInputs(isStartup: Bool, excludedPartPaths: Set<String>) -> JoinPassInputs {
         joinGeneration &+= 1
         return JoinPassInputs(
             generation: joinGeneration,
@@ -350,21 +368,25 @@ public struct ShellHostConfig: Sendable {
             hotRoot: config.hotFrameworksRoot,
             bannersRoot: config.bannersRoot,
             partSize: config.joinPartSize,
+            excludedPartPaths: excludedPartPaths,
             progressHook: config.onJoinProgress
         )
     }
 
-    private func scheduleJoinAndClaim(isStartup: Bool = false) {
+    private func scheduleJoinAndClaim(isStartup: Bool = false, excludedPartPaths: Set<String> = []) {
         if !isStartup && isBusyWithGame {
             pendingJoinAndClaim = true
+            pendingExcludedPartPaths = excludedPartPaths
             return
         }
         if joinAndClaimTask != nil {
             pendingJoinAndClaim = true
+            pendingExcludedPartPaths = excludedPartPaths
             return
         }
         pendingJoinAndClaim = false
-        let initialInputs = makeJoinPassInputs(isStartup: isStartup)
+        pendingExcludedPartPaths.removeAll()
+        let initialInputs = makeJoinPassInputs(isStartup: isStartup, excludedPartPaths: excludedPartPaths)
         joinAndClaimTask = Task { [weak self] in
             var currentInputs: JoinPassInputs? = initialInputs
             while let inputs = currentInputs {
@@ -380,9 +402,21 @@ public struct ShellHostConfig: Sendable {
                 let didChange = await Task.detached(priority: .utility) { () -> Bool in
                     let documents = inputs.dataRoot.deletingLastPathComponent()
                     DataParts.writeFeatures(documents: documents)
-                    let joined = DataParts.joinAll(appDataRoot: inputs.dataRoot, partSize: inputs.partSize, onProgress: reportProgress)
                     let hadReadyHot = inputs.hotRoot.map { GameCatalogue.hasReadyStagedFramework(in: $0) } ?? false
                     let allEntries = GameCatalogue.scan(root: inputs.gamesRoot, hotRoot: inputs.hotRoot, gameDataRoot: inputs.dataRoot)
+                    var minRomfsSizes: [String: Int64] = [:]
+                    for entry in allEntries {
+                        if let manifest = entry.manifest, let expected = DataLocator.expectedImageSize(manifest), expected > 0 {
+                            minRomfsSizes[entry.id.uppercased()] = expected
+                        }
+                    }
+                    let joined = DataParts.joinAll(
+                        appDataRoot: inputs.dataRoot,
+                        partSize: inputs.partSize,
+                        minimumRomfsSizes: minRomfsSizes,
+                        excludedPartPaths: inputs.excludedPartPaths,
+                        onProgress: reportProgress
+                    )
                     let claimed = LooseRomfsClaimer.claimAll(documents: documents, appDataRoot: inputs.dataRoot, entries: allEntries)
                     if inputs.isStartup || !joined.isEmpty || !claimed.isEmpty {
                         BackupExclusion.apply(appDataRoot: inputs.dataRoot)
@@ -401,7 +435,9 @@ public struct ShellHostConfig: Sendable {
                     break
                 }
                 self.pendingJoinAndClaim = false
-                currentInputs = self.makeJoinPassInputs(isStartup: false)
+                let nextExcluded = self.pendingExcludedPartPaths
+                self.pendingExcludedPartPaths.removeAll()
+                currentInputs = self.makeJoinPassInputs(isStartup: false, excludedPartPaths: nextExcluded)
             }
             self?.joinAndClaimTask = nil
         }
@@ -413,8 +449,13 @@ public struct ShellHostConfig: Sendable {
         joinGeneration &+= 1
         let affected = Array(joiningProgress.keys)
         joiningProgress.removeAll()
-        if changed && !isBusyWithGame {
-            reload(afterClaim: true)
+        if changed {
+            if isBusyWithGame {
+                pendingReloadAfterClaim = true
+            } else {
+                pendingReloadAfterClaim = false
+                reload(afterClaim: true)
+            }
         } else if !invalidated || !affected.isEmpty {
             for id in affected { refresh(id) }
         }
@@ -1387,7 +1428,13 @@ public struct ShellHostConfig: Sendable {
         }
         directoryWatcher?.setPaused(isBusyWithGame)
         if !isBusyWithGame {
-            scheduleJoinAndClaim()
+            if pendingReloadAfterClaim {
+                pendingReloadAfterClaim = false
+                reload(afterClaim: true)
+            }
+            let excluded = pendingExcludedPartPaths
+            pendingExcludedPartPaths.removeAll()
+            scheduleJoinAndClaim(excludedPartPaths: excluded)
         }
     }
 
