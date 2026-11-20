@@ -74,8 +74,40 @@ package struct InstallCard: View {
                             appKindCard("framework")
                         }
                     }.padding(18)
-                    CardDivider()
-                    if !forQueue { ExportSteps(build: build, devices: devices) }
+                    if !devices.exportOneGame && devices.exportFramework {
+                        CardDivider()
+                        let frameworkTeamOptions = [(value: "", label: loc.t("shell.frameworkTeamUnsigned"))] + teams
+                        let selectedFrameworkTeam: String = {
+                            if devices.exportFrameworkUnsigned || teams.isEmpty { return "" }
+                            if !devices.signingTeam.isEmpty && devices.teams.contains(where: { $0.id == devices.signingTeam }) {
+                                return devices.signingTeam
+                            }
+                            return devices.teams.first { $0.hasCertificate }?.id ?? devices.teams.first?.id ?? ""
+                        }()
+                        let selectedNeedsCert = !selectedFrameworkTeam.isEmpty
+                            && (devices.teams.first { $0.id == selectedFrameworkTeam }.map { !$0.hasCertificate } ?? false)
+                        let teamDetail = selectedFrameworkTeam.isEmpty
+                            ? loc.t("shell.frameworkUnsignedNote")
+                            : loc.t(selectedNeedsCert ? "shell.frameworkTeamNoCert" : "shell.frameworkTeamNote")
+                        CardRow(loc.t("dev.team"), detail: teamDetail, dot: selectedNeedsCert ? LauncherPalette.building : nil) {
+                            LauncherDropdown(options: frameworkTeamOptions, selection: selectedFrameworkTeam, label: loc.t("dev.team")) { picked in
+                                if picked.isEmpty {
+                                    devices.exportFrameworkUnsigned = true
+                                } else {
+                                    devices.exportFrameworkUnsigned = false
+                                    devices.signingTeam = picked
+                                }
+                            }
+                            .disabled(build.running)
+                            .padTarget("set.build.install.team", scope: "main", enabled: !build.running,
+                                       activate: { stepFrameworkTeam(1, options: frameworkTeamOptions, current: selectedFrameworkTeam) },
+                                       adjust: { stepFrameworkTeam($0, options: frameworkTeamOptions, current: selectedFrameworkTeam) })
+                        }
+                    }
+                    if !forQueue {
+                        CardDivider()
+                        ExportSteps(build: build, devices: devices)
+                    }
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
                         HStack {
@@ -237,6 +269,18 @@ package struct InstallCard: View {
         guard !build.running, !options.isEmpty else { return }
         let index = options.firstIndex { $0.value == devices.signingTeam } ?? 0
         devices.signingTeam = options[(index + by + options.count) % options.count].value
+    }
+
+    private func stepFrameworkTeam(_ by: Int, options: [(value: String, label: String)], current: String) {
+        guard !build.running, !options.isEmpty else { return }
+        let index = options.firstIndex { $0.value == current } ?? 0
+        let picked = options[(index + by + options.count) % options.count].value
+        if picked.isEmpty {
+            devices.exportFrameworkUnsigned = true
+        } else {
+            devices.exportFrameworkUnsigned = false
+            devices.signingTeam = picked
+        }
     }
 
     private func transferModeLabel(for mode: PostBuildTransferMode) -> String {

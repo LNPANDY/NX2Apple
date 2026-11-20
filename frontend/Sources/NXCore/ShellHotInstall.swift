@@ -132,6 +132,10 @@ package enum ShellHotInstall {
         return args
     }
 
+    package static func removeFrameworkSignatureCommand(codesign: String = "/usr/bin/codesign", executable: String) -> [String] {
+        [codesign, "--remove-signature", executable]
+    }
+
     package static func copyFrameworkCommand(xcrun: String, device: String, bundleID: String,
                                              sourceFramework: String, stagingSubdir: String, frameworkName: String) -> [String] {
         [xcrun, "devicectl", "device", "copy", "to", "--device", device, "--source", sourceFramework,

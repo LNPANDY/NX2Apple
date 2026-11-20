@@ -2192,7 +2192,7 @@ class MainWindow(QMainWindow):
         note_key = 'shell.ipaOneGameNote' if one else ('shell.ipaFrameworkNote' if fw else 'shell.ipaSharedNote')
         self.ipa_kind_note.setText(self.m.t(note_key))
         self.step1_title.setText('①  ' + self.m.t('shell.frameworkStep1Title' if fw else 'shell.step1Title'))
-        s1_sub_key = 'shell.oneGameSub' if one else ('shell.frameworkStep1Sub' if fw else 'shell.step1Sub')
+        s1_sub_key = 'shell.oneGameSub' if one else ('shell.frameworkUnsignedNote' if fw else 'shell.step1Sub')
         self.step1_sub.setText(self.m.t(s1_sub_key))
         ipa_p = self._effective_ipa_path()
         has_ipa = bool(ipa_p and os.path.exists(ipa_p))
