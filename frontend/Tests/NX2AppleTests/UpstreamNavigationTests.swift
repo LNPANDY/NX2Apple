@@ -311,6 +311,8 @@ private struct OfflineUpstreamTransport: EngineTransport {
         }
         XCTAssertTrue(waitUntil { Set(pad.frames["main", default: []].map(\.id)).contains("set.build.engine") },
                       "Builds page must show top EngineSwitcherCard")
+        XCTAssertFalse(Set(pad.frames["main", default: []].map(\.id)).contains("set.build.nxkitFeedback"),
+                       "Send feedback shows only with nxkit (Beta) chosen")
 
         let mainIDs = Set(pad.frames["main", default: []].map(\.id))
         XCTAssertFalse(mainIDs.contains("set.build.engine.change"), "Builds page must not show duplicate EngineFootnote")
@@ -326,5 +328,19 @@ private struct OfflineUpstreamTransport: EngineTransport {
         pad.activate()
         XCTAssertTrue(waitUntil { build.buildUpstream == .nxkit && build.target == BuildTarget.mac },
                       "Selecting nxkit from the dropdown must switch upstream and target Mac")
+        XCTAssertTrue(waitUntil { pad.scope == "main" && pad.frame(of: "set.build.nxkitFeedback") != nil },
+                      "With nxkit (Beta) chosen the switcher card offers Send feedback")
+        let feedback = build.nxkitSendFeedbackURL.absoluteString
+        XCTAssertTrue(feedback.hasPrefix(NxkitFeedback.newIssueURL + "?template=game_report.yml"), feedback)
+        XCTAssertTrue(feedback.contains("nxkit_version=0.10.3"), feedback)
+    }
+
+    /// #1498 review: the Experimental badge is nxkit's alone, and the nxkit row has no "Switch" label.
+    func testOnlyNxkitIsExperimentalAndHasNoSwitchLabel() {
+        for kind in EngineUpstreamKind.allCases {
+            XCTAssertEqual(EngineDropdownPanel.showsExperimentalBadge(kind), kind == .nxkit, kind.rawValue)
+            XCTAssertEqual(EngineDropdownPanel.showsSwitchLabel(kind), kind != .nxkit, kind.rawValue)
+        }
+        XCTAssertFalse(EngineDropdownPanel.showsExperimentalBadge(.macNativeGames), "MacNativeGames is not marked Experimental")
     }
 }

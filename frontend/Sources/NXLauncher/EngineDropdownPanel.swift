@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NXCore
 import NXModel
@@ -44,6 +45,16 @@ package struct EngineDropdownPanel: View {
         .onChange(of: build.upstreamAutoSwitchRevision) { _ in
             close()
         }
+    }
+
+    /// Only nxkit (Beta) carries the Experimental badge, right next to its name (#1498 review). The other engines carry none.
+    package static func showsExperimentalBadge(_ kind: EngineUpstreamKind) -> Bool { kind == .nxkit }
+
+    /// An installed engine that is not picked shows "Switch". The nxkit row does not: clicking the row still picks it.
+    package static func showsSwitchLabel(_ kind: EngineUpstreamKind) -> Bool { kind != .nxkit }
+
+    private func name(_ kind: EngineUpstreamKind) -> String {
+        kind == .nxkit ? loc.t("nxkit.name") : kind.displayName
     }
 
     private func isBlockedByGame(_ kind: EngineUpstreamKind) -> Bool {
@@ -119,7 +130,7 @@ package struct EngineDropdownPanel: View {
         let canSelect = !build.running && !blocked
         let subtitle = blocked ? loc.t("upstream.mngOnlyFiveTitles") : loc.t(kind.cardNoteKey)
         let helpText = blocked ? loc.t("upstream.mngOnlyFiveTitles") : (tooltip ?? loc.t(selected ? "upstream.activeBadge" : "upstream.readySwitch"))
-        let displayName = kind == .nxkit ? loc.t("nxkit.name") : kind.displayName
+        let displayName = name(kind)
         return HStack(spacing: 8) {
             Button {
                 build.selectUpstream(kind)
@@ -145,7 +156,7 @@ package struct EngineDropdownPanel: View {
                                 vPad: 1.5,
                                 tooltip: tooltip
                             )
-                            if !kind.isBuiltIn && kind != .nxkit {
+                            if Self.showsExperimentalBadge(kind) {
                                 EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
                             }
                         }
@@ -161,7 +172,7 @@ package struct EngineDropdownPanel: View {
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(LauncherPalette.ready)
                                 .padding(.trailing, 4)
-                        } else {
+                        } else if Self.showsSwitchLabel(kind) {
                             Text(loc.t("upstream.switchBtn"))
                                 .font(.manrope(12, .semibold))
                                 .foregroundStyle(LauncherPalette.secondaryText)
@@ -182,6 +193,19 @@ package struct EngineDropdownPanel: View {
             .accessibilityAddTraits(selected ? .isSelected : [])
             .keyboardShortcut(shortcut(kind))
             .padTarget(actionID(kind), scope: "engineDropdown", radius: 9, enabled: canSelect, activate: { build.selectUpstream(kind); close() }, vertical: { move(kind, by: $0) })
+
+            if kind == .nxkit {
+                Button {
+                    NSWorkspace.shared.open(build.nxkitSendFeedbackURL)
+                } label: {
+                    Image(systemName: "bubble.left")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(LauncherIconButtonStyle(size: 24))
+                .help(loc.t("nxkit.feedback.sendHelp"))
+                .accessibilityLabel(loc.t("nxkit.feedback.send"))
+                .accessibilityIdentifier("engine.nxkit.feedback")
+            }
 
             if hasUpdate {
                 Button {
@@ -230,11 +254,11 @@ package struct EngineDropdownPanel: View {
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(kind.displayName)
+                    Text(name(kind))
                         .font(.manrope(13.5, .semibold))
                         .foregroundStyle(LauncherPalette.text)
                         .lineLimit(1)
-                    if !kind.isBuiltIn {
+                    if Self.showsExperimentalBadge(kind) {
                         EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
                     }
                 }
@@ -272,11 +296,11 @@ package struct EngineDropdownPanel: View {
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text(kind.displayName)
+                    Text(name(kind))
                         .font(.manrope(13.5, .semibold))
                         .foregroundStyle(LauncherPalette.text)
                         .lineLimit(1)
-                    if !kind.isBuiltIn {
+                    if Self.showsExperimentalBadge(kind) {
                         EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
                     }
                     if fraction == nil {
@@ -335,11 +359,11 @@ package struct EngineDropdownPanel: View {
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(kind.displayName)
+                    Text(name(kind))
                         .font(.manrope(13.5, .semibold))
                         .foregroundStyle(LauncherPalette.text)
                         .lineLimit(1)
-                    if !kind.isBuiltIn {
+                    if Self.showsExperimentalBadge(kind) {
                         EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
                     }
                 }
@@ -374,7 +398,7 @@ package struct EngineDropdownPanel: View {
     }
 }
 
-/// Compact amber pill marking the multi-engine switcher feature and non-bundled engines as experimental.
+/// Compact amber pill marking nxkit (Beta) as experimental, next to its name.
 struct EngineExperimentalBadge: View {
     let text: String
     var compact = false

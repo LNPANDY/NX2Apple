@@ -1885,6 +1885,8 @@
   "nxkit.feedback.no": "Es funktioniert nicht",
   "nxkit.feedback.problems": "Probleme",
   "nxkit.feedback.report": "Melden",
+  "nxkit.feedback.send": "Feedback senden",
+  "nxkit.feedback.sendHelp": "Öffnet ein neues Issue für nxkit auf GitHub. Es wird nichts von selbst gesendet.",
   "nxkit.feedback.title": "Hat es funktioniert?",
   "nxkit.feedback.which": "Was ist passiert?",
   "nxkit.feedback.yes": "Es funktioniert",

@@ -1883,6 +1883,8 @@
   "nxkit.feedback.no": "It does not work",
   "nxkit.feedback.problems": "Problems",
   "nxkit.feedback.report": "Report",
+  "nxkit.feedback.send": "Send feedback",
+  "nxkit.feedback.sendHelp": "Opens a new issue for nxkit on GitHub. Nothing is sent by itself.",
   "nxkit.feedback.title": "Did it work?",
   "nxkit.feedback.which": "What happened?",
   "nxkit.feedback.yes": "It works",

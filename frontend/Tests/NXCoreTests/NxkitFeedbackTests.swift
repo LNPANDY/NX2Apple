@@ -102,4 +102,23 @@ final class NxkitFeedbackTests: XCTestCase {
         XCTAssertTrue(NxkitFeedback.macModel.hasPrefix("Mac") || NxkitFeedback.macModel.contains(","), NxkitFeedback.macModel)
         XCTAssertEqual(NxkitFeedback.macOSVersion.split(separator: ".").count, 3)
     }
+
+    func testSendFeedbackOpensTheFormWithOnlyWhatThisMacKnows() {
+        let url = NxkitFeedback.feedbackURL(nxkitVersion: "0.10.2", engineBuild: "abc 1", macModel: "Mac15,8", macOSVersion: "26.1.0")
+        XCTAssertTrue(url.absoluteString.hasPrefix(NxkitFeedback.newIssueURL + "?"))
+        XCTAssertEqual(url.host, "github.com")
+        XCTAssertEqual(url.path, "/v0lumehi/nxkit/issues/new", "feedback goes to v0lumehi/nxkit, never to NX2Apple")
+        let q = query(url)
+        XCTAssertEqual(q["template"], "game_report.yml")
+        XCTAssertEqual(q["nxkit_version"], "0.10.2")
+        XCTAssertEqual(q["engine_build"], "abc 1")
+        XCTAssertEqual(q["mac_model"], "Mac15,8")
+        XCTAssertEqual(q["macos_version"], "26.1.0")
+        XCTAssertNil(q["title"], "the player names the game")
+        XCTAssertNil(q["result"], "the player picks the result")
+        XCTAssertNil(q["log"])
+        let bare = query(NxkitFeedback.feedbackURL(nxkitVersion: "", engineBuild: "", macModel: "Mac15,8", macOSVersion: "26.1.0"))
+        XCTAssertNil(bare["nxkit_version"], "an empty field is left out")
+        XCTAssertNil(bare["engine_build"])
+    }
 }

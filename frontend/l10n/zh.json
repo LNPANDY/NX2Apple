@@ -1884,6 +1884,8 @@
   "nxkit.feedback.no": "无法运行",
   "nxkit.feedback.problems": "有问题",
   "nxkit.feedback.report": "报告",
+  "nxkit.feedback.send": "发送反馈",
+  "nxkit.feedback.sendHelp": "在 GitHub 上为 nxkit 新建 issue，不会自动发送任何内容。",
   "nxkit.feedback.title": "运行正常吗？",
   "nxkit.feedback.which": "发生了什么？",
   "nxkit.feedback.yes": "可以运行",

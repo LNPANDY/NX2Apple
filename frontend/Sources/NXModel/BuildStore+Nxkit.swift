@@ -91,6 +91,11 @@ extension BuildStore {
     /// A pair is there (bundled or installed).
     package var nxkitInstalled: Bool { nxkitInUse != nil }
 
+    /// "Send feedback" on the Build page: a new issue in v0lumehi/nxkit, prefilled with the nxkit version in use. Only opened in the browser.
+    package var nxkitSendFeedbackURL: URL {
+        NxkitFeedback.feedbackURL(nxkitVersion: nxkitInUse?.version ?? "", engineBuild: nxkitInUse?.hostBuild ?? "")
+    }
+
     /// The pair the next build runs: the installed version state.json names when it is not older than the bundled one, else the bundled pair.
     package func refreshNxkit() {
         nxkitInUse = nxkitVersions.resolve(bundled: nxkitBundledFolder)

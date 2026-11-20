@@ -136,9 +136,9 @@ popover and alert, every notice and every case of the state enums the views swit
 | `DeleteGameSheet` | `deleteGame`, `desktop-deleteGameIOS` |
 | `DiagnosticsButton` | `settingsTools` |
 | `EngineDropdownPanel` | `desktop-engineDropdown` |
-| `EngineExperimentalBadge` | `buildsIdle`, `desktop-engineDropdown` |
+| `EngineExperimentalBadge` | `desktop-engineDropdown` |
 | `EngineFootnote` | Reason: Not used by the launcher: no view creates it, only tests host it. |
-| `EngineSwitcherCard` | `buildsIdle`, `desktop-mngRecommend`, `desktop-mngRecommendInstalled` |
+| `EngineSwitcherCard` | `buildsIdle`, `nxkitFailed`, `desktop-mngRecommend`, `desktop-mngRecommendInstalled` |
 | `EngineSyncBanner` | `libraryNoticeError`, `settingsEngineError` |
 | `ExportSteps` | `desktop-completionExported`, `desktop-sendSent` |
 | `FailureTitleRow` | `buildFailure-severalGames` |
