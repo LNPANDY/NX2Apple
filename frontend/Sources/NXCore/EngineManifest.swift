@@ -183,6 +183,8 @@ package struct EngineStore {
 
     /// The file in a tree that names it (`tools/engine.py tree` writes it, with a newline).
     package static let idFile = ".engine-id"
+    /// The file in a tree holding the UTC commit date of `.upstream-ref` (`tools/engine.py tree` writes it).
+    package static let upstreamDateFile = ".upstream-date"
     /// What the launcher runs by path, and the pin. A tree without one of them is not used.
     package static let requiredFiles = ["scripts/build_ipa_from_nsp.py", "dm/tools/romfs_image.py", ".upstream-ref", idFile]
 
@@ -204,6 +206,13 @@ package struct EngineStore {
         guard let text = try? String(contentsOf: tree.appendingPathComponent(idFile), encoding: .utf8) else { return nil }
         let id = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return isEngineID(id) ? id : nil
+    }
+
+    /// The UTC commit date of `.upstream-ref` stored in `.upstream-date`, nil when absent or malformed.
+    package static func upstreamDate(of tree: URL) -> String? {
+        guard let text = try? String(contentsOf: tree.appendingPathComponent(upstreamDateFile), encoding: .utf8) else { return nil }
+        let date = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return EngineManifest.date(date) != nil ? date : nil
     }
 
     /// Whether `tree` holds everything the launcher runs by path and calls itself `id`.

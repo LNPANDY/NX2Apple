@@ -77,7 +77,7 @@ import NXModel
             installFailed: { laterBuild.value?.note($0) })
         let engineSync = EngineSyncStore(
             localizer: localizer, runner: runner, repo: repo, python: dependencies, defaults: defaults,
-            setRepoPath: { repo.path = $0 },
+            setRepoPath: { repo.path = $0; laterBuild.value?.refreshUpstreamLocalVersion(for: .nxnative) },
             buildRunning: { laterBuild.value?.running ?? false },
             autoUpdate: { repo.autoUpdate },
             log: { log.append($0) })

@@ -66,8 +66,12 @@ package enum ExperimentalStanding: Equatable {
     /// The same engine is not ahead. Otherwise the upstream pin dates decide: an older experimental pin is not ahead, an equal date
     /// with another engine id is (the patch series differs), and a missing date on either side is unknown.
     package static func compare(experimental: EngineManifest.Manifest, stable: EngineManifest.Manifest) -> ExperimentalStanding {
-        if !experimental.engineID.isEmpty, experimental.engineID == stable.engineID { return .notAhead }
-        guard let e = EngineManifest.date(experimental.upstreamDate), let s = EngineManifest.date(stable.upstreamDate) else { return .unknown }
+        compare(experimental: experimental, baselineID: stable.engineID, baselineDate: stable.upstreamDate)
+    }
+
+    package static func compare(experimental: EngineManifest.Manifest, baselineID: String, baselineDate: String?) -> ExperimentalStanding {
+        if !experimental.engineID.isEmpty, experimental.engineID == baselineID { return .notAhead }
+        guard let e = EngineManifest.date(experimental.upstreamDate), let s = EngineManifest.date(baselineDate) else { return .unknown }
         return e < s ? .notAhead : .ahead
     }
 }
@@ -507,6 +511,7 @@ package enum EngineUpdate {
         channel: EngineChannel,
         appVersion: String,
         current: String,
+        currentVersion: String? = nil,
         store: EngineStore,
         bundled: URL?,
         publicKey: String = EngineManifest.publicKey,
@@ -540,27 +545,63 @@ package enum EngineUpdate {
         catch { return .failed(.badManifest(error as? EngineManifest.Problem ?? .notJSON)) }
         if let c = m.channel, c != channel.rawValue { return .failed(.wrongChannel(c)) }
 
+        if channel == .experimental {
+            let bundledDate = bundled.flatMap { EngineStore.upstreamDate(of: $0) }
+            // Keep a usable current tree when it is at least as new as bundled (or bundled has no date)
+            // and the experimental manifest is not ahead of it.
+            if let currentDir = store.isUsable(current) ? store.directory(for: current) : nil,
+               let currentDate = EngineStore.upstreamDate(of: currentDir),
+               let cDate = EngineManifest.date(currentDate),
+               (bundledDate.flatMap(EngineManifest.date).map { cDate >= $0 } ?? true),
+               ExperimentalStanding.compare(experimental: m, baselineID: current, baselineDate: currentDate) == .notAhead {
+                let version = (currentVersion?.isEmpty == false ? currentVersion : nil) ?? appVersion
+                return .current(Engine(id: current, version: version))
+            }
+            // Do not downgrade or overwrite an equivalent or newer bundled engine with an older experimental build.
+            if let bundled, let bundledID,
+               ExperimentalStanding.compare(experimental: m, baselineID: bundledID, baselineDate: bundledDate) == .notAhead {
+                return place(Engine(id: bundledID, version: appVersion), current: current, store: store, bundled: bundled, bundledID: bundledID,
+                             install: install) { .failed(.noManifest) }
+            }
+        }
+
         return place(Engine(id: m.engineID, version: m.version), current: current, store: store, bundled: bundled, bundledID: bundledID,
                      install: install) {
             downloadAndInstall(m, channel: channel, appVersion: appVersion, store: store, transport: transport, onProgress: onProgress)
         }
     }
 
-    /// How Experimental stands against Stable: both manifests are read, checked like an update's and compared. Anything that goes
-    /// wrong (offline, no manifest, a bad signature) is `.unknown`, which offers the switch as before.
-    package static func standing(appVersion: String, publicKey: String = EngineManifest.publicKey,
+    /// How Experimental stands against Stable: both manifests are read, checked like an update's and compared. When the
+    /// stable manifest is missing (404 during release-candidate testing), the bundled tree acts as the stable baseline.
+    package static func standing(appVersion: String, bundled: URL? = nil, publicKey: String = EngineManifest.publicKey,
                                  transport: EngineTransport) -> ExperimentalStanding {
-        func manifest(_ channel: EngineChannel) -> EngineManifest.Manifest? {
-            guard let url = channel.manifestURL(version: appVersion), case .ok(let data) = transport.data(from: url) else { return nil }
+        enum Read { case ok(EngineManifest.Manifest), missing, failed }
+        func manifest(_ channel: EngineChannel) -> Read {
+            guard let url = channel.manifestURL(version: appVersion) else { return .missing }
+            let data: Data
+            switch transport.data(from: url) {
+            case .ok(let d): data = d
+            case .missing: return .missing
+            case .failed: return .failed
+            }
             var signature: String?
             if let sigURL = channel.signatureURL(version: appVersion), case .ok(let s) = transport.data(from: sigURL) {
                 signature = String(decoding: s, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            guard EngineManifest.allowsInstall(EngineManifest.verify(manifest: data, signature: signature, publicKey: publicKey)) else { return nil }
-            return try? EngineManifest.decode(data)
+            guard EngineManifest.allowsInstall(EngineManifest.verify(manifest: data, signature: signature, publicKey: publicKey)),
+                  let decoded = try? EngineManifest.decode(data) else { return .failed }
+            return .ok(decoded)
         }
-        guard let experimental = manifest(.experimental), let stable = manifest(.stable) else { return .unknown }
-        return ExperimentalStanding.compare(experimental: experimental, stable: stable)
+        guard case .ok(let experimental) = manifest(.experimental) else { return .unknown }
+        switch manifest(.stable) {
+        case .ok(let stable):
+            return ExperimentalStanding.compare(experimental: experimental, stable: stable)
+        case .missing:
+            guard let bundled, let bundledID = EngineStore.identity(of: bundled) else { return .unknown }
+            return ExperimentalStanding.compare(experimental: experimental, baselineID: bundledID, baselineDate: EngineStore.upstreamDate(of: bundled))
+        case .failed:
+            return .unknown
+        }
     }
 
     /// The engine from the cheapest place: already selected, already in the store, in the app, or downloaded.

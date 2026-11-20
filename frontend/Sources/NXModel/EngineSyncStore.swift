@@ -66,6 +66,7 @@ import NXCore
     private let transport: EngineTransport
     private let defaults: UserDefaults
     private let appVersion: String
+    private let publicKey: String
     private let setRepoPath: (String) -> Void
     private let buildRunning: () -> Bool
     private let autoUpdate: () -> Bool
@@ -81,6 +82,7 @@ import NXCore
                  engineStore: EngineStore = EngineStore(), transport: EngineTransport = URLSessionEngineTransport(),
                  bundle: URL? = EngineBundle.tree(in: Bundle.main.resourceURL), defaults: UserDefaults = .standard,
                  appVersion: String = AppUpdateStore.appVersion,
+                 publicKey: String = EngineManifest.publicKey,
                  setRepoPath: @escaping (String) -> Void = { _ in }, buildRunning: @escaping () -> Bool = { false },
                  autoUpdate: @escaping () -> Bool = { true }, log: @escaping (String) -> Void = { _ in }) {
         self.localizer = localizer
@@ -92,6 +94,7 @@ import NXCore
         self.bundle = bundle
         self.defaults = defaults
         self.appVersion = appVersion
+        self.publicKey = publicKey
         self.setRepoPath = setRepoPath
         self.buildRunning = buildRunning
         self.autoUpdate = autoUpdate
@@ -161,8 +164,36 @@ import NXCore
     package func prepareEngine() -> Task<Void, Never> {
         guard let bundled = bundle, !busy, let id = EngineStore.identity(of: bundled) else { return Task {} }
         let selected = selection.engineID
-        let appMovedOn = selection.channel == .stable && selected != id && selection.version != appVersion
-        if !appMovedOn, engineStore.isUsable(selected), let dir = engineStore.directory(for: selected) {
+        let bundledDate = EngineStore.upstreamDate(of: bundled)
+        let selectedDir = engineStore.isUsable(selected) ? engineStore.directory(for: selected) : nil
+        let selectedDate = selectedDir.flatMap { EngineStore.upstreamDate(of: $0) }
+        let appMovedOn: Bool
+        if selected == id || selectedDir == nil {
+            appMovedOn = selected != id
+        } else if selection.channel == .stable {
+            // Same appVersion (e.g. rcN -> rcN+1) moves onto the newer bundled engine unless the store
+            // already holds a strictly newer upstream commit date for this release.
+            if AppUpdate.isNewer(selection.version, than: appVersion) {
+                appMovedOn = false
+            } else if selection.version == appVersion,
+                      let s = EngineManifest.date(selectedDate),
+                      let b = EngineManifest.date(bundledDate),
+                      s > b {
+                appMovedOn = false
+            } else {
+                appMovedOn = true
+            }
+        } else {
+            // On experimental, switch offline to the bundled engine when it has a strictly newer upstream date.
+            if let s = EngineManifest.date(selectedDate),
+               let b = EngineManifest.date(bundledDate),
+               b > s {
+                appMovedOn = true
+            } else {
+                appMovedOn = false
+            }
+        }
+        if !appMovedOn, let dir = selectedDir {
             setRepoPath(dir.path)
             return checkForUpdate(automatic: true)
         }
@@ -233,8 +264,10 @@ import NXCore
         let store = engineStore
         let bundled = bundle
         let current = selection.engineID
+        let currentVersion = selection.version
         let transport = self.transport
         let version = appVersion
+        let key = publicKey
         let onByteProgress: @Sendable (Int64, Int64?) -> Void = { [weak self] written, expected in
             let formatted = EngineUpdate.formatDownloadProgress(written: written, expected: expected)
             Task { @MainActor [weak self] in
@@ -247,24 +280,47 @@ import NXCore
             }
         }
         return Task {
+            defer {
+                downloadFraction = nil
+                downloadStatus = ""
+                busy = false
+            }
+            var prefetchedStanding: ExperimentalStanding?
+            if selection.channel == .stable && channel == .experimental {
+                let standing = await Task.detached { EngineUpdate.standing(appVersion: version, bundled: bundled, publicKey: key, transport: transport) }.value
+                prefetchedStanding = standing
+                if standing == .notAhead {
+                    experimentalStanding = .notAhead
+                    if !quiet { status = t("engine.experimentalBehind") }
+                    return
+                }
+            }
             let outcome = await Task.detached {
                 EngineUpdate.run(
                     channel: channel,
                     appVersion: version,
                     current: current,
+                    currentVersion: currentVersion,
                     store: store,
                     bundled: bundled,
+                    publicKey: key,
                     install: install,
                     transport: transport,
                     onProgress: onByteProgress
                 )
             }.value
-            downloadFraction = nil
-            downloadStatus = ""
-            busy = false
+            if case .failed = outcome {
+                applyOutcome(outcome, channel: channel, quiet: quiet)
+                return
+            }
+            let standing: ExperimentalStanding
+            if let prefetchedStanding {
+                standing = prefetchedStanding
+            } else {
+                standing = await Task.detached { EngineUpdate.standing(appVersion: version, bundled: bundled, publicKey: key, transport: transport) }.value
+            }
             applyOutcome(outcome, channel: channel, quiet: quiet)
-            if case .failed = outcome { return }
-            experimentalStanding = await Task.detached { EngineUpdate.standing(appVersion: version, transport: transport) }.value
+            experimentalStanding = standing
         }
     }
 
