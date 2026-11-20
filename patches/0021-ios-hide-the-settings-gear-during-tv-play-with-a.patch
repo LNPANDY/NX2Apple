@@ -162,10 +162,10 @@ index bb08ed6..beefab5 100644
      if (@available(iOS 17.0, *)) {
          [self setHarnessControllers:nil notification:nil];
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index d534bb2..5952926 100644
+index 183a5f2..bfbc660 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -2621,7 +2621,7 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
+@@ -2644,7 +2644,7 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
  
  - **Symptom:** portrait gameplay overlaps the touch controls, touch coordinates land outside the game picture, or a TV's picture renders at 4K again after a layout pass.
  - **Cause:** the front end assumed a landscape screen with the controls over the whole view, so its picture and touch geometry did not follow a portrait screen (an iPad, an iPhone Duo's inner display) or a Duo's fold. On iPadOS the deprecated `UIRequiresFullScreen` kept the game out of resizable windows, and a native rotation A/B on the iPhone Duo iOS 27.1 simulator showed that it also blocked upside-down portrait.

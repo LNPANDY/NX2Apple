@@ -35,10 +35,10 @@ Issue: LNPANDY/NX2Apple#1063
  2 files changed, 14 insertions(+)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index a93848c..e782864 100644
+index 0f1202f..d676e71 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -1661,6 +1661,14 @@ HLE_FORCE("_ZN2nn3hid20IsVibrationPermittedEv", "vibration permission: the app's
+@@ -1672,6 +1672,14 @@ HLE_FORCE("_ZN2nn3hid20IsVibrationPermittedEv", "vibration permission: the app's
      if (getenv("DM_RUMBLE_LOG")) { static _Atomic int was = -1; if (atomic_exchange(&was, (int)on) != (int)on) LOG("rumble: IsVibrationPermitted -> %u", on); }
      return on;
  }
@@ -53,7 +53,7 @@ index a93848c..e782864 100644
  // Games can cache handles once at startup, before GameController routes the pad's haptics (Unicorn Overlord kept an empty answer and sent every value to handle 0).
  // On Horizon handles are computed from npad id and style (libnx _hidGetVibrationDeviceHandles); vib_send checks for an output at each send. With rumble off they are handed out too,
  // as on a Switch whose vibration setting is off (IsVibrationPermitted answers false and nothing is felt), so turning it on while the game runs works in a game that asked only once.
-@@ -1844,6 +1852,8 @@ HLE_FORCE("_ZN2nn3hid32SetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHan
+@@ -1855,6 +1863,8 @@ HLE_FORCE("_ZN2nn3hid32SetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHan
  HLE_FORCE("_ZN2nn3hid34ResetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHandleE", "six-axis sensor fusion parameters; ignored by the host", void, h_hid_FusionReset, const uint32_t *h) { (void)h; }
  HLE_FORCE("_ZN2nn3hid41IsFirmwareUpdateAvailableForSixAxisSensorERKNS0_19SixAxisSensorHandleE", "six-axis sensor firmware update: none", unsigned, h_hid_SixFw, const uint32_t *h) { (void)h; return 0; }
  // GetActual returns the sanitized guest value accepted by the host, before output-device adaptation.
@@ -63,7 +63,7 @@ index a93848c..e782864 100644
      int m = 0, on = h && vib_valid(*h, &m) != 0;
      info[0] = on ? 1 : 0; info[1] = on ? 1 + m : 0;
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 044c520..d1edce1 100644
+index 6cc0d86..2d6527a 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
 @@ -413,6 +413,10 @@ static void t_vibration(void) {

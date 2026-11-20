@@ -18,7 +18,7 @@ Issue: none
  create mode 100644 dm/gfx/tests/t_rt_recycle_policy.c
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index e9fe5e0..f3d7396 100644
+index 155f0cc..c34fcaf 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -40,6 +40,7 @@
@@ -29,7 +29,7 @@ index e9fe5e0..f3d7396 100644
  #include "msl_image.h"
  #include "../msl_mount.h"
  #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
-@@ -475,22 +476,90 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
+@@ -485,22 +486,90 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
  // added (resource_vis). Heaps idle for RH_IDLE_NS, and the oldest past
  // RH_CAP bytes waiting, leave the residency set when a submission begins (rh_trim). DM_NVN_RT_RECYCLE=0 makes each texture its own allocation and each family heap exact and freed
  // with its last texture, as before; ab alternates it with the DM_AB phases
@@ -125,7 +125,7 @@ index e9fe5e0..f3d7396 100644
  }
  @interface NvRecycledHeap : NSObject { @public id<MTLHeap> heap; } @end
  @implementation NvRecycledHeap
-@@ -501,13 +570,14 @@ @implementation NvImageHeap
+@@ -511,13 +580,14 @@ @implementation NvImageHeap
  - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
  @end
  static char g_image_heap_owner_key, g_rh_owner_key;
@@ -143,7 +143,7 @@ index e9fe5e0..f3d7396 100644
      void *got = NULL;
      if (on) {
          os_unfair_lock_lock(&g_rh_lk);
-@@ -518,11 +588,11 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
+@@ -528,11 +598,11 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
              if (h.storageMode != sm || h.cpuCacheMode != cm) continue;   // (a placed texture takes its heap's hazard tracking: a placement heap reports untracked, a descriptor default)
              best = i;
          }
@@ -157,7 +157,7 @@ index e9fe5e0..f3d7396 100644
      hd.storageMode = sm; hd.cpuCacheMode = cm; hd.hazardTrackingMode = hm;
      id<MTLHeap> h = [g_dev newHeapWithDescriptor:hd];
      if (h && on) atomic_fetch_add(&g_rh_made, 1);
-@@ -579,19 +649,18 @@ static void tu_register(id<MTLTexture> t, uint64_t serial) {
+@@ -589,19 +659,18 @@ static void tu_register(id<MTLTexture> t, uint64_t serial) {
      if (g_tu_gone.n && nvn_hm_del(&g_tu_gone, &serial)) g_tu_remade++;
      os_unfair_lock_unlock(&g_tu_lk);
  }
@@ -187,7 +187,7 @@ index e9fe5e0..f3d7396 100644
  }
  // The R32 storage under a 32-bit colour texture that takes image atomics (tex_upgrade): resident as long as the colour view over it lives, which is what the game's names hold
  @interface NvAtomicRaw : NSObject { @public id<MTLTexture> raw; } @end
-@@ -954,6 +1023,28 @@ static void mtl_init_once(void) {
+@@ -964,6 +1033,28 @@ static void mtl_init_once(void) {
      if (!g_nvn_deswz_gpu) MLOG("[RED] GPU deswizzle init failed; swizzled textures fall back to the CPU");
      MLOG("Metal device %s", g_dev.name.UTF8String);
      udc_selftest();
@@ -216,7 +216,7 @@ index e9fe5e0..f3d7396 100644
  }
  
  void mtl_init(void) {
-@@ -19884,6 +19975,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -19949,6 +20040,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      atomic_fetch_add(&g_defer_gen, 1);
      mtl_present_discard(1);
      dispatch_group_wait(bg_group(), DISPATCH_TIME_FOREVER);
@@ -229,7 +229,7 @@ index e9fe5e0..f3d7396 100644
  
      if (g_q) {
          if (on_sub_thread()) { up_flush(); rec_drain(); }
-@@ -20135,6 +20232,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -20200,6 +20297,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      for (unsigned i = 0; i < g_rh_n; i++) if (g_rh[i].heap) CFRelease(g_rh[i].heap);
      free(g_rh); g_rh = NULL; g_rh_n = g_rh_cap = 0; g_rh_bytes = 0;
      os_unfair_lock_unlock(&g_rh_lk);
@@ -309,10 +309,10 @@ index 0000000..3691763
 +
 +#endif
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 3cc6f04..b4ef81f 100644
+index 2518bf2..e486d92 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -686,6 +686,8 @@ t_image_alias: t_image_alias.m $(MTL_T_DEP)
+@@ -688,6 +688,8 @@ t_image_alias: t_image_alias.m $(MTL_T_DEP)
  check_t_image_alias: t_image_alias
  	DM_NVN_ENC_THREAD=0 MTL_DEBUG_LAYER=1 ./t_image_alias
  	DM_NVN_ENC_THREAD=1 MTL_DEBUG_LAYER=1 ./t_image_alias
@@ -322,7 +322,7 @@ index 3cc6f04..b4ef81f 100644
  	clang $(CFLAGS) -fobjc-arc -o $@ t_rt_recycle.m $(MTL_T_SRC) $(FW)
  .PHONY: check_t_rt_recycle
 diff --git a/dm/gfx/tests/t_rt_recycle.m b/dm/gfx/tests/t_rt_recycle.m
-index 61d3310..c928093 100644
+index 61d3310..12116ab 100644
 --- a/dm/gfx/tests/t_rt_recycle.m
 +++ b/dm/gfx/tests/t_rt_recycle.m
 @@ -172,6 +172,93 @@ int main(void) { @autoreleasepool {
@@ -371,7 +371,7 @@ index 61d3310..c928093 100644
 +            batch_heaps[i] = tex_mtl(&batch[i]).heap;
 +        }
 +        for (unsigned i = 0; i < 72; i++) mtl_tex_release(&batch[i]);
-+        mtl_alias_drop_pool(&pool); settle();
++        mtl_alias_drop_pool(&pool); settle(); usleep(100000); settle();   // the deferred releases of this many heaps finish on their own thread
 +        CHECK(waiting() == 72, "72 small iOS heaps pool under the 96 MiB high-memory budget");
 +
 +        MTLHeapDescriptor *thd = [MTLHeapDescriptor new];
@@ -397,7 +397,7 @@ index 61d3310..c928093 100644
 +            (void)tex_mtl(&batch[i]);
 +        }
 +        for (unsigned i = 0; i < 70; i++) mtl_tex_release(&batch[i]);
-+        mtl_alias_drop_pool(&pool); settle();
++        mtl_alias_drop_pool(&pool); settle(); usleep(100000); settle();   // the deferred releases of this many heaps finish on their own thread
 +        CHECK(waiting() == 70, "70 small iOS heaps pool before memory pressure signal");
 +        rh_test_set(1, 1, 2048ull << 20, 1);
 +        rh_trim();

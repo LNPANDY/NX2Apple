@@ -28,7 +28,7 @@ Issue: LNPANDY/NX2Apple#1025
  create mode 100644 dm/host/tests/t_stick_deadzone.c
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index e782864..78a98fc 100644
+index d676e71..70b6bfa 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -8,6 +8,7 @@
