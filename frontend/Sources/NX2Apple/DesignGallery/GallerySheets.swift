@@ -20,7 +20,7 @@ enum GallerySheet: String, CaseIterable {
     case batchRefresh, batchRefreshEmpty, imgGuide, imgGuideNoPackage
     case saves, saveImport
     case skippedItems, appUpdate, playerName, playerRename, buildSteps, sendSelectedDevice
-    case cheats
+    case cheats, invalidXcode
 
     var title: String {
         switch self {
@@ -68,6 +68,7 @@ enum GallerySheet: String, CaseIterable {
         case .buildSteps: return "Build steps"
         case .sendSelectedDevice: return "Send game data: no shared app"
         case .cheats: return "Cheats: no files yet"
+        case .invalidXcode: return "Chosen app is not Xcode"
         }
     }
 
@@ -238,6 +239,8 @@ extension GalleryFixtures {
             return AnyView(SendSelectedSheet(mode: .device, build: stores.build, close: {}))
         case .cheats:
             return AnyView(CheatsView(m: stores.build, library: library, gameID: game.id))
+        case .invalidXcode:   // Settings › Tools, Choose… with an app that is not Xcode (ToolsCard)
+            return AnyView(DSSheet(title: t("xcodeChoice.invalid")) { EmptyView() } buttons: { DSSheetPrimaryButton(t("library.ok")) {} })
         case .confirmTestedValues:
             return confirm(t("launch.useTested"), subtitle: name, note: String(format: t("launch.useTestedMany"), 3), t("launch.useTested"), destructive: false)
         }

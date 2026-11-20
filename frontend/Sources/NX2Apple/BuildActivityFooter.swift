@@ -80,7 +80,7 @@ struct BuildActivityFooter: View {
                         ZStack(alignment: .leading) {
                                 Text(title).font(.manrope(20, .semibold)).lineLimit(1).truncationMode(.tail)
                                     .id(titleID).transition(LibraryHeroTransition.blurredMetadata(reduceMotion: reduceMotion))
-                        }.animation(LibraryHeroTransition.queue(reduceMotion: reduceMotion), value: titleID)
+                        }.dsAnimation(LibraryHeroTransition.queue(reduceMotion: reduceMotion), value: titleID)
                     }.frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
                     if !completed {
                         currentStep.padding(.horizontal, 12)
@@ -188,7 +188,7 @@ struct BuildActivityFooter: View {
                         .accessibilityHint(loc.t("prog.stageProgress")) }
             }
             .font(.system(size: 18)).frame(width: 20, height: 20)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage?.state)
+            .dsAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage?.state)
             Text(stage?.displayName(loc.t) ?? loc.t("library.preparing")).font(DS.Font.body).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
             TimelineView(.periodic(from: Date(), by: 1)) { context in

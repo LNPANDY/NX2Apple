@@ -73,12 +73,19 @@ import NXLauncher
         let controls = ControlLayout(defaults: defaults)
         // the library's own artwork folder and no title list: the player's artwork and the network stay out of every scene
         let artworkStore = ArtworkStore(directory: library.artworkDirectory, titleList: directory.appendingPathComponent("no-titles.json"), fallbacks: [:])
+        func launcher(_ o: GalleryLauncher) -> LauncherView {
+            LauncherView(stores: stores, library: library, initialPage: o.page, initialBuildEditorOpen: o.editor, settingsCategory: o.category,
+                         activeBuildID: o.activeBuildID, performStartupChecks: false, search: o.search, olderTools: o.olderTools,
+                         toolsAssessments: o.assessments, manageOpen: o.manageOpen, padRing: o.padRing,
+                         enterConsole: o.prompt ? {} : nil, controllerDriver: o.driver, controls: controls, qaPrompt: o.prompt,
+                         qaLaunching: o.launching, artworkEditor: o.artworkEditor, artworkStore: artworkStore,
+                         completionDismissal: o.dismissal, allGamesOpen: o.allGames, buildStep: o.step, gallery: o.gallery)
+        }
         func launcher(_ page: LauncherPage, editor: Bool = false, search: String? = nil, olderTools: Set<UUID> = [],
                       assessments: [UUID: GameRefreshAssessment] = [:], launching: Bool = false, allGames: Bool = false,
                       category: SettingsCategory = .general, step: Int = 0) -> LauncherView {
-            LauncherView(stores: stores, library: library, initialPage: page, initialBuildEditorOpen: editor, settingsCategory: category,
-                         performStartupChecks: false, search: search, olderTools: olderTools, toolsAssessments: assessments,
-                         controls: controls, qaLaunching: launching, artworkStore: artworkStore, allGamesOpen: allGames, buildStep: step)
+            launcher(GalleryLauncher(page: page, editor: editor, search: search, olderTools: olderTools, assessments: assessments,
+                                     launching: launching, allGames: allGames, category: category, step: step))
         }
         let root: AnyView
         switch scene {
@@ -228,6 +235,11 @@ import NXLauncher
                 AnyView(launcher(page, editor: page == .builds, category: category, step: step))
             }   // GalleryNxkit.swift
         case .cardStates: root = AnyView(GalleryCardStates())
+        case .desktop(let state):   // GalleryDesktopScenes.swift
+            root = desktopView(state, stores: stores, library: library, controls: controls) { AnyView(launcher($0)) }
+        case .console(let state): root = consoleView(state)   // GalleryConsoleScenes.swift
+        case .motion(let motion):   // GalleryMotion.swift
+            root = motionView(motion, stores: stores, library: library) { AnyView(launcher($0)) }
         default: root = consoleView(scene)   // console mode's scenes, GalleryConsoleFixtures.swift
         }
         let frame = size ?? scene.size

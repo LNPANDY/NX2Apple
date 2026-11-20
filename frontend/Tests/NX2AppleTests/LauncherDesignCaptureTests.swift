@@ -25,10 +25,10 @@ import NXModel
             fixtures = GalleryFixtures(lang: lang, covers: GalleryRealCovers.snapshot(into: folder), coverFolder: folder)
         }
         // NX_CAPTURE_GROUP=Sheets (a GalleryScene.Group's name) renders that group only, NX_CAPTURE_SCENES=console only the scenes
-        // whose id starts with it
+        // whose id starts with it (several prefixes separated by commas)
         let group = ProcessInfo.processInfo.environment["NX_CAPTURE_GROUP"]
-        let only = ProcessInfo.processInfo.environment["NX_CAPTURE_SCENES"] ?? ""
-        for scene in GalleryScene.allCases where (group == nil || scene.group.rawValue == group) && (only.isEmpty || scene.id.hasPrefix(only)) {
+        let only = (ProcessInfo.processInfo.environment["NX_CAPTURE_SCENES"] ?? "").split(separator: ",").map(String.init)
+        for scene in GalleryScene.allCases where (group == nil || scene.group.rawValue == group) && (only.isEmpty || only.contains { scene.id.hasPrefix($0) }) {
             let png = try XCTUnwrap(GalleryRenderer.png(scene, fixtures: fixtures), scene.id)
             try png.write(to: output.appendingPathComponent("\(scene.id)-\(lang.code).png"))
         }

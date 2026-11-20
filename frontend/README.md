@@ -391,6 +391,21 @@ case in `GalleryScene` and its fixture in `GalleryFixtures`. A sheet or dialog g
 (`GallerySheets.swift`) for each of its steps and states. It is drawn without a title bar at the size it takes, and
 `NX_CAPTURE_GROUP=Sheets` captures that group alone. The gallery's own texts are English only.
 
+The gallery shows everything: every View type of NX2Apple and NXLauncher, every sheet, popover and alert, every
+notice and every case of the state enums the views switch on (`GalleryCoverage.stateEnums`) has a scene, or one of
+a few reasons in `GalleryCoverage` (a view no screen uses, a popover AppKit draws in its own window). The desktop's
+further states are `GalleryDesktopScene`, console mode's are `GalleryConsoleScene`. `GalleryCoverageTests` reads the
+sources and fails for a new view, sheet, notice or state case without either, and checks `DesignGallery/COVERAGE.md`,
+the list of what shows where: `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`
+writes it again. A state reached only through private state gets a small entry for the gallery (a `ForGallery` setter
+or an init parameter with a player's default), never a change of behaviour. The sidebar lists the groups with their
+counts.
+
+Scenes with motion (the Motion group: a game starting, a build finishing, the build icon's progress colour, a notice,
+the console's card focus and home row, a sheet opening, a toast) start in their before state and play their change.
+Play in the toolbar builds the scene again and plays it once more, Slow motion plays it at a quarter of the speed. The
+speed is the environment's `dsMotionSpeed` (1 in the app), which `dsAnimation` and `DS.Motion.animation(_:speed:)` read.
+
 The gallery shows your own games' covers (Covers: Real in the toolbar, Generated for the fictional art). At launch it
 reads the launcher's library file and copies the artwork that is already on disk into its temporary folder
 (`GalleryRealCovers`). It never writes to the real artwork, library or defaults and downloads nothing. Games without

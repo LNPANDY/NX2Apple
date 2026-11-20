@@ -354,11 +354,14 @@ struct SavesView: View {
     @State private var asking: SaveTransfer.Side?   // the side whose save a copy would replace
     @State private var busy = false
     @State private var result: (text: String, ok: Bool)?
+    /// The state gallery's device state: shown as it is, nothing is asked (DesignGallery).
+    private let galleryState: SavesModel.DeviceState?
 
     /// `devicectl` and `listDevices` are what tests and the visual QA hand in as stand-ins: with a stand-in devicectl and no
     /// device list, the devices are the ones the launcher already knows, so nothing asks the system for them.
     init(m: BuildStore, library: GameLibrary, gameID: UUID, devicectl: DeviceControl? = nil, support: URL? = nil,
-         listDevices: (() -> [AppleDevice])? = nil, timeout: TimeInterval = 30) {
+         listDevices: (() -> [AppleDevice])? = nil, timeout: TimeInterval = 30, galleryState: SavesModel.DeviceState? = nil) {
+        self.galleryState = galleryState
         self.m = m; self.library = library; self.gameID = gameID; self.support = support
         let game = library.games.first { $0.id == gameID } ?? LibraryGame(titleID: "", name: "")
         let mac = support.map { SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath, support: $0) }
@@ -432,7 +435,7 @@ struct SavesView: View {
                 .padTarget("saves.done", scope: "saves", focusColor: DS.Color.accentOn, enabled: !busy) { if !busy { dismiss() } }
         }
         .padScope("saves", focus)
-        .onAppear { model.begin() }
+        .onAppear { if let galleryState { model.showForGallery(galleryState) } else { model.begin() } }
     }
 
     private func sideRow(_ side: SaveTransfer.Side) -> some View {

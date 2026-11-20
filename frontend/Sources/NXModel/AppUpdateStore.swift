@@ -31,6 +31,8 @@ import NXCore
     @Published package private(set) var busy = false
     package enum Phase { case idle, checking, downloading, preparing }
     @Published package private(set) var phase: Phase = .idle
+    /// The state gallery: the card in `phase`, nothing runs (DesignGallery).
+    package func setPhaseForGallery(_ phase: Phase, progress: Double? = nil) { self.phase = phase; busy = phase != .idle; downloadProgress = progress }
     @Published package private(set) var retryAvailable = false
     private var retryChecksRelease = false
     private var lastStageAutomatic = false

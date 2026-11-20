@@ -94,7 +94,7 @@ struct ConsoleClock: View {
                 hintBar.blur(radius: panelOpen ? 14 : 0).padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32)
             }
         }
-        .animation(.easeInOut(duration: panelOpen ? (reduceMotion ? 0.1 : 0.18) : 0.08), value: panelOpen)
+        .dsAnimation(.easeInOut(duration: panelOpen ? (reduceMotion ? 0.1 : 0.18) : 0.08), value: panelOpen)
     }
 
     // MARK: Top bar
@@ -118,7 +118,7 @@ struct ConsoleClock: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .frame(height: compact ? 48 : 56)
-        .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.standard), value: showBuild)
+        .dsAnimation(reduceMotion ? nil : .easeOut(duration: DS.Motion.standard), value: showBuild)
         // The banner sits under the bar, so it never covers the controller chips, and it is drawn over the page without moving it (#1004)
         .overlay(alignment: .top) {
             if let toast = state.toast {
@@ -158,7 +158,7 @@ struct ConsoleClock: View {
             }
             .id(game.id).transition(.opacity)
         }
-        .animation(LibraryHeroTransition.metadata(reduceMotion: reduceMotion), value: game.id)
+        .dsAnimation(LibraryHeroTransition.metadata(reduceMotion: reduceMotion), value: game.id)
         .padding(.horizontal, inset)
         .frame(height: titleHeight, alignment: .bottomLeading)
     }
@@ -194,7 +194,7 @@ struct ConsoleClock: View {
         .offset(x: -CGFloat(index) * step)
         .frame(width: size.width, alignment: .leading)
         .clipped()
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: index)
+        .dsAnimation(reduceMotion ? nil : .easeOut(duration: 0.22), value: index)
         .background(ConsoleHomeWheelView { step in moveRow(step) })
         .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { gesture in
             if let step = ConsoleHomePointerInput.drag(gesture.translation) { moveRow(step) }
@@ -269,7 +269,7 @@ struct ConsoleClock: View {
                 .overlay(RoundedRectangle(cornerRadius: DS.Console.Radius.art).strokeBorder(selected ? DS.Color.accent : DS.Color.separator,
                                                                                         lineWidth: selected ? DS.Console.Control.focusRing : 1))
                 .scaleEffect(selected && !reduceMotion ? DS.Console.Scale.focus : 1)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: selected)
+                .dsAnimation(reduceMotion ? nil : .easeOut(duration: 0.22), value: selected)
                 Text(t("console.allGames")).opacity(captionVisible ? 1 : 0)
                     .font(DS.Console.Font.callout).lineLimit(1)
                     .foregroundStyle(selected ? DS.Color.textPrimary : DS.Color.textSecondary)

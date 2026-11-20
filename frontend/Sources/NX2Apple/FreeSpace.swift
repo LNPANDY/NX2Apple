@@ -247,7 +247,9 @@ struct FreeSpaceView: View {
     @State private var working = false
     @State private var outcome: String?
 
-    init(m: BuildStore, game: LibraryGame, survey: BuildFolderSurvey? = nil, chosen: Set<BuildFolderPart> = [], measures: Bool = true) {
+    init(m: BuildStore, game: LibraryGame, survey: BuildFolderSurvey? = nil, chosen: Set<BuildFolderPart> = [], measures: Bool = true,
+         outcome: String? = nil) {
+        _outcome = State(initialValue: outcome)   // the state gallery: what the last removal said
         self.measures = measures
         self.m = m
         self.game = game

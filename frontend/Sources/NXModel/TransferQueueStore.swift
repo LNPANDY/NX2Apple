@@ -8,6 +8,8 @@ import NXCore
 /// says the device is back. It never touches the build's stages or its `running` flag.
 @MainActor package final class TransferQueueStore: ObservableObject {
     @Published package private(set) var entries: [TransferEntry]
+    /// The state gallery: rows in each state, nothing is sent or saved (DesignGallery).
+    package func showForGallery(_ entries: [TransferEntry]) { self.entries = entries }
 
     private let file: URL?
     private let perform: (TransferEntry, @escaping @MainActor (Int64, Int64) -> Void, @escaping @MainActor (TransferResult) -> Void) -> Void

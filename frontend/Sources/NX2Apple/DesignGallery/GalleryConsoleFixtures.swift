@@ -39,14 +39,14 @@ extension GalleryFixtures {
     }
 
     /// A queue row for the gallery's game `index`.
-    private func queueRow(_ driver: MockConsoleDriver, _ index: Int, status: String, active: Bool = false, progress: Double? = nil,
+    func queueRow(_ driver: MockConsoleDriver, _ index: Int, status: String, active: Bool = false, progress: Double? = nil,
                           outcome: ConsoleBuilds.ArtworkOutcome? = nil) -> ConsoleBuilds.QueueRow {
         let game = driver.state.games.first { $0.id == "demo.\(index)" }
         return ConsoleBuilds.QueueRow(id: UUID(), name: game?.title ?? "Game \(index)", statusKey: status, platformKey: "build.mac",
                                       icon: game?.icon, outcome: outcome, artwork: game?.artwork, active: active, progress: progress)
     }
 
-    private func builds(_ driver: MockConsoleDriver, _ kind: String) -> ConsoleBuilds {
+    func builds(_ driver: MockConsoleDriver, _ kind: String) -> ConsoleBuilds {
         switch kind {
         case "running":
             return ConsoleBuilds(running: true, title: "", queue: [queueRow(driver, 3, status: "queue.status.running", active: true, progress: 0.4)])
@@ -63,7 +63,7 @@ extension GalleryFixtures {
     }
 
     /// The console view with a pad focus the scene can show (`focus`: shown once the page has drawn, as after a press).
-    private func console(_ driver: MockConsoleDriver, focus: String? = nil) -> AnyView {
+    func console(_ driver: MockConsoleDriver, focus: String? = nil) -> AnyView {
         AnyView(GalleryConsoleHost(driver: driver, lang: lang, focus: focus))
     }
 

@@ -21,6 +21,8 @@ import NXCore
     }
 
     @Published package private(set) var entries: [QueueEntry]
+    /// The state gallery: rows in each state, nothing is built or saved (DesignGallery).
+    package func showForGallery(_ entries: [QueueEntry]) { self.entries = entries }
     /// Entries from before a restart are waiting: nothing starts until the player confirms (`resume`) or drops them.
     @Published package private(set) var awaitingResume: Bool
     /// The player stopped the running build: the queue waits and starts nothing until `resume`. It survives a restart.

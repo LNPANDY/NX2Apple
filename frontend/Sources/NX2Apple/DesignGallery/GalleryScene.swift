@@ -32,6 +32,9 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     case nxkitEngine, nxkitUnavailable, nxkitUnsigned, nxkitRunning, nxkitFinished, nxkitFailed, nxkitLibrary
     // The design system's own check scenes
     case cardStates
+    // The other states of the desktop and of console mode, and the scenes with motion (GalleryDesktopScenes.swift,
+    // GalleryConsoleScenes.swift, GalleryMotion.swift)
+    case desktop(GalleryDesktopScene), console(GalleryConsoleScene), motion(GalleryMotion)
 
     /// Console mode's scenes, in the gallery's order, with their titles.
     static let consoleScenes: [(scene: GalleryScene, title: String)] = [
@@ -53,8 +56,8 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
 
     enum Group: String, CaseIterable, Identifiable {
         case library = "Library", allGames = "All games", gameOptions = "Game options", builds = "Builds", failures = "Build failures"
-        case settings = "Settings", sheets = "Sheets", onboarding = "Onboarding", console = "Console mode", nxkit = "nxkit (Beta)"
-        case design = "Design system"
+        case settings = "Settings", sheets = "Sheets", onboarding = "Onboarding", console = "Console mode"
+        case consolePages = "Console menu and mapping", nxkit = "nxkit (Beta)", motion = "Motion", design = "Design system"
         var id: String { rawValue }
     }
 
@@ -71,6 +74,9 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         + consoleScenes.map(\.scene)
         + [.nxkitEngine, .nxkitUnavailable, .nxkitUnsigned, .nxkitRunning, .nxkitFinished, .nxkitFailed, .nxkitLibrary]
         + [.cardStates]
+        + GalleryDesktopScene.allCases.map(GalleryScene.desktop)
+        + GalleryConsoleScene.allCases.map(GalleryScene.console)
+        + GalleryMotion.allCases.map(GalleryScene.motion)
     }
 
     /// A stable name: the file name of its capture and the gallery's selection.
@@ -80,6 +86,9 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .onboarding(let scenario): return "onboarding-" + scenario.rawValue
         case .sheet(let sheet): return sheet.rawValue
         case .onboardingState(let state): return "onboarding-" + state.rawValue
+        case .desktop(let state): return "desktop-" + state.rawValue
+        case .console(let state): return "console-" + state.rawValue
+        case .motion(let motion): return "motion-" + motion.rawValue
         default: return String(describing: self)
         }
     }
@@ -98,6 +107,9 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .onboarding, .onboardingState: return .onboarding
         case .nxkitEngine, .nxkitUnavailable, .nxkitUnsigned, .nxkitRunning, .nxkitFinished, .nxkitFailed, .nxkitLibrary: return .nxkit
         case .cardStates: return .design
+        case .desktop(let state): return state.group
+        case .console(let state): return state.group
+        case .motion: return .motion
         default: return .console   // consoleScenes
         }
     }
@@ -150,7 +162,18 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .nxkitFailed: return "Failed: nxkit exit code"
         case .nxkitLibrary: return "Library: built with nxkit"
         case .cardStates: return "Card and row states"
+        case .desktop(let state): return state.title
+        case .console(let state): return state.title
+        case .motion(let motion): return motion.title
         default: return Self.consoleScenes.first { $0.scene == self }?.title ?? id
+        }
+    }
+
+    /// A scene whose point is its motion: the gallery's Play and Slow motion apply to it.
+    var hasMotion: Bool {
+        switch self {
+        case .motion, .consoleStarting, .onboarding: return true
+        default: return false
         }
     }
 
@@ -163,19 +186,29 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .consoleHomeTV: return CGSize(width: 1600, height: 1000)
         case .gameOptions: return CGSize(width: 680, height: 720)
         case .sheet(let sheet): return sheet.size ?? CGSize(width: 680, height: 720)
+        case .desktop(let state) where state.isSheet: return state.sheetSize ?? CGSize(width: 680, height: 720)
+        case .desktop(let state) where state.size != nil: return state.size ?? Self.size
         default: return Self.size
         }
     }
     /// Whether the gallery's size presets apply (a sheet keeps its size).
     var resizable: Bool {
-        if case .sheet = self { return false }
+        if isSheet { return false }
+        if case .desktop(let state) = self, state.size != nil { return false }
         return ![.gameOptions, .libraryNarrow].contains(self)
     }
     /// A sheet: drawn without the window's title bar, as it opens over the launcher.
-    var isSheet: Bool { if case .sheet = self { return true } else { return false } }
+    var isSheet: Bool {
+        switch self {
+        case .sheet: return true
+        case .desktop(let state): return state.isSheet
+        default: return false
+        }
+    }
     /// A sheet drawn at the size it takes: as wide as its frame, as high as its content (GallerySheet.size nil).
     var fitsContent: Bool {
         if case .sheet(let sheet) = self { return sheet.size == nil }
+        if case .desktop(let state) = self, state.isSheet { return state.sheetSize == nil }
         return self == .gameOptions   // the launch options are as high as their content too
     }
 

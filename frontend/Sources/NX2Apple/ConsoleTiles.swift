@@ -93,8 +93,8 @@ struct ConsoleGameTile: View {
             .scaleEffect(coverflow && !reduceMotion ? (selected ? DS.Console.Scale.focus : (rear ? 0.76 : 1)) : 1)
             .offset(x: coverflow && !reduceMotion && rear ? rearOffset : 0)
             .modifier(ConsoleLaunchArtwork(namespace: launchNamespace, id: game.id))
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: selected)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: tilt)
+            .dsAnimation(reduceMotion ? nil : .easeOut(duration: 0.22), value: selected)
+            .dsAnimation(reduceMotion ? nil : .easeOut(duration: 0.22), value: tilt)
             // Every cover has its title under it, the art stays clean: the focused one in the primary text, the others secondary. A
             // cover fanned behind the focused one has none, so no two captions overlap.
             Text(game.title).opacity(captionVisible && !(coverflow && rear && !reduceMotion) ? 1 : 0)

@@ -141,6 +141,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// What runs right now: operation, game and destination, taken when the work starts and independent of the Build form
     /// (BuildStore+Operation.swift). nil when nothing runs.
     @Published package internal(set) var operation: ActiveOperation?
+    /// The state gallery: the activity of `operation` without running it (DesignGallery).
+    package func setOperationForGallery(_ operation: ActiveOperation?) { self.operation = operation }
     package var completedOperation: ActiveOperation.Kind?
     @Published package var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
     // The shell folder (shellCachePath, shellRoot, shellRootProblem): BuildStore+ShellRoot.swift.

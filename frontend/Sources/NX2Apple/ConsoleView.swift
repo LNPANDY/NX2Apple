@@ -68,6 +68,7 @@ enum ConsoleInput: Equatable {
         _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())
     }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dsMotionSpeed) private var motionSpeed
 
     @StateObject private var completionDismissal: BuildCompletionDismissal
     @State private var indicatorReady = false
@@ -161,9 +162,9 @@ enum ConsoleInput: Equatable {
             if let id, id.hasPrefix("console.game.") { driver.focus(String(id.dropFirst("console.game.".count))) }
             if editingOption != id { editingOption = nil }
         }
-        .animation(.easeOut(duration: 0.18), value: state.presentedSheet)
-        .animation(.easeOut(duration: 0.18), value: state.toast?.id)
-        .animation(.easeInOut(duration: reduceMotion ? 0.12 : 1.05), value: state.startingGameID)
+        .dsAnimation(.easeOut(duration: 0.18), value: state.presentedSheet)
+        .dsAnimation(.easeOut(duration: 0.18), value: state.toast?.id)
+        .dsAnimation(.easeInOut(duration: reduceMotion ? 0.12 : 1.05), value: state.startingGameID)
     }
 
     private func backdrop(size: CGSize) -> some View {
@@ -521,7 +522,7 @@ enum ConsoleInput: Equatable {
             launchTitleVisible = reduceMotion
             guard !reduceMotion else { return }
             do { try await Task.sleep(nanoseconds: 450_000_000) } catch { return }
-            withAnimation(.easeOut(duration: 0.18)) { launchTitleVisible = true }
+            withAnimation(DS.Motion.animation(.easeOut(duration: 0.18), speed: motionSpeed)) { launchTitleVisible = true }
         }
         .onDisappear { launchTitleVisible = false }
     }

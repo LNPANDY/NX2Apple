@@ -12,7 +12,7 @@ enum OnboardingGalleryState: String, CaseIterable {
     case xcodeSupportFailed, xcodeEngineTransfer
     case keysSearching, keysEmpty, keysFound, keysValidating, keysValid, keysSkipped
     case gamesEmpty, gamesScanning, gamesFound, gamesNeedKeys
-    case done
+    case done, doneReady
 
     var title: String {
         switch self {
@@ -39,6 +39,7 @@ enum OnboardingGalleryState: String, CaseIterable {
         case .gamesFound: return "Games: found"
         case .gamesNeedKeys: return "Games: need keys"
         case .done: return "Done"
+        case .doneReady: return "Done: ready, the library next"
         }
     }
 
@@ -51,7 +52,7 @@ enum OnboardingGalleryState: String, CaseIterable {
              .xcodeSupportFailed, .xcodeEngineTransfer: return .xcode
         case .keysSearching, .keysEmpty, .keysFound, .keysValidating, .keysValid, .keysSkipped: return .keys
         case .gamesEmpty, .gamesScanning, .gamesFound, .gamesNeedKeys: return .games
-        case .done: return .done
+        case .done, .doneReady: return .done
         }
     }
 
@@ -162,6 +163,7 @@ extension GalleryScene {
             s.keys = .skipped
             s.games = .found(onboardingGames(count: 4))
         case .done: s.done = .celebrating
+        case .doneReady: s.done = .ready
         }
         return AnyView(OnboardingDemoHost(scenario: .fresh, state: s, lang: lang, animated: false, expandSetup: state.expandsSetup))
     }

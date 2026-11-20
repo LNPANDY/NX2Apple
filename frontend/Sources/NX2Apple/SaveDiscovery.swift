@@ -114,6 +114,16 @@ final class SavesModel: ObservableObject {
         return preferred.first { id in list.contains { $0.id == id } } ?? list.first?.id
     }
 
+    /// The state gallery: the sheet in `state` with one stand-in device, nothing is asked (DesignGallery).
+    func showForGallery(_ state: DeviceState) {
+        started = true
+        if state != .noDevices {
+            devices = [AppleDevice(id: "gallery-iphone", name: "iPhone", model: "iPhone17,1", os: "26.1", reachable: state != .notConnected)]
+            selected = "gallery-iphone"
+        }
+        deviceState = state
+    }
+
     /// Reads the Mac save and asks the device again, device list included. Does nothing while a query runs.
     func refresh() {
         guard canRefresh else { return }

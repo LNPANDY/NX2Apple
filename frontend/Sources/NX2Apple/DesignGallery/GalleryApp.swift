@@ -72,8 +72,13 @@ struct GalleryWindow: View {
     @State private var realCovers = !GalleryCoverSource.covers.isEmpty   // the player's own covers when there are any
     @State private var fixtures = GalleryFixtures.make(lang: .en, realCovers: !GalleryCoverSource.covers.isEmpty)
     @State private var status = ""
+    /// Play builds the scene again (a fresh identity), so its motion runs from its before state. Slow motion plays it at a quarter.
+    @State private var playCount = 0
+    @State private var slowMotion = false
 
     private var lang: Lang { Lang.find(langCode) ?? .en }
+    /// Slow motion's speed: a quarter.
+    static let slowMotion = 0.25
 
     /// A sheet keeps its width and is at most as high as a sheet may be in a window of the preset's height (dsSheetMaxHeight).
     private func size(of scene: GalleryScene) -> CGSize {
@@ -102,7 +107,7 @@ struct GalleryWindow: View {
                 ForEach(GalleryScene.Group.allCases) { group in
                     let scenes = filtered.filter { $0.group == group }
                     if !scenes.isEmpty {
-                        Section(group.rawValue) {
+                        Section("\(group.rawValue) (\(scenes.count))") {
                             ForEach(scenes) { scene in Text(scene.title).tag(scene) }
                         }
                     }
@@ -125,7 +130,8 @@ struct GalleryWindow: View {
                             .frame(width: frame.width * scale, height: frame.height * scale, alignment: .topLeading)
                             .padding(DS.Space.l)
                             .frame(maxWidth: .infinity)
-                            .id(scene.id + lang.code + preset.rawValue)
+                            .dsMotionSpeed(slowMotion ? Self.slowMotion : 1)
+                            .id(scene.id + lang.code + preset.rawValue + "#\(playCount)")
                     }
                 }
                 // every scene its own identity: switching scenes always builds the new one from its fixture, never keeps the last
@@ -151,6 +157,12 @@ struct GalleryWindow: View {
                     ForEach(SizePreset.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .help("The window size of the scene. A sheet keeps its width and fits the height.")
+                Button { fixtures.forgetLiveViews(); playCount += 1 } label: { Label("Play", systemImage: "play.fill") }
+                    .disabled(selection?.hasMotion != true)
+                    .help("Plays the scene's motion again from its start")
+                Toggle(isOn: $slowMotion) { Label("Slow motion", systemImage: "tortoise") }
+                    .toggleStyle(.button)
+                    .help("Plays motion at a quarter of its speed")
                 Button("Export PNG", action: exportCurrent).disabled(selection == nil)
                 Button("Export all…", action: exportAll)
                 Picker("Covers", selection: $realCovers) {

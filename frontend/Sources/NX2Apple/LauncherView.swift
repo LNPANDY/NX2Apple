@@ -84,7 +84,8 @@ struct LauncherView: View {
          toolsAssessments: [UUID: GameRefreshAssessment] = [:],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
          enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, recorder: BuildRecorder? = nil, qaPrompt: Bool = false, qaLaunching: Bool = false, qaSkippedOpen: Bool = false,
-         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, dropdowns: LauncherDropdownState? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared, completionDismissal: BuildCompletionDismissal? = nil, allGamesOpen: Bool = false, buildStep: Int = 0) {
+         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, dropdowns: LauncherDropdownState? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared, completionDismissal: BuildCompletionDismissal? = nil, allGamesOpen: Bool = false, buildStep: Int = 0,
+         gallery: LauncherGalleryState = LauncherGalleryState()) {
         _completionDismissal = StateObject(wrappedValue: completionDismissal ?? BuildCompletionDismissal())
         _padFocus = StateObject(wrappedValue: padFocus ?? PadFocus())
         _dropdowns = StateObject(wrappedValue: dropdowns ?? LauncherDropdownState())
@@ -124,6 +125,11 @@ struct LauncherView: View {
         _settingsCategory = State(initialValue: settingsCategory)
         _allGamesOpen = State(initialValue: allGamesOpen)   // visual QA: the All games grid open
         _buildStep = State(initialValue: buildStep)   // visual QA: a step of the build wizard
+        // the state gallery: a popover, a notice or a card open at launch (DesignGallery), nothing a player's launch sets
+        _profileHelpOpen = State(initialValue: gallery.profileHelpOpen)
+        _resignNote = State(initialValue: gallery.resignNote)
+        _buildLogOpen = State(initialValue: gallery.buildLogOpen)
+        _signatures = StateObject(wrappedValue: SignatureTracker(expiry: gallery.signatureExpiry))
         _libraryFilter = State(initialValue: LibraryFilter.loadDesktop(stores.defaults))
         self.performStartupChecks = performStartupChecks
     }
@@ -284,7 +290,7 @@ struct LauncherView: View {
             }
         }
         .environment(\.selectionArtworkDirectory, library.artworkDirectory)
-        .animation(.easeOut(duration: 0.24), value: completedActivityVisible)
+        .dsAnimation(.easeOut(duration: 0.24), value: completedActivityVisible)
         .task(id: completionKey) {
             await completionDismissal.monitor(completionKey)
         }
@@ -767,4 +773,12 @@ struct LauncherView: View {
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
     static let ringRoom: CGFloat = 10   // the focused artwork's scale and ring (DSCardRoom), given back outside
+}
+
+/// What the state gallery opens the launcher with (DesignGallery): the default is a player's launch.
+struct LauncherGalleryState {
+    var profileHelpOpen = false
+    var resignNote: String?
+    var buildLogOpen = false
+    var signatureExpiry: [UUID: Date] = [:]
 }

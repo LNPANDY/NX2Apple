@@ -187,7 +187,7 @@ struct BuildQueueHero: View {
                 .buttonStyle(DSSecondaryButtonStyle())
                 .padTarget("set.build.queue.select", scope: "main", activate: onSelectGames)
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: games.map(\.id))
+        .dsAnimation(reduceMotion ? nil : .easeOut(duration: 0.2), value: games.map(\.id))
         .task(id: games.map(\.id)) {
             icons = Dictionary(uniqueKeysWithValues: games.compactMap { game in artwork(game.entries[0]).map { (game.id, $0) } })
         }
@@ -207,6 +207,7 @@ struct QueueArtworkStack: View {
     @State private var outgoingVisible = true
     @State private var promotionPending = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dsMotionSpeed) private var motionSpeed
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -232,10 +233,10 @@ struct QueueArtworkStack: View {
             // Keep the next tile behind the outgoing one until its exit has finished.
             outgoing = current; outgoingVisible = true; promotionPending = true; shown = items
             await Task.yield()
-            withAnimation(.easeOut(duration: 0.14)) { outgoingVisible = false }
+            withAnimation(DS.Motion.animation(.easeOut(duration: 0.14), speed: motionSpeed)) { outgoingVisible = false }
             do { try await Task.sleep(for: .milliseconds(140)) } catch { return }
             outgoing = nil
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) { promotionPending = false }
+            withAnimation(DS.Motion.animation(.easeOut(duration: 0.14), speed: motionSpeed, reduceMotion: reduceMotion)) { promotionPending = false }
         }
     }
 
@@ -273,7 +274,7 @@ struct BuildProgressRevealMask: View {
     }
     var body: some View {
         Rectangle().scaleEffect(x: displayed, y: 1, anchor: .leading)
-            .animation(reduceMotion ? nil : displayed >= 1 ? .easeOut(duration: 0.18) : .spring(response: 0.7, dampingFraction: 1, blendDuration: 0.1), value: displayed)
+            .dsAnimation(reduceMotion ? nil : displayed >= 1 ? .easeOut(duration: 0.18) : .spring(response: 0.7, dampingFraction: 1, blendDuration: 0.1), value: displayed)
             .onChange(of: progress) { displayed = Self.target(current: displayed, reported: $0) }
     }
 }
