@@ -53,8 +53,18 @@ final class SheetDesignTests: XCTestCase {
         defer { window.contentView = nil; window.orderOut(nil); window.close() }
         window.contentView = host
         window.orderFront(nil)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         XCTAssertLessThanOrEqual(host.fittingSize.height, 401, "the sheet grew past its maximum")
         XCTAssertGreaterThan(host.fittingSize.height, 300, "the sheet uses its room")
+
+        let shortSheet = DSSheet(title: "Rename Game", message: "Pick a title.") {
+            Text("Short row").frame(height: 28)
+        } buttons: { Button("Cancel") {} }
+            .environment(\.dsSheetMaxHeight, 720)
+            .environmentObject(PadFocus())
+        let shortHost = NSHostingView(rootView: shortSheet)
+        window.contentView = shortHost
+        host.layoutSubtreeIfNeeded()
+        XCTAssertLessThan(shortHost.fittingSize.height, 260, "a short sheet hugs its content instead of expanding to maxHeight")
     }
 }

@@ -45,8 +45,9 @@ extension LauncherView {
                             }
                             .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
                                 if !editing {
-                                    closedHeroHeight = size.height
-                                    artworkHeroAspect = size.width / max(1, size.height)
+                                    if abs(size.height - closedHeroHeight) > 0.5 { closedHeroHeight = size.height }
+                                    let aspect = size.width / max(1, size.height)
+                                    if abs(aspect - artworkHeroAspect) > 0.001 { artworkHeroAspect = aspect }
                                 }
                             }
                         recentRow(width: width)

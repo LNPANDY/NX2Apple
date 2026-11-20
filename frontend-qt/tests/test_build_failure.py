@@ -120,7 +120,7 @@ class BuildFailure(unittest.TestCase):
                          'stage bookkeeping must not win over the last real line')
         w._on_finished(False, m.t('msg.buildFailedReason', m._last_error))
         self.assertIn('no prod.keys', w.footer.text())
-        self.assertIn('see the log below', w.footer.text())
+        self.assertIn('See the log below', w.footer.text())
         w.close()
 
     def test_the_input_reminder_does_not_erase_the_failure(self):
