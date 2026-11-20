@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#303
  3 files changed, 23 insertions(+), 7 deletions(-)
 
 diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index cb23ade..e9db505 100644
+index 9b1c5cc..1e85a28 100644
 --- a/dm/games/0100F2C0115B6000/README.md
 +++ b/dm/games/0100F2C0115B6000/README.md
 @@ -25,6 +25,13 @@ Render conditions, which the host evaluates for every game ([Conditional renderi

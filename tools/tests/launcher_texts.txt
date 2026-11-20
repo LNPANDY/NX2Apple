@@ -57,6 +57,7 @@ Picture shape
 Pipeline prebuild
 Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access.
 Plays game audio alongside other apps instead of stopping them.
+Polish
 Portuguese
 Press a button to join
 Render scale
@@ -72,6 +73,7 @@ Small
 Spanish
 Standard
 Switch 2 controllers
+Thai
 The first start waits a few minutes for it, once.
 The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.
 Touch feedback

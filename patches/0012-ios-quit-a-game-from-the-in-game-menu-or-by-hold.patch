@@ -37,14 +37,14 @@ Reason: Players on the iPhone need a way back to the launcher from a running gam
 Issue: LNPANDY/NX2Apple#421
 ---
  dm/ios/Sources/DmGameMenu.h                  |   3 +-
- dm/ios/Sources/DmGamepad.m                   |  18 +-
+ dm/ios/Sources/DmGamepad.m                   |  17 +-
  dm/ios/Sources/GameMenu.swift                |   1 +
  dm/ios/Sources/front_ios.m                   | 204 +++++++++++++++++-
  dm/ios/Sources/quit_prompt.h                 | 211 +++++++++++++++++++
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m   |   1 +
  dm/ios/tests/quit_prompt/quit_prompt_check.m | 130 ++++++++++++
  dm/ios/tests/test_quit_prompt.py             |  37 ++++
- 8 files changed, 600 insertions(+), 5 deletions(-)
+ 8 files changed, 599 insertions(+), 5 deletions(-)
  create mode 100644 dm/ios/Sources/quit_prompt.h
  create mode 100644 dm/ios/tests/quit_prompt/quit_prompt_check.m
  create mode 100644 dm/ios/tests/test_quit_prompt.py
@@ -64,7 +64,7 @@ index 784727b..a7e9c69 100644
  }
  #endif
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 3a1b524..92f5e6a 100644
+index 91ceee8..c3d5cd0 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,7 @@
@@ -86,42 +86,49 @@ index 3a1b524..92f5e6a 100644
  
  @interface DmGamepad : UIView
  - (void)arrange:(DmLayout)layout;
-@@ -572,6 +576,7 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
- static void npad_name(int p, char *out, size_t cap);
- static int cp_poll(void);
- static void read_pad(GCExtendedGamepad *g) {
-+    front_ios_quit_poll(); if (front_ios_quit_blocks_input()) return;   // the quit prompt has the controllers (Home held 2 s, or Quit in the in-game menu)
-     int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller); if (p < 0 && !g_press_to_join) return;
-     _Static_assert(DM_BTN_A == 1u << B_A && DM_BTN_B == 1u << B_B && DM_BTN_X == 1u << B_X && DM_BTN_Y == 1u << B_Y, "face button bits");
-     uint64_t m = dm_pad_face(g);   // by position, a Nintendo pad by its labels
-@@ -594,7 +599,10 @@ static void read_pad(GCExtendedGamepad *g) {
-     dm_pad_set_player(p, m, axis(g.leftThumbstick.xAxis.value), axis(g.leftThumbstick.yAxis.value), axis(g.rightThumbstick.xAxis.value), axis(g.rightThumbstick.yAxis.value));
+@@ -610,6 +614,7 @@ static uint64_t pad_live_buttons(GCControllerLiveInput *input) {
+     return m;
  }
- // Home and Capture: without this iOS takes them as system gestures (Home opens the Games overlay, Capture a screenshot); the app gives them no function
--static void pad_keep_system_buttons(GCController *c) { for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled; }
-+static void pad_keep_system_buttons(GCController *c) {   // Home held for 2 s opens the quit prompt (front_ios.m): iOS 27 respects the claim when the Home button setting for apps lets the app decide
-+    for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled;
-+    c.extendedGamepad.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL down) { (void)b; (void)v; (void)down; front_ios_quit_poll(); };
-+}
+ static void read_pad(GCController *c) {
++    front_ios_quit_poll(); if (front_ios_quit_blocks_input()) return;   // the quit prompt has the controllers (Home held 2 s, or Quit in the in-game menu)
+     GCExtendedGamepad *g = c.extendedGamepad;
+     if (!g) {
+         GCControllerLiveInput *input = pad_live_input(c);
+@@ -632,7 +637,9 @@ static void read_pad(GCController *c) {
+ static BOOL pad_listen(GCController *c) {
+     GCExtendedGamepad *g = c.extendedGamepad;
+     if (g) {
++        // Home held for 2 s opens the quit prompt (front_ios.m): iOS 27 respects the claim when the Home button setting for apps lets the app decide
+         for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled;
++        g.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL down) { (void)b; (void)v; (void)down; front_ios_quit_poll(); };
+         if (g.valueChangedHandler) return NO;
+         g.valueChangedHandler = ^(GCExtendedGamepad *profile, GCControllerElement *el) {
+             (void)el;
+@@ -652,7 +659,7 @@ static BOOL pad_listen(GCController *c) {
+     return YES;
+ }
+ static void pad_unlisten(GCController *c) {
+-    if (c.extendedGamepad) c.extendedGamepad.valueChangedHandler = nil;
++    if (c.extendedGamepad) { c.extendedGamepad.valueChangedHandler = nil; c.extendedGamepad.buttonHome.pressedChangedHandler = nil; }
+     else pad_live_input(c).elementValueDidChangeHandler = nil;
+ }
  static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
- static void npad_name(int p, char *out, size_t cap) { uint32_t id = dm_player_npad(p); if (id == 0x20) snprintf(out, cap, "handheld"); else snprintf(out, cap, "%u", id); }
- static void pads_start(void) {
-@@ -653,7 +661,7 @@ - (void)padsChanged:(NSNotification *)note {
-     GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
-     if (c && (!c.extendedGamepad || g_merge)) LOG("controller %s: %s%s", gone ? "disconnected" : "connected", pad_name(c), c.extendedGamepad ? "" : " (no extended gamepad profile: not used)");
+@@ -715,7 +722,7 @@ - (void)padsChanged:(NSNotification *)note {
+         if (!usable || g_merge) LOG("controller %s: %s%s", gone ? "disconnected" : "connected", pad_name(c), usable ? "" : " (no supported gamepad profile: not used)");
+     }
      BOOL any = g_merge ? pads_merged(gone) : pads_slotted(gone);
 -    dispatch_async(dispatch_get_main_queue(), ^{ self->_padOff = any; self->_controls.hidden = any; [self reset]; });   // the touch gamepad hides while any controller is in use
 +    dispatch_async(dispatch_get_main_queue(), ^{ self->_padOff = any; self->_controls.hidden = any; [self reset]; front_ios_quit_controllers(); });   // the touch gamepad hides while any controller is in use
  }
  @end
  
-@@ -755,6 +763,10 @@ int front_ctrl_support(int min, int max) {
+@@ -824,6 +831,10 @@ int front_ctrl_support(int min, int max) {
  int dm_pad_layout(void) { return g_view ? [g_view padLayout] : 0; }
  bool dm_pad_layout_offered(int layout) { return layout == 0 || layout == 1 || (layout == 2 && dm_opmode() == 0); }
  void dm_pad_layout_set(int layout) { [g_view setPadLayout:layout]; }
 +void dm_gamepad_pads_read(void) {   // front_ios.m: the quit prompt closed, the game reads every controller as it is now (a button held through it counts again)
-+    if (g_merge) { for (GCController *c in GCController.controllers) if (c.extendedGamepad) read_pad(c.extendedGamepad); }
-+    else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p].extendedGamepad) read_pad(g_held[p].extendedGamepad);
++    if (g_merge) { for (GCController *c in GCController.controllers) if (pad_usable(c)) read_pad(c); }
++    else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p] && pad_usable(g_held[p])) read_pad(g_held[p]);
 +}
  void dm_gamepad_active(void) { dispatch_async(dispatch_get_main_queue(), ^{ for (GCController *c in GCController.controllers) dm_motion_rearm(c); }); }   // On become active: motion_apple.h
  void dm_gamepad_reset(void) {   // On resign active: release everything (a key held while switching away and released in background gets no "release")
@@ -139,7 +146,7 @@ index 35fbcea..aeec137 100644
  }
  
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 58ad5bc..fc13d0e 100644
+index 1dbf516..506ad16 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -14,9 +14,14 @@
@@ -157,7 +164,7 @@ index 58ad5bc..fc13d0e 100644
  #import "DmLayout.h"
  #import "DmGameMenu.h"
  
-@@ -631,7 +636,7 @@ static void save_sync_background(void) {
+@@ -633,7 +638,7 @@ static void save_sync_background(void) {
  void front_ios_focus_event(int ev) {
      if (!g_layer) return;
      switch (ev) {
@@ -166,7 +173,7 @@ index 58ad5bc..fc13d0e 100644
          case 1: UIApplication.sharedApplication.idleTimerDisabled = NO; dm_focus_set(3); g_audio_bg = 1; front_ios_audio_apply(); guest_clock_freeze_for(1, 1); dm_gfx_suspend(1); save_sync_background(); break;
          case 2: dm_gfx_suspend(0); guest_clock_freeze_for(1, 0); front_ios_audio_session(); g_audio_bg = 0; front_ios_audio_apply(); dm_focus_set(2); break;
          case 3:   // Becoming active again also ends an interruption whose "ended" never came (not every one sends it), and retries a session that would not activate on the way back
-@@ -641,3 +646,200 @@ void front_ios_focus_event(int ev) {
+@@ -643,3 +648,200 @@ void front_ios_focus_event(int ev) {
              front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); dm_movie_active(1); break;
      }
  }
@@ -585,13 +592,13 @@ index 0000000..66cd904
 +
 +NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 84efd5d..2b64998 100644
+index 24058a7..aed4fc6 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -121,3 +121,4 @@ void dm_audio_reset(void) {}
- const char *front_ios_device_check(void) { return NULL; }   // a supported GPU
+@@ -124,3 +124,4 @@ void dm_audio_route_changed(void) {}
  void dm_cloud_saves_env(void) {}
  int save_sync_flush(int timeout_ms) { (void)timeout_ms; return 1; }
+ int front_web_touch(void) { return 0; }
 +void dm_host_shutdown(const char *why) { (void)why; }
 diff --git a/dm/ios/tests/quit_prompt/quit_prompt_check.m b/dm/ios/tests/quit_prompt/quit_prompt_check.m
 new file mode 100644

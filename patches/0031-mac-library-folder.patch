@@ -177,10 +177,10 @@ index 060e37f..d40bb7e 100644
      for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
      for (const char **key=(const char *[]){"DM_KEYMAP","DM_PAD_MAP",NULL}; *key; key++) if(getenv(*key)) add_key(&g_launch_keys,*key);
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index 86fa784..b23cdf3 100644
+index 286d45c..ef65e4b 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
-@@ -981,6 +981,50 @@ int main(void) { @autoreleasepool {
+@@ -1027,6 +1027,50 @@ int main(void) { @autoreleasepool {
          self.assertIn('standin host output', (logs / f'{TID}.prev.log').read_text())
          self.assertEqual(self.host_run()['DM_LANG'], 'fr')   # Info.plist DMLanguage
  

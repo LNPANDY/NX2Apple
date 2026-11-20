@@ -257,18 +257,18 @@ index 0f9d8b6..2e58a9a 100644
                      Section {
                          HStack {
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 0a4bb3a..58ad5bc 100644
+index 63f8a0b..1dbf516 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -25,6 +25,7 @@
- const char *front_ios_boot_message(void);   // main.m: why a build that keeps the game files off the IPA found none usable (NULL = the generic hint)
- const char *front_ios_device_check(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported); makes the first Metal device
+@@ -26,6 +26,7 @@
+ const char *front_ios_device_check(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported)
+ bool front_ios_hud_enabled_from_saved_choice(void);   // main.m: the saved choice enabled Metal's HUD at launch
  bool dm_show_launcher(void *view_controller, void (*done)(void));   // Launcher.swift: false = no launcher (no dm/launcher.json, or DM_LAUNCHER=0)
 +int dm_locate_game_data(void);   // main.m: (re)decide where the game data is; NO when there still is none
  
  static CAMetalLayer *g_layer;
  static void front_ios_notify_setup(void);
-@@ -94,6 +95,7 @@ @interface DmRootVC : UIViewController
+@@ -95,6 +96,7 @@ @interface DmRootVC : UIViewController
  #if __has_include(<UIKit/UIHingeInteraction.h>)
  - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1));
  #endif
@@ -276,7 +276,7 @@ index 0a4bb3a..58ad5bc 100644
  - (void)startGame;
  - (void)showFPS:(BOOL)on;
  @end
-@@ -149,6 +151,14 @@ - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
+@@ -150,6 +152,14 @@ - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
  // The game view, the pad and the frame-rate counter are made once the launcher has set the switches they read (DM_SHOW_FPS, DM_METAL_HUD); the host's loading began at app launch (main.m)
  - (void)startGame {
      if (self.game) return;
@@ -289,9 +289,9 @@ index 0a4bb3a..58ad5bc 100644
 +        [self.view addSubview:lb]; return;
 +    }
      dm_cloud_saves_env();   // DM_SAVE_SYNC from the launcher's Cloud saves pick, before the game's first save mount reads it (CloudSaves.m, save_sync.h)
-     front_hud_env();   // before the process's first Metal device, which reads MTL_HUD_ENABLED (an env file's DM_METAL_HUD sets it in main.m already; GitHub issue #840)
-     const char *dev = front_ios_device_check();   // that first device: a GPU without BC textures is refused here, not at launch, so the launcher's HUD switch counts
-@@ -226,7 +236,8 @@ - (void)viewDidAppear:(BOOL)a {
+     front_hud_env();   // apply the Play selection before the device check and game view (GitHub issue #840)
+     const char *dev = front_ios_device_check();
+@@ -228,7 +238,8 @@ - (void)viewDidAppear:(BOOL)a {
      }
      if (self.launched || !front_ios_boot_ok()) return;
      self.launched = YES; g_root = self;
@@ -302,10 +302,10 @@ index 0a4bb3a..58ad5bc 100644
  }
  - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index cf37d07..fde01e3 100644
+index 6185a7a..b1f1a89 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
-@@ -8,9 +8,10 @@
+@@ -9,9 +9,10 @@
  #include <string.h>
  #include <sys/stat.h>
  #include <unistd.h>
@@ -317,7 +317,7 @@ index cf37d07..fde01e3 100644
  #include "romfs_identity.h"
  #include "player_env.h"
  #ifndef DM_PLAYER_BUILD
-@@ -41,6 +42,38 @@ static int romfs_identity_accepts(NSString *img) {
+@@ -42,6 +43,38 @@ static int romfs_identity_accepts(NSString *img) {
      if (rc != ROMFS_ID_OK && rc != ROMFS_ID_NONE) fprintf(stderr, "[RED] boot: Documents/%s is not the image this build needs (verdict %d); not used\n", img.lastPathComponent.UTF8String, rc);
      return rc == ROMFS_ID_OK || rc == ROMFS_ID_NONE;
  }
@@ -356,7 +356,7 @@ index cf37d07..fde01e3 100644
  // The images in Documents: romfs.img in any letter case, romfs.img itself first. The NSP script writes the image as RomFS.img (extract/<version>/RomFS.img) and the Mac's
  // file system ignores letter case, but iOS's does not: a copy made through Finder or the Files app keeps the source's name, which an exact lookup of romfs.img never finds
  static NSArray<NSString *> *romfs_document_images(NSString *doc) {
-@@ -53,14 +86,40 @@ static int romfs_identity_accepts(NSString *img) {
+@@ -54,14 +87,40 @@ static int romfs_identity_accepts(NSString *img) {
      }];
      return imgs;
  }
@@ -398,7 +398,7 @@ index cf37d07..fde01e3 100644
      for (NSString *img in romfs_document_images(doc)) {
          if (!romfs_image_complete(img) || !romfs_identity_accepts(img)) continue;
          // A folder copy from before images is now dead weight of up to many GB (often cut off partway). Deleting its 300,000 files here took longer than iOS allows an app to start
-@@ -76,13 +135,52 @@ static int romfs_identity_accepts(NSString *img) {
+@@ -77,13 +136,52 @@ static int romfs_identity_accepts(NSString *img) {
      }
      NSString *bundledImage = [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"romfs.img"];
      NSString *documentFolder = [doc stringByAppendingPathComponent:@"romfs"];
@@ -453,7 +453,7 @@ index cf37d07..fde01e3 100644
  // Add-on content (DLC): each DLC's RomFS image at <dir>/<index>.img (or a legacy <index>/ folder). Like the game files, Documents/aoc comes before <App>/aoc.
  // A DM_AOC_DIR that is already set (env.txt, the launch environment) wins. The host mounts and counts the DLC from DM_AOC_DIR (hle_fs.c, hle_misc.c)
  static void aoc_locate(void) {
-@@ -124,7 +222,7 @@ static void romfs_identity_report(NSString *doc) {
+@@ -129,7 +227,7 @@ static void romfs_identity_report(NSString *doc) {
      fprintf(stderr, "[RED] boot: %s\n", g_boot_message);
  }
  
@@ -462,7 +462,7 @@ index cf37d07..fde01e3 100644
  static int boot_env(void) {
      NSFileManager *fm = NSFileManager.defaultManager;
      NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
-@@ -174,13 +272,32 @@ static int boot_env(void) {
+@@ -190,13 +288,32 @@ static int boot_env(void) {
      NSString *lang = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMLanguage"];
      if (!getenv("DM_LANG") && [lang isKindOfClass:NSString.class] && lang.length) setenv("DM_LANG", lang.UTF8String, 0);
      fprintf(stderr, "boot: game language %s\n", getenv("DM_LANG") ?: "en-US");
@@ -499,7 +499,7 @@ index cf37d07..fde01e3 100644
      aoc_locate();   // add-on content: Documents/aoc, else <App>/aoc; an empty Documents/aoc explicitly selects no DLC
      NSString *pso = [res stringByAppendingPathComponent:@"pso"];   // the pipeline archive made offline (build_ipa.sh, dm/gfx/tools/pso_offline.py): the shader pairs' bases, which the device then does not build
      if ([fm fileExistsAtPath:pso]) setenv("DM_PSO_BUNDLE", pso.fileSystemRepresentation, 0);
-@@ -195,7 +312,7 @@ static int boot_env(void) {
+@@ -211,7 +328,7 @@ static int boot_env(void) {
  // The host's profile is the program's (DM_PROGRAM, main.c dm_game_cur). oe::ExecuteProgram records the program and its parameters in Documents/program.bin (DM_EXEC_OUT, hle_oe.c), names it on screen, schedules a
  // notification that opens the app (front_ios.m front_program_handoff) and ends; this start reads the record and takes it away, so a later start, after the player quit the game, is at the launcher as on the Switch.
  // Started from the record, the settings screen stays away (DM_LAUNCHER=0): the player is on the way into a game. Returns the program's dm folder (the host's modules folder), nil when its game files are missing
@@ -508,7 +508,7 @@ index cf37d07..fde01e3 100644
      NSFileManager *fm = NSFileManager.defaultManager;
      NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0], *res = NSBundle.mainBundle.resourcePath;
      NSString *dmdir = [res stringByAppendingPathComponent:@"dm"], *msl = [res stringByAppendingPathComponent:@"msl"], *prog = nil;
-@@ -216,18 +333,9 @@ static int boot_env(void) {
+@@ -232,18 +349,9 @@ static int boot_env(void) {
          setenv("DM_APP_DM", dmdir.fileSystemRepresentation, 1);   // the launcher's settings (Launcher.swift)
          fprintf(stderr, "boot: program %d of %s (%zu bytes of launch parameter)\n", n, [[plist stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] stringByReplacingOccurrencesOfString:@"\n" withString:@" "].UTF8String, d.length > 4 ? (size_t)d.length - 4 : 0);
      }

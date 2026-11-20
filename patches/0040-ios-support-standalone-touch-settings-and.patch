@@ -188,7 +188,7 @@ index 9a48a50..c796c51 100644
          self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2'})   # the Mac window's Display mode (front_mac.m reads 1 or 0); Switch 2 controllers (pad_switch2_apple.m, wired on the Mac only)
          s = mac['DM_FULLSCREEN']
 diff --git a/docs/settings.md b/docs/settings.md
-index a25ce7b..cd0cbfa 100644
+index a945fdf..d3c9428 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -4,7 +4,7 @@ The screen before the game starts shows the settings the game supports. A settin

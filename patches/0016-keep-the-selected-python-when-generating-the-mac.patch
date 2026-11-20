@@ -153,7 +153,7 @@ index 59f4d38..bfdb78d 100644
          nsp = script('build_ipa_from_nsp')
          self.host_dirs(nsp.HOST_DIRS)
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index d1e1af0..5ef6025 100644
+index 86bba56..ea4e31c 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
 @@ -107,6 +107,13 @@
@@ -171,10 +171,10 @@ index d1e1af0..5ef6025 100644
  
  - **Symptom:** the first extraction stops with `nx_extract exit code 131` and `.NET location: Not found`, even though `dotnet` is on `PATH`. The shader translator can fail the same way.
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 6cc9417..d7f2775 100755
+index 2d5acb6..b4bf77d 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1901,9 +1901,9 @@ def build_mac_host(repo, out, env, logs, g):
+@@ -1903,9 +1903,9 @@ def build_mac_host(repo, out, env, logs, g):
      and the macOS SDK) are as at the last build into out. The host runs the game's own arm64 code natively, so an Intel Mac stops here (GitHub issue #54)"""
      if not apple_silicon(): raise BuildError('this step boots the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      host = repo / 'dm/host'
@@ -186,7 +186,7 @@ index 6cc9417..d7f2775 100755
      cmd = [l for l in dry.stdout.splitlines() if l.startswith('clang') and f' -o gen/{g.id}/' in l]   # the host's compiles and its link, not the libraries'
      if not any(f' -o gen/{g.id}/dmhost ' in l for l in cmd): raise BuildError(f'make -n gave no link line for the Mac host: {dry.stderr.strip()[-500:]}')
      kf, tp = out.with_name(out.name + '.key'), repo / 'dm/third_party'
-@@ -1918,7 +1918,7 @@ def build_mac_host(repo, out, env, logs, g):
+@@ -1920,7 +1920,7 @@ def build_mac_host(repo, out, env, logs, g):
      decoder = fingerprint('oodle-host-v1', common, ('files', [p for p in srcs if p != chain]), chain_text)
      if out.is_file() and reused(kf, key) is not None and decoder_host_key(out) == decoder: return out
      rmtree(kf); out.parent.mkdir(parents=True, exist_ok=True)

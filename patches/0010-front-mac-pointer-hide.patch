@@ -67,10 +67,10 @@ index f1987af..5173c88 100644
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
 diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
-index a7c25d4..9184ebf 100644
+index 6fdf4df..fee9b5a 100644
 --- a/docs/reference/frame-rate.md
 +++ b/docs/reference/frame-rate.md
-@@ -482,6 +482,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+@@ -491,6 +491,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
  - **Check:** the reporter confirmed that the deferred request entered fullscreen on its first attempt and stayed there, without a refusal. A harness of the startup callbacks checks both readiness orders, bounded refusal recovery, and cancellation before startup or a queued retry, plus later manual failures after successful startup.
  - **Not checked:** the revised lifecycle handling in a real game through the launcher's console mode; native refusal recovery (the reporter's deferred request succeeded without it).
  

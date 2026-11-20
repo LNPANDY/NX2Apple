@@ -10,7 +10,6 @@ This updates dm/games/04008E001F098000/shader_map.tsv from a fresh split of v655
 Upstream-Status: forwarded seedds/nxnative#3081
 Reason: Resplit 04008E001F098000 shader_map.tsv for current shader_split.py BAHS bounds filter
 Issue: none
-
 ---
  dm/games/04008E001F098000/README.md      |   3 +-
  dm/games/04008E001F098000/shader_map.tsv | 308 +++++++++++------------

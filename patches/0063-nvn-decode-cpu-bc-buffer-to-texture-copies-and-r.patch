@@ -18,15 +18,15 @@ Upstream-Status: fork-only (fixes the fork-only CPU BC decode, declined seedds/n
 Reason: Decode BC blocks during buffer-to-texture copies into unpacked textures and reject BC readbacks on GPUs without native BC support.
 Issue: LNPANDY/NX2Apple#446
 ---
- dm/gfx/nvn/nvn_mtl.m    | 28 +++++++++++++++--
+ dm/gfx/nvn/nvn_mtl.m    | 29 +++++++++++++++--
  dm/gfx/tests/t_bc_cpu.m | 69 +++++++++++++++++++++++++++++++++++++++++
- 2 files changed, 95 insertions(+), 2 deletions(-)
+ 2 files changed, 96 insertions(+), 2 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index cd2fc1b..85d31a4 100644
+index f3d7396..9b4338e 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -16637,6 +16637,10 @@ static void copy_t2b(const p_copy_b2t *c, uint32_t size) {
+@@ -16796,6 +16796,10 @@ static void copy_t2b(const p_copy_b2t *c, uint32_t size) {
      int is3d = c->tex->d.target == 2, nz = c->r.depth ? c->r.depth : 1;
      void *mb; uint64_t mo;
      if (!mtl_addr(c->src, img * nz, &mb, &mo)) { RED_ONCE(31, "texture→buffer copy destination is in no memory pool"); return; }
@@ -37,7 +37,7 @@ index cd2fc1b..85d31a4 100644
      sbw_note(c->src, img * nz, SBW_GPU);
      id<MTL4ComputeCommandEncoder> b = blit();
      if (is3d)
-@@ -16710,7 +16714,10 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
+@@ -16869,7 +16873,10 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
      int in_storage = 0; AP_B;
      id<MTLTexture> mt = tex_mtl_(t, &in_storage); AP_E(4);
      if (in_storage) { read_texels_storage(t, level, layer0, r, dst, row, img); return; }
@@ -49,7 +49,7 @@ index cd2fc1b..85d31a4 100644
      mtl_finish_gpu_at(WS_READTEX);
      id<MTLBuffer> buf = [g_dev newBufferWithLength:wb * hb * nz options:MTLResourceStorageModeShared];
      id<MTLCommandBuffer> cb = q_cb(); id<MTLBlitCommandEncoder> b = enc_b_begin(cb);
-@@ -16768,7 +16775,24 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
+@@ -16931,7 +16938,25 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
      // Into Metal's order (rb_copy_shift): converted on the GPU into a staging area of the frame arena, which the blit copies from
      id<MTLBuffer> sb = (__bridge id<MTLBuffer>)mb; int shift = rb_copy_shift(c->tex, t);
      uint64_t gsrc = sb.gpuAddress + mo; size_t grow = row, gimg = img;   // the guest's bytes, the storage's order (gsb_store_buf)
@@ -63,6 +63,7 @@ index cd2fc1b..85d31a4 100644
 +            mtl_sub_begin();
 +            mtl_addr(c->src, img * nz, &mb, &mo);
 +            sb = (__bridge id<MTLBuffer>)mb;
++            gsrc = sb.gpuAddress + mo;
 +        } else if (gw_live(c->src, c->src + img * nz)) {
 +            mtl_finish_gpu_at(WS_FINISH);
 +        }

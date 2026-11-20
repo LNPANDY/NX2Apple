@@ -19,7 +19,7 @@ Issue: LNPANDY/NX2Apple#809
  4 files changed, 168 insertions(+), 8 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index ca91b77..cf4c5de 100644
+index 985140a..b65b280 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,6 @@
@@ -104,7 +104,7 @@ index ca91b77..cf4c5de 100644
      BOOL game = NO;
      for (UITouch *t in ts) {
          if (_padOff) { game |= [self gameBegin:t]; continue; }
-@@ -668,9 +692,38 @@ static BOOL pads_slotted(GCController *gone) {
+@@ -725,9 +749,38 @@ static BOOL pads_slotted(GCController *gone) {
      dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
      return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
  }
@@ -145,7 +145,7 @@ index ca91b77..cf4c5de 100644
  - (void)padsChanged:(NSNotification *)note {
      GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 44d6551..b1869b8 100644
+index 846b8ec..989f95a 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 @@ -94,6 +94,7 @@ void dm_motion_clear(int player) {
@@ -157,11 +157,11 @@ index 44d6551..b1869b8 100644
  static int g_opmode;   // handheld, until a test or the in-game menu docks it
  int dm_opmode(void) { return g_opmode; }
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index 1241c54..7570ca0 100644
+index beefab5..0b52a7c 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-@@ -47,6 +47,13 @@ @implementation DuoFakeTouch
- - (CGPoint)locationInView:(UIView *)view { (void)view; return self.point; }
+@@ -112,6 +112,13 @@ - (GCExtendedGamepad *)extendedGamepad { return nil; }
+ - (GCMotion *)motion { return nil; }
  @end
  
 +@interface DuoFakeTouchEvent : UIEvent
@@ -174,7 +174,7 @@ index 1241c54..7570ca0 100644
  #if DUO_HARNESS_HAS_NATIVE_POSE_API
  @interface DuoFakeHinge : NSObject
  @property (nonatomic) NSInteger status;
-@@ -103,6 +110,35 @@ static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(io
+@@ -168,6 +175,35 @@ static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(io
  
  #endif
  
@@ -210,7 +210,7 @@ index 1241c54..7570ca0 100644
  @interface DuoHarnessTests : XCTestCase
  @property (nonatomic, strong) id savedLayout;
  @property (nonatomic) BOOL controllerListOverridden;
-@@ -1254,7 +1290,8 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
+@@ -1319,7 +1355,8 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
      GCController *controller = [GCController controllerWithExtendedGamepad];
      @try {
          // The TV scene moves the same game view into its own view hierarchy.
@@ -220,7 +220,7 @@ index 1241c54..7570ca0 100644
          XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu, @"A touch-only player still has the menu on TV");
          [self setHarnessControllers:@[controller] notification:GCControllerDidConnectNotification];
          [self waitForView:menu hidden:YES];
-@@ -1262,10 +1299,79 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
+@@ -1327,10 +1364,79 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
          [self deliverSnapshotChangeFor:controller button:controller.extendedGamepad.buttonB value:1];
          XCTAssertEqual(duo_harness_state().players[0].buttons, DM_BTN_A);
  
@@ -303,7 +303,7 @@ index 1241c54..7570ca0 100644
          [self setHarnessControllers:@[] notification:GCControllerDidDisconnectNotification];
          [self waitForView:menu hidden:NO];
 diff --git a/docs/settings.md b/docs/settings.md
-index f7ea83a..17a8cc1 100644
+index 0a3aeb4..8bcc053 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -254,7 +254,7 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t

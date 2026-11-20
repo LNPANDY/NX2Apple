@@ -22,7 +22,7 @@ Issue: LNPANDY/NX2Apple (v1.5.0 local)
  11 files changed, 237 insertions(+), 21 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 8fa6cd8..bcb1eb2 100644
+index 204d2af..4a5ee65 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -119,6 +119,7 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
@@ -33,7 +33,7 @@ index 8fa6cd8..bcb1eb2 100644
  static dispatch_group_t g_bg_group __attribute__((section("__DATA,__dm_keep")));
  static dispatch_once_t g_bg_group_once __attribute__((section("__DATA,__dm_keep")));
  static inline dispatch_group_t bg_group(void) {
-@@ -758,13 +759,18 @@ static void defer_obj_at(id obj, int keep_resident, uint64_t fence) {
+@@ -761,13 +762,18 @@ static void defer_obj_at(id obj, int keep_resident, uint64_t fence) {
  // oe::PopNotificationMessage and submits nothing, while its streaming threads remade a run of about 10 MB of a virtual pool 70 times a second (vrun_set). Each old buffer waited for
  // the next submission's fence, and GPU allocated went from 11 to 20 GB in 12 s, with 6.7 GB of swap in 20 s (PR #1392). Entries handed back while g_smu was busy are tried again 10 ms later
  static _Atomic int g_defer_queued;
@@ -55,7 +55,7 @@ index 8fa6cd8..bcb1eb2 100644
      } });
  }
  // What a drain takes out of the residency set leaves it, and is released, at the set's next commit, which the next submission makes. With none open none may come: the drain is
-@@ -19664,6 +19670,7 @@ void mem_census(const char *why) { @autoreleasepool {
+@@ -19848,6 +19854,7 @@ void mem_census(const char *why) { @autoreleasepool {
  
  void dm_gfx_teardown(void) { @autoreleasepool {
      atomic_store(&g_gfx_teardown, 1);
@@ -63,14 +63,14 @@ index 8fa6cd8..bcb1eb2 100644
      mtl_present_discard(1);
      dispatch_group_wait(bg_group(), DISPATCH_TIME_FOREVER);
  
-@@ -19961,6 +19968,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -20150,6 +20157,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      g_mdi_waits = 0; g_mdi_epoch = ~0ull; g_mdi_sub = 0; g_mdi_addr = 0; g_mdi_count = 0;   // the indirect-count multi-draw's last count (mdi_count)
      g_q4 = nil; g_q = nil; g_dev = nil;
      g_feedback_q = nil;
 +    atomic_fetch_add(&g_defer_gen, 1);
+ }
      atomic_store(&g_gfx_teardown, 0);
- } }
- #pragma clang attribute pop
+ }
 diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
 index c93d64e..4c61eb3 100644
 --- a/dm/host/haptics_apple.m
@@ -317,7 +317,7 @@ index d205195..edb88aa 100644
 +    pthread_mutex_unlock(&g_spt_mu);
 +}
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index 2879389..3e2cd3c 100644
+index 14cdb5f..9300301 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
 @@ -58,7 +58,12 @@ __attribute__((weak)) void dm_audren_teardown_post(void) {}
@@ -333,7 +333,7 @@ index 2879389..3e2cd3c 100644
  __attribute__((weak)) void dm_gfx_quit_begin(void) {}
  __attribute__((weak)) void dm_gfx_teardown(void) {}
  __attribute__((weak)) void dm_fs_teardown(void) {}
-@@ -78,15 +83,20 @@ void dm_host_teardown_for_shell(void) {
+@@ -79,16 +84,21 @@ void dm_host_teardown_for_shell(void) {
      dm_audren_stop_all();
      dm_audio_stop_all();
      dm_movie_stop_all();
@@ -349,6 +349,7 @@ index 2879389..3e2cd3c 100644
 +    dm_switch2_teardown();
      dm_audren_teardown_post();
      dm_sf_teardown();
+     dm_irs_teardown();
      dm_movie_teardown_post();
 +    dm_codec_video_teardown_post();
 +    dm_cheats_teardown();
@@ -574,10 +575,10 @@ index cf2d35b..6dccf6f 100644
      puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, Joy-Con recovery and lifetime, the DualSense's handles, level cutoff and the DualShock 4 route passed");
  } }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index edec202..cbe68d4 100644
+index a631ea8..1c6e931 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -854,7 +854,9 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
+@@ -922,7 +922,9 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
      if (g_merge) dm_pad_set(0, 0, 0, 0, 0);
      else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
  }
