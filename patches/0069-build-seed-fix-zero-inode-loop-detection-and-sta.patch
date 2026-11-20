@@ -1,0 +1,879 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Fri, 20 Nov 2026 21:11:31 +0800
+Subject: [PATCH] build_seed: fix zero-inode loop detection and stale seed
+ profile handling
+
+Use realpath fallback when directory st_ino is 0 (Windows DirEntry.stat and exFAT volumes) while checking os.lstat and Windows directory reparse points in _verify_no_symlinks_or_unsafe_names and _stage_tree. Validate staged seed profile build versions before mounting DM_GAMES_DIR in _prepare_from_seed, guard report_profile_status against missing build keys, reject mismatched leftover work/profile directories during save_seed/adopt_legacy_work, and clean stale work/profile leftovers on registered seed persistence.
+
+Upstream-Status: fork-only
+Reason: Handle Windows/exFAT zero-inode directory checks and self-heal stale seed profile copies
+Issue: LNPANDY/NX2Apple#1456, LNPANDY/NX2Apple#1478
+---
+ dm/tools/build_seed.py                        | 101 ++++++-
+ .../tests/test_build_seed_profile_version.py  | 277 +++++++++++++++++
+ .../tests/test_build_seed_windows_dir_loop.py | 284 ++++++++++++++++++
+ scripts/build_ipa_from_nsp.py                 |  68 ++++-
+ 4 files changed, 705 insertions(+), 25 deletions(-)
+ create mode 100644 dm/tools/tests/test_build_seed_profile_version.py
+ create mode 100644 dm/tools/tests/test_build_seed_windows_dir_loop.py
+
+diff --git a/dm/tools/build_seed.py b/dm/tools/build_seed.py
+index 1b77aae..66776f9 100755
+--- a/dm/tools/build_seed.py
++++ b/dm/tools/build_seed.py
+@@ -60,6 +60,27 @@ _EMPTY_TABLE_HEADERS = {
+     'c1_full.tsv': '# empty table placeholder\n',
+     'cb_extent.tsv': '# empty table placeholder\n',
+ }
++_REPARSE_ATTR = getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x0400)
++
++
++def _is_symlink_or_reparse(path, st=None):
++    """Returns True for symlinks and Windows directory reparse points (e.g. NTFS junctions)."""
++    if os.path.islink(path):
++        return True
++    if st is None:
++        return False
++    if stat.S_ISLNK(st.st_mode):
++        return True
++    if stat.S_ISDIR(st.st_mode) and bool(int(getattr(st, 'st_file_attributes', 0) or 0) & _REPARSE_ATTR):
++        return True
++    return False
++
++
++def _dir_loop_key(path, st):
++    """Returns a stable directory identity key, falling back to realpath when st_ino == 0."""
++    if getattr(st, 'st_ino', 0):
++        return ('ino', getattr(st, 'st_dev', 0), st.st_ino)
++    return ('path', os.path.normcase(os.path.realpath(path)))
+ 
+ 
+ class _Quota:
+@@ -207,7 +228,7 @@ def _link_or_copy_file(src, dst, quota):
+     src_path = os.fspath(src)
+     dst_path = os.fspath(dst)
+     st = os.lstat(src_path)
+-    if stat.S_ISLNK(st.st_mode):
++    if _is_symlink_or_reparse(src_path, st):
+         raise ValueError(f'symlink forbidden in build seed input: {src_path}')
+     if not stat.S_ISREG(st.st_mode):
+         raise ValueError(f'non-regular file forbidden in build seed input: {src_path}')
+@@ -256,14 +277,14 @@ def _stage_tree(src_dir, dst_dir, quota, allow_subdirs=True, skip_names=(), _anc
+     src_path = os.fspath(src_dir)
+     dst_path = os.fspath(dst_dir)
+     st = os.lstat(src_path)
+-    if stat.S_ISLNK(st.st_mode):
++    if _is_symlink_or_reparse(src_path, st):
+         raise ValueError(f'symlink directory forbidden: {src_path}')
+     if not stat.S_ISDIR(st.st_mode):
+         raise ValueError(f'expected directory: {src_path}')
+     if _ancestors is None:
+         _assert_not_overlapping_dirs(src_path, dst_path)
+         _ancestors = set()
+-    dev_ino = (st.st_dev, st.st_ino)
++    dev_ino = _dir_loop_key(src_path, st)
+     if dev_ino in _ancestors:
+         raise ValueError(f'recursive directory cycle detected at {src_path}')
+     next_ancestors = _ancestors | {dev_ino}
+@@ -277,7 +298,7 @@ def _stage_tree(src_dir, dst_dir, quota, allow_subdirs=True, skip_names=(), _anc
+         entries = sorted(it, key=lambda e: e.name)
+ 
+     for entry in entries:
+-        if entry.is_symlink():
++        if entry.is_symlink() or _is_symlink_or_reparse(entry.path):
+             raise ValueError(f'symlink forbidden inside tree: {entry.path}')
+         name = entry.name
+         if name in ('.DS_Store',) or '.tmp' in name or name in skip_names:
+@@ -297,14 +318,14 @@ def _stage_tree(src_dir, dst_dir, quota, allow_subdirs=True, skip_names=(), _anc
+ def _verify_no_symlinks_or_unsafe_names(root_dir):
+     """Walks root_dir without following symlinks and returns (ok, reason, total_bytes)."""
+     st = os.lstat(root_dir)
+-    if stat.S_ISLNK(st.st_mode):
++    if _is_symlink_or_reparse(root_dir, st):
+         return False, f'seed path is a symlink: {root_dir}', 0
+     if not stat.S_ISDIR(st.st_mode):
+         return False, f'seed path is not a directory: {root_dir}', 0
+     total_bytes = 0
+     total_entries = 0
+     stack = [root_dir]
+-    visited = {(st.st_dev, st.st_ino)}
++    visited = {_dir_loop_key(root_dir, st)}
+     while stack:
+         cur = stack.pop()
+         try:
+@@ -324,10 +345,20 @@ def _verify_no_symlinks_or_unsafe_names(root_dir):
+                 est = entry.stat(follow_symlinks=False)
+             except OSError as exc:
+                 return False, f'cannot stat {entry.path}: {exc}', total_bytes
+-            if stat.S_ISLNK(est.st_mode):
++            if entry.is_symlink() or _is_symlink_or_reparse(entry.path, est):
+                 return False, f'symlink forbidden inside seed: {entry.path}', total_bytes
+             if stat.S_ISDIR(est.st_mode):
+-                key = (est.st_dev, est.st_ino)
++                # Re-stat directories via os.lstat: Windows DirEntry.stat(follow_symlinks=False)
++                # returns (0, 0) for st_dev/st_ino from WIN32_FIND_DATA.
++                try:
++                    lst = os.lstat(entry.path)
++                except OSError as exc:
++                    return False, f'cannot stat {entry.path}: {exc}', total_bytes
++                if _is_symlink_or_reparse(entry.path, lst):
++                    return False, f'symlink forbidden inside seed: {entry.path}', total_bytes
++                if not stat.S_ISDIR(lst.st_mode):
++                    return False, f'special file forbidden inside seed: {entry.path}', total_bytes
++                key = _dir_loop_key(entry.path, lst)
+                 if key in visited:
+                     return False, f'directory loop inside seed: {entry.path}', total_bytes
+                 visited.add(key)
+@@ -664,6 +695,26 @@ def _read_game_tsv_kv(tsv_path):
+     return kv
+ 
+ 
++def _read_game_tsv_build_versions(tsv_path):
++    """Extracts all build version keys (e.g. {'v0', 'v851968'}) from a game.tsv file."""
++    versions = set()
++    if not tsv_path or not os.path.isfile(tsv_path) or os.path.islink(tsv_path):
++        return versions
++    try:
++        with open(tsv_path, 'r', encoding='utf-8', errors='replace') as f:
++            for line in f:
++                if not line.strip() or line.lstrip().startswith('#'):
++                    continue
++                parts = line.split('\t')
++                if len(parts) >= 2 and parts[0].strip() == 'build':
++                    ver = parts[1].strip()
++                    if ver:
++                        versions.add(ver)
++    except OSError:
++        pass
++    return versions
++
++
+ def _find_registered_profile_dir(tid, profile_id=''):
+     games_dir = os.path.join(_REPO_ROOT, 'dm', 'games')
+     if not os.path.isdir(games_dir):
+@@ -1069,25 +1120,51 @@ def save_seed(
+         # 4. Discover / stage optional derived or provisional profile/<gid>/
+         profile_id = str(meta_in.get('profile_id') or '').strip()
+         profile_kind = str(meta_in.get('profile_kind') or '').strip()
+-        eff_profile_dir = os.fspath(profile_dir) if profile_dir else None
+-        if not eff_profile_dir:
++        explicit_profile_dir = os.fspath(profile_dir) if profile_dir else None
++        eff_profile_dir = explicit_profile_dir
++        discovered_work_prof = False
++        if not eff_profile_dir and profile_kind != 'registered':
+             work_prof_root = os.path.join(work_path, 'profile')
+             if os.path.isdir(work_prof_root) and not os.path.islink(work_prof_root):
+                 with os.scandir(work_prof_root) as it:
+                     pdirs = sorted(
+-                        (e for e in it if e.is_dir(follow_symlinks=False) and not e.name.startswith('.')),
+-                        key=lambda e: e.name,
++                        (
++                            e
++                            for e in it
++                            if e.is_dir(follow_symlinks=False)
++                            and not e.name.startswith('.')
++                            and os.path.isfile(os.path.join(e.path, 'game.tsv'))
++                        ),
++                        key=lambda e: (0 if e.name in (profile_id, tid) else 1, e.name),
+                     )
+                 if pdirs:
+                     eff_profile_dir = pdirs[0].path
++                    discovered_work_prof = True
+                     if not profile_id:
+                         profile_id = pdirs[0].name
+ 
+         reg_id, reg_dir = _find_registered_profile_dir(tid, profile_id=profile_id)
++        if not reg_dir and discovered_work_prof and profile_id:
++            reg_id, reg_dir = _find_registered_profile_dir(tid, profile_id='')
++        reg_builds = _read_game_tsv_build_versions(os.path.join(reg_dir, 'game.tsv')) if reg_dir else set()
++
+         prof_kv = {}
+         if eff_profile_dir and os.path.exists(eff_profile_dir):
+             if os.path.islink(eff_profile_dir):
+                 raise ValueError(f'symlink forbidden for profile_dir: {eff_profile_dir}')
++            eff_builds = _read_game_tsv_build_versions(os.path.join(eff_profile_dir, 'game.tsv'))
++            if eff_builds and pkg_ver not in eff_builds:
++                if discovered_work_prof and reg_dir and pkg_ver in reg_builds:
++                    eff_profile_dir = None
++                    profile_id = reg_id
++                    profile_kind = 'registered'
++                else:
++                    raise ValueError(
++                        f'profile in {eff_profile_dir} describes {", ".join(sorted(eff_builds))}, '
++                        f'which does not match package version {pkg_ver}'
++                    )
++
++        if eff_profile_dir and os.path.exists(eff_profile_dir):
+             prof_kv = _read_game_tsv_kv(os.path.join(eff_profile_dir, 'game.tsv'))
+             gid = profile_id or os.path.basename(os.path.normpath(eff_profile_dir))
+             _validate_rel_path(gid, 'profile_id')
+diff --git a/dm/tools/tests/test_build_seed_profile_version.py b/dm/tools/tests/test_build_seed_profile_version.py
+new file mode 100644
+index 0000000..15d1d1f
+--- /dev/null
++++ b/dm/tools/tests/test_build_seed_profile_version.py
+@@ -0,0 +1,277 @@
++#!/usr/bin/env python3
++"""Regression tests for stale build-seed profile versions across save_seed, adopt_legacy_work, and --from-seed."""
++
++import contextlib
++import importlib.util
++import io
++import json
++import os
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++HERE = Path(__file__).resolve().parent
++REPO = HERE.parent.parent.parent
++if str(REPO) not in sys.path:
++    sys.path.insert(0, str(REPO))
++if str(REPO / 'dm' / 'games') not in sys.path:
++    sys.path.insert(0, str(REPO / 'dm' / 'games'))
++
++import game as gamemod  # noqa: E402
++from dm.tools import build_seed  # noqa: E402
++
++
++def _load_nsp_script():
++    spec = importlib.util.spec_from_file_location('build_ipa_from_nsp_profile_ver_test', REPO / 'scripts' / 'build_ipa_from_nsp.py')
++    mod = importlib.util.module_from_spec(spec)
++    assert spec.loader is not None
++    spec.loader.exec_module(mod)
++    return mod
++
++
++class BuildSeedProfileVersionTests(unittest.TestCase):
++    def setUp(self):
++        self._tmp = tempfile.TemporaryDirectory(prefix='test_seed_prof_ver_')
++        self.root = Path(self._tmp.name)
++        self._saved_env = dict(os.environ)
++        os.environ.pop('DM_GAMES_DIR', None)
++        os.environ.pop('DM_GAMES_FIRST', None)
++
++    def tearDown(self):
++        os.environ.clear()
++        os.environ.update(self._saved_env)
++        self._tmp.cleanup()
++
++    def _make_balatro_work(self, tid='0100CD801CE5E000', pkg_ver='v851968', stale_prof_ver=None, name=None):
++        work = self.root / (name or f'{tid}_build')
++        ver_dir = work / 'extract' / pkg_ver
++        (ver_dir / 'ExeFS').mkdir(parents=True)
++        (ver_dir / 'ExeFS' / 'main').write_bytes(b'BALATRO_MAIN')
++        (ver_dir / 'ExeFS' / 'sdk').write_bytes(b'BALATRO_SDK')
++        (ver_dir / 'RomFS.img.id').write_text(
++            f'DMROMFSID1 title={tid} version={pkg_ver} build=- size=56066346 index=3129a67f6072f1be\n',
++            encoding='utf-8',
++        )
++        (work / 'shader' / 'pkg').mkdir(parents=True)
++        (work / 'shader' / 'gl').mkdir(parents=True)
++        (work / 'shader' / 'gl' / 'gl_shaders.metallib').write_bytes(b'MAC_GL_METALLIB')
++        (work / 'shader' / 'gl.key').write_text('gl-key\n1 shaders\n', encoding='utf-8')
++        (work / 'shader' / 'ios' / 'gl').mkdir(parents=True)
++        (work / 'shader' / 'ios' / 'gl' / 'gl_shaders.metallib').write_bytes(b'IOS_GL_METALLIB')
++        (work / 'shader' / 'ios' / 'gl.key').write_text('gl-key\n1 shaders\n', encoding='utf-8')
++
++        if stale_prof_ver:
++            prof = work / 'profile' / tid
++            prof.mkdir(parents=True)
++            (prof / 'game.tsv').write_text(
++                f'# Derived from game profile {tid} by scripts/build_ipa_from_nsp.py for {stale_prof_ver} (1.0.0)\n'
++                f'title_id\t{tid}\n'
++                f'program_id\t{tid}\n'
++                f'name\tBalatro\n'
++                f'ipa\tBalatro.ipa\n'
++                f'build\t{stale_prof_ver}\t1.0.0\tmain=0000000000000000\tsdk=1111111111111111\n'
++                f'package\t{stale_prof_ver}\n'
++                f'shader_versions\t{stale_prof_ver}\n'
++                f'modules\tmain sdk\n'
++                f'romfs_marker\tresources/fonts/NotoSansSC-Bold.ttf\n'
++                f'mem_reserve\t0xf0000000\n'
++                f'mem_alias\t0x10000000\n'
++                f'mem_stack\t0x10000000\n'
++                f'app_pool\t0xCD500000\n',
++                encoding='utf-8',
++            )
++            (work / 'profile' / f'{tid}.derived.key').write_text('stale-key\n', encoding='utf-8')
++        return work
++
++    def test_read_game_tsv_build_versions_extracts_all_build_rows(self):
++        tsv = self.root / 'multi_build.tsv'
++        tsv.write_text(
++            '# header\n'
++            'title_id\t0100CD801CE5E000\n'
++            'build\tv0\t1.0.0\tmain=aaa\n'
++            'build\tv851968\t1.1.3\tmain=bbb\n'
++            '# build\tv999\tignored\n',
++            encoding='utf-8',
++        )
++        self.assertEqual(build_seed._read_game_tsv_build_versions(str(tsv)), {'v0', 'v851968'})
++
++    def test_adopt_legacy_work_ignores_stale_v0_work_profile_when_registered_profile_matches(self):
++        tid = '0100CD801CE5E000'
++        work = self._make_balatro_work(tid=tid, pkg_ver='v851968', stale_prof_ver='v0')
++        seed_root = self.root / 'seeds_registered_heal'
++
++        res = build_seed.adopt_legacy_work(seed_root, tid, work)
++        self.assertTrue(res['valid'], res.get('reason'))
++        self.assertEqual(res['seed']['pkg_ver'], 'v851968')
++        self.assertEqual(res['seed']['profile_kind'], 'registered')
++        self.assertFalse((Path(res['path']) / 'profile').exists())
++
++    def test_adopt_legacy_work_rejects_mismatched_work_profile_without_matching_registered_build(self):
++        tid = '0100CD801CE5E000'
++        # Balatro's registered profile only defines v851968; adopting a v65536 work folder
++        # with a leftover v0 work/profile must fail instead of saving a stale derived copy.
++        work = self._make_balatro_work(tid=tid, pkg_ver='v65536', stale_prof_ver='v0')
++        seed_root = self.root / 'seeds_mismatch_reject'
++
++        with self.assertRaises(ValueError):
++            build_seed.adopt_legacy_work(seed_root, tid, work)
++        self.assertFalse((seed_root / tid).exists())
++
++    def test_from_seed_self_heals_stale_derived_profile_without_polluting_dm_games_dir(self):
++        tid = '0100CD801CE5E000'
++        work = self._make_balatro_work(tid=tid, pkg_ver='v851968', stale_prof_ver='v0')
++        seed_root = self.root / 'seeds_corrupt'
++        seed_dir = seed_root / tid
++
++        # Build a clean v851968 seed first, then manually inject the pre-fix stale v0 profile copy.
++        clean_work = self._make_balatro_work(tid=tid, pkg_ver='v851968', stale_prof_ver=None, name='clean_work')
++        res = build_seed.save_seed(
++            seed_root,
++            tid,
++            {'title_id': tid, 'pkg_ver': 'v851968', 'gfx_api': 'gl', 'profile_kind': 'registered'},
++            clean_work,
++        )
++        self.assertTrue(res['valid'], res.get('reason'))
++        (seed_dir / 'profile' / tid).mkdir(parents=True)
++        (seed_dir / 'profile' / tid / 'game.tsv').write_text(
++            (work / 'profile' / tid / 'game.tsv').read_text(encoding='utf-8'),
++            encoding='utf-8',
++        )
++        seed_json = seed_dir / 'seed.json'
++        seed_data = json.loads(seed_json.read_text(encoding='utf-8'))
++        seed_data['profile_kind'] = 'derived'
++        seed_json.write_text(json.dumps(seed_data, indent=2) + '\n', encoding='utf-8')
++
++        nsp = _load_nsp_script()
++        refresh_work = self.root / 'refresh_work'
++        args = nsp.parse_args([
++            '--from-seed',
++            '--title-id', tid,
++            '--seed-cache-dir', str(seed_root),
++            '--work-dir', str(refresh_work),
++        ])
++        env = {}
++        buf = io.StringIO()
++        with contextlib.redirect_stdout(buf):
++            prep = nsp._prepare_from_seed(args, 'auto', seed_root, [], gamemod, env, False)
++
++        self.assertEqual(prep['pkg_ver'], 'v851968')
++        self.assertEqual(prep['g'].id, tid)
++        self.assertEqual(prep['g'].dir.resolve(), (REPO / 'dm' / 'games' / tid).resolve())
++        self.assertEqual(prep['reg'].id, tid)
++        self.assertFalse(prep['derived'])
++        self.assertFalse(prep['provisional'])
++        self.assertFalse((refresh_work / 'profile' / tid).exists())
++        self.assertNotIn('DM_GAMES_DIR', env)
++        self.assertNotIn('DM_GAMES_FIRST', env)
++        self.assertNotIn('DM_GAMES_DIR', os.environ)
++        self.assertNotIn('DM_GAMES_FIRST', os.environ)
++        self.assertIn('falling back to registered profile', buf.getvalue())
++
++        # Subsequent status report must succeed without KeyError.
++        report_buf = io.StringIO()
++        with contextlib.redirect_stdout(report_buf):
++            nsp.report_profile_status(prep['g'], prep['reg'], prep['pkg_ver'], prep['derived'], prep['provisional'], 'Mac app')
++
++    def test_from_seed_raises_clean_build_error_when_repo_lacks_seed_version(self):
++        tid = '0100CD801CE5E000'
++        work = self._make_balatro_work(tid=tid, pkg_ver='v65536', stale_prof_ver='v0')
++        seed_root = self.root / 'seeds_unregistered_ver'
++        seed_dir = seed_root / tid
++
++        clean_work = self.root / 'clean_v65536'
++        work.rename(clean_work)
++        stale_tsv_text = (clean_work / 'profile' / tid / 'game.tsv').read_text(encoding='utf-8')
++        (clean_work / 'profile' / tid / 'game.tsv').unlink()
++        (clean_work / 'profile' / tid).rmdir()
++        res = build_seed.save_seed(
++            seed_root,
++            tid,
++            {'title_id': tid, 'pkg_ver': 'v65536', 'gfx_api': 'gl', 'profile_kind': 'registered'},
++            clean_work,
++        )
++        self.assertTrue(res['valid'], res.get('reason'))
++        (seed_dir / 'profile' / tid).mkdir(parents=True)
++        (seed_dir / 'profile' / tid / 'game.tsv').write_text(stale_tsv_text, encoding='utf-8')
++        seed_json = seed_dir / 'seed.json'
++        seed_data = json.loads(seed_json.read_text(encoding='utf-8'))
++        seed_data['profile_kind'] = 'derived'
++        seed_json.write_text(json.dumps(seed_data, indent=2) + '\n', encoding='utf-8')
++
++        nsp = _load_nsp_script()
++        refresh_work = self.root / 'refresh_fail_work'
++        args = nsp.parse_args([
++            '--from-seed',
++            '--title-id', tid,
++            '--seed-cache-dir', str(seed_root),
++            '--work-dir', str(refresh_work),
++        ])
++        env = {}
++        with self.assertRaises(nsp.BuildError) as cm:
++            nsp._prepare_from_seed(args, 'auto', seed_root, [], gamemod, env, False)
++        msg = str(cm.exception)
++        self.assertIn('build seed profile describes v0, but seed package is v65536', msg)
++        self.assertNotIn(';', msg)
++        self.assertFalse((refresh_work / 'profile' / tid).exists())
++        self.assertNotIn('DM_GAMES_DIR', env)
++        self.assertNotIn('DM_GAMES_FIRST', env)
++        self.assertNotIn('DM_GAMES_DIR', os.environ)
++        self.assertNotIn('DM_GAMES_FIRST', os.environ)
++
++    def test_report_profile_status_handles_missing_build_key_and_persist_cleans_stale_work_profile(self):
++        tid = '0100CD801CE5E000'
++        nsp = _load_nsp_script()
++        reg_g = gamemod.load(tid)
++
++        # Construct a stale v0 profile that lacks v851968 and verify report_profile_status does not KeyError.
++        stale_dir = self.root / 'stale_report' / tid
++        stale_dir.mkdir(parents=True)
++        (stale_dir / 'game.tsv').write_text(
++            f'title_id\t{tid}\nprogram_id\t{tid}\nname\tBalatro\nipa\tBalatro.ipa\n'
++            'build\tv0\t1.0.0\tmain=0000000000000000\nmodules\tmain\nromfs_marker\tREADME\n'
++            'mem_reserve\t0xf0000000\nmem_alias\t0x10000000\nmem_stack\t0x10000000\napp_pool\t0xCD500000\n',
++            encoding='utf-8',
++        )
++        stale_g = gamemod.Game(stale_dir)
++        buf = io.StringIO()
++        with contextlib.redirect_stdout(buf):
++            nsp.report_profile_status(stale_g, reg_g, 'v851968', 'seeded derived profile', False, 'Mac app')
++        self.assertIn('v851968', buf.getvalue())
++
++        # Full registered build persisting seed must clean up leftover stale work/profile/<gid>.
++        work = self._make_balatro_work(tid=tid, pkg_ver='v851968', stale_prof_ver='v0')
++        self.assertTrue((work / 'profile' / tid).is_dir())
++        seed_root = self.root / 'seeds_clean_stale'
++        nsp._persist_build_seed(
++            seed_root,
++            int(tid, 16),
++            reg_g,
++            False,
++            False,
++            'v851968',
++            'Balatro',
++            '1.1.3',
++            f'com.nxnative.g{tid.lower()}',
++            'en-US',
++            ['en-US'],
++            'gl',
++            REPO,
++            work,
++            work / 'extract' / 'v851968',
++            work / 'shader',
++            None,
++            False,
++            None,
++            None,
++            None,
++        )
++        insp = build_seed.inspect_seed(seed_root, title_id=tid)
++        self.assertTrue(insp['valid'], insp.get('reason'))
++        self.assertEqual(insp['seed']['profile_kind'], 'registered')
++        self.assertFalse((work / 'profile' / tid).exists())
++        self.assertFalse((work / 'profile' / f'{tid}.derived.key').exists())
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/tools/tests/test_build_seed_windows_dir_loop.py b/dm/tools/tests/test_build_seed_windows_dir_loop.py
+new file mode 100644
+index 0000000..1a5e311
+--- /dev/null
++++ b/dm/tools/tests/test_build_seed_windows_dir_loop.py
+@@ -0,0 +1,284 @@
++#!/usr/bin/env python3
++"""Regression tests for Windows DirEntry (0, 0) stats, exFAT st_ino == 0, reparse points, and real directory cycles."""
++
++import os
++import shutil
++import stat
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++from unittest.mock import patch
++
++HERE = Path(__file__).resolve().parent
++REPO = HERE.parent.parent.parent
++if str(REPO) not in sys.path:
++    sys.path.insert(0, str(REPO))
++
++from dm.tools import build_seed, shader_lib  # noqa: E402
++
++_REPARSE_ATTR = getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x0400)
++
++
++class _StatProxy:
++    """Lightweight os.stat_result proxy with explicit st_dev/st_ino/st_file_attributes overrides."""
++
++    def __init__(self, real_st, *, st_dev=None, st_ino=None, st_file_attributes=0):
++        self.st_mode = real_st.st_mode
++        self.st_dev = real_st.st_dev if st_dev is None else st_dev
++        self.st_ino = real_st.st_ino if st_ino is None else st_ino
++        self.st_nlink = real_st.st_nlink
++        self.st_uid = real_st.st_uid
++        self.st_gid = real_st.st_gid
++        self.st_size = real_st.st_size
++        self.st_atime = real_st.st_atime
++        self.st_mtime = real_st.st_mtime
++        self.st_ctime = real_st.st_ctime
++        self.st_file_attributes = st_file_attributes
++
++
++class _DirEntryProxy:
++    """Wraps a real os.DirEntry while overriding stat() to emulate Windows FindFirstFileW behavior."""
++
++    def __init__(self, real_entry, *, zero_dir_stat=False, force_zero_all=False):
++        self._entry = real_entry
++        self._zero_dir_stat = zero_dir_stat
++        self._force_zero_all = force_zero_all
++        self.name = real_entry.name
++        self.path = real_entry.path
++
++    def is_symlink(self):
++        return self._entry.is_symlink()
++
++    def is_dir(self, *, follow_symlinks=True):
++        return self._entry.is_dir(follow_symlinks=follow_symlinks)
++
++    def is_file(self, *, follow_symlinks=True):
++        return self._entry.is_file(follow_symlinks=follow_symlinks)
++
++    def stat(self, *, follow_symlinks=True):
++        real_st = self._entry.stat(follow_symlinks=follow_symlinks)
++        if not follow_symlinks and (self._force_zero_all or (self._zero_dir_stat and stat.S_ISDIR(real_st.st_mode))):
++            return _StatProxy(real_st, st_dev=0, st_ino=0)
++        return real_st
++
++    def __fspath__(self):
++        return self.path
++
++
++class _ScandirCtx:
++    def __init__(self, real_ctx, **proxy_kw):
++        self._real_ctx = real_ctx
++        self._proxy_kw = proxy_kw
++
++    def __iter__(self):
++        try:
++            for e in self._real_ctx:
++                yield _DirEntryProxy(e, **self._proxy_kw)
++        finally:
++            self._real_ctx.close()
++
++    def __enter__(self):
++        self._real_ctx.__enter__()
++        return self
++
++    def __exit__(self, exc_type, exc, tb):
++        return self._real_ctx.__exit__(exc_type, exc, tb)
++
++    def close(self):
++        self._real_ctx.close()
++
++
++class BuildSeedWindowsDirLoopTests(unittest.TestCase):
++    def setUp(self):
++        self._tmp = tempfile.TemporaryDirectory(prefix='test_seed_win_loop_')
++        self.root = Path(self._tmp.name)
++        self.root_abs = os.path.normpath(os.path.abspath(self.root))
++        self.root_real = os.path.normpath(os.path.realpath(self.root))
++
++    def tearDown(self):
++        self._tmp.cleanup()
++
++    def _in_root(self, path):
++        # Never call os.path.realpath here because fake_lstat delegates to _in_root.
++        norm_p = os.path.normpath(os.path.abspath(os.fspath(path)))
++        for base in (self.root_abs, self.root_real):
++            try:
++                if os.path.commonpath([base, norm_p]) == base:
++                    return True
++            except ValueError:
++                pass
++        return False
++
++    def _make_work_tree(self, name='work'):
++        work = self.root / name
++        (work / 'extract' / 'v0' / 'ExeFS').mkdir(parents=True)
++        (work / 'extract' / 'v0' / 'ExeFS' / 'main').write_bytes(b'MAIN_BIN_0123')
++        (work / 'extract' / 'v0' / 'html' / 'sub').mkdir(parents=True)
++        (work / 'extract' / 'v0' / 'html' / 'index.html').write_text('<html></html>\n', encoding='utf-8')
++        (work / 'extract' / 'v0' / 'html' / 'sub' / 'manual.html').write_text('<p>ok</p>\n', encoding='utf-8')
++        (work / 'shader' / 'pkg').mkdir(parents=True)
++        (work / 'shader' / 'pkg' / 'pkg.bin').write_bytes(b'PKG_PAYLOAD')
++        (work / 'shader' / 'tables').mkdir(parents=True)
++        (work / 'shader' / 'tables' / 'c1_full.tsv').write_text('# c1\n', encoding='utf-8')
++        (work / 'shader' / 'tables' / 'cb_extent.tsv').write_text('# cb\n', encoding='utf-8')
++        (work / 'shader' / 'ios').mkdir(parents=True)
++        shader_lib.write(
++            {'0000000000000001_b.metallib': b'IOS_METALLIB', 'inputs.tsv': b'inputs\tst\n'},
++            str(work / 'shader' / 'ios' / 'b-1111222233334444.img'),
++        )
++        return work
++
++    def _expected_tree_bytes(self, seed_dir):
++        total = 0
++        for dp, _, fns in os.walk(seed_dir):
++            for fn in fns:
++                total += os.path.getsize(os.path.join(dp, fn))
++        return total
++
++    def test_windows_scandir_zero_inode_dirs_pass_without_false_loop_and_preserve_byte_quota(self):
++        tid = '010015100B514000'
++        work = self._make_work_tree('win_work')
++        seed_root = self.root / 'seeds'
++        orig_scandir = os.scandir
++
++        def fake_scandir(path='.'):
++            ctx = orig_scandir(path)
++            if self._in_root(path):
++                return _ScandirCtx(ctx, zero_dir_stat=True)
++            return ctx
++
++        with patch('os.scandir', side_effect=fake_scandir):
++            res = build_seed.adopt_legacy_work(seed_root, tid, work)
++
++        self.assertTrue(res['valid'], res.get('reason'))
++        seed_dir = Path(res['path'])
++        self.assertTrue((seed_dir / 'ExeFS' / 'main').is_file())
++        self.assertTrue((seed_dir / 'html' / 'sub' / 'manual.html').is_file())
++
++        with patch('os.scandir', side_effect=fake_scandir):
++            inspected = build_seed.inspect_seed(seed_root, title_id=tid)
++        self.assertTrue(inspected['valid'], inspected.get('reason'))
++        self.assertEqual(inspected['size_bytes'], self._expected_tree_bytes(seed_dir))
++
++    def test_exfat_zero_lstat_inode_nested_dirs_pass_stage_and_inspect(self):
++        tid = '010015100B514000'
++        work = self._make_work_tree('exfat_work')
++        seed_root = self.root / 'exfat_seeds'
++        orig_scandir = os.scandir
++        orig_lstat = os.lstat
++
++        def fake_scandir(path='.'):
++            ctx = orig_scandir(path)
++            if self._in_root(path):
++                return _ScandirCtx(ctx, force_zero_all=True)
++            return ctx
++
++        def fake_lstat(path, *, dir_fd=None):
++            real_st = orig_lstat(path, dir_fd=dir_fd)
++            if dir_fd is None and self._in_root(path):
++                return _StatProxy(real_st, st_dev=0, st_ino=0)
++            return real_st
++
++        with patch('os.scandir', side_effect=fake_scandir), patch('os.lstat', side_effect=fake_lstat):
++            res = build_seed.adopt_legacy_work(seed_root, tid, work)
++            inspected = build_seed.inspect_seed(seed_root, title_id=tid)
++
++        self.assertTrue(res['valid'], res.get('reason'))
++        self.assertTrue(inspected['valid'], inspected.get('reason'))
++        self.assertEqual(inspected['size_bytes'], self._expected_tree_bytes(res['path']))
++
++    def test_real_symlink_windows_reparse_point_and_directory_loops_are_still_rejected(self):
++        # 1. Real POSIX symlink inside tree must fail both inspect and _stage_tree.
++        sym_tree = self.root / 'sym_tree'
++        (sym_tree / 'real_dir').mkdir(parents=True)
++        (sym_tree / 'real_dir' / 'f.txt').write_text('x', encoding='utf-8')
++        os.symlink(sym_tree / 'real_dir', sym_tree / 'link_dir')
++        ok, reason, _ = build_seed._verify_no_symlinks_or_unsafe_names(sym_tree)
++        self.assertFalse(ok)
++        self.assertIn('symlink', reason)
++        with self.assertRaisesRegex(ValueError, 'symlink'):
++            build_seed._stage_tree(sym_tree, self.root / 'sym_dst', build_seed._Quota())
++
++        # 2. Windows NTFS directory junction / reparse point (S_ISLNK=False, FILE_ATTRIBUTE_REPARSE_POINT set).
++        junc_tree = self.root / 'junc_tree'
++        junc_sub = junc_tree / 'junction_dir'
++        junc_sub.mkdir(parents=True)
++        (junc_sub / 'a.txt').write_text('a', encoding='utf-8')
++        orig_lstat = os.lstat
++        junc_targets = {
++            os.path.normpath(os.path.abspath(junc_sub)),
++            os.path.normpath(os.path.realpath(junc_sub)),
++        }
++
++        def fake_lstat_reparse(path, *, dir_fd=None):
++            real_st = orig_lstat(path, dir_fd=dir_fd)
++            if dir_fd is None and os.path.normpath(os.path.abspath(os.fspath(path))) in junc_targets:
++                return _StatProxy(real_st, st_file_attributes=_REPARSE_ATTR)
++            return real_st
++
++        with patch('os.lstat', side_effect=fake_lstat_reparse):
++            ok, reason, _ = build_seed._verify_no_symlinks_or_unsafe_names(junc_tree)
++            self.assertFalse(ok)
++            self.assertIn('symlink', reason)
++            with self.assertRaisesRegex(ValueError, 'symlink'):
++                build_seed._stage_tree(junc_tree, self.root / 'junc_dst', build_seed._Quota())
++
++        # 3. Real non-zero inode directory loop must fail both inspect and _stage_tree.
++        ino_tree = self.root / 'ino_loop_tree'
++        ino_loop = ino_tree / 'html' / 'loop'
++        ino_loop.mkdir(parents=True)
++        (ino_loop / 'a.txt').write_text('a', encoding='utf-8')
++        root_st = orig_lstat(ino_tree)
++        ino_loop_targets = {
++            os.path.normpath(os.path.abspath(ino_loop)),
++            os.path.normpath(os.path.realpath(ino_loop)),
++        }
++
++        def fake_lstat_ino_loop(path, *, dir_fd=None):
++            real_st = orig_lstat(path, dir_fd=dir_fd)
++            if dir_fd is None and os.path.normpath(os.path.abspath(os.fspath(path))) in ino_loop_targets:
++                return _StatProxy(real_st, st_dev=root_st.st_dev, st_ino=root_st.st_ino)
++            return real_st
++
++        with patch('os.lstat', side_effect=fake_lstat_ino_loop):
++            ok, reason, _ = build_seed._verify_no_symlinks_or_unsafe_names(ino_tree)
++            self.assertFalse(ok)
++            self.assertIn('directory loop', reason)
++            with self.assertRaisesRegex(ValueError, 'directory cycle'):
++                build_seed._stage_tree(ino_tree, self.root / 'ino_dst', build_seed._Quota())
++
++        # 4. Zero-inode (exFAT) directory loop via realpath pointing back to an ancestor.
++        path_loop_tree = self.root / 'path_loop_tree'
++        path_loop = path_loop_tree / 'html' / 'loop'
++        path_loop.mkdir(parents=True)
++        (path_loop / 'a.txt').write_text('a', encoding='utf-8')
++        orig_realpath = os.path.realpath
++        try:
++            tree_real = orig_realpath(path_loop_tree)
++            loop_real = orig_realpath(path_loop)
++
++            def fake_lstat_zero(path, *, dir_fd=None):
++                real_st = orig_lstat(path, dir_fd=dir_fd)
++                if dir_fd is None and self._in_root(path):
++                    return _StatProxy(real_st, st_dev=0, st_ino=0)
++                return real_st
++
++            def fake_realpath(path, *, strict=False):
++                res = orig_realpath(path, strict=strict)
++                if res == loop_real:
++                    return tree_real
++                return res
++
++            with patch('os.lstat', side_effect=fake_lstat_zero), patch('os.path.realpath', side_effect=fake_realpath):
++                ok, reason, _ = build_seed._verify_no_symlinks_or_unsafe_names(path_loop_tree)
++                self.assertFalse(ok)
++                self.assertIn('directory loop', reason)
++                with self.assertRaisesRegex(ValueError, 'directory cycle'):
++                    build_seed._stage_tree(path_loop_tree, self.root / 'path_dst', build_seed._Quota())
++        finally:
++            shutil.rmtree(self.root / 'sym_dst', ignore_errors=True)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 5c211d5..dd3910d 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -3785,12 +3785,14 @@ def report_fix_coverage(patched, mods, reg):
+ 
+ def report_profile_status(g, reg, pkg_ver, derived, provisional, artifact='IPA', patched=None):
+     """Keep build-specific warnings visible for the IPA, the Xcode project and a Mac-only build"""
+-    disp = g.builds()[pkg_ver]['display'] if derived else ''
++    builds = g.builds() if derived else {}
++    build_row = builds.get(pkg_ver, {})
++    disp = build_row.get('display', '') if derived else ''
+     if derived:   # unknown builds do not inherit fixed addresses; opt-in function matches are reported by the rewriter
+         known = {(m, b) for row in reg.builds().values() for m, b in row.items() if m != 'display'}
+-        other = [m for m, b in g.builds()[pkg_ver].items() if m != 'display' and (m, b) not in known]
+-        registered_builds = ", ".join(f'{v} {b["display"]}' for v, b in reg.builds().items())
+-        if g.title_id == reg.title_id and g.builds() == reg.builds():
++        other = [m for m, b in build_row.items() if m != 'display' and (m, b) not in known]
++        registered_builds = ", ".join(f'{v} {b.get("display", "")}' for v, b in reg.builds().items())
++        if g.title_id == reg.title_id and builds == reg.builds():
+             say(f'this {artifact} uses the registered {pkg_ver} ({disp}) builds and every fix for them, with derived shader tables ({derived})')
+         elif g.title_id != reg.title_id and not other and pkg_ver in reg.builds():   # a registered build under another title ID (same_build): every fix applies
+             say(f'this {artifact} is game profile {reg.id}\'s {pkg_ver} ({disp}) under title ID {g.title_id:016X}: its settings and every fix for its builds, with shaders split from this title\'s own files')
+@@ -3930,6 +3932,19 @@ def _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_na
+             control_path=ctrl_p,
+             icon_path=icon_p,
+         )
++        if not provisional and not derived:
++            for cand_id in dict.fromkeys((g.id, tid_hex, tid_hex.lower())):
++                if not cand_id:
++                    continue
++                stale_prof = Path(work) / 'profile' / cand_id
++                if stale_prof.exists() and not stale_prof.is_symlink():
++                    try:
++                        if stale_prof.resolve() != Path(g.dir).resolve():
++                            rmtree(stale_prof)
++                            rmtree(derived_key(stale_prof))
++                            rmtree(derived_split_key(stale_prof))
++                    except OSError:
++                        pass
+     except (OSError, ValueError, TypeError) as e:
+         say(f'[RED] build seed cache skipped: {e}')
+ 
+@@ -4056,16 +4071,43 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+     own = own_profile_folders(args, nsp_dir, app)
+     repo_g = gamemod.by_title(app, own)
+     staged_prof = staged.get('profile_dir')
+-    if staged_prof and Path(staged_prof).is_dir():
+-        _add_games_dir(env, Path(staged_prof).parent, prioritize=bool(repo_g))
+-        g = gamemod.load(Path(staged_prof).name)
+-        reg = repo_g or g
+-        if profile_kind == 'provisional':
+-            provisional = True
+-            shadowed = bool(repo_g)
+-        elif profile_kind == 'derived':
+-            derived = 'seeded derived profile'
++    staged_prof_path = Path(staged_prof) if staged_prof else None
++    if staged_prof_path and (staged_prof_path / 'game.tsv').is_file():
++        staged_g = gamemod.Game(staged_prof_path)
++        staged_builds = staged_g.builds()
++        if (staged_builds or profile_kind == 'derived') and pkg_ver not in staged_builds:
++            rmtree(staged_prof_path)
++            rmtree(derived_key(staged_prof_path))
++            rmtree(derived_split_key(staged_prof_path))
++            staged_desc = ', '.join(
++                sorted(staged_builds, key=lambda v: (0, int(v[1:])) if v.startswith('v') and v[1:].isdigit() else (1, v))
++            ) or 'no builds'
++            if repo_g and pkg_ver in repo_g.builds():
++                say(
++                    f'seeded profile copy ({staged_prof_path}) describes {staged_desc}, '
++                    f'but seed package is {pkg_ver}: dropped stale copy and falling back to registered profile {repo_g.id}'
++                )
++                g = repo_g
++                reg = repo_g
++                derived = False
++                provisional = False
++            else:
++                raise BuildError(
++                    f'build seed profile describes {staged_desc}, but seed package is {pkg_ver}. '
++                    'Rebuild the game from game packages to update the profile cache'
++                )
++        else:
++            _add_games_dir(env, staged_prof_path.parent, prioritize=bool(repo_g))
++            g = gamemod.load(staged_prof_path.name)
++            reg = repo_g or g
++            if profile_kind == 'provisional':
++                provisional = True
++                shadowed = bool(repo_g)
++            elif profile_kind == 'derived':
++                derived = 'seeded derived profile'
+     else:
++        if staged_prof_path and staged_prof_path.exists():
++            rmtree(staged_prof_path)
+         g = repo_g or gamemod.load(profile_id)
+         reg = g
+ 
