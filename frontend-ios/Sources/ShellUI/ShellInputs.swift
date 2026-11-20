@@ -22,6 +22,30 @@ public enum SigningWarning: Equatable, Sendable {
     case expired
 }
 
+/// Read-only summary of an imported sideload `.p12` signing certificate shown in Settings.
+public struct SideloadCertificateSummary: Equatable, Sendable {
+    public var commonName: String
+    public var teamID: String
+    public var expiresAt: Date?
+    public var isExpired: Bool
+    public var fingerprintHex: String
+
+    public init(commonName: String, teamID: String, expiresAt: Date?, isExpired: Bool, fingerprintHex: String) {
+        self.commonName = commonName
+        self.teamID = teamID
+        self.expiresAt = expiresAt
+        self.isExpired = isExpired
+        self.fingerprintHex = fingerprintHex
+    }
+}
+
+/// Outcome of selecting a `.p12` / `.pfx` certificate file from Settings before asking for its password.
+public enum SideloadCertificatePickResult: Equatable, Sendable {
+    case picked(fileName: String)
+    case cancelled
+    case failed(String)
+}
+
 /// Player choice in `CloudSaveConflictView`.
 public enum CloudSaveDecision: Equatable, Sendable {
     case useCloud
@@ -318,6 +342,14 @@ public struct ShellActions {
     public var onSaveCustomCover: ((_ gameID: String, _ jpegData: Data) -> Void)?
     /// Removes the user's custom cover for `gameID` and restores the default banner/icon.
     public var onResetCustomCover: ((_ gameID: String) -> Void)?
+    /// Opens the system file picker for a `.p12` / `.pfx` certificate file and stages it in the host.
+    public var onPickSideloadCertificateFile: (@MainActor () async -> SideloadCertificatePickResult)?
+    /// Validates and saves the staged `.p12` certificate using `password`; returns nil on success or a localized error message.
+    public var onConfirmSideloadCertificatePassword: (@MainActor (_ password: String) async -> String?)?
+    /// Discards any staged `.p12` bytes when the password prompt is dismissed.
+    public var onCancelSideloadCertificateImport: (@MainActor () -> Void)?
+    /// Removes the stored sideload `.p12` certificate from Keychain.
+    public var onRemoveSideloadCertificate: (@MainActor () -> Void)?
 
     public var supportsHomeScreen: Bool {
         onAddToHomeScreenWithGuide != nil || onAddToHomeScreen != nil || onCopyShortcutURL != nil
@@ -325,6 +357,10 @@ public struct ShellActions {
 
     public var supportsCustomCover: Bool {
         onSaveCustomCover != nil
+    }
+
+    public var supportsSideloadCertificate: Bool {
+        onPickSideloadCertificateFile != nil && onConfirmSideloadCertificatePassword != nil
     }
 
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
@@ -348,7 +384,11 @@ public struct ShellActions {
                 onPrepareHomeScreenGuide: (@MainActor (String) -> Void)? = nil,
                 onCancelPreparedHomeScreenGuide: (@MainActor () -> Void)? = nil,
                 onSaveCustomCover: ((_ gameID: String, _ jpegData: Data) -> Void)? = nil,
-                onResetCustomCover: ((_ gameID: String) -> Void)? = nil) {
+                onResetCustomCover: ((_ gameID: String) -> Void)? = nil,
+                onPickSideloadCertificateFile: (@MainActor () async -> SideloadCertificatePickResult)? = nil,
+                onConfirmSideloadCertificatePassword: (@MainActor (_ password: String) async -> String?)? = nil,
+                onCancelSideloadCertificateImport: (@MainActor () -> Void)? = nil,
+                onRemoveSideloadCertificate: (@MainActor () -> Void)? = nil) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -379,5 +419,9 @@ public struct ShellActions {
         self.onCancelPreparedHomeScreenGuide = onCancelPreparedHomeScreenGuide
         self.onSaveCustomCover = onSaveCustomCover
         self.onResetCustomCover = onResetCustomCover
+        self.onPickSideloadCertificateFile = onPickSideloadCertificateFile
+        self.onConfirmSideloadCertificatePassword = onConfirmSideloadCertificatePassword
+        self.onCancelSideloadCertificateImport = onCancelSideloadCertificateImport
+        self.onRemoveSideloadCertificate = onRemoveSideloadCertificate
     }
 }

@@ -64,11 +64,16 @@ struct ShellSettingsView: View {
     @Environment(\.shellNativeBars) private var nativeBars
     var store: ShellSettingsStore = .current
     var actions: ShellActions
+    var sideloadCertificate: SideloadCertificateSummary? = nil
     var onClose: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.shellFocus) private var focus
     /// Counts the changes in the defaults, so the rows read the store again.
     @State private var revision = 0
+    @State private var pendingCertFileName: String?
+    @State private var certPassword = ""
+    @State private var certImportError: String?
+    @State private var certBusy = false
 
     var body: some View {
         let _ = revision
@@ -129,6 +134,10 @@ struct ShellSettingsView: View {
 
                 Section {
                     TouchArrangeRow(arranged: !store.touchLayout.isEmpty)
+                }
+
+                if actions.supportsSideloadCertificate || sideloadCertificate != nil {
+                    sideloadCertificateSection
                 }
 
                 Section {
@@ -192,6 +201,173 @@ struct ShellSettingsView: View {
         .tint(ShellPalette.cream)
         .preferredColorScheme(.dark)
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in revision += 1 }
+        .alert(
+            Text(verbatim: ShellStrings.text("Enter certificate password")),
+            isPresented: Binding(
+                get: { pendingCertFileName != nil },
+                set: { presented in
+                    if !presented {
+                        cancelCertificatePasswordPrompt()
+                    }
+                }
+            )
+        ) {
+            SecureField(ShellStrings.text("Certificate password"), text: $certPassword)
+                .accessibilityIdentifier("shellSettings.sideloadCert.passwordField")
+            Button(ShellStrings.text("Import")) {
+                confirmCertificatePassword()
+            }
+            .accessibilityIdentifier("shellSettings.sideloadCert.passwordConfirm")
+            Button(ShellStrings.text("Cancel"), role: .cancel) {
+                cancelCertificatePasswordPrompt()
+            }
+        } message: {
+            if let fileName = pendingCertFileName {
+                Text(verbatim: ShellStrings.text("Enter the password for \(fileName). Leave it blank if the certificate has no password."))
+            }
+        }
+        .alert(
+            Text(verbatim: ShellStrings.text("Certificate import failed")),
+            isPresented: Binding(
+                get: { certImportError != nil },
+                set: { if !$0 { certImportError = nil } }
+            )
+        ) {
+            Button(ShellStrings.text("Close")) { certImportError = nil }
+        } message: {
+            Text(verbatim: certImportError ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var sideloadCertificateSection: some View {
+        Section {
+            if let cert = sideloadCertificate {
+                LabeledContent {
+                    Text(cert.commonName.isEmpty ? cert.fingerprintHex.prefix(16).uppercased() : cert.commonName)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.trailing)
+                } label: {
+                    Label(ShellStrings.text("Certificate"), systemImage: "checkmark.seal")
+                        .labelStyle(SettingsRowLabelStyle())
+                }
+                .accessibilityIdentifier("shellSettings.sideloadCert.name")
+
+                if !cert.teamID.isEmpty {
+                    LabeledContent(ShellStrings.text("Signing team"), value: cert.teamID)
+                        .accessibilityIdentifier("shellSettings.sideloadCert.team")
+                }
+
+                if let expiresAt = cert.expiresAt {
+                    LabeledContent {
+                        HStack(spacing: 6) {
+                            Text(Self.formatCertificateDate(expiresAt))
+                                .foregroundStyle(cert.isExpired ? .red : .secondary)
+                            if cert.isExpired {
+                                Text(ShellStrings.text("Expired"))
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    } label: {
+                        Text(ShellStrings.text("Valid until"))
+                    }
+                    .accessibilityIdentifier("shellSettings.sideloadCert.expiry")
+                }
+
+                if actions.supportsSideloadCertificate {
+                    Button(action: startCertificateImport) {
+                        Label(ShellStrings.text("Replace certificate"), systemImage: "arrow.triangle.2.circlepath")
+                            .labelStyle(SettingsRowLabelStyle())
+                    }
+                    .disabled(certBusy)
+                    .accessibilityIdentifier("shellSettings.sideloadCert.replace")
+                    .shellTarget("shs.sideloadCert.replace", action: startCertificateImport)
+                }
+
+                if let onRemove = actions.onRemoveSideloadCertificate {
+                    Button(ShellStrings.text("Remove certificate"), role: .destructive, action: onRemove)
+                        .disabled(certBusy)
+                        .accessibilityIdentifier("shellSettings.sideloadCert.remove")
+                        .shellTarget("shs.sideloadCert.remove", action: onRemove)
+                }
+            } else {
+                LabeledContent {
+                    Text(ShellStrings.text("Not configured"))
+                        .foregroundStyle(.secondary)
+                } label: {
+                    Label(ShellStrings.text("Certificate status"), systemImage: "signature")
+                        .labelStyle(SettingsRowLabelStyle())
+                }
+                .accessibilityIdentifier("shellSettings.sideloadCert.status")
+
+                if actions.supportsSideloadCertificate {
+                    Button(action: startCertificateImport) {
+                        Label(ShellStrings.text("Import .p12 certificate"), systemImage: "doc.badge.plus")
+                            .labelStyle(SettingsRowLabelStyle())
+                    }
+                    .disabled(certBusy)
+                    .accessibilityIdentifier("shellSettings.sideloadCert.import")
+                    .shellTarget("shs.sideloadCert.import", action: startCertificateImport)
+                }
+            }
+        } header: {
+            Text(ShellStrings.text("Sideload signing certificate"))
+        } footer: {
+            Text(ShellStrings.text("When NX2Apple is installed through SideStore, AltStore, or another sideload tool, import the .p12 certificate exported by that tool here so unsigned game frameworks placed in Frameworks are signed automatically on launch. Installs directly from Xcode on a Mac do not need this."))
+        }
+    }
+
+    private func startCertificateImport() {
+        guard !certBusy, let pickFile = actions.onPickSideloadCertificateFile else { return }
+        certBusy = true
+        Task {
+            let outcome = await pickFile()
+            certBusy = false
+            switch outcome {
+            case .picked(let fileName):
+                certPassword = ""
+                pendingCertFileName = fileName
+            case .cancelled:
+                break
+            case .failed(let message):
+                certImportError = message
+            }
+        }
+    }
+
+    private func confirmCertificatePassword() {
+        guard !certBusy, let confirm = actions.onConfirmSideloadCertificatePassword else {
+            cancelCertificatePasswordPrompt()
+            return
+        }
+        let password = certPassword
+        certPassword = ""
+        pendingCertFileName = nil
+        certBusy = true
+        Task {
+            let failure = await confirm(password)
+            certBusy = false
+            if let failure, !failure.isEmpty {
+                certImportError = failure
+            }
+        }
+    }
+
+    private func cancelCertificatePasswordPrompt() {
+        certPassword = ""
+        pendingCertFileName = nil
+        actions.onCancelSideloadCertificateImport?()
+    }
+
+    private static func formatCertificateDate(_ date: Date) -> String {
+        let locale: Locale
+        if let code = ShellStrings.captureBundle?.bundleURL.deletingPathExtension().lastPathComponent, !code.isEmpty {
+            locale = Locale(identifier: code)
+        } else {
+            locale = .autoupdatingCurrent
+        }
+        return date.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, locale: locale))
     }
 }
 

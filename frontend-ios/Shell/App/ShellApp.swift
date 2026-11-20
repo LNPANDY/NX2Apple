@@ -83,7 +83,8 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
                 dm_shell_request_stop_game()
             }
         )
-        let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker())
+        let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker(),
+                                   certificatePicker: DocumentCertificatePicker())
         activeModel = model
         model.startControllers()
         for entry in model.entries {

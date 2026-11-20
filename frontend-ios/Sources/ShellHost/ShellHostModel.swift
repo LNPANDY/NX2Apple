@@ -42,6 +42,10 @@ public struct ShellHostConfig: Sendable {
     public var now: @Sendable () -> Date
     /// Expiration date of `embedded.mobileprovision`, or nil when absent or unreadable.
     public var provisioningExpiration: @Sendable () -> Date?
+    /// Secure storage backing for the imported sideload `.p12` certificate (Keychain in production; in-memory in tests).
+    public var sideloadCertBacking: any SideloadCertBacking
+    /// Host app bundle identifier stamped into locally re-signed external framework CodeDirectories.
+    public var hostBundleID: @Sendable () -> String
     /// Split-part byte size used by startup `DataParts.joinAll` (defaults to 512 MiB).
     public var joinPartSize: Int64
     var onJoinProgress: (@Sendable (DataParts.Progress) -> Void)?
@@ -66,6 +70,8 @@ public struct ShellHostConfig: Sendable {
                 requestStopRunningGame: @escaping @MainActor @Sendable () -> Void = {},
                 now: @escaping @Sendable () -> Date = { Date() },
                 provisioningExpiration: @escaping @Sendable () -> Date? = { ProvisioningProfile.bundledExpiration() },
+                sideloadCertBacking: any SideloadCertBacking = KeychainCertBacking(),
+                hostBundleID: @escaping @Sendable () -> String = { Bundle.main.bundleIdentifier ?? "" },
                 joinPartSize: Int64 = DataParts.partSize) {
         self.gamesRoot = gamesRoot
         self.hotFrameworksRoot = hotFrameworksRoot
@@ -94,6 +100,8 @@ public struct ShellHostConfig: Sendable {
         self.requestStopRunningGame = requestStopRunningGame
         self.now = now
         self.provisioningExpiration = provisioningExpiration
+        self.sideloadCertBacking = sideloadCertBacking
+        self.hostBundleID = hostBundleID
         self.joinPartSize = joinPartSize
         self.onJoinProgress = nil
     }
@@ -161,6 +169,8 @@ public struct ShellHostConfig: Sendable {
     public var cloudConflict: CloudSavePrompt?
     /// Mild heads-up when the app's provisioning profile expires within 48 hours.
     public private(set) var signingWarning: SigningWarning?
+    /// Summary of the imported sideload `.p12` certificate stored in Keychain, if any.
+    public private(set) var sideloadCertificate: SideloadCertificateSummary?
 
     public private(set) var globalPadMap = PadMap()
     public private(set) var padMerge = false
@@ -176,6 +186,11 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private let config: ShellHostConfig
     @ObservationIgnored private let launcher: any GameLauncher
     @ObservationIgnored private let picker: any FolderPicker
+    @ObservationIgnored private let certificatePicker: any SideloadCertificatePicker
+    @ObservationIgnored private let sideloadCertificateStore: SideloadCertificateStore
+    @ObservationIgnored private var pendingPKCS12Data: Data?
+    @ObservationIgnored private var certificateGeneration: UInt64 = 0
+    @ObservationIgnored private var certificateLoadTask: Task<Void, Never>?
     @ObservationIgnored private let adapter = GamepadAdapter()
     @ObservationIgnored private let homeScreenGuidePiP = HomeScreenGuidePiPController()
     @ObservationIgnored private var dataStores: [String: BookmarkStore] = [:]
@@ -223,10 +238,13 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored nonisolated(unsafe) private var returnObserver: (any NSObjectProtocol)?
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
+                certificatePicker: any SideloadCertificatePicker = NoSideloadCertificatePicker(),
                 shellSettings: ShellSettingsStore = .current) {
         self.config = config
         self.launcher = launcher
         self.picker = picker
+        self.certificatePicker = certificatePicker
+        self.sideloadCertificateStore = SideloadCertificateStore(backing: config.sideloadCertBacking, now: config.now)
         self.shellSettings = shellSettings
         shellData = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.dataFolderKey)
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
@@ -257,6 +275,13 @@ public struct ShellHostConfig: Sendable {
             let expiration = await Task.detached(priority: .utility) { expirationReader() }.value
             guard let self, !self.signingWarningDismissed else { return }
             self.signingWarning = ProvisioningProfile.warning(expiration: expiration, now: clock())
+        }
+        let certStore = sideloadCertificateStore
+        let certGen = certificateGeneration
+        certificateLoadTask = Task { [weak self] in
+            let summary = await Task.detached(priority: .utility) { certStore.loadSummary() }.value
+            guard let self, self.certificateGeneration == certGen else { return }
+            self.sideloadCertificate = summary
         }
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
@@ -347,6 +372,7 @@ public struct ShellHostConfig: Sendable {
             await task.value
         }
         await signingCheckTask?.value
+        await certificateLoadTask?.value
         await backupScanTask?.value
         await bannerFetchTask?.value
         for task in romfsChecks.values.compactMap(\.task) {
@@ -547,6 +573,7 @@ public struct ShellHostConfig: Sendable {
         }
         await shellScan?.value
         await signingCheckTask?.value
+        await certificateLoadTask?.value
         await backupScanTask?.value
         await bannerFetchTask?.value
         for entry in entries { _ = await verifiedData(for: entry) }
@@ -932,7 +959,89 @@ public struct ShellHostConfig: Sendable {
             },
             onResetCustomCover: { [weak self] id in
                 self?.resetCustomCover(for: id)
+            },
+            onPickSideloadCertificateFile: { [weak self] in
+                guard let self else { return .cancelled }
+                return await self.pickSideloadCertificateFileNow()
+            },
+            onConfirmSideloadCertificatePassword: { [weak self] password in
+                guard let self else { return nil }
+                return await self.confirmSideloadCertificatePasswordNow(password)
+            },
+            onCancelSideloadCertificateImport: { [weak self] in
+                self?.cancelSideloadCertificateImport()
+            },
+            onRemoveSideloadCertificate: { [weak self] in
+                self?.removeSideloadCertificate()
             })
+    }
+
+    // MARK: Sideload .p12 certificate management
+
+    public func pickSideloadCertificateFileNow() async -> SideloadCertificatePickResult {
+        switch await certificatePicker.pickCertificateOutcome() {
+        case .picked(let data, let fileName):
+            guard !data.isEmpty else {
+                return .failed(SideloadCertificateError.emptyFile.localizedDescription)
+            }
+            guard data.count <= SideloadCertificateStore.maxFileBytes else {
+                return .failed(SideloadCertificateError.fileTooLarge.localizedDescription)
+            }
+            pendingPKCS12Data = data
+            return .picked(fileName: fileName)
+        case .cancelled:
+            return .cancelled
+        case .unavailable:
+            return .failed(hostText("The file picker could not open here. Open the app on its own and try again."))
+        case .unreadable:
+            return .failed(hostText("The selected certificate file could not be read."))
+        }
+    }
+
+    public func confirmSideloadCertificatePasswordNow(_ password: String) async -> String? {
+        guard let data = pendingPKCS12Data else {
+            return SideloadCertificateError.emptyFile.localizedDescription
+        }
+        pendingPKCS12Data = nil
+        certificateGeneration &+= 1
+        let generation = certificateGeneration
+        let store = sideloadCertificateStore
+        let outcome: Result<SideloadCertificateSummary, Error> = await Task.detached(priority: .userInitiated) {
+            Result { try store.importPKCS12(data: data, password: password) }
+        }.value
+        guard certificateGeneration == generation else { return nil }
+        switch outcome {
+        case .success(let summary):
+            sideloadCertificate = summary
+            return nil
+        case .failure(let error):
+            return error.localizedDescription
+        }
+    }
+
+    public func cancelSideloadCertificateImport() {
+        pendingPKCS12Data = nil
+    }
+
+    public func removeSideloadCertificate() {
+        Task { await removeSideloadCertificateNow() }
+    }
+
+    public func removeSideloadCertificateNow() async {
+        pendingPKCS12Data = nil
+        certificateGeneration &+= 1
+        let generation = certificateGeneration
+        let store = sideloadCertificateStore
+        let result: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
+            Result { try store.remove() }
+        }.value
+        guard certificateGeneration == generation else { return }
+        switch result {
+        case .success:
+            sideloadCertificate = nil
+        case .failure(let error):
+            notice = error.localizedDescription
+        }
     }
 
     // MARK: Custom and backfilled covers
@@ -1195,11 +1304,13 @@ public struct ShellHostConfig: Sendable {
         if let hotRoot = config.hotFrameworksRoot {
             let entryParent = entry.directory.deletingLastPathComponent().standardizedFileURL
             if entryParent == hotRoot.standardizedFileURL {
+                MachOLocalSigner.removeReceipt(for: entry.directory)
                 if !GameCatalogue.discardFolder(entry.directory, in: hotRoot) {
                     failed.append(entry.directory)
                 }
             }
             let canonicalHot = hotRoot.appendingPathComponent("DmGame\(id.uppercased()).framework", isDirectory: true)
+            MachOLocalSigner.removeReceipt(for: canonicalHot)
             if FileManager.default.fileExists(atPath: canonicalHot.path),
                !GameCatalogue.discardFolder(canonicalHot, in: hotRoot) {
                 failed.append(canonicalHot)
@@ -1715,6 +1826,23 @@ public struct ShellHostConfig: Sendable {
         LastPlayedStore(defaults: config.defaults(game.titleID)).record(config.now())
         refresh(game.titleID)
         do {
+            if let hotRoot = config.hotFrameworksRoot,
+               MachOLocalSigner.isInsideAllowedRoot(game.frameworkURL, allowedRoot: hotRoot) {
+                let fwURL = game.frameworkURL
+                let hostID = config.hostBundleID()
+                let store = sideloadCertificateStore
+                let clock = config.now
+                try await Task.detached(priority: .userInitiated) {
+                    guard store.hasCertificate else { return }
+                    try MachOLocalSigner.ensureSignedIfNeeded(
+                        frameworkURL: fwURL,
+                        allowedRoot: hotRoot,
+                        hostBundleID: hostID,
+                        store: store,
+                        now: clock()
+                    )
+                }.value
+            }
             game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
             try await launcher.launch(game)
             return nil

@@ -59,6 +59,28 @@ extension LibraryView {
         a.onResetCustomCover = o.onResetCustomCover.map { reset in
             { id in if !echo() { reset(id) } }
         }
+        if let pickCert = o.onPickSideloadCertificateFile {
+            a.onPickSideloadCertificateFile = { @MainActor in
+                guard !gate.isSystemEcho else { return .cancelled }
+                return await pickCert()
+            }
+        }
+        if let confirmCert = o.onConfirmSideloadCertificatePassword {
+            a.onConfirmSideloadCertificatePassword = { @MainActor password in
+                guard !gate.isSystemEcho else { return nil }
+                return await confirmCert(password)
+            }
+        }
+        if let cancelCert = o.onCancelSideloadCertificateImport {
+            a.onCancelSideloadCertificateImport = { @MainActor in
+                if !gate.isSystemEcho { cancelCert() }
+            }
+        }
+        if let removeCert = o.onRemoveSideloadCertificate {
+            a.onRemoveSideloadCertificate = { @MainActor in
+                if !gate.isSystemEcho { removeCert() }
+            }
+        }
         return a
     }
     /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when
