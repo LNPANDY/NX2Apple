@@ -109,10 +109,10 @@ def stamp_key(root):
     for name in P.read_series(root):
         f = root / 'patches' / name
         if not f.is_file(): raise Fail(f'listed in patches/series but missing: {name}')
-        h.update(b'patch ' + name.encode() + b'\n' + hashlib.sha256(f.read_bytes()).hexdigest().encode() + b'\n')
+        h.update(b'patch ' + name.encode() + b'\n' + hashlib.sha256(P.read_lf_bytes(f)).hexdigest().encode() + b'\n')
     sw = root / P.FORK_ENV_SWITCHES
     if sw.is_file():
-        h.update(b'switches ' + hashlib.sha256(sw.read_bytes()).hexdigest().encode() + b'\n')
+        h.update(b'switches ' + hashlib.sha256(P.read_lf_bytes(sw)).hexdigest().encode() + b'\n')
     return h.hexdigest()
 
 
@@ -123,7 +123,7 @@ def read_stamp(eng):
 
 
 def write_stamp(eng, root, head, key=None):
-    (eng / '.git' / STAMP).write_text(f'nx2apple-engine 1\npin {pin(root)}\nkey {key or stamp_key(root)}\nhead {head}\n', encoding='utf-8')
+    (eng / '.git' / STAMP).write_bytes(f'nx2apple-engine 1\npin {pin(root)}\nkey {key or stamp_key(root)}\nhead {head}\n'.encode('utf-8'))
 
 
 def is_repo(eng):
@@ -406,11 +406,11 @@ def cmd_tree(a):
     n = extract_tree(eng, out)
     sha = pin(root)
     eid = engine_id(root)
-    (out / '.upstream-ref').write_text(sha + '\n', encoding='utf-8')
-    (out / ENGINE_ID_FILE).write_text(eid + '\n', encoding='utf-8')
+    (out / '.upstream-ref').write_bytes((sha + '\n').encode('utf-8'))
+    (out / ENGINE_ID_FILE).write_bytes((eid + '\n').encode('utf-8'))
     udate = upstream_date(eng, sha)
     if udate:
-        (out / UPSTREAM_DATE_FILE).write_text(udate + '\n', encoding='utf-8')
+        (out / UPSTREAM_DATE_FILE).write_bytes((udate + '\n').encode('utf-8'))
     if not (out / P.FORK_PATCHES).is_file(): raise Fail(f'{P.FORK_PATCHES} is missing from engine/: sync again')
     say(f'engine tree: {eid} ({n} files) in {out}')
     if a.zip:

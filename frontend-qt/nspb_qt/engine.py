@@ -45,11 +45,11 @@ def stamp_key(root: str | Path) -> str:
     h = hashlib.sha256()
     h.update(b'pin ' + (root / '.upstream-ref').read_text(encoding='utf-8').strip().encode() + b'\n')
     for name in _series(root):
-        data = (root / 'patches' / name).read_bytes()
+        data = (root / 'patches' / name).read_bytes().replace(b'\r\n', b'\n')
         h.update(b'patch ' + name.encode() + b'\n' + hashlib.sha256(data).hexdigest().encode() + b'\n')
     sw = root / 'patches' / 'fork_env_switches.tsv'
     if sw.is_file():
-        h.update(b'switches ' + hashlib.sha256(sw.read_bytes()).hexdigest().encode() + b'\n')
+        h.update(b'switches ' + hashlib.sha256(sw.read_bytes().replace(b'\r\n', b'\n')).hexdigest().encode() + b'\n')
     return h.hexdigest()
 
 

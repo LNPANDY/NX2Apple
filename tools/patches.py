@@ -114,6 +114,11 @@ class Patch:
         return out
 
 
+def read_lf_bytes(path):
+    """Read file bytes with CRLF normalized to LF so Windows checkouts hash identically to POSIX."""
+    return Path(path).read_bytes().replace(b'\r\n', b'\n')
+
+
 def read_series(root):
     s = root / 'patches/series'
     if not s.is_file(): raise Fail(f'{s} is missing')

@@ -78,6 +78,15 @@ class EngineLayoutTests(unittest.TestCase):
     def test_the_sync_command_runs_the_checkouts_tool(self):
         self.assertEqual(engine.sync_command('/c', 'py'), ['py', str(Path('/c/tools/engine.py')), 'sync'])
 
+    def test_stamp_key_ignores_crlf_line_endings(self):
+        self.new_layout()
+        self.touch('patches/fork_env_switches.tsv', 'name\tclass\tmeaning\nDM_X\tdebug\tx\n')
+        lf_key = engine.stamp_key(self.r)
+        for rel in ('.upstream-ref', 'patches/series', 'patches/0001-a.patch', 'patches/fork_env_switches.tsv'):
+            p = self.r / rel
+            p.write_bytes(p.read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n'))
+        self.assertEqual(engine.stamp_key(self.r), lf_key)
+
 
 class BundledEngine(unittest.TestCase):
     """The Windows zip carries the engine tree inside the app folder: a player needs no git, repo or sync."""

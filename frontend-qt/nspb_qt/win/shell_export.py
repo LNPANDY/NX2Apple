@@ -865,13 +865,21 @@ def _pack_loose_shader_dirs(
             target_b = staged_fw / rel_b
             if not target_b.is_dir():
                 continue
+            pack_env = pu.child_env()
+            if pu.IS_WIN:
+                try:
+                    from . import shim as wshim
+                    pack_env = wshim.build_env(pack_env, python_exe=py_exe)
+                except Exception as e:
+                    log(f'[shim] could not prepare the Windows shim: {e}\n')
+                pack_env['NSPB_REPO'] = str(repo_p)
             r = subprocess.run(
                 [py_exe, str(shader_lib_py), 'pack', str(target_b)],
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
                 errors='replace',
-                env=pu.child_env(),
+                env=pack_env,
                 **pu.no_window_kwargs(),
             )
             if r.returncode != 0 or not Path(f'{target_b}.img').is_file():

@@ -3139,12 +3139,20 @@ class Model(QObject):
                         return False, self.t('msg.stopped')
                     self.log(f'adopting legacy build into seed cache: {" ".join(adopt_cmd)}\n')
                     try:
+                        adopt_env = pu.child_env({'PYTHONPATH': str(Path(eng_path, 'dm', 'tools'))})
+                        if pu.IS_WIN:
+                            try:
+                                from .win import shim as wshim
+                                adopt_env = wshim.build_env(adopt_env, python_exe=py)
+                            except Exception as e:
+                                self.log(f'[shim] could not prepare the Windows shim: {e}\n')
+                            adopt_env['NSPB_REPO'] = eng_path
                         res = subprocess.run(
                             adopt_cmd,
                             capture_output=True,
                             text=True,
                             errors='replace',
-                            env=pu.child_env({'PYTHONPATH': str(Path(eng_path, 'dm', 'tools'))}),
+                            env=adopt_env,
                             **pu.no_window_kwargs(),
                         )
                         if _aborted():

@@ -797,6 +797,116 @@ class TestModelFastRefreshAndTrailer(unittest.TestCase):
         self.assertIn('env', kwargs)
         self.assertIn('PYTHONPATH', kwargs['env'])
 
+    def test_start_fast_refresh_adopt_legacy_uses_win_shim_on_windows(self):
+        m = self.m
+        tid = '0100000000010000'
+        seed_root = self.root / 'seeds'
+        seed_root.mkdir()
+        work_dir = Path(m.out_dir, f'{tid}_build')
+        work_dir.mkdir(parents=True)
+        adopt_tool = Path(m.engine_path, 'dm', 'tools', 'build_seed.py')
+        adopt_tool.touch()
+
+        legacy_img = Path(m.out_dir, 'games', tid, f'{tid}.img')
+        legacy_img.parent.mkdir(parents=True, exist_ok=True)
+        legacy_img.touch()
+
+        adopt_calls = []
+        shim_calls = []
+        fake_shim_dir = str(self.root / 'win_shim')
+        tools_dir = str(Path(m.engine_path, 'dm', 'tools'))
+
+        def fake_build_env(base=None, python_exe=None):
+            base_copy = dict(base or {})
+            shim_calls.append((base_copy, python_exe))
+            out = dict(base_copy)
+            existing = out.get('PYTHONPATH', '')
+            out['PYTHONPATH'] = os.pathsep.join(p for p in (fake_shim_dir, existing) if p)
+            out['NSPB_SHIM_INJECTED'] = '1'
+            return out
+
+        def fake_run(cmd, **kwargs):
+            adopt_calls.append((cmd, kwargs))
+            return mock.MagicMock(returncode=0, stderr='', stdout='')
+
+        def inline_thread(*, target, daemon):
+            return mock.MagicMock(start=target)
+
+        from nspb_qt.win import shim as wshim
+
+        with mock.patch.object(self.model_mod.pu, 'IS_WIN', True), \
+                mock.patch.object(self.model_mod.pu, 'no_window_kwargs', return_value={}), \
+                mock.patch.object(self.model_mod.pu, 'process_group_kwargs', return_value={}), \
+                mock.patch.object(wshim, 'build_env', side_effect=fake_build_env), \
+                mock.patch.object(wshim, 'clean_pkg_root', return_value=self.root), \
+                mock.patch.object(wshim, 'shim_dir', return_value=Path(fake_shim_dir)), \
+                mock.patch.object(wshim, 'verify_shim', return_value=(True, 'ok')), \
+                mock.patch('nspb_qt.build_seed_cache.supports_build_seed', return_value=True), \
+                mock.patch('nspb_qt.build_seed_cache.default_seed_root', return_value=seed_root), \
+                mock.patch('nspb_qt.build_seed_cache.inspect_seed', side_effect=[{'valid': False}, {'valid': True, 'path_type': 'A'}]), \
+                mock.patch('nspb_qt.build_seed_cache.prefill_candidates', return_value=[legacy_img]), \
+                mock.patch('subprocess.run', side_effect=fake_run), \
+                mock.patch('subprocess.Popen', return_value=mock.MagicMock(stdout=iter([]), returncode=0)), \
+                mock.patch('threading.Thread', side_effect=inline_thread):
+            m.start_fast_refresh(tid)
+
+        adopt_runs = [c for c in adopt_calls if any('adopt' in str(arg) for arg in c[0])]
+        self.assertEqual(len(adopt_runs), 1)
+        _cmd, kwargs = adopt_runs[0]
+        adopt_env = kwargs['env']
+        self.assertEqual(adopt_env.get('NSPB_SHIM_INJECTED'), '1')
+        self.assertEqual(adopt_env.get('NSPB_REPO'), m.engine_path)
+        py_parts = adopt_env.get('PYTHONPATH', '').split(os.pathsep)
+        self.assertEqual(py_parts[0], fake_shim_dir)
+        self.assertIn(tools_dir, py_parts)
+        self.assertGreaterEqual(len(shim_calls), 2)
+        self.assertIn(tools_dir, shim_calls[0][0].get('PYTHONPATH', '').split(os.pathsep))
+
+    def test_pack_loose_shader_dirs_uses_win_shim_on_windows(self):
+        from nspb_qt.win import shell_export as se
+        from nspb_qt.win import shim as wshim
+
+        repo = Path(self.m.engine_path)
+        (repo / 'dm' / 'tools' / 'shader_lib.py').touch()
+        fw = self.root / 'DmGame0100000000010000.framework'
+        b_dir = fw / 'msl' / 'b-1234567890ab'
+        b_dir.mkdir(parents=True)
+        (b_dir / '0001_b.metallib').write_bytes(b'MTL')
+        stage = self.root / 'stage'
+        fake_shim_dir = str(self.root / 'win_shim_pack')
+
+        run_calls = []
+
+        def fake_build_env(base=None, python_exe=None):
+            out = dict(base or {})
+            out['PYTHONPATH'] = fake_shim_dir
+            out['NSPB_SHIM_INJECTED'] = '1'
+            return out
+
+        def fake_run(cmd, **kwargs):
+            run_calls.append((cmd, kwargs))
+            Path(f'{cmd[-1]}.img').write_bytes(b'DMROMFS1')
+            return mock.MagicMock(returncode=0, stdout='', stderr='')
+
+        with mock.patch.object(se.pu, 'IS_WIN', True), \
+                mock.patch.object(se.pu, 'no_window_kwargs', return_value={}), \
+                mock.patch.object(wshim, 'build_env', side_effect=fake_build_env), \
+                mock.patch('subprocess.run', side_effect=fake_run):
+            out_fws = se._pack_loose_shader_dirs(
+                [fw],
+                stage_dir=stage,
+                repo_p=repo,
+                py_exe='C:\\venv\\python.exe',
+                log=lambda _s: None,
+            )
+
+        self.assertEqual(len(out_fws), 1)
+        self.assertEqual(len(run_calls), 1)
+        _cmd, kwargs = run_calls[0]
+        self.assertEqual(kwargs['env'].get('NSPB_SHIM_INJECTED'), '1')
+        self.assertEqual(kwargs['env'].get('NSPB_REPO'), str(repo))
+        self.assertEqual(kwargs['env'].get('PYTHONPATH'), fake_shim_dir)
+
     def test_fast_refresh_status_detects_legacy_markers_without_trailer_img(self):
         m = self.m
         tid = '0100000000010000'
