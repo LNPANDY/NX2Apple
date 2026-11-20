@@ -18,7 +18,9 @@ package struct UpstreamPicker: View {
             style: .button,
             disabledValues: UpstreamBuilderRow.disabledValues(build)
         ) { raw in
-            if let kind = EngineUpstreamKind(rawValue: raw) {
+            if let kind = UpstreamBuilderRow.downloadKind(raw) {
+                if !build.running { build.downloadUpstream(kind) }   // the Builds page's download: progress, Cancel and Retry in its folder row
+            } else if let kind = EngineUpstreamKind(rawValue: raw) {
                 build.selectUpstream(kind)
             }
         }
@@ -28,7 +30,8 @@ package struct UpstreamPicker: View {
 
     private func cycle(_ by: Int) {
         let disabled = UpstreamBuilderRow.disabledValues(build)
-        let options = UpstreamBuilderRow.options(build, loc).filter { !disabled.contains($0.value) }
+        // left and right choose among the engines that are there: a download starts only from the list
+        let options = UpstreamBuilderRow.options(build, loc).filter { !disabled.contains($0.value) && UpstreamBuilderRow.downloadKind($0.value) == nil }
         guard !build.running, let index = options.firstIndex(where: { $0.value == build.buildUpstream.rawValue }), !options.isEmpty,
               let kind = EngineUpstreamKind(rawValue: options[(index + by + options.count) % options.count].value) else { return }
         build.selectUpstream(kind)
@@ -45,7 +48,28 @@ package struct UpstreamBuilderRow: View {
         self.build = build
     }
 
+    /// The pop-up's value of "Download" for an engine that is not there: `download.` and the engine's raw value.
+    static let downloadPrefix = "download."
+
+    /// The engine a "Download" entry of the pop-up fetches, nil for any other value.
+    package static func downloadKind(_ value: String) -> EngineUpstreamKind? {
+        guard value.hasPrefix(downloadPrefix) else { return nil }
+        return EngineUpstreamKind(rawValue: String(value.dropFirst(downloadPrefix.count)))
+    }
+
+    /// The external engines this Mac may use that are not there yet and not being fetched: MacNativeGames, and S2Arm only with
+    /// NX2APPLE_ENABLE_S2ARM=1. Each is a "Download" entry in the pop-up. Any title may download MacNativeGames, choosing it stays
+    /// for its five titles.
+    package static func downloadable(_ build: BuildStore) -> [EngineUpstreamKind] {
+        [EngineUpstreamKind.macNativeGames, .s2arm].filter { kind in
+            let enabled = kind == .macNativeGames ? MacNativeGamesBuilder.featureEnabled : S2ArmBuilder.featureEnabled
+            return enabled && build.availableUpstreams.contains(kind) && !build.isUpstreamInstalled(kind) && build.buildUpstream != kind
+                && !build.upstreamState(kind).isBusy
+        }
+    }
+
     /// The engines the pop-up offers: nxnative, and each other one that is set up or chosen. nxkit (Beta) only on a Mac that runs it.
+    /// Then a "Download" entry for each external engine that is not there (`downloadable`).
     package static func options(_ build: BuildStore, _ loc: Localizer) -> [(value: String, label: String)] {
         var opts: [(value: String, label: String)] = [
             (EngineUpstreamKind.nxnative.rawValue, "nxnative")
@@ -58,6 +82,9 @@ package struct UpstreamBuilderRow: View {
         }
         if build.nxkitSelectable || build.buildUpstream == .nxkit && NxkitBuilder.featureEnabled && build.nxkitAvailability == .available {
             opts.append((EngineUpstreamKind.nxkit.rawValue, loc.t("nxkit.name")))
+        }
+        for kind in downloadable(build) {
+            opts.append((downloadPrefix + kind.rawValue, kind.displayName + " \u{00b7} " + loc.t("upstream.download")))
         }
         return opts
     }
@@ -107,15 +134,23 @@ package struct UpstreamBuilderRow: View {
     }
 
     package var body: some View {
-        if MacNativeGamesBuilder.featureEnabled && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames) {
+        if MacNativeGamesBuilder.featureEnabled && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames || Self.fetching(build, .macNativeGames)) {
             CardDivider()
             folderRow(.macNativeGames, title: loc.t("upstream.mngFolder"), path: build.macNativeGamesPath, usable: build.macNativeGamesInstalled,
                       invalidKey: "upstream.mngInvalid", padID: "set.upstream.mngFolder", pick: pickMNG)
         }
-        if S2ArmBuilder.featureEnabled && (build.s2armInstalled || build.buildUpstream == .s2arm) {
+        if S2ArmBuilder.featureEnabled && (build.s2armInstalled || build.buildUpstream == .s2arm || Self.fetching(build, .s2arm)) {
             CardDivider()
             folderRow(.s2arm, title: loc.t("upstream.s2armFolder"), path: build.s2armPath, usable: build.s2armInstalled,
                       invalidKey: "upstream.s2armInvalid", padID: "set.upstream.s2armFolder", pick: pickS2Arm)
+        }
+    }
+
+    /// The engine is being downloaded, or its download failed: its folder row shows how far it is, or Retry.
+    static func fetching(_ build: BuildStore, _ kind: EngineUpstreamKind) -> Bool {
+        switch build.upstreamState(kind) {
+        case .downloading, .extracting, .failed: return true
+        default: return false
         }
     }
 
@@ -137,8 +172,10 @@ package struct UpstreamBuilderRow: View {
                     .help(build.upstreamUpdateTooltip(kind) ?? "")
             }
             if let busy = UpstreamStatusText.busy(state, loc) {
-                SettingsUpdateAction(busy, busy: true) {}
-                    .disabled(true)
+                DSTag(busy)
+                let cancel = { build.cancelUpstreamDownload(kind) }
+                SettingsUpdateAction(loc.t("upstream.cancel"), action: cancel)   // the tag beside it says how far it is
+                    .padTarget(padID + ".cancel", scope: "main", activate: cancel)
             } else if hasUpdate || failure != nil {
                 DSOverflowMenu(label: loc.t("upstream.choose"), options: [("choose", loc.t("upstream.choose"))], padID: padID) { _ in
                     if idle { pick() }

@@ -81,9 +81,9 @@ enum GalleryCoverage {
         "ControlsCard": [.settingsControls], "StickDeadzoneCard": [.settingsControls], "StickVisualizer": [.settingsControls],
         "KeysCard": [.settingsTools], "ToolsCard": [.settingsTools], "ShellCacheRow": [.settingsTools], "DiagnosticsButton": [.settingsTools],
         "BuildFilesCard": [.settingsTools], "DSOverflowMenu": [.settingsTools], "LauncherDropdown": [.settingsTools, .settings],
-        "UpstreamPicker": [.nxkitEngine, .desktop(D.mngBlocked)], "UpstreamBuilderRow": [.desktop(D.mngUpdateAvailable), .desktop(D.mngBlocked)],
+        "UpstreamPicker": [.nxkitEngine, .desktop(D.mngBlocked)], "UpstreamBuilderRow": [.desktop(D.mngUpdateAvailable), .desktop(D.mngBlocked), .desktop(D.mngDownloadingSettings)],
         "MacNativeGamesNotice": [.desktop(D.mngRecommend), .desktop(D.mngRecommendInstalled)], "DSRowMessageView": [.nxkitUnavailable, .desktop(D.nxkitUnreachable)],
-        "LauncherDropdownList": [.desktop(D.dropdownList), .desktop(D.mngDropdownDisabled)], "Hosted": [.settings, .settingsTools],
+        "LauncherDropdownList": [.desktop(D.dropdownList), .desktop(D.mngDropdownDisabled), .desktop(D.mngDownloadOffered)], "Hosted": [.settings, .settingsTools],
         // sheets and dialogs
         "LauncherConfirmSheet": [.sheet(.removeGame)], "DSSheet": [.sheet(.removeGame), .sheet(.rename)], "DSSheetConfirmButtons": [.sheet(.removeGame)],
         "DSSheetHeader": [.sheet(.batchRefresh), .sheet(.appUpdate)], "DSSheetButtonRow": [.sheet(.batchRefresh)], "DSSheetPrimaryButton": [.sheet(.rename)],

@@ -60,8 +60,35 @@ class IsolatedDefaultsTestCase: XCTestCase {
         var value: Int { lock.lock(); defer { lock.unlock() }; return count }
     }
 
+    /// The longest one test may run (the slowest on CI, GalleryCatalogTests, takes about 3 minutes). A test that runs longer is
+    /// stuck: the watchdog names it, samples the process and ends the run, so CI fails on that test instead of being cancelled at
+    /// the job's 30 minutes with a log that stops wherever the output was last flushed (#1474).
+    static let stuckAfter: TimeInterval = 600
+
+    /// Ends the run when `name` is still running after `stuckAfter`: its name and a `sample` of every thread go to stderr first.
+    private static func watchdog(_ name: String) -> DispatchWorkItem {
+        let item = DispatchWorkItem {
+            FileHandle.standardError.write(Data("\nWATCHDOG: \(name) has run for \(Int(stuckAfter)) s, sampling the process and ending the run\n".utf8))
+            let sample = Process()
+            sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+            sample.arguments = [String(getpid()), "3"]
+            sample.standardOutput = FileHandle.standardError
+            sample.standardError = FileHandle.standardError
+            try? sample.run()
+            sample.waitUntilExit()
+            exit(3)
+        }
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + stuckAfter, execute: item)
+        return item
+    }
+
     override func invokeTest() {
         _ = Self.sharedDomainCleared
+        // The output goes to a pipe on CI, block-buffered: flushed per test, the log shows which test runs (setvbuf above comes
+        // after XCTest's first lines, so it does not take effect)
+        fflush(stdout)
+        let watchdog = Self.watchdog(name)
+        defer { watchdog.cancel(); fflush(stdout) }
         Self.keepDisplayAndRunLoopAwake()
         let before = Self.sharedKeys()
         let writes = WriteCounter()

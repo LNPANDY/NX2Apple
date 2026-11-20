@@ -51,6 +51,7 @@ enum GalleryDesktopScene: String, CaseIterable {
     case dropdownList
     // MacNativeGames, LNPANDY/NX2Apple#1473 (GalleryMacNativeGames.swift)
     case mngLibrary, mngRecommend, mngRecommendInstalled, mngBlocked, mngDropdownDisabled, mngUpdateAvailable
+    case mngDownloadOffered, mngDownloadingSettings
 
     var title: String {
         switch self {
@@ -138,6 +139,8 @@ enum GalleryDesktopScene: String, CaseIterable {
         case .mngBlocked: return "MacNativeGames: title it does not maintain"
         case .mngDropdownDisabled: return "MacNativeGames: dimmed in the engine pop-up"
         case .mngUpdateAvailable: return "MacNativeGames: newer version on GitHub"
+        case .mngDownloadOffered: return "Engine not installed: Download offered"
+        case .mngDownloadingSettings: return "Engine downloading from Settings"
         }
     }
 
@@ -148,7 +151,7 @@ enum GalleryDesktopScene: String, CaseIterable {
              .sendCopying, .sendCopied, .queueEveryState, .queueRunning, .transfersEveryState, .logOpen,
              .footerVerifying, .footerExporting, .footerInstalling, .footerRenewing, .footerSending, .mngRecommend, .mngRecommendInstalled: return .builds
         case .appChecking, .appDownloading, .appPreparing, .appAvailable, .engineExperimental, .missingTool, .players, .libraryFolders,
-             .mngBlocked, .mngUpdateAvailable, .mngDropdownDisabled: return .settings
+             .mngBlocked, .mngUpdateAvailable, .mngDropdownDisabled, .mngDownloadOffered, .mngDownloadingSettings: return .settings
         case .nxkitIdle, .nxkitChecking, .nxkitWaiting, .nxkitUnreachable, .nxkitAppleSilicon, .nxkitBadSignature, .nxkitChecksum,
              .nxkitIncompatible, .nxkitIncomplete, .nxkitDownload, .nxkitUnpack, .nxkitCancelled: return .nxkit
         case .savesNoDevices, .savesNotConnected, .savesNotInstalled, .savesReading, .savesReady, .savesFailed, .savesTimedOut,
@@ -480,7 +483,8 @@ extension GalleryFixtures {
             }
             try? rows.joined(separator: "\n").write(to: tsv, atomically: true, encoding: .utf8)
             return AnyView(DSCard { FrameTimesRecordingView(file: tsv, t: t) }.padding(DS.Space.l))
-        case .mngLibrary, .mngRecommend, .mngRecommendInstalled, .mngBlocked, .mngDropdownDisabled, .mngUpdateAvailable:
+        case .mngLibrary, .mngRecommend, .mngRecommendInstalled, .mngBlocked, .mngDropdownDisabled, .mngUpdateAvailable,
+             .mngDownloadOffered, .mngDownloadingSettings:
             return macNativeGamesView(scene, stores: stores, library: library, launcher: launcher)
         case .dropdownList:   // the list a dropdown opens, as the launcher's dropdown layer draws it under its button
             let options = Lang.all.map { (value: $0.code, label: $0.name) }

@@ -17,6 +17,11 @@ extension BuildStore {
         refreshUpstreamLocalVersion(for: remote.kind)
     }
 
+    /// The state gallery's fixtures set a download's state directly (a download from Settings, part way), nothing is fetched.
+    package func setUpstreamDownloadForGallery(_ kind: EngineUpstreamKind, _ state: UpstreamInstallState) {
+        upstreamDownloads[kind] = state
+    }
+
     package func upstreamDirectoryPath(for kind: EngineUpstreamKind) -> String {
         switch kind {
         case .nxnative:

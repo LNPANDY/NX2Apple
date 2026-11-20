@@ -4,7 +4,7 @@ Written by `GalleryCoverageTests` from `GalleryCoverage.swift`: every View type 
 popover and alert, every notice and every case of the state enums the views switch on, with the gallery's scenes
 (`GalleryScene.id`) that show it, or the reason none can. After a change:
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
-323 scenes.
+325 scenes.
 
 ## Views: 215 of 228 in a scene
 
@@ -161,7 +161,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `LauncherCustomDropdownBox` | Reason: Not used by the launcher: no view creates it, only tests host it. |
 | `LauncherDropdown` | `settingsTools`, `settings` |
 | `LauncherDropdownLayer` | `libraryGames` |
-| `LauncherDropdownList` | `desktop-dropdownList`, `desktop-mngDropdownDisabled` |
+| `LauncherDropdownList` | `desktop-dropdownList`, `desktop-mngDropdownDisabled`, `desktop-mngDownloadOffered` |
 | `LauncherGlassGroup` | `libraryGames` |
 | `LauncherHeroActionLabel` | `libraryGames`, `desktop-heroPlay` |
 | `LauncherIconButton` | `libraryGames` |
@@ -235,7 +235,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `ToolsCard` | `settingsTools` |
 | `TransferCard` | `desktop-transfersEveryState` |
 | `UpdateSheet` | `appUpdate` |
-| `UpstreamBuilderRow` | `desktop-mngUpdateAvailable`, `desktop-mngBlocked` |
+| `UpstreamBuilderRow` | `desktop-mngUpdateAvailable`, `desktop-mngBlocked`, `desktop-mngDownloadingSettings` |
 | `UpstreamPicker` | `nxkitEngine`, `desktop-mngBlocked` |
 | `UpstreamVersionPill` | Reason: Not used by the launcher: no view creates it, only tests host it. |
 
