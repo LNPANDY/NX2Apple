@@ -36,6 +36,10 @@ on:
         description: "Publish the engine of main to the engine-experimental tag even when that engine is already there (a run on main only)"
         type: boolean
         default: false
+  workflow_run:
+    workflows: ["tests"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: write
@@ -44,6 +48,7 @@ permissions:
 
 jobs:
   sync:
+    if: github.event_name != 'workflow_run'
     runs-on: macos-latest   # the host build needs clang + macOS headers
     outputs:
       bump: ${{ steps.bump.outputs.changed }}   # yes (a PR was opened), no (already at upstream), conflict
@@ -142,15 +147,27 @@ jobs:
           fi
 
   publish-experimental:
-    # Main only, after a bump that went through, found nothing new or stopped at a conflict (main's engine is published in each case, never an
-    # engine from a sync branch). The ref test is what keeps a run on another ref (a manual run on a pull request branch) from
-    # building and publishing: the job then never starts. Separate from the sync job so that a publishing problem (a wrong key, no release
-    # permission) does not read as a blocked sync above.
+    # Main only, after a bump that went through, found nothing new or stopped at a conflict, or right after tests.yml passes on main
+    # (main's engine is published in each case, never an engine from a sync branch or a pull request). The ref and event tests keep
+    # runs on other branches or forks from building and publishing. Separate from the sync job so that a publishing problem (a wrong key,
+    # no release permission) does not read as a blocked sync above.
     needs: sync
     if: >-
+      !cancelled() &&
       github.ref == 'refs/heads/main' &&
-      needs.sync.result == 'success' &&
-      (needs.sync.outputs.bump == 'yes' || needs.sync.outputs.bump == 'no' || needs.sync.outputs.bump == 'conflict')
+      (
+        (
+          github.event_name != 'workflow_run' &&
+          needs.sync.result == 'success' &&
+          (needs.sync.outputs.bump == 'yes' || needs.sync.outputs.bump == 'no' || needs.sync.outputs.bump == 'conflict')
+        ) || (
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_repository.full_name == github.repository &&
+          github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+          github.event.workflow_run.conclusion == 'success'
+        )
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency: engine-experimental   # two runs must not replace the assets at the same time
@@ -161,31 +178,61 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
     steps:
+      - name: Skip superseded workflow_run on main
+        id: current_main
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHECK_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          head_sha=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.repository.default_branch }}" --jq '.sha')
+          echo "main HEAD: $head_sha, workflow_run head_sha: $CHECK_SHA"
+          if [ "$CHECK_SHA" != "$head_sha" ]; then
+            echo "superseded=yes" >> "$GITHUB_OUTPUT"
+            echo "Skipping superseded workflow_run for $CHECK_SHA (main is at $head_sha)."
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.current_main.outputs.superseded != 'yes'
         with:
-          ref: ${{ github.sha }}   # the main commit this run started on, never a sync branch
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}   # the tested main commit, never a sync branch
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.current_main.outputs.superseded != 'yes'
         with:
           python-version: '3.14'
-      - run: python -m pip install -r tools/requirements-release.txt
+      - if: steps.current_main.outputs.superseded != 'yes'
+        run: python -m pip install -r tools/requirements-release.txt
 
       - name: Signing key (a warning when the secret is not set, a failure when it is not the key in frontend/engine-signing.pub)
+        if: steps.current_main.outputs.superseded != 'yes'
         run: python tools/release_manifest.py check-key --pub frontend/engine-signing.pub
 
       - name: "Main's tests must be green"
+        if: steps.current_main.outputs.superseded != 'yes'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CHECK_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          c=$(gh run list -R "${{ github.repository }}" --workflow tests.yml --branch "${{ github.event.repository.default_branch }}" --event push --limit 1 --json conclusion --jq '.[0].conclusion')
-          echo "latest tests.yml on main: ${c:-none}"
-          [ "$c" = "success" ] || { echo "::error::tests.yml on main is not green: not publishing"; exit 1; }
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            echo "tests.yml on $CHECK_SHA: $RUN_CONCLUSION"
+            [ "$RUN_CONCLUSION" = "success" ] || { echo "::error::tests.yml on $CHECK_SHA is not green: not publishing"; exit 1; }
+          else
+            c=$(gh run list -R "${{ github.repository }}" --workflow tests.yml --branch "${{ github.event.repository.default_branch }}" --event push --limit 1 --json conclusion --jq '.[0].conclusion')
+            echo "latest tests.yml on main: ${c:-none}"
+            [ "$c" = "success" ] || { echo "::error::tests.yml on main is not green: not publishing"; exit 1; }
+          fi
 
       - name: Build the engine tree
+        if: steps.current_main.outputs.superseded != 'yes'
         run: |
           python tools/engine.py sync
           python tools/engine.py tree --out "$RUNNER_TEMP/engine-tree" --zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip"
 
       - name: Is this engine already published?
         id: published
+        if: steps.current_main.outputs.superseded != 'yes'
         run: |
           new=$(cat "$RUNNER_TEMP/engine-tree/.engine-id")
           rm -f "$RUNNER_TEMP/published-latest.json"
@@ -199,7 +246,7 @@ jobs:
 
       - name: Never replace the release with an older upstream pin
         id: guard
-        if: steps.published.outputs.same != 'yes'
+        if: steps.current_main.outputs.superseded != 'yes' && steps.published.outputs.same != 'yes'
         run: |
           # Exit 1: the published engine is built on a newer seedds/nxnative commit than main's. Dates come from the manifest or the GitHub
           # API, and an unknown date publishes (tools/release_manifest.py guard).
@@ -210,7 +257,7 @@ jobs:
           else exit "$rc"; fi
 
       - name: Publish to the engine-experimental pre-release
-        if: steps.published.outputs.same != 'yes' && steps.guard.outputs.older != 'yes'
+        if: steps.current_main.outputs.superseded != 'yes' && steps.published.outputs.same != 'yes' && steps.guard.outputs.older != 'yes'
         run: |
           APPV=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NXModel/AppUpdateStore.swift)
           python tools/release_manifest.py publish \

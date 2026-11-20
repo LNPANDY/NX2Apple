@@ -259,6 +259,18 @@ class Manifest(unittest.TestCase):
         out = self.publish('--upstream-date', 'auto')
         self.assertNotIn('upstream_date', json.loads((out / 'latest.json').read_bytes()))
 
+    def test_auto_and_guard_fall_back_to_upstream_date_in_zip_when_api_fails(self):
+        d = self.tmp / 'bin'; d.mkdir(exist_ok=True)
+        gh = d / 'gh'
+        gh.write_text('#!/bin/sh\nexit 1\n')
+        gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+        os.environ['PATH'] = f'{d}:{os.environ["PATH"]}'
+        self.engine = self.zip('with-date.zip', {'.engine-id': EID + '\n', '.upstream-ref': PIN + '\n', '.upstream-date': '2026-11-18T18:35:43Z\n', 'dm/a.c': 'x'})
+        out = self.publish('--upstream-date', 'auto')
+        self.assertEqual(json.loads((out / 'latest.json').read_bytes())['upstream_date'], '2026-11-18T18:35:43Z')
+        newer_published = self.published(upstream_date='2026-11-19T00:00:00Z')
+        self.assertEqual(self.guard('--published-manifest', newer_published), 1)
+
     def published(self, **fields):
         p = self.tmp / 'published.json'
         p.write_text(json.dumps({'pin': 'a' * 40, **fields}))

@@ -435,9 +435,20 @@ class Tree(Fixture):
         self.assertEqual(h('one.zip'), h('two.zip'))
         with zipfile.ZipFile(self.tmp / 'one.zip') as z:
             names = z.namelist()
-            self.assertEqual(names, sorted(names)); self.assertIn('.engine-id', names); self.assertIn('dm/a.c', names)
+            self.assertEqual(names, sorted(names)); self.assertIn('.engine-id', names); self.assertIn('.upstream-date', names); self.assertIn('dm/a.c', names)
             self.assertEqual({i.date_time for i in z.infolist()}, {E.ZIP_TIME})
             self.assertEqual(z.read('.engine-id').decode(), (out / '.engine-id').read_text())
+            self.assertEqual(z.read('.upstream-date').decode(), (out / '.upstream-date').read_text())
+
+    def test_the_tree_records_the_pins_utc_commit_date(self):
+        import datetime
+        self.tool('sync')
+        out, _ = self.make()
+        ts = int(git(self.eng, 'log', '-1', '--format=%ct', self.up1))
+        expected = datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        text = (out / '.upstream-date').read_text(encoding='utf-8').strip()
+        self.assertRegex(text, r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
+        self.assertEqual(text, expected)
 
     def test_executable_bits_and_symlinks_survive(self):
         import stat, zipfile

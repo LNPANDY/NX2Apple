@@ -382,7 +382,7 @@ struct LauncherView: View {
         .onChange(of: stores.deviceStore.installDevice) { device in
             if performStartupChecks, !device.isEmpty { library.syncSharedApp(root: m.shellCachePath, fallbackDevice: device); readSignatures() }
         }
-        .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools(); library.fillMissingTitleNames() } }
+        .onChange(of: repo.path) { _ in m.refreshUpstreamLocalVersion(for: .nxnative); refreshArtwork(); if performStartupChecks { checkTools(); library.fillMissingTitleNames() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(repo.$busy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
         .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)
