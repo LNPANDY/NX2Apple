@@ -24,28 +24,31 @@ extension LauncherView {
         let button = Button { primaryAction(game) } label: {
             LauncherHeroActionLabel(title: title, symbol: symbol, loading: macStarting)
         }
-        .buttonStyle(LauncherActionButtonStyle()).fixedSize(horizontal: false, vertical: true).launcherHover(enabled: artworkEditor == nil && !launching, lightBrightness: 0)
+        .buttonStyle(LauncherActionButtonStyle()).fixedSize(horizontal: false, vertical: true).launcherHover(enabled: artworkEditor == nil && !launching)
         .disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
         .keyboardShortcut(keyboardCard == nil && libraryInputAvailable ? KeyboardShortcut(.return, modifiers: []) : nil)
         .padTarget("hero.play", scope: "main", focusColor: LauncherPalette.onCream, enabled: !launching && (!m.running || game.isReady) && artworkEditor == nil) { if !launching && !profileHelpOpen && artworkEditor == nil && (!m.running || game.isReady) { primaryAction(game) } }
         button.id(game.id)
     }
 
-    func heroActions(_ game: LibraryGame, lightHero: Bool, compact: Bool) -> some View {
+    func heroActions(_ game: LibraryGame, compact: Bool) -> some View {
         let showsRefresh = !(m.running && activeBuildID == game.id) && gameNeedsRefresh(game)
-        return ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                heroPrimary(game)
-                if showsRefresh { heroSingleRefreshButton(game, lightHero: lightHero, compact: compact) }
-                heroDeviceActions(game)
-                heroManage(game)
-            }.fixedSize(horizontal: true, vertical: false)
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) { heroPrimary(game); heroManage(game) }
-                if showsRefresh { heroSingleRefreshButton(game, lightHero: lightHero, compact: compact) }
-                heroDeviceActions(game)
+        return LauncherGlassGroup(spacing: 12) {   // the hero's glass buttons blend as one group
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    heroPrimary(game)
+                    if showsRefresh { heroSingleRefreshButton(game, compact: compact) }
+                    heroDeviceActions(game)
+                    heroManage(game)
+                }.fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) { heroPrimary(game); heroManage(game) }
+                    if showsRefresh { heroSingleRefreshButton(game, compact: compact) }
+                    heroDeviceActions(game)
+                }
             }
         }
+        .launcherGlassLayer()   // the hero's actions float over its artwork: glass (#1458)
     }
 
     private func heroManage(_ game: LibraryGame) -> some View {
@@ -58,9 +61,8 @@ extension LauncherView {
             Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(LauncherPalette.text)
                 .frame(width: LauncherHeroAction.height, height: LauncherHeroAction.height)
-                .background(LauncherPalette.secondaryFill, in: Circle())
-                .overlay(Circle().strokeBorder(LauncherPalette.secondaryBorder))
                 .contentShape(Circle())
+                .launcherGlass(in: DSPill())
         }
         .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).accessibilityLabel(label)
         .help(label).padTarget(id, scope: "main", activate: action)
@@ -87,9 +89,8 @@ extension LauncherView {
         Button(action: action) {
             LauncherHeroActionLabel(title: title, symbol: symbol)
                 .foregroundStyle(LauncherPalette.text)
-                .background(LauncherPalette.secondaryFill, in: Capsule())
-                .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
                 .contentShape(Capsule())
+                .launcherGlass(in: DSPill())
         }
         .buttonStyle(.plain).fixedSize(horizontal: false, vertical: true).disabled(!enabled || artworkEditor != nil)
         .opacity(enabled && artworkEditor == nil ? 1 : 0.45)

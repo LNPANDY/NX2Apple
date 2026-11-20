@@ -8,11 +8,11 @@ import XCTest
 final class GermanLocalizationTests: IsolatedDefaultsTestCase {
     /// Keys whose German text is the English text on purpose: names, units and button letters.
     private let sameAsEnglish: Set<String> = [
-        "library.chip.both", "shell.choiceLauncher", "onboarding.xcode.section", "flow.optional",
+        "library.chip.both", "shell.choiceLauncher", "onboarding.xcode.section", "onboarding.step.xcode", "files.optional",
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.setup.metal",
         "onboarding.background.python", "onboarding.background.dotnet",
         "onboarding.demo.mario", "msg.ipaAt", "console.kind.gamepad", "console.platform.mac",
-        "console.platform.iphone", "console.version", "console.fps30", "console.fps60", "saves.toDevice",
+        "console.platform.iphone", "console.version", "console.builds.more", "console.fps30", "console.fps60", "saves.toDevice",
         "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "library.ok", "build.ios", "data.update", "data.keys", "delete.part.ipa",
         "dep.iossdk", "dep.tool.xcodegen", "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator",
         "dep.glslang", "dep.xcode", "dep.metal", "dep.brew", "dep.xcodegen", "dep.zstd", "dep.spirv.win",
@@ -23,6 +23,7 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
         "launch.opt.DM_FPS_TARGET.30", "launch.opt.DM_FPS_TARGET.60", "launch.opt.DM_FPS_TARGET.120", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx",
         "launch.opt.DM_SCREEN_ASPECT.0",   // 16:9 (Switch) reads the same in every language
         "switch2.badge",   // the console's name
+        "nxkit.name", "nxkit.version",   // the engine's name and its version number
         "ios.ui.switch2Badge", "appearance.system", "settings.language.system", "sort.name", "launch.opt.DM_PRESENT_INTERVAL.display", "launch.opt.DM_PRESENT_INTERVAL.game",   // the console's name, System, Name, the frame rates
         // Steam Controller names and button labels, and Touchscreen, read the same in German.
         "controls.steam.title", "controls.steam.Guide", "controls.steam.mode.4", "controls.steam.L4", "controls.steam.L5", "controls.steam.R4", "controls.steam.R5",

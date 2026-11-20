@@ -181,61 +181,39 @@ struct ControlsView: View {
     @EnvironmentObject private var focus: PadFocus
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(gameName ?? loc.t("controls.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                Text(loc.t(gameName == nil ? "controls.globalNote" : "controls.gameNote")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText)
-            }
-            .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
-            ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    if let mappingStore { SteamControllerSection(store: mappingStore) }
-                    if let copyGlobal {
-                        Button(loc.t("controls.copyGlobal"), action: copyGlobal).buttonStyle(LauncherSecondaryButtonStyle())
-                            .padTarget("controls.copyGlobal", scope: "controls", activate: copyGlobal)
-                    }
-                    section(loc.t("controls.sticks"), ControlLayout.functions.filter(\.isDirection)) { keyRow($0) }
-                    section(loc.t("controls.keyButtons"), ControlLayout.functions.filter { !$0.isDirection }) { keyRow($0) }
-                    PadModeSection(layout: layout)
-                    section(loc.t("controls.pad"), ControlLayout.buttons, note: loc.t("controls.padNote")) { padRow($0) }
+        DSScrollingSheet(width: 600, height: 700, title: gameName ?? loc.t("controls.title"),
+                         message: loc.t(gameName == nil ? "controls.globalNote" : "controls.gameNote"), scrollTarget: focus.focused) {
+            VStack(alignment: .leading, spacing: DS.Space.l) {
+                if let mappingStore { SteamControllerSection(store: mappingStore) }
+                if let copyGlobal {
+                    Button(loc.t("controls.copyGlobal"), action: copyGlobal).buttonStyle(DSSecondaryButtonStyle())
+                        .padTarget("controls.copyGlobal", scope: "controls", activate: copyGlobal)
                 }
-                .padding(.horizontal, 30).padding(.bottom, 24)
+                section(loc.t("controls.sticks"), ControlLayout.functions.filter(\.isDirection)) { keyRow($0) }
+                section(loc.t("controls.keyButtons"), ControlLayout.functions.filter { !$0.isDirection }) { keyRow($0) }
+                PadModeSection(layout: layout)
+                section(loc.t("controls.pad"), ControlLayout.buttons, note: loc.t("controls.padNote")) { padRow($0) }
             }
-            .onChange(of: focus.focused) { id in if let id { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } } }
+        } leading: {
+            if let mappingStore {
+                ControllerMappingStatus(store: mappingStore)
+            } else {
+                Text(loc.t("controls.globalApplied")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
             }
-            Divider().opacity(0.3)
-            HStack(spacing: 14) {
-                if let mappingStore {
-                    ControllerMappingStatus(store: mappingStore)
-                } else {
-                    Text(loc.t("controls.globalApplied")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
-                }
-                Spacer(minLength: 8)
-                if !layout.isDefault {
-                    Button(loc.t("controls.reset")) { stopListening(); layout.resetKeyboard(); layout.resetController() }
-                        .buttonStyle(LauncherSecondaryButtonStyle())
-                        .padTarget("controls.reset", scope: "controls") { stopListening(); layout.resetKeyboard(); layout.resetController() }
-                }
-                Button(loc.t("controls.cancel")) { cancel() }
-                    .buttonStyle(LauncherSecondaryButtonStyle())
-                    .keyboardShortcut(listening == nil ? .cancelAction : nil)
-                    .padTarget("controls.cancel", scope: "controls") { cancel() }
-                Button { stopListening(); original = nil; dismiss() } label: {
-                    Text(loc.t("controls.save")).font(.manrope(13.5, .bold))
-                        .padding(.horizontal, 22).padding(.vertical, 9)
-                }
-                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(listening == nil ? .defaultAction : nil)
-                .padTarget("controls.done", scope: "controls", focusColor: LauncherPalette.onCream) { stopListening(); original = nil; dismiss() }
+        } buttons: {
+            if !layout.isDefault {
+                Button(loc.t("controls.reset")) { stopListening(); layout.resetKeyboard(); layout.resetController() }
+                    .buttonStyle(DSSecondaryButtonStyle())
+                    .padTarget("controls.reset", scope: "controls") { stopListening(); layout.resetKeyboard(); layout.resetController() }
             }
-            .padding(.horizontal, 30).padding(.vertical, 16)
+            Button(loc.t("controls.cancel")) { cancel() }
+                .buttonStyle(DSSecondaryButtonStyle())
+                .keyboardShortcut(listening == nil ? .cancelAction : nil)
+                .padTarget("controls.cancel", scope: "controls") { cancel() }
+            DSSheetPrimaryButton(loc.t("controls.save"), takesReturn: listening == nil) { stopListening(); original = nil; dismiss() }
+                .padTarget("controls.done", scope: "controls", focusColor: DS.Color.accentOn) { stopListening(); original = nil; dismiss() }
         }
         .padScope("controls", focus)
-        .frame(width: 600, height: 700)
-        .background(LauncherPalette.background)
-        .font(.manrope(13))
-        .launcherAppearance()
-        .tint(LauncherPalette.accent)
         .onDisappear { stopListening() }
         .onAppear { if original == nil { original = layout.snapshot } }
         .onChange(of: cancelRequest) { _ in cancel() }
@@ -264,32 +242,24 @@ struct ControlsView: View {
     }
 
     private func section<Item, Row: View>(_ title: String, _ items: [Item], note: String = "", @ViewBuilder row: @escaping (Item) -> Row) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
-            VStack(spacing: 0) {
-                ForEach(items.indices, id: \.self) { i in
-                    row(items[i])
-                    if i < items.count - 1 { Divider().opacity(0.25).padding(.leading, 18) }
-                }
-            }
-            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
-            if !note.isEmpty {
-                Text(note).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
+        DSSection(title, footnote: note) {
+            ForEach(items.indices, id: \.self) { i in
+                row(items[i])
+                if i < items.count - 1 { DSRowDivider() }
             }
         }
     }
 
     private func line<Trailing: View>(_ title: String, target: String, activate: (() -> Void)? = nil, adjust: ((Int) -> Void)? = nil,
                                       @ViewBuilder trailing: () -> Trailing) -> some View {
-        HStack(spacing: 16) {
-            Text(title).font(.manrope(14, .medium))
-            Spacer(minLength: 12)
+        HStack(spacing: DS.Space.m) {
+            Text(title).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+            Spacer(minLength: DS.Space.s)
             trailing()
                 .padTarget(target, scope: "controls", enabled: activate != nil || adjust != nil, activate: activate, adjust: adjust)
                 .frame(width: LaunchControl.width, alignment: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 9)
+        .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.xs)
         .frame(minHeight: 46)
     }
 
@@ -300,24 +270,25 @@ struct ControlsView: View {
             HStack(spacing: 6) {
                 if key != nil && !on {
                     Button { layout.assign(f, key: nil) } label: {
-                        Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
+                        Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(DS.Color.symbolDefault)
                             .frame(width: 22, height: 22).contentShape(Circle())
                     }
-                    .buttonStyle(.plain).help(loc.t("controls.clear"))
+                    .buttonStyle(.plain).help(loc.t("controls.clear")).accessibilityLabel(loc.t("controls.clear"))
                     .padTarget("key.clear." + f.id, scope: "controls") { layout.assign(f, key: nil) }
                 }
+                // The key field: the accent while it listens (selected), a raised field otherwise
                 Button { on ? stopListening() : listen(f) } label: {
                     Text(on ? loc.t("controls.press") : ControlLayout.keyName(key, loc.t) ?? loc.t("controls.none"))
-                        .font(.manrope(12.5, on ? .bold : .semibold))
-                        .foregroundStyle(on ? LauncherPalette.onCream : key == nil ? LauncherPalette.ink(0.45) : LauncherPalette.text)
+                        .font(DS.Font.bodyStrong)
+                        .foregroundStyle(on ? DS.Color.accentOn : key == nil ? DS.Color.textTertiary : DS.Color.textPrimary)
                         .frame(maxWidth: .infinity).padding(.vertical, 6)
-                        .background(on ? LauncherPalette.cream : LauncherPalette.ink(0.06), in: Capsule())
-                        .overlay(Capsule().strokeBorder(LauncherPalette.ink(on ? 0 : 0.10)))
+                        .background(on ? DS.Color.accent : DS.Color.surfaceRaised, in: Capsule())
+                        .overlay(DSPill().strokeBorder(on ? Color.clear : DS.Color.separator))
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .frame(width: 140)
-                .padTarget("key." + f.id, scope: "controls", focusColor: on ? LauncherPalette.onCream : nil) { on ? stopListening() : listen(f) }
+                .padTarget("key." + f.id, scope: "controls", focusColor: on ? DS.Color.accentOn : nil) { on ? stopListening() : listen(f) }
             }
         }
     }

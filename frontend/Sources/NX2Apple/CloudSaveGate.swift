@@ -78,6 +78,9 @@ enum CloudSaveStep: Equatable {
     }
 
     var isActive: Bool { step != nil }
+    /// The game being checked, for the sheet's icon. Visual QA sets it with `step`.
+    var titleID: String? { start?.titleID ?? qaTitleID }
+    var qaTitleID: String?
 
     /// Checks `game`, then calls `proceed` with what to add to its start environment. `ended` when the player cancelled.
     /// A game without cloud saves proceeds at once, before this returns.

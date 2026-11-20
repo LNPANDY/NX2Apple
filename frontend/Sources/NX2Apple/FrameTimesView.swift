@@ -13,19 +13,19 @@ struct FrameTimesRecordingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(file.deletingPathExtension().lastPathComponent).font(.manrope(13, .medium))
+                Text(file.deletingPathExtension().lastPathComponent).font(DS.Font.body)
                 Spacer()
             }
             if let chart {
                 if let s = chart.summary {
                     Text(String(format: t("launch.frameTimesSummary"), s.frames, s.fps, s.frameP50, s.frameP99, s.frameMax, s.hitches, s.dropped))
-                        .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).monospacedDigit()
+                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).monospacedDigit()
                     Chart {
                         ForEach(chart.line, id: \.number) { f in
                             LineMark(x: .value("s", f.time), y: .value("ms", f.frameMs)).interpolationMethod(.linear)
                         }
                         ForEach(chart.hitches, id: \.number) { f in
-                            PointMark(x: .value("s", f.time), y: .value("ms", f.frameMs)).foregroundStyle(.red).symbolSize(14)
+                            PointMark(x: .value("s", f.time), y: .value("ms", f.frameMs)).foregroundStyle(DS.Color.statusError).symbolSize(14)
                         }
                         RuleMark(y: .value("ms", s.frameP50)).foregroundStyle(.secondary.opacity(0.5)).lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                     }
@@ -33,11 +33,11 @@ struct FrameTimesRecordingView: View {
                     .chartXAxisLabel("s").chartYAxisLabel("ms")
                     .frame(height: 120)
                 } else {
-                    Text(t("launch.frameTimesEmpty")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(t("launch.frameTimesEmpty")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 }
             } else {
                 // While the file is read: the summary line's and the chart's room, so nothing moves when they arrive
-                Text(" ").font(.manrope(12))
+                Text(" ").font(DS.Font.callout)
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity).frame(height: 120)
             }
         }

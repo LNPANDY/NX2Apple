@@ -78,14 +78,14 @@ struct LauncherView: View {
     private let qaArtwork: ArtworkSlot?   // visual QA: the artwork panel open at launch, on this tab
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) var reduceMotion
-    @Environment(\.colorScheme) var colorScheme
 
     init(stores: LauncherStores? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library, initialBuildEditorOpen: Bool = false, settingsCategory: SettingsCategory = .general,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          toolsAssessments: [UUID: GameRefreshAssessment] = [:],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
          enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, recorder: BuildRecorder? = nil, qaPrompt: Bool = false, qaLaunching: Bool = false, qaSkippedOpen: Bool = false,
-         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, dropdowns: LauncherDropdownState? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared, completionDismissal: BuildCompletionDismissal? = nil) {
+         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, dropdowns: LauncherDropdownState? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared, completionDismissal: BuildCompletionDismissal? = nil, allGamesOpen: Bool = false, buildStep: Int = 0,
+         gallery: LauncherGalleryState = LauncherGalleryState()) {
         _completionDismissal = StateObject(wrappedValue: completionDismissal ?? BuildCompletionDismissal())
         _padFocus = StateObject(wrappedValue: padFocus ?? PadFocus())
         _dropdowns = StateObject(wrappedValue: dropdowns ?? LauncherDropdownState())
@@ -109,6 +109,9 @@ struct LauncherView: View {
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools, assessments: toolsAssessments))   // visual QA: games marked without a checkout to compare
         _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())   // LauncherPerformanceTests presses its buttons
         let stores = stores ?? LauncherStores(); self.stores = stores
+        let savedFilter = LibraryFilter.load(stores.defaults)
+        _libraryFilter = State(initialValue: savedFilter == .built ? .owned : savedFilter)
+        _librarySort = State(initialValue: LibrarySort.load(stores.defaults))
         _m = StateObject(wrappedValue: stores.build); _loc = ObservedObject(wrappedValue: stores.localizer)
         _updates = ObservedObject(wrappedValue: stores.appUpdates); _devices = ObservedObject(wrappedValue: stores.deviceStore)
         _buildDependencies = ObservedObject(wrappedValue: stores.dependencies)
@@ -120,6 +123,13 @@ struct LauncherView: View {
         _page = State(initialValue: initialPage)
         _buildEditorOpen = State(initialValue: initialBuildEditorOpen)
         _settingsCategory = State(initialValue: settingsCategory)
+        _allGamesOpen = State(initialValue: allGamesOpen)   // visual QA: the All games grid open
+        _buildStep = State(initialValue: buildStep)   // visual QA: a step of the build wizard
+        // the state gallery: a popover, a notice or a card open at launch (DesignGallery), nothing a player's launch sets
+        _profileHelpOpen = State(initialValue: gallery.profileHelpOpen)
+        _resignNote = State(initialValue: gallery.resignNote)
+        _buildLogOpen = State(initialValue: gallery.buildLogOpen)
+        _signatures = StateObject(wrappedValue: SignatureTracker(expiry: gallery.signatureExpiry))
         _libraryFilter = State(initialValue: LibraryFilter.loadDesktop(stores.defaults))
         self.performStartupChecks = performStartupChecks
     }
@@ -130,15 +140,16 @@ struct LauncherView: View {
         if injectedDriver { consoleDriver.setPadMerge(on) }
     }
 
+    /// Loaded from and saved to the stores' defaults (LauncherStores.defaults), never straight to UserDefaults.standard.
     @State var libraryFilter: LibraryFilter
     @FocusState var keyboardCard: UUID?
-    @State var librarySort: LibrarySort = LibrarySort.load()
+    @State var librarySort: LibrarySort = .recent
 
     /// Order of the collection. The selection stays whatever it was: the order only moves cards.
     func setLibrarySort(_ sort: LibrarySort) {
         guard sort != librarySort else { return }
         librarySort = sort
-        sort.save()
+        sort.save(stores.defaults)
     }
 
     func setLibraryFilter(_ filter: LibraryFilter) {
@@ -172,12 +183,9 @@ struct LauncherView: View {
         )
     }
 
-    /// The hero's game: the selection, unless the filter hides it, then the first game the filter shows.
-    var heroGame: LibraryGame? {
-        let visible = filteredGames
-        if let selected = library.selected, visible.contains(where: { $0.id == selected.id }) { return selected }
-        return visible.first
-    }
+    /// The hero's game: the selection, else the most recently played game. The hero stands over the Recently played row, which
+    /// no filter narrows (#1458), so neither does the hero.
+    var heroGame: LibraryGame? { library.selected ?? recentGames.first }
 
     var libraryInputAvailable: Bool {
         currentPadScope == "main" && padFocus.scope == "main" && dropdowns.request == nil && dropdowns.custom == nil && manageOpenFor == nil && removing == nil && !consolePrompt && !profileHelpOpen
@@ -244,7 +252,7 @@ struct LauncherView: View {
             if page != .library {
                 topBar.background(LauncherPalette.background).zIndex(1)
                 LauncherTopBarRule()
-                EngineSyncBanner(engine: engine, m: m)
+                if page != .settings { EngineSyncBanner(engine: engine, m: m) }   // Settings shows them in its content (SettingsPage)
             }
             if page == .library {
                 VStack(spacing: 0) {
@@ -282,7 +290,7 @@ struct LauncherView: View {
             }
         }
         .environment(\.selectionArtworkDirectory, library.artworkDirectory)
-        .animation(.easeOut(duration: 0.24), value: completedActivityVisible)
+        .dsAnimation(.easeOut(duration: 0.24), value: completedActivityVisible)
         .task(id: completionKey) {
             await completionDismissal.monitor(completionKey)
         }
@@ -309,7 +317,7 @@ struct LauncherView: View {
         .ignoresSafeArea(.container, edges: .top)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
-        .font(.manrope(13))   // the default for text without a font of its own
+        .font(DS.Font.body)   // the default for text without a font of its own
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .onDisappear { gamepad.deactivate() }
         .onAppear {
@@ -342,6 +350,7 @@ struct LauncherView: View {
                 else { engine.syncEngine() }   // a checkout whose engine/ is missing or older than its pin (#214)
                 if repo.isRepo && repo.isGit { repo.checkForUpdates(silent: true) } else { repo.adoptAtLaunch() }
                 updates.checkForUpdate(silent: true)
+                m.checkNxkitUpdate(manual: false)   // nxkit (Beta) updates itself from signed releases, with "Update automatically" on (#1460)
                 _ = m.checkUpstreamUpdates()
                 BuildNotifier.shared.watch(m, library: library)   // BuildNotifications.swift
             }
@@ -444,7 +453,8 @@ struct LauncherView: View {
         .sheet(isPresented: Binding(get: { supportedGames != nil }, set: { if !$0 { supportedGames = nil } })) {
             SupportedGamesSheet(games: supportedGames ?? [], owned: { id in library.games.first { $0.titleID.uppercased() == id } },
                                 covers: .live(store: artworkStore, directory: library.artworkDirectory, language: loc.lang.code, maxPixel: SupportedGamesSheet.coverPixels),
-                                showInLibrary: showInLibrary)
+                                showInLibrary: showInLibrary, olderBuild: { toolsAge.older.contains($0) },
+                                rebuild: { id in if let game = library.games.first(where: { $0.id == id }) { DispatchQueue.main.async { configureBuild(game) } } })
                 .environmentObject(padFocus)
         }
         .onChange(of: supportedGames == nil) { closed in padFocus.scope = closed ? currentPadScope : "supported" }
@@ -491,6 +501,11 @@ struct LauncherView: View {
     @State var libraryHeaderHeight: CGFloat = 64
     /// The hero's height with the panel closed, kept while it is open so the scaled-down hero keeps its proportions.
     @State var closedHeroHeight: CGFloat = 498
+    /// The Recently played row's height: the hero takes the rest of the window (LauncherView+Carousel.swift).
+    @State var recentRowHeight: CGFloat = 0
+    /// The All games grid, opened by Show all (#1458). A search shows it too.
+    @State var allGamesOpen = false
+    @StateObject var rowScroller = RowScroller()   // the row's scroll position, for its pager buttons
 
     private var activityBar: some View {
         VStack(spacing: 0) {
@@ -501,38 +516,38 @@ struct LauncherView: View {
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(LauncherPalette.secondaryText)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(m.operationTitle ?? loc.t(devices.shellCopy != nil || devices.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
-                                 ? "activity.transfer" : (m.runningTarget == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
+                                 ? "activity.transfer" : (m.runningTarget == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(DS.Font.headline)
                             .lineLimit(2)
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
                             let badge = m.currentStagePosition.map { "[\($0.current)/\($0.total)]" } ?? ""
                             Text(stage
                                     .map { [badge.isEmpty ? $0.displayName(loc.t) : "\(badge) \($0.displayName(loc.t))", $0.detail, $0.clock(at: context.date, left: loc.t("prog.etaEstimate"))].filter { !$0.isEmpty }.joined(separator: " · ") }
                                  ?? loc.t("library.preparing"))
-                                .font(.manrope(13)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.middle)
+                                .font(DS.Font.body).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.middle)
                         }
                         if stage?.isScanningLastShaderFiles == true {
-                            Text(loc.t("prog.lastShaderFiles")).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
+                            Text(loc.t("prog.lastShaderFiles")).font(DS.Font.body).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .frame(minWidth: 180, alignment: .leading)
                     LauncherProgressBar(value: buildProgress).frame(maxWidth: 480)
                         .accessibilityLabel(loc.t("prog.stageProgress"))
                     Text(buildProgress.map { "\(Int($0 * 100))%" } ?? "")
-                        .font(.manrope(14, .semibold)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).frame(width: 46, alignment: .leading)
+                        .font(DS.Font.bodyStrong).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).frame(width: 46, alignment: .leading)
                     Spacer(minLength: 8)
                     Button(loc.t("library.viewBuild")) { page = .builds; buildEditorOpen = true }.buttonStyle(LauncherSecondaryButtonStyle())
                     Button(loc.t(m.stopping ? "library.stopping" : "btn.stop")) { m.stop() }
                         .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.building)).disabled(m.stopping)
                 } else {
                     Image(systemName: "desktopcomputer").foregroundStyle(LauncherPalette.secondaryText)
-                    Text(loc.t("library.localNote")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(loc.t("library.localNote")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     if let n = repo.autoPulled, n > 0 {   // the automatic update when the app opened (RepoStore.autoPull): the tools are current
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
-                        Text(String(format: loc.t("library.toolsUpdated"), n)).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(String(format: loc.t("library.toolsUpdated"), n)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     }
                     if repo.autoAdopted {   // a ZIP copy connected and updated when the app opened (RepoStore.adoptAtLaunch)
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
-                        Text(loc.t("library.toolsAdopted")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(loc.t("library.toolsAdopted")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     }
                     Spacer()
                     if let staged = updates.staged {
@@ -540,7 +555,7 @@ struct LauncherView: View {
                         // This branch only shows with no build running, and restartNow checks again.
                         HStack(spacing: 10) {
                             Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6)
-                            Text(String(format: loc.t("library.appReady"), staged.release.tag)).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                            Text(String(format: loc.t("library.appReady"), staged.release.tag)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                         }
                         Button(loc.t("app.restartNow")) { updates.restartNow() }.buttonStyle(LauncherSecondaryButtonStyle())
                     }
@@ -563,7 +578,7 @@ struct LauncherView: View {
     private func padHint(_ role: ConsoleGlyphs.Role, _ label: String) -> some View {
         HStack(spacing: 7) {
             ConsoleGlyphView(glyph: ConsoleGlyphs.current().glyph(for: role), size: 18).foregroundStyle(LauncherPalette.accent)
-            Text(label).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+            Text(label).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
         }
     }
 
@@ -698,7 +713,7 @@ struct LauncherView: View {
         if renaming != nil && [.b, .x, .l, .r].contains(action) { if action == .b { renaming = nil }; return }
         if action == .b {
             if batchRefreshOpen { batchRefreshOpen = false } else if missingImgGuideFor != nil { missingImgGuideFor = nil } else if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsCancelRequest += 1 }
-            else if searching { searching = false; search = "" } else if page != .library { page = .library }
+            else if searching { searching = false; search = "" } else if page == .library && allGamesOpen { closeAllGames() } else if page != .library { page = .library }
             return
         }
         if !padFocus.visible {
@@ -762,5 +777,13 @@ struct LauncherView: View {
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
-    static let ringRoom: CGFloat = 6
+    static let ringRoom: CGFloat = 10   // the focused artwork's scale and ring (DSCardRoom), given back outside
+}
+
+/// What the state gallery opens the launcher with (DesignGallery): the default is a player's launch.
+struct LauncherGalleryState {
+    var profileHelpOpen = false
+    var resignNote: String?
+    var buildLogOpen = false
+    var signatureExpiry: [UUID: Date] = [:]
 }

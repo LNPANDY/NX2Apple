@@ -22,8 +22,9 @@ import XCTest
         }
     }
 
-    func testAdvisoryChipKeepsWhiteTextAndBlueAccentInBothAppearances() throws {
-        for dark in [false, true] {
+    /// The advisory is the info tone (the cream, DS.Color.statusInfo), no raw system blue (#1458).
+    func testAdvisoryChipKeepsWhiteTextAndTheInfoAccent() throws {
+        for dark in [true] {   // the launcher is dark only (#1458)
             let host = NSHostingView(rootView: ArtworkStatusChip(title: "Older iOS build", color: LauncherPalette.advisory, textColor: .white)
                 .fixedSize().environment(\.colorScheme, dark ? .dark : .light))
             let window = OffscreenWindow(size: .init(width: 180, height: 40))
@@ -38,7 +39,7 @@ import XCTest
             for y in 0..<rep.pixelsHigh {
                 for x in 0..<rep.pixelsWide {
                     guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                    if c.blueComponent > 0.6 && c.blueComponent > c.redComponent + 0.2 { blue += 1 }
+                    if c.redComponent > 0.9 && c.greenComponent > 0.85 && c.blueComponent > 0.7 && c.blueComponent < c.redComponent - 0.08 { blue += 1 }   // the cream
                     if x > rep.pixelsWide / 5 && x < rep.pixelsWide * 4 / 5 && y > rep.pixelsHigh / 3 && y < rep.pixelsHigh * 2 / 3,
                        c.redComponent > 0.85 && c.greenComponent > 0.85 && c.blueComponent > 0.85 { white += 1 }
                 }
@@ -53,14 +54,17 @@ import XCTest
         }
     }
 
+    /// The starting screen's bar (under its label, the console pass of #1458) fills from the left to the measured share.
     func testLoadingPillFillsFromLeftToRight() throws {
-        let view = NSHostingView(rootView: ConsoleLaunchProgress(progress: 0.5, label: "Loading").frame(width: 200, height: 60).environment(\.colorScheme, .dark))
-        view.frame = CGRect(x: 0, y: 0, width: 200, height: 60)
+        let view = NSHostingView(rootView: ConsoleLaunchProgress(progress: 0.5, label: "Loading").frame(width: 200).fixedSize(horizontal: false, vertical: true)
+            .background(DS.Color.background).environment(\.colorScheme, .dark))
+        view.frame = CGRect(origin: .zero, size: CGSize(width: 200, height: view.fittingSize.height))
         view.layoutSubtreeIfNeeded()
         let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: rep)
-        let left = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide / 4, y: rep.pixelsHigh / 2)?.usingColorSpace(.sRGB))
-        let right = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide * 3 / 4, y: rep.pixelsHigh / 2)?.usingColorSpace(.sRGB))
+        let barRow = rep.pixelsHigh - max(1, rep.pixelsHigh * 3 / Int(max(1, view.bounds.height)))   // the middle of the 6 pt bar at the bottom
+        let left = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide / 4, y: barRow)?.usingColorSpace(.sRGB))
+        let right = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide * 3 / 4, y: barRow)?.usingColorSpace(.sRGB))
         XCTAssertGreaterThan(left.redComponent, 0.9)
         XCTAssertLessThan(right.redComponent, 0.3)
     }
@@ -92,7 +96,8 @@ import XCTest
         }
     }
 
-    func testUnavailableSelectedArtworkIsMonochromeWithoutInactiveDimming() throws {
+    /// Covers stay in colour (#1458): an unavailable game is dimmed a little, never grey, and the chip says why.
+    func testUnavailableSelectedArtworkStaysInColourAndIsDimmedALittle() throws {
         var game = MockConsoleDriver(scenario: .full, animated: false).state.games[0]
         game.olderTools = false
         game.artwork = NSImage(size: NSSize(width: 360, height: 200), flipped: false) { bounds in

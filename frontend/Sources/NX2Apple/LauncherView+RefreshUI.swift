@@ -51,19 +51,20 @@ extension LauncherView {
                         HStack(spacing: 4) {
                             Image(systemName: "bolt.horizontal.fill")
                                 .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(DS.Color.statusWarning)   // refreshes are waiting: the symbol takes the status
                             Text("\(count)")
-                                .font(.manrope(12, .bold))
+                                .font(DS.Font.callout.weight(.bold))
                                 .monospacedDigit()
                         }
-                        .foregroundStyle(LauncherPalette.notice)
                     } else {
                         Image(systemName: "bolt.horizontal")
                             .font(.system(size: 13, weight: .semibold))
                     }
                 } else {
                     if count > 0 {
-                        Label(a11y, systemImage: "square.stack.3d.up")
-                            .foregroundStyle(LauncherPalette.notice)
+                        Label { Text(a11y) } icon: {
+                            Image(systemName: "square.stack.3d.up").foregroundStyle(DS.Color.statusWarning)
+                        }
                     } else {
                         Label(a11y, systemImage: "square.stack.3d.up")
                     }
@@ -78,7 +79,7 @@ extension LauncherView {
     }
 
     /// Scheme A: high-contrast platform-aware single-game refresh CTA next to heroPrimary.
-    @ViewBuilder func heroSingleRefreshButton(_ game: LibraryGame, lightHero: Bool, compact: Bool) -> some View {
+    @ViewBuilder func heroSingleRefreshButton(_ game: LibraryGame, compact: Bool) -> some View {
         let assessment = toolsAge.assessments[game.id]
         let (hasMac, hasIOS) = resolvedRefreshTargets(for: game)
         let isFast = assessment.map {

@@ -66,13 +66,26 @@ struct BuildPage: View {
     private var hasHeroContext: Bool {
         !build.basePath.isEmpty || build.gameFolder != nil || running || processActive || build.done || build.completionStatus != nil || build.failure != nil || !queue.isEmpty
     }
+    /// A stopped build with a failure the player can act on: the failure comes first, under the header (#1458).
+    private var failedResult: Bool { !running && !processActive && build.failure != nil && !queueReview }
+    private var titleNames: [String: String] {
+        Dictionary((library?.games ?? []).map { ($0.titleID.uppercased(), $0.displayName(loc.lang)) }, uniquingKeysWith: { first, _ in first })
+    }
+    /// nxkit (Beta), #1460: the quiet question after an nxkit build, finished or failed, asked once.
+    @ViewBuilder private var nxkitFeedback: some View {
+        if let prompt = build.nxkitFeedback, !running {
+            NxkitFeedbackRow(prompt: prompt) { build.markNxkitFeedbackAsked(prompt.id) }
+        }
+    }
 
     var body: some View {
+        // One page for the whole build (#1457) in the task page's look (#1458): the compact header, then the work, in one column.
         LauncherPageScroll(memoryKey: "builds.page") {
             topHeader
             if running || processActive {
                 if processActive {
-                    BuildProcessCard(build: build, logOpen: false, onShowSteps: { allStepsOpen.wrappedValue = true })
+                    BuildProcessCard(build: build, onShowSteps: { allStepsOpen.wrappedValue = true })
+                    BuildUpNextSection(queue: queue, artwork: queueIcon)
                 } else {
                     ProgressCard(build: build)
                 }
@@ -87,18 +100,25 @@ struct BuildPage: View {
             }
             if completionActive && !running && !processActive {
                 OutcomeCard(build: build, devices: devices, onViewGame: onViewGame, onPlayGame: onPlayGame)
+                nxkitFeedback   // nxkit (Beta), #1460: "Did it work?" once per build, under the result's actions
                 let inlineExportShown = !stagingQueue && build.target != BuildTarget.mac && devices.exportIPA
                 if (build.completionStatus == .exported || build.completionStatus == .needsData) && !inlineExportShown {
                     CardGroup(loc.t("result.next")) { ExportSteps(build: build, devices: devices, resultOnly: true) }
                 }
             }
+            if failedResult {
+                BuildFailureCard(m: build, titleNames: titleNames) { id in
+                    library.flatMap { NSImage(contentsOf: $0.artworkDirectory.appendingPathComponent(id.uppercased()).appendingPathComponent("icon.jpg")) }
+                }
+                nxkitFeedback
+            }
             if (!running && !processActive) || showRunningSetup {
-                EngineSwitcherCard(build: build)
                 SetupHintCard(repo: repo, dependencies: dependencies, usesExternalUpstream: build.usesExternalUpstreamRepo, onOpenSettings: onOpenSettings)
                 if stagingQueue {
                     queueSection(showsHeading: !queueReview)
                 } else {
                     FilesCard(build: build, library: library, artworkStore: artworkStore, fetchMetadata: fetchMetadata, extrasOpen: $extrasOpen)
+                    MacNativeGamesNotice(build: build)   // the picked title is one MacNativeGames maintains (#1473)
                     TargetCard(build: build)
                 }
             }
@@ -119,11 +139,13 @@ struct BuildPage: View {
             }
             Group {
                 ShellCopyCard(devices: devices)
-                BuildFailureCard(m: build)
+                if !failedResult && !running { BuildFailureCard(m: build, titleNames: titleNames) }
                 if !running && !processActive && !build.stages.isEmpty && (build.done || build.failure != nil) {
                     ProgressCard(build: build)
                 }
             }
+            // the engine is chosen in Settings › Tools (#1458): which one builds, and the way there
+            if !running && !processActive { EngineFootnote(build: build, change: onOpenSettings) }
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: completionActive)
         .sheet(isPresented: allStepsOpen, onDismiss: { pad.scope = "main"; if pad.visible { pad.focused = "set.build.steps" } }) {
@@ -152,13 +174,21 @@ struct BuildPage: View {
         .onChange(of: running) { active in if active { editingResult.wrappedValue = false } else { allStepsOpen.wrappedValue = false; showRunningSetup = false } }
     }
 
+    /// The compact header (#1458): the game's icon, its name and the build's state, Stop beside it while a build runs.
     @ViewBuilder private var topHeader: some View {
         if queueReview {
             BuildQueueHero(games: queue.games.filter { $0.waiting || $0.running || $0.retryable }, artwork: queueIcon, onSelectGames: onSelectGames)
         } else if hasHeroContext {
             BuildMetadataHero(build: build, library: library, artworkStore: artworkStore, fetchMetadata: fetchMetadata,
                               queueGames: (running || queue.active) ? queue.games.filter { $0.running || $0.waiting } : [], queueArtwork: queueIcon,
-                              platformTargets: queue.games.first { $0.titleID == build.gameTitleID }?.entries.map(\.target) ?? [])
+                              platformTargets: queue.games.first { $0.titleID == build.gameTitleID }?.entries.map(\.target) ?? []) {
+                if processActive {
+                    Button(role: .destructive) { build.stop() } label: { Text(loc.t(build.stopping ? "library.stopping" : "build.stop")) }
+                        .buttonStyle(DSSecondaryButtonStyle(accent: DS.Color.statusError)).disabled(build.stopping)
+                        .keyboardShortcut(pad.scope == "main" ? KeyboardShortcut(.return, modifiers: .command) : nil)
+                        .padTarget("set.build.action", scope: "main", enabled: !build.stopping) { if !build.stopping { build.stop() } }
+                }
+            }
         } else {
             CardPageHeading(loc.t("build.heading"), note: loc.t("build.intro"))
         }
@@ -172,7 +202,7 @@ struct BuildPage: View {
                 HStack {
                     Spacer(minLength: 0)
                     Button(loc.t("queue.cancel")) { confirmingQueueCancel = true }
-                        .buttonStyle(LauncherSecondaryButtonStyle()).fixedSize()
+                        .buttonStyle(DSSecondaryButtonStyle()).fixedSize()
                         .padTarget("set.build.queue.cancel", scope: "main", activate: { confirmingQueueCancel = true })
                 }
             }

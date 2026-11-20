@@ -65,6 +65,9 @@ package enum DependencyCheck {
         }
     }
 
+    /// The longest one probe of the scan may run (an xcrun that answers takes well under a second, a first run a few).
+    package static let probeTimeout: TimeInterval = 60
+
     /// The rows. `needsIOS`: the xcode row asks for the iOS SDK. `repo`: the checkout whose lock pins the Metal compiler ("" for none).
     package static func detect(
         needsIOS: Bool,
@@ -73,7 +76,7 @@ package enum DependencyCheck {
         upstream: EngineUpstreamKind = .nxnative,
         s2armPath: String = ""
     ) -> [Dep] {
-        let runner = SystemProcessRunner(xcodeApp: customApp)
+        let runner = SystemProcessRunner(xcodeApp: customApp, probeTimeout: DependencyCheck.probeTimeout)
         let macMetal = Toolchain.firstOutputLine("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"], runner: runner)
         let macSDK = Toolchain.runOK("/usr/bin/xcrun", ["--sdk", "macosx", "--show-sdk-version"], runner: runner)
         var out = [xcodeDep(needsIOS: needsIOS, customApp: customApp, runner: runner, macToolchainRuns: macMetal != nil && macSDK)]
@@ -87,6 +90,8 @@ package enum DependencyCheck {
                         brew: Toolchain.firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]))
 
         let isS2Arm = upstream == .s2arm
+        // nxkit is a native tool: it runs without Python and .NET
+        guard upstream.needsPythonAndDotnet else { return out }
         if isS2Arm {
             let dnRes = S2ArmBuilder.findDotnet(tree: s2armPath, runner: runner)
             let dnDetail: String
@@ -152,6 +157,7 @@ package enum DependencyCheck {
     ) -> Result {
         let isS2Arm = upstream == .s2arm
         let deps = detect(needsIOS: needsIOS, repo: repo, customApp: customApp, upstream: upstream, s2armPath: s2armPath)
+        guard upstream.needsPythonAndDotnet else { return Result(deps: deps, python: "", dotnet: "") }
         let py: String
         if upstream == .macNativeGames {
             py = MacNativeGamesBuilder.findMNGPython314() ?? Toolchain.findPython().path

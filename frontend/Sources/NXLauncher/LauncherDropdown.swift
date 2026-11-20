@@ -4,6 +4,17 @@ import SwiftUI
 /// LauncherSecondaryButtonStyle's rounded rectangle (the Settings cards).
 package enum LauncherDropdownStyle { case pill, button }
 
+/// What a LauncherDropdown is, as Apple's HIG names them. A `popUp` picks one value and shows the current one on its face, with
+/// the up and down chevron (`chevron.up.chevron.down`): Language, Game display, the engine channel, the build source, the sort. A
+/// `pullDown` runs actions: its face shows a title and opens down (`chevron.down`). A "…" menu of actions is DSOverflowMenu.
+package enum LauncherDropdownKind {
+    case popUp, pullDown
+    /// The symbol on the face.
+    package var indicator: String { self == .popUp ? "chevron.up.chevron.down" : "chevron.down" }
+    /// A pull-down's chevron turns while the list is open. A pop-up's double chevron stays.
+    package var turnsWhenOpen: Bool { self == .pullDown }
+}
+
 /// Where the list of an open dropdown goes and how big it is. Pure, so the rules are tested (LauncherDropdownTests).
 package enum LauncherDropdownLayout {
     package static let rowHeight: CGFloat = 34
@@ -351,15 +362,14 @@ package struct LauncherDropdownList: View {
                 Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(LauncherPalette.accent)
                     .opacity(selected ? 1 : 0)
             }
-            .foregroundStyle(destructiveValues.contains(option.value) ? LauncherPalette.danger : LauncherPalette.text)
+            .foregroundStyle(disabled ? DS.Color.textTertiary : destructiveValues.contains(option.value) ? LauncherPalette.danger : LauncherPalette.text)
             .padding(.horizontal, 12).frame(height: LauncherDropdownLayout.rowHeight)
             .background(!disabled && highlighted == index ? LauncherPalette.ink(0.09) : (selected ? LauncherPalette.ink(0.045) : .clear),
                         in: RoundedRectangle(cornerRadius: 8))
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .disabled(disabled)
-        .opacity(disabled ? 0.45 : 1)
+        .disabled(disabled)   // a choice this game cannot take: dimmed to the disabled text colour, no hover
         .onHover { inside in
             if inside && !disabled { highlighted = index } else if highlighted == index { highlighted = nil }
         }
@@ -402,15 +412,17 @@ package struct LauncherDropdownList: View {
 /// `label` names the setting for VoiceOver, which then reads the choice as the value.
 package struct LauncherDropdown: View {
     package init(options: [(value: String, label: String)], selection: String, label: String = "", style: LauncherDropdownStyle = .button,
-                  fill: Bool = false, leading: Bool = false, disabledValues: Set<String> = [], choose: @escaping (String) -> Void) {
+                  kind: LauncherDropdownKind = .popUp, fill: Bool = false, leading: Bool = false, disabledValues: Set<String> = [],
+                  choose: @escaping (String) -> Void) {
         self.options = options; self.selection = selection; self.label = label; self.style = style; self.fill = fill; self.leading = leading
-        self.disabledValues = disabledValues
-        self.choose = choose
+        self.kind = kind; self.disabledValues = disabledValues; self.choose = choose
     }
     package let options: [(value: String, label: String)]
     package let selection: String
     package var label = ""
     package var style: LauncherDropdownStyle = .button
+    /// A pop-up of values (the default) or a pull-down of actions, whose face shows `label` instead of a current value.
+    package var kind: LauncherDropdownKind = .popUp
     package var fill = false
     /// With `fill`: the choice starts at the left, like the text of a field (the export's device, LNPANDY/NX2Apple#416).
     package var leading = false
@@ -427,11 +439,21 @@ package struct LauncherDropdown: View {
         }
     }
 
-    fileprivate var current: String { options.first { $0.value == selection }?.label ?? selection }
+    fileprivate var current: String {
+        if kind == .pullDown { return label }
+        return options.first { $0.value == selection }?.label ?? selection
+    }
+
+    /// The face's chevron: the pop-up's double chevron, or the pull-down's chevron that turns while open.
+    fileprivate func indicator(open: Bool) -> some View {
+        Image(systemName: kind.indicator).font(.system(size: kind == .popUp ? 10 : 9, weight: .bold)).foregroundStyle(DS.Color.symbolDefault)
+            .rotationEffect(.degrees(open && kind.turnsWhenOpen ? 180 : 0))
+            .accessibilityHidden(true)
+    }
 
     fileprivate func face(open: Bool, rowWidth: CGFloat?) -> some View {
         let rounded = style == .button
-        let shape = Capsule()
+        let shape = DSPill()
         let width = fill ? nil : rowWidth
         return HStack(spacing: 0) {
             Text(current).font(.manrope(rounded ? 13 : 12.5, .semibold)).lineLimit(1)
@@ -440,11 +462,9 @@ package struct LauncherDropdown: View {
                 .frame(maxWidth: fill || width != nil ? .infinity : nil, alignment: fill && leading ? .leading : .center)   // the words centre across the whole button
                 .padding(.leading, (fill && !leading) || width != nil ? 14 : 0)   // room so the chevron never crowds them
             if fill || width != nil {
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
-                    .rotationEffect(.degrees(open ? 180 : 0)).padding(.trailing, 14)
+                indicator(open: open).padding(.trailing, 14)
             } else {
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
-                    .rotationEffect(.degrees(open ? 180 : 0)).padding(.leading, 8)
+                indicator(open: open).padding(.leading, 8)
             }
         }
         .padding(.horizontal, rounded ? 15 : 14).padding(.vertical, rounded ? 9 : 7)
@@ -458,7 +478,7 @@ package struct LauncherDropdown: View {
     }
 
     fileprivate func accessible<V: View>(_ view: V) -> some View {
-        view.accessibilityLabel(label.isEmpty ? current : label).accessibilityValue(label.isEmpty ? "" : current)
+        view.accessibilityLabel(label.isEmpty ? current : label).accessibilityValue(label.isEmpty || kind == .pullDown ? "" : current)
     }
 
     private struct Hosted: View {

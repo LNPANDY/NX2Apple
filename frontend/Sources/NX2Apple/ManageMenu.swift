@@ -133,7 +133,7 @@ struct ManageButtonLabel: View {
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: "ellipsis.circle").font(.system(size: 27, weight: .ultraLight))
-            Text(title).font(.manrope(13))
+            Text(title).font(DS.Font.body)
         }
         .foregroundStyle(LauncherPalette.textStrong).contentShape(Rectangle())
     }
@@ -181,7 +181,7 @@ struct ManageMenuPanel: View {
         let button = Button { activate(item) } label: {
             HStack(spacing: 11) {
                 Image(systemName: item.symbol).font(.system(size: 13, weight: .medium)).frame(width: 18)
-                Text(item.title).font(.manrope(13, .medium)).lineLimit(1)
+                Text(item.title).font(DS.Font.body).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(tint).opacity(item.enabled ? 1 : 0.4)

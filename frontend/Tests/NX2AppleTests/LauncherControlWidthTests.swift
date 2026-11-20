@@ -145,7 +145,7 @@ import NXModel
                 s.deviceStore.signingTeam = team.id
             },
             // The single-game FilesCard is hidden while a queue is staged, leaving the engine switcher and InstallCard row controls.
-            Scenario(name: "builds with a waiting queue for an iPhone", page: .builds, atLeast: 2) { s, _, directory in
+            Scenario(name: "builds with a waiting queue for an iPhone", page: .builds, atLeast: 1) { s, _, directory in   // the install mode: the engine is a footnote here (#1458)
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "ios"
                 MainActor.assumeIsolated { s.deviceStore.checked = true }
@@ -237,7 +237,7 @@ import NXModel
         host.layoutSubtreeIfNeeded()
         if scenario.page == .builds {
             let ids = Set(focus.frames["main", default: []].map(\.id))
-            XCTAssertTrue(ids.contains("set.build.engine"), "\(scenario.name): missing engine switcher control")
+            XCTAssertTrue(ids.contains("set.build.engine.change"), "\(scenario.name): missing the way to the engine in Settings")
             if modelStores.queue.hasWaiting {
                 XCTAssertTrue(ids.contains("set.build.queue.select"), "\(scenario.name): missing batch queue selector")
                 if modelStores.queue.hasIOS {
@@ -263,7 +263,9 @@ import NXModel
                 let at = "\(lang), \(scenario.name)"
                 XCTAssertGreaterThanOrEqual(samples.count, scenario.atLeast, "\(at): the page showed fewer controls than expected")
                 for (index, sample) in samples.enumerated() {
-                    XCTAssertLessThanOrEqual(sample.size.width, LauncherControl.width, "\(at), control \(index)")
+                    // every button and pop-up in a Settings row is exactly the control column wide, the primary too (#1458): a
+                    // narrower or wider one breaks the column. Toggles report no sample.
+                    XCTAssertEqual(sample.size.width, LauncherControl.width, accuracy: 0.5, "\(at), control \(index): not the column's width")
                     XCTAssertEqual(sample.size.height, LauncherControl.height, "\(at), control \(index)")
                     XCTAssertLessThanOrEqual(sample.labelWidth, sample.room,
                                              "\(at), control \(index): its label needs \(sample.labelWidth) pt on one line, the control has \(sample.room)")

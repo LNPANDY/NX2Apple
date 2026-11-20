@@ -66,7 +66,7 @@ package struct ShellCacheRow: View {
                 VStack(alignment: .leading, spacing: 8) {
                     LauncherProgressBar(value: total > 0 ? Double(done) / Double(total) : 0, height: 6).frame(height: 6)
                     Text(String(format: loc.t(key), ShellInstall.sizeText(done), ShellInstall.sizeText(total)))
-                        .font(.manrope(12.5)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText)
+                        .font(DS.Font.callout).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText)
                 }
                 footer(.info, loc.t("shellCache.movingNote")) {
                     button(loc.t("btn.stop"), id: "stop", accent: LauncherPalette.building) { build.stopShellMove() }
@@ -88,7 +88,7 @@ package struct ShellCacheRow: View {
     }
 
     @ViewBuilder private func confirmation(_ plan: ShellRootMove.Plan) -> some View {
-        Text(loc.t("shellCache.confirmTitle")).font(.manrope(14, .semibold))
+        Text(loc.t("shellCache.confirmTitle")).font(DS.Font.bodyStrong)
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 14, verticalSpacing: 6) {
             fact("shellCache.from", build.shortPath(plan.source), path: true)
             fact("shellCache.to", build.shortPath(plan.destination), path: true)
@@ -113,7 +113,7 @@ package struct ShellCacheRow: View {
 
     private func fact(_ key: String, _ value: String, path: Bool = false) -> some View {
         GridRow {
-            Text(loc.t(key)).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
+            Text(loc.t(key)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
             Text(value).font(path ? .mono(12) : .manrope(12.5, .semibold)).monospacedDigit()
                 .lineLimit(1).truncationMode(.middle).help(value)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -156,15 +156,15 @@ package struct ShellCacheRow: View {
     private func note(_ kind: NoteKind, _ text: String) -> some View {
         let (symbol, color): (String, Color) = {
             switch kind {
-            case .done: return ("checkmark.circle.fill", LauncherPalette.ready)
-            case .info: return ("info.circle", .secondary)
-            case .warning: return ("exclamationmark.triangle.fill", LauncherPalette.building)
-            case .blocked: return ("exclamationmark.triangle.fill", .red)
+            case .done: return (DSTone.success.symbol, DSTone.success.color)   // one symbol per tone (DSTone)
+            case .info: return (DSTone.info.symbol, DS.Color.symbolDefault)
+            case .warning: return (DSTone.warning.symbol, DSTone.warning.color)
+            case .blocked: return (DSTone.error.symbol, DSTone.error.color)
             }
         }()
         return HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(color).frame(width: 13)
-            Text(text).font(.manrope(12.5)).foregroundStyle(kind == .done || kind == .info ? Color.secondary : color)
+            Text(text).font(DS.Font.callout).foregroundStyle(kind == .done || kind == .info ? Color.secondary : color)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }

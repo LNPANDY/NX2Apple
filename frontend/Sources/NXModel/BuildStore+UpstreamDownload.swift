@@ -43,7 +43,7 @@ private final class UpstreamCancelFlag: @unchecked Sendable {
 
 extension BuildStore {
     package var availableUpstreams: [EngineUpstreamKind] {
-        EngineUpstream.availableOnMac()
+        EngineUpstream.availableOnMac(nxkitEnabled: isUpstreamEnabled(.nxkit))
     }
 
     package var upstreamsRootURL: URL {
@@ -58,9 +58,12 @@ extension BuildStore {
         if !s2armInstalled, let dir = store.usableDirectory(for: .s2arm) {
             s2armPath = dir.path
         }
+        refreshNxkit()
         if buildUpstream == .macNativeGames && !macNativeGamesInstalled {
             buildUpstream = .nxnative
         } else if buildUpstream == .s2arm && !s2armInstalled {
+            buildUpstream = .nxnative
+        } else if buildUpstream == .nxkit && !(isUpstreamEnabled(.nxkit) && nxkitInstalled) {
             buildUpstream = .nxnative
         }
         refreshUpstreamLocalVersions()
@@ -74,6 +77,8 @@ extension BuildStore {
             return macNativeGamesInstalled
         case .s2arm:
             return s2armInstalled
+        case .nxkit:
+            return nxkitInstalled
         }
     }
 
@@ -102,13 +107,15 @@ extension BuildStore {
                 && !isMNGBlockedByCurrentGame
         case .s2arm:
             return S2ArmBuilder.featureEnabled && s2armInstalled && !(upstreamDownloads[.s2arm]?.isBusy ?? false)
+        case .nxkit:
+            return isUpstreamEnabled(.nxkit) && nxkitInstalled
         }
     }
 
     package func selectUpstream(_ kind: EngineUpstreamKind) {
         guard canSelectUpstream(kind) else { return }
         buildUpstream = kind
-        if kind == .macNativeGames && target != BuildTarget.mac {
+        if kind.buildsMacOnly && target != BuildTarget.mac {
             target = BuildTarget.mac
         }
     }
@@ -124,6 +131,7 @@ extension BuildStore {
         guard kind != .nxnative, !running else { return Task {} }
         if kind == .macNativeGames && !MacNativeGamesBuilder.featureEnabled { return Task {} }
         if kind == .s2arm && !S2ArmBuilder.featureEnabled { return Task {} }
+        if kind == .nxkit { return Task {} }   // bundled with the app, updated by checkNxkitUpdate (BuildStore+Nxkit.swift)
         if upstreamDownloads[kind]?.isBusy == true {
             return upstreamDownloadTasks[kind] ?? Task {}
         }
@@ -138,32 +146,34 @@ extension BuildStore {
 
         let task = Task { [weak self] in
             let result = await withTaskCancellationHandler {
-                await Task.detached {
-                    store.downloadAndInstall(
+                await Task.detached { () -> Result<URL, UpstreamEngineStore.Failure> in
+                    let progress: @Sendable (Int64, Int64?) -> Void = { written, expected in
+                        guard !cancelFlag.isCancelled else { return }
+                        let formatted = EngineUpdate.formatDownloadProgress(written: written, expected: expected)
+                        hop {
+                            guard let self,
+                                  self.upstreamDownloadGeneration[kind] == gen,
+                                  !cancelFlag.isCancelled,
+                                  self.upstreamDownloads[kind]?.isBusy == true else { return }
+                            self.upstreamDownloads[kind] = .downloading(fraction: formatted.fraction, progressText: formatted.text)
+                        }
+                    }
+                    let extracting: @Sendable () -> Void = {
+                        guard !cancelFlag.isCancelled else { return }
+                        hop {
+                            guard let self,
+                                  self.upstreamDownloadGeneration[kind] == gen,
+                                  !cancelFlag.isCancelled else { return }
+                            self.upstreamDownloads[kind] = .extracting
+                        }
+                    }
+                    return store.downloadAndInstall(
                         kind: kind,
                         transport: transport,
                         remoteInfo: knownRemote,
                         shouldCancel: { cancelFlag.isCancelled },
-                        onProgress: { written, expected in
-                            guard !cancelFlag.isCancelled else { return }
-                            let formatted = EngineUpdate.formatDownloadProgress(written: written, expected: expected)
-                            hop {
-                                guard let self,
-                                      self.upstreamDownloadGeneration[kind] == gen,
-                                      !cancelFlag.isCancelled,
-                                      self.upstreamDownloads[kind]?.isBusy == true else { return }
-                                self.upstreamDownloads[kind] = .downloading(fraction: formatted.fraction, progressText: formatted.text)
-                            }
-                        },
-                        onExtracting: {
-                            guard !cancelFlag.isCancelled else { return }
-                            hop {
-                                guard let self,
-                                      self.upstreamDownloadGeneration[kind] == gen,
-                                      !cancelFlag.isCancelled else { return }
-                                self.upstreamDownloads[kind] = .extracting
-                            }
-                        }
+                        onProgress: progress,
+                        onExtracting: extracting
                     )
                 }.value
             } onCancel: {
@@ -184,6 +194,8 @@ extension BuildStore {
                     self.macNativeGamesPath = url.path
                 case .s2arm:
                     self.s2armPath = url.path
+                case .nxkit:
+                    break
                 }
                 self.upstreamDownloads.removeValue(forKey: kind)
                 self.didInstallUpstreamVersion(kind, previousRemote: knownRemote)

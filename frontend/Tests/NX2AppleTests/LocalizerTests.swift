@@ -18,7 +18,7 @@ import XCTest
 
     func testTheLanguageSwitchChangesTheStrings() {
         let loc = Localizer(.en)
-        XCTAssertEqual(loc.t("onboarding.start"), "Start")
+        XCTAssertEqual(loc.t("onboarding.start"), "Get started")
         loc.lang = .de
         XCTAssertEqual(loc.t("onboarding.start"), L10n.string("onboarding.start", .de))
         loc.lang = .zh
@@ -63,7 +63,7 @@ import XCTest
         let loc = Localizer(.en)
         let done = expectation(description: "read in the background")
         DispatchQueue.global().async {
-            XCTAssertEqual(loc.t("onboarding.start"), "Start")
+            XCTAssertEqual(loc.t("onboarding.start"), "Get started")
             done.fulfill()
         }
         wait(for: [done], timeout: 5)

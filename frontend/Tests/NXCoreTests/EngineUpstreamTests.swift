@@ -106,15 +106,20 @@ final class EngineUpstreamTests: XCTestCase {
 
         XCTAssertEqual(
             EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: false),
+            [.nxnative, .macNativeGames, .nxkit]
+        )
+        XCTAssertEqual(
+            EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: false, nxkitEnabled: false),
             [.nxnative, .macNativeGames]
         )
         XCTAssertEqual(
             EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: true),
-            [.nxnative, .macNativeGames, .s2arm]
+            [.nxnative, .macNativeGames, .s2arm, .nxkit]
         )
-        if ProcessInfo.processInfo.environment["NX2APPLE_ENABLE_S2ARM"] != "1" {
+        if ProcessInfo.processInfo.environment["NX2APPLE_ENABLE_S2ARM"] != "1",
+           ProcessInfo.processInfo.environment["NX2APPLE_MULTI_UPSTREAM"] != "0" {
             XCTAssertFalse(S2ArmBuilder.featureEnabled)
-            XCTAssertEqual(EngineUpstream.availableOnMac(), [.nxnative, .macNativeGames])
+            XCTAssertEqual(EngineUpstream.availableOnMac(), [.nxnative, .macNativeGames, .nxkit])
         }
     }
 
@@ -162,6 +167,38 @@ final class EngineUpstreamTests: XCTestCase {
 
         try FileManager.default.removeItem(at: app.appendingPathComponent("Contents/MacOS/dmhost"))
         XCTAssertThrowsError(try MacGameBundle.read(app))
+    }
+
+    /// The key set of nxkit's `info_plist` (crates/nxb-build/src/standalone/bundle.rs): no DMUpstream and no DMTitleID.
+    private func nxkitPlist(bundleID: String) -> [String: Any] {
+        [
+            "CFBundleExecutable": "nxkit-host", "CFBundleIdentifier": bundleID,
+            "CFBundleName": "Ocarina", "CFBundleDisplayName": "Ocarina", "CFBundlePackageType": "APPL",
+            "CFBundleInfoDictionaryVersion": "6.0", "CFBundleVersion": "1.0", "CFBundleShortVersionString": "1.0",
+            "LSMinimumSystemVersion": "14.0", "LSApplicationCategoryType": "public.app-category.games",
+            "NSHighResolutionCapable": true,
+        ]
+    }
+
+    func testMacGameBundleReadsNxkitAppByItsDefaultBundleID() throws {
+        let app = try createFakeApp(name: "NxkitDefault", plist: nxkitPlist(bundleID: "org.nxkit.game.0400486024dec000"), executables: ["nxkit-host"])
+        XCTAssertThrowsError(try MacGameBundle.read(app), "no run folder yet")
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents/Resources/nxkit"), withIntermediateDirectories: true)
+        let bundle = try MacGameBundle.read(app)
+        XCTAssertEqual(bundle.titleID, "0400486024DEC000")
+        XCTAssertEqual(bundle.upstream, .nxkit)
+        XCTAssertEqual(bundle.name, "Ocarina")
+    }
+
+    func testMacGameBundleReadsNxkitAppWithACustomBundleIDByItsHost() throws {
+        var plist = nxkitPlist(bundleID: "com.example.oot")
+        XCTAssertThrowsError(try MacGameBundle.read(try createFakeApp(name: "NxkitNoID", plist: plist, executables: ["nxkit-host"])))
+        plist["DMTitleID"] = "0400486024DEC000"
+        let app = try createFakeApp(name: "NxkitCustom", plist: plist, executables: ["nxkit-host"])
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents/Resources/nxkit"), withIntermediateDirectories: true)
+        let bundle = try MacGameBundle.read(app)
+        XCTAssertEqual(bundle.titleID, "0400486024DEC000")
+        XCTAssertEqual(bundle.upstream, .nxkit)
     }
 
     func testMacGameBundleReadsMacNativeGames() throws {

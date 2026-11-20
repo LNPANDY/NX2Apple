@@ -33,7 +33,7 @@ package struct BuildFilesCard: View {
                 }
                 CardRow(loc.t("buildfiles.total")) {
                     if store.measuring { ProgressView().controlSize(.small) }
-                    Text(Self.bytes(store.total)).font(.manrope(13, .semibold)).monospacedDigit()
+                    Text(Self.bytes(store.total)).font(DS.Font.bodyStrong).monospacedDigit()
                         .accessibilityLabel(loc.t("buildfiles.total") + ": " + Self.bytes(store.total))
                 }
             }
@@ -45,16 +45,17 @@ package struct BuildFilesCard: View {
         let removing = store.removing == entry.id
         let detail = building ? loc.t("buildfiles.building") : removing ? loc.t("buildfiles.removing") : Self.bytes(entry.bytes)
         return CardRow(entry.name, detail: detail, help: entry.folder) {
-            if removing { ProgressView().controlSize(.small) }
+            if removing { DSSpinner() }
+            // one action in the control column, Remove (destructive) in the "…" beside it
+            DSOverflowMenu(label: String(format: loc.t("buildfiles.removeNamed"), entry.name),
+                           options: [("remove", loc.t("buildfiles.remove"))], padID: "set.buildfiles.\(index)", destructiveValues: ["remove"]) { _ in
+                if !building && store.removing == nil { store.ask(entry.id, building: building) }
+            }
+            .disabled(building || store.removing != nil)
             Button(loc.t("buildfiles.details")) { details(entry.id) }
                 .disabled(removing)
                 .accessibilityLabel(String(format: loc.t("buildfiles.detailsNamed"), entry.name))
                 .padTarget("set.buildfiles.details.\(index)", scope: "main", enabled: !removing) { if !removing { details(entry.id) } }
-            Button(loc.t("buildfiles.remove"), role: .destructive) { store.ask(entry.id, building: building) }
-                .buttonStyle(LauncherSecondaryButtonStyle(accent: .red))
-                .disabled(building || store.removing != nil)
-                .accessibilityLabel(String(format: loc.t("buildfiles.removeNamed"), entry.name))
-                .padTarget("set.buildfiles.\(index)", scope: "main", enabled: !building && store.removing == nil) { if !building && store.removing == nil { store.ask(entry.id, building: building) } }
         }
     }
 }
@@ -77,13 +78,10 @@ package struct BuildFilesRemoveSheet: View {
         LauncherConfirmSheet(title: loc.t("buildfiles.title"), subtitle: entry.name, note: loc.t("buildfiles.note"),
                              cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("buildfiles.remove"), destructive: true,
                              scope: "buildfiles", cancel: cancel, confirm: confirm) {
-            VStack(spacing: 0) {
-                CardRow(String(format: loc.t("buildfiles.frees"), BuildFilesCard.bytes(entry.bytes)), detail: loc.t("buildfiles.stays"),
-                        detail2: (entry.folder as NSString).abbreviatingWithTildeInPath, help: entry.folder) { EmptyView() }
+            DSSection("") {
+                DSRow(String(format: loc.t("buildfiles.frees"), BuildFilesCard.bytes(entry.bytes)), detail: loc.t("buildfiles.stays"),
+                      detail2: (entry.folder as NSString).abbreviatingWithTildeInPath, help: entry.folder) { EmptyView() }
             }
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
-            .padding(.horizontal, 30)
         }
     }
 }

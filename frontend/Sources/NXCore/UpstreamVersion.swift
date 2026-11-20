@@ -59,7 +59,7 @@ package enum UpstreamVersion {
 
     package static func infoRefsURL(for kind: EngineUpstreamKind) -> URL? {
         switch kind {
-        case .nxnative:
+        case .nxnative, .nxkit:
             return nil
         case .s2arm:
             return URL(string: "https://github.com/jhaizhou-ops/S2Arm/info/refs?service=git-upload-pack")
@@ -171,7 +171,7 @@ package enum UpstreamVersion {
                 } else {
                     version = String(commit.prefix(7))
                 }
-            case .nxnative:
+            case .nxnative, .nxkit:
                 version = String(commit.prefix(7))
             }
         } else if let remoteInfo, !remoteInfo.version.isEmpty {
@@ -267,7 +267,7 @@ package enum UpstreamVersion {
             entryRel = "build_app.py"
         case .s2arm:
             entryRel = "pack/jobs/main.py"
-        case .nxnative:
+        case .nxnative, .nxkit:
             return nil
         }
         let entryPath = dirURL.appendingPathComponent(entryRel).path
@@ -352,7 +352,7 @@ package enum UpstreamVersion {
         case .macNativeGames:
             let (version, dateStr) = resolveMNGVersion(mainSHA: mainSHA, tagCommits: tagCommits, now: now)
             return UpstreamRemoteInfo(kind: kind, commit: mainSHA, version: version, date: dateStr)
-        case .nxnative:
+        case .nxnative, .nxkit:
             return nil
         }
     }

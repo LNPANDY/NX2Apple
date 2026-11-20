@@ -36,15 +36,21 @@ enum CloudSaveText {
 }
 
 /// The desktop's check before a start: the wait for the cloud's save with Cancel, and the question when the two saves differ or
-/// the cloud's cannot be read. Each answer is a button the keyboard and a controller reach (scope `cloudsave`).
+/// the cloud's cannot be read, on the sheet layout. Each answer is a button the keyboard and a
+/// controller reach (scope `cloudsave`). Choosing a save is never the Return key's: the other save is only a backup then.
 struct CloudSaveSheet: View {
     @ObservedObject var gate: CloudSaveGate
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var focus: PadFocus
     @State private var picked: CloudSaveCheck.Choice?   // no row is preselected: the other save is backed up, so the player has to say which one
 
+    init(gate: CloudSaveGate, picked: CloudSaveCheck.Choice? = nil) {
+        self.gate = gate
+        _picked = State(initialValue: picked)   // visual QA: a row already chosen
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        Group {
             switch gate.step {
             case let .fetching(name, long): fetching(name, long: long)
             case let .asking(q): asking(q)
@@ -52,124 +58,81 @@ struct CloudSaveSheet: View {
             }
         }
         .padScope("cloudsave", focus)
-        .frame(width: 560)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(LauncherPalette.background)
-        .font(.manrope(13))
-        .launcherAppearance()
-        .tint(LauncherPalette.cream)
-    }
-
-    private func heading(_ symbol: String, _ title: String, _ note: String) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: symbol).font(.system(size: 19, weight: .medium)).foregroundStyle(LauncherPalette.cream)
-                .frame(width: 40, height: 40).background(LauncherPalette.cream.opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.manrope(22, .heavy)).tracking(-0.4).fixedSize(horizontal: false, vertical: true)
-                Text(note).font(.manrope(13)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 18)
     }
 
     private func fetching(_ name: String, long: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            heading("icloud.and.arrow.down", loc.t("cloudCheck.fetching.title"), String(format: loc.t("cloudCheck.fetching.note"), name))
-            HStack(spacing: 12) {
+        DSSheet(title: loc.t("cloudCheck.fetching.title"), message: String(format: loc.t("cloudCheck.fetching.note"), name)) {
+            HStack(alignment: .firstTextBaseline, spacing: DS.Space.s) {
                 ProgressView().controlSize(.small)
-                Text(long ? loc.t("cloudCheck.fetching.long") : loc.t("cloudCheck.fetching.wait")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                Text(long ? loc.t("cloudCheck.fetching.long") : loc.t("cloudCheck.fetching.wait")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, 28).padding(.bottom, 20)
-            footer {
-                if long { secondary("cloudCheck.playLocal", id: "cloudsave.offline") { gate.choose(.offline) } }
-                secondary("cloudCheck.cancel", id: "cloudsave.cancel") { gate.cancel() }.keyboardShortcut(.cancelAction)
+        } buttons: {
+            cancel
+            if long {
+                DSSheetPrimaryButton(loc.t("cloudCheck.playLocal"), takesReturn: false) { gate.choose(.offline) }
+                    .padTarget("cloudsave.offline", scope: "cloudsave", focusColor: DS.Color.accentOn) { gate.choose(.offline) }
             }
         }
     }
 
     @ViewBuilder private func asking(_ q: CloudSaveQuestion) -> some View {
         if q.outcome == .unreadable {
-            heading("icloud.slash", loc.t("cloudCheck.unreadable.title"), String(format: loc.t("cloudCheck.unreadable.note"), q.gameName))
-            VStack(alignment: .leading, spacing: 10) {
-                if let reason = q.reason { Text(reason).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-                choice("cloudCheck.retry", detail: loc.t("cloudCheck.retry.detail"), symbol: "arrow.clockwise", id: "cloudsave.retry", primary: true) { gate.retry() }
-                choice("cloudCheck.playLocal", detail: loc.t("cloudCheck.playLocal.detail"), symbol: "desktopcomputer", id: "cloudsave.local") { gate.choose(.offline) }
+            DSSheet(title: loc.t("cloudCheck.unreadable.title"), message: String(format: loc.t("cloudCheck.unreadable.note"), q.gameName)) {
+                if let reason = q.reason { DSInlineWarning(reason) }
+                Text(loc.t("cloudCheck.playLocal.detail")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
+            } buttons: {
+                cancel
+                Button(loc.t("cloudCheck.playLocal")) { gate.choose(.offline) }.buttonStyle(DSSecondaryButtonStyle())
+                    .padTarget("cloudsave.local", scope: "cloudsave") { gate.choose(.offline) }
+                DSSheetPrimaryButton(loc.t("cloudCheck.retry")) { gate.retry() }
+                    .help(loc.t("cloudCheck.retry.detail"))
+                    .padTarget("cloudsave.retry", scope: "cloudsave", focusColor: DS.Color.accentOn) { gate.retry() }
             }
-            .padding(.horizontal, 28).padding(.bottom, 20)
-            footer { secondary("cloudCheck.cancel", id: "cloudsave.cancel") { gate.cancel() }.keyboardShortcut(.cancelAction) }
         } else {
-            heading("arrow.triangle.2.circlepath.icloud", loc.t("cloudCheck.choose.title"), q.gameName)
-            VStack(alignment: .leading, spacing: 10) {
-                option("cloudCheck.row.cloud", detail: CloudSaveText.cloudDetail(q, loc.t, lang: loc.lang.code), symbol: "icloud", id: "cloudsave.cloud", value: .cloud)
-                option("cloudCheck.row.local", detail: CloudSaveText.localDetail(q, loc.t, lang: loc.lang.code), symbol: "desktopcomputer", id: "cloudsave.local", value: .local)
-                Text(loc.t("cloudCheck.kept")).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 2)
-            }
-            .padding(.horizontal, 28).padding(.bottom, 20)
-            footer {
-                secondary("cloudCheck.cancel", id: "cloudsave.cancel") { gate.cancel() }.keyboardShortcut(.cancelAction)
-                Button(loc.t("cloudCheck.useSelected")) { if let picked { gate.choose(picked) } }
-                    .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.cream)).disabled(picked == nil)   // no Return shortcut: a destructive choice is never the default
-                    .padTarget("cloudsave.use", scope: "cloudsave", enabled: picked != nil) { if let picked { gate.choose(picked) } }
+            DSSheet(title: loc.t("cloudCheck.choose.title"), message: q.gameName) {
+                DSSection("") {
+                    option("cloudCheck.row.cloud", detail: CloudSaveText.cloudDetail(q, loc.t, lang: loc.lang.code), symbol: "icloud", id: "cloudsave.cloud", value: .cloud)
+                    DSRowDivider()
+                    option("cloudCheck.row.local", detail: CloudSaveText.localDetail(q, loc.t, lang: loc.lang.code), symbol: "desktopcomputer", id: "cloudsave.local", value: .local)
+                }
+                Text(loc.t("cloudCheck.kept")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
+            } buttons: {
+                cancel
+                DSSheetPrimaryButton(loc.t("cloudCheck.useSelected"), takesReturn: false) { if let picked { gate.choose(picked) } }   // never the default: a save becomes a backup
+                    .disabled(picked == nil)
+                    .padTarget("cloudsave.use", scope: "cloudsave", focusColor: DS.Color.accentOn, enabled: picked != nil) { if let picked { gate.choose(picked) } }
             }
         }
     }
 
-    /// A selectable row: the whole row is the target, the chosen one gets the cream outline and a check.
+    private var cancel: some View {
+        Button(loc.t("cloudCheck.cancel")) { gate.cancel() }.buttonStyle(DSSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
+            .padTarget("cloudsave.cancel", scope: "cloudsave") { gate.cancel() }
+    }
+
+    /// A selectable row of the list: the whole row is the target, the chosen one gets the accent check (selection).
     private func option(_ key: String, detail: String, symbol: String, id: String, value: CloudSaveCheck.Choice) -> some View {
         let selected = picked == value
         let action = { picked = value }
         return Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: symbol).font(.system(size: 16, weight: .medium)).frame(width: 24)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(loc.t(key)).font(.manrope(14.5, .bold))
-                    Text(detail).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: DS.Space.s) {
+                Image(systemName: symbol).font(.system(size: 15, weight: .medium)).foregroundStyle(DS.Color.symbolDefault).frame(width: DS.Control.leadingSlot)
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text(loc.t(key)).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary)
+                    Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: 8)
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.system(size: 16)).foregroundStyle(selected ? LauncherPalette.cream : .secondary)
+                Spacer(minLength: DS.Space.xs)
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.system(size: 16))
+                    .foregroundStyle(selected ? DS.Color.symbolAccent : DS.Color.symbolDefault)
             }
-            .padding(.horizontal, 16).padding(.vertical, 12)
+            .padding(.leading, DS.Space.xs).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.s)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? LauncherPalette.cream : .clear, lineWidth: 1.5))
-            .contentShape(RoundedRectangle(cornerRadius: 12))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .padTarget(id, scope: "cloudsave", radius: 12, activate: action)
-    }
-
-    private func choice(_ key: String, detail: String, symbol: String, id: String, primary: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: symbol).font(.system(size: 16, weight: .medium)).frame(width: 24)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(loc.t(key)).font(.manrope(14.5, .bold))
-                    Text(detail).font(.manrope(12)).opacity(0.75).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).opacity(0.6)
-            }
-            .foregroundStyle(primary ? LauncherPalette.background : LauncherPalette.textStrong)
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(primary ? LauncherPalette.cream : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            .contentShape(RoundedRectangle(cornerRadius: 12))
-        }
-        .buttonStyle(.plain)
-        .padTarget(id, scope: "cloudsave", radius: 12, activate: action)
-    }
-
-    private func footer(@ViewBuilder _ buttons: () -> some View) -> some View {
-        VStack(spacing: 0) {
-            Divider().opacity(0.3)
-            HStack(spacing: 12) { Spacer(minLength: 8); buttons() }.padding(.horizontal, 28).padding(.vertical, 16)
-        }
-    }
-
-    private func secondary(_ key: String, id: String, action: @escaping () -> Void) -> some View {
-        Button(loc.t(key), action: action).buttonStyle(LauncherSecondaryButtonStyle()).padTarget(id, scope: "cloudsave", activate: action)
+        .padTarget(id, scope: "cloudsave", radius: DS.Radius.card, activate: action)
     }
 }
 

@@ -44,33 +44,6 @@ final class SettingsAndOptionsStructureTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(LauncherSheet.width, 680)
     }
 
-    func testAppearanceFollowsTheSystemUntilAChoiceIsSaved() {
-        XCTAssertEqual(LauncherAppearance.load(testDefaults), .system)
-        XCTAssertNil(LauncherAppearance.system.scheme)
-        LauncherAppearance.light.save(testDefaults)
-        XCTAssertEqual(LauncherAppearance.load(testDefaults), .light)
-        XCTAssertEqual(LauncherAppearance.dark.scheme, .dark)
-        XCTAssertEqual(LauncherAppearance.allCases.map(\.rawValue), ["system", "light", "dark"])
-    }
-
-    func testLightPaletteKeepsTextReadable() {
-        for value in LauncherPalette.lightValues {
-            XCTAssertGreaterThanOrEqual(LauncherPalette.contrast(value.color, value.on), 4.5, value.name)
-        }
-    }
-
-    func testTheTwoAppearancesResolveToTheirOwnColors() {
-        func resolved(_ color: Color, _ name: NSAppearance.Name) -> NSColor {
-            var result = NSColor.clear
-            NSAppearance(named: name)!.performAsCurrentDrawingAppearance { result = NSColor(color).usingColorSpace(.sRGB)! }
-            return result
-        }
-        let dark = resolved(LauncherPalette.surface, .darkAqua), light = resolved(LauncherPalette.surface, .aqua)
-        XCTAssertEqual(Double(light.redComponent), 1, accuracy: 0.01)
-        XCTAssertEqual(Double(dark.redComponent), 0.10, accuracy: 0.01)
-        XCTAssertEqual(Double(resolved(LauncherPalette.background, .aqua).redComponent), Double(0xF2) / 255, accuracy: 0.01)
-    }
-
     func testConsoleKeepsItsOwnDarkSurface() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/NX2Apple")
         for file in ["ConsoleView.swift"] {

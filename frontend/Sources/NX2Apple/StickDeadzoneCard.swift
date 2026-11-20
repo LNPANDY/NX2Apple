@@ -105,7 +105,7 @@ struct StickDeadzoneCard: View {
                 .padTarget("sticks." + id, scope: "main", radius: 5, enabled: settings.custom, adjust: { set(min(50, max(0, percent + $0))) })
                 .disabled(!settings.custom)
                 .opacity(settings.custom ? 1 : 0.45)
-            Text("\(percent)%").font(.manrope(13, .semibold)).monospacedDigit().foregroundStyle(.secondary)
+            Text("\(percent)%").font(DS.Font.bodyStrong).monospacedDigit().foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .trailing)
             StickVisualizer(input: input, percent: settings.custom ? percent : 0)
                 .accessibilityLabel(title)
@@ -118,7 +118,7 @@ struct StickDeadzoneCard: View {
         HStack(spacing: 6) {
             Circle().fill(filled ? LauncherPalette.cream : .clear).overlay(Circle().strokeBorder(filled ? .clear : LauncherPalette.ink(0.9), lineWidth: 1.5))
                 .frame(width: 10, height: 10)
-            Text(text).font(.manrope(12.5)).foregroundStyle(.secondary)
+            Text(text).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
         }
         .accessibilityElement(children: .combine)
     }

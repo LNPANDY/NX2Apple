@@ -155,14 +155,17 @@ private struct PadTargetModifier: ViewModifier {
         let on = active && focus.visible && focus.focused == id
         return content
             .overlay {
+                // drawn only while focused: a stroke of width 0 is a one-pixel hairline in Core Graphics, not nothing
                 GeometryReader { bounds in
                 Group {
-                    if let radius {
+                    if !(on && ringStyle != .none) {
+                        EmptyView()
+                    } else if let radius {
                         RoundedRectangle(cornerRadius: radius).strokeBorder(color ?? LauncherPalette.focusRing, lineWidth: on && ringStyle != .none ? LauncherPalette.focusRingWidth : 0)
                     } else if abs(bounds.size.width - bounds.size.height) < 0.5 {
                         Circle().strokeBorder(color ?? LauncherPalette.focusRing, lineWidth: on && ringStyle != .none ? LauncherPalette.focusRingWidth : 0)
                     } else {
-                        Capsule().strokeBorder(color ?? LauncherPalette.focusRing, lineWidth: on && ringStyle != .none ? LauncherPalette.focusRingWidth : 0)
+                        DSPill().strokeBorder(color ?? LauncherPalette.focusRing, lineWidth: on && ringStyle != .none ? LauncherPalette.focusRingWidth : 0)
                     }
                 }
                 .padding(ringStyle == .outset ? -4 : 0)

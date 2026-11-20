@@ -37,7 +37,7 @@ package struct EngineDropdownPanel: View {
         .onAppear { pad.scope = "engineDropdown"; pad.focused = actionID(build.buildUpstream) }
         .onDisappear { if pad.scope == "engineDropdown" { pad.scope = "main"; pad.focused = "set.build.engine" } }
         .onChange(of: build.upstreamDownloads) { _ in
-            if let id = pad.focused, let kind = build.availableUpstreams.first(where: { id.hasSuffix("." + $0.rawValue) }) {
+            if let id = pad.focused, let kind = panelKinds.first(where: { id.hasSuffix("." + $0.rawValue) }) {
                 pad.focused = actionID(kind)
             }
         }
@@ -58,8 +58,11 @@ package struct EngineDropdownPanel: View {
         }
     }
 
+    /// The engines this panel lists: the ones it downloads and switches. nxkit (Beta) is bundled and chosen in Settings (UpstreamPicker).
+    private var panelKinds: [EngineUpstreamKind] { build.availableUpstreams.filter { $0 != .nxkit } }
+
     private func move(_ kind: EngineUpstreamKind, by step: Int) -> Bool {
-        let kinds = build.availableUpstreams.filter { !(isBlockedByGame($0) && !build.upstreamState($0).isBusy) }
+        let kinds = panelKinds.filter { !(isBlockedByGame($0) && !build.upstreamState($0).isBusy) }
         guard let index = kinds.firstIndex(of: kind), !kinds.isEmpty else { return false }
         pad.focused = actionID(kinds[(index + step + kinds.count) % kinds.count])
         return true
@@ -70,7 +73,7 @@ package struct EngineDropdownPanel: View {
     }
 
     private var rowsList: some View {
-        let kinds = build.availableUpstreams
+        let kinds = panelKinds
         return VStack(alignment: .leading, spacing: 4) {
             ForEach(kinds, id: \.self) { kind in
                 engineRow(kind)
@@ -161,7 +164,7 @@ package struct EngineDropdownPanel: View {
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 4)
                                 .background(LauncherPalette.secondaryFill, in: Capsule())
-                                .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                                .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
                         }
                     }
                 }
@@ -305,7 +308,7 @@ package struct EngineDropdownPanel: View {
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
                     .background(LauncherPalette.secondaryFill, in: Capsule())
-                    .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                    .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
             }
             .buttonStyle(.plain)
             .fixedSize()
@@ -351,7 +354,7 @@ package struct EngineDropdownPanel: View {
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
                     .background(LauncherPalette.secondaryFill, in: Capsule())
-                    .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                    .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
             }
             .buttonStyle(.plain)
             .fixedSize()
@@ -379,7 +382,7 @@ struct EngineExperimentalBadge: View {
             .padding(.horizontal, compact ? 6 : 7)
             .padding(.vertical, compact ? 1.5 : 2)
             .background(LauncherPalette.building.opacity(0.14), in: Capsule())
-            .overlay(Capsule().strokeBorder(LauncherPalette.building.opacity(0.35)))
+            .overlay(DSPill().strokeBorder(LauncherPalette.building.opacity(0.35)))
             .fixedSize()
     }
 }
@@ -408,7 +411,7 @@ struct UpstreamVersionPill: View {
             .padding(.horizontal, hPad)
             .padding(.vertical, vPad)
             .background(bg, in: Capsule())
-            .overlay(Capsule().strokeBorder(border))
+            .overlay(DSPill().strokeBorder(border))
         if let tooltip, !tooltip.isEmpty {
             pill.help(tooltip)
         } else {

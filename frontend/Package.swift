@@ -11,7 +11,8 @@ let package = Package(
         .target(name: "NXCore", path: "Sources/NXCore"),
         .target(name: "NXModel", dependencies: ["NXCore"], path: "Sources/NXModel"),
         .target(name: "NXLauncher", dependencies: ["NXModel", "NXCore"], path: "Sources/NXLauncher"),
-        .executableTarget(name: "NX2Apple", dependencies: ["NXLauncher", "NXModel", "NXCore"], path: "Sources/NX2Apple"),
+        .executableTarget(name: "NX2Apple", dependencies: ["NXLauncher", "NXModel", "NXCore"], path: "Sources/NX2Apple",
+                          exclude: ["DesignGallery/COVERAGE.md"]),   // the state gallery's coverage list, written by GalleryCoverageTests
         // Tests of the pure logic: they link NXCore only, so they run without SwiftUI.
         .testTarget(name: "NXCoreTests", dependencies: ["NXCore"]),
         // Tests of the stores: they link NXModel and NXCore, never SwiftUI.

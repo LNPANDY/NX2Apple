@@ -34,6 +34,7 @@ struct LaunchOptionsView: View {
     @EnvironmentObject private var focus: PadFocus
     @EnvironmentObject private var saveSettings: SaveSettingsStore   // the global setup and this game's own choices (SaveLocation.swift)
     @EnvironmentObject private var players: PlayerProfileStore
+    @Environment(\.dsSheetMaxHeight) private var maxHeight
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
     private var settings: [LaunchSetting]? {
@@ -56,21 +57,19 @@ struct LaunchOptionsView: View {
         let _ = choicesRevision
         let destination = game.map(LaunchDestination.init) ?? .none
         let shown = destination.categories.contains(category) ? category : (destination.categories.first ?? .game)
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(loc.t("launch.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                    if let game { Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText) }
-                }
+        DSSheetStackLayout(width: LauncherSheet.width, maxHeight: maxHeight) {
+            VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .bottom) {
+                DSSheetHeader(title: loc.t("launch.title"), message: game?.displayName(loc.lang) ?? "")
                 Spacer()
                 // One action at the top while a setting differs from its tested value: it asks first and names how many change (#453)
                 if destination == .mac, let game, let settings, !Self.changed(settings, value: { value($0, game) }).isEmpty {
                     Button(loc.t("launch.useTested")) { askingTested = true }
-                        .buttonStyle(LauncherSecondaryButtonStyle())
+                        .buttonStyle(DSSecondaryButtonStyle())
                         .padTarget("opt.useTested", scope: "launch") { askingTested = true }
                 }
             }
-            .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
+            .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
             // The selector stays where it is while the content below it scrolls
             if !destination.categories.isEmpty {
                 LauncherSegmented(options: destination.categories.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: shown.rawValue, size: 13, semibold: true) {
@@ -78,12 +77,12 @@ struct LaunchOptionsView: View {
                 }
                 .accessibilityElement(children: .contain).accessibilityLabel(loc.t("launch.title"))
                 .padTarget("opt.category", scope: "launch", activate: { moveCategory(1, in: destination) }, adjust: { moveCategory($0, in: destination) })
-                .padding(.horizontal, 30).padding(.bottom, 16)
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DSSheetInsets.gap)
+            }
             }
             if let game {
                 if destination == .none { noBuild(game) } else { content(game, destination: destination, category: shown) }
             }
-            Divider().opacity(0.3)
             footer(game, destination: destination, category: shown)
         }
         .padScope("launch", focus)
@@ -109,9 +108,9 @@ struct LaunchOptionsView: View {
                     .environmentObject(focus).environmentObject(loc).launcherDropdownHost()
             }
         }
-        .frame(width: LauncherSheet.width, height: LauncherSheet.maxHeight(screen: NSScreen.main?.visibleFrame.height ?? 800))
+        .frame(width: LauncherSheet.width)
         .background(LauncherPalette.background)
-        .font(.manrope(13))
+        .font(DS.Font.body)
         .launcherAppearance()
         .tint(LauncherPalette.accent)
     }
@@ -126,30 +125,35 @@ struct LaunchOptionsView: View {
     /// A game with no build for any destination: one explanation, and Build this game… with the game's form filled in.
     private func noBuild(_ game: LibraryGame) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(loc.t("launch.noBuild")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(loc.t("launch.noBuild")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             Button(loc.t("library.setUpBuild")) { dismiss(); onBuild(game) }
                 .buttonStyle(LauncherSecondaryButtonStyle()).launcherRowControls()
                 .disabled(m.running || game.inputs["base", default: []].isEmpty)
                 .padTarget("opt.build", scope: "launch", enabled: !m.running && !game.inputs["base", default: []].isEmpty) { if !m.running { dismiss(); onBuild(game) } }
         }
-        .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(30).frame(maxWidth: .infinity, alignment: .topLeading).fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder private func content(_ game: LibraryGame, destination: LaunchDestination, category: LaunchCategory) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    switch category {
-                    case .game, .performance: settingsCategory(game, category)
-                    case .mods: modsAndCheats(game, destination: destination)
-                    case .saves: saves(game, destination: destination)
-                    }
-                }
-                .padding(.horizontal, 30).padding(.bottom, 24)
+        let stack = VStack(alignment: .leading, spacing: 24) {
+            switch category {
+            case .game, .performance: settingsCategory(game, category)
+            case .mods: modsAndCheats(game, destination: destination)
+            case .saves: saves(game, destination: destination)
             }
-            .id(category)   // each part opens at its top
-            .onChange(of: focus.focused) { id in if let id { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } } }
+            // one footnote under the last group: where the choices are kept
+            Text(loc.t("launch.applied")).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true).padding(.top, -DS.Space.m)
         }
+        .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DSSheetInsets.gap)
+        ViewThatFits(in: .vertical) {
+            stack.fixedSize(horizontal: false, vertical: true)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) { stack }
+                    .onChange(of: focus.focused) { id in if let id { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } } }
+            }
+        }
+        .id(category)   // each part opens at its top
     }
 
     /// Game and Performance: the rows of the game's list that belong to the part, basic first, the rest under Advanced settings.
@@ -169,11 +173,11 @@ struct LaunchOptionsView: View {
                 card {
                     Button { withAnimation(LauncherMotion.animation(.easeInOut(duration: 0.18), reduceMotion: reduceMotion)) { advancedOpen.toggle() } } label: {
                         HStack(spacing: 8) {
-                            Text(loc.t("launch.advanced")).font(.manrope(14, .medium))
+                            Text(loc.t("launch.advanced")).font(DS.Font.body)
                             Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
                                 .rotationEffect(.degrees(advancedOpen ? 90 : 0))
                             Spacer()
-                            Text(String(format: loc.t("launch.advancedCount"), advanced.count)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                            Text(String(format: loc.t("launch.advancedCount"), advanced.count)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                         }
                         .padding(.horizontal, 18).frame(minHeight: 52).contentShape(Rectangle())
                     }
@@ -183,10 +187,10 @@ struct LaunchOptionsView: View {
                 if advancedOpen { groups(advanced, game, all: settings) }
             }
         } else if category == .game {
-            Text(loc.t("launch.none")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(loc.t("launch.none")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
         }
         if category == .performance, settings?.contains(where: { LaunchCategory.of($0) == .performance }) != true {
-            Text(loc.t("launch.noPerformance")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(loc.t("launch.noPerformance")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -217,8 +221,8 @@ struct LaunchOptionsView: View {
     private func actionRow(title: String, detail: String, button: String, id: String, action: @escaping () -> Void) -> some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.manrope(14, .medium))
-                Text(detail).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                Text(title).font(DS.Font.body)
+                Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
             Button(button, action: action).buttonStyle(LauncherSecondaryButtonStyle()).launcherRowControls()
@@ -228,34 +232,25 @@ struct LaunchOptionsView: View {
         .padding(.horizontal, 18).padding(.vertical, 13).frame(minHeight: 52)
     }
 
-    /// Use for new games and Done (Use tested values is at the top of the sheet). Use for new games copies this game's language, display and rumble into the defaults other games start from.
+    /// The button row: Use for new games (its scope in the tooltip) and Done. Use tested values is at the top of the sheet. Use for
+    /// new games copies this game's language, display and rumble into the defaults other games start from, and says so once done.
     private func footer(_ game: LibraryGame?, destination: LaunchDestination, category: LaunchCategory) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(loc.t("launch.applied")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
-            HStack(spacing: 12) {
-                if destination == .mac, category == .game {
-                    Text(defaultsSaved ? loc.t("launch.useForNewDone") : loc.t("defaults.note"))
-                        .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
-                }
-                Spacer(minLength: 8)
-                if destination == .mac, let game, let settings {
-                    if category == .game {
-                        Button(loc.t("launch.useForNew")) { useForNewGames(game, settings) }
-                            .buttonStyle(LauncherSecondaryButtonStyle())
-                            .launcherRowControls()
-                            .accessibilityLabel(loc.t("launch.useForNewLabel"))
-                            .padTarget("opt.useForNew", scope: "launch") { useForNewGames(game, settings) }
-                    }
-                }
-                Button { dismiss() } label: {
-                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold))
-                        .padding(.horizontal, 22).padding(.vertical, 9)
-                }
-                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(.defaultAction)
-                .padTarget("opt.done", scope: "launch", focusColor: LauncherPalette.onCream) { dismiss() }
+        DSSheetButtonRow(leading: {
+            if defaultsSaved, destination == .mac, category == .game {
+                Text(loc.t("launch.useForNewDone")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
             }
-        }
-        .padding(.horizontal, 30).padding(.vertical, 16)
+        }, buttons: {
+            if destination == .mac, let game, let settings, category == .game {
+                Button(loc.t("launch.useForNew")) { useForNewGames(game, settings) }
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .help(loc.t("launch.useForNewHelp"))
+                    .accessibilityLabel(loc.t("launch.useForNewLabel"))
+                    .padTarget("opt.useForNew", scope: "launch") { useForNewGames(game, settings) }
+            }
+            DSSheetPrimaryButton(loc.t("launch.done")) { dismiss() }
+                .padTarget("opt.done", scope: "launch", focusColor: DS.Color.accentOn) { dismiss() }
+        })
+        .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.buttons).padding(.bottom, DSSheetInsets.vertical)
     }
 
     /// This game's language, display and rumble become what a game added from now on starts with (PersonalDefaults). Nothing changes in
@@ -295,7 +290,7 @@ struct LaunchOptionsView: View {
     }
 
     private func heading(_ text: String) -> some View {
-        Text(text).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+        Text(text).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
     }
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -311,9 +306,9 @@ struct LaunchOptionsView: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "info.circle").font(.system(size: 13)).foregroundStyle(LauncherPalette.secondaryText)
             VStack(alignment: .leading, spacing: 3) {
-                Text(note.title).font(.manrope(14, .medium))
+                Text(note.title).font(DS.Font.body)
                 if let detail = note.detail {
-                    Text(detail).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                    Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 0)
@@ -374,9 +369,9 @@ struct LaunchOptionsView: View {
                 if let full = s.kind == "range" ? s.pixels(scale: 1, docked: isDocked) : nil {
                     // The render scale in pixels: the share of the game's own size in the console mode chosen
                     Text(String(format: loc.t(isDocked ? "launch.scaleOfDocked" : "launch.scaleOfHandheld"), Int(((Double(value) ?? 1) * 100).rounded()), full))
-                        .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 } else if !note(s).isEmpty {
-                    Text(note(s)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                    Text(note(s)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 12)
@@ -425,7 +420,7 @@ struct LaunchOptionsView: View {
                 .accessibilityLabel(label(s))
                 .accessibilityValue(pixels ?? "\(Int(((Double(value) ?? 0) * 100).rounded()))%")
                 Text(pixels ?? "\(Int(((Double(value) ?? 0) * 100).rounded()))%")
-                    .font(.manrope(13, .semibold)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText)
+                    .font(DS.Font.bodyStrong).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText)
                     .frame(width: LaunchControl.valueWidth, alignment: .trailing)
                 ZStack {
                     if Double(value) != Double(s.def) {
@@ -440,12 +435,21 @@ struct LaunchOptionsView: View {
                 }
                 .frame(width: 16)
             default:
-                Spacer(minLength: 0)
-                Toggle(label(s), isOn: Binding(get: { value == s.onValue }, set: { set(s, $0 ? s.onValue : s.offValue) }))
-                    .labelsHidden().toggleStyle(LauncherSwitchStyle())
+                if let names = Self.segmentedSwitch[s.env] {
+                    // A switch whose two states are names, not on and off: Window or Fullscreen, as Settings > General (#1458)
+                    LauncherSegmented(options: [(s.offValue, loc.t(names.off)), (s.onValue, loc.t(names.on))],
+                                      selection: value == s.onValue ? s.onValue : s.offValue) { set(s, $0) }
+                } else {
+                    Spacer(minLength: 0)
+                    Toggle(label(s), isOn: Binding(get: { value == s.onValue }, set: { set(s, $0 ? s.onValue : s.offValue) }))
+                        .labelsHidden().toggleStyle(LauncherSwitchStyle())
+                }
             }
         }
     }
+
+    /// The switches drawn as two named segments, by env: the keys of the off and the on segment.
+    static let segmentedSwitch: [String: (off: String, on: String)] = ["DM_FULLSCREEN": ("launch.display.window", "launch.display.fullscreen")]
 
     /// What VoiceOver says for a row's reset button: the action and the setting it resets.
     @MainActor static func resetLabel(_ loc: Localizer, _ setting: String) -> String {
@@ -464,8 +468,8 @@ struct LaunchOptionsView: View {
                 if list.isEmpty {
                     HStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(loc.t("launch.modsNone")).font(.manrope(14, .medium))
-                            Text(loc.t("launch.modsHow")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                            Text(loc.t("launch.modsNone")).font(DS.Font.body)
+                            Text(loc.t("launch.modsHow")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer()
                     }
@@ -474,9 +478,9 @@ struct LaunchOptionsView: View {
                     ForEach(list) { mod in
                         HStack(spacing: 16) {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(mod.name).font(.manrope(14, .medium)).lineLimit(1)
+                                Text(mod.name).font(DS.Font.body).lineLimit(1)
                                 if !mod.usable {
-                                    Text(loc.t("launch.modCode")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+                                    Text(loc.t("launch.modCode")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                                 }
                             }
                             Spacer(minLength: 12)
@@ -504,7 +508,7 @@ struct LaunchOptionsView: View {
                 .buttonStyle(LauncherSecondaryButtonStyle())
                 .padding(.horizontal, 18).padding(.vertical, 12)
             }
-            Text(loc.t(list.count > 1 ? "launch.modsNoteOrder" : "launch.modsNote")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+            Text(loc.t(list.count > 1 ? "launch.modsNoteOrder" : "launch.modsNote")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -522,7 +526,7 @@ struct LaunchOptionsView: View {
             heading(loc.t("launch.frameTimes"))
             card {
                 HStack(spacing: 16) {
-                    Text(loc.t("launch.frameTimesRecord")).font(.manrope(14, .medium))
+                    Text(loc.t("launch.frameTimesRecord")).font(DS.Font.body)
                     Spacer(minLength: 12)
                     Toggle(loc.t("launch.frameTimesRecord"), isOn: on).labelsHidden().toggleStyle(LauncherSwitchStyle())
                 }
@@ -531,7 +535,7 @@ struct LaunchOptionsView: View {
                            activate: { on.wrappedValue.toggle() }, adjust: { _ in on.wrappedValue.toggle() })
                 divider
                 if recent.isEmpty {
-                    Text(loc.t("launch.frameTimesNone")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(loc.t("launch.frameTimesNone")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                         .padding(.horizontal, 18).padding(.vertical, 12)
                     divider
                 }
@@ -549,7 +553,7 @@ struct LaunchOptionsView: View {
                 .buttonStyle(LauncherSecondaryButtonStyle())
                 .padding(.horizontal, 18).padding(.vertical, 12)
             }
-            Text(loc.t("launch.frameTimesNote")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+            Text(loc.t("launch.frameTimesNote")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -619,7 +623,7 @@ struct ChangedLabel: View {
                     .help(hint)
                     .accessibilityLabel(hint)
             }
-            Text(text).font(.manrope(14, .medium))
+            Text(text).font(DS.Font.body)
         }
         .accessibilityElement(children: .combine)
     }

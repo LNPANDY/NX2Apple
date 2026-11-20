@@ -49,6 +49,8 @@ import NXCore
 
     /// A sync runs: the launcher shows a status line with a spinner.
     @Published package private(set) var syncing = false
+    /// The state gallery (#1459) shows the syncing notice without running a sync.
+    package func showSyncingForGallery() { syncing = true }
     /// How the last sync stopped (no network or GitHub unreachable, or another stop), as a failure row with a retry button. nil: none.
     @Published package var failure: BuildFailure?
 
@@ -304,8 +306,8 @@ import NXCore
         selection.save(defaults)
         setRepoPath(dir.path)
         engineStore.prune(keeping: selection.kept)
-        if let change = EngineUpdate.chainChange(from: old, to: dir.path) {
-            status = String(format: t("engine.chainChanged"), engine.version, change.old, change.new)
+        if EngineUpdate.chainChange(from: old, to: dir.path) != nil {   // said in the player's terms, without the chain ids (#1458)
+            status = String(format: t("engine.chainChanged"), engine.version)
         } else {
             status = announce ? String(format: t("engine.installed"), engine.version) : ""
         }
@@ -331,9 +333,11 @@ import NXCore
         self.downloadStatus = status
     }
 
-    /// What Settings shows for the engine: its version and the pin it was built from.
+    /// What Settings shows for the engine, in words: not set up, its version and whether a newer one is there (#1458).
     package var detail: String {
         guard !selection.engineID.isEmpty else { return t("engine.none") }
-        return String(format: t("engine.detail"), selection.version.isEmpty ? "?" : selection.version, String(selection.engineID.prefix(8)))
+        guard !selection.version.isEmpty else { return t("engine.state.set") }
+        if let available { return String(format: t("engine.state.update"), selection.version, available.version) }
+        return String(format: t("engine.state.current"), selection.version)
     }
 }

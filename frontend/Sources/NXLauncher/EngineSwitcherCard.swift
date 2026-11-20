@@ -77,7 +77,7 @@ package struct EngineSwitcherCard: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 7) {
                             Text(loc.t("engine.switcherTitle"))
-                                .font(.manrope(14, .semibold))
+                                .font(DS.Font.bodyStrong)
                                 .foregroundStyle(LauncherPalette.text)
                                 .lineLimit(1)
                             EngineExperimentalBadge(text: loc.t("engine.experimental"))
@@ -91,7 +91,7 @@ package struct EngineSwitcherCard: View {
                             )
                         }
                         Text(loc.t("engine.switcherNote"))
-                            .font(.manrope(12.5))
+                            .font(DS.Font.callout)
                             .foregroundStyle(LauncherPalette.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                         if let busy {
@@ -115,7 +115,7 @@ package struct EngineSwitcherCard: View {
                                 .padding(.horizontal, 9)
                                 .padding(.vertical, 3)
                                 .background(LauncherPalette.secondaryFill, in: Capsule())
-                                .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                                .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
                                 .fixedSize()
                                 .disabled(build.running)
                             }
@@ -223,14 +223,16 @@ package struct EngineSwitcherCard: View {
         let shape = RoundedRectangle(cornerRadius: 9)
         return HStack(spacing: 8) {
             Text(title)
-                .font(.manrope(13, .semibold))
+                .font(DS.Font.bodyStrong)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .frame(maxWidth: .infinity, alignment: .center)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(LauncherPalette.secondaryText)
-                .rotationEffect(.degrees(open ? 180 : 0))
+                .padding(.leading, 14)
+            Image(systemName: LauncherDropdownKind.popUp.indicator)   // a pop-up: it shows the engine in use (Apple HIG)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(DS.Color.symbolDefault)
+                .accessibilityHidden(true)
+                .padding(.trailing, 14)
         }
         .padding(.horizontal, 15)
         .frame(width: LauncherControl.width, height: LauncherControl.height)
@@ -238,7 +240,7 @@ package struct EngineSwitcherCard: View {
         .overlay(shape.strokeBorder(open ? LauncherPalette.dropdownOpenBorder : LauncherPalette.secondaryBorder))
         .foregroundStyle(LauncherPalette.text)
         .contentShape(shape)
-        .launcherMeasured(label: Text(title).font(.manrope(13, .semibold)), room: LauncherControl.choiceWidth)
+        .launcherMeasured(label: Text(title).font(DS.Font.bodyStrong), room: LauncherControl.choiceWidth)
     }
 
     private func openDropdown(triggerCheck: Bool = true) {
@@ -288,7 +290,7 @@ package struct EngineSwitcherCard: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(LauncherPalette.accent)
             Text(loc.t("upstream.mngRecommendNote"))
-                .font(.manrope(12.5))
+                .font(DS.Font.callout)
                 .foregroundStyle(LauncherPalette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 12)

@@ -43,9 +43,12 @@ import Combine
                 for (index, page) in pages.enumerated() {
                     driver.state.sheets = page == .menu ? [.menu] : [.menu, page]; settle(0.3)
                     XCTAssertEqual(focus.scope, page.scope, "\(page)")
-                    let active = try XCTUnwrap(focus.frames[page.scope]?.first { $0.id == focus.focused }, "\(page), \(focus.focused ?? "nil")")
-                    XCTAssertGreaterThanOrEqual(active.frame.minY, -1, "\(page)")
-                    XCTAssertLessThanOrEqual(active.frame.maxY, size.height + 1, "\(page)")
+                    // a page with nothing to choose (no cloud saves yet) has no focus: Back is the hint bar's, B does it (#1458)
+                    if !(focus.frames[page.scope] ?? []).isEmpty {
+                        let active = try XCTUnwrap(focus.frames[page.scope]?.first { $0.id == focus.focused }, "\(page), \(focus.focused ?? "nil")")
+                        XCTAssertGreaterThanOrEqual(active.frame.minY, -1, "\(page)")
+                        XCTAssertLessThanOrEqual(active.frame.maxY, size.height + 1, "\(page)")
+                    }
                     if let path = ProcessInfo.processInfo.environment["NX_REMAINING_CAPTURE_DIR"] {
                         let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
                         view.cacheDisplay(in: view.bounds, to: rep)
@@ -68,21 +71,17 @@ import Combine
         let driver = MockConsoleDriver(scenario: .full, animated: false)
         driver.state.builds.stages = (0..<12).map { .init(id: $0, name: "Stage \($0)", state: $0 == 1 ? .running : .pending) }
         try host(driver, size: .init(width: 900, height: 680)) { focus, pad, _, _ in
+            // the console pass (#1458): "Ⓧ Stop build" in the hint bar, which is always in view, X asks first
             driver.openBuilds(); settle(0.5)
-            let stop = try XCTUnwrap(focus.frames[focus.scope]?.first { $0.id == "console.builds.stop" })
-            XCTAssertEqual(focus.focused, stop.id)
-            let back = try XCTUnwrap(focus.frames[focus.scope]?.first { $0.id == "console.builds.close" })
-            XCTAssertEqual(stop.frame.width, back.frame.width, accuracy: 1)
-            XCTAssertEqual(stop.frame.minY, back.frame.minY, accuracy: 1)
-            XCTAssertGreaterThan(stop.frame.minX, back.frame.maxX)
-            XCTAssertGreaterThan(stop.frame.minY, 500)
-            XCTAssertLessThanOrEqual(stop.frame.maxY, 680)
-            pad.perform(.a); settle()
+            let row = focus.focused
+            XCTAssertTrue(row?.hasPrefix("console.builds.queue.") == true, "the focus starts on the queue")
+            XCTAssertFalse((focus.frames[focus.scope] ?? []).contains { $0.id == "console.builds.stop" })
+            pad.perform(.x); settle()
             XCTAssertEqual(driver.state.presentedSheet, .confirmStopBuild)
             XCTAssertEqual(focus.focused, "console.confirmStop.cancel")
             pad.perform(.b); settle()
             XCTAssertEqual(driver.state.presentedSheet, .builds)
-            XCTAssertEqual(focus.focused, stop.id)
+            XCTAssertEqual(focus.focused, row)
         }
     }
 
@@ -97,7 +96,9 @@ import Combine
             var previousIndex = 0
             for _ in 0..<(driver.state.libraryGames.count * 2) {
                 if focus.focused == "console.lib." + last.id { settle(0.3); break }
+                let before = focus.focused
                 pad.perform(.down); settle(0.08)
+                if focus.focused == before { pad.perform(.right); settle(0.08) }   // the grid's last row: along it to the last game
                 for _ in 0..<50 where focus.focused.flatMap({ focus.frame(of: $0) }) == nil { settle(0.02) }
                 if let index = driver.state.libraryGames.firstIndex(where: { "console.lib." + $0.id == focus.focused }) {
                     XCTAssertGreaterThanOrEqual(index, previousIndex, "Scrolling must never reset focus to the top")

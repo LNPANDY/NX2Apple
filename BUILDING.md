@@ -59,19 +59,20 @@ it. Two practical notes from real dumps:
 
 `backports.zstd` is needed for Tears of the Kingdom's zstd dictionaries. Other games do not use it.
 
-## The experimental builder (nxbuild)
+## nxkit (Beta)
 
-[nxbuild](https://github.com/v0lumehi/nxbuild) is a build tool in Rust. It makes the same files as the build script, faster. It is off by default. The Mac launcher has the setting "Use experimental builder" (Settings, Build tools). With it on, the launcher starts one program, `nxb build`, and does not run the build script at all:
+[nxkit](https://github.com/v0lumehi/nxkit) is a build tool in Rust (`nxb`) with its own runtime (`nxkit-host`), the fourth build engine of the Mac launcher. It makes Mac apps only, on macOS 26 or newer with Apple silicon. Choose it in Settings, Tools, Builder upstream, "nxkit (Beta)". The launcher then starts one program, `nxb build`, and never runs the build script:
 
 ```bash
-NXB_ENGINE=engine nxb build <NSP folder> --platform mac-app -k <prod.keys> --title-id <title ID> \
-  -o <app> --work-dir <build folder> --engine engine --progress json
+NXB_NXKIT_HOST=<folder>/nxkit-host <folder>/nxb build <NSP folder> -k <prod.keys> --platform mac \
+  -o <app> --work-dir ~/Library/Caches/NX2Apple/nxkit/<title ID> --progress json --title-id <title ID>
 ```
 
-- The program is the `nxb` binary the player chose in Settings (the binary, or the folder that holds it), else the copy inside the app, which `frontend/nxbuild.pin` names. It needs nxb 0.6.3 or newer: the launcher reads `nxb version` first and stops with a message when the nxb is older.
-- The command line is the script's own: the launcher builds the arguments it gives the script (input folder, `.nup` file or dump folder, `-k`, `--work-dir`, `--platform`, `-o`, `--shell-framework`, `--team-id`, `--romfs`, `--env-file`) and runs `nxb build` with them, so the same cases reach nxb. DLC, NSZ, XCI and merged packages in the folder are found by nxb itself. A game with no profile is surveyed by nxb, and the launcher does not pass `--no-heap-check`, as it does not for the script, so nxb stops with exit code 4 and names the step it cannot do yet.
-- `--progress json` prints one JSON event per line (`stage`, `step`, `progress`, `stage_end`, `say`, each with `code` and `severity`). The launcher shows them as its own stages and writes every line to the build log.
-- There is no fallback. A failure, or a game or step nxb does not take, shows nxb's exit code in words and its last error line. The exit codes are 0 done, 1 error, 2 bad arguments, 3 damaged data, 4 not supported yet, 6 missing key and 130 interrupted. Turning the setting off builds with the script again.
+- The app bundles the pair `frontend/nxbuild.pin` names in `Contents/Resources/nxbuild/` (nxb, nxkit-host, MANIFEST.json). `frontend/tools/nxbuild.py fetch` checks the zip against the pin and the release's SHA256SUMS, and both programs against MANIFEST.json and SHA256SUMS, before anything is bundled.
+- nxkit updates itself without a new launcher release, from the latest GitHub release, when "Update automatically when the app opens" is on, or with "…", Check for updates beside the engine. A release is installed only when its `SHA256SUMS.sig` verifies with the launcher's Ed25519 key (`NxkitUpdate.publicKey`), the ZIP and both programs match SHA256SUMS, and its MANIFEST.json is a format the launcher reads, for arm64 and this macOS. An unsigned release is named in the row and not installed. Versions go to `~/Library/Application Support/NX2Apple/nxkit/<version>/`, `state.json` names the one in use and the one before it ("…", Use previous version). The switch waits for a running nxkit build. The launcher runs the installed version when it is not older than the bundled one, else the bundled pair.
+- `--progress json` prints one JSON event per line. The launcher shows them as its own stages and writes every line to the build log, whose first line names nxkit's version and nxkit-host's build.
+- There is no fallback to the script. A failure shows nxb's exit code in words and its last lines (0 done, 1 error, 2 bad arguments, 3 damaged data, 4 not supported yet, 6 missing key, 130 interrupted).
+- After a build, finished or failed, and after the first start of an app nxkit built, the launcher asks "Did it work?" once. An answer opens a prefilled game report in v0lumehi/nxkit in the browser (`NxkitFeedback.swift` has the form's field ids). Nothing is sent by itself, and the report has no keys and no paths.
 
 ## Build the IPA
 

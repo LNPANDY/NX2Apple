@@ -37,13 +37,13 @@ import NXLauncher
                     { copy(global.environment) }
                 })
             } else {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text(game.displayName(loc.lang)).font(.manrope(26, .heavy))
-                    Text(loc.t("controls.savingDisabled")).font(.manrope(14))
-                    Button(loc.t("launch.done")) { dismiss() }.buttonStyle(LauncherSecondaryButtonStyle())
-                        .padTarget("controls.done", scope: "controls") { dismiss() }
-                }.padding(30).frame(width: 600, height: 300).background(LauncherPalette.background)
-                    .padScope("controls", focus).launcherAppearance()
+                DSSheet(width: 600, title: game.displayName(loc.lang), message: loc.t("controls.savingDisabled")) {
+                    EmptyView()
+                } buttons: {
+                    DSSheetPrimaryButton(loc.t("launch.done")) { dismiss() }
+                        .padTarget("controls.done", scope: "controls", focusColor: DS.Color.accentOn) { dismiss() }
+                }
+                .padScope("controls", focus)
             }
         }
         .onAppear { refresh() }
@@ -75,10 +75,10 @@ struct SteamControllerSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(loc.t("controls.steam.title")).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText)
+                Text(loc.t("controls.steam.title")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary)
                 Spacer()
                 Button(loc.t("controls.steam.reset")) { store.resetSteam() }
-                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .buttonStyle(DSRowButtonStyle())
                     .padTarget("steam.reset", scope: "controls") { store.resetSteam() }
             }
             VStack(spacing: 0) {
@@ -91,7 +91,7 @@ struct SteamControllerSection: View {
                         LauncherDropdown(options: targets, selection: String(store.steam.buttons[index + 16] ?? -1),
                                          label: loc.t("controls.steam." + name), fill: true) { store.setButton(index + 16, target: Int($0) ?? -1) }
                     }
-                    Divider().opacity(0.2).padding(.leading, 18)
+                    DSRowDivider()
                 }
                 ForEach(0..<2, id: \.self) { index in
                     line(loc.t(index == 0 ? "controls.steam.leftMode" : "controls.steam.rightMode"), id: "mode\(index)",
@@ -99,7 +99,7 @@ struct SteamControllerSection: View {
                         LauncherDropdown(options: (0...4).map { (value: String($0), label: loc.t("controls.steam.mode.\($0)")) },
                                          selection: String(store.steam.pads[index]), label: loc.t("controls.steam.title"), fill: true) { store.setPad(index, mode: Int($0) ?? 0) }
                     }
-                    Divider().opacity(0.2).padding(.leading, 18)
+                    DSRowDivider()
                 }
                 line(loc.t("controls.steam.gyro"), id: "gyro", activate: { store.setGyro(!store.steam.gyro) },
                      adjust: { _ in store.setGyro(!store.steam.gyro) }) {
@@ -107,18 +107,18 @@ struct SteamControllerSection: View {
                         .labelsHidden().toggleStyle(LauncherSwitchStyle())
                 }
             }
-            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(LauncherPalette.cardBorder))
         }
     }
     private func line<Trailing: View>(_ title: String, id: String, activate: (() -> Void)? = nil, adjust: ((Int) -> Void)? = nil, @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
-            Text(title).font(.manrope(13, .medium))
-            Spacer(minLength: 8)
+            Text(title).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+            Spacer(minLength: DS.Space.xs)
             trailing().padTarget("steam." + id, scope: "controls", activate: activate, adjust: adjust)
                 .frame(width: 168, alignment: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 4).frame(minHeight: 34)
+        .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.xxs).frame(minHeight: 46)
     }
 }
 
@@ -129,7 +129,7 @@ struct ControllerMappingStatus: View {
     @ObservedObject var store: ControllerMappingStore
     var body: some View {
         let message = loc.t(store.saveFailed ? "controls.saveFailed" : "controls.gameApplied")
-        Text(message).font(.manrope(12)).foregroundStyle(store.saveFailed ? Color.orange : Color.secondary).lineLimit(2)
+        Text(message).font(DS.Font.callout).foregroundStyle(store.saveFailed ? Color.orange : Color.secondary).lineLimit(2)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(message)
             .accessibilityIdentifier("controllerMapping.status")

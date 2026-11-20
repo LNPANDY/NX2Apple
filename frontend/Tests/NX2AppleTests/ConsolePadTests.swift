@@ -80,8 +80,11 @@ import NXModel
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.15)); host.layoutSubtreeIfNeeded() }
         settle()
         XCTAssertEqual(driver.state.focusedGameID, "demo.0")
+        let order = driver.state.homeOrder
+        let start = order.firstIndex(of: "demo.0") ?? 0
+        XCTAssertLessThan(start + 1, order.count)
         gamepad.perform(.right); settle()
-        XCTAssertEqual(driver.state.focusedGameID, "demo.1", "D-pad right moves focus")
+        XCTAssertEqual(driver.state.focusedGameID, order[start + 1], "D-pad right moves to the next tile of the one row")
         gamepad.perform(.left); settle()
         XCTAssertEqual(driver.state.focusedGameID, "demo.0")
         gamepad.perform(.y); settle()
@@ -99,15 +102,13 @@ import NXModel
         XCTAssertEqual(driver.state.presentedSheet, .menu, "B goes back to the menu")
         gamepad.perform(.plus); settle()
         XCTAssertNil(driver.state.presentedSheet, "the menu button again closes the menu")
-        // Up from a game goes to the row above at the same place, up from the first row to Search in the top bar, right to the menu
-        // button. A opens the menu from there, and closing it with the menu button puts the focus back on the button, not on a game.
+        // Down from the one row does nothing (#1458). Up reaches the top bar, right walks it to the menu button at its end. A opens the
+        // menu from there, and closing it with the menu button puts the focus back on the button, not on a game.
+        gamepad.perform(.down); settle()
+        XCTAssertNil(driver.state.presentedSheet)
+        XCTAssertEqual(driver.state.focusedGameID, "demo.0", "down from the row moves nothing")
         gamepad.perform(.up); settle()
-        XCTAssertEqual(driver.state.focusedGameID, "demo.2", "up goes to the Continue playing row, the game played last")
-        gamepad.perform(.up); settle()
-        gamepad.perform(.a); settle()
-        XCTAssertEqual(driver.state.presentedSheet, .search, "up from the first row reaches Search")
-        gamepad.perform(.b); settle()
-        gamepad.perform(.right); settle()
+        for _ in 0..<6 { gamepad.perform(.right); settle() }
         gamepad.perform(.a); settle()
         XCTAssertEqual(driver.state.presentedSheet, .menu, "A on the menu button opens the menu")
         gamepad.perform(.down); settle()
@@ -121,7 +122,7 @@ import NXModel
         // Activating a ready tile now launches directly. Resume navigation after the simulated launch.
         gamepad.perform(.down); settle()
         gamepad.perform(.a); settle()
-        XCTAssertEqual(driver.state.startingGameID, "demo.2")
+        XCTAssertEqual(driver.state.startingGameID, "demo.0", "down from the top bar goes back to the same tile")
         XCTAssertNil(driver.state.presentedSheet)
         driver.state.startingGameID = nil
         settle()
@@ -162,18 +163,17 @@ import NXModel
         let game = driver.state.games.first { $0.id == "demo.0" }
         XCTAssertEqual(game?.basicSettings.map(\.env), ["DM_RENDER_SCALE", "DM_FPS_TARGET", "DM_LANG"], "rumble is not among the options")
         XCTAssertEqual(game?.controllerSettings.map(\.env), ["DM_RUMBLE", "DM_RUMBLE_GAIN"])
+        // the console pass (#1458): every setting is a value stepper, left and right change it at once, no picking with A first
         let before = scale()
         gamepad.perform(.right); settle()
-        XCTAssertEqual(scale(), before, "a slider not picked ignores left and right")
-        gamepad.perform(.a); settle()
-        gamepad.perform(.right); settle()
-        XCTAssertNotEqual(scale(), before, "picked with A, it moves")
+        XCTAssertEqual(scale(), "1.25", "right steps the render scale up one step")
+        gamepad.perform(.left); settle()
+        XCTAssertEqual(scale(), "1", "left steps it back")
+        XCTAssertNotEqual(before, "1.25")
         gamepad.perform(.b); settle()
-        XCTAssertEqual(driver.state.presentedSheet, .options("demo.0"), "B lets the slider go first")
-        let after = scale()
-        gamepad.perform(.right); settle()
-        XCTAssertEqual(scale(), after, "let go, it ignores left and right again")
+        XCTAssertNil(driver.state.presentedSheet, "B leaves the options at once")
 
+        driver.openOptions("demo.0")
         driver.openGamePad("demo.0")
         XCTAssertEqual(driver.state.presentedSheet, .gamePad("demo.0"))
         driver.setPadMode(.byLabel)   // ignored over a game: only all games' mapping has layouts

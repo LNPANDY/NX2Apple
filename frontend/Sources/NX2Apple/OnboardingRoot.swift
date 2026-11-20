@@ -69,7 +69,7 @@ struct RootView: View {
             }
         }
         .background(LauncherPalette.background)
-        .launcherAppearance(forceDark: mode == .launcher && console.active)   // the window is Dark while the console shows
+        .launcherAppearance()
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .task {
             shared.console.prepareLaunch = { [console] launch in console.startGameInFullScreen(then: launch) }   // the console stays full screen into the game (seedds/nxnative#665)

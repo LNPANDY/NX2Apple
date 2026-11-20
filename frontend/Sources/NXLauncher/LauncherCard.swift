@@ -9,10 +9,10 @@ import NXModel
 extension StepState {
     package var color: Color {
         switch self {
-        case .pending: return .gray
-        case .running: return .yellow
-        case .done: return .green
-        case .failed: return .red
+        case .pending: return DS.Color.textTertiary
+        case .running: return DS.Color.statusWarning
+        case .done: return DS.Color.statusSuccess
+        case .failed: return DS.Color.statusError
         }
     }
 }
@@ -28,15 +28,16 @@ package struct CardPageHeading: View {
     }
 
     package var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.manrope(44, .heavy)).tracking(-1.3)
-            Text(note).font(.manrope(15)).foregroundStyle(LauncherPalette.secondaryText)
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            Text(title).font(DS.Font.largeTitle).tracking(DS.Font.largeTitleTracking).foregroundStyle(DS.Color.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+            if !note.isEmpty { Text(note).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
         }
     }
 }
 
 private struct LauncherSectionTitleFontKey: EnvironmentKey {
-    static let defaultValue: Font = .manrope(15, .semibold)
+    static let defaultValue: Font = DS.Font.headline
 }
 
 extension EnvironmentValues {
@@ -54,9 +55,26 @@ extension EnvironmentValues {
     }
 }
 
-/// A titled group: a label over one card of rows.
+/// Whether a row of the group uses the leading slot (a status dot): a group reserves the slot for all its rows only then.
+package struct DSRowLeadingSlotKey: PreferenceKey {
+    package static let defaultValue = false
+    package static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
+private struct DSRowReservesSlotKey: EnvironmentKey { static let defaultValue = true }
+extension EnvironmentValues {
+    /// Set by the group (DSSection): whether its rows keep the 20 pt leading slot. A row outside a group keeps it.
+    package var dsRowReservesSlot: Bool {
+        get { self[DSRowReservesSlotKey.self] }
+        set { self[DSRowReservesSlotKey.self] = newValue }
+    }
+}
+
+/// A titled group: a label over one card of rows. The group reserves the rows' leading slot only when one of its rows uses it
+/// (a status dot), so a list without dots starts its text at the card's inset (#1458).
 package struct CardGroup<Content: View>: View {
     @Environment(\.launcherSectionTitleFont) private var titleFont
+    @State private var reservesSlot = false
     let label: String
     let insetTitle: Bool
     let qualifier: String
@@ -77,36 +95,42 @@ package struct CardGroup<Content: View>: View {
     }
 
     package var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
             if !insetTitle && !label.isEmpty { heading }
             VStack(spacing: 0) {
-                if insetTitle && !label.isEmpty { heading.padding(.horizontal, 18).padding(.top, 16) }
+                if insetTitle && !label.isEmpty { heading.padding(.horizontal, DS.Space.m).padding(.top, DS.Space.m) }
                 content
             }
-                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+                .environment(\.dsRowReservesSlot, reservesSlot)
+                .onPreferenceChange(DSRowLeadingSlotKey.self) { reservesSlot = $0 }
+                .transformPreference(DSRowLeadingSlotKey.self) { $0 = false }   // the group's own, not the one around it
+                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(LauncherPalette.cardBorder))
             if !footnote.isEmpty {
-                Text(footnote).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+                Text(footnote).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary).padding(.horizontal, DS.Space.xxs)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
+    /// One header style for every section: headline, secondary text (an inset title reads as a row title).
     private var heading: some View {
-        HStack(spacing: 6) {
-            Text(label).font(insetTitle ? .manrope(14, .semibold) : titleFont)
-                .foregroundStyle(insetTitle ? LauncherPalette.text : LauncherPalette.secondaryText).padding(.leading, 2)
-            if !qualifier.isEmpty { Text(qualifier).font(.manrope(12)).foregroundStyle(.secondary) }
+        HStack(spacing: DS.Space.xs) {
+            Text(label).font(insetTitle ? DS.Font.body : titleFont)
+                .foregroundStyle(insetTitle ? DS.Color.textPrimary : DS.Color.textSecondary).padding(.leading, DS.Space.xxs)
+                .accessibilityAddTraits(.isHeader)
+            if !qualifier.isEmpty { Text(qualifier).font(DS.Font.callout).foregroundStyle(DS.Color.textTertiary) }
             if let help { LauncherInfoHelp(id: help.id, label: label, text: help.text) }
-            Spacer(minLength: 8)
-            if !trailing.isEmpty { Text(trailing).font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.building) }
+            Spacer(minLength: DS.Space.xs)
+            if !trailing.isEmpty { Text(trailing).font(DS.Font.body).foregroundStyle(DS.Color.statusWarning) }
         }
     }
 
 }
 
-/// One line of a card: a status dot (its place kept when there is none, so every title starts on one line),
-/// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls.
-/// Dropdowns align in one column; content-sized actions stay grouped at the trailing edge.
+/// One line of a card (`DSRow`): a leading slot for the status dot that every row of its group reserves when one of them has a dot,
+/// so every title of the group starts at one x, the
+/// title (with a disclosure chevron beside it when `open` is given), one secondary line, and the trailing control column, whose
+/// buttons and dropdowns share one width (`DS.Control.columnWidth`).
 package struct CardRow<Trailing: View>: View {
     let title: String
     let detail: String
@@ -116,10 +140,15 @@ package struct CardRow<Trailing: View>: View {
     let open: Bool?
     let trailing: Trailing
     let info: (id: String, text: String)?
+    let message: DSRowMessage?
     @Environment(\.launcherSettingsLayout) private var settingsLayout
+    @Environment(\.dsRowReservesSlot) private var reservesSlot
 
+    /// `message` is the row's own warning, error or note, under its title and subtitle (DSRowMessage). The layout rules:
+    /// the status dot is centred in the 20 pt leading slot, and it and the trailing control are both centred on the text block (title
+    /// and subtitle, never the message), so they share one centre. A message makes the row grow downwards without moving either.
     package init(_ title: String, detail: String = "", detail2: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil, info: (id: String, text: String)? = nil,
-                 @ViewBuilder trailing: () -> Trailing) {
+                 message: DSRowMessage? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.title = title
         self.info = info
         self.detail = detail
@@ -127,18 +156,39 @@ package struct CardRow<Trailing: View>: View {
         self.dot = dot
         self.help = help
         self.open = open
+        self.message = message
         self.trailing = trailing()
     }
 
     package var body: some View {
-        HStack(spacing: 12) {
-            Circle().fill(dot ?? .clear).frame(width: 7, height: 7)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(title).font(.manrope(14, settingsLayout ? .medium : .regular)).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            HStack(spacing: DS.Space.s) {
+                HStack(alignment: .center, spacing: DS.Space.s) {   // the dot centred on the title and subtitle, as the control
+                    if slot { Circle().fill(dot ?? .clear).frame(width: 7, height: 7).frame(width: DS.Control.leadingSlot) }
+                    texts
+                }
+                Spacer(minLength: DS.Space.s)
+                HStack(spacing: DS.Space.xs) { trailing }.launcherRowControls()
+            }
+            if let message {
+                DSRowMessageView(message).padding(.leading, slot ? DS.Control.leadingSlot + DS.Space.s : 0)
+            }
+        }
+        .padding(.leading, slot ? DS.Space.xs : DS.Space.m).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.s)
+        .frame(minHeight: settingsLayout ? 60 : 52)
+        .preference(key: DSRowLeadingSlotKey.self, value: dot != nil)
+    }
+
+    /// The slot is drawn when the group reserves it, and always for a row with a dot (before the group has heard of it).
+    private var slot: Bool { reservesSlot || dot != nil }
+
+    private var texts: some View {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                HStack(spacing: DS.Space.xs) {
+                    Text(title).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
                     if let info { LauncherInfoHelp(id: info.id, label: title, text: info.text) }
                     if let open {
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(DS.Color.textSecondary)
                             .rotationEffect(.degrees(open ? 90 : 0))
                     }
                 }
@@ -146,29 +196,28 @@ package struct CardRow<Trailing: View>: View {
                     // A path is technical text: the system's monospaced face, on one line, cut in the middle when
                     // too long. Everything else is prose in Manrope and wraps, so no word is ever cut.
                     if detail.hasPrefix("/") || detail.hasPrefix("~") {
-                        Text(detail).font(.mono(12)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(detail).font(DS.Font.mono).foregroundStyle(DS.Color.textSecondary)
                             .lineLimit(1).truncationMode(.middle).help(help.isEmpty ? detail : help)
                     } else {
-                        Text(detail).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                             .fixedSize(horizontal: false, vertical: true).help(help.isEmpty ? detail : help)
                     }
                 }
                 if !detail2.isEmpty {
-                    Text(detail2).font(.mono(12)).foregroundStyle(LauncherPalette.secondaryText)
+                    Text(detail2).font(DS.Font.mono).foregroundStyle(DS.Color.textSecondary)
                         .lineLimit(1).truncationMode(.middle).help(detail2)
                 }
             }
-            Spacer(minLength: 12)
-            HStack(spacing: 8) { trailing }.launcherRowControls()
-        }
-        .padding(.horizontal, 18).padding(.vertical, 13)
-        .frame(minHeight: settingsLayout ? 64 : 52)
     }
 }
 
 package struct CardDivider: View {
     package init() {}
-    package var body: some View { Divider().opacity(0.25).padding(.leading, 18) }
+    @Environment(\.dsRowReservesSlot) private var reservesSlot
+    /// Under the rows' titles: past the leading slot when the group reserves it.
+    package var body: some View {
+        DS.Color.separator.frame(height: 1).padding(.leading, reservesSlot ? DSRowInset.title : DS.Space.m)
+    }
 }
 
 /// A row that opens the rows under it.
@@ -196,29 +245,42 @@ package struct CardDisclosure: View {
 }
 
 /// The scrolling column of a page of cards. A controller's focus on one of its `set.` targets scrolls into view.
-package struct LauncherPageScroll<Content: View>: View {
+package struct LauncherPageScroll<Header: View, Content: View>: View {
+    let header: Header
     let content: Content
     let memoryKey: String?
     @EnvironmentObject private var padFocus: PadFocus
 
     /// `memoryKey` names the scroll position this page keeps (ScrollMemory): a page with several parts gives each its own.
-    package init(memoryKey: String? = nil, @ViewBuilder _ content: () -> Content) { self.content = content(); self.memoryKey = memoryKey }
+    /// `header` spans the full width above the content column and scrolls away with it (the build wizard's hero, #1458).
+    package init(memoryKey: String? = nil, @ViewBuilder header: () -> Header, @ViewBuilder _ content: () -> Content) {
+        self.header = header(); self.content = content(); self.memoryKey = memoryKey
+    }
 
     package var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 34) { content }
-                    .padding(.horizontal, 40).padding(.top, 40).padding(.bottom, 48)
-                    .frame(maxWidth: 900)
-                    .frame(maxWidth: .infinity)
-                    .background { if let memoryKey { ScrollMemory(key: memoryKey) } }
-                    .environment(\.launcherScrollTo, { id in withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .top) } })
+                VStack(spacing: 0) {
+                    header
+                    VStack(alignment: .leading, spacing: DS.Space.xl) { content }
+                        .padding(.horizontal, DS.Space.xl).padding(.top, DS.Space.xl).padding(.bottom, DS.Space.xl + DS.Space.m)
+                        .frame(maxWidth: DS.Control.contentWidth)
+                        .frame(maxWidth: .infinity)
+                }
+                .background { if let memoryKey { ScrollMemory(key: memoryKey) } }
+                .environment(\.launcherScrollTo, { id in withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .top) } })
             }
             .onChange(of: padFocus.focused) { id in   // a controller's focus on this page scrolls into view
                 if let id, padFocus.scope == "main" { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } }
             }
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
+    }
+}
+
+extension LauncherPageScroll where Header == EmptyView {
+    package init(memoryKey: String? = nil, @ViewBuilder _ content: () -> Content) {
+        self.init(memoryKey: memoryKey, header: { EmptyView() }, content)
     }
 }
 
@@ -249,8 +311,8 @@ package struct LauncherStickyPageScroll<Heading: View, Bar: View, Content: View>
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     heading
-                        .padding(.horizontal, 40).padding(.top, 40).padding(.bottom, 22)
-                        .frame(maxWidth: 900, alignment: .leading)
+                        .padding(.horizontal, DS.Space.xl).padding(.top, DS.Space.xl).padding(.bottom, DS.Space.l)
+                        .frame(maxWidth: DS.Control.contentWidth, alignment: .leading)
                         .frame(maxWidth: .infinity)
                         .background(GeometryReader { g in
                             let h = g.size.height
@@ -261,21 +323,20 @@ package struct LauncherStickyPageScroll<Heading: View, Bar: View, Content: View>
                             }
                         })
                     Section {
-                        VStack(alignment: .leading, spacing: settingsLayout ? 32 : 34) { content }
-                            .padding(.horizontal, 40).padding(.top, 22).padding(.bottom, 48)
-                            .frame(maxWidth: 900, alignment: .leading)
+                        VStack(alignment: .leading, spacing: DS.Space.xl) { content }
+                            .padding(.horizontal, DS.Space.xl).padding(.top, DS.Space.l).padding(.bottom, DS.Space.xl + DS.Space.m)
+                            .frame(maxWidth: DS.Control.contentWidth, alignment: .leading)
                             .frame(maxWidth: .infinity, minHeight: max(0, viewportHeight - 62), alignment: .top)
                     } header: {
                         VStack(spacing: 0) {
                             bar
-                                .padding(.horizontal, 40).padding(.vertical, 12)
-                                .frame(maxWidth: 900, alignment: .leading)
+                                .padding(.horizontal, DS.Space.xl).padding(.vertical, DS.Space.s)
+                                .frame(maxWidth: DS.Control.contentWidth, alignment: .leading)
                                 .frame(maxWidth: .infinity)
                             LauncherPalette.topBarRule.frame(height: 1).opacity(pinned ? 1 : 0)
                         }
                         .background {
                             ZStack {
-                                if !settingsLayout { Rectangle().fill(.ultraThinMaterial) }
                                 LauncherPalette.background.opacity(pinned ? 0.94 : 0.98)
                             }
                         }

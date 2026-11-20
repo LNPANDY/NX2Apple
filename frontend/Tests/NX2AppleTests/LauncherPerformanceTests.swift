@@ -139,7 +139,8 @@ import NXModel
         let library = GameLibrary(file: world.libraryFile)
         library.selectedID = world.selected
         let pad = LauncherGamepad()
-        let host = NSHostingView(rootView: LauncherView(stores: modelStores, library: library, performStartupChecks: false, gamepad: pad))
+        let focus = PadFocus()
+        let host = NSHostingView(rootView: LauncherView(stores: modelStores, library: library, performStartupChecks: false, gamepad: pad, padFocus: focus))
         let window = OffscreenWindow(size: NSSize(width: 1280, height: 900), styleMask: [.titled, .closable, .resizable])
         window.contentView = host
         window.orderFront(nil)
@@ -155,6 +156,9 @@ import NXModel
                         cards: 10, fonts: 20, plistReads: 10, busyMs: 300),
             Interaction(name: "tab Settings to Library", action: { pad.perform(.r) },
                         cards: 180, fonts: 20, plistReads: 140, busyMs: 400),
+            // Show all: the Recently played row gives way to the All games grid (#1458), B goes back
+            Interaction(name: "open All games", action: { focus.show(default: "library.showAll"); focus.focused = "library.showAll"; focus.activate() },
+                        undo: { pad.perform(.b) }, cards: 80, fonts: 20, plistReads: 60, busyMs: 400),
             Interaction(name: "open Options", action: { pad.perform(.x) }, undo: { pad.perform(.b) },
                         cards: 120, fonts: 20, plistReads: 110, busyMs: 800),
             Interaction(name: "open Manage", action: { pad.perform(.y) }, undo: { pad.perform(.b) },

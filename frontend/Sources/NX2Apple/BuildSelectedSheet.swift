@@ -35,81 +35,36 @@ struct BuildSelectedSheet: View {
     private var candidates: [LibraryGame] { sourceGames.filter(available) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(loc.t("queue.select").replacingOccurrences(of: "…", with: "")).font(.manrope(26, .heavy)).tracking(-0.5)
-                Text(loc.t("queue.selectNote")).font(.manrope(13)).foregroundStyle(.secondary)
+        DSScrollingSheet(width: 680, height: min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80),
+                         title: loc.t("queue.select").replacingOccurrences(of: "…", with: ""), message: loc.t("queue.selectNote"),
+                         scrollTarget: focus.focused) {
+            HStack(spacing: DS.Space.s) {
+                Text(loc.t("queue.buildFor")).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary)
+                Spacer()
+                LauncherSegmented(options: [(BuildTarget.mac, loc.t("library.section.mac")), (BuildTarget.ios, loc.t("build.ios")), ("both", loc.t("onboarding.platform.both"))],
+                                  selection: selectedTarget) { selectedTarget = $0 }
+                    .frame(width: 260)
+                    .padTarget("batch.platform", scope: "batch", activate: changeTarget,
+                               adjust: { adjustTarget($0) })
             }
-            .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(loc.t("queue.buildFor")).font(.manrope(14, .semibold))
-                    Spacer()
-                    LauncherSegmented(options: [(BuildTarget.mac, loc.t("library.section.mac")), (BuildTarget.ios, loc.t("build.ios")), ("both", loc.t("onboarding.platform.both"))],
-                                      selection: selectedTarget) { selectedTarget = $0 }
-                        .frame(width: 260)
-                        .padTarget("batch.platform", scope: "batch", activate: changeTarget,
-                                   adjust: { adjustTarget($0) })
-                }
-
-            }.padding(.horizontal, 30).padding(.bottom, 16)
-            ScrollViewReader { proxy in
-             ScrollView {
-                if candidates.isEmpty {
-                    Text(loc.t(sourceGames.isEmpty ? "queue.selectEmpty" : "queue.noApplicable")).font(.manrope(14)).foregroundStyle(.secondary).padding(.horizontal, 30)
-                }
-                VStack(spacing: 4) {
-                    ForEach(candidates) { game in
-                        Button { toggle(game.id) } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: checked.contains(game.id) ? "checkmark.square.fill" : "square").font(.system(size: 17))
-                                Group {
-                                    if let icon = icons[game.id] {
-                                        Image(nsImage: icon).resizable().scaledToFill()
-                                    } else {
-                                        Image(systemName: "gamecontroller.fill").font(.system(size: 22))
-                                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                            .background(LauncherPalette.surface)
-                                    }
-                                }
-                                .frame(width: 44, height: 44)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                .accessibilityHidden(true)
-                                Text(game.displayName(loc.lang)).font(.manrope(14, .medium)).lineLimit(2).multilineTextAlignment(.leading)
-                                Spacer(minLength: 8)
-                                if let existing = queue.games.first(where: { $0.titleID.caseInsensitiveCompare(game.titleID) == .orderedSame }), existing.waiting || existing.running || existing.entries.contains(where: { $0.packagePending != nil }) {
-                                    BuildPlatformChip(targets: existing.entries.map(\.target))
-                                        .help(loc.t("queue.alreadyQueued"))
-                                }
-                            }
-                            .padding(.horizontal, 10)
-                            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
-                            .background(checked.contains(game.id) ? LauncherPalette.ink(0.08) : Color.clear,
-                                        in: RoundedRectangle(cornerRadius: 8))
-                            .contentShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain).disabled(!available(game))
-                        .accessibilityAddTraits(checked.contains(game.id) ? .isSelected : [])
-                        .padTarget("batch.game." + game.id.uuidString, scope: "batch", radius: 8, enabled: available(game)) { toggle(game.id) }
-                        .padding(.horizontal, 20)
+            if candidates.isEmpty {
+                Text(loc.t(sourceGames.isEmpty ? "queue.selectEmpty" : "queue.noApplicable")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+            } else {
+                DSSection("") {
+                    ForEach(Array(candidates.enumerated()), id: \.element.id) { index, game in
+                        if index > 0 { DSRowDivider() }
+                        row(game)
                     }
                 }
-             }
-             .onChange(of: focus.focused) { id in if let id { proxy.scrollTo(id, anchor: .center) } }
             }
-            Divider().opacity(0.3)
-            HStack(spacing: 12) {
-                Spacer()
-                Button(loc.t("queue.close"), action: close).buttonStyle(LauncherSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
-                    .padTarget("batch.cancel", scope: "batch", activate: close)
-                Button { add() } label: {
-                    Text(loc.t("queue.add")).font(.manrope(14, .semibold)).padding(.horizontal, 20).padding(.vertical, 10)
-                }
-                    .buttonStyle(LauncherActionButtonStyle())
-                    .disabled(!canAdd)
-                    .padTarget("batch.add", scope: "batch", focusColor: LauncherPalette.onCream, enabled: canAdd, activate: add)
-            }
-            .padding(.horizontal, 30).padding(.vertical, 16)
+        } leading: {
+            EmptyView()
+        } buttons: {
+            Button(loc.t("queue.close"), action: close).buttonStyle(DSSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
+                .padTarget("batch.cancel", scope: "batch", activate: close)
+            DSSheetPrimaryButton(loc.t("queue.add"), takesReturn: false, action: add)
+                .disabled(!canAdd)
+                .padTarget("batch.add", scope: "batch", focusColor: DS.Color.accentOn, enabled: canAdd, activate: add)
         }
         .background(ConsoleKeyboardInput { input in
             guard focus.scope == "batch" else { return }
@@ -126,9 +81,6 @@ struct BuildSelectedSheet: View {
         })
         .environment(\.padRingStyle, .hug)
         .padScope("batch", focus)
-        .frame(width: 680)
-        .frame(minHeight: min(420, maxSheetHeight), maxHeight: maxSheetHeight)
-        .background(LauncherPalette.background)
         .task(id: iconLoadKey) {
             let games = sourceGames
             let banners = library.artworkDirectory
@@ -163,7 +115,40 @@ struct BuildSelectedSheet: View {
         }
     }
 
-    private var maxSheetHeight: CGFloat { min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80) }
+    /// A game of the checklist: the check (the accent when chosen), its icon, its name and the platforms it already waits for.
+    private func row(_ game: LibraryGame) -> some View {
+        let on = checked.contains(game.id)
+        return Button { toggle(game.id) } label: {
+            HStack(spacing: DS.Space.s) {
+                Image(systemName: on ? "checkmark.square.fill" : "square").font(.system(size: 17))
+                    .foregroundStyle(on ? DS.Color.symbolAccent : DS.Color.symbolDefault)
+                Group {
+                    if let icon = icons[game.id] {
+                        Image(nsImage: icon).resizable().scaledToFill()
+                    } else {
+                        Image(systemName: "gamecontroller.fill").font(.system(size: 16)).foregroundStyle(DS.Color.symbolDefault)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity).background(DS.Color.surfaceRaised)
+                    }
+                }
+                .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.chip))
+                .accessibilityHidden(true)
+                Text(game.displayName(loc.lang)).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
+                Spacer(minLength: DS.Space.xs)
+                if let existing = queue.games.first(where: { $0.titleID.caseInsensitiveCompare(game.titleID) == .orderedSame }), existing.waiting || existing.running || existing.entries.contains(where: { $0.packagePending != nil }) {
+                    BuildPlatformChip(targets: existing.entries.map(\.target))
+                        .help(loc.t("queue.alreadyQueued"))
+                }
+            }
+            .padding(.horizontal, DS.Space.s).padding(.vertical, DS.Space.xs)
+            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).disabled(!available(game))
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .padTarget("batch.game." + game.id.uuidString, scope: "batch", radius: DS.Radius.chip, enabled: available(game)) { toggle(game.id) }
+    }
+
     private var targets: [String] { selectedTarget == "both" ? [BuildTarget.mac, BuildTarget.ios] : [selectedTarget] }
     private func changeTarget() { adjustTarget(1) }
     private func adjustTarget(_ by: Int) {

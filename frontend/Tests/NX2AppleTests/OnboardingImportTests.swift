@@ -27,7 +27,7 @@ import NXModel
 
     func testSharedCardsReflowAndControllerSelectionQueuesOnlyEligibleGames() throws {
         for size in [CGSize(width: 900, height: 680), CGSize(width: 1280, height: 900)] {
-            for dark in [false, true] {
+            for dark in [true] {   // the launcher is dark only (#1458)
                 var state = MockOnboardingDriver.sampleState
                 state.step = .games; state.keys = .skipped; state.platform = .selected(.both)
                 state.games = .found((0..<9).map {
@@ -47,7 +47,7 @@ import NXModel
                 XCTAssertFalse(cards.isEmpty)
                 for card in cards {
                     XCTAssertGreaterThan(card.frame.width, 190)
-                    XCTAssertLessThanOrEqual(card.frame.maxX, size.width - 39)
+                    XCTAssertLessThanOrEqual(card.frame.maxX, size.width - DS.Space.xl + 1, "inside the content column")
                 }
                 if let path = ProcessInfo.processInfo.environment["NX_IMPORT_CAPTURE_DIR"] {
                     let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))

@@ -6,7 +6,7 @@ import XCTest
 
 @MainActor final class PadFocusAppearanceTests: IsolatedDefaultsTestCase {
     func testArtworkSuccessCheckUsesBlackInDarkAndWhiteInLight() throws {
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             let host = NSHostingView(rootView: ArtworkOutcomeBadge(.success, artworkSize: 100).padding(18)
                 .background(Color.gray).environment(\.colorScheme, dark ? .dark : .light))
             let window = OffscreenWindow(size: NSSize(width: 80, height: 80))
@@ -29,7 +29,7 @@ import XCTest
     }
 
     func testFocusFollowsCapsuleCircleAndCardBoundsInBothAppearances() throws {
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             for (name, width, height, radius) in [("capsule", 120.0, 36.0, nil as CGFloat?),
                                                    ("circle", 36.0, 36.0, nil),
                                                    ("card", 180.0, 90.0, CGFloat(14))] {

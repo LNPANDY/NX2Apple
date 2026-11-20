@@ -6,9 +6,9 @@ import NXModel
 
 /// Settings, "Tools": the repository or the release app's engine, the dependency rows and the diagnostics row.
 /// Observes the repository, engine sync and dependency stores. What it needs from the build store comes as values:
-/// whether a build runs. The cache row (ShellCacheRow, which observes the build store), the experimental builder's rows (ExperimentalBuilderRow, the same)
-/// and the diagnostics button come as views.
-package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: View {
+/// whether a build runs. The cache row (ShellCacheRow, which observes the build store), the engine row (UpstreamBuilderRow, the same)
+/// and the diagnostics button come as views, the Build engine row's nxkit (Beta) parts as a value (BuildEngineRow).
+package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View, Upstream: View>: View {
     @ObservedObject var repo: RepoStore
     @ObservedObject var engine: EngineSyncStore
     @ObservedObject var dependencies: DependencyStore
@@ -18,17 +18,24 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
     let buildRunning: Bool
     let shellCache: ShellCache
     let builder: Builder
+    /// The engine pop-up (UpstreamPicker): the Build engine row's control when more than one engine can build.
+    let upstream: Upstream?
+    /// What the Build engine row takes from the chosen engine when it is not nxnative (UpstreamBuilderRow.engineRow).
+    let engineRow: BuildEngineRow
     let diagnostics: Diagnostics
     @EnvironmentObject var loc: Localizer
 
     package init(repo: RepoStore, engine: EngineSyncStore, dependencies: DependencyStore, buildRunning: Bool,
-                 @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder builder: () -> Builder, @ViewBuilder diagnostics: () -> Diagnostics) {
+                 @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder builder: () -> Builder, upstream: (() -> Upstream)?,
+                 engineRow: BuildEngineRow = BuildEngineRow(), @ViewBuilder diagnostics: () -> Diagnostics) {
         self.repo = repo
         self.engine = engine
         self.dependencies = dependencies
         self.buildRunning = buildRunning
         self.shellCache = shellCache()
         self.builder = builder()
+        self.upstream = upstream?()
+        self.engineRow = engineRow
         self.diagnostics = diagnostics()
     }
 
@@ -42,27 +49,30 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                 detail: repo.isRepo ? repo.shortPath(repo.path)
                     : (repo.path.isEmpty ? loc.t("repo.notFound") : String(format: loc.t("repo.notRepo"), repo.shortPath(repo.path))),
                 dot: repo.isRepo ? LauncherPalette.ready : LauncherPalette.building, help: repo.path) {
+                // One action in the column: Pull when behind, else Check, Make updatable or Download. Choose repository, always
+                // offered (a saved path from an earlier session is a state a user cannot leave without it), is in the "…" (#1458).
+                let busy = repo.busy || buildRunning
+                DSOverflowMenu(label: loc.t("repo.choose"),
+                               options: [("choose", loc.t("repo.choose"))] + (repo.isGit && (repo.behind ?? 0) > 0 ? [("check", loc.t("repo.check"))] : []),
+                               padID: "set.repoChoose") { choice in
+                    if choice == "check" { if !busy { repo.checkForUpdates() } } else { pickRepo() }
+                }
                 if repo.isRepo {
                     if repo.isGit {
                         if let n = repo.behind, n > 0 {
-                            Button(loc.t("repo.pull")) { repo.pull() }.disabled(repo.busy || buildRunning)
-                                .padTarget("set.repoPull", scope: "main", enabled: !(repo.busy || buildRunning)) { if !(repo.busy || buildRunning) { repo.pull() } }
+                            Button(loc.t("repo.pull")) { repo.pull() }.disabled(busy)
+                                .padTarget("set.repoPull", scope: "main", enabled: !busy) { if !busy { repo.pull() } }
+                        } else {
+                            SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.check"), busy: repo.busy) { repo.checkForUpdates() }.disabled(busy)
+                                .padTarget("set.repoCheck", scope: "main", enabled: !busy) { if !busy { repo.checkForUpdates() } }
                         }
-                        SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.check"), busy: repo.busy) { repo.checkForUpdates() }.disabled(repo.busy || buildRunning)
-                            .padTarget("set.repoCheck", scope: "main", enabled: !(repo.busy || buildRunning)) { if !(repo.busy || buildRunning) { repo.checkForUpdates() } }
                     } else {
-                        SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.adopt"), busy: repo.busy) { repo.adoptAsGit() }.disabled(repo.busy || buildRunning)
-                            .padTarget("set.repoAdopt", scope: "main", enabled: !(repo.busy || buildRunning)) { if !(repo.busy || buildRunning) { repo.adoptAsGit() } }
+                        SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.adopt"), busy: repo.busy) { repo.adoptAsGit() }.disabled(busy)
+                            .padTarget("set.repoAdopt", scope: "main", enabled: !busy) { if !busy { repo.adoptAsGit() } }
                     }
-                }
-                // Always offered, including when a repository is already configured: a saved path from
-                // an earlier session (an upstream clone, a moved folder) is exactly the state a user
-                // cannot fix without this button — the report had no way to leave the wrong repository.
-                Button(loc.t("repo.choose")) { pickRepo() }
-                    .padTarget("set.repoChoose", scope: "main", activate: pickRepo)
-                if !repo.isRepo {
-                    SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.download"), busy: repo.busy) { repo.clone() }.disabled(repo.busy || buildRunning)
-                        .padTarget("set.repoDownload", scope: "main", enabled: !(repo.busy || buildRunning)) { if !(repo.busy || buildRunning) { repo.clone() } }
+                } else {
+                    SettingsUpdateAction(repo.busy ? loc.t("settings.update.working") : loc.t("repo.download"), busy: repo.busy) { repo.clone() }.disabled(busy)
+                        .padTarget("set.repoDownload", scope: "main", enabled: !busy) { if !busy { repo.clone() } }
                 }
             }
             if !repo.isRepo {
@@ -73,16 +83,17 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                     Link("github.com/LNPANDY/NX2Apple", destination: URL(string: RepoStore.url.replacingOccurrences(of: ".git", with: ""))!)
                     Text(loc.t("repo.manualHint2")).foregroundStyle(LauncherPalette.secondaryText)
                 }
-                .font(.manrope(12)).padding(.horizontal, 18).padding(.bottom, 12)
+                .font(DS.Font.callout).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
             }
             if repo.isRepo, !repo.isGit {
-                Text(loc.t(repo.autoUpdate ? "repo.noGit" : "repo.zipNoAuto")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
-                    .padding(.horizontal, 18).padding(.bottom, 12)
+                Text(loc.t(repo.autoUpdate ? "repo.noGit" : "repo.zipNoAuto")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
             }
             if repo.isRepo, !RepoLayout.missingTools(in: repo.path).isEmpty {
-                Text(String(format: loc.t("repo.toolsOld"), RepoLayout.missingTools(in: repo.path).joined(separator: ", ")))
-                    .font(.manrope(12)).foregroundStyle(LauncherPalette.building).fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 18).padding(.bottom, 12)
+                DSInlineWarning(String(format: loc.t("repo.toolsOld"), RepoLayout.missingTools(in: repo.path).joined(separator: ", ")))
+                    .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
             }
             if repo.isRepo {   // a ZIP copy too: its adoption at launch follows this switch
                 CardDivider()
@@ -92,37 +103,64 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                 }
             }
             }
+            // a checkout: the engine pop-up has a row of its own, and so has why this Mac cannot choose nxkit (Beta)
+            if !engine.usesEngineStore, upstream != nil || engineRow.message != nil {
+                CardDivider()
+                CardRow(loc.t("engine.title"), detail: engineRow.detail ?? (upstream == nil ? "nxnative" : ""), message: engineRow.message) {
+                    if let menu = engineRow.menu { menu.view }
+                    if let upstream { upstream }
+                }
+            }
+            builder   // the build source rows belong to the build tools (#1458)
         }.onChange(of: engine.available?.version) { version in
             if version == nil, pad.focused == "set.engineInstall" { pad.focused = "set.engineCheck" }
         }
         CardGroup(loc.t("settings.xcodeGroup")) {
             CardRow(loc.t("xcodeChoice.title"), detail: dependencies.xcodeApp ?? loc.t("xcodeChoice.system")) {
                 if dependencies.xcodeApp != nil {
-                    Button(loc.t("xcodeChoice.reset")) { dependencies.selectXcode(nil) }
-                        .padTarget("set.xcodeReset", scope: "main") { dependencies.selectXcode(nil) }
+                    DSOverflowMenu(label: loc.t("xcodeChoice.reset"), options: [("reset", loc.t("xcodeChoice.reset"))], padID: "set.xcodeReset") { _ in
+                        dependencies.selectXcode(nil)
+                    }
                 }
                 Button(loc.t("xcodeChoice.choose")) { pickXcode() }
                     .padTarget("set.xcodeChoose", scope: "main", activate: pickXcode)
             }
             .disabled(buildRunning || dependencies.deps.contains(where: \.installing))
              .sheet(isPresented: $invalidXcode) {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text(loc.t("xcodeChoice.invalid")).font(.manrope(20, .bold)).fixedSize(horizontal: false, vertical: true)
-                    HStack { Spacer(); Button(loc.t("library.ok")) { invalidXcode = false }
-                        .buttonStyle(LauncherSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
-                        .padTarget("xcodemessage.cancel", scope: "xcodemessage") { invalidXcode = false } }
-                }.padding(28).frame(width: 460).background(LauncherPalette.background).launcherAppearance().padScope("xcodemessage", pad)
+                DSSheet(title: loc.t("xcodeChoice.invalid")) {
+                    EmptyView()
+                } buttons: {
+                    DSSheetPrimaryButton(loc.t("library.ok")) { invalidXcode = false }
+                        .background { Button("") { invalidXcode = false }.keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0).accessibilityHidden(true) }
+                        .padTarget("xcodemessage.cancel", scope: "xcodemessage", focusColor: DS.Color.accentOn) { invalidXcode = false }
+                }
+                .padScope("xcodemessage", pad)
             }
             .onChange(of: invalidXcode) { open in pad.scope = open ? "xcodemessage" : "main" }
             CardDivider()
-            HStack(spacing: 8) {
-                CardDisclosure(loc.t("dep.title"), detail: !dependencies.checked ? loc.t("dep.checking") : (dependencies.allPresent ? loc.t("dep.allReady") : String(format: loc.t("dep.missing"), dependencies.deps.filter { !$0.present }.count)), isOpen: dependencies.open) { dependencies.toggle() }
-                    .padTarget("set.deps.expand", scope: "main", radius: 0) { dependencies.toggle() }
-                SettingsUpdateAction(loc.t(dependencies.checked ? "dep.recheck" : "settings.update.checking"), busy: !dependencies.checked) { _ = dependencies.check() }
-                    .disabled(!dependencies.checked)
-                    .padTarget("set.deps", scope: "main", enabled: dependencies.checked) { if dependencies.checked { _ = dependencies.check() } }
-            }.padding(.trailing, 18)
+            // One pattern for a row that opens more rows (#1458): the whole row is the button, its chevron at the trailing edge of
+            // the control column. Its action (Check again) is inside, under the rows it opens.
+            Button { dependencies.toggle() } label: {
+                CardRow(loc.t("dep.title"), detail: !dependencies.checked ? loc.t("dep.checking") : (dependencies.allPresent ? loc.t("dep.allReady") : String(format: loc.t("dep.missing"), dependencies.deps.filter { !$0.present }.count)),
+                        dot: !dependencies.checked ? nil : (dependencies.allPresent ? DSTone.success.color : DSTone.warning.color)) {
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(DS.Color.symbolDefault)
+                        .rotationEffect(.degrees(dependencies.open ? 90 : 0))
+                        .frame(width: DS.Control.columnWidth, alignment: .trailing).accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).dsRowHover(radius: 0)
+            .accessibilityValue(loc.t(dependencies.open ? "onboarding.expanded" : "onboarding.collapsed"))
+            .padTarget("set.deps.expand", scope: "main", radius: 0) { dependencies.toggle() }
             if dependencies.open {
+                HStack(spacing: DS.Space.xs) {
+                    if !dependencies.checked { DSSpinner() }
+                    Button(loc.t(dependencies.checked ? "dep.recheck" : "settings.update.checking")) { _ = dependencies.check() }
+                        .buttonStyle(DSTextButtonStyle()).disabled(!dependencies.checked)
+                        .padTarget("set.deps", scope: "main", radius: DS.Radius.chip, enabled: dependencies.checked) { if dependencies.checked { _ = dependencies.check() } }
+                }
+                .padding(.leading, DSRowInset.title).padding(.bottom, DS.Space.xs)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 ForEach(dependencies.deps, id: \.id) { d in
                     CardDivider()
                     VStack(alignment: .leading, spacing: 0) {
@@ -130,7 +168,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                             help: loc.t(d.hint)) {
                             if d.installing {
                                 ProgressView().controlSize(.small)
-                                Text(loc.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
+                                Text(loc.t("dep.installing")).font(DS.Font.callout).foregroundStyle(LauncherPalette.building)
                             } else if !d.present && !(d.id == "xcode" && dependencies.xcodeApp != nil && d.installCmd.isEmpty) {
                                 Button(d.actionLabel.isEmpty ? (d.installCmd.isEmpty ? loc.t("dep.openAppStore") : loc.t("dep.install")) : loc.t(d.actionLabel)) { _ = dependencies.install(d) }
                                     .padTarget("set.dep.install." + d.id, scope: "main") { _ = dependencies.install(d) }
@@ -147,7 +185,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
-                            .padding(.leading, 37).padding(.trailing, 18).padding(.bottom, 11)
+                            .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -155,18 +193,38 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
             }
         }
         CardGroup(loc.t("settings.storageGroup")) { shellCache }
-        builder
-        CardGroup(loc.t("diag.title")) {
-            CardRow(loc.t("diag.title"), info: ("set.diag.help", loc.t("diag.note"))) { diagnostics }
+        CardGroup("") {   // one row says what it is, its button what it does
+            CardRow(loc.t("diag.title"), detail: loc.t("diag.note")) { diagnostics }
         }
     }
 
     /// The release app's engine (EngineSyncStore): which one the build uses, its channel, and the automatic update.
     @ViewBuilder private var engineRows: some View {
         let idle = !(engine.busy || buildRunning)
-        CardRow(loc.t("engine.title"), detail: engine.detail,
-            dot: engine.selection.engineID.isEmpty ? LauncherPalette.building : LauncherPalette.ready, help: repo.path) {
-            if let next = engine.available {
+        CardRow(loc.t("engine.title"), detail: engineRow.detail ?? (engine.busy ? engineBusyTitle : engine.detail),
+            dot: engineRow.detail != nil || !engine.selection.engineID.isEmpty ? LauncherPalette.ready : LauncherPalette.building,
+            help: engineRow.detail != nil ? "" : repo.path, message: engineRow.message) {
+            if let upstream, let menu = engineRow.menu {
+                // nxkit (Beta) chosen (#1460): its own actions in the "…", the engine pop-up beside it
+                menu.view
+                upstream
+            } else if let upstream {
+                // One row for the engine (#1458): its state in the subtitle, the engine pop-up in the column, Install and Check
+                // for updates in the "…" before it.
+                let install = engine.available.map { [("install", String(format: loc.t("engine.install"), $0.version))] } ?? []
+                DSOverflowMenu(label: loc.t("repo.check"), options: install + [("check", loc.t("repo.check"))], padID: "set.engineCheck") { choice in
+                    guard idle else { return }
+                    if choice == "install" { installingEngine = true; engine.installAvailable() }
+                    else { installingEngine = false; engine.checkForUpdate() }
+                }
+                .disabled(!idle)
+                upstream
+            } else if let next = engine.available {
+                // one action in the column: the update. Checking again is the "…" before it (#1458)
+                DSOverflowMenu(label: loc.t("repo.check"), options: [("check", loc.t("repo.check"))], padID: "set.engineCheck") { _ in
+                    if idle { installingEngine = false; engine.checkForUpdate() }
+                }
+                .disabled(!idle)
                 SettingsUpdateAction(engine.busy && installingEngine ? engineBusyTitle : String(format: loc.t("engine.install"), next.version),
                                      busy: engine.busy && installingEngine, prominent: !engine.busy) {
                     installingEngine = true; engine.installAvailable()
@@ -174,13 +232,14 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                     .padTarget("set.engineInstall", scope: "main", enabled: idle || engine.busy && installingEngine) {
                         if idle { installingEngine = true; engine.installAvailable() }
                     }
+            } else {
+                SettingsUpdateAction(engine.busy && !installingEngine ? engineBusyTitle : loc.t("repo.check"), busy: engine.busy && !installingEngine) {
+                    installingEngine = false; engine.checkForUpdate()
+                }.disabled(buildRunning || engine.busy && installingEngine)
+                    .padTarget("set.engineCheck", scope: "main", enabled: idle || engine.busy && !installingEngine) {
+                        if idle { installingEngine = false; engine.checkForUpdate() }
+                    }
             }
-            SettingsUpdateAction(engine.busy && !installingEngine ? engineBusyTitle : loc.t("repo.check"), busy: engine.busy && !installingEngine) {
-                installingEngine = false; engine.checkForUpdate()
-            }.disabled(buildRunning || engine.busy && installingEngine)
-                .padTarget("set.engineCheck", scope: "main", enabled: idle || engine.busy && !installingEngine) {
-                    if idle { installingEngine = false; engine.checkForUpdate() }
-                }
         }.onChange(of: engine.busy) { busy in if !busy { installingEngine = false } }
         CardDivider()
         // A different channel is asked about first (the alert below): the switch can recompile every game's shaders
@@ -188,8 +247,10 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
         let choice = engine.channelChoice
         CardRow(loc.t("engine.update"), detail: choice.noteKey.map { loc.t($0) } ?? "", info: ("set.engineChannel.help", loc.t("engine.channelNote"))) {
             if choice.offersBackToStable {
-                Button(loc.t("engine.backToStable")) { engine.requestChannel(.stable) }.disabled(!idle)
-                    .padTarget("set.engineBack", scope: "main", enabled: idle) { if idle { engine.requestChannel(.stable) } }
+                DSOverflowMenu(label: loc.t("engine.backToStable"), options: [("stable", loc.t("engine.backToStable"))], padID: "set.engineBack") { _ in
+                    if idle { engine.requestChannel(.stable) }
+                }
+                .disabled(!idle)
             }
             LauncherDropdown(options: choice.options.map { (value: $0.rawValue, label: loc.t($0.labelKey)) },
                              selection: engine.selection.channel.rawValue) { v in
@@ -235,5 +296,51 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
         d.canChooseDirectories = true; d.canChooseFiles = false
         d.message = loc.t("repo.pickMessage")
         if d.runModal() == .OK, let u = d.url { repo.path = u.path }
+    }
+}
+
+/// The Build engine row's parts from an engine other than nxnative (nxkit (Beta), #1460). Empty: the row shows nxnative's state.
+package struct BuildEngineRow {
+    /// The "…" before the engine pop-up with that engine's actions.
+    package struct Menu {
+        let label: String
+        let options: [(value: String, label: String)]
+        let padID: String
+        let disabled: Bool
+        let choose: (String) -> Void
+
+        package init(label: String, options: [(value: String, label: String)], padID: String, disabled: Bool, choose: @escaping (String) -> Void) {
+            self.label = label
+            self.options = options
+            self.padID = padID
+            self.disabled = disabled
+            self.choose = choose
+        }
+
+        @MainActor var view: some View {
+            DSOverflowMenu(label: label, options: options, padID: padID) { value in if !disabled { choose(value) } }.disabled(disabled)
+        }
+    }
+
+    /// The subtitle in place of nxnative's version and update state.
+    let detail: String?
+    /// The row's message: the engine's note or problem, or why nxkit cannot be chosen on this Mac.
+    let message: DSRowMessage?
+    let menu: Menu?
+
+    package init(detail: String? = nil, message: DSRowMessage? = nil, menu: Menu? = nil) {
+        self.detail = detail
+        self.message = message
+        self.menu = menu
+    }
+}
+
+extension ToolsCard where Upstream == EmptyView {
+    /// Without the engine pop-up: one engine builds, so the Build engine row's column keeps its update action.
+    package init(repo: RepoStore, engine: EngineSyncStore, dependencies: DependencyStore, buildRunning: Bool,
+                 @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder builder: () -> Builder, engineRow: BuildEngineRow = BuildEngineRow(),
+                 @ViewBuilder diagnostics: () -> Diagnostics) {
+        self.init(repo: repo, engine: engine, dependencies: dependencies, buildRunning: buildRunning, shellCache: shellCache, builder: builder,
+                  upstream: nil, engineRow: engineRow, diagnostics: diagnostics)
     }
 }

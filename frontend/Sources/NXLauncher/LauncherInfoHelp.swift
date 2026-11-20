@@ -3,6 +3,7 @@ import NXModel
 
 /// Matches the prototype's short-delay native help, with an explicit activation path for keyboard and controllers.
 package struct LauncherInfoHelp: View {
+    package init(id: String, label: String, text: String) { self.id = id; self.label = label; self.text = text }
     let id: String
     let label: String
     let text: String

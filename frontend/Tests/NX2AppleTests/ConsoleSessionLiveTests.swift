@@ -64,7 +64,7 @@ import AppKit
     func testASessionIsRecordedAndFeedsContinuePlaying() throws {
         let h = try makeHarness()
         let hades = h.ids[0]
-        XCTAssertFalse(h.driver.state.homeSections.contains { $0.row == .continuePlaying }, "nothing played yet")
+        XCTAssertNil(h.driver.state.games.first { $0.id == hades }?.lastPlayed, "nothing played yet")
         h.driver.play(hades); settle()
         XCTAssertEqual(h.launches(), ["Hades"])
         XCTAssertEqual(h.driver.sessions["0100000000000001"]?.isOpen, true, "the session starts with the game")
@@ -73,8 +73,7 @@ import AppKit
         XCTAssertFalse(record.isOpen)
         XCTAssertEqual(record.sessions, 1)
         XCTAssertFalse(record.endedUnexpectedly)
-        XCTAssertEqual(h.driver.state.homeSections.first?.row, .continuePlaying)
-        XCTAssertEqual(h.driver.state.homeSections.first?.gameIDs, [hades])
+        XCTAssertEqual(h.driver.state.homeOrder.first, hades, "the game played last leads the row")
         XCTAssertNotNil(h.driver.state.games.first { $0.id == hades }?.lastPlayed)
         XCTAssertNil(h.driver.state.presentedSheet, "a normal quit shows nothing")
     }
@@ -102,7 +101,7 @@ import AppKit
         h.driver.gameWindowAppeared()
         h.driver.gamePaused(hostPID: 5001)   // org.nxnative.paused.5001, from the game's host
         XCTAssertEqual(h.driver.state.pausedGameID, hades)
-        XCTAssertEqual(h.driver.state.homeSections.first?.gameIDs.first, hades, "its tile leads Continue playing")
+        XCTAssertEqual(h.driver.state.homeOrder.first, hades, "its tile leads the row")
 
         h.driver.play(hades)
         XCTAssertEqual(h.posts(), ["org.nxnative.resume.5001"], "A on the paused game resumes it, to the host's process")

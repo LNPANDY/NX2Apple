@@ -220,8 +220,7 @@ import XCTest
     func testConsolePlayableOlderToolsAndIPhoneStayColorAndOlderToolsLeavesAttention() throws {
         var olderMac = ConsoleGame(id: "m", title: "Mario", version: "", platforms: [.mac], artwork: redArtworkImage(), status: .ready)
         olderMac.olderTools = true
-        let sections = ConsoleHome.sections([olderMac])
-        XCTAssertEqual(sections.first?.row, .ready, "Playable Mac game with older tools stays in Ready, not Attention")
+        XCTAssertEqual(ConsoleHome.order([olderMac]), ["m"], "a playable Mac game with older tools is in the one row (#1458)")
 
         var iphoneOnly = ConsoleGame(id: "i", title: "Zelda", version: "", platforms: [.iphone], artwork: redArtworkImage(), status: .iphoneOnly)
         iphoneOnly.olderTools = false

@@ -29,10 +29,9 @@ import XCTest
 
     func testHeroChipHasBreathingRoomAboveVisibleTitleCapitals() throws {
         let root = try directory(), stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
-        testDefaults.set("light", forKey: LauncherAppearance.defaultsKey)
         let game = LibraryGame(titleID: "0100000000000000", name: "Mario Kart", inputs: ["base": ["/tmp/game.nsp"]], sourceFolder: "/tmp")
         let (_, window) = try host([game], root: root, stores: stores, pad: pad)
-        window.appearance = NSAppearance(named: .aqua)
+        window.appearance = NSAppearance(named: .darkAqua)
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         let view = try XCTUnwrap(window.contentView)
         // On macOS 26, NSScrollView with .scrollEdgeEffectStyle(.soft) renders transparent in parent cacheDisplay;
@@ -73,7 +72,7 @@ import XCTest
             var ink = 0
             for x in x0..<x1 {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                if c.redComponent < 0.25 && c.greenComponent < 0.25 && c.blueComponent < 0.25 { ink += 1 }
+                if c.redComponent > 0.85 && c.greenComponent > 0.85 && c.blueComponent > 0.85 { ink += 1 }   // the white title on the dark hero (#1458)
             }
             if ink > Int(20 * scale) { titleTop = y; break }
         }

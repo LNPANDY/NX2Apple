@@ -38,6 +38,7 @@ struct Diagnostics {
         var log = ""                         // the build log the Builds page shows
         var home = NSHomeDirectory()
         var controllers: [String] = []
+        var nxkit: String?                   // nxkit (Beta) in use: "0.10.2 (bundled), nxkit-host <sha>", nil when this Mac cannot run it
     }
 
     /// What Xcode and its compilers say, for the build-problem form. A nil is a tool that did not answer.
@@ -56,6 +57,7 @@ struct Diagnostics {
         var name: String
         var titleID: String
         var builtForkPatches: String?        // DMForkPatches of the built Mac app; nil when the app has none
+        var engine: String?                  // the engine that built the Mac app ("nxkit (Beta) 0.10.2, nxkit-host <sha>"); nil without a Mac app
         var logPath: String?                 // nil: the game was never run
         var log: [String] = []
     }
@@ -80,6 +82,7 @@ struct Diagnostics {
         } else if !i.repoPath.isEmpty {
             out.append("- Commit: not a git checkout")
         }
+        if let nxkit = i.nxkit { out.append("- nxkit (Beta): \(nxkit)") }
         out.append("- Python: \(i.python.isEmpty ? "not found" : i.python)"
                    + parenthesized([i.pythonVersion, i.pythonIsVenv ? "the launcher's venv" : nil]))
         out.append("- .NET: \(i.dotnet.isEmpty ? "not found" : i.dotnet)" + parenthesized([i.dotnetVersion]))
@@ -125,6 +128,7 @@ struct Diagnostics {
             out.append("#### Selected game")
             out.append("")
             out.append("- Game: \(g.name) (\(g.titleID))")
+            if let engine = g.engine { out.append("- Built with: \(engine)") }
             out.append("- Fork patches of the built app: " + (g.builtForkPatches.map { $0.isEmpty ? "none" : $0.replacingOccurrences(of: ",", with: ", ") } ?? "no Mac app built"))
             if g.logPath == nil {
                 out.append("- Game log: none yet, the game was not run")
@@ -283,12 +287,25 @@ struct Diagnostics {
     }
 
     /// The selected game's section: the built app's DMForkPatches and the end of its latest log.
-    static func gameInfo(_ game: LibraryGame, home: String = NSHomeDirectory(), lines: Int = GameLog.lines) -> GameInfo {
+    static func gameInfo(_ game: LibraryGame, home: String = NSHomeDirectory(), lines: Int = GameLog.lines, nxkit: NxkitBuildRecord? = nil) -> GameInfo {
         let info = NSDictionary(contentsOfFile: game.appPath + "/Contents/Info.plist")
         let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath, home: home)
         return GameInfo(name: game.name, titleID: game.titleID,
                         builtForkPatches: info.map { ($0["DMForkPatches"] as? String) ?? "" },
+                        engine: engineName(game.playableMacBundle?.upstream, nxkit: nxkit),
                         logPath: log?.path, log: log.flatMap { GameLog.tail($0, lines: lines) } ?? [])
+    }
+
+    /// The engine of a built Mac app with its version when the launcher knows it (nxkit records it, #1460).
+    static func engineName(_ kind: EngineUpstreamKind?, nxkit: NxkitBuildRecord?) -> String? {
+        guard let kind else { return nil }
+        guard kind == .nxkit, let r = nxkit else { return kind.displayName }
+        return kind.displayName + " " + r.version + (r.hostBuild.isEmpty ? "" : ", nxkit-host " + String(r.hostBuild.prefix(12)))
+    }
+
+    /// nxkit (Beta) in use, nil when this Mac cannot run it.
+    static func nxkitLine(_ s: NxkitVersionStore.Selection?) -> String? {
+        s.map { "\($0.version) (\($0.source.rawValue))" + ($0.hostBuild.isEmpty ? "" : ", nxkit-host " + String($0.hostBuild.prefix(12))) }
     }
 
     /// What a tool prints for its version, nil when it does not run.
@@ -306,6 +323,7 @@ extension LauncherStores {
         let repo = self.repo.isRepo ? self.repo.path : "", python = dependencies.pythonPath.isEmpty ? Toolchain.findPython().path : dependencies.pythonPath, dotnet = dependencies.dotnetPath
         let checked = dependencies.checked, rows = checked ? dependencies.deps.map(Diagnostics.dependency) : []
         let controllers = SteamLinkGamepads.shared.diagnostics
+        let nxkit = Diagnostics.nxkitLine(build.nxkitSelectable ? build.nxkitInUse : nil), nxkitRecord = game.flatMap { build.nxkitRecord($0.titleID) }
         let command = build.lastBuildCommand, log = build.logTail, xcrun = deviceStore.xcrun
         let (sel, usesEngineStore) = (engineSync.selection, engineSync.usesEngineStore)
         let engine = usesEngineStore && !sel.engineID.isEmpty ? "\(sel.channel.rawValue) \(sel.version) (\(sel.engineID))" : nil
@@ -331,8 +349,8 @@ extension LauncherStores {
                 depsChecked: checked, deps: rows,
                 forkPatches: repo.isEmpty ? nil : read("dm/fork_patches.txt").map(Diagnostics.patchList),
                 toolchain: Diagnostics.toolchain(xcrun: xcrun, pins: pins, run: Diagnostics.probe(env: env)),
-                game: game.map { Diagnostics.gameInfo($0) },
-                lastCommand: command, log: log, controllers: controllers)
+                game: game.map { Diagnostics.gameInfo($0, nxkit: nxkitRecord) },
+                lastCommand: command, log: log, controllers: controllers, nxkit: nxkit)
             let report = Diagnostics.report(inputs)
             DispatchQueue.main.async { done(report) }
         }

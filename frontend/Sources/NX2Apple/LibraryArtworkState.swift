@@ -93,6 +93,7 @@ struct LibraryArtworkState: Equatable {
     let attention: Attention
     let macUpstream: EngineUpstreamKind?
     var isMacNativeGames: Bool { mac && macUpstream == .macNativeGames }
+    /// The art is dimmed a little, never grey (#1458): the chip says why.
     var monochrome: Bool { attention != .none }
     var chipKey: String? {
         switch attention {
@@ -108,9 +109,8 @@ struct LibraryArtworkState: Equatable {
         return mac && ios ? "laptopcomputer.and.iphone" : "iphone"
     }
     var color: Color {
-        if attention == .none { return .white.opacity(0.9) }
-        if attention == .building { return Color(red: 1, green: 0.94, blue: 0.84) }
-        return Color(red: 1, green: 0.78, blue: 0.24)
+        if attention == .none || attention == .building { return DS.Color.textPrimary }   // a property or a running build: neutral
+        return DS.Color.statusWarning   // needs attention
     }
     init(mac: Bool, ios: Bool, attention: Attention, macUpstream: EngineUpstreamKind? = nil) {
         self.mac = mac
@@ -171,16 +171,16 @@ struct LibraryProfileChip: View {
                 Text(title)
                 Image(systemName: "info.circle").accessibilityHidden(true)
             }
-            .font(.manrope(11, .semibold)).foregroundStyle(.white.opacity(0.9))
+            .font(DS.Font.footnote.weight(.semibold)).foregroundStyle(DS.Color.textPrimary)
             .padding(.horizontal, 8).padding(.vertical, 4)
             .background(.black, in: Capsule())
-            .overlay(Capsule().strokeBorder(ArtworkStatusChip.neutralColor, lineWidth: ArtworkStatusChip.strokeWidth))
+            .overlay(DSPill().strokeBorder(ArtworkStatusChip.neutralColor, lineWidth: ArtworkStatusChip.strokeWidth))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain).accessibilityHint(explanation)
         .onHover { inside in if inside { showingHelp = true } else if !pinned { showingHelp = false } }
         .popover(isPresented: $showingHelp, arrowEdge: .bottom) {
-            Text(explanation).font(.manrope(13)).padding(16).frame(width: 320, alignment: .leading)
+            Text(explanation).font(DS.Font.body).padding(16).frame(width: 320, alignment: .leading)
         }
         .padTarget("hero.profile", scope: "main") { pinned = true; showingHelp = true }
     }

@@ -8,10 +8,10 @@ import XCTest
 final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
     /// Keys whose French text is the English one on purpose: names, units, button letters, codes.
     static let sameAsEnglish: Set<String> = [
-        "library.chip.both", "shell.choiceLauncher", "onboarding.xcode.section",
+        "library.chip.both", "shell.choiceLauncher", "onboarding.xcode.section", "onboarding.step.xcode",
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.background.python",
         "onboarding.background.dotnet", "onboarding.demo.mario",
-        "console.platform.mac", "console.platform.iphone", "console.version",
+        "console.platform.mac", "console.platform.iphone", "console.version", "console.builds.more",
         "saves.toDevice", "saves.toMac", "section.app", "app.version", "library.ok",
         "build.ios", "data.keys", "delete.part.ipa", "dep.tool.xcodegen",
         "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator", "diag.title", "dep.brew",
@@ -20,11 +20,13 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
         "pad.options", "engine.channel.stable", "launch.opt.DM_PRESENT_UPSCALE.off", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx", "launch.opt.DM_SCREEN_ASPECT.0", "key.tab",
         "switch2.badge",   // the console's name
+        "nxkit.name", "nxkit.version",   // the engine's name and its version number
         "ios.ui.switch2Badge",   // the console's name
         "console.mapping.place.Plus", "console.menu", "console.mapping.group.menus",   // the Switch's Plus button, and Menu and Menus, as French writes them
         // Steam Controller names retained in French.
         "controls.steam.title", "controls.steam.L4", "controls.steam.L5", "controls.steam.R4", "controls.steam.R5", "controls.steam.Guide",
         "buildfiles.total",   // Total reads the same in French
+        "build.destination",   // Destination, the build page's section
         "console.gamePage.version",   // Version, the game page's fact (#816)
         // Shell words shared by English and French.
         "ios.host.ok", "ios.host.shellName", "ios.ui.interface", "ios.ui.padPlus", "ios.ui.version", "ios.ui.touchEditorPortrait", "ios.ui.gameVersionLabel",

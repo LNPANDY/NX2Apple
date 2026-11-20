@@ -1,9 +1,10 @@
 import SwiftUI
-import CoreImage
 
 package struct LauncherBrandMark: View {
     var onHero: Bool
-    package init(onHero: Bool = false) { self.onHero = onHero }
+    /// The mark's colour off the hero: text.primary, the accent only where its card is selected (#1458).
+    var tint: Color
+    package init(onHero: Bool = false, tint: Color = DS.Color.textPrimary) { self.onHero = onHero; self.tint = tint }
     // Inline SVG keeps the mark available without a bundle resource lookup.
     package static let svg = """
 <svg xmlns="http://www.w3.org/2000/svg" width="592" height="424" viewBox="216.21 288.35 591.58 424.39">
@@ -15,15 +16,6 @@ package struct LauncherBrandMark: View {
 </svg>
 """
     package static let image = NSImage(data: Data(svg.utf8))
-    // Cache the blurred alpha mask so the decorative backdrop also stays soft in AppKit bitmap rendering.
-    package static let backdropImage: NSImage? = {
-        guard let data = image?.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data), let cg = bitmap.cgImage else { return nil }
-        let source = CIImage(cgImage: cg)
-        let blurred = source.applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 24])
-        let bounds = source.extent.insetBy(dx: -72, dy: -72)
-        guard let result = CIContext().createCGImage(blurred, from: bounds) else { return nil }
-        return NSImage(cgImage: result, size: bounds.size)
-    }()
 
     package var body: some View {
         Group {
@@ -31,7 +23,7 @@ package struct LauncherBrandMark: View {
                 Image(nsImage: image).resizable().renderingMode(.template).scaledToFit()
             }
         }
-        .foregroundStyle(onHero ? Color.white : LauncherPalette.cream)
+        .foregroundStyle(onHero ? Color.white : tint)
         .frame(width: 36, height: 26)
         .accessibilityLabel("NX2Apple")
         .allowsHitTesting(false)

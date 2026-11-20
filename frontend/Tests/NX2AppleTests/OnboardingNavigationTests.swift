@@ -27,7 +27,7 @@ import XCTest
         }
     }
     func testEverySetupStepHasReachableActionsAndKeyboardReturn() throws {
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             for step in OnboardingStep.allCases {
                 var state = MockOnboardingDriver.sampleState
                 state.step = step; state.platform = .selected(.mac); state.xcode = .ready
@@ -88,7 +88,7 @@ import XCTest
 
     func testWelcomeFooterAndDiskGateAcrossWindowSizes() throws {
         for size in [CGSize(width: 900, height: 680), CGSize(width: 1280, height: 900)] {
-            for dark in [false, true] {
+            for dark in [true] {   // the launcher is dark only (#1458)
                 for lang: Lang in [.en, .de, .zh] {
                     for hasSpace in [false, true] {
                         var state = MockOnboardingDriver.sampleState
@@ -105,27 +105,26 @@ import XCTest
                         XCTAssertTrue(targets.contains { $0.id == "onboarding.later" })
                         XCTAssertFalse(targets.contains { $0.id == "onboarding.back" })
                         if hasSpace {
+                            // Welcome's one action sits in the content group, under the requirements, not in the footer
                             let primary = try XCTUnwrap(targets.first { $0.id == "onboarding.primary" })
-                            XCTAssertGreaterThanOrEqual(primary.frame.minY, host.bounds.height - 100)
-                            XCTAssertLessThanOrEqual(primary.frame.maxY, host.bounds.height - 20)
+                            XCTAssertGreaterThan(primary.frame.minY, 200, "under the title, subtitle and list")
+                            XCTAssertLessThan(primary.frame.maxY, host.bounds.height - 80, "above the footer")
                             focus.show(default: "onboarding.primary"); pad.perform(.a); settle()
                             XCTAssertEqual(driver.state.step, .platform)
+                            driver.choosePlatform(.mac); settle()   // Continue is enabled, so it is a target
                             let footer = focus.frames["onboarding", default: []]
                             let firstCard = try XCTUnwrap(footer.first { $0.id == "onboarding.platform.mac" })
+                            let next = try XCTUnwrap(footer.first { $0.id == "onboarding.primary" })
                             XCTAssertEqual(firstCard.frame.height, 180, accuracy: 0.5)
-                            XCTAssertGreaterThanOrEqual(firstCard.frame.minY, 300)
-                            XCTAssertLessThan(firstCard.frame.maxY, primary.frame.minY - 32)
-                            if size.height >= 900 {
-                                XCTAssertGreaterThan(firstCard.frame.minY, 400, "Short content should use the available body space")
-                            }
+                            XCTAssertGreaterThanOrEqual(firstCard.frame.minY, 200)
+                            XCTAssertLessThan(firstCard.frame.maxY, next.frame.minY - DS.Space.l)
+                            XCTAssertGreaterThanOrEqual(next.frame.minY, host.bounds.height - 100, "Continue is in the footer")
                             let back = try XCTUnwrap(footer.first { $0.id == "onboarding.back" })
-                            let inset = max(0, (host.bounds.width - 900) / 2) + 40
-                            XCTAssertEqual(primary.frame.height, 44, accuracy: 0.5)
-                            XCTAssertEqual(back.frame.height, primary.frame.height, accuracy: 0.5)
-                            XCTAssertGreaterThanOrEqual(back.frame.width, 150)
-                            XCTAssertGreaterThanOrEqual(primary.frame.width, 150)
+                            let inset = max(0, (host.bounds.width - DS.Control.contentWidth) / 2) + DS.Space.xl
+                            XCTAssertEqual(next.frame.height, DS.Control.height, accuracy: 0.5)
+                            XCTAssertEqual(back.frame.height, next.frame.height, accuracy: 0.5)
                             XCTAssertEqual(back.frame.minX, inset, accuracy: 0.5)
-                            XCTAssertEqual(primary.frame.maxX, host.bounds.width - inset, accuracy: 0.5)
+                            XCTAssertEqual(next.frame.maxX, host.bounds.width - inset, accuracy: 0.5)
                             pad.perform(.b); settle()
                             XCTAssertEqual(driver.state.step, .welcome)
                         } else {
@@ -149,7 +148,7 @@ import XCTest
     }
 
     func testSetupAccordionsStartClosedAndPreserveFocusThroughRecovery() throws {
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             for scenario in ["checking", "ready", "failed"] {
                 var state = MockOnboardingDriver.sampleState
                 state.step = .xcode; state.platform = .selected(.both)
@@ -168,9 +167,9 @@ import XCTest
                 settle()
                 let xcode = try XCTUnwrap(focus.frame(of: "onboarding.xcode"))
                 let support = try XCTUnwrap(focus.frame(of: "onboarding.support"))
-                XCTAssertEqual(xcode.height, 88, accuracy: 0.5)
+                XCTAssertGreaterThanOrEqual(xcode.height, 60)
                 XCTAssertEqual(support.height, xcode.height, accuracy: 0.5)
-                XCTAssertGreaterThan(xcode.minY, 400, "Collapsed summaries should sit centrally below the compact hero")
+                XCTAssertGreaterThan(xcode.minY, 200, "Collapsed summaries sit under the title and subtitle")
                 XCTAssertFalse(focus.frames["onboarding", default: []].contains { $0.id == "onboarding.details" })
                 func capture(_ phase: String) throws {
                     guard let path = ProcessInfo.processInfo.environment["NX_SETUP_ACCORDION_CAPTURE_DIR"] else { return }
@@ -223,7 +222,7 @@ import XCTest
             ("working", .settingUp, false), ("failed", .failed(failure), false), ("ready", .ready, false),
             ("support-failed", .ready, true)
         ]
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             for (name, xcode, supportFailed) in cases {
                 var state = MockOnboardingDriver.sampleState
                 state.step = .xcode; state.platform = .selected(.mac); state.xcode = xcode
@@ -266,7 +265,7 @@ import XCTest
     func testKeysStayInlineAndRequireConfirmationOrExplicitDeferral() throws {
         let states: [(String, OnboardingState.Keys)] = [("empty", .empty), ("checking", .validating),
             ("valid", .valid), ("invalid", .invalid("Choose a prod.keys file from your own console.")), ("deferred", .skipped)]
-        for dark in [false, true] {
+        for dark in [true] {   // the launcher is dark only (#1458)
             for (name, keys) in states {
                 var state = MockOnboardingDriver.sampleState
                 state.step = .keys; state.platform = .selected(.mac); state.keys = keys

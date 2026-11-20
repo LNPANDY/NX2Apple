@@ -20,8 +20,8 @@ extension LauncherView {
                 Button { page = destination } label: {
                     // The selected tab is bold. The bold text also sizes the (hidden) slot, so a tab never changes width as the selection moves.
                     ZStack {
-                        navLabel(destination, compact: compact).font(.manrope(13, .bold)).hidden()
-                        navLabel(destination, compact: compact).font(.manrope(13, page == destination ? .bold : .medium))
+                        navLabel(destination, compact: compact).font(DS.Font.bodyStrong).hidden()
+                        navLabel(destination, compact: compact).font(page == destination ? DS.Font.bodyStrong : DS.Font.body)
                     }
                         .padding(.horizontal, tabInset).frame(height: LauncherControl.height - 6)
                         .foregroundStyle(page == destination ? LauncherPalette.segmentSelectedText : LauncherPalette.text)
@@ -35,22 +35,22 @@ extension LauncherView {
             }
         }
         .padding(3)
-        .background(LauncherPalette.segmentTrack, in: Capsule())
-        .overlay(Capsule().strokeBorder(LauncherPalette.segmentTrackBorder))
+        .launcherGlass(in: Capsule())
         .fixedSize(horizontal: true, vertical: false)
     }
 
     var topBar: some View {
         LauncherHeaderLayout {
-            HStack(spacing: 16) {
-                LauncherBrandMark(onHero: page == .library && colorScheme == .dark).fixedSize()
+            HStack(spacing: DS.Space.m) {
+                LauncherWordmark()
             }.padding(.leading, 90)
             ViewThatFits(in: .horizontal) {
                 navigationTabs(tabInset: 18)
                 navigationTabs(tabInset: 8)
                 navigationTabs(compact: true, tabInset: 14)
             }
-            HStack(spacing: 6) {
+            LauncherGlassGroup(spacing: 8) {
+            HStack(spacing: 8) {
                 PlayerPicker(players: stores.players, compact: searching)   // whose saves Play uses (PlayerPicker.swift)
                 searchField
                 // A newer release is out: a small icon, last in the bar, opens the update sheet. Without one the bar
@@ -59,34 +59,25 @@ extension LauncherView {
                     let readOnly = updates.installability == .readOnly
                     Button { updates.showUpdateSheet = true } label: {
                         Image(systemName: readOnly ? "exclamationmark.arrow.circlepath" : "arrow.down.circle")
-                            .font(.system(size: 18, weight: .medium))
                             .foregroundStyle(readOnly ? LauncherPalette.building : LauncherPalette.ready)
-                            .frame(width: 34, height: 34).contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain).launcherHover()
+                    .buttonStyle(LauncherIconButtonStyle())
                     .padTarget("top.update", scope: "main") { updates.showUpdateSheet = true }
-                    .padding(.leading, 16.5).padding(.trailing, -7.5)
                     .help(String(format: loc.t("update.pill"), update.tag) + "\n" + loc.t(readOnly ? "update.readOnlyHint" : "update.pillHelp"))
                     .accessibilityLabel(String(format: loc.t("update.pill"), update.tag))
                 }
-                Button { page = .settings } label: {
-                    Image(systemName: "gearshape.fill").font(.system(size: 15, weight: .medium))
-                        .frame(width: LauncherControl.height, height: LauncherControl.height)
-                        .foregroundStyle(page == .settings ? LauncherPalette.segmentSelectedText : LauncherPalette.text)
-                        .background(page == .settings ? LauncherPalette.segmentSelected : LauncherPalette.secondaryFill, in: Circle())
-                        .overlay(Circle().strokeBorder(LauncherPalette.secondaryBorder))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain).launcherHover()
+                Button { page = .settings } label: { Image(systemName: "gearshape.fill") }
+                .buttonStyle(LauncherIconButtonStyle(selected: page == .settings))
                 .help(loc.t("nav.settings")).accessibilityLabel(loc.t("nav.settings"))
                 .accessibilityAddTraits(page == .settings ? .isSelected : [])
                 .keyboardShortcut(",", modifiers: .command)
                 .padTarget("top.settings", scope: "main", focusColor: page == .settings ? LauncherPalette.segmentSelectedText : nil, activate: { page = .settings })
-                .padding(.leading, 8)
+            }
             }.padding(.trailing, 24)
         }
         .frame(height: 64)
         .background(TitlebarDoubleClick())   // an empty part of the bar acts as the title bar does
+        .launcherGlassLayer()   // the top bar floats above the content: its controls are glass (#1458)
     }
 
 
@@ -107,7 +98,7 @@ extension LauncherView {
             .accessibilityLabel(loc.t("library.search")).accessibilityHint(loc.t("library.searchShortcut"))
             if searching {
                 TextField(loc.t("library.search"), text: $search)
-                    .textFieldStyle(.plain).font(.manrope(14))
+                    .textFieldStyle(.plain).font(DS.Font.body)
                     .focused($searchFocused)
                     .onAppear { DispatchQueue.main.async { searchFocused = true } }
                     .onSubmit { if search.isEmpty { closeSearch() } }
@@ -123,9 +114,8 @@ extension LauncherView {
         }
         .padding(.horizontal, searching ? 12 : 0)
         .frame(height: 36)
-        .background(LauncherPalette.secondaryFill, in: Capsule())
-        .overlay(Capsule().strokeBorder(searching && searchFocused ? LauncherPalette.cream : LauncherPalette.secondaryBorder,
-                                         lineWidth: searching && searchFocused ? 2 : 1))
+        .launcherGlass(in: Capsule())
+        .overlay { if searching && searchFocused { DSPill().strokeBorder(LauncherPalette.cream, lineWidth: 2) } }
         .transaction { $0.animation = nil }
         .onChange(of: searchFocused) { focused in
             if !focused && search.isEmpty { closeSearch() }

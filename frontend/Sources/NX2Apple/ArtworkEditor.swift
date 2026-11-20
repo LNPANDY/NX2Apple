@@ -132,6 +132,9 @@ struct ArtworkEditorEnvironment {
     deinit { loadTask?.cancel() }
 
 
+    /// The state gallery: a notice under the grid as an import would give it (DesignGallery).
+    func showNoticeForGallery(_ notice: Notice) { self.notice = notice }
+
     var isDirty: Bool { draft != original }
 
     func canReset(_ slot: ArtworkSlot) -> Bool {

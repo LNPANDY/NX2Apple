@@ -279,6 +279,139 @@ xcrun actool AppIcon.icon --compile out --platform macosx --minimum-deployment-t
   --app-icon AppIcon --output-partial-info-plist out/partial.plist
 ```
 
+## Design tokens and components
+
+The launcher's look has one source: `frontend/design-tokens/tokens.json`, in the W3C Design Tokens format.
+It holds the colours (the launcher is dark only), the type scale (large title, title, headline, body 13,
+callout 12, footnote 11, nothing smaller), the spacing scale (4, 8, 12, 16, 24, 32), the radii, the control
+sizes and the animation durations. `python3 tools/design_tokens.py` writes
+`Sources/NXLauncher/Generated/DesignTokens.swift` from it (the enums `DS.Color`, `DS.Font`, `DS.Space`,
+`DS.Radius`, `DS.Control` and `DS.Motion`). Commit both. `tools/tests/test_design_tokens.py` fails when the Swift
+file is stale. Do not edit the generated file by hand.
+
+Screens compose the components in `Sources/NXLauncher/DesignComponents.swift` instead of styling text themselves:
+
+| For | Use |
+|---|---|
+| A page title and its subtitle | `DSPageHeading` |
+| A titled group of rows with a footnote | `DSSection` |
+| A row: status slot, title, one secondary line, trailing control | `DSRow` (`DSRowDivider` between rows) |
+| A plain card | `DSCard` |
+| The one primary action of a screen | `DSPrimaryButtonStyle` |
+| Every other button, a round symbol button | `DSSecondaryButtonStyle`, `DSIconButtonStyle` |
+| A state that needs attention on a cover | `DSChip` |
+| Anything the player is told outside a sheet | `DSNotice` (`LauncherNotice`), in the slot under the top bar |
+| The bar under a wizard | `DSWizardFooter` with `DSContinueLabel` |
+| A row's button ("Choose…", "Change…", a notice's action) | `DSRowButtonStyle` |
+| A destructive action on its own (Uninstall) | `DSDestructiveButtonStyle` |
+| A row's second and further actions | `DSOverflowMenu` ("…") |
+| A link-like action in a line of text | `DSTextButtonStyle` |
+| A row's warning, error or note | `DSRow(…, message: .warning(text))` (`DSRowMessage`, tone `DSTone`) |
+| A spinner, also inside a button | `DSSpinner` |
+| A card of artwork (library row and grid) | `DSCardButtonStyle` with `dsCardArt` |
+| A capsule or round outline | `DSPill` |
+| A quiet property beside a title (Newer, This build) | `DSTag` |
+| Controls side by side that wrap | `DSFlowRow` |
+| The engine on a build page | `EngineFootnote` ("Built with nxnative · Change") |
+| A question or a short task in a sheet | `DSSheet` (`LauncherConfirmSheet` for a confirmation) |
+| A sheet whose list scrolls | `DSScrollingSheet` |
+| Cancel and the sheet's action | `DSSheetConfirmButtons`, `DSSheetPrimaryButton` for Done or Save |
+| An action that removes something | `DSDestructiveButtonStyle` |
+| A path in a sheet | `DSPathText` (a row's `detail` does the same) |
+
+Every sheet has one layout: the title in `DS.Font.title` and its message under it (no icon above the title, in a
+confirmation neither: the title and the message name what it is about), the content, then the button row with Cancel left
+of the primary, both on the trailing side. The insets are 32 pt at the sides and 24 pt at the top and the bottom, a
+confirmation is `DS.Control.sheetWidth` wide and as high as its content, and no hairline sits above the button row. A sheet
+is never higher than the screen allows (`dsSheetMaxHeight`): higher content scrolls between the fixed header and button
+row, in `DSSheet` and `DSScrollingSheet` alike. Escape is Cancel. Return presses the primary action only when it is safe: a destructive action never takes
+Return, in its sheet Return is Cancel (`DSSheetKeys`, Apple HIG "Alerts"). The destructive fill is `status.errorFill`,
+deeper than `status.error`, so its white label reads at 4.5:1.
+
+Liquid Glass belongs to the navigation layer that floats above the content (Apple's HIG for macOS 26): the top bar, the
+controls over the library hero, the carousel arrows and the wizard footer. Those views call `launcherGlassLayer()`, and only
+there do the button styles draw glass. In lists, cards, rows, sheets and notices the same styles are flat: the raised surface
+with a hairline, the accent fill for a primary action, and the raised surface with tertiary text when disabled.
+`DesignRulesTests` refuses glass anywhere else.
+
+A dropdown that shows its current value is a pop-up with the up and down chevron (`LauncherDropdown`, kind `.popUp`): the
+language, the game display, the engine and its channel, the build source, the sort, the player. A pull-down that runs actions
+has the down chevron (`.pullDown`), and a row's further actions sit in the "…" of `DSOverflowMenu` (Apple HIG).
+
+Everything inside a button takes the button's foreground (`DSButtonForeground`, set once by each style): `accentOn` on the
+primary, `text.primary` on the others, white on the destructive fill (`DSDestructiveButtonStyle`, `status.errorFill`), and
+`text.tertiary` when disabled. A spinner in a button is `DSSpinner`, which draws in that colour (AppKit's small spinner ignores
+the tint).
+
+Cards answer through their artwork only (`DSCardButtonStyle` with `dsCardArt`, tokens `interaction.*`): under the pointer a
+white veil of 6 %, pressed 12 %, the selected card (the hero's game) a 2 pt accent ring, the card the controller or the
+keyboard is on the focus ring and a scale of 1.03. No plate, no shadow, nothing moves. A chip on artwork sits 8 pt in from the
+top and leading edge, above the clip. Rows answer the pointer with the raised surface (`dsRowHover`), never a scale. The
+console mode's cards keep their own focus look. The gallery's Design system › Card and row states shows each state.
+
+A row (`DSRow`) keeps one rule set. The leading slot's content (a status dot, a thumbnail, an icon) is centred in the slot and
+vertically on the row's text block (title and subtitle), the same centre as the trailing control, so dot and control sit on one
+line. A row with a message centres both on the title and subtitle, not on the message. A group (`DSSection`) reserves the
+leading slot only when one of its rows uses it: a list without dots or icons starts its titles at the card's 16 pt inset. Every control in the trailing column is exactly `DS.Control.columnWidth` wide, the
+primary too, and a toggle sits at the column's trailing edge. A row with a second action keeps one in the column and the
+others in a "…" just before the column, so the column keeps its edges. A row's own warning, error or note is its `message` (`.warning(text)`): the tone's symbol at the
+title's leading edge, 4 pt to the text, both in callout, the text wrapping under itself. Dot and control stay centred on the
+title and subtitle, and the row grows downwards. A row's help is an info button beside its title, not one beside the section header.
+
+One primary per screen. In a wizard step the footer's Continue is the primary as soon as it is enabled. An action in the
+content may be primary only while Continue is disabled and that action is the way forward (Choose folder before anything is
+chosen). After that it is a row button ("Change…").
+
+"Built with nxnative · Change" is callout in `text.secondary`, Change a `DSTextButtonStyle` (semibold, `text.primary`,
+underlined under the pointer) with the controller's ring, its leading edge on the section headers'.
+
+Symbols take `symbol.default`, or `symbol.accent` when selected. Status dots and notice symbols take the status colours. A
+notice has one symbol per tone (info, warning, error, success), never its own. A notice's detail wraps and is never cut, keep
+it to one or two sentences. The notice grows in height, its symbol and action stay centred on the title and detail, as in a
+row. `DesignRulesTests` also checks the contrast
+of the text, symbol and status colours on every surface from `tokens.json`, refuses raw SwiftUI colours outside a short list,
+and refuses dashes and semicolons in the language files.
+
+New UI uses these and the `DS` tokens. `DesignTokenGuardTests` refuses a raw Manrope size, `Color(red:)`,
+`Color(white:)`, `NSColor(srgbRed:)` or a white opacity in `Sources/NX2Apple` outside the files it still lists,
+and those may only shrink. `LauncherPalette` is kept as aliases to `DS` while the screens move.
+
+The JSON has no Swift in it, so the Qt and iOS front ends can get their own writer from the same file later.
+
+### State gallery
+
+`NX2Apple --gallery` (or `NX_GALLERY=1`, for example `open -n NX2Apple.app --args --gallery`) opens a developer window
+with every view and state of the launcher instead of the launcher: the scenes of `GalleryScene` by group on the left,
+the chosen one live on the right, with a language, a window size and a PNG export of one scene or all of them. Each
+scene runs on fixture stores (`GalleryFixtures`): a private defaults suite, a library in a temporary folder,
+generated artwork, a process runner that starts nothing and no release source. The launcher's window, its session,
+the engine sync and the update check are never made, and the app's own defaults are put back when the gallery quits.
+`LauncherDesignCaptureTests` renders the same catalogue, so captures and gallery match. A new view or state gets a
+case in `GalleryScene` and its fixture in `GalleryFixtures`. A sheet or dialog gets a case in `GallerySheet`
+(`GallerySheets.swift`) for each of its steps and states. It is drawn without a title bar at the size it takes, and
+`NX_CAPTURE_GROUP=Sheets` captures that group alone. The gallery's own texts are English only.
+
+The gallery shows everything: every View type of NX2Apple and NXLauncher, every sheet, popover and alert, every
+notice and every case of the state enums the views switch on (`GalleryCoverage.stateEnums`) has a scene, or one of
+a few reasons in `GalleryCoverage` (a view no screen uses, a popover AppKit draws in its own window). The desktop's
+further states are `GalleryDesktopScene`, console mode's are `GalleryConsoleScene`. `GalleryCoverageTests` reads the
+sources and fails for a new view, sheet, notice or state case without either, and checks `DesignGallery/COVERAGE.md`,
+the list of what shows where: `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`
+writes it again. A state reached only through private state gets a small entry for the gallery (a `ForGallery` setter
+or an init parameter with a player's default), never a change of behaviour. The sidebar lists the groups with their
+counts.
+
+Scenes with motion (the Motion group: a game starting, a build finishing, the build icon's progress colour, a notice,
+the console's card focus and home row, a sheet opening, a toast) start in their before state and play their change.
+Play in the toolbar builds the scene again and plays it once more, Slow motion plays it at a quarter of the speed. The
+speed is the environment's `dsMotionSpeed` (1 in the app), which `dsAnimation` and `DS.Motion.animation(_:speed:)` read.
+
+The gallery shows your own games' covers (Covers: Real in the toolbar, Generated for the fictional art). At launch it
+reads the launcher's library file and copies the artwork that is already on disk into its temporary folder
+(`GalleryRealCovers`). It never writes to the real artwork, library or defaults and downloads nothing. Games without
+art, and scenes that need more games than you have, get the generated ones. The captures keep the generated art, so
+CI and PR images never show a player's library. `NX_CAPTURE_REAL_COVERS=1` uses this Mac's covers there too.
+
 ## App updates
 
 When the app opens it asks GitHub for the latest release. With **Install updates
@@ -299,39 +432,24 @@ bundle), a bundle under `.build/` or `DerivedData/`, a bundle beside
 `Package.swift` (the `NX2Apple.app` made here), or one whose Info.plist version
 is not this binary's release number. `AppUpdate.swift` holds these rules.
 
-## Experimental builder
+## nxkit (Beta)
 
-Settings, Build tools, **Use experimental builder** (off by default, LNPANDY/NX2Apple#749). nxbuild is a build tool in Rust that reproduces stages of the NSP script byte for byte, and faster. With the switch on, the build gets `DM_EXPERIMENTAL_BUILDER=1` and `NXB_BIN` (the path of the `nxb` binary). The script stays the driver. It runs the extraction (`nxb-extract`) and the shader split (`nxb-split`) through nxbuild where nxbuild supports the case, with the same outputs, stages and events. Everything else runs the standard way:
+Settings, Tools, Builder upstream, **nxkit (Beta)** (LNPANDY/NX2Apple#1460): [nxkit](https://github.com/v0lumehi/nxkit) builds the Mac app with
+`nxb build` and its own runtime `nxkit-host`, without the NSP script, Python or .NET. Mac only, macOS 26 or newer, Apple silicon only: on other
+Macs the engine row says why and the pop-up does not offer it. The row shows the version in use and the update's state, and its "…" has Check for
+updates and Use previous version. A game nxkit built says so in the library ("Built with nxkit (Beta)"), in the build log's first line and in
+Diagnostics. After each nxkit build and after the first start of its app the launcher asks "Did it work?" once (`NxkitFeedbackRow`). An answer
+opens a prefilled issue in v0lumehi/nxkit in the browser, nothing is sent by itself. BUILDING.md, "nxkit (Beta)", has the command line and the update's rules.
 
-- an XCI, an NSZ, a merged package, `--program`, `--allow-damaged`, DLC, run-time captures, NROs, a game decoder, a provisional or derived profile
-- an nxbuild exit code other than 0 (4 means "not supported yet")
-- an output that fails the checks: for an extraction the title, `ExeFS/main`, `RomFS.img` and the profile's marker, for the split the data rows of the profile's shader tables
+Where the pair comes from (`NxkitBuilder` and `NxkitUpdate` in `NXCore`):
 
-The build log says which stage nxbuild ran and why a stage fell back. nxbuild's own log is `logs/nxb_extract_<version>.log` or `logs/nxb_split.log` in the build folder. The shader step, the pipeline archive and the Mac app are not handed over yet. The NSP script needs the engine patch that reads the two variables. An engine without it ignores them.
+1. A newer verified version the launcher installed under `~/Library/Application Support/NX2Apple/nxkit/<version>/`, signed releases only.
+2. Otherwise the app's own pair, `Contents/Resources/nxbuild/` (nxb, nxkit-host, MANIFEST.json, LICENSE, THIRD_PARTY.md). `frontend/nxbuild.pin`
+   names the release (version, SHA-256 of the zip, URL pattern). `build-mac-app.yml` and `tools/try-local` run `frontend/tools/nxbuild.py fetch`:
+   it downloads the zip and the release's SHA256SUMS, checks the zip against both before anything is unpacked, checks nxb and nxkit-host against
+   MANIFEST.json and SHA256SUMS, and signs both ad hoc. `tools/check_bundle.sh` checks the pair. `frontend/tools/nxbuild.py bump <version>` pins a new release.
 
-Where `nxb` comes from (`ExperimentalBuilder` in `NXCore`):
-
-1. The path chosen in the row under the switch, the `nxb` binary or the folder that holds it. A chosen path that does not work is reported, never replaced by another binary.
-2. Otherwise the app's own copy, `Contents/Resources/nxbuild/nxb`. `frontend/nxbuild.pin` names the nxbuild release (version, SHA-256, URL pattern). `build-mac-app.yml` and `tools/try-local` run `frontend/tools/nxbuild.py fetch`: it downloads the zip, checks its SHA-256 against the pin before anything is unpacked, puts `nxb` into Resources and signs it ad hoc. A zip whose digest differs fails the app build. A pin with `PLACEHOLDER` as its digest bundles nothing. `frontend/tools/nxbuild.py bump <version>` pins a new release with the digest from its `SHA256SUMS`. Players download nothing at run time.
-
-With neither, the switch only writes a note in the build log and the standard builder runs.
-
-To try a local nxbuild:
-
-```bash
-cd <nxbuild checkout> && cargo build --release      # the binaries land in its target folder, release/
-codesign --force --sign - <target>/release/nxb*     # ad hoc, as the app's copy
-```
-
-Then turn the switch on and choose `release/nxb` (or the folder). From a terminal, the same works without the launcher:
-
-```bash
-DM_EXPERIMENTAL_BUILDER=1 NXB_BIN=<target>/release/nxb python3 engine/scripts/build_ipa_from_nsp.py <NSP folder> -k <prod.keys> --platform mac-app
-```
-
-The script takes a stage binary beside `nxb` (`nxb-extract`, `nxb-split`) when there is one, else the subcommand of `nxb` (`nxb extract`, `nxb split`).
-
-The Qt front end has no switch for it: nxbuild is built for macOS on Apple silicon only, and on a Mac the launcher above is the one to use.
+There is no fallback to the NSP script: a failure shows nxb's exit code and its last lines in the failure card. The Qt front end has no nxkit.
 
 ## Run
 

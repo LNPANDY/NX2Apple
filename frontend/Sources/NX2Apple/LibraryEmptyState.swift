@@ -17,7 +17,7 @@ extension LauncherView {
                         LauncherHeroActionLabel(title: loc.t("library.firstBuild"), symbol: "plus")
                     }
                     .buttonStyle(LauncherActionButtonStyle()).fixedSize().disabled(m.running)
-                    .launcherHover(lightBrightness: 0)
+                    .launcherHover()
                     .padTarget("library.empty.primary", scope: "main", enabled: !m.running) { if !m.running { newBuild() } }
                     heroUtilityButton("folder", label: loc.t("builds.empty.addBuilds"), id: "library.empty.folder", action: chooseLibraryFolder)
                 }
@@ -29,23 +29,14 @@ extension LauncherView {
     }
 }
 
-/// A branded fallback uses the same backdrop blur and edge treatment as game artwork.
+/// The backdrop where a game has no artwork (an empty library, the onboarding): the surface fading into the page, no mark and no
+/// blur (LNPANDY/NX2Apple#1458).
 struct LibraryFallbackArtwork: View {
     let size: CGSize
-    @Environment(\.colorScheme) private var scheme
     var body: some View {
-        ZStack {
-            LauncherPalette.background
-            if let image = LauncherBrandMark.backdropImage {
-                Image(nsImage: image).resizable().renderingMode(.template).scaledToFit()
-                    .foregroundStyle(LauncherPalette.cream)
-                    .frame(width: size.width * 0.8, height: size.height * 0.9)
-                    .offset(x: size.width * 0.22, y: -size.height * 0.1)
-                    .opacity(scheme == .light ? 0.12 : 0.23)
-            }
-        }
-        .frame(width: size.width, height: size.height)
-        .accessibilityHidden(true).allowsHitTesting(false)
+        LinearGradient(colors: [LauncherPalette.surface, LauncherPalette.background], startPoint: .top, endPoint: .bottom)
+            .frame(width: size.width, height: size.height)
+            .accessibilityHidden(true).allowsHitTesting(false)
     }
 }
 
@@ -59,7 +50,7 @@ struct LibraryCarouselPlaceholder: View {
                 .fill(LauncherPalette.ink(0.06))
                 .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(LauncherPalette.ink(0.04)))
                 .frame(width: width, height: width / LibraryCardLayout.aspect)
-            Text(loc.t("library.yourLibrary")).font(.manrope(16, .semibold)).lineLimit(1).hidden()
+            Text(loc.t("library.yourLibrary")).font(DS.Font.headline).lineLimit(1).hidden()
                 .overlay(alignment: .leading) {
                     Capsule().fill(LauncherPalette.ink(0.08)).frame(width: width * 0.62, height: 7)
                 }

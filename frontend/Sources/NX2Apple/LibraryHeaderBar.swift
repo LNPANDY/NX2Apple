@@ -1,26 +1,24 @@
 import SwiftUI
 import NXLauncher
 
-/// The bar participates in the scroll view's safe area so the system owns its backdrop and progressive edge.
+/// The library's top bar: a solid surface in the page colour with the hairline under it, on every macOS (#1458). No blur, no
+/// material and no scroll edge effect: the hero starts below the bar and nothing scrolls visibly under it.
 struct LibraryHeaderBar<Header: View>: ViewModifier {
     let header: Header
-    @ViewBuilder func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content.safeAreaBar(edge: .top, spacing: 0) { header }
-                .scrollEdgeEffectStyle(.soft, for: .top)
-        } else {
-            content.safeAreaInset(edge: .top, spacing: 0) {
-                header.background(LauncherPalette.background)
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                header
+                LauncherTopBarRule()
             }
+            .background(DS.Color.background)
         }
     }
 }
 
+/// The library used to scroll under a translucent bar on macOS 26. The bar is solid now, so the content starts below it.
 struct LibraryScrollUnderlap: ViewModifier {
-    @ViewBuilder func body(content: Content) -> some View {
-        if #available(macOS 26, *) { content.ignoresSafeArea(.container, edges: .top) }
-        else { content }
-    }
+    func body(content: Content) -> some View { content }
 }
 
 /// Preserve space for readable titles and actions when a short window cannot accommodate the normal reduction.

@@ -15,8 +15,8 @@ import NXLauncher
     @EnvironmentObject private var focus: PadFocus
     private func t(_ key: String) -> String { L10n.string(key, lang) }
     private var found: [OnboardingGame] { if case let .found(games) = state.games { return games }; return [] }
-    private var columns: Int { max(1, Int((available + 16) / 238)) }
-    private var cardWidth: CGFloat { max(1, (available - CGFloat(columns - 1) * 16) / CGFloat(columns) - 12) }
+    private var columns: Int { max(1, Int((available + DS.Space.m) / 238)) }
+    private var cardWidth: CGFloat { max(1, (available - CGFloat(columns - 1) * DS.Space.m) / CGFloat(columns) - 12) }
     private func canSelect(_ game: OnboardingGame) -> Bool { !game.needsKeys || state.keys == .valid }
     private func toggle(_ game: OnboardingGame) {
         guard canSelect(game) else { return }
@@ -24,45 +24,48 @@ import NXLauncher
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: DS.Space.l) {
             OnboardingDropZone(label: t("onboarding.games.drop"), chooseLabel: t("onboarding.choose"), id: "games",
                 enabled: state.games != .scanning, choose: choose, receive: receive)
             if state.games == .scanning {
-                HStack(spacing: 12) { ProgressView().controlSize(.small); Text(t("onboarding.games.scanning")) }
+                HStack(spacing: DS.Space.s) {
+                    OnboardingStatusIcon(status: .working, label: t("onboarding.running"))
+                    Text(t("onboarding.games.scanning")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                }
+                .padding(.leading, DS.Space.m)
             } else if !found.isEmpty {
-                HStack {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 10) {
-                            Text(String(format: t("onboarding.games.count"), found.count)).font(.manrope(14, .semibold))
+                HStack(alignment: .center, spacing: DS.Space.m) {
+                    VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                        HStack(spacing: DS.Space.xs) {
+                            Text(String(format: t("onboarding.games.count"), found.count)).font(DS.Font.headline).foregroundStyle(DS.Color.textPrimary)
                             BuildPlatformChip(targets: state.selectedPlatform == .both ? [BuildTarget.mac, BuildTarget.ios] : [state.selectedPlatform == .mac ? BuildTarget.mac : BuildTarget.ios])
                         }.environmentObject(Localizer(lang))
-                        Text(t("onboarding.games.select")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(t("onboarding.games.select")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    Spacer(minLength: 16)
+                    Spacer(minLength: DS.Space.m)
                     Button(t("onboarding.games.build"), action: build)
-                        .buttonStyle(LauncherSecondaryButtonStyle()).disabled(selected.isEmpty)
+                        .buttonStyle(DSRowButtonStyle()).disabled(selected.isEmpty)
                         .padTarget("onboarding.games.build", scope: "onboarding", enabled: !selected.isEmpty, activate: build)
                 }
                 if state.keys == .skipped && found.contains(where: \.needsKeys) {
-                    Label(t("onboarding.games.needKeys"), systemImage: "key.slash.fill")
-                        .font(.manrope(13)).foregroundStyle(LauncherPalette.building)
+                    DSInlineWarning(t("onboarding.games.needKeys"))
                 }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: columns), alignment: .leading, spacing: 24) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DS.Space.m), count: columns), alignment: .leading, spacing: DS.Space.l) {
                     ForEach(found) { game in
                         LibraryGameCard(title: game.title, image: game.cover, focus: .center,
                             state: LibraryArtworkState(mac: false, ios: false, attention: .notBuilt),
                             width: cardWidth, selected: selected.contains(game.id), select: { toggle(game) })
                             .disabled(!canSelect(game))
-                            .padTarget("onboarding.game." + game.id, scope: "onboarding", radius: 10,
+                            .padTarget("onboarding.game." + game.id, scope: "onboarding", radius: DS.Radius.card,
                                        enabled: canSelect(game), activate: { toggle(game) })
                     }
                 }
                 .environmentObject(Localizer(lang))
             } else if state.games == .none || state.games == .found([]) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label(t("onboarding.games.none"), systemImage: "folder.badge.questionmark")
-                    Text(t("onboarding.games.noneHint")).foregroundStyle(LauncherPalette.secondaryText)
-                }.font(.manrope(14))
+                DSCard(padding: 0) {
+                    OnboardingStatusRow(title: t("onboarding.games.none"), detail: t("onboarding.games.noneHint"), status: .problem)
+                }
             }
         }
         .background(GeometryReader { geometry in

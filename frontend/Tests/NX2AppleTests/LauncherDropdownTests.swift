@@ -8,6 +8,16 @@ import XCTest
 final class LauncherDropdownTests: IsolatedDefaultsTestCase {
     private let window = CGSize(width: 1000, height: 700)
 
+    /// Apple's HIG: a pop-up that shows its current value has the up and down chevron, a pull-down of actions the down chevron
+    /// that turns while open (#1458).
+    func testPopUpAndPullDownIndicators() {
+        XCTAssertEqual(LauncherDropdownKind.popUp.indicator, "chevron.up.chevron.down")
+        XCTAssertFalse(LauncherDropdownKind.popUp.turnsWhenOpen)
+        XCTAssertEqual(LauncherDropdownKind.pullDown.indicator, "chevron.down")
+        XCTAssertTrue(LauncherDropdownKind.pullDown.turnsWhenOpen)
+        XCTAssertEqual(LauncherDropdown(options: [("a", "A")], selection: "a") { _ in }.kind, .popUp, "a dropdown of values is a pop-up")
+    }
+
     func testListOpensBelowTheButton() {
         let button = CGRect(x: 100, y: 100, width: 150, height: 36)
         let spot = LauncherDropdownLayout.place(button: button, container: window, rows: 5, width: 200)
@@ -195,7 +205,7 @@ final class LauncherDropdownTests: IsolatedDefaultsTestCase {
         for (code, lang) in [("en", Lang.en), ("zh", Lang.zh), ("de", Lang.de)] {
             stores.build.lang = lang
             stores.localizer.lang = lang
-            for light in [true, false] {
+            for light in [false] {   // the launcher is dark only (#1458)
                 let scheme = light ? "light" : "dark"
                 stores.build.upstreamDownloads = [:]
                 try capture(name: "builds-engine-collapsed-\(code)-\(scheme)", openDropdown: false, light: light)

@@ -53,7 +53,9 @@ struct ConsoleGameTile: View {
     /// A grid (all games, the search) has no big title above it: every tile keeps its caption, the focused one in full white.
     var alwaysCaptioned = false
     var coverflow = false
+    /// Positive for a cover already passed (it fans behind the focused one), zero or negative otherwise. No cover is rotated.
     var tilt: Double = 0
+    private var rear: Bool { tilt > 0 }
     var rearOffset: CGFloat = 0
     var showsSelection = true
     var launchNamespace: Namespace.ID? = nil
@@ -83,21 +85,22 @@ struct ConsoleGameTile: View {
                         .padding(8)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(selected && showsSelection ? LauncherPalette.cream : .white.opacity(0.12), lineWidth: selected && showsSelection ? 4 : 1))
-            .scaleEffect(coverflow && !reduceMotion ? (selected ? 1.04 : (tilt > 0 ? 0.76 : 0.96)) : 1)
-            .rotation3DEffect(.degrees(coverflow && !reduceMotion ? tilt : 0), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
-            .offset(x: coverflow && !reduceMotion && tilt > 0 ? rearOffset : 0,
-                    y: coverflow && !reduceMotion ? (selected ? -4 : 4) : 0)
+            .clipShape(RoundedRectangle(cornerRadius: DS.Console.Radius.art))
+            .overlay(RoundedRectangle(cornerRadius: DS.Console.Radius.art).strokeBorder(selected && showsSelection ? DS.Color.accent : DS.Color.separator,
+                                                                                    lineWidth: selected && showsSelection ? DS.Console.Control.focusRing : 1))
+            // Flat covers, never tilted: the focused one grows by DS.Console.Scale.focus, the ones already passed fan behind it by
+            // offset and scale only.
+            .scaleEffect(coverflow && !reduceMotion ? (selected ? DS.Console.Scale.focus : (rear ? 0.76 : 1)) : 1)
+            .offset(x: coverflow && !reduceMotion && rear ? rearOffset : 0)
             .modifier(ConsoleLaunchArtwork(namespace: launchNamespace, id: game.id))
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: selected)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: tilt)
-            // The focused game's name is the big title above, so its tile shows the image alone (the row is top-aligned, so
-            // nothing else moves). The others keep a small, muted caption.
-            if !selected || alwaysCaptioned {
-                Text(game.title).opacity(captionVisible ? 1 : 0).font(.manrope(compact ? 14 : 17, .medium)).lineLimit(1)
-                    .foregroundStyle(.white.opacity(selected ? 0.95 : 0.72)).padding(.horizontal, 4).accessibilityHidden(true)
-            }
+            .dsAnimation(reduceMotion ? nil : .easeOut(duration: 0.22), value: selected)
+            .dsAnimation(reduceMotion ? nil : .easeOut(duration: 0.22), value: tilt)
+            // Every cover has its title under it, the art stays clean: the focused one in the primary text, the others secondary. A
+            // cover fanned behind the focused one has none, so no two captions overlap.
+            Text(game.title).opacity(captionVisible && !(coverflow && rear && !reduceMotion) ? 1 : 0)
+                .font(DS.Console.Font.callout).lineLimit(1)
+                .foregroundStyle(selected ? DS.Color.textPrimary : DS.Color.textSecondary)
+                .padding(.horizontal, DS.Space.xxs).accessibilityHidden(true)
         }
     }
 }
@@ -131,36 +134,44 @@ struct ConsoleLaunchArtwork: ViewModifier {
     }
 }
 
-/// Measured shader work fills the capsule. Unmeasured phases repeat a leading-edge fill without a percentage.
+/// The starting screen's progress, always labelled: "Compiling shaders · 18 of 48" over a thin bar filled to the measured share, or
+/// "Starting…" over a short segment that slides along the bar while nothing is measured (the old capsule showed that fill without a
+/// label and read as a broken control).
 struct ConsoleLaunchProgress: View {
     let progress: Double?
     let label: String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Where the sliding segment is, 0 to 1, every two seconds. Reduced Motion holds it in the middle.
     static func phase(at date: Date, reducedMotion: Bool) -> Double {
         reducedMotion ? 0.5 : date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2) / 2
     }
     var body: some View {
-        GeometryReader { bounds in
-            ZStack(alignment: .leading) {
-                Capsule().fill(.black.opacity(0.65))
+        VStack(alignment: .leading, spacing: DS.Console.Space.s) {
+            HStack {
+                Text(label).font(DS.Console.Font.body).foregroundStyle(DS.Color.textPrimary).lineLimit(1)
+                Spacer(minLength: DS.Console.Space.s)
                 if let progress {
-                    Rectangle().fill(LauncherPalette.cream)
-                        .frame(width: bounds.size.width * min(max(progress, 0), 1))
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: progress)
-                } else {
-                    TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
-                        let phase = Self.phase(at: timeline.date, reducedMotion: reduceMotion)
-                        Rectangle().fill(LauncherPalette.cream)
-                            .frame(width: bounds.size.width * phase)
-                            .opacity(reduceMotion || phase < 0.8 ? 1 : (1 - phase) / 0.2)
-                            .frame(width: bounds.size.width, height: bounds.size.height, alignment: .leading)
-                    }
+                    Text("\(Int((ConsoleValueBar.clamped(progress) * 100).rounded())) %").font(DS.Console.Font.body)
+                        .foregroundStyle(DS.Color.textSecondary).monospacedDigit()
                 }
             }
-            .clipShape(Capsule())
-            .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35), lineWidth: 1))
+            if let progress {
+                ConsoleProgressBar(fraction: progress, height: 6)
+            } else {
+                TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+                    let phase = Self.phase(at: timeline.date, reducedMotion: reduceMotion)
+                    GeometryReader { g in
+                        let segment = g.size.width * 0.28
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(DS.Color.separator)
+                            Capsule().fill(DS.Color.accent).frame(width: segment).offset(x: (g.size.width - segment) * phase)
+                        }
+                    }
+                    .frame(height: 6)
+                }
+            }
         }
         .accessibilityElement(children: .ignore).accessibilityLabel(label)
-        .accessibilityValue(progress.map { "\(Int(min(max($0, 0), 1) * 100))%" } ?? "")
+        .accessibilityValue(progress.map { "\(Int(ConsoleValueBar.clamped($0) * 100))%" } ?? "")
     }
 }

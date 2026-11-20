@@ -3,11 +3,15 @@ import UniformTypeIdentifiers
 import NXCore
 import NXLauncher
 
+/// The keys step's list: one row for the prod.keys file (its state, Choose or Change), a dropped file lands on it, a problem with the
+/// file under it. Under the card the two ways on without keys: the Gen 2 note and Add keys later.
 struct OnboardingKeysContent: View {
     let state: OnboardingState
     let lang: Lang
+    @Binding var helpOpen: Bool
     let choose: () -> Void
     let receive: (URL) -> Void
+    let skip: () -> Void
     @State private var targeted = false
     private func t(_ key: String) -> String { L10n.string(key, lang) }
     private var file: URL? {
@@ -15,34 +19,33 @@ struct OnboardingKeysContent: View {
         return state.keysFile
     }
     private var enabled: Bool { state.keys != .validating }
+    private var status: OnboardingStatus {
+        switch state.keys {
+        case .valid: return .met
+        case .invalid: return .problem
+        case .searching, .validating: return .working
+        case .found, .empty, .skipped: return .todo
+        }
+    }
 
     var body: some View {
-        VStack(spacing: 14) {
-            HStack(spacing: 12) {
-                Group {
-                    if state.keys == .validating || state.keys == .searching {
-                        ProgressView().controlSize(.small).tint(LauncherPalette.accent)
-                    } else {
-                        Image(systemName: invalid ? "key.slash.fill" : "key.fill")
-                            .font(.system(size: 24))
-                            .foregroundStyle(invalid ? LauncherPalette.building : state.keys == .valid ? LauncherPalette.ready : LauncherPalette.secondaryText)
+        VStack(alignment: .leading, spacing: DS.Space.m) {
+            DSCard(padding: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    OnboardingStatusRow(title: file?.lastPathComponent ?? "prod.keys",
+                                        detail: t(state.keys == .empty || state.keys == .skipped ? "onboarding.keys.drop" : state.keys.statusKey),
+                                        status: status, help: file?.path ?? "") {
+                        Button(t(file == nil ? "onboarding.choose" : "data.change"), action: choose)
+                            .buttonStyle(DSRowButtonStyle()).disabled(!enabled)
+                            .padTarget("onboarding.choose.keys", scope: "onboarding", enabled: enabled, activate: choose)
+                    }
+                    if case let .invalid(reason) = state.keys {
+                        DSInlineWarning(reason)
+                            .padding(.leading, OnboardingRowDivider.inset).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
                     }
                 }
-                .frame(width: 52, height: 52)
-                .background(LauncherPalette.ink(0.08), in: RoundedRectangle(cornerRadius: 10)).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(file?.lastPathComponent ?? "prod.keys").font(.manrope(14, .semibold))
-                    Text(t(state.keys == .empty || state.keys == .skipped ? "onboarding.keys.drop" : state.keys.statusKey))
-                        .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }.frame(maxWidth: .infinity, alignment: .leading).help(file?.path ?? "")
-                Button(t(file == nil ? "onboarding.choose" : "data.change"), action: choose)
-                    .buttonStyle(LauncherSecondaryButtonStyle()).disabled(!enabled)
-                    .padTarget("onboarding.choose.keys", scope: "onboarding", enabled: enabled, activate: choose)
             }
-            .padding(18)
-            .background(targeted ? LauncherPalette.selectedFillStrong : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(targeted ? LauncherPalette.accent : LauncherPalette.ink(0.08)))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(DS.Color.accent, lineWidth: 1).opacity(targeted ? 1 : 0))
             .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in
                 guard enabled, let provider = providers.first else { return false }
                 _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.fileURL.identifier) { data, _ in
@@ -51,17 +54,14 @@ struct OnboardingKeysContent: View {
                 }
                 return true
             }
-            if case let .invalid(reason) = state.keys {
-                Label(reason, systemImage: "exclamationmark.triangle.fill")
-                    .font(.manrope(13)).foregroundStyle(LauncherPalette.building)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-                    .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.building.opacity(0.25)))
+            HStack(spacing: DS.Space.xs) {
+                OnboardingKeysHelp(open: $helpOpen, lang: lang, canSkip: state.canSkipKeys, skip: skip)
+                Button(t("onboarding.keys.later"), action: skip)
+                    .buttonStyle(DSRowButtonStyle()).disabled(!state.canSkipKeys)
+                    .padTarget("onboarding.keys.later", scope: "onboarding", enabled: state.canSkipKeys, activate: skip)
             }
         }
     }
-    private var invalid: Bool { if case .invalid = state.keys { return true }; return false }
 }
 
 struct OnboardingKeysHelp: View {
@@ -73,16 +73,16 @@ struct OnboardingKeysHelp: View {
     private func t(_ key: String) -> String { L10n.string(key, lang) }
     var body: some View {
         Button { open.toggle() } label: { Label(t("onboarding.keys.gen2"), systemImage: "info.circle") }
-            .buttonStyle(LauncherSecondaryButtonStyle())
+            .buttonStyle(DSRowButtonStyle())
             .padTarget("onboarding.keys.help", scope: "onboarding") { open.toggle() }
             .popover(isPresented: $open) {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text(t("onboarding.keys.gen2Note")).font(.manrope(14)).fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: DS.Space.m) {
+                    Text(t("onboarding.keys.gen2Note")).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
                     Button(t("onboarding.keys.skip")) { open = false; skip() }
-                        .buttonStyle(LauncherSecondaryButtonStyle()).disabled(!canSkip)
+                        .buttonStyle(DSSecondaryButtonStyle()).disabled(!canSkip)
                         .keyboardShortcut(.return, modifiers: [])
                         .padTarget("onboarding.keys.help.skip", scope: "onboarding.keysHelp", enabled: canSkip) { open = false; skip() }
-                }.padding(20).frame(width: 340)
+                }.padding(DS.Space.l).frame(width: 340)
                     .environmentObject(pad).padScope("onboarding.keysHelp", pad)
                     .onAppear {
                         pad.scope = "onboarding.keysHelp"

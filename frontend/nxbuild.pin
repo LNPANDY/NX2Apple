@@ -1,7 +1,9 @@
-# The nxbuild release the app bundles as its experimental builder (Contents/Resources/nxbuild/nxb, LNPANDY/NX2Apple#749).
-# build-mac-app.yml and tools/try-local run `frontend/tools/nxbuild.py fetch`: download the zip, check its SHA-256 against the line
-# below, unpack nxb and sign it ad hoc. `frontend/tools/nxbuild.py bump <version>` writes a new version with its digest from the
-# release's SHA256SUMS. A sha256 of PLACEHOLDER (no release yet) bundles nothing, and the setting then needs a chosen nxb.
-version	0.9.3
-sha256	7434d704a590de4ef964fc5467b89f8b0f0f8f25f7279d3fdf00503ebc8bc088
+# The nxkit release the app bundles as its build engine "nxkit (Beta)" (Contents/Resources/nxbuild/, nxb and nxkit-host, LNPANDY/NX2Apple#1460).
+# build-mac-app.yml and tools/try-local run `frontend/tools/nxbuild.py fetch`: download the zip and the release's SHA256SUMS, verify SHA256SUMS.sig
+# (0.10.3 and later) with NxkitUpdate.publicKey, check the zip's SHA-256
+# against the line below, unpack nxb and nxkit-host, check both against MANIFEST.json and SHA256SUMS, and sign them ad hoc. The launcher updates
+# nxkit itself from newer signed releases (NxkitUpdate.swift), this pair is the baseline and the fallback. `frontend/tools/nxbuild.py bump <version>`
+# writes a new version with its digest from the release's SHA256SUMS. A sha256 of PLACEHOLDER bundles nothing.
+version	0.10.3
+sha256	b33ea345b7fa87ff030fed96cadd2ba93aa45a4fb698f5a2627be1de6e232e2a
 url	https://github.com/v0lumehi/nxkit/releases/download/v{version}/nxb-v{version}-macos-arm64.zip

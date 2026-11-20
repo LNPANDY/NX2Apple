@@ -21,9 +21,6 @@ struct BuildActivityFooter: View {
     @State private var icon: NSImage?
     @State private var iconID: String?
     @State private var shopName: String?
-    @State private var backdropImage: NSImage?
-    @State private var backdropID: String?
-    @State private var queuedBackdrops: [String: NSImage] = [:]
     @State private var queuedIcons: [String: NSImage] = [:]
 
     private var titleID: String? {
@@ -79,16 +76,16 @@ struct BuildActivityFooter: View {
                 HStack(spacing: 16) {
                     artworkStack
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(status).font(.manrope(12)).foregroundStyle(LauncherPalette.text).lineLimit(1)
+                        Text(status).font(DS.Font.callout).foregroundStyle(LauncherPalette.text).lineLimit(1)
                         ZStack(alignment: .leading) {
                                 Text(title).font(.manrope(20, .semibold)).lineLimit(1).truncationMode(.tail)
                                     .id(titleID).transition(LibraryHeroTransition.blurredMetadata(reduceMotion: reduceMotion))
-                        }.animation(LibraryHeroTransition.queue(reduceMotion: reduceMotion), value: titleID)
+                        }.dsAnimation(LibraryHeroTransition.queue(reduceMotion: reduceMotion), value: titleID)
                     }.frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
                     if !completed {
-                        currentStep.padding(.horizontal, 14)
-                            .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-                            .fixedSize(horizontal: true, vertical: false)
+                        currentStep.padding(.horizontal, 12)
+                            .background(LauncherPalette.ink(0.05), in: RoundedRectangle(cornerRadius: 12))
+                            .frame(minWidth: 360, maxWidth: 460)
                     }
                 }
                 .padding(.leading, 24).padding(.trailing, completed ? 0 : 24)
@@ -105,18 +102,14 @@ struct BuildActivityFooter: View {
             .padTarget("build.activity", scope: "main", radius: 0, activate: open)
             if completed {
                 HStack(spacing: 12) {
-                    Button(action: dismiss) {
-                        Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
-                            .frame(width: LauncherControl.height, height: LauncherControl.height)
-                            .background(LauncherPalette.secondaryFill, in: Circle())
-                            .overlay(Circle().strokeBorder(LauncherPalette.secondaryBorder)).contentShape(Circle())
-                    }.buttonStyle(.plain).launcherHover()
+                    Button(action: dismiss) { Image(systemName: "xmark") }
+                        .buttonStyle(LauncherIconButtonStyle())
                         .accessibilityLabel(loc.t("build.dismissActivity")).help(loc.t("build.dismissActivity"))
                         .padTarget("build.activity.dismiss", scope: "main", activate: dismiss)
                     if onPlay != nil {
                         Button(action: play) {
                             Label(loc.t("library.play"), systemImage: "play.fill")
-                                .font(.manrope(13, .semibold)).padding(.horizontal, 18).frame(height: LauncherControl.height)
+                                .font(DS.Font.bodyStrong).padding(.horizontal, 18).frame(height: LauncherControl.height)
                         }.buttonStyle(LauncherActionButtonStyle()).disabled(!playEnabled)
                             .padTarget("build.activity.play", scope: "main", focusColor: LauncherPalette.onCream, enabled: playEnabled, activate: play)
                     }
@@ -124,30 +117,27 @@ struct BuildActivityFooter: View {
             }
         }
         .foregroundStyle(LauncherPalette.text)
-        .background {
-            GeometryReader { geometry in
-                if let image = (backdropID == titleID ? backdropImage : titleID.flatMap { queuedBackdrops[$0] }) {
-                    ZStack {
-                        BuildFooterReveal(image: image, progress: progress)
-                            .id((titleID ?? "") + build.runningTarget).transition(.opacity)
-                    }.animation(LibraryHeroTransition.queue(reduceMotion: reduceMotion), value: (titleID ?? "") + build.runningTarget)
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                } else { LauncherPalette.background }
-            }.background(LauncherPalette.background).clipped().accessibilityHidden(true).allowsHitTesting(false)
+        // a solid surface under a hairline, no artwork and no blur behind it (#1458)
+        .background(LauncherPalette.surface.accessibilityHidden(true).allowsHitTesting(false))
+        .overlay(alignment: .top) {   // the hairline doubles as the build's progress, in the accent
+            GeometryReader { line in
+                ZStack(alignment: .leading) {
+                    LauncherPalette.hairline
+                    if !completed { LauncherPalette.accent.opacity(0.7).frame(width: line.size.width * min(max(progress, 0), 1)) }
+                }
+            }.frame(height: 1).allowsHitTesting(false).accessibilityHidden(true)
         }
         .overlay(alignment: .topLeading) { if completed, let completedAt { BuildCompletionTimerStroke(startedAt: completedAt) } }
         .task(id: upcoming) {
             for entry in upcoming {
                 let game = library.games.first { $0.titleID.caseInsensitiveCompare(entry.titleID) == .orderedSame }
                 if let image = squareArtwork(for: game, titleID: entry.titleID) { queuedIcons[entry.titleID] = image }
-                if let game, let image = GameLibrary.artwork(for: game, repo: repo, banners: library.artworkDirectory, maxPixel: 320) { queuedBackdrops[entry.titleID] = image }
             }
         }
         .task(id: ArtworkRequest(operation: build.operation, titleID: titleID, game: game, repo: repo, language: loc.lang.code)) {
             icon = nil; shopName = nil
             guard let id = titleID else { return }
             let record = game ?? LibraryGame(titleID: id, name: title)
-            if let image = GameLibrary.artwork(for: record, repo: repo, banners: library.artworkDirectory, maxPixel: 320) { backdropImage = image; backdropID = id }
             icon = squareArtwork(for: game, titleID: id); iconID = id
             guard fetchMetadata else { return }
             _ = await artworkStore.fetchMissing([id], language: loc.lang.code, waits: true)
@@ -156,7 +146,6 @@ struct BuildActivityFooter: View {
             guard !Task.isCancelled, titleID == id else { return }
             shopName = artworkStore.cachedName(id, language: loc.lang.code)
             if let iconURL { icon = ArtworkImages.shared.image(at: iconURL, maxPixel: 192) }
-            if let image = GameLibrary.artwork(for: record, repo: repo, banners: library.artworkDirectory, maxPixel: 320) { backdropImage = image; backdropID = id }
         }
     }
 
@@ -187,7 +176,7 @@ struct BuildActivityFooter: View {
             HStack(spacing: 10) {
                 ForEach([BuildTarget.mac, BuildTarget.ios].filter { platformTargets.map(BuildTarget.normalized).contains($0) }, id: \.self) { target in
                     Label(loc.t(target == BuildTarget.mac ? "library.section.mac" : "build.ios"), systemImage: target == BuildTarget.mac ? "desktopcomputer" : "iphone")
-                        .font(.manrope(13, .semibold)).fixedSize()
+                        .font(DS.Font.bodyStrong).fixedSize()
                 }
             }
             Rectangle().fill(LauncherPalette.secondaryText.opacity(0.4)).frame(width: 1, height: 24).accessibilityHidden(true)
@@ -199,20 +188,16 @@ struct BuildActivityFooter: View {
                         .accessibilityHint(loc.t("prog.stageProgress")) }
             }
             .font(.system(size: 18)).frame(width: 20, height: 20)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage?.state)
-            Text(stage?.displayName(loc.t) ?? loc.t("library.preparing")).font(.manrope(13)).lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: 220, alignment: .leading)
+            .dsAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage?.state)
+            Text(stage?.displayName(loc.t) ?? loc.t("library.preparing")).font(DS.Font.body).lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
             TimelineView(.periodic(from: Date(), by: 1)) { context in
                 Text(stage?.state == .running ? stage?.clock(at: context.date, left: loc.t("prog.etaEstimate")) ?? "" : "")
-                    .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).monospacedDigit()
+                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).monospacedDigit()
                     .lineLimit(1).fixedSize(horizontal: true, vertical: false)
             }.layoutPriority(1)
-            if stage?.state == .running, let pct = stage?.percent {
-                Text("\(Int(pct))%")
-                    .font(.manrope(13, .semibold)).monospacedDigit()
-                    .frame(minWidth: 38, alignment: .trailing)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
+            Text(stage?.state == .running ? stage?.percent.map { "\(Int($0))%" } ?? "" : "")
+                .font(DS.Font.body).monospacedDigit().frame(minWidth: 44, alignment: .trailing).fixedSize(horizontal: true, vertical: false)
         }
         .frame(height: 44)
     }
@@ -237,15 +222,14 @@ struct BuildActivityFooter: View {
 struct BuildFooterReveal: View {
     let image: NSImage
     let progress: Double
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 artwork(size: geometry.size).saturation(0)
-                    .overlay(colorScheme == .dark ? Color.black.opacity(0.55) : Color.white.opacity(0.75))
+                    .overlay(Color.black.opacity(0.55))
                 artwork(size: geometry.size)
-                    .overlay(colorScheme == .dark ? Color.black.opacity(0.35) : Color.white.opacity(0.55))
+                    .overlay(Color.black.opacity(0.35))
                     .mask { BuildProgressRevealMask(progress: progress) }
             }
         }
@@ -255,6 +239,5 @@ struct BuildFooterReveal: View {
     private func artwork(size: CGSize) -> some View {
         Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
             .frame(width: size.width, height: size.height)
-            .blur(radius: 10)
     }
 }

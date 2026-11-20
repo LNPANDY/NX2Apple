@@ -10,10 +10,24 @@ package struct UpstreamVersionCheckState {
 }
 
 extension BuildStore {
+    /// The state gallery's fixtures set the version GitHub has directly, so a scene shows an update without the network
+    /// (GalleryMacNativeGames.swift). The installed version comes from the tree's receipt.
+    package func setUpstreamRemoteVersionForGallery(_ remote: UpstreamRemoteInfo) {
+        upstreamRemoteVersions[remote.kind] = remote
+        refreshUpstreamLocalVersion(for: remote.kind)
+    }
+
+    /// The state gallery's fixtures set a download's state directly (a download from Settings, part way), nothing is fetched.
+    package func setUpstreamDownloadForGallery(_ kind: EngineUpstreamKind, _ state: UpstreamInstallState) {
+        upstreamDownloads[kind] = state
+    }
+
     package func upstreamDirectoryPath(for kind: EngineUpstreamKind) -> String {
         switch kind {
         case .nxnative:
             return repo.path
+        case .nxkit:
+            return ""   // bundled with the app, its version is NxkitVersionStore's (BuildStore+Nxkit.swift)
         case .macNativeGames:
             return macNativeGamesPath
         case .s2arm:
@@ -43,7 +57,7 @@ extension BuildStore {
     }
 
     package func upstreamHasUpdate(_ kind: EngineUpstreamKind) -> Bool {
-        guard !kind.isBuiltIn, isUpstreamInstalled(kind), !(upstreamDownloads[kind]?.isBusy ?? false) else {
+        guard !kind.isBuiltIn, kind != .nxkit, isUpstreamInstalled(kind), !(upstreamDownloads[kind]?.isBusy ?? false) else {
             return false
         }
         return UpstreamVersion.hasUpdate(
@@ -104,7 +118,7 @@ extension BuildStore {
         refreshUpstreamLocalVersions()
         let allowed = Set(availableUpstreams)
         let targets = (kinds ?? availableUpstreams).filter { kind in
-            allowed.contains(kind) && !kind.isBuiltIn && isUpstreamInstalled(kind) && !(upstreamDownloads[kind]?.isBusy ?? false)
+            allowed.contains(kind) && !kind.isBuiltIn && kind != .nxkit && isUpstreamInstalled(kind) && !(upstreamDownloads[kind]?.isBusy ?? false)
         }
         var spawned: [Task<Void, Never>] = []
         let transport = upstreamTransport

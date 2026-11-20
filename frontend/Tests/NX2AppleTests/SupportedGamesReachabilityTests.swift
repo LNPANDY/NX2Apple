@@ -160,12 +160,21 @@ import XCTest
         let olderCatalogGame = SupportedGame(titleID: "010012101468C000", name: "Older Profile Game", edition: .switch1, version: "1.0.0", notes: "")
         let uncatalogedGame = SupportedGame(titleID: "0100000000009999", name: "Uncataloged Game", edition: .switch1, version: "1.0.0", notes: "")
 
-        let currentDetail = SupportedGamesSheet.detailText(for: currentGame, t: { L10n.string($0, .en) })
-        let olderDetail = SupportedGamesSheet.detailText(for: olderCatalogGame, t: { L10n.string($0, .en) })
-        let uncatalogedDetail = SupportedGamesSheet.detailText(for: uncatalogedGame, t: { L10n.string($0, .en) })
+        let en = { (key: String) in L10n.string(key, .en) }
+        let currentDetail = SupportedGamesSheet.detailText(for: currentGame, appVersion: "1.5.0", t: en)
+        let olderDetail = SupportedGamesSheet.detailText(for: olderCatalogGame, appVersion: "1.5.0", t: en)
+        let uncatalogedDetail = SupportedGamesSheet.detailText(for: uncatalogedGame, appVersion: "1.5.0", t: en)
 
-        XCTAssertTrue(currentDetail.contains("1.5.0"), currentDetail)
+        // Improved in this release: the tag says it once, the subtitle does not repeat it (#1458)
+        XCTAssertFalse(currentDetail.contains("1.5.0"), currentDetail)
+        XCTAssertEqual(SupportedGamesSheet.improvedTag(for: currentGame.titleID, appVersion: "1.5.0", t: en), "Improved in 1.5")
+        XCTAssertNil(SupportedGamesSheet.improvedTag(for: olderCatalogGame.titleID, appVersion: "1.5.0", t: en))
+        XCTAssertTrue(SupportedGamesSheet.matchesSearch(currentGame, needle: "improved", ownedName: "", appVersion: "1.5.0"), "found by its tag")
+        XCTAssertFalse(SupportedGamesSheet.matchesSearch(olderCatalogGame, needle: "improved", ownedName: "", appVersion: "1.5.0"))
         XCTAssertTrue(olderDetail.contains("1.4.0"), olderDetail)
+        XCTAssertEqual(SupportedGamesSheet.shortVersion("1.2.2"), "1.2.2")
+        let noVersion = SupportedGame(titleID: "0100000000009998", name: "No Version", edition: .switch1, version: nil, notes: "")
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: noVersion, appVersion: "1.5.0", t: en), "Profile version unknown")
         XCTAssertEqual(uncatalogedDetail, String(format: L10n.string("supported.version", .en), "1.0.0"))
 
         XCTAssertTrue(SupportedGamesSheet.isUpdatedInCurrentRelease(titleID: currentGame.titleID, appVersion: "1.5.0-rc3"))

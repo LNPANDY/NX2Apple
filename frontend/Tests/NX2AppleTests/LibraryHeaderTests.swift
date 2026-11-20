@@ -17,7 +17,7 @@ import XCTest
         game.ipaPath = ipa.path
         XCTAssertTrue(game.isOlderIOSBuild, "Exercise both the platform and older-iOS chips")
         try JSONEncoder().encode([game]).write(to: file)
-        for scheme in [ColorScheme.light, .dark] {
+        for scheme in [ColorScheme.dark] {   // the launcher is dark only (#1458)
         for size in [NSSize(width: 900, height: 680), NSSize(width: 1000, height: 720), NSSize(width: 1500, height: 900)] {
             let stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
             let host = NSHostingView(rootView: LauncherView(stores: stores, library: GameLibrary(file: file),
@@ -33,7 +33,7 @@ import XCTest
             XCTAssertEqual(menu.height, play.height, accuracy: 1)
             XCTAssertEqual(menu.midY, play.midY, accuracy: 1)
             XCTAssertEqual(menu.minX - play.maxX, 12, accuracy: 1)
-            XCTAssertGreaterThanOrEqual(play.minX, 130)
+            XCTAssertGreaterThanOrEqual(play.minX, 24)   // no cover tile: the actions start at the content edge (#1458)
             XCTAssertGreaterThan(play.minY, 80)
             XCTAssertLessThan(menu.maxX, size.width)
             XCTAssertLessThan(play.maxY, size.height)

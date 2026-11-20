@@ -18,20 +18,22 @@ struct GlobalSavesCard: View {
         let _ = settings.revision
         CardGroup(loc.t("savesloc.globalGroup"), footnote: loc.t("savesloc.globalNote")) {
             CardRow(loc.t("cloud.title"), detail: cloudDetail, dot: global.cloudOn ? LauncherPalette.ready : LauncherPalette.unbuilt) {
+                // One action in the column (Use iCloud Drive or Turn off), Choose folder in the "…" before it, as every Settings row.
+                DSOverflowMenu(label: loc.t("cloud.choose"), options: [("choose", loc.t("cloud.choose"))], padID: "saves.global.choose") { _ in
+                    chooseCloud()
+                }
                 Button(loc.t(global.cloudOn ? "cloud.turnOff" : "savesloc.useICloud")) { toggleCloud() }
                     .padTarget("saves.global.cloud", scope: "main") { toggleCloud() }
-                Button(loc.t("cloud.choose")) { chooseCloud() }
-                    .padTarget("saves.global.choose", scope: "main") { chooseCloud() }
             }
             CardDivider()
             CardRow(loc.t("savesloc.globalFolder"), detail: loc.t("savesloc.globalFolderNote"), detail2: global.saveRoot.map(SaveLocationText.shown) ?? loc.t("savesloc.usual"), help: global.saveRoot ?? "") {
+                if global.saveRoot != nil {   // Reset in the "…" before the column, Change in it
+                    DSOverflowMenu(label: loc.t("savesloc.resetGlobal"), options: [("reset", loc.t("savesloc.reset"))], padID: "saves.global.reset") { _ in
+                        resetRoot()
+                    }
+                }
                 Button(loc.t("savesloc.change")) { chooseRoot() }
                     .padTarget("saves.global.root", scope: "main") { chooseRoot() }
-                if global.saveRoot != nil {
-                    Button(loc.t("savesloc.reset")) { resetRoot() }
-                        .accessibilityLabel(loc.t("savesloc.resetGlobal"))
-                        .padTarget("saves.global.reset", scope: "main") { resetRoot() }
-                }
             }
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
