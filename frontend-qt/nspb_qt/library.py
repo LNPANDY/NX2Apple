@@ -594,30 +594,14 @@ class GameFolder:
         except OSError:
             return GameFolderProblem('notNUP', name)
 
-        base = 0
-        update_title = 0
-        updates: list[tuple[int, str]] = []
-        addons: list[int] = []
-        for i in range(count):
-            o = 0x30 + i * 0x40
-            tid = struct.unpack_from('<Q', table, o)[0]
-            ver = struct.unpack_from('<I', table, o + 20)[0]
-            kind = table[o + 24]
-            if kind == 0:
-                base = tid
-            elif kind == 1:
-                updates.append((ver, path))
-                if update_title == 0:
-                    update_title = tid & ~0xFFF
-            elif kind == 2:
-                addons.append(tid)
-        app = base if (base != 0 and (base & 0xFFF) == 0) else update_title
-        updates.sort(key=lambda x: x[0])
-        addons.sort()
+        packages = [(table[o + 24], struct.unpack_from('<Q', table, o)[0], struct.unpack_from('<I', table, o + 20)[0])
+                    for o in (0x30 + i * 0x40 for i in range(count))]
+        app, versions = _inputs.nup_game(packages)   # several programs: the highest (a Switch 2 Edition, #1353)
+        addons = sorted(tid for kind, tid, _ in packages if kind == 2)
         return GameFolderContents(
             folder=os.path.dirname(path),
             title_id=app,
-            updates=updates,
+            updates=[(v, path) for v in versions],
             dlc=[(t, path) for t in addons],
             nup=path,
         )

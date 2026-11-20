@@ -525,6 +525,24 @@ def program_id(npdm: bytes) -> int | None:
     return struct.unpack_from('<Q', npdm, off + 0x10)[0]
 
 
+def nup_game(packages: list[tuple[int, int, int]]) -> tuple[int, list[int]]:
+    """A NUP's game from its package table [(kind, title ID, version)]: (program ID, its update versions). A program's ID is a base package's title
+    ID, else an update's without its 0x800 (a base may be an empty placeholder with title ID 0, Pokemon Pokopia), else 0: the script then reads it
+    from the code. One NUP can hold several programs of one application, each with its own base and updates (a Switch 2 Edition of a Switch 1 game:
+    Xenoblade Chronicles X's 0400453019AA8001 beside its Switch 1 program, LNPANDY/NX2Apple#1353). pack_nup.py packs the one of the highest index
+    (the low 12 bits) unless told otherwise (seedds/nxnative PR #2692), so that one is the game, with its own updates. GameFolder.readNUP on the Mac"""
+    programs: set[int] = set()
+    patches: list[tuple[int, int]] = []
+    for kind, tid, version in packages:
+        if kind == 0 and tid:
+            programs.add(tid)
+        elif kind == 1:
+            patches.append((tid & ~0x800, version))   # program N's update is its ID + 0x800
+            programs.add(tid & ~0x800)
+    app = max(programs, key=lambda p: (p & 0xFFF, p), default=0)
+    return app, sorted(v for p, v in patches if p == app)
+
+
 def read_nup(path: str) -> GameFolderContents | GameFolderProblem:
     """A NUP's title ID, updates and DLC from its header and package table (SPEC v1, pack_nup.py). The title ID is the base
     package's, else an update's with the low 12 bits cleared, else 0. Checks the magic, the version, the file size and the
@@ -559,25 +577,12 @@ def read_nup(path: str) -> GameFolderContents | GameFolderProblem:
         return GameFolderProblem('notNUP', (name,))
     if len(table) != min_table or table[:4] != b'TOC\x01':
         return GameFolderProblem('notNUP', (name,))
-    base = update_title = 0
-    updates: list[tuple[int, str]] = []
-    addons: list[int] = []
-    for i in range(count):
-        o = 0x30 + i * 0x40
-        tid = struct.unpack_from('<Q', table, o)[0]
-        version = struct.unpack_from('<I', table, o + 20)[0]
-        kind = table[o + 24]
-        if kind == 0:
-            base = tid
-        elif kind == 1:
-            updates.append((version, path))
-            if update_title == 0:
-                update_title = tid & ~0xFFF
-        elif kind == 2:
-            addons.append(tid)
-    app = base if base != 0 and base & 0xFFF == 0 else update_title
-    return GameFolderContents(folder=str(Path(path).parent), title_id=app, updates=sorted(updates, key=lambda u: u[0]),
-                              dlc=[(t, path) for t in sorted(addons)], nup=path)
+    packages = [(table[o + 24], struct.unpack_from('<Q', table, o)[0], struct.unpack_from('<I', table, o + 20)[0])
+                for o in (0x30 + i * 0x40 for i in range(count))]
+    app, versions = nup_game(packages)
+    addons = sorted(tid for kind, tid, _ in packages if kind == 2)
+    return GameFolderContents(folder=str(Path(path).parent), title_id=app, updates=[(v, path) for v in versions],
+                              dlc=[(t, path) for t in addons], nup=path)
 
 
 def scan_game_folder(raw_path: str) -> GameFolderContents | GameFolderProblem:
