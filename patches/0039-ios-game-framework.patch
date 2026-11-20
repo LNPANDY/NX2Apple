@@ -1124,7 +1124,7 @@ index 0000000..5c6d3d0
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
-index 379c2ce..0e44671 100644
+index 0c0163e..8301027 100644
 --- a/dm/ios/tests/test_xcode_workflow.py
 +++ b/dm/ios/tests/test_xcode_workflow.py
 @@ -31,7 +31,12 @@ class XcodePipelineTests(unittest.TestCase):

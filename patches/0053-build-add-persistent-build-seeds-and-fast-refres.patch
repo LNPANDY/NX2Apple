@@ -15,8 +15,8 @@ Issue: none
  dm/tools/romfs_image.py                       |  147 +-
  dm/tools/tests/test_build_seed_romfs_guard.py |  243 ++
  dm/tools/tests/test_nsp_progress.py           |    1 +
- scripts/build_ipa_from_nsp.py                 |  950 ++++++--
- 7 files changed, 3199 insertions(+), 212 deletions(-)
+ scripts/build_ipa_from_nsp.py                 |  953 ++++++--
+ 7 files changed, 3202 insertions(+), 212 deletions(-)
  create mode 100755 dm/tools/build_seed.py
  create mode 100644 dm/tools/tests/test_build_seed_romfs_guard.py
 
@@ -2331,7 +2331,7 @@ index 769d0b3..6a9f1f8 100755
                  raise ValueError('expected IMAGE and MSL_SRC arguments')
 diff --git a/dm/tools/tests/test_build_seed_romfs_guard.py b/dm/tools/tests/test_build_seed_romfs_guard.py
 new file mode 100644
-index 0000000..de1e9f0
+index 0000000..a247864
 --- /dev/null
 +++ b/dm/tools/tests/test_build_seed_romfs_guard.py
 @@ -0,0 +1,243 @@
@@ -2446,7 +2446,7 @@ index 0000000..de1e9f0
 +        buf = io.StringIO()
 +        orig_which = nsp.shutil.which
 +        nsp.shutil.which = lambda cmd, *a, **kw: '/usr/bin/true' if cmd == 'glslangValidator' else orig_which(cmd, *a, **kw)
-+        nsp.layer_shaders = lambda py, repo, api, name, roots, sh, key, logs, env, mac, from_seed=False: sh if mac else (sh / 'ios')
++        nsp.layer_shaders = lambda py, repo, api, name, roots, sh, key, logs, env, mac, options=(), from_seed=False: sh if mac else (sh / 'ios')
 +        with contextlib.redirect_stdout(buf):
 +            with self.assertRaises(nsp.BuildError):
 +                nsp.main(nsp.parse_args([
@@ -2492,7 +2492,7 @@ index 0000000..de1e9f0
 +        nsp.apple_silicon = lambda: True
 +        orig_which = nsp.shutil.which
 +        nsp.shutil.which = lambda cmd, *a, **kw: '/usr/bin/true' if cmd == 'glslangValidator' else orig_which(cmd, *a, **kw)
-+        nsp.layer_shaders = lambda py, repo, api, name, roots, sh, key, logs, env, mac, from_seed=False: sh if mac else (sh / 'ios')
++        nsp.layer_shaders = lambda py, repo, api, name, roots, sh, key, logs, env, mac, options=(), from_seed=False: sh if mac else (sh / 'ios')
 +
 +        def _stop_at_mac_host(*a, **kw):
 +            raise RuntimeError('REACHED_MAC_HOST_AFTER_ROMFS_REUSE')
@@ -2539,7 +2539,7 @@ index 0000000..de1e9f0
 +        nsp.rewrite = lambda py, repo, exe, patched, env, logs, g, provisional: g
 +        nsp.uses_jit = lambda *a, **kw: False
 +        nsp.resolve_team_id = lambda *a, **kw: 'TEAM123456'
-+        nsp.layer_shaders = lambda py, repo, api, name, roots, sh, key, logs, env, mac, from_seed=False: sh if mac else (sh / 'ios')
++        nsp.layer_shaders = lambda py, repo, api, name, roots, sh, key, logs, env, mac, options=(), from_seed=False: sh if mac else (sh / 'ios')
 +
 +        captured_ipa_env = {}
 +        fw_out = self.root / 'fw_out'
@@ -2591,7 +2591,7 @@ index 7a7fbfe..b4a8f9c 100644
              )
              with contextlib.ExitStack() as stack:
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 8574c30..b5f73f2 100755
+index 8574c30..7103639 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -45,6 +45,8 @@ import tree_tar   # one file in place of a build's folders of many small files
@@ -2830,7 +2830,7 @@ index 8574c30..b5f73f2 100755
      say('the game files are not in this build. Copy them to the phone once, with the app installed (it is needed again only when the image changed, a new game version or another extraction):')
      PROG.say(f'  scripts/push_romfs.sh <device UDID> {bundle_id} "{image}"')
      # the file on disk, as build_ipa.sh's [ -f "$ROMFS" ] decides whether romfs.id is written: rfs.source() is a romfs.Path, whose is_dir() is True for an image's root (GitHub issue #530)
-@@ -3745,14 +3816,292 @@ def provisional_version(have, builds, requested, profile_root):
+@@ -3745,14 +3816,294 @@ def provisional_version(have, builds, requested, profile_root):
      return version
  
  
@@ -2899,7 +2899,7 @@ index 8574c30..b5f73f2 100755
 +
 +def _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang,
 +                        have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon,
-+                        fallback_romfs_id=None):
++                        fallback_romfs_id=None, gl_fixed=False):
 +    """Best-effort update of the Schema v1 persistent build seed after a successful build."""
 +    try:
 +        tid_hex = f'{app:016X}'
@@ -2933,6 +2933,8 @@ index 8574c30..b5f73f2 100755
 +            'uses_jit': bool(jit),
 +            'has_aoc': bool(aoc),
 +        }
++        if gfx == 'gl' and gl_fixed:
++            meta['gl_fixed'] = True
 +        if romfs_id:
 +            meta['romfs_identity'] = romfs_id
 +        build_seed.save_seed(
@@ -3128,7 +3130,7 @@ index 8574c30..b5f73f2 100755
      here = Path(globals().get('__file__') or sys.argv[0]).resolve()
      if sys.version_info < (3, 12): raise BuildError('Direct RomFS image builds require Python 3.12 or newer')
      repo = find_repo(here)
-@@ -3783,14 +4132,14 @@ def main(args=None):
+@@ -3783,14 +4134,14 @@ def main(args=None):
      if romfs_mode == 'separate' and not keep: raise BuildError('--romfs separate requires --keep-extracted: the image must remain available for the one-time transfer to the phone')
      shader_files = SHADER_FILES if args.shader_files is None else args.shader_files
      if shader_files and (mac or prepare_xcode): raise BuildError('SHADER_FILES / --shader-files shapes the IPA for install tools that cannot copy a large file: it cannot be combined with ' + (f'--platform {platform}' if mac else '--prepare-xcode, which Xcode installs'))
@@ -3151,7 +3153,7 @@ index 8574c30..b5f73f2 100755
      user_icon = icon_file(args.icon or ICON, '--icon / ICON'); spare_icon = icon_file(args.fallback_icon or FALLBACK_ICON, '--fallback-icon / FALLBACK_ICON')
      sys.path.insert(0, str(repo / 'dm/games')); import game as gamemod   # game profiles
      global pg; import profile_guess as pg   # dm/games: a provisional profile's keys from the game files and from the heap check
-@@ -3804,140 +4153,282 @@ def main(args=None):
+@@ -3804,140 +4155,283 @@ def main(args=None):
      py = sys.executable
      want = args.title_id or TITLE_ID
      if want and not re.fullmatch(r'[0-9A-Fa-f]{16}', want): raise BuildError(f'--title-id / TITLE_ID takes a title ID, 16 hex digits: {want}')
@@ -3289,6 +3291,7 @@ index 8574c30..b5f73f2 100755
 +            'glslc_capture': (False, ''),
 +            'vk_capture': (False, ''),
 +            'gl_capture': (False, ''),
++            'gl_fixed': (bool(seed_meta.get('gl_fixed')), ''),
 +            'ue_decode': (False, ''),
 +            'oodle_packs': (False, ''),
 +            'ue_legacy': (False, ''),
@@ -3566,7 +3569,7 @@ index 8574c30..b5f73f2 100755
      if not app_name and not (mac and not mac_pack): raise BuildError(f'no game name in the base extraction ({base / "control.nacp"}; an older extraction did not save it: delete extract/ and run again, or give --app-name)')
      team_id = resolve_team_id(args, env, saved_signing, prepare_xcode)
      bundle_id = resolve_bundle_id(app, args, env, saved_signing, team_id, mac=mac, shell_fw=shell_fw)
-@@ -3945,7 +4436,7 @@ def main(args=None):
+@@ -3945,7 +4439,7 @@ def main(args=None):
          try: xcode_projects.check_bundle_id(workspace, project, bundle_id)
          except ValueError as e: raise BuildError(str(e)) from e
      # the app version is the packed version's display version (app_display_version): never the base game's when an update is packed
@@ -3575,7 +3578,7 @@ index 8574c30..b5f73f2 100755
      if mac_pack and not (args.out or OUT_IPA): out_ipa = work.parent / f'{mac_app_name(app_name)}{"-provisional" if shadowed else ""}.app'
      icon, stand_in = app_icon(user_icon, spare_icon, game, base)
      if (not mac or mac_pack) and getattr(args, 'in_programs', None) is None:   # an app is made, once: a program packed with the application's first (in_programs) is part of its app
-@@ -3953,10 +4444,10 @@ def main(args=None):
+@@ -3953,10 +4447,10 @@ def main(args=None):
          say_game(app, app_name, app_version or '1.0', bundle_id, None if prepare_xcode else out_ipa, icon)
      # the game language: Horizon gives the game one of the languages its control data lists (the packed version's, which an update may extend), so the one packed must be among them
      control = languages_control(game, base)
@@ -3589,7 +3592,7 @@ index 8574c30..b5f73f2 100755
  
      patched = work / f'patched_{pkg_ver}'
      g = rewrite(py, repo, game / 'ExeFS', patched, env, logs, g, provisional)
-@@ -3964,56 +4455,83 @@ def main(args=None):
+@@ -3964,56 +4458,83 @@ def main(args=None):
      chain_header(py, repo, env, logs)   # before any host is built
      if provisional or derived:   # (provisional) the heap check, then the region check (both only change keys the host is built with, not the rewrite or the shader steps)
          provisional_prep(py, repo, env, logs, g)
@@ -3686,7 +3689,7 @@ index 8574c30..b5f73f2 100755
          if getattr(args, 'in_programs', None) is not None:   # a program of the game: the app its first program's build packs takes these
 -            rmtree(work / 'tmp'); return {'patched': patched, 'romfs': rfs.source(game), 'msl': ios / (f'b-{chain_of(repo)}' if gfx == 'nvn' else 'vk' if gfx == 'vulkan' else 'gl'), 'tables': g.table('shader_map.tsv').parent, 'html': game / 'html', 'gfx': gfx}
 +            rmtree(work / 'tmp')
-+            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id)
++            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
 +            return {'patched': patched, 'romfs': rfs.source(game), 'msl': ios / (f'b-{chain_of(repo)}' if gfx == 'nvn' else 'vk' if gfx == 'vulkan' else 'gl'), 'tables': g.table('shader_map.tsv').parent, 'html': game / 'html', 'gfx': gfx}
          host, font = mac_host(py, repo, work, env, logs, g)
          programs = other_programs(args, g)
@@ -3699,35 +3702,35 @@ index 8574c30..b5f73f2 100755
          mac_app(py, repo, out_ipa, app, work, game, patched, host, font, ios, aoc, gfx, lang, g, app_name, app_version, bundle_id, icon, args.mac_sign or MAC_SIGN, env, logs, env_file,
                  (args.gpu or PSO_GPUS).strip(), programs, control, PREBAKE if args.prebake is None else args.prebake, pkg_ver)
          rmtree(work / 'tmp')
-+        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id)
++        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
          say(f'done: {out_ipa} ({tree_size(out_ipa)[1] / 2**30:.1f} GB); '
              f'open it from Finder. Its save is in ~/Library/Application Support/nxnative/{app:016X}/, its log in ~/Library/Logs/nxnative/{app:016X}.log')
          if seen_shaders: say('a partial shader library: where a shader is missing, the log says so in red and the draw goes without it. Run this script again with --seen-shaders to add what the log names, or without it for the whole map')
-@@ -4025,8 +4543,11 @@ def main(args=None):
+@@ -4025,8 +4546,11 @@ def main(args=None):
          parts = {'font': font}
          cmd = mac_run(work, game, patched, host, font, ios, aoc, gfx, lang, env, logs, g, env_file, partial=seen_shaders, parts=parts, jit=jit)
          rmtree(work / 'tmp')
 -        if getattr(args, 'in_programs', False): return parts
 +        if getattr(args, 'in_programs', False):
-+            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id)
++            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
 +            return parts
          programs = None if PROGRAM_INDEX else mac_programs(args, g, parts)
-+        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id)
++        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
          if programs: cmd = cmd.replace(' && ', f' && DM_PROGRAMS={shlex.quote(str(programs))} ', 1)
          say(f'done: the game runs on the Mac with this command (its save in {work / "run/save"}, kept from run to run; DM_WINDOW=1 opens a window, DM_AUDIO=1 plays sound):')
          PROG.say(cmd)
-@@ -4035,7 +4556,9 @@ def main(args=None):
+@@ -4035,7 +4559,9 @@ def main(args=None):
          return
  
      if getattr(args, 'in_programs', None) is not None:   # a program of the game: the app its first program's build packs takes these
 -        rmtree(work / 'tmp'); return {'row': (PROGRAM_INDEX, g.id, patched, rfs.source(game), ios, gfx), 'ex': ex, 'keep': keep}
 +        rmtree(work / 'tmp')
-+        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id)
++        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
 +        return {'row': (PROGRAM_INDEX, g.id, patched, rfs.source(game), ios, gfx), 'ex': ex, 'keep': keep}
      programs = other_programs(args, g)
      if programs and romfs_mode == 'separate': raise BuildError('a game of several programs keeps its files in the app (ROMFS / --romfs bundle): Documents holds one RomFS image, one program\'s')
      if not prepare_xcode and not shell_fw and free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
-@@ -4044,11 +4567,24 @@ def main(args=None):
+@@ -4044,11 +4570,24 @@ def main(args=None):
      if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)
      if args.framework: ipa_env['DM_FRAMEWORK'] = '1'; say('route C: the game\'s modules go into DmIOS.app/Frameworks/DmGame.framework (DM_FRAMEWORK=1)')
      separate = romfs_mode == 'separate'
@@ -3754,11 +3757,11 @@ index 8574c30..b5f73f2 100755
      if env_file: ipa_env['DM_ENV_FILE'] = str(Path(os.path.expanduser(env_file)).resolve())
      show_fps = SHOW_FPS if args.show_fps is None else args.show_fps
      ipa_env['DM_SHOW_FPS'] = '1' if show_fps else '0'
-@@ -4072,8 +4608,12 @@ def main(args=None):
+@@ -4072,8 +4611,12 @@ def main(args=None):
          if not (fw / 'game.manifest.json').is_file(): raise BuildError(f'no game framework at {fw}')
          PROG.end(fw.name)
          rmtree(work / 'tmp')
-+        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id)
++        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
          say(f'game framework: {fw}')
 -        say(f'game files: {rfs.source(game)}')
 +        if Path(str(rfs.source(game))).exists():
@@ -3768,19 +3771,19 @@ index 8574c30..b5f73f2 100755
          report_profile_status(g, reg, pkg_ver, derived, provisional, 'shell framework', patched)
          return
      if prepare_xcode:
-@@ -4083,6 +4623,7 @@ def main(args=None):
+@@ -4083,6 +4626,7 @@ def main(args=None):
          except ValueError as e: raise BuildError(str(e)) from e
          PROG.end()
          rmtree(work / 'tmp')
-+        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id)
++        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
          say(f'ready: {workspace}')
          say(f'game project: {project}')
          say(f'Xcode derived data: {work / "xcode-derived-data"}')
-@@ -4099,6 +4640,7 @@ def main(args=None):
+@@ -4099,6 +4643,7 @@ def main(args=None):
      tree_tar.pack(xcode_data, say)
      PROG.end(f'{out_ipa.name}, {amount(out_ipa.stat().st_size, "B")}')
      rmtree(work / 'tmp')
-+    _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id)
++    _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
      if not keep:
          for d in [ex] + [r['ex'] for r in programs.values()]: say(f'deleting the extracted game files: {d}'); rmtree(d)
      say(f'done: {out_ipa} ({out_ipa.stat().st_size / 2**30:.1f} GB)')
