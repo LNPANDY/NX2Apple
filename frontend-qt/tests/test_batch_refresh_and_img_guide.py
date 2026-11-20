@@ -102,20 +102,21 @@ class RefreshFlowCoreTests(unittest.TestCase):
             f'sys.path.insert(0, {str(QT)!r})\n'
             'from nspb_qt import refresh_flow as mod\n'
             'assert mod.HAS_QT is False\n'
-            'assert len(mod.GAME_UPDATED_VERSIONS) == 56\n'
+            'assert len(mod.GAME_UPDATED_VERSIONS) == 102\n'
         )
         proc = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    def test_catalog_56_titles_match_swift_source_exactly(self) -> None:
-        self.assertEqual(len(rf.GAME_UPDATED_VERSIONS), 56)
+    def test_catalog_102_titles_match_swift_source_exactly(self) -> None:
+        self.assertEqual(len(rf.GAME_UPDATED_VERSIONS), 102)
         counts: dict[str, int] = {}
         for ver in rf.GAME_UPDATED_VERSIONS.values():
             counts[ver] = counts.get(ver, 0) + 1
-        self.assertEqual(counts, {'1.5.0': 27, '1.4.0': 18, '1.3.0': 8, '1.2.2': 3})
+        self.assertEqual(counts, {'1.5.0': 80, '1.4.0': 16, '1.3.0': 6})
         self.assertEqual(rf.catalog_version_for('0100152000022000'), '1.5.0')
         self.assertEqual(rf.catalog_version_for('01007A2027548000'), '1.5.0')
         self.assertEqual(rf.catalog_version_for('0400C76024710000'), '1.5.0')
+        self.assertEqual(rf.catalog_version_for('01001C8016B4E000'), '1.5.0')
         self.assertEqual(rf.catalog_version_for('0100111100001111'), '1.2.0')
         self.assertEqual(rf.release_base_version('1.5.0-local'), '1.5.0')
 
