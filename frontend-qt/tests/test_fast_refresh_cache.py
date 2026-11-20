@@ -658,9 +658,102 @@ class TestModelFastRefreshAndTrailer(unittest.TestCase):
         self.assertIn('--seed-cache-dir', executed_cmd)
         self.assertIn(str(seed_root), executed_cmd)
         self.assertIn('--progress', executed_cmd)
-        self.assertIn('json', executed_cmd)
+        prog_idx = executed_cmd.index('--progress')
+        self.assertEqual(executed_cmd[prog_idx + 1], 'lines')
+        self.assertNotIn('json', executed_cmd)
         self.assertIn('--prefill-msl', executed_cmd)
         self.assertIn('/cand/b-old.img', executed_cmd)
+
+    def test_start_fast_refresh_lines_output_updates_stages_ipa_and_failure_summary(self):
+        m = self.m
+        tid = '0100000000010000'
+        seed_root = self.root / 'seeds'
+        seed_root.mkdir()
+        out_dir = self.root / 'out_lines'
+        out_dir.mkdir()
+        custom_ipa = out_dir / 'CustomGame.ipa'
+        custom_ipa.write_bytes(b'IPA')
+
+        m.target = 'ios'
+        m.ipa_kind = 'oneGame'
+
+        finished_events: list[tuple[bool, str]] = []
+        m.finished.connect(lambda ok, note: finished_events.append((ok, note)))
+
+        def inline_thread(*, target, daemon):
+            return mock.MagicMock(start=target)
+
+        def fake_popen_success(cmd, **kwargs):
+            prog = cmd[cmd.index('--progress') + 1] if '--progress' in cmd else ''
+            if prog == 'lines':
+                lines = [
+                    '[1/2] Translating shaders …\n',
+                    '[1/2] ✓ Translating shaders (0.2s): 4 shaders\n',
+                    '[2/2] Packaging IPA …\n',
+                    f'output IPA: {custom_ipa}\n',
+                    '[2/2] ✓ Packaging IPA (0.1s)\n',
+                ]
+            else:
+                lines = [
+                    '{"ev": "stage", "k": 1, "n": 2, "name": "Translating shaders"}\n',
+                    f'{{"ev": "say", "msg": "output IPA: {custom_ipa}"}}\n',
+                ]
+            proc = mock.MagicMock()
+            proc.stdout = iter(lines)
+            proc.returncode = 0
+            return proc
+
+        with mock.patch('nspb_qt.build_seed_cache.supports_build_seed', return_value=True), \
+                mock.patch('nspb_qt.build_seed_cache.default_seed_root', return_value=seed_root), \
+                mock.patch('nspb_qt.build_seed_cache.inspect_seed', return_value={'valid': True, 'path_type': 'A'}), \
+                mock.patch('subprocess.Popen', side_effect=fake_popen_success), \
+                mock.patch('threading.Thread', side_effect=inline_thread), \
+                mock.patch.object(m, 'supports_shell_framework', return_value=False), \
+                mock.patch.object(m, '_record_library_ios_completion'):
+            m.start_fast_refresh(tid, out_dir=str(out_dir))
+
+        self.assertEqual(len(m.stages), 2)
+        self.assertEqual([st.state for st in m.stages], ['done', 'done'])
+        self.assertEqual(m.ipa_path, str(custom_ipa))
+        self.assertEqual(len(finished_events), 1)
+        self.assertTrue(finished_events[0][0])
+        self.assertIn(str(custom_ipa), finished_events[0][1])
+
+        finished_events.clear()
+        m.running = False
+
+        def fake_popen_failure(cmd, **kwargs):
+            prog = cmd[cmd.index('--progress') + 1] if '--progress' in cmd else ''
+            if prog == 'lines':
+                lines = [
+                    '[1/2] Translating shaders …\n',
+                    'fatal error: missing metallib for shader 0x1\n',
+                ]
+            else:
+                lines = [
+                    '{"ev": "stage", "k": 1, "n": 2, "name": "Translating shaders"}\n',
+                    '{"ev": "error", "msg": "fatal error: missing metallib for shader 0x1"}\n',
+                ]
+            proc = mock.MagicMock()
+            proc.stdout = iter(lines)
+            proc.returncode = 1
+            return proc
+
+        with mock.patch('nspb_qt.build_seed_cache.supports_build_seed', return_value=True), \
+                mock.patch('nspb_qt.build_seed_cache.default_seed_root', return_value=seed_root), \
+                mock.patch('nspb_qt.build_seed_cache.inspect_seed', return_value={'valid': True, 'path_type': 'A'}), \
+                mock.patch('subprocess.Popen', side_effect=fake_popen_failure), \
+                mock.patch('threading.Thread', side_effect=inline_thread), \
+                mock.patch.object(m, 'supports_shell_framework', return_value=False):
+            m.start_fast_refresh(tid, out_dir=str(out_dir))
+
+        self.assertEqual(len(finished_events), 1)
+        ok_fail, fail_note = finished_events[0]
+        self.assertFalse(ok_fail)
+        self.assertIn('fatal error: missing metallib for shader 0x1', fail_note)
+        self.assertNotIn('{"ev":', fail_note)
+        self.assertEqual(len(m.stages), 1)
+        self.assertEqual(m.stages[-1].state, 'failed')
 
     def test_start_fast_refresh_adopt_legacy_uses_img_path(self):
         m = self.m

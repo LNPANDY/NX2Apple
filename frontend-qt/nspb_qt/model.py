@@ -3200,7 +3200,7 @@ class Model(QObject):
                 '--title-id', tid,
                 '--seed-cache-dir', str(seed_root),
                 '--work-dir', work_dir,
-                '--progress', 'json',
+                '--progress', 'lines',
             ]
 
             if mac_app:
