@@ -52,6 +52,8 @@ enum GalleryDesktopScene: String, CaseIterable {
     // MacNativeGames, LNPANDY/NX2Apple#1473 (GalleryMacNativeGames.swift)
     case mngLibrary, mngRecommend, mngRecommendInstalled, mngBlocked, mngDropdownDisabled, mngUpdateAvailable
     case mngDownloadOffered, mngDownloadingSettings
+    // Mac fast shader build (--seen-shaders)
+    case macSeenShaders
 
     var title: String {
         switch self {
@@ -141,6 +143,7 @@ enum GalleryDesktopScene: String, CaseIterable {
         case .mngUpdateAvailable: return "MacNativeGames: newer version on GitHub"
         case .mngDownloadOffered: return "Engine not installed: Download offered"
         case .mngDownloadingSettings: return "Engine downloading from Settings"
+        case .macSeenShaders: return "Builds: Mac fast shader build"
         }
     }
 
@@ -149,7 +152,7 @@ enum GalleryDesktopScene: String, CaseIterable {
         case .filterOwned, .filterMac, .filterIOS, .sortName: return .allGames
         case .completionExported, .completionNeedsData, .sendSending, .sendSent, .sendAppNotFound, .sendChooseApp, .sendRefused, .sendFailed,
              .sendCopying, .sendCopied, .queueEveryState, .queueRunning, .transfersEveryState, .logOpen,
-             .footerVerifying, .footerExporting, .footerInstalling, .footerRenewing, .footerSending, .mngRecommend, .mngRecommendInstalled: return .builds
+             .footerVerifying, .footerExporting, .footerInstalling, .footerRenewing, .footerSending, .mngRecommend, .mngRecommendInstalled, .macSeenShaders: return .builds
         case .appChecking, .appDownloading, .appPreparing, .appAvailable, .engineExperimental, .missingTool, .players, .libraryFolders,
              .mngBlocked, .mngUpdateAvailable, .mngDropdownDisabled, .mngDownloadOffered, .mngDownloadingSettings: return .settings
         case .nxkitIdle, .nxkitChecking, .nxkitWaiting, .nxkitUnreachable, .nxkitAppleSilicon, .nxkitBadSignature, .nxkitChecksum,
@@ -166,6 +169,7 @@ enum GalleryDesktopScene: String, CaseIterable {
         switch self {
         case .appChecking, .appDownloading, .appPreparing, .appAvailable, .players: return CGSize(width: 1280, height: 1500)
         case .logOpen, .transfersEveryState: return CGSize(width: 1280, height: 2000)
+        case .macSeenShaders: return CGSize(width: 1280, height: 1120)
         default: return nil
         }
     }
@@ -490,6 +494,13 @@ extension GalleryFixtures {
             let options = Lang.all.map { (value: $0.code, label: $0.name) }
             return AnyView(LauncherDropdownList(options: options, selection: lang.code, label: t("settings.language"), choose: { _ in }, close: {})
                 .frame(width: 280).padding(DS.Space.xl).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading))
+        case .macSeenShaders:
+            configureBuild(stores, library: library)
+            build.selectUpstream(.nxnative)
+            build.target = BuildTarget.mac
+            build.seenShadersOnly = true
+            build.setSeenShadersForGallery(SeenShadersInfo(seenCount: 8157, totalCount: 131426))
+            return launcher(GalleryLauncher(page: .builds, editor: true))
         }
     }
 }
