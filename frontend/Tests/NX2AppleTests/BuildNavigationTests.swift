@@ -472,6 +472,7 @@ import XCTest
 
     func testQueueArtworkUpdatesWhenMetadataArrivesWithoutChangingIdentity() throws {
         let window = OffscreenWindow(size: NSSize(width: 120, height: 120))
+        window.colorSpace = .sRGB   // on a P3 display pure red otherwise reads back as 0.94 / 0.29 / 0.18
         let host = NSHostingView(rootView: QueueArtworkStack(items: [.init(id: "current", image: nil)], size: 96))
         window.contentView = host; window.orderFront(nil)
         defer { window.contentView = nil; window.orderOut(nil) }

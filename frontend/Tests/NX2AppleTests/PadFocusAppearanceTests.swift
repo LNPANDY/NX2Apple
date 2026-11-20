@@ -43,6 +43,9 @@ import XCTest
                 let host = NSHostingView(rootView: shape.padding(12).background(Color.black)
                     .environmentObject(focus).environment(\.colorScheme, dark ? .dark : .light).padScope("main", focus))
                 let window = OffscreenWindow(size: NSSize(width: width + 24, height: height + 24))
+                // sRGB whatever the main display is: on a P3 display (Liquid Retina XDR) the cached bitmap took the display's
+                // colour space and the dark focus red read back with green 0.42, over the 0.4 below
+                window.colorSpace = .sRGB
                 window.contentView = host; window.orderFront(nil)
                 defer { window.orderOut(nil); window.contentView = nil; window.close() }
                 RunLoop.main.run(until: Date().addingTimeInterval(0.1))
