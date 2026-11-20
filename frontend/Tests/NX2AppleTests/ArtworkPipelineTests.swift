@@ -130,4 +130,110 @@ import XCTest
         XCTAssertEqual(missAdded, [missTID])
         XCTAssertEqual(try Data(contentsOf: XCTUnwrap(ArtworkStore.cachedBanner(missTID, in: folder))), try Data(contentsOf: fallbackImg))
     }
+
+    /// Switch 2 titles prefer Nintendo store fallback ahead of nlib.cc; Switch 1 tries nlib.cc first then falls back to Nintendo store.
+    /// Transient 5xx/timeouts never write a permanent negative cache and stop once the per-batch error budget is reached.
+    func testNintendoStoreFallbackPriorityTransientRecoveryAndBatchBudget() async throws {
+        XCTAssertTrue(ArtworkStore.imageHosts.contains("assets.nintendo.com"))
+        XCTAssertNotNil(SupportedBanners.urls["04008E001F098000"])
+
+        let sw2TID = "0400CAFE11110000"
+        let sw1TID = "0100CAFE22220000"
+        let folder = temporary.appendingPathComponent("artwork-store-fallback")
+        let missingList = temporary.appendingPathComponent("missing-list.json")
+        let missingDirect = temporary.appendingPathComponent("404.jpg")
+        let bannerURL = try writeJPEG("store-hit.jpg", color: .systemIndigo, width: 1920, height: 1080)
+        let bannerBytes = try Data(contentsOf: bannerURL)
+
+        actor EventLog {
+            var events: [String] = []
+            func append(_ e: String) { events.append(e) }
+        }
+        let log = EventLog()
+
+        // 1. Switch 2 hits storeBannerFetcher first without calling directBannerURL or titledb.
+        let sw2Store = ArtworkStore(
+            directory: folder,
+            titleList: missingList,
+            allowsFileURLs: true,
+            directBannerURL: { id in
+                Task { await log.append("direct:\(id)") }
+                return missingDirect.absoluteString
+            },
+            storeBannerFetcher: { id in
+                await log.append("store:\(id)")
+                return .image(bannerBytes, sourceURL: URL(string: "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/1/a")!)
+            }
+        )
+        let sw2Added = await sw2Store.fetchMissing([sw2TID], language: "en")
+        XCTAssertEqual(sw2Added, [sw2TID])
+        let sw2Events = await log.events
+        XCTAssertEqual(sw2Events, ["store:\(sw2TID)"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("index.json").path))
+
+        // 2. Switch 1 tries directBannerURL first (fails 404), then succeeds via storeBannerFetcher.
+        let sw1Log = EventLog()
+        let sw1Store = ArtworkStore(
+            directory: folder,
+            titleList: missingList,
+            allowsFileURLs: true,
+            directBannerURL: { id in
+                Task { await sw1Log.append("direct:\(id)") }
+                return missingDirect.absoluteString
+            },
+            storeBannerFetcher: { id in
+                await sw1Log.append("store:\(id)")
+                return .image(bannerBytes, sourceURL: URL(string: "https://img-eshop.cdn.nintendo.net/i/abcdef123456.jpg")!)
+            }
+        )
+        let sw1Added = await sw1Store.fetchMissing([sw1TID], language: "en")
+        XCTAssertEqual(sw1Added, [sw1TID])
+        let sw1Events = await sw1Log.events
+        XCTAssertTrue(sw1Events.contains("store:\(sw1TID)"))
+
+        // 3. Transient error does not poison long-term cache; next fetch recovers cleanly.
+        let retryTID = "0400BEEF33330000"
+        final class Toggle: @unchecked Sendable { var fail = true }
+        let toggle = Toggle()
+        let retryStore = ArtworkStore(
+            directory: folder,
+            titleList: missingList,
+            allowsFileURLs: true,
+            storeBannerFetcher: { _ in
+                if toggle.fail { return .transientError }
+                return .image(bannerBytes, sourceURL: URL(string: "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/2/b")!)
+            }
+        )
+        let firstTry = await retryStore.fetchMissing([retryTID], language: "en")
+        XCTAssertEqual(firstTry, [])
+        XCTAssertNil(ArtworkStore.cachedBanner(retryTID, in: folder))
+
+        toggle.fail = false
+        let secondTry = await retryStore.fetchMissing([retryTID], language: "en")
+        XCTAssertEqual(secondTry, [retryTID])
+
+        // 4. Batch budget stops probing remaining titles once cumulative transient error time reaches 24s.
+        final class ClockBox: @unchecked Sendable {
+            var now = Date(timeIntervalSinceReferenceDate: 10_000)
+            var probed: [String] = []
+        }
+        let clockBox = ClockBox()
+        let budgetStore = ArtworkStore(
+            directory: folder,
+            titleList: missingList,
+            allowsFileURLs: true,
+            storeBannerFetcher: { id in
+                clockBox.probed.append(id)
+                clockBox.now.addTimeInterval(13)
+                return .transientError
+            },
+            now: { clockBox.now }
+        )
+        let budgetAdded = await budgetStore.fetchMissing(
+            ["0400000000010000", "0400000000020000", "0400000000030000", "0400000000040000"],
+            language: "en"
+        )
+        XCTAssertEqual(budgetAdded, [])
+        XCTAssertEqual(clockBox.probed.count, 2, "must stop probing after cumulative transient failures exhaust the 24s budget")
+    }
 }

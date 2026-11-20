@@ -52,12 +52,16 @@ final class Sandbox: @unchecked Sendable {
     func config(chain: String? = "b-3f9a2c", os: OperatingSystemVersion = OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0),
                 updateURL: URL? = nil, open: @escaping @MainActor @Sendable (URL) -> Void = { _ in },
                 fetchBannerData: @escaping @Sendable (URL) async -> Data? = { _ in nil },
+                fetchStoreResponse: GameBannerStore.StoreHTTPFetcher? = { req, _ in
+                    GameBannerStore.RemoteResponse(statusCode: 404, finalURL: req.url ?? URL(string: "https://ec.nintendo.com/")!, data: Data())
+                },
                 now: @escaping @Sendable () -> Date = { Date() }) -> ShellHostConfig {
         let suite = suite
         return ShellHostConfig(gamesRoot: games, appDataRoot: appData, bannersRoot: banners,
                                environment: HostEnvironment(chain: chain, osVersion: os),
                                updateURL: updateURL, defaults: { UserDefaults(suiteName: suite + $0)! },
-                               openURL: open, fetchBannerData: fetchBannerData, now: now)
+                               openURL: open, fetchBannerData: fetchBannerData,
+                               fetchStoreResponse: fetchStoreResponse, now: now)
     }
 
     /// The game's app data folder with the marker file the orbit fixture's manifest names (not game data: an empty file).

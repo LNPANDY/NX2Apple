@@ -2,6 +2,14 @@ import Foundation
 
 /// Built-in official 16:9 banner index for known games, used on iOS to backfill missing banners for legacy bundles.
 public enum KnownGameBanners {
+    public static let imageHosts: Set<String> = [
+        "img-eshop.cdn.nintendo.net",
+        "cdn2.steamgriddb.com",
+        "www.nintendo.com",
+        "api.nlib.cc",
+        "assets.nintendo.com",
+    ]
+
     public static let urls: [String: String] = [
         "0100000000010000": "https://www.nintendo.com/eu/media/images/10_share_images/games_15/nintendo_switch_4/H2x1_NSwitch_SuperMarioOdyssey_image500w.jpg",   // Super Mario Odyssey
         "0100000011D90000": "https://www.nintendo.com/eu/media/images/10_share_images/games_15/nintendo_switch_4/H2x1_NSwitch_PokemonBrilliantDiamond_enGB_image500w.jpg",   // Pokémon Brilliant Diamond
@@ -147,16 +155,47 @@ public enum KnownGameBanners {
         "0100FD8022DAA000": "https://img-eshop.cdn.nintendo.net/i/8bbdbdd29d7f552054aa65c07fcd3a9b3c3dafdb590ccbec28e97a582c69d4ad.jpg",   // Super Mario Galaxy 2
         "0100FF500E34A000": "https://www.nintendo.com/eu/media/images/10_share_images/games_15/nintendo_switch_4/H2x1_NSwitch_XenobladeChroniclesDefinitiveEdition_image500w.jpg",   // Xenoblade Chronicles: Definitive Edition
         "0400245021D2C000": "https://cdn2.steamgriddb.com/grid/4019460f699df3ca57bb36a6cc8b1ce5.png",   // Yoshi and the Mysterious Book
+        "040032B023CA4000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000098973/4c02a7ceaaacde0b7f51cde1e58b3b575ff2ed94a7c7530e4631b40d0f26413d",   // Orbitals
         "0400380020056000": "https://cdn2.steamgriddb.com/grid/220a08c045f283231e519ed83cd21466.png",   // Splatoon Raiders
         "04003F40232DE000": "https://cdn2.steamgriddb.com/grid/30430599d3640690ebddef63609c5f31.png",   // Hyrule Warriors: Age of Imprisonment
+        "040041E0212AE000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000096904/f10f7517f94ce8630b76b1654eb5a79d316e18d4e9bc279a74e6964fe3f8ce86",   // Fast Fusion
         "0400486024DEC000": "https://cdn2.steamgriddb.com/grid/925526bdfb5910517494acb4db2537d5.png",   // The Legend of Zelda: Ocarina of Time
+        "040057C02159A000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000096813/8a2fc51b02035bf067a473a66938322f1f1570bf21034f0ad2134ce93b0d1cac",   // Nintendo Switch 2 Welcome Tour
         "040074A01BF12000": "https://img-eshop.cdn.nintendo.net/i/3a40edb8fc1354911e0907f1494b5678c2fa37acb8925967e638bd63d06e4580.jpg",   // Donkey Kong Bananza
+        "040077201BE50000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000103775/61c47511e5fc392c271d6f4736fa0575e2aed19c30e6fe73b50906cadb9b2996",   // Kirby Air Riders
         "04007EF01F8AE000": "https://cdn2.steamgriddb.com/grid/f73cc1e0813d90b30a22ca9af2e9c8b0.png",   // Fire Emblem Fortune's Weave
+        "04008E001F098000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000125145/60f801a1d48a78691408a9ed7f51d87cb0279dc7419a616950b18b9016d9dbd0",   // Nintendo Switch Sports Resort
+        "0400921025B32000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000108238/fac34531ef37ddb8652dbfdf6c718dc5eacc0e4869dc52cad9ab12c0433e2735",   // Sonic Frontiers Definitive Edition
         "0400A3A01EE4C000": "https://cdn2.steamgriddb.com/grid/00b97e285bef52b2826cfbeecd4d30f7.png",   // Pokemon Pokopia
         "0400C3F00006E000": "https://www.nintendo.com/eu/media/images/assets/nintendo_switch_2_games/mariokartworld/2x1_NSwitch2_MarioKartWorld_image500w.jpg",   // Mario Kart World
+        "0400C76024710000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000101665/3a8331b2f7b73d1fdb9b92dd9afdb2aff9602f1d89a9cfa171bf2561e480076e",   // PRAGMATA
         "0400D4201C6EA000": "https://cdn2.steamgriddb.com/grid/eb3353d1afeb0b6b1c6507bb5d39c757.png",   // Mario Tennis Fever
         "0400E88025B1A000": "https://cdn2.steamgriddb.com/grid/a82908cc940793dc1d63acfc0218b2f9.jpg",   // Star Fox
     ]
+
+    public static func isValidTitleID(_ titleID: String) -> Bool {
+        let id = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        return id.count == 16 && id.unicodeScalars.allSatisfy { ("0"..."9").contains($0) || ("A"..."F").contains($0) }
+    }
+
+    public static func isSwitch2TitleID(_ titleID: String) -> Bool {
+        let id = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        return isValidTitleID(id) && id.hasPrefix("0400")
+    }
+
+    public static func isAllowedURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(), !host.isEmpty else { return false }
+        return imageHosts.contains(host)
+    }
+
+    /// True when `url` is an HTTPS Nintendo store page (`nintendo.com` or `*.nintendo.com`).
+    public static func isAllowedStoreURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              var host = url.host?.lowercased(), !host.isEmpty else { return false }
+        while host.hasSuffix(".") { host.removeLast() }
+        return host == "nintendo.com" || host.hasSuffix(".nintendo.com")
+    }
 
     /// Case-insensitive lookup by 16-hex Switch title ID.
     public static func url(for titleID: String) -> URL? {

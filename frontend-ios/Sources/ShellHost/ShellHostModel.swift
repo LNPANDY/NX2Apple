@@ -28,6 +28,8 @@ public struct ShellHostConfig: Sendable {
     public var saveImageToPhotos: @MainActor @Sendable (Data) async -> Bool
     /// Fetches official 16:9 banner bytes for games missing bundled banners. Injectable for offline tests.
     public var fetchBannerData: @Sendable (URL) async -> Data?
+    /// Fetches Nintendo store pages/images for `ec.nintendo.com` fallback. Nil uses the built-in bounded transport.
+    public var fetchStoreResponse: GameBannerStore.StoreHTTPFetcher?
     public var prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)?
     public var cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)?
     public var startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)?
@@ -50,6 +52,7 @@ public struct ShellHostConfig: Sendable {
                 copyToPasteboard: @escaping @MainActor @Sendable (String) -> Void = ShellHostConfig.systemCopyToPasteboard,
                 saveImageToPhotos: @escaping @MainActor @Sendable (Data) async -> Bool = ShellHostConfig.systemSaveImageToPhotos,
                 fetchBannerData: @escaping @Sendable (URL) async -> Data? = GameBannerStore.fetchRemoteBanner,
+                fetchStoreResponse: GameBannerStore.StoreHTTPFetcher? = nil,
                 prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)? = nil,
                 cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)? = nil,
                 startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)? = nil,
@@ -70,6 +73,7 @@ public struct ShellHostConfig: Sendable {
         self.copyToPasteboard = copyToPasteboard
         self.saveImageToPhotos = saveImageToPhotos
         self.fetchBannerData = fetchBannerData
+        self.fetchStoreResponse = fetchStoreResponse
         self.prepareFloatingGuide = prepareFloatingGuide
         self.cancelPreparedFloatingGuide = cancelPreparedFloatingGuide
         self.startFloatingGuide = startFloatingGuide
@@ -831,43 +835,58 @@ public struct ShellHostConfig: Sendable {
     }
 
     /// Low-priority background backfill of official 16:9 banners for installed games lacking bundled/custom/auto banners.
-    /// Tries built-in `KnownGameBanners` first, then falls back to `https://api.nlib.cc/nx/<TID>/banner/720p`.
+    /// Tries built-in `KnownGameBanners` first, then `ec.nintendo.com` (US -> HK) and `api.nlib.cc` according to title type.
     private func startMissingBannerFetch() {
         let bannersRoot = config.bannersRoot
-        let candidates: [(id: String, urls: [URL])] = entries.compactMap { entry in
+        let candidates: [CatalogueEntry] = entries.filter { entry in
             let key = entry.id.uppercased()
-            guard !attemptedBannerFetches.contains(key) else { return nil }
-            let urls = GameBannerStore.autoBackfillURLs(for: entry, bannersRoot: bannersRoot)
-            guard !urls.isEmpty else { return nil }
-            return (entry.id, urls)
+            guard !attemptedBannerFetches.contains(key) else { return false }
+            return GameBannerStore.needsBackfill(for: entry, bannersRoot: bannersRoot)
         }
         guard !candidates.isEmpty else { return }
-        for item in candidates {
-            attemptedBannerFetches.insert(item.id.uppercased())
+        for entry in candidates {
+            attemptedBannerFetches.insert(entry.id.uppercased())
         }
 
         bannerFetchTask?.cancel()
         bannerFetchGeneration &+= 1
         let generation = bannerFetchGeneration
         let fetcher = config.fetchBannerData
+        let storeTransport = config.fetchStoreResponse
+        let clock = config.now
 
         bannerFetchTask = Task { [weak self] in
-            for item in candidates {
+            var errorBudgetElapsed: TimeInterval = 0
+            for (idx, entry) in candidates.enumerated() {
                 guard !Task.isCancelled else { return }
-                let savedURL: URL? = await Task.detached(priority: .utility) { () -> URL? in
-                    for remoteURL in item.urls {
-                        guard !Task.isCancelled else { return nil }
-                        guard let data = await fetcher(remoteURL), !Task.isCancelled else { continue }
-                        if let url = try? GameBannerStore.saveAutoBanner(data, for: item.id, bannersRoot: bannersRoot) {
-                            return url
-                        }
+                if errorBudgetElapsed >= GameBannerStore.batchErrorBudget {
+                    guard let self, self.bannerFetchGeneration == generation else { return }
+                    for remaining in candidates[idx...] {
+                        self.attemptedBannerFetches.remove(remaining.id.uppercased())
                     }
-                    return nil
+                    return
+                }
+                let started = clock()
+                let outcome: GameBannerStore.BackfillOutcome = await Task.detached(priority: .utility) {
+                    await GameBannerStore.fetchAndSaveAutoBanner(
+                        for: entry,
+                        bannersRoot: bannersRoot,
+                        fetchBannerData: fetcher,
+                        storeTransport: storeTransport
+                    )
                 }.value
                 guard let self, !Task.isCancelled, self.bannerFetchGeneration == generation else { return }
-                if let savedURL, self.entry(item.id) != nil {
-                    self.artwork.removeValue(forKey: savedURL)
-                    self.refresh(item.id)
+                switch outcome {
+                case .saved(let savedURL):
+                    if self.entry(entry.id) != nil {
+                        self.artwork.removeValue(forKey: savedURL)
+                        self.refresh(entry.id)
+                    }
+                case .transientFailure:
+                    errorBudgetElapsed += max(0, clock().timeIntervalSince(started))
+                    self.attemptedBannerFetches.remove(entry.id.uppercased())
+                case .notFound:
+                    break
                 }
             }
         }

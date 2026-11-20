@@ -55,11 +55,16 @@ def _png_dimensions(data: bytes) -> tuple[int, int]:
 
 
 class _ChunkedResp:
-    def __init__(self, body: bytes, max_chunk: int = 32) -> None:
+    def __init__(self, body: bytes, max_chunk: int = 32, *, status: int = 200, url: str = '') -> None:
         self._body = body
         self._pos = 0
         self._max_chunk = max_chunk
+        self.status = status
+        self._url = url
         self.read_calls = 0
+
+    def geturl(self) -> str:
+        return self._url
 
     def read(self, n: int = -1) -> bytes:
         self.read_calls += 1
@@ -150,8 +155,8 @@ class BannerPipelineTests(unittest.TestCase):
         def fake_urlopen(req, timeout=15):
             nonlocal attempts
             url = req.full_url if hasattr(req, 'full_url') else str(req)
-            if 'api.nlib.cc' in url:
-                raise OSError('HTTP 404 from nlib.cc')
+            if 'api.nlib.cc' in url or 'ec.nintendo.com' in url:
+                raise OSError('HTTP 404 from direct endpoint')
             if url == lib.ArtworkStore.TITLEDB_URL:
                 titledb_timeouts.append(timeout)
                 attempts += 1
@@ -326,6 +331,239 @@ print('OK')
             r = subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True, check=False)
             self.assertEqual(r.returncode, 0, f'stdout={r.stdout}\nstderr={r.stderr}')
             self.assertIn('OK', r.stdout)
+
+    def test_nintendo_store_us_next_data_switch2_priority_and_hk_og_fallback(self) -> None:
+        self.assertIn('assets.nintendo.com', kb.ALLOWED_IMAGE_HOSTS)
+        self.assertIn('04008E001F098000', kb.KNOWN_BANNERS)
+
+        sw2_tid = '0400FACE12340000'
+        asset_url = 'https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000125145/60f801a1'
+        us_html = (
+            '<html><head><script id="__NEXT_DATA__" type="application/json">'
+            + json.dumps({'props': {'pageProps': {'linkedData': {'@type': 'VideoGame', 'image': asset_url}}}})
+            + '</script></head></html>'
+        ).encode('utf-8')
+        wide_png = _make_wide_png(1920, 1080)
+        requested: list[str] = []
+
+        def fake_sw2(req, timeout=15):
+            url = req.full_url if hasattr(req, 'full_url') else str(req)
+            requested.append(url)
+            if url == f'https://ec.nintendo.com/apps/{sw2_tid}/US':
+                return _ChunkedResp(us_html, url='https://www.nintendo.com/us/store/products/demo-switch-2/')
+            if url == asset_url:
+                return _ChunkedResp(wide_png, url=asset_url)
+            if 'api.nlib.cc' in url or url == lib.ArtworkStore.TITLEDB_URL:
+                raise AssertionError(f'Switch 2 store hit must not query {url}')
+            return _ChunkedResp(b'', status=404, url=url)
+
+        with tempfile.TemporaryDirectory() as td:
+            store = lib.ArtworkStore(state_dir=Path(td))
+            with mock.patch('urllib.request.urlopen', side_effect=fake_sw2):
+                store._fetch_one(sw2_tid)
+            self.assertEqual(requested, [f'https://ec.nintendo.com/apps/{sw2_tid}/US', asset_url])
+            self.assertTrue((store.banners_dir / f'{sw2_tid}.png').is_file())
+            self.assertIsNotNone(store.image_path(sw2_tid))
+
+        # US 404 -> HK reversed OpenGraph fallback
+        hk_tid = '0100AA11BB220000'
+        hk_img = 'https://img-eshop.cdn.nintendo.net/i/0123456789abcdef0123456789abcdef.png'
+        hk_html = f'<html><head><meta content="{hk_img}" property="og:image" /></head></html>'.encode('utf-8')
+        hk_seen: list[str] = []
+
+        def fake_hk(req, timeout=15):
+            url = req.full_url if hasattr(req, 'full_url') else str(req)
+            hk_seen.append(url)
+            if url.endswith('/US'):
+                return _ChunkedResp(b'', status=404, url=url)
+            if url.endswith('/HK'):
+                return _ChunkedResp(hk_html, url='https://ec.nintendo.com/HK/zh/titles/70010000065198')
+            if url == hk_img:
+                return _ChunkedResp(wide_png, url=hk_img)
+            return _ChunkedResp(b'', status=404, url=url)
+
+        state, data = kb.fetch_nintendo_store_banner(hk_tid, opener=fake_hk)
+        self.assertEqual(state, 'ok')
+        self.assertEqual(data, wide_png)
+        self.assertEqual(hk_seen, [
+            f'https://ec.nintendo.com/apps/{hk_tid}/US',
+            f'https://ec.nintendo.com/apps/{hk_tid}/HK',
+            hk_img,
+        ])
+
+    def test_nintendo_store_security_redirects_portrait_rejection_and_5xx_recovery(self) -> None:
+        tid = '0400DEAD99990000'
+        asset_url = 'https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch/70010000000001/abc'
+        regex_html = f'{{"image":"{asset_url}"}}'.encode('utf-8')
+        wide_png = _make_wide_png(1920, 1080)
+        portrait_png = _make_wide_png(400, 600)
+
+        # 1. Disallowed store redirect host is rejected
+        def bad_store(req, timeout=15):
+            url = req.full_url if hasattr(req, 'full_url') else str(req)
+            if 'ec.nintendo.com' in url:
+                return _ChunkedResp(regex_html, url='https://evil.example/fake')
+            raise AssertionError('must not fetch image after disallowed store redirect')
+
+        self.assertEqual(kb.fetch_nintendo_store_banner(tid, opener=bad_store), ('not_found', None))
+
+        # 2. Disallowed image redirect host is rejected
+        def bad_img_host(req, timeout=15):
+            url = req.full_url if hasattr(req, 'full_url') else str(req)
+            if url.endswith('/US'):
+                return _ChunkedResp(regex_html, url='https://www.nintendo.com/us/store/products/demo/')
+            if url == asset_url:
+                return _ChunkedResp(wide_png, url='https://evil-cdn.example/banner.png')
+            return _ChunkedResp(b'', status=404, url=url)
+
+        self.assertEqual(kb.fetch_nintendo_store_banner(tid, opener=bad_img_host), ('not_found', None))
+
+        # 3. Portrait image (width <= height) is rejected
+        def portrait_img(req, timeout=15):
+            url = req.full_url if hasattr(req, 'full_url') else str(req)
+            if url.endswith('/US'):
+                return _ChunkedResp(regex_html, url='https://www.nintendo.com/us/store/products/demo/')
+            if url == asset_url:
+                return _ChunkedResp(portrait_png, url=asset_url)
+            return _ChunkedResp(b'', status=404, url=url)
+
+        self.assertEqual(kb.fetch_nintendo_store_banner(tid, opener=portrait_img), ('not_found', None))
+
+        # 4. 5xx returns transient and never poisons negative cache; ArtworkStore recovers and enforces batch budget
+        def server_503(req, timeout=15):
+            url = req.full_url if hasattr(req, 'full_url') else str(req)
+            return _ChunkedResp(b'', status=503, url=url)
+
+        self.assertEqual(kb.fetch_nintendo_store_banner(tid, opener=server_503), ('transient', None))
+
+        clock_now = [100.0]
+        calls: list[str] = []
+
+        def slow_timeout(req, timeout=15):
+            url = req.full_url if hasattr(req, 'full_url') else str(req)
+            calls.append(url)
+            clock_now[0] += 13.0
+            raise TimeoutError('simulated offline timeout')
+
+        with tempfile.TemporaryDirectory() as td:
+            store = lib.ArtworkStore(state_dir=Path(td), clock=lambda: clock_now[0])
+            with mock.patch('urllib.request.urlopen', side_effect=slow_timeout):
+                self.assertFalse(store._try_store_banner('0400000000010000'))
+                self.assertTrue(store._probe_budget_exhausted())
+                prev = len(calls)
+                # Further probes are skipped while budget is exhausted.
+                self.assertFalse(store._try_store_banner('0400000000020000'))
+                self.assertEqual(len(calls), prev)
+
+            # After cooldown, transient failure is not cached and recovers cleanly.
+            clock_now[0] += lib.ArtworkStore.DIRECT_PROBE_COOLDOWN + 1.0
+            def recovered(req, timeout=15):
+                url = req.full_url if hasattr(req, 'full_url') else str(req)
+                if url.endswith('/US'):
+                    return _ChunkedResp(regex_html, url='https://www.nintendo.com/us/store/products/demo/')
+                if url == asset_url:
+                    return _ChunkedResp(wide_png, url=asset_url)
+                return _ChunkedResp(b'', status=404, url=url)
+
+            with mock.patch('urllib.request.urlopen', side_effect=recovered):
+                self.assertTrue(store._try_store_banner('0400000000010000'))
+                self.assertTrue((store.banners_dir / '0400000000010000.png').is_file())
+
+    def test_nintendo_store_fallback_works_without_pyside6(self) -> None:
+        """Verify Nintendo store parser, pure-Python JPEG/PNG/WebP dimension checks, and ensure_cached_banner with PySide6 blocked."""
+        script = f"""
+import importlib.util
+import json
+import struct
+import sys
+import tempfile
+import zlib
+from pathlib import Path
+
+BLOCKED = {{'PySide6', 'PIL'}}
+
+class _BlockFinder:
+    def __init__(self, wrapped):
+        self._wrapped = wrapped
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in BLOCKED:
+            return None
+        if hasattr(self._wrapped, 'find_spec'):
+            return self._wrapped.find_spec(fullname, path, target)
+        return None
+
+sys.meta_path = [_BlockFinder(f) for f in sys.meta_path]
+assert importlib.util.find_spec('PySide6') is None
+assert importlib.util.find_spec('PIL') is None
+
+sys.path.insert(0, {str(ROOT)!r})
+from nspb_qt import known_banners as kb
+
+def make_png(w, h):
+    rows = bytearray()
+    for _y in range(h):
+        rows.append(0)
+        rows.extend(b'\\x20\\x80\\xc0' * w)
+    def ch(t, p):
+        return struct.pack('>I', len(p)) + t + p + struct.pack('>I', zlib.crc32(t + p) & 0xFFFFFFFF)
+    ihdr = struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)
+    return b'\\x89PNG\\r\\n\\x1a\\n' + ch(b'IHDR', ihdr) + ch(b'IDAT', zlib.compress(bytes(rows))) + ch(b'IEND', b'')
+
+# Minimal valid JPEG SOF0 header for 1920x1080
+fake_jpg = b'\\xff\\xd8\\xff\\xc0' + struct.pack('>HBHH', 11, 8, 1080, 1920) + b'\\x01\\x01\\x11\\x00\\xff\\xd9'
+assert kb.image_dimensions(fake_jpg) == (1920, 1080)
+assert kb.is_valid_landscape_image_bytes(fake_jpg)
+
+# Minimal valid WebP VP8X header for 1920x1080
+vp8x = b'RIFF' + struct.pack('<I', 22) + b'WEBP' + b'VP8X' + struct.pack('<I', 10) + b'\\x00\\x00\\x00\\x00' + (1919).to_bytes(3, 'little') + (1079).to_bytes(3, 'little')
+assert kb.image_dimensions(vp8x) == (1920, 1080)
+assert kb.is_valid_landscape_image_bytes(vp8x)
+
+# Portrait PNG rejected
+portrait = make_png(40, 80)
+assert kb.image_dimensions(portrait) == (40, 80)
+assert not kb.is_valid_landscape_image_bytes(portrait)
+
+class _Resp:
+    def __init__(self, body, url, status=200):
+        self._body = body
+        self._url = url
+        self.status = status
+    def geturl(self):
+        return self._url
+    def read(self, n=-1):
+        out = self._body
+        self._body = b''
+        return out
+    def __enter__(self):
+        return self
+    def __exit__(self, *_a):
+        return False
+
+tid = '0400FACE56780000'
+asset = 'https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000125145/60f801a1'
+html = ('<script id="__NEXT_DATA__">' + json.dumps({{'props': {{'pageProps': {{'linkedData': {{'image': asset}}}}}}}}) + '</script>').encode('utf-8')
+wide = make_png(160, 90)
+
+def opener(req, timeout=8):
+    u = req.full_url
+    if u.endswith('/US'):
+        return _Resp(html, 'https://www.nintendo.com/us/store/products/demo/')
+    if u == asset:
+        return _Resp(wide, asset)
+    return _Resp(b'', u, status=404)
+
+with tempfile.TemporaryDirectory() as td:
+    saved = kb.ensure_cached_banner(tid, td, opener=opener)
+    assert saved is not None and Path(saved).is_file(), saved
+print('OK_NO_PYSIDE6')
+"""
+        with tempfile.TemporaryDirectory() as td:
+            script_path = Path(td) / 'verify_store_no_pyside6.py'
+            script_path.write_text(script, encoding='utf-8')
+            r = subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 0, f'stdout={r.stdout}\nstderr={r.stderr}')
+            self.assertIn('OK_NO_PYSIDE6', r.stdout)
 
 
 if __name__ == '__main__':
