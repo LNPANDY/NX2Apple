@@ -193,7 +193,7 @@ import Testing
         #expect(RomfsLanguages.isFallbackRow(emitted))
         let narrowed = RomfsLanguages.applying(to: profile, options: RomfsLanguages.options(in: dir))
         let language = try #require(langRow(narrowed))
-        #expect(language.options?.map { $0[0] } == ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+        #expect(language.options?.map { $0[0] } == ["en-US", "ja", "fr", "zh-Hant", "zh-Hans", "pl", "th"])
         #expect(language.def == "en-US")
         #expect(language.note == "")
         #expect(language.accepts("zh-Hans") && !language.accepts("pt-BR"))

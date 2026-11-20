@@ -12,7 +12,7 @@ Upstream-Status: pending
 Reason: Support page-aligned DMMSLTR1 shader trailers in romfs.img and record built_at and gfx_api in iOS manifests
 Issue: LNPANDY/NX2Apple
 ---
- dm/gfx/gl/hle_gl.m                   |  94 +++--
+ dm/gfx/gl/hle_gl.m                   |  95 +++--
  dm/gfx/msl_mount.h                   |  28 ++
  dm/gfx/nvn/msl_mount.c               | 260 ++++++++++++
  dm/gfx/nvn/nvn_mtl.m                 |  46 ++-
@@ -29,13 +29,13 @@ Issue: LNPANDY/NX2Apple
  dm/tools/romfs.py                    |  69 +++-
  dm/tools/romfs_image.py              | 577 ++++++++++++++++++++++++++-
  dm/tools/tests/test_msl_trailer.py   | 491 +++++++++++++++++++++++
- 17 files changed, 1915 insertions(+), 112 deletions(-)
+ 17 files changed, 1916 insertions(+), 112 deletions(-)
  create mode 100644 dm/gfx/msl_mount.h
  create mode 100644 dm/gfx/nvn/msl_mount.c
  create mode 100644 dm/tools/tests/test_msl_trailer.py
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index 67a9b3c..0fd8c87 100644
+index 67a9b3c..b38b575 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
 @@ -27,8 +27,11 @@
@@ -58,7 +58,7 @@ index 67a9b3c..0fd8c87 100644
  
  int mtl_fps_target(void);
  int mtl_link_active(void); int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns);   // nvn_mtl.m
-@@ -174,14 +178,11 @@
+@@ -174,14 +178,12 @@
  typedef struct { char key[17]; int frag, ub_slot, ub_size, arg_slot, nargs, na, nu, nt, nb; shattr *a; shuni *u; shsamp *t; shblk *b; } shinfo;
  static shinfo *g_sh; static int g_nsh;
  static int sh_cmp(const void *a, const void *b) { int c = memcmp(((const shinfo *)a)->key, ((const shinfo *)b)->key, 16); return c ? c : ((const shinfo *)a)->frag - ((const shinfo *)b)->frag; }
@@ -69,6 +69,7 @@ index 67a9b3c..0fd8c87 100644
 -}
 +static const char GL_SHADER_ABI[] = "# GL shader ABI 2";   // the table's first line (dm/gfx/tools/gl_shaders.py)
 +static int sh_abi_line(const char *line) { size_t n = strlen(GL_SHADER_ABI); return !strncmp(line, GL_SHADER_ABI, n) && (line[n] == '\n' || line[n] == '\r' || !line[n]); }
++static int sh_read_abi(FILE *f) { char line[64]; return fgets(line, sizeof line, f) && sh_abi_line(line); }
  static void sh_free(shinfo *s) { free(s->a); free(s->u); free(s->t); free(s->b); }
  static int sh_read_row(char *line, shinfo *s) {
 -    char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\n");
@@ -76,7 +77,7 @@ index 67a9b3c..0fd8c87 100644
      if (!key || !stage || strlen(key) != 16 || (strcmp(stage, "vert") && strcmp(stage, "frag"))) return 0;
      *s = (shinfo){.frag = !strcmp(stage, "frag"), .ub_slot = -1, .arg_slot = -1, .nargs = -1};
      memcpy(s->key, key, 16);
-@@ -191,10 +192,10 @@ static int sh_read_row(char *line, shinfo *s) {
+@@ -191,10 +193,10 @@ static int sh_read_row(char *line, shinfo *s) {
      }
      int na = 0, nu = 0, nt = 0, nb = 0;
      for (const char *c = res; *c; c++) if (c == res || c[-1] == ' ') { na += *c == 'a'; nu += *c == 'u'; nt += *c == 't'; nb += *c == 'n'; }
@@ -89,7 +90,7 @@ index 67a9b3c..0fd8c87 100644
          char nm[64], ty[32]; unsigned a1, a2, a3; int sa;
          if (t[0] == 'a' && (unsigned)s->na < (unsigned)na && sscanf(t, "a:%63[^=]=%u:%31s", nm, &a1, ty) == 3 && a1 < 16) {
              shattr *x = &s->a[s->na++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty);
-@@ -222,29 +223,67 @@ static int sh_read_row(char *line, shinfo *s) {
+@@ -222,29 +224,67 @@ static int sh_read_row(char *line, shinfo *s) {
  static id<MTLFunction> sh_function(id<MTLLibrary> lib, const shinfo *s) {
      return [lib newFunctionWithName:[NSString stringWithFormat:@"gl_%s_%c", s->key, s->frag ? 'f' : 'v']];
  }
@@ -175,7 +176,7 @@ index 67a9b3c..0fd8c87 100644
  }
  static const shinfo *sh_find(const char *key, int frag) { shinfo k; memcpy(k.key, key, 16); k.frag = frag; return g_nsh ? bsearch(&k, g_sh, g_nsh, sizeof *g_sh, sh_cmp) : NULL; }
  
-@@ -3398,7 +3437,7 @@ static void note_miss(const char *name) {
+@@ -3398,7 +3438,7 @@ static void note_miss(const char *name) {
  }
  
  void dm_gl_teardown(void) { @autoreleasepool {
@@ -184,7 +185,7 @@ index 67a9b3c..0fd8c87 100644
      dm_gl_drain();
      pass_end();
      g_cb = nil;
-@@ -3472,6 +3511,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
+@@ -3472,6 +3512,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
      g_frames = 0;
  
      g_lib = nil; g_util = nil;
