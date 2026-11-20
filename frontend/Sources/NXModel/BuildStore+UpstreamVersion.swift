@@ -67,6 +67,12 @@ extension BuildStore {
     }
 
     package func upstreamVersionBadge(_ kind: EngineUpstreamKind) -> String {
+        if kind == .nxkit {
+            if let version = nxkitInUse?.version, !version.isEmpty {
+                return version
+            }
+            return t("upstream.installedBadge")
+        }
         let local = upstreamLocalVersions[kind] ?? UpstreamVersion.localReceipt(
             for: kind,
             directory: upstreamDirectoryPath(for: kind),

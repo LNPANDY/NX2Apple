@@ -58,8 +58,12 @@ package struct EngineDropdownPanel: View {
         }
     }
 
-    /// The engines this panel lists: the ones it downloads and switches. nxkit (Beta) is bundled and chosen in Settings (UpstreamPicker).
-    private var panelKinds: [EngineUpstreamKind] { build.availableUpstreams.filter { $0 != .nxkit } }
+    /// The engines this panel lists: nxnative, optional external engines, and nxkit (Beta) when available on this Mac.
+    private var panelKinds: [EngineUpstreamKind] {
+        build.availableUpstreams.filter { kind in
+            kind != .nxkit || build.nxkitSelectable || build.buildUpstream == .nxkit
+        }
+    }
 
     private func move(_ kind: EngineUpstreamKind, by step: Int) -> Bool {
         let kinds = panelKinds.filter { !(isBlockedByGame($0) && !build.upstreamState($0).isBusy) }
@@ -115,6 +119,7 @@ package struct EngineDropdownPanel: View {
         let canSelect = !build.running && !blocked
         let subtitle = blocked ? loc.t("upstream.mngOnlyFiveTitles") : loc.t(kind.cardNoteKey)
         let helpText = blocked ? loc.t("upstream.mngOnlyFiveTitles") : (tooltip ?? loc.t(selected ? "upstream.activeBadge" : "upstream.readySwitch"))
+        let displayName = kind == .nxkit ? loc.t("nxkit.name") : kind.displayName
         return HStack(spacing: 8) {
             Button {
                 build.selectUpstream(kind)
@@ -126,7 +131,7 @@ package struct EngineDropdownPanel: View {
                         .frame(width: 7, height: 7)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                            Text(kind.displayName)
+                            Text(displayName)
                                 .font(.manrope(13.5, selected ? .bold : .semibold))
                                 .foregroundStyle(LauncherPalette.text)
                                 .lineLimit(1)
@@ -140,7 +145,7 @@ package struct EngineDropdownPanel: View {
                                 vPad: 1.5,
                                 tooltip: tooltip
                             )
-                            if !kind.isBuiltIn {
+                            if !kind.isBuiltIn && kind != .nxkit {
                                 EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
                             }
                         }

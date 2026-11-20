@@ -176,6 +176,7 @@ package struct EngineSwitcherCard: View {
 
     @ViewBuilder
     private func triggerButton(active: EngineUpstreamKind) -> some View {
+        let activeName = active == .nxkit ? loc.t("nxkit.name") : active.displayName
         if dropdownHost != nil {
             Button {
                 if isOpen {
@@ -184,14 +185,14 @@ package struct EngineSwitcherCard: View {
                     openDropdown()
                 }
             } label: {
-                triggerFace(title: active.displayName, open: isOpen)
+                triggerFace(title: activeName, open: isOpen)
             }
             .buttonStyle(.plain)
             .disabled(build.running)
             .opacity(build.running ? 0.55 : 1)
             .anchorPreference(key: LauncherDropdownAnchorKey.self, value: .bounds) { [dropdownID: $0] }
             .accessibilityLabel(loc.t("engine.title"))
-            .accessibilityValue(active.displayName)
+            .accessibilityValue(activeName)
             .padTarget("set.build.engine", scope: "main", enabled: !build.running) { isOpen ? closeDropdown() : openDropdown() }
         } else {
             Button {
@@ -201,7 +202,7 @@ package struct EngineSwitcherCard: View {
                     _ = build.checkUpstreamUpdates()
                 }
             } label: {
-                triggerFace(title: active.displayName, open: fallbackPopoverOpen)
+                triggerFace(title: activeName, open: fallbackPopoverOpen)
             }
             .buttonStyle(.plain)
             .disabled(build.running)
@@ -214,7 +215,7 @@ package struct EngineSwitcherCard: View {
                 .launcherAppearance()
             }
             .accessibilityLabel(loc.t("engine.title"))
-            .accessibilityValue(active.displayName)
+            .accessibilityValue(activeName)
             .padTarget("set.build.engine", scope: "main", enabled: !build.running) { isOpen ? closeDropdown() : openDropdown() }
         }
     }

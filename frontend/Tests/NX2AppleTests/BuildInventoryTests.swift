@@ -48,7 +48,7 @@ import XCTest
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.3)) }
         settle()
         let ids = Set(pad.frames["main", default: []].map(\.id))
-        XCTAssertTrue(ids.contains("set.build.engine.change"), "the engine footnote leads to Settings › Tools (#1458)")
+        XCTAssertTrue(ids.contains("set.build.engine"), "the top Build engine switcher card is reachable on the Builds page")
         XCTAssertTrue(ids.contains("set.build.folder"))
         XCTAssertTrue(ids.contains("set.build.file.base"))
         XCTAssertTrue(ids.contains("set.build.queue.select"))
