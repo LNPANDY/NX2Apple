@@ -1,5 +1,6 @@
 import SwiftUI
 import XCTest
+import NXCore
 @testable import NX2Apple
 @testable import NXLauncher
 
@@ -84,25 +85,107 @@ import XCTest
         }
         let file = root.appendingPathComponent("library.json")
         try JSONEncoder().encode(games).write(to: file)
-        let stores = LauncherStores(defaults: testDefaults), focus = PadFocus()
-        stores.repo.path = root.path
-        let host = NSHostingView(rootView: LauncherView(stores: stores, library: GameLibrary(file: file),
-            performStartupChecks: false, olderTools: Set(games.map(\.id)), padFocus: focus))
-        let window = OffscreenWindow(size: NSSize(width: 900, height: 680))
-        window.contentView = host; window.orderFront(nil)
-        defer { window.orderOut(nil); window.contentView = nil; window.close() }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
-        let frames = focus.frames["main", default: []]
-        let header = try XCTUnwrap(frames.first { $0.id == "tab.library" }?.frame)
-        let play = try XCTUnwrap(frames.first { $0.id == "hero.play" }?.frame)
-        let profile = try XCTUnwrap(frames.first { $0.id == "hero.profile" }?.frame)
-        XCTAssertGreaterThan(profile.minY, header.maxY)
-        XCTAssertLessThan(profile.maxY, play.minY)
-        let refresh = try XCTUnwrap(frames.first { $0.id == "hero.rebuild" }?.frame)
-        XCTAssertGreaterThan(refresh.minY, header.maxY)
-        XCTAssertLessThan(refresh.maxY, 680)
-        XCTAssertLessThanOrEqual(refresh.maxX, 900)
-        XCTAssertLessThan(play.maxY, 680)
+        for size in [NSSize(width: 900, height: 680), NSSize(width: 1440, height: 722)] {
+            let stores = LauncherStores(defaults: testDefaults), focus = PadFocus()
+            stores.repo.path = root.path
+            stores.localizer.lang = Lang("fr")
+            let library = GameLibrary(file: file)
+            let skipped = root.appendingPathComponent("example.zip")
+            library.applySkippedItems([SkippedLibraryItem(path: skipped.path, name: skipped.lastPathComponent,
+                rootPath: root.path, reason: .unextractedArchiveOrSplit)])
+            let host = NSHostingView(rootView: LauncherView(stores: stores, library: library,
+                performStartupChecks: false, olderTools: Set(games.map(\.id)), padFocus: focus))
+            let window = OffscreenWindow(size: size)
+            window.contentView = host; window.orderFront(nil)
+            defer { window.orderOut(nil); window.contentView = nil; window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            let frames = focus.frames["main", default: []]
+            let header = try XCTUnwrap(frames.first { $0.id == "tab.library" }?.frame)
+            let play = try XCTUnwrap(frames.first { $0.id == "hero.play" }?.frame)
+            let profile = try XCTUnwrap(frames.first { $0.id == "hero.profile" }?.frame)
+            XCTAssertGreaterThan(profile.minY, header.maxY)
+            XCTAssertLessThan(profile.maxY, play.minY)
+            let refresh = try XCTUnwrap(frames.first { $0.id == "hero.rebuild" }?.frame)
+            XCTAssertGreaterThan(refresh.minY, header.maxY)
+            XCTAssertLessThan(refresh.maxY, size.height)
+            XCTAssertLessThanOrEqual(refresh.maxX, size.width)
+            XCTAssertLessThan(play.maxY, size.height)
+            let banner = try XCTUnwrap(frames.first { $0.id == "library.skippedBanner" }?.frame)
+            XCTAssertGreaterThan(banner.minY, play.maxY)
+            library.dismissSkippedBanner()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            let afterDismissal = focus.frames["main", default: []]
+            XCTAssertFalse(afterDismissal.contains { $0.id == "library.skippedBanner" })
+            let refreshAfterDismissal = try XCTUnwrap(afterDismissal.first { $0.id == "hero.rebuild" }?.frame)
+            XCTAssertGreaterThan(refreshAfterDismissal.minY, header.maxY)
+            let profileAfterDismissal = try XCTUnwrap(afterDismissal.first { $0.id == "hero.profile" }?.frame)
+            XCTAssertGreaterThan(profileAfterDismissal.minY, header.maxY)
+        }
+    }
+
+    func testCollectionHeaderUsesTheRoomBesideTheArtworkPanel() throws {
+        let fixture = try ArtworkFixture()
+        defer { fixture.cleanup() }
+        let lang = Lang("fr")
+        var environment = fixture.environment()
+        environment.media = { _, _ in .none }
+        let editor = ArtworkEditor(game: fixture.game, slot: .hero, artworkDirectory: fixture.artwork,
+                                   env: environment, labels: { L10n.string($0, lang) })
+        for width: CGFloat in [1408, 900] {
+            let stores = LauncherStores(defaults: testDefaults)
+            stores.localizer.lang = lang
+            let focus = PadFocus()
+            let host = NSHostingView(rootView: LauncherView(stores: stores, library: fixture.library,
+                performStartupChecks: false, padFocus: focus, artworkEditor: editor))
+            let window = OffscreenWindow(size: NSSize(width: width, height: 760))
+            window.contentView = host; window.orderFront(nil)
+            defer { window.orderOut(nil); window.contentView = nil; window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+            let frames = focus.frames["main", default: []]
+            let supported = try XCTUnwrap(frames.first { $0.id == "library.supported" }?.frame)
+            let sort = try XCTUnwrap(frames.first { $0.id == "library.sort" }?.frame)
+            let filter = try XCTUnwrap(frames.first { $0.id == "library.filter" }?.frame)
+            let libraryRight = width - ArtworkPanel.width - 1 - 34
+            for frame in [supported, sort, filter] {
+                XCTAssertGreaterThanOrEqual(frame.minX, 33, "Width: \(width)")
+                XCTAssertLessThanOrEqual(frame.maxX, libraryRight + 1, "Width: \(width)")
+            }
+            if width == 1408 {
+                XCTAssertEqual(supported.midY, sort.midY, accuracy: 1)
+                XCTAssertEqual(sort.midY, filter.midY, accuracy: 1)
+                XCTAssertLessThan(supported.maxX, sort.minX)
+            } else {
+                XCTAssertLessThan(supported.maxY, sort.minY)
+                if filter.midY > sort.midY { XCTAssertEqual(filter.minX, 34, accuracy: 1) }
+            }
+        }
+    }
+
+    func testCollectionHeaderStaysOnOneRowWhenFullLabelsAppear() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("library.json")
+        try JSONEncoder().encode([LibraryGame(titleID: "0100000000000000", name: "Example")]).write(to: file)
+        for lang in Lang.all {
+            let stores = LauncherStores(defaults: testDefaults)
+            stores.localizer.lang = lang
+            let focus = PadFocus()
+            let host = NSHostingView(rootView: LauncherView(stores: stores, library: GameLibrary(file: file),
+                performStartupChecks: false, padFocus: focus))
+            let window = OffscreenWindow(size: NSSize(width: 1199, height: 760))
+            window.contentView = host; window.orderFront(nil)
+            defer { window.orderOut(nil); window.contentView = nil; window.close() }
+            for width: CGFloat in [1099, 1100, 1199, 1200] {
+                window.setContentSize(NSSize(width: width, height: 760))
+                RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+                let frames = focus.frames["main", default: []]
+                let supported = try XCTUnwrap(frames.first { $0.id == "library.supported" }?.frame)
+                let sort = try XCTUnwrap(frames.first { $0.id == "library.sort" }?.frame)
+                XCTAssertEqual(supported.midY, sort.midY, accuracy: 1, "\(lang.code) at \(width) pt")
+                XCTAssertLessThan(supported.maxX, sort.minX, "\(lang.code) at \(width) pt")
+            }
+        }
     }
 
     func testOnlyLibraryScrollsUnderTheHeaderAndKeepsItsViewport() throws {

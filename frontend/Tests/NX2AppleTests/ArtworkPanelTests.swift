@@ -110,6 +110,63 @@ final class ArtworkPanelTests: IsolatedDefaultsTestCase {
     }
 
 
+    @MainActor func testArtworkFooterFitsOnOneRowInEveryLanguage() async throws {
+        fixture = try ArtworkFixture()
+        for lang in Lang.all {
+            XCTAssertNotNil(L10n.catalogs[lang.code]?["artwork.reset"], lang.code)
+            let editor = fixture.editor(lang: lang)
+            await editor.load()
+            editor.select(editor.tiles[2])
+            editor.slot = .thumbnail
+            editor.select(editor.tiles[5])
+            let focus = PadFocus()
+            let panel = ArtworkPanel(editor: editor, labels: { L10n.string($0, lang) }, save: {}, cancel: {})
+                .environmentObject(focus)
+            let window = OffscreenWindow(size: NSSize(width: ArtworkPanel.width, height: 760))
+            window.contentView = NSHostingView(rootView: panel)
+            window.orderFront(nil)
+            defer { window.orderOut(nil); window.contentView = nil; window.close() }
+            for slot in [ArtworkSlot.hero, .thumbnail] {
+                editor.slot = slot
+                XCTAssertTrue(editor.canReset(slot))
+                RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+                let frames = focus.frames["artwork", default: []]
+                let reset = try XCTUnwrap(frames.first { $0.id == "artwork.reset" }?.frame)
+                let cancel = try XCTUnwrap(frames.first { $0.id == "artwork.cancel" }?.frame)
+                let save = try XCTUnwrap(frames.first { $0.id == "artwork.save" }?.frame)
+                XCTAssertEqual(reset.midY, cancel.midY, accuracy: 1, "\(lang.code): \(slot)")
+                XCTAssertEqual(cancel.midY, save.midY, accuracy: 1, "\(lang.code): \(slot)")
+                XCTAssertLessThan(reset.maxX, cancel.minX, "\(lang.code): \(slot)")
+                XCTAssertLessThan(cancel.maxX, save.minX, "\(lang.code): \(slot)")
+                XCTAssertLessThanOrEqual(save.maxX, ArtworkPanel.width, "\(lang.code): \(slot)")
+            }
+        }
+    }
+
+    @MainActor func testArtworkGridKeepsKeyboardNavigation() async throws {
+        fixture = try ArtworkFixture()
+        let editor = fixture.editor()
+        await editor.load()
+        let panel = ArtworkPanel(editor: editor, labels: { L10n.string($0, .en) }, save: {}, cancel: {})
+            .environmentObject(PadFocus())
+        let window = OffscreenWindow(size: NSSize(width: ArtworkPanel.width, height: 760))
+        let host = NSHostingView(rootView: panel)
+        window.contentView = host
+        window.orderFront(nil)
+        window.makeFirstResponder(host)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+
+        let rightArrow = "\u{F703}"
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: rightArrow, charactersIgnoringModifiers: rightArrow,
+            isARepeat: false, keyCode: 124))
+        XCTAssertEqual(editor.cursor, 0)
+        window.sendEvent(event)
+        XCTAssertEqual(editor.cursor, 1)
+        XCTAssertEqual(editor.tiles.first { $0.isSelected }?.id, editor.tiles[1].id)
+    }
+
     /// With the panel open the library behind it is a preview: the hero and the selected card draw the draft.
     @MainActor func testThePanelPreviewsTheDraftWithoutWritingIt() async throws {
         fixture = try ArtworkFixture()
