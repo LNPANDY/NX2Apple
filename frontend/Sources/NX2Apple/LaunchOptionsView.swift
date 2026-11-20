@@ -35,9 +35,6 @@ struct LaunchOptionsView: View {
     @EnvironmentObject private var saveSettings: SaveSettingsStore   // the global setup and this game's own choices (SaveLocation.swift)
     @EnvironmentObject private var players: PlayerProfileStore
     @Environment(\.dsSheetMaxHeight) private var maxHeight
-    @State private var contentHeight: CGFloat = 0   // the scrolling part's own height: the sheet is as high as it needs (#1458)
-    @State private var topHeight: CGFloat = 0   // the header and the part selector
-    @State private var footerHeight: CGFloat = 0
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
     private var settings: [LaunchSetting]? {
@@ -60,7 +57,7 @@ struct LaunchOptionsView: View {
         let _ = choicesRevision
         let destination = game.map(LaunchDestination.init) ?? .none
         let shown = destination.categories.contains(category) ? category : (destination.categories.first ?? .game)
-        VStack(alignment: .leading, spacing: 0) {
+        DSSheetStackLayout(width: LauncherSheet.width, maxHeight: maxHeight) {
             VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .bottom) {
                 DSSheetHeader(title: loc.t("launch.title"), message: game?.displayName(loc.lang) ?? "")
@@ -83,12 +80,10 @@ struct LaunchOptionsView: View {
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DSSheetInsets.gap)
             }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topHeight = $0 }
             if let game {
                 if destination == .none { noBuild(game) } else { content(game, destination: destination, category: shown) }
             }
             footer(game, destination: destination, category: shown)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }
         }
         .padScope("launch", focus)
         .onAppear { library.migrateLaunchOptions() }
@@ -114,7 +109,6 @@ struct LaunchOptionsView: View {
             }
         }
         .frame(width: LauncherSheet.width)
-        .fixedSize(horizontal: false, vertical: true)   // as high as the content, at most maxHeight: then the parts scroll
         .background(LauncherPalette.background)
         .font(DS.Font.body)
         .launcherAppearance()
@@ -137,29 +131,29 @@ struct LaunchOptionsView: View {
                 .disabled(m.running || game.inputs["base", default: []].isEmpty)
                 .padTarget("opt.build", scope: "launch", enabled: !m.running && !game.inputs["base", default: []].isEmpty) { if !m.running { dismiss(); onBuild(game) } }
         }
-        .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(30).frame(maxWidth: .infinity, alignment: .topLeading).fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder private func content(_ game: LibraryGame, destination: LaunchDestination, category: LaunchCategory) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    switch category {
-                    case .game, .performance: settingsCategory(game, category)
-                    case .mods: modsAndCheats(game, destination: destination)
-                    case .saves: saves(game, destination: destination)
-                    }
-                    // one footnote under the last group: where the choices are kept
-                    Text(loc.t("launch.applied")).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true).padding(.top, -DS.Space.m)
-                }
-                .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DSSheetInsets.gap)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+        let stack = VStack(alignment: .leading, spacing: 24) {
+            switch category {
+            case .game, .performance: settingsCategory(game, category)
+            case .mods: modsAndCheats(game, destination: destination)
+            case .saves: saves(game, destination: destination)
             }
-            .frame(height: DSSheetInsets.contentFrame(content: contentHeight, chrome: topHeight + footerHeight, maxHeight: maxHeight))
-            .id(category)   // each part opens at its top
-            .onChange(of: focus.focused) { id in if let id { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } } }
+            // one footnote under the last group: where the choices are kept
+            Text(loc.t("launch.applied")).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true).padding(.top, -DS.Space.m)
         }
+        .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DSSheetInsets.gap)
+        ViewThatFits(in: .vertical) {
+            stack.fixedSize(horizontal: false, vertical: true)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) { stack }
+                    .onChange(of: focus.focused) { id in if let id { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } } }
+            }
+        }
+        .id(category)   // each part opens at its top
     }
 
     /// Game and Performance: the rows of the game's list that belong to the part, basic first, the rest under Advanced settings.

@@ -82,12 +82,14 @@ import XCTest
     private let localizer = Localizer(.en)
     private var originalFeatureEnabled = false
     private var originalMNGFeatureEnabled = false
+    private var originalNxkitFeatureEnabled = false
 
     private var originalVenvDir = ""
 
     override func setUpWithError() throws {
         originalFeatureEnabled = S2ArmBuilder.featureEnabled
         originalMNGFeatureEnabled = MacNativeGamesBuilder.featureEnabled
+        originalNxkitFeatureEnabled = NxkitBuilder.featureEnabled
         originalVenvDir = Toolchain.venvDir
         S2ArmBuilder.featureEnabled = true
         defaults = TestDefaults.make("nxmodel-s2arm-build-tests")
@@ -100,6 +102,7 @@ import XCTest
     override func tearDownWithError() throws {
         S2ArmBuilder.featureEnabled = originalFeatureEnabled
         MacNativeGamesBuilder.featureEnabled = originalMNGFeatureEnabled
+        NxkitBuilder.featureEnabled = originalNxkitFeatureEnabled
         Toolchain.venvDir = originalVenvDir
         try? FileManager.default.removeItem(at: temporary)
     }
@@ -129,6 +132,7 @@ import XCTest
 
         S2ArmBuilder.featureEnabled = false
         MacNativeGamesBuilder.featureEnabled = false
+        NxkitBuilder.featureEnabled = false
         let store3 = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
         XCTAssertEqual(store3.buildUpstream, .nxnative)
         XCTAssertEqual(store3.availableUpstreams, [.nxnative])
@@ -136,12 +140,13 @@ import XCTest
         store3.selectUpstream(.s2arm)
         XCTAssertEqual(store3.buildUpstream, .nxnative)
 
-        // When MacNativeGames is enabled and S2Arm stays off, UserDefaults="s2arm" falls back cleanly and availableUpstreams excludes S2Arm.
+        // When MacNativeGames and nxkit are enabled while S2Arm stays off, UserDefaults="s2arm" falls back cleanly and availableUpstreams excludes S2Arm.
         MacNativeGamesBuilder.featureEnabled = true
+        NxkitBuilder.featureEnabled = true
         defaults.set(EngineUpstreamKind.s2arm.rawValue, forKey: BuildStore.buildUpstreamKey)
         let store4 = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
         XCTAssertEqual(store4.buildUpstream, .nxnative)
-        XCTAssertEqual(store4.availableUpstreams, [.nxnative, .macNativeGames])
+        XCTAssertEqual(store4.availableUpstreams, [.nxnative, .macNativeGames, .nxkit])
         XCTAssertFalse(store4.canSelectUpstream(.s2arm))
         _ = store4.downloadUpstream(.s2arm)
         XCTAssertNil(store4.upstreamDownloads[.s2arm])

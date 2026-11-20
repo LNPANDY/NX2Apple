@@ -19,6 +19,8 @@ import NXLauncher
     let catalog: [(titleID: String, name: String, hue: Double, cover: GalleryCover?)]
     /// The artwork every scene's library reads: the copies of the real covers and the generated art. Never the player's folder.
     let artworkFolder: URL
+    /// Read-only stand-in engine tree shared across scenes so VerifiedProfiles hits memory instead of scanning 200+ copies.
+    private let sharedEnginePath: String
 
     init(lang: Lang = .en, covers: [GalleryCover] = [], coverFolder: URL? = nil) {
         self.lang = lang
@@ -31,7 +33,17 @@ import NXLauncher
         let fill = Self.games.filter { !realIDs.contains($0.titleID) }.prefix(Self.games.count - real.count)
         catalog = real.enumerated().map { (index, cover) in (cover.titleID, cover.name, Double(index) / 14, Optional(cover)) }
             + fill.map { ($0.titleID, $0.name, $0.hue, nil) }
-        for game in catalog where game.cover == nil { Self.writeArtwork(for: game.titleID, hue: game.hue, in: artworkFolder) }
+        let engine = directory.appendingPathComponent("engine-shared", isDirectory: true)
+        let marker = engine.appendingPathComponent(EngineLayout.marker)
+        try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data().write(to: marker)
+        for game in catalog {
+            if game.cover == nil { Self.writeArtwork(for: game.titleID, hue: game.hue, in: artworkFolder) }
+            let folder = engine.appendingPathComponent("dm/games/" + game.titleID, isDirectory: true)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try? "title_id\t\(game.titleID)\nname\t\(game.name)\n".write(to: folder.appendingPathComponent("game.tsv"), atomically: true, encoding: .utf8)
+        }
+        sharedEnginePath = engine.path
     }
 
     deinit {
@@ -285,17 +297,7 @@ import NXLauncher
         let stores = LauncherStores(localizer: Localizer(lang), runner: runner, gitCheckout: SystemGitCheckout(runner: runner),
                                     releases: GalleryReleases(), xcrun: "/usr/bin/false", volumesRoot: directory.appendingPathComponent("Volumes").path,
                                     defaults: defaults)
-        let engine = directory.appendingPathComponent("engine-" + UUID().uuidString, isDirectory: true)
-        let marker = engine.appendingPathComponent(EngineLayout.marker)
-        try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? Data().write(to: marker)
-        // a verified profile for every fixture game
-        for game in catalog {
-            let folder = engine.appendingPathComponent("dm/games/" + game.titleID, isDirectory: true)
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try? "title_id\t\(game.titleID)\nname\t\(game.name)\n".write(to: folder.appendingPathComponent("game.tsv"), atomically: true, encoding: .utf8)
-        }
-        stores.repo.path = engine.path
+        stores.repo.path = sharedEnginePath
         stores.dependencies.checked = true
         stores.dependencies.deps = [Dep(id: "xcode", name: "Xcode", hint: "", present: true, installCmd: [])]
         stores.deviceStore.checked = true

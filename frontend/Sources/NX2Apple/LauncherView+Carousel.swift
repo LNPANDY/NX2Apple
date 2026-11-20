@@ -217,7 +217,9 @@ extension LauncherView {
 
     /// The top bar of the library's pages. The engine's syncing and failure are notices in the slot under it.
     var libraryHeader: some View {
-        topBar.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { libraryHeaderHeight = $0 }
+        topBar.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            if abs(height - libraryHeaderHeight) > 0.5 { libraryHeaderHeight = height }
+        }
     }
 
     /// The grid's header: back to the row, the title and the count, then the order and the filter.

@@ -44,7 +44,7 @@ import NXModel
         var ids: Set<String> = []
         for scene in GalleryScene.allCases {
             XCTAssertTrue(ids.insert(scene.id).inserted, "\(scene.id) is named once")
-            let png = try XCTUnwrap(GalleryRenderer.png(scene, fixtures: fixtures, settle: 0.25), scene.id)
+            let png = try XCTUnwrap(GalleryRenderer.png(scene, fixtures: fixtures, settle: 0.08), scene.id)
             XCTAssertGreaterThan(png.count, 1000, "\(scene.id) draws something")
         }
         XCTAssertEqual(NSDictionary(dictionary: Self.sharedKeys()), before, "a gallery scene wrote to the app's defaults")

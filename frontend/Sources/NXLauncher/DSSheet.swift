@@ -76,6 +76,51 @@ package extension DSSheetButtonRow where Leading == EmptyView {
     init(@ViewBuilder buttons: () -> Buttons) { self.init(leading: { EmptyView() }, buttons: buttons) }
 }
 
+/// Single-pass synchronous layout for a three-part sheet (header, body, button row): keeps the header and button row fixed, fits
+/// short content tightly, and caps tall content at `max(120, maxHeight - chrome)` without cross-frame `onGeometryChange` feedback.
+package struct DSSheetStackLayout: Layout {
+    package let width: CGFloat
+    package let maxHeight: CGFloat
+
+    package init(width: CGFloat, maxHeight: CGFloat) {
+        self.width = width
+        self.maxHeight = maxHeight
+    }
+
+    package func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? width
+        guard subviews.count >= 3 else {
+            let h = subviews.reduce(CGFloat.zero) { $0 + $1.sizeThatFits(ProposedViewSize(width: w, height: nil)).height }
+            return CGSize(width: w, height: min(h, maxHeight))
+        }
+        let h0 = subviews[0].sizeThatFits(ProposedViewSize(width: w, height: nil)).height
+        let h2 = subviews[2].sizeThatFits(ProposedViewSize(width: w, height: nil)).height
+        let cap = max(120, maxHeight - h0 - h2)
+        let h1 = min(subviews[1].sizeThatFits(ProposedViewSize(width: w, height: cap)).height, cap)
+        return CGSize(width: w, height: h0 + h1 + h2)
+    }
+
+    package func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let w = bounds.width
+        guard subviews.count >= 3 else {
+            var y = bounds.minY
+            for sub in subviews {
+                let h = sub.sizeThatFits(ProposedViewSize(width: w, height: nil)).height
+                sub.place(at: CGPoint(x: bounds.minX, y: y), proposal: ProposedViewSize(width: w, height: h))
+                y += h
+            }
+            return
+        }
+        let h0 = subviews[0].sizeThatFits(ProposedViewSize(width: w, height: nil)).height
+        let h2 = subviews[2].sizeThatFits(ProposedViewSize(width: w, height: nil)).height
+        let cap = max(120, maxHeight - h0 - h2)
+        let h1 = min(subviews[1].sizeThatFits(ProposedViewSize(width: w, height: cap)).height, cap)
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.minY), proposal: ProposedViewSize(width: w, height: h0))
+        subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + h0), proposal: ProposedViewSize(width: w, height: h1))
+        subviews[2].place(at: CGPoint(x: bounds.minX, y: bounds.minY + h0 + h1), proposal: ProposedViewSize(width: w, height: h2))
+    }
+}
+
 /// A whole sheet of the launcher: the header, the content and the button row inside the shared insets, `DS.Control.sheetWidth`
 /// wide (or the width a larger sheet needs) and as high as its content, at most `dsSheetMaxHeight`: higher content scrolls
 /// between the fixed header and button row, so neither is ever cut (#1458).
@@ -92,28 +137,22 @@ package struct DSSheet<Content: View, Leading: View, Buttons: View>: View {
     let leading: Leading
     let buttons: Buttons
     @Environment(\.dsSheetMaxHeight) private var maxHeight
-    @State private var contentHeight: CGFloat = 0
-    @State private var headerHeight: CGFloat = 0   // with its insets
-    @State private var footerHeight: CGFloat = 0   // the button row with its insets
 
     package var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let bodyStack = VStack(alignment: .leading, spacing: DSSheetInsets.gap) { content }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.gap)
+        DSSheetStackLayout(width: width, maxHeight: maxHeight) {
             DSSheetHeader(title: title, message: message)
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: DSSheetInsets.gap) { content }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.gap)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+            ViewThatFits(in: .vertical) {
+                bodyStack.fixedSize(horizontal: false, vertical: true)
+                ScrollView(.vertical) { bodyStack }
             }
-            .frame(height: DSSheetInsets.contentFrame(content: contentHeight, chrome: headerHeight + footerHeight, maxHeight: maxHeight))
             DSSheetButtonRow(leading: { leading }, buttons: { buttons })
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.buttons).padding(.bottom, DSSheetInsets.vertical)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }
         }
         .frame(width: width, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
         .dsSheetSurface()
     }
 
