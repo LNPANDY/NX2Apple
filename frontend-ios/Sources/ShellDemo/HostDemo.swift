@@ -47,9 +47,11 @@ struct HostDemoScreen: View {
         let config = ShellHostConfig(gamesRoot: gamesRoot, appDataRoot: appData,
                                      environment: HostEnvironment(chain: "b-3f9a2c"),
                                      updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"),
-                                     defaults: { UserDefaults(suiteName: suite + $0) ?? .standard })
+                                     defaults: { UserDefaults(suiteName: suite + $0) ?? .standard },
+                                     sideloadCertBacking: InMemoryCertBacking())
         #if canImport(UIKit)
-        _model = State(initialValue: ShellHostModel(config: config, picker: DocumentFolderPicker()))
+        _model = State(initialValue: ShellHostModel(config: config, picker: DocumentFolderPicker(),
+                                                    certificatePicker: DocumentCertificatePicker()))
         #else
         _model = State(initialValue: ShellHostModel(config: config))
         #endif

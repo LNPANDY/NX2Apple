@@ -300,12 +300,12 @@ public enum FrameworkSignature {
             return hostText("The game's framework executable could not be read. Install the game again from NX2Apple.")
         }
         guard info.hasCodeSignature else {
-            return hostText("This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple.")
+            return hostText("This game's framework in Documents/Frameworks is unsigned. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device.")
         }
         if let requiredTeam = hostTeamID, !requiredTeam.isEmpty {
             guard info.teamID == requiredTeam else {
                 let actual = info.teamID ?? "ad-hoc"
-                return hostText("This game's framework is signed for \(actual), while this app is signed for team \(requiredTeam). Install the game again from NX2Apple.")
+                return hostText("This game's framework is signed for \(actual), while this app is signed for team \(requiredTeam). Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device.")
             }
         }
         return nil
