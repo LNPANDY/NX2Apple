@@ -1375,4 +1375,127 @@ import XCTest
         backBtn.tap()
         XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
     }
+
+    func testCoverFlowColdLaunchSwipeToLastCardRemainsResponsive() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launchEnvironment["AG_PRINT_CYCLES"] = "2"
+        defer { app.launchEnvironment.removeValue(forKey: "AG_PRINT_CYCLES") }
+        extraArguments = ["--games", "12"]
+        launch("library")
+        let flow = app.scrollViews["library.coverflow"]
+        XCTAssertTrue(flow.waitForExistence(timeout: 5))
+        let initialX = app.buttons["tile.orbit"].frame.midX
+        let last = app.buttons["tile.paper-11"]
+        for _ in 0..<24 {
+            if last.exists && last.isSelected { break }
+            flow.swipeLeft()
+        }
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: last)
+        waitForExpectations(timeout: 5)
+        let centredLast = NSPredicate { _, _ in abs(last.frame.midX - initialX) <= 4 }
+        expectation(for: centredLast, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Super Smash Bros.™ Ultimate")
+        XCTAssertEqual(last.frame.midX, initialX, accuracy: 4)
+        XCTAssertFalse(app.alerts["Demo action"].exists)
+        // Step back one card and tap the last side card to verify hit targets and responsiveness stay intact.
+        flow.swipeRight()
+        let previous = app.buttons["tile.tide-10"]
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: previous)
+        waitForExpectations(timeout: 5)
+        let centredPrevious = NSPredicate { _, _ in abs(previous.frame.midX - initialX) <= 4 }
+        expectation(for: centredPrevious, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(previous.frame.midX, initialX, accuracy: 4)
+        last.tap()
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: last)
+        waitForExpectations(timeout: 5)
+        expectation(for: centredLast, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(last.frame.midX, initialX, accuracy: 4)
+        XCTAssertTrue(app.buttons["controllers.open"].isHittable)
+
+        // Also cover the unfolded foldable harness on iPad canvases.
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            extraArguments = ["--fold-test", "--unfolded", "--games", "7"]
+            launch("library")
+            XCTAssertTrue(flow.waitForExistence(timeout: 5))
+            let initialFoldX = app.buttons["tile.orbit"].frame.midX
+            let lastFold = app.buttons["tile.amber"]
+            for _ in 0..<14 {
+                if lastFold.exists && lastFold.isSelected { break }
+                flow.swipeLeft()
+            }
+            expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: lastFold)
+            waitForExpectations(timeout: 5)
+            let centredFoldLast = NSPredicate { _, _ in abs(lastFold.frame.midX - initialFoldX) <= 4 }
+            expectation(for: centredFoldLast, evaluatedWith: nil)
+            waitForExpectations(timeout: 5)
+            XCTAssertEqual(app.staticTexts["hero.title"].label, "Pokémon™ Sword")
+            XCTAssertEqual(lastFold.frame.midX, initialFoldX, accuracy: 4)
+            XCTAssertFalse(app.alerts["Demo action"].exists)
+        }
+    }
+
+    func testCoverFlowControllerAndKeyboardReachLastCardWithoutHang() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launchEnvironment["AG_PRINT_CYCLES"] = "2"
+        defer { app.launchEnvironment.removeValue(forKey: "AG_PRINT_CYCLES") }
+
+        extraArguments = ["--input-test", "--games", "9"]
+        launch("library")
+        let flow = app.scrollViews["library.coverflow"]
+        XCTAssertTrue(flow.waitForExistence(timeout: 5))
+        let initialPadX = app.buttons["tile.orbit"].frame.midX
+        let lastPad = app.buttons["tile.party"]
+        let right = app.buttons["qa.input.right"]
+        for _ in 0..<12 {
+            if lastPad.exists && lastPad.isSelected { break }
+            right.tap()
+        }
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: lastPad)
+        waitForExpectations(timeout: 5)
+        let centredPadLast = NSPredicate { _, _ in abs(lastPad.frame.midX - initialPadX) <= 4 }
+        expectation(for: centredPadLast, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Super Mario Party™")
+        XCTAssertEqual(lastPad.frame.midX, initialPadX, accuracy: 4)
+        right.tap()
+        XCTAssertTrue(lastPad.isSelected)
+        app.buttons["qa.input.left"].tap()
+        let prevPad = app.buttons["tile.kingdom"]
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: prevPad)
+        waitForExpectations(timeout: 5)
+        let centredPadPrev = NSPredicate { _, _ in abs(prevPad.frame.midX - initialPadX) <= 4 }
+        expectation(for: centredPadPrev, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(prevPad.frame.midX, initialPadX, accuracy: 4)
+
+        extraArguments = ["--games", "7"]
+        launch("library")
+        XCTAssertTrue(flow.waitForExistence(timeout: 5))
+        let initialKeyX = app.buttons["tile.orbit"].frame.midX
+        let lastKey = app.buttons["tile.amber"]
+        for _ in 0..<10 {
+            if lastKey.exists && lastKey.isSelected { break }
+            app.typeKey(.rightArrow, modifierFlags: [])
+        }
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: lastKey)
+        waitForExpectations(timeout: 5)
+        let centredKeyLast = NSPredicate { _, _ in abs(lastKey.frame.midX - initialKeyX) <= 4 }
+        expectation(for: centredKeyLast, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Pokémon™ Sword")
+        XCTAssertEqual(lastKey.frame.midX, initialKeyX, accuracy: 4)
+        app.typeKey(.rightArrow, modifierFlags: [])
+        XCTAssertTrue(lastKey.isSelected)
+        app.typeKey(.leftArrow, modifierFlags: [])
+        let prevKey = app.buttons["tile.drift"]
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: prevKey)
+        waitForExpectations(timeout: 5)
+        let centredKeyPrev = NSPredicate { _, _ in abs(prevKey.frame.midX - initialKeyX) <= 4 }
+        expectation(for: centredKeyPrev, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(prevKey.frame.midX, initialKeyX, accuracy: 4)
+    }
 }
