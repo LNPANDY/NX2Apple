@@ -120,12 +120,12 @@ struct BuildPage: View {
                 nxkitFeedback
             }
             if (!running && !processActive && !finishedQueueSummary) || showRunningSetup {
+                EngineSwitcherCard(build: build)
                 SetupHintCard(repo: repo, dependencies: dependencies, usesExternalUpstream: build.usesExternalUpstreamRepo, onOpenSettings: onOpenSettings)
                 if stagingQueue {
                     queueSection(showsHeading: !queueReview)
                 } else {
                     FilesCard(build: build, library: library, artworkStore: artworkStore, fetchMetadata: fetchMetadata, extrasOpen: $extrasOpen)
-                    MacNativeGamesNotice(build: build)   // the picked title is one MacNativeGames maintains (#1473)
                     TargetCard(build: build)
                 }
             }
@@ -160,8 +160,6 @@ struct BuildPage: View {
                     ProgressCard(build: build)
                 }
             }
-            // the engine is chosen in Settings › Tools (#1458): which one builds, and the way there
-            if !running && !processActive { EngineFootnote(build: build, change: onOpenSettings) }
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: completionActive)
         .sheet(isPresented: allStepsOpen, onDismiss: { pad.scope = "main"; if pad.visible { pad.focused = "set.build.steps" } }) {

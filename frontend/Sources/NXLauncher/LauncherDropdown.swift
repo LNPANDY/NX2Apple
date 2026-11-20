@@ -125,10 +125,8 @@ package final class LauncherDropdownState: ObservableObject {
         didSet { if custom != nil, request != nil { request = nil } }
     }
     package func close() {
-        withAnimation(.easeOut(duration: 0.12)) {
-            request = nil
-            custom = nil
-        }
+        request = nil
+        custom = nil
     }
 }
 
@@ -153,8 +151,12 @@ extension View {
     /// Draws the open LauncherDropdown's list over this view, outside the clipping of the scroll view the button sits in.
     /// Every window and sheet with dropdowns needs one at its root, because a sheet is a window of its own.
     /// A dropdown without a host opens its list as a popover.
-    package func launcherDropdownHost(_ state: LauncherDropdownState? = nil, pad: PadFocus? = nil) -> some View {
-        modifier(LauncherDropdownHost(state: state, pad: pad))
+    @ViewBuilder package func launcherDropdownHost(_ state: LauncherDropdownState? = nil, pad: PadFocus? = nil) -> some View {
+        if let state {
+            modifier(ObservedLauncherDropdownHost(state: state, pad: pad))
+        } else {
+            modifier(OwnedLauncherDropdownHost(pad: pad))
+        }
     }
 }
 
@@ -167,18 +169,30 @@ extension View {
     }
 }
 
-private struct LauncherDropdownHost: ViewModifier {
-    @StateObject private var state: LauncherDropdownState
+private struct ObservedLauncherDropdownHost: ViewModifier {
+    @ObservedObject var state: LauncherDropdownState
     let pad: PadFocus?
-    init(state: LauncherDropdownState?, pad: PadFocus?) {
-        _state = StateObject(wrappedValue: state ?? LauncherDropdownState())
-        self.pad = pad
-    }
     func body(content: Content) -> some View {
+        let request = state.request
+        let custom = state.custom
         content
             .environment(\.launcherDropdownHost, state)
             .overlayPreferenceValue(LauncherDropdownAnchorKey.self) { anchors in
-                LauncherDropdownLayer(state: state, anchors: anchors, pad: pad)
+                LauncherDropdownLayer(state: state, request: request, custom: custom, anchors: anchors, pad: pad)
+            }
+    }
+}
+
+private struct OwnedLauncherDropdownHost: ViewModifier {
+    @StateObject private var state = LauncherDropdownState()
+    let pad: PadFocus?
+    func body(content: Content) -> some View {
+        let request = state.request
+        let custom = state.custom
+        content
+            .environment(\.launcherDropdownHost, state)
+            .overlayPreferenceValue(LauncherDropdownAnchorKey.self) { anchors in
+                LauncherDropdownLayer(state: state, request: request, custom: custom, anchors: anchors, pad: pad)
             }
     }
 }
@@ -247,12 +261,14 @@ private struct LauncherCustomDropdownBox: View {
 }
 
 private struct LauncherDropdownLayer: View {
-    @ObservedObject var state: LauncherDropdownState
+    let state: LauncherDropdownState
+    let request: LauncherDropdownRequest?
+    let custom: LauncherCustomDropdown?
     let anchors: [UUID: Anchor<CGRect>]
     let pad: PadFocus?
     var body: some View {
         GeometryReader { g in
-            if let request = state.request, let anchor = anchors[request.id] {
+            if let request, let anchor = anchors[request.id] {
                 let button = g[anchor]
                 let width = LauncherDropdownLayout.width(labels: request.options.map(\.label), button: button.width)
                 let spot = LauncherDropdownLayout.place(button: button, container: g.size, rows: request.options.count, width: width)
@@ -268,7 +284,7 @@ private struct LauncherDropdownLayer: View {
                         .offset(x: spot.origin.x, y: spot.origin.y)
                         .transition(.opacity)
                 }
-            } else if let custom = state.custom, let anchor = anchors[custom.id] {
+            } else if let custom, let anchor = anchors[custom.id] {
                 let button = g[anchor]
                 let width = min(custom.width, max(LauncherDropdownLayout.minWidth, g.size.width - LauncherDropdownLayout.margin * 2))
                 let spot = LauncherDropdownLayout.placeCustom(button: button, container: g.size, maxHeight: custom.maxHeight, width: width)
@@ -292,6 +308,8 @@ private struct LauncherDropdownLayer: View {
                 }
             }
         }
+        .animation(.easeOut(duration: 0.12), value: request?.id)
+        .animation(.easeOut(duration: 0.12), value: custom?.id)
     }
 }
 
@@ -490,10 +508,8 @@ package struct LauncherDropdown: View {
             let open = host.request?.id == dropdown.id
             dropdown.accessible(
                 Button {
-                    withAnimation(.easeOut(duration: 0.12)) {
-                        host.request = open ? nil : LauncherDropdownRequest(id: dropdown.id, options: dropdown.options, selection: dropdown.selection,
-                                                                            label: dropdown.label, disabledValues: dropdown.disabledValues, choose: dropdown.choose)
-                    }
+                    host.request = open ? nil : LauncherDropdownRequest(id: dropdown.id, options: dropdown.options, selection: dropdown.selection,
+                                                                        label: dropdown.label, disabledValues: dropdown.disabledValues, choose: dropdown.choose)
                 } label: { dropdown.face(open: open, rowWidth: rowWidth) }
                 .buttonStyle(.plain)
                 .opacity(enabled ? 1 : 0.55)

@@ -4,9 +4,9 @@ Written by `GalleryCoverageTests` from `GalleryCoverage.swift`: every View type 
 popover and alert, every notice and every case of the state enums the views switch on, with the gallery's scenes
 (`GalleryScene.id`) that show it, or the reason none can. After a change:
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
-326 scenes.
+327 scenes.
 
-## Views: 216 of 229 in a scene
+## Views: 219 of 229 in a scene
 
 | View | Scenes |
 |---|---|
@@ -135,10 +135,10 @@ popover and alert, every notice and every case of the state enums the views swit
 | `DSWizardFooter` | `onboarding-fresh` |
 | `DeleteGameSheet` | `deleteGame`, `desktop-deleteGameIOS` |
 | `DiagnosticsButton` | `settingsTools` |
-| `EngineDropdownPanel` | Reason: Not used by the launcher: no view creates it, only tests host it. |
-| `EngineExperimentalBadge` | Reason: Not used by the launcher: no view creates it, only tests host it. |
-| `EngineFootnote` | `buildsIdle` |
-| `EngineSwitcherCard` | Reason: Not used by the launcher: no view creates it, only tests host it. |
+| `EngineDropdownPanel` | `desktop-engineDropdown` |
+| `EngineExperimentalBadge` | `buildsIdle`, `desktop-engineDropdown` |
+| `EngineFootnote` | Reason: Not used by the launcher: no view creates it, only tests host it. |
+| `EngineSwitcherCard` | `buildsIdle`, `desktop-mngRecommend`, `desktop-mngRecommendInstalled` |
 | `EngineSyncBanner` | `libraryNoticeError`, `settingsEngineError` |
 | `ExportSteps` | `desktop-completionExported`, `desktop-sendSent` |
 | `FailureTitleRow` | `buildFailure-severalGames` |
@@ -158,7 +158,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `LauncherActionButton` | `libraryGames` |
 | `LauncherBrandMark` | `wizardInstall` |
 | `LauncherConfirmSheet` | `removeGame` |
-| `LauncherCustomDropdownBox` | Reason: Not used by the launcher: no view creates it, only tests host it. |
+| `LauncherCustomDropdownBox` | `desktop-engineDropdown` |
 | `LauncherDropdown` | `settingsTools`, `settings` |
 | `LauncherDropdownLayer` | `libraryGames` |
 | `LauncherDropdownList` | `desktop-dropdownList`, `desktop-mngDropdownDisabled`, `desktop-mngDownloadOffered` |
@@ -187,7 +187,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `LibraryGameCard` | `libraryGames`, `cardStates` |
 | `LibraryProfileChip` | `desktop-heroUnverified` |
 | `LogCard` | `desktop-logOpen` |
-| `MacNativeGamesNotice` | `desktop-mngRecommend`, `desktop-mngRecommendInstalled` |
+| `MacNativeGamesNotice` | Reason: Not used by the launcher: no view creates it, only tests host it. |
 | `ManageButtonLabel` | Reason: Not used by the launcher: no view creates it, only tests host it. |
 | `ManageMenuPanel` | `desktop-manageMenu`, `desktop-manageMenuPad` |
 | `MissingImgGuideSheet` | `imgGuide` |
@@ -238,7 +238,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `UpdateSheet` | `appUpdate` |
 | `UpstreamBuilderRow` | `desktop-mngUpdateAvailable`, `desktop-mngBlocked`, `desktop-mngDownloadingSettings` |
 | `UpstreamPicker` | `nxkitEngine`, `desktop-mngBlocked` |
-| `UpstreamVersionPill` | Reason: Not used by the launcher: no view creates it, only tests host it. |
+| `UpstreamVersionPill` | `buildsIdle`, `desktop-engineDropdown` |
 
 ## Presentations: 30 of 36 in a scene
 
@@ -250,7 +250,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `BuildPage.swift .sheet LauncherConfirmSheet` | `confirmCancelDraft` |
 | `BuildPage.swift .sheet LauncherConfirmSheet 2` | `confirmCancelQueue` |
 | `Controls.swift .sheet LauncherConfirmSheet` | `controlsDiscard` |
-| `EngineSwitcherCard.swift .popover EngineDropdownPanel` | Reason: Not used by the launcher: no view creates it, only tests host it. |
+| `EngineSwitcherCard.swift .popover EngineDropdownPanel` | Reason: A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it. |
 | `ExportSteps.swift .sheet SendSelectedSheet` | `desktop-sendSelectedDrive` |
 | `FreeSpace.swift .sheet LauncherConfirmSheet` | `freeSpaceConfirm` |
 | `GameSavesSection.swift .sheet SaveImportSheet` | `saveImport` |
@@ -281,11 +281,11 @@ popover and alert, every notice and every case of the state enums the views swit
 | `ToolsCard.swift .sheet DSSheet` | `invalidXcode` |
 | `ToolsCard.swift .sheet LauncherConfirmSheet` | `confirmEngineChannel` |
 
-## Notices: 10 of 10 in a scene
+## Notices: 9 of 10 in a scene
 
 | Notice | Scenes |
 |---|---|
-| `build.mngRecommend` | `desktop-mngRecommend`, `desktop-mngRecommendInstalled` |
+| `build.mngRecommend` | Reason: Not used by the launcher: no view creates it, only tests host it. |
 | `build.setup` | `buildsSetupHint` |
 | `engine.failure` | `libraryNoticeError`, `settingsEngineError` |
 | `engine.syncing` | `libraryEngineSyncing` |
@@ -571,7 +571,7 @@ popover and alert, every notice and every case of the state enums the views swit
 
 ## Reasons
 
-- Not used by the launcher: no view creates it, only tests host it. `EngineSwitcherCard`, `EngineDropdownPanel`, `EngineExperimentalBadge`, `UpstreamVersionPill`, `LauncherCustomDropdownBox`, `BuildFooterReveal`, `ConsoleChoiceRow`, `ManageButtonLabel`, `EngineSwitcherCard.swift .popover EngineDropdownPanel`
-- A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it. `OnboardingKeysContent.swift .popover VStack`, `LibraryArtworkState.swift .popover Text`, `LauncherInfoHelp.swift .popover VStack`, `LauncherDropdown.swift .popover LauncherDropdownList`, `LauncherView.swift .alert Text`, `Popped`
+- Not used by the launcher: no view creates it, only tests host it. `EngineFootnote`, `MacNativeGamesNotice`, `build.mngRecommend`, `BuildFooterReveal`, `ConsoleChoiceRow`, `ManageButtonLabel`
+- A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it. `OnboardingKeysContent.swift .popover VStack`, `LibraryArtworkState.swift .popover Text`, `LauncherInfoHelp.swift .popover VStack`, `LauncherDropdown.swift .popover LauncherDropdownList`, `EngineSwitcherCard.swift .popover EngineDropdownPanel`, `LauncherView.swift .alert Text`, `Popped`
 - A context menu: macOS draws its items as a menu. `LibraryCardContextMenuContent`
 - The app's roots: they choose the onboarding, the launcher or the console demo, whose scenes show what they draw. `RootView`, `ConsoleInLanguage`, `ConsoleDemoView`

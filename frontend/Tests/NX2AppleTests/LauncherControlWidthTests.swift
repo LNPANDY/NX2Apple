@@ -158,7 +158,7 @@ import NXModel
                 s.deviceStore.signingTeam = team.id
             },
             // The single-game FilesCard is hidden while a queue is staged, leaving the engine switcher and InstallCard row controls.
-            Scenario(name: "builds with a waiting queue for an iPhone", page: .builds, atLeast: 1) { s, _, directory in   // the install mode: the engine is a footnote here (#1458)
+            Scenario(name: "builds with a waiting queue for an iPhone", page: .builds, atLeast: 2) { s, _, directory in   // the top engine switcher and the install mode
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "ios"
                 MainActor.assumeIsolated { s.deviceStore.checked = true }
@@ -250,7 +250,7 @@ import NXModel
         host.layoutSubtreeIfNeeded()
         if scenario.page == .builds {
             let ids = Set(focus.frames["main", default: []].map(\.id))
-            XCTAssertTrue(ids.contains("set.build.engine.change"), "\(scenario.name): missing the way to the engine in Settings")
+            XCTAssertTrue(ids.contains("set.build.engine"), "\(scenario.name): missing the top Build engine switcher control")
             if modelStores.queue.hasWaiting {
                 XCTAssertTrue(ids.contains("set.build.queue.select"), "\(scenario.name): missing batch queue selector")
                 if modelStores.queue.hasIOS {

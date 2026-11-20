@@ -172,6 +172,10 @@ private struct OfflineUpstreamTransport: EngineTransport {
         XCTAssertNil(pad.frame(of: "set.build.engine.macnativegames"), "Disabled MacNativeGames row must not register active padTarget")
         XCTAssertTrue(PadKeyboardInput.handle(125, focus: pad, back: dropdowns.close))
         XCTAssertEqual(pad.focused, "set.build.engine.download.s2arm", "Down arrow must skip disabled MacNativeGames row")
+        if build.nxkitSelectable {
+            XCTAssertTrue(PadKeyboardInput.handle(125, focus: pad, back: dropdowns.close))
+            XCTAssertEqual(pad.focused, "set.build.engine.nxkit")
+        }
         XCTAssertTrue(PadKeyboardInput.handle(125, focus: pad, back: dropdowns.close))
         XCTAssertEqual(pad.focused, "set.build.engine.nxnative")
         dropdowns.close()
@@ -232,5 +236,95 @@ private struct OfflineUpstreamTransport: EngineTransport {
         libGame.appPath = mngApp.path
         XCTAssertTrue(LibraryArtworkState(libGame).isMacNativeGames)
         XCTAssertFalse(LibraryArtworkState(LibraryGame(titleID: "0100000000010000", name: "Odyssey")).isMacNativeGames)
+    }
+
+    func testEngineDropdownIncludesNxkitWhenSelectableAndBuildPageUsesTopSwitcher() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("upstream-nxkit-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let oldNxkit = NxkitBuilder.featureEnabled
+        NxkitBuilder.featureEnabled = true
+        defer { NxkitBuilder.featureEnabled = oldNxkit }
+
+        let pair = root.appendingPathComponent("nxbuild", isDirectory: true)
+        try FileManager.default.createDirectory(at: pair, withIntermediateDirectories: true)
+        for name in ["nxb", "nxkit-host"] {
+            FileManager.default.createFile(
+                atPath: pair.appendingPathComponent(name).path,
+                contents: Data("#!/bin/sh\nexit 1\n".utf8),
+                attributes: [.posixPermissions: 0o755]
+            )
+        }
+        try Data(#"{"format":1,"version":"0.10.3","platform":"macos","arch":"arm64","macos_min":"26.0","files":{"nxb":"a","nxkit-host":"b"}}"#.utf8)
+            .write(to: pair.appendingPathComponent("MANIFEST.json"))
+
+        let stores = LauncherStores(defaults: testDefaults), pad = PadFocus(), dropdowns = LauncherDropdownState()
+        let build = stores.build
+        build.upstreamTransport = OfflineUpstreamTransport()
+        build.upstreamChanged = {}
+        build.nxkitBundledFolder = pair.path
+        build.nxkitVersions = NxkitVersionStore(root: root.appendingPathComponent("nxkit-versions", isDirectory: true))
+        build.nxkitAvailability = .available
+        build.nxkitAutoUpdate = { false }
+        build.refreshNxkit()
+
+        XCTAssertTrue(build.nxkitSelectable)
+        XCTAssertEqual(build.upstreamVersionBadge(.nxkit), "0.10.3")
+
+        let totkFile = root.appendingPathComponent("TOTK [0100F2C0115B6000].nsp")
+        try Data([0]).write(to: totkFile)
+        build.target = BuildTarget.ios
+        build.buildUpstream = .nxnative
+        build.updateSlot("base") { $0.paths = [totkFile.path] }
+
+        let marker = root.appendingPathComponent(EngineLayout.marker)
+        try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: marker)
+        stores.repo.path = root.path
+        let library = GameLibrary(file: root.appendingPathComponent("library.json"))
+        let window = OffscreenWindow(size: .init(width: 1100, height: 1400))
+        defer { window.contentView = nil; window.orderOut(nil); window.close() }
+        let host = NSHostingView(rootView: LauncherView(
+            stores: stores,
+            library: library,
+            initialPage: .builds,
+            performStartupChecks: false,
+            controls: ControlLayout(defaults: testDefaults),
+            gamepad: LauncherGamepad(steam: nil, observeSystem: false),
+            padFocus: pad,
+            dropdowns: dropdowns
+        ).defaultAppStorage(testDefaults))
+        window.contentView = host
+        window.orderFront(nil)
+        func waitUntil(timeout: TimeInterval = 3.0, _ condition: () -> Bool) -> Bool {
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline {
+                host.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                if condition() { return true }
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            return condition()
+        }
+        XCTAssertTrue(waitUntil { Set(pad.frames["main", default: []].map(\.id)).contains("set.build.engine") },
+                      "Builds page must show top EngineSwitcherCard")
+
+        let mainIDs = Set(pad.frames["main", default: []].map(\.id))
+        XCTAssertFalse(mainIDs.contains("set.build.engine.change"), "Builds page must not show duplicate EngineFootnote")
+        XCTAssertEqual(pad.frames["main", default: []].filter { $0.id == "set.build.mngRecommend" }.count, 1,
+                       "Only the EngineSwitcherCard MNG recommendation bar should be registered")
+
+        pad.show(default: "set.build.engine")
+        pad.activate()
+        XCTAssertTrue(waitUntil { pad.scope == "engineDropdown" && pad.frame(of: "set.build.engine.nxkit") != nil },
+                      "Engine dropdown must list nxkit (Beta) when selectable")
+
+        pad.focused = "set.build.engine.nxkit"
+        pad.activate()
+        XCTAssertTrue(waitUntil { build.buildUpstream == .nxkit && build.target == BuildTarget.mac },
+                      "Selecting nxkit from the dropdown must switch upstream and target Mac")
     }
 }

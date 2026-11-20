@@ -58,7 +58,10 @@ enum GalleryCoverage {
         "BuildActivityFooter": [.buildsRunning, .desktop(D.footerExporting)], "BuildProgressRevealMask": [.buildsRunning, .motion(.iconReveal)],
         "BuildCompletionTimerStroke": [.desktop(D.buildJustFinished), .motion(.buildFinishing)], "LauncherWordmark": [.onboarding(.fresh)],
         // the build page
-        "BuildPage": [.buildsIdle, .gamePage], "LauncherPageScroll": [.buildsIdle], "EngineFootnote": [.buildsIdle],
+        "BuildPage": [.buildsIdle, .gamePage], "LauncherPageScroll": [.buildsIdle],
+        "EngineSwitcherCard": [.buildsIdle, .desktop(D.mngRecommend), .desktop(D.mngRecommendInstalled)],
+        "EngineDropdownPanel": [.desktop(D.engineDropdown)], "LauncherCustomDropdownBox": [.desktop(D.engineDropdown)],
+        "EngineExperimentalBadge": [.buildsIdle, .desktop(D.engineDropdown)], "UpstreamVersionPill": [.buildsIdle, .desktop(D.engineDropdown)],
         "FilesCard": [.addGameFound, .addGamePartial], "FileRow": [.addGameFound], "FileRowDivider": [.addGameFound],
         "LauncherInfoHelp": [.addGameFound], "ActionCard": [.addGameFound], "TargetCard": [.gamePage, .wizardPlatform],
         "InstallCard": [.wizardInstall], "RefreshDevicesButton": [.wizardInstall], "LauncherBrandMark": [.wizardInstall],
@@ -82,7 +85,7 @@ enum GalleryCoverage {
         "KeysCard": [.settingsTools], "ToolsCard": [.settingsTools], "ShellCacheRow": [.settingsTools], "DiagnosticsButton": [.settingsTools],
         "BuildFilesCard": [.settingsTools], "DSOverflowMenu": [.settingsTools], "LauncherDropdown": [.settingsTools, .settings],
         "UpstreamPicker": [.nxkitEngine, .desktop(D.mngBlocked)], "UpstreamBuilderRow": [.desktop(D.mngUpdateAvailable), .desktop(D.mngBlocked), .desktop(D.mngDownloadingSettings)],
-        "MacNativeGamesNotice": [.desktop(D.mngRecommend), .desktop(D.mngRecommendInstalled)], "DSRowMessageView": [.nxkitUnavailable, .desktop(D.nxkitUnreachable)],
+        "DSRowMessageView": [.nxkitUnavailable, .desktop(D.nxkitUnreachable)],
         "LauncherDropdownList": [.desktop(D.dropdownList), .desktop(D.mngDropdownDisabled), .desktop(D.mngDownloadOffered)], "Hosted": [.settings, .settingsTools],
         // sheets and dialogs
         "LauncherConfirmSheet": [.sheet(.removeGame)], "DSSheet": [.sheet(.removeGame), .sheet(.rename)], "DSSheetConfirmButtons": [.sheet(.removeGame)],
@@ -173,7 +176,7 @@ enum GalleryCoverage {
         "engine.failure": [.libraryNoticeError, .settingsEngineError], "engine.syncing": [.libraryEngineSyncing],
         "library.skippedBanner": [.libraryNoticeWarning], "hero.signature": [.desktop(D.heroSignature)], "hero.refresh": [.libraryEngineUpdate],
         "hero.switch2": [.librarySwitch2], "hero.gatekeeper": [.libraryGatekeeper], "hero.resign": [.desktop(D.heroResign)],
-        "build.setup": [.buildsSetupHint], "build.mngRecommend": [.desktop(D.mngRecommend), .desktop(D.mngRecommendInstalled)],
+        "build.setup": [.buildsSetupHint],
     ]
 
     /// Every case of `stateEnums`, as "<enum>.<case>", and the scenes that show it.
@@ -281,11 +284,12 @@ enum GalleryCoverage {
     /// What no scene shows, and why: kept short. Each reason names the items it covers.
     static let reasons: [(reason: String, items: [String])] = [
         ("Not used by the launcher: no view creates it, only tests host it.",
-         ["EngineSwitcherCard", "EngineDropdownPanel", "EngineExperimentalBadge", "UpstreamVersionPill", "LauncherCustomDropdownBox", "BuildFooterReveal", "ConsoleChoiceRow",
-          "ManageButtonLabel", "EngineSwitcherCard.swift .popover EngineDropdownPanel"]),
+         ["EngineFootnote", "MacNativeGamesNotice", "build.mngRecommend", "BuildFooterReveal", "ConsoleChoiceRow",
+          "ManageButtonLabel"]),
         ("A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it.",
          ["OnboardingKeysContent.swift .popover VStack", "LibraryArtworkState.swift .popover Text", "LauncherInfoHelp.swift .popover VStack",
-          "LauncherDropdown.swift .popover LauncherDropdownList", "LauncherView.swift .alert Text", "Popped"]),
+          "LauncherDropdown.swift .popover LauncherDropdownList", "EngineSwitcherCard.swift .popover EngineDropdownPanel",
+          "LauncherView.swift .alert Text", "Popped"]),
         ("A context menu: macOS draws its items as a menu.", ["LibraryCardContextMenuContent"]),
         ("The app's roots: they choose the onboarding, the launcher or the console demo, whose scenes show what they draw.",
          ["RootView", "ConsoleInLanguage", "ConsoleDemoView"]),
