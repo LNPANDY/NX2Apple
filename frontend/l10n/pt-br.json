@@ -2326,7 +2326,7 @@
   "shell.frameworkStep2Title": "Adicione ao app",
   "shell.frameworkTeamNoCert": "Esta equipe ainda não tem certificado local, então será exportado um framework sem assinatura. Se o NX2Apple foi instalado por sideload, importe o certificado .p12 nos ajustes do NX2Apple antes de colocar o .framework em Frameworks.",
   "shell.frameworkTeamNote": "Assina com o identificador compartilhado desta equipe para o framework rodar diretamente em Documents/Frameworks do NX2Apple instalado com a mesma equipe.",
-  "shell.frameworkTeamUnsigned": "Não assinar (sideload / assinar no dispositivo)",
+  "shell.frameworkTeamUnsigned": "Sem assinatura",
   "shell.frameworkUnsignedNote": "Exporta um framework sem assinatura. Se o NX2Apple no dispositivo foi instalado com SideStore ou AltStore, importe primeiro o certificado .p12 nos ajustes do NX2Apple e depois coloque o .framework na pasta Frameworks para o app assinar no dispositivo.",
   "shell.gameLeftOut": "%1$@ ficou de fora do app compartilhado porque os arquivos dele estão incompletos (falta %2$@). Refaça o build desse jogo para adicioná-lo de volta.",
   "shell.installBuilt": "Instalar compilados (%d)",

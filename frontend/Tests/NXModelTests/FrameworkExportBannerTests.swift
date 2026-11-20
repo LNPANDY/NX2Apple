@@ -203,15 +203,87 @@ final class FrameworkExportBannerTests: XCTestCase {
             BuildStore.resolveFrameworkHostBundleID(team: team, shellRoot: otherShell.path),
             ShellLibrary.teamVariant(team: team)
         )
+
+        // Case 4: whitespace around saved.team is trimmed before matching.
+        let paddedShell = temporary.appendingPathComponent("shell-padded")
+        try ShellLibrary(bundleID: "com.padded.shell", team: "  \(team) \n").save(root: paddedShell.path)
+        XCTAssertEqual(
+            BuildStore.resolveFrameworkHostBundleID(team: team, shellRoot: paddedShell.path),
+            "com.padded.shell"
+        )
+    }
+
+    @MainActor func testEffectiveFrameworkSigningTeamMatchesExportAndHandlesStaleAndCheckedStates() throws {
+        let defaults = TestDefaults.make("nxmodel-fw-effective")
+
+        let team = "MG2FF22535"
+        let runner = RecordingSigningRunner(teamID: team)
+        let devices = DeviceStore(runner: runner, defaults: defaults, listDevices: { _ in [] }, readTeams: { [] })
+
+        // 1. Before listing finishes (checked == false, teams empty), retain saved signingTeam.
+        devices.checked = false
+        devices.teams = []
+        devices.signingTeam = "SAVED12345"
+        devices.exportFrameworkUnsigned = false
+        XCTAssertEqual(devices.effectiveFrameworkSigningTeam, "SAVED12345")
+
+        // 2. Once listing finishes with no local teams (checked == true, teams empty), resolve to unsigned "".
+        devices.checked = true
+        XCTAssertEqual(devices.effectiveFrameworkSigningTeam, "")
+
+        // 3. Stale signingTeam not in discovered teams falls back to first certified local team (matching UI).
+        devices.teams = [
+            SigningTeam(id: "NOCERT1234", identity: "", name: "No Cert"),
+            SigningTeam(id: team, identity: runner.identity, name: "Personal", personal: true, sha1: runner.sha1),
+        ]
+        XCTAssertEqual(devices.effectiveFrameworkSigningTeam, team)
+
+        // Verify exportFrameworkBundle uses the same resolved local team instead of failing on stale signingTeam.
+        let shellRoot = temporary.appendingPathComponent("shell-stale")
+        defaults.set(shellRoot.path, forKey: "shellRoot")
+        final class StubRepo: RepoLocation { var path = ""; var isRepo = true; var isGit = true }
+        final class StubDeps: DependencyInstalling {
+            var pythonPath = "/usr/bin/python3"; var dotnetPath = "/usr/bin/true"
+            var checked = true; var allPresent = true; var deps: [Dep] = []
+            func isInstalling(_ id: String) -> Bool { false }
+            func install(_ dep: Dep) -> Task<Void, Never> { Task {} }
+        }
+        final class StubEngine: EngineSyncing {
+            func syncEngine(then: ((Bool) -> Void)?) -> Task<Void, Never> { then?(true); return Task {} }
+        }
+        let build = BuildStore(
+            localizer: Localizer(.en),
+            runner: runner,
+            repo: StubRepo(),
+            deps: StubDeps(),
+            engine: StubEngine(),
+            devices: devices,
+            defaults: defaults
+        )
+        build.outDir = temporary.appendingPathComponent("exported-stale").path
+        let tid = "01007EF00011E000"
+        let fw = try makeDummyFramework(in: temporary.appendingPathComponent("work-stale"), titleID: tid)
+        let finished = expectation(description: "StaleTeamFallbackExport")
+        let token = build.$done.filter { $0 }.prefix(1).sink { _ in finished.fulfill() }
+        build.exportFrameworkBundle(framework: fw.path, titleID: tid, name: "Zelda")
+        wait(for: [finished], timeout: 10)
+        withExtendedLifetime(token) {}
+
+        let dest = temporary.appendingPathComponent("exported-stale/DmGame\(tid).framework").path
+        XCTAssertEqual(build.doneNote, String(format: build.t("shell.frameworkExportDoneSigned"), team, dest))
+        let signCmd = try XCTUnwrap(runner.commands.first { $0.first == "/usr/bin/codesign" })
+        let idIdx = try XCTUnwrap(signCmd.firstIndex(of: "--identifier"), "codesign must pass --identifier: \(signCmd)")
+        XCTAssertEqual(signCmd[idIdx + 1], "org.nxnative.shell.\(team)")
+
+        // 4. Explicit unsigned choice always resolves to "".
+        devices.exportFrameworkUnsigned = true
+        XCTAssertEqual(devices.effectiveFrameworkSigningTeam, "")
     }
 
     @MainActor func testExportFrameworkBundleFallsBackToCertifiedTeamAndDistinguishesSignedNote() throws {
         let tid = "0100535012974000"
         let team = "MG2FF22535"
-        let suite = "nxmodel.fw.export.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make("nxmodel-fw-export")
 
         let shellRoot = temporary.appendingPathComponent("shell-root")
         defaults.set(shellRoot.path, forKey: "shellRoot")
@@ -259,10 +331,7 @@ final class FrameworkExportBannerTests: XCTestCase {
     @MainActor func testExportFrameworkBundleRespectsExplicitUnsignedChoiceAndStripsSignature() throws {
         let tid = "01007EF00011E000"
         let team = "MG2FF22535"
-        let suite = "nxmodel.fw.unsigned.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make("nxmodel-fw-unsigned")
 
         let shellRoot = temporary.appendingPathComponent("shell-root")
         defaults.set(shellRoot.path, forKey: "shellRoot")

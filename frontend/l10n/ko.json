@@ -2326,7 +2326,7 @@
   "shell.frameworkStep2Title": "앱에 추가",
   "shell.frameworkTeamNoCert": "이 팀에는 아직 로컬 인증서가 없어 서명되지 않은 프레임워크를 내보냅니다. 사이드로드된 NX2Apple을 사용하는 경우 .framework를 Frameworks에 넣기 전에 기기 NX2Apple 설정에서 .p12 인증서를 가져오세요.",
   "shell.frameworkTeamNote": "이 팀의 공용 앱 식별자로 서명하여 같은 팀으로 설치된 NX2Apple의 Documents/Frameworks에서 바로 실행할 수 있게 합니다.",
-  "shell.frameworkTeamUnsigned": "서명 안 함 (사이드로드 / 기기에서 서명)",
+  "shell.frameworkTeamUnsigned": "서명 안 함 (사이드로드)",
   "shell.frameworkUnsignedNote": "서명되지 않은 프레임워크를 내보냅니다. 기기의 NX2Apple을 SideStore 또는 AltStore로 사이드로드했다면 먼저 기기 NX2Apple 설정에서 .p12 인증서를 가져온 뒤 .framework를 Frameworks 폴더에 넣으세요. 기기에서 자동으로 서명됩니다.",
   "shell.gameLeftOut": "%1$@은(는) 파일이 불완전해(%2$@ 없음) 공유 앱에서 제외되었습니다. 다시 추가하려면 그 게임을 다시 빌드하세요.",
   "shell.installBuilt": "빌드된 게임 설치 (%d)",

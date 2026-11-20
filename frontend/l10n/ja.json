@@ -2325,7 +2325,7 @@
   "shell.frameworkStep2Title": "アプリに追加",
   "shell.frameworkTeamNoCert": "このチームにはローカル証明書がないため、未署名のフレームワークを書き出します。サイドロード版 NX2Apple を使用する場合は、端末側 NX2Apple の設定で .p12 証明書を読み込んでから Frameworks に入れてください。",
   "shell.frameworkTeamNote": "このチームの共有アプリ識別子で署名し、同じチームでインストールした NX2Apple の Documents/Frameworks にそのまま配置して実行できます。",
-  "shell.frameworkTeamUnsigned": "署名しない（サイドロード / 端末側で署名）",
+  "shell.frameworkTeamUnsigned": "署名しない",
   "shell.frameworkUnsignedNote": "未署名のフレームワークを書き出します。端末の NX2Apple を SideStore や AltStore などでサイドロードした場合は、先に端末側 NX2Apple の設定で .p12 証明書を読み込んでから .framework を Frameworks フォルダに入れてください。端末側で自動的に署名されます。",
   "shell.gameLeftOut": "%1$@ はファイルが不完全なため（%2$@ がありません）、共有アプリから外されました。もう一度追加するには、そのゲームを再ビルドしてください。",
   "shell.installBuilt": "アプリをインストール (%d)",

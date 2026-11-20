@@ -76,13 +76,13 @@ package struct InstallCard: View {
                     }.padding(18)
                     if !devices.exportOneGame && devices.exportFramework {
                         CardDivider()
-                        let frameworkTeamOptions = [(value: "", label: loc.t("shell.frameworkTeamUnsigned"))] + teams
-                        let selectedFrameworkTeam: String = {
-                            if devices.exportFrameworkUnsigned || teams.isEmpty { return "" }
-                            if !devices.signingTeam.isEmpty && devices.teams.contains(where: { $0.id == devices.signingTeam }) {
-                                return devices.signingTeam
+                        let selectedFrameworkTeam = devices.effectiveFrameworkSigningTeam
+                        let frameworkTeamOptions: [(value: String, label: String)] = {
+                            var opts = [(value: "", label: loc.t("shell.frameworkTeamUnsigned"))] + teams
+                            if !selectedFrameworkTeam.isEmpty && !opts.contains(where: { $0.value == selectedFrameworkTeam }) {
+                                opts.append((value: selectedFrameworkTeam, label: selectedFrameworkTeam))
                             }
-                            return devices.teams.first { $0.hasCertificate }?.id ?? devices.teams.first?.id ?? ""
+                            return opts
                         }()
                         let selectedNeedsCert = !selectedFrameworkTeam.isEmpty
                             && (devices.teams.first { $0.id == selectedFrameworkTeam }.map { !$0.hasCertificate } ?? false)

@@ -36,6 +36,19 @@ import NXModel
         }
     }
 
+    func testFrameworkTeamUnsignedChoiceFitsEveryLanguage() throws {
+        XCTAssertNotNil(L10n.table["shell.frameworkTeamUnsigned"])
+        for lang in Lang.all {
+            let text = L10n.string("shell.frameworkTeamUnsigned", lang)
+            let measured = try width(text, size: 13)
+            XCTAssertLessThanOrEqual(
+                measured,
+                LauncherControl.choiceWidth,
+                "\(lang.code) shell.frameworkTeamUnsigned (\(text)) needs \(measured) pt > \(LauncherControl.choiceWidth) pt"
+            )
+        }
+    }
+
     /// Platform filters size equally to the longest localized label without shrinking.
     func testLibraryFilterLabelsFitTheirSegment() throws {
         for lang in Lang.all {

@@ -2326,7 +2326,7 @@
   "shell.frameworkStep2Title": "添加到应用",
   "shell.frameworkTeamNoCert": "该团队暂无本地证书，将导出未签名框架。若手机端 NX2Apple 为侧载安装，请先在手机端 NX2Apple 的「设置」中导入 .p12 证书，再将 .framework 放入 Frameworks 文件夹。",
   "shell.frameworkTeamNote": "使用该团队证书签名，可直接拷贝到同一团队安装的 NX2Apple 文档目录 Frameworks 文件夹运行。",
-  "shell.frameworkTeamUnsigned": "不签名（侧载 / 手机端签名）",
+  "shell.frameworkTeamUnsigned": "不签名（侧载）",
   "shell.frameworkUnsignedNote": "将导出未签名框架。若手机端 NX2Apple 通过 SideStore 或 AltStore 等侧载工具安装，请先在手机端 NX2Apple 的「设置」中导入侧载导出的 .p12 证书，再将 .framework 放入 Frameworks 文件夹，手机端会自动完成签名。",
   "shell.gameLeftOut": "%1$@ 的文件不完整（缺少 %2$@），已从共用应用中移除。重新构建这个游戏即可将它加回来。",
   "shell.installBuilt": "安装已构建游戏 (%d)",

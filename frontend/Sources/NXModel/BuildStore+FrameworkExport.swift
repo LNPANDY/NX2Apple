@@ -18,15 +18,7 @@ extension BuildStore {
         let tid = (titleID.isEmpty ? ShellInstall.titleID(ofFramework: framework) : titleID)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .uppercased()
-        let explicitTeam = devices.signingTeam.trimmingCharacters(in: .whitespacesAndNewlines)
-        let team: String
-        if devices.exportFrameworkUnsigned {
-            team = ""
-        } else {
-            team = explicitTeam.isEmpty
-                ? (devices.teams.first(where: { $0.hasCertificate })?.id ?? "")
-                : explicitTeam
-        }
+        let team = devices.effectiveFrameworkSigningTeam
         let shellRoot = self.shellRoot
         let runner = self.runner
         let picked = pickedArtworkForTitleID(tid)
@@ -85,8 +77,9 @@ extension BuildStore {
         guard !trimmedTeam.isEmpty else { return "" }
         if !shellRoot.isEmpty, fm.fileExists(atPath: ShellLibrary.stateFile(root: shellRoot)) {
             let saved = ShellLibrary.load(root: shellRoot)
+            let savedTeam = saved.team.trimmingCharacters(in: .whitespacesAndNewlines)
             let savedBundle = saved.bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
-            if saved.team == trimmedTeam, !savedBundle.isEmpty {
+            if savedTeam == trimmedTeam, !savedBundle.isEmpty {
                 return savedBundle
             }
         }

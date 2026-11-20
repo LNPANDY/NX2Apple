@@ -2326,7 +2326,7 @@
   "shell.frameworkStep2Title": "Lägg till det i appen",
   "shell.frameworkTeamNoCert": "Det här teamet saknar lokalt certifikat så ett osignerat ramverk exporteras. För en sidladdad NX2Apple-app importerar du ditt .p12-certifikat i NX2Apple-inställningarna innan du lägger .framework i Frameworks.",
   "shell.frameworkTeamNote": "Signerar med teamets delade app-ID så att ramverket kan köras direkt i Documents/Frameworks i NX2Apple installerad under samma team.",
-  "shell.frameworkTeamUnsigned": "Signera inte (sidladdning / signera på enheten)",
+  "shell.frameworkTeamUnsigned": "Osignerat",
   "shell.frameworkUnsignedNote": "Exporterar ett osignerat ramverk. Om NX2Apple på din enhet installerades med SideStore eller AltStore importerar du först .p12-certifikatet i NX2Apple-inställningarna och lägger sedan .framework i mappen Frameworks så signerar appen det på enheten.",
   "shell.gameLeftOut": "%1$@ togs inte med i den gemensamma appen eftersom dess filer är ofullständiga (%2$@ saknas). Bygg spelet igen för att lägga till det.",
   "shell.installBuilt": "Installera byggda (%d)",

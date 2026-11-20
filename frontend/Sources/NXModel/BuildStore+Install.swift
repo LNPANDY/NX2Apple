@@ -12,6 +12,8 @@ import NXCore
     var devices: [AppleDevice] { get }
     /// The signing teams the last listing found.
     var teams: [SigningTeam] { get }
+    /// Whether the device/team listing has run at least once.
+    var checked: Bool { get }
     var signingTeam: String { get }
     /// The build exports the shared app as an IPA instead of installing it.
     var exportIPA: Bool { get }
@@ -40,8 +42,22 @@ import NXCore
 
 extension InstallTarget {
     package var teams: [SigningTeam] { [] }
+    package var checked: Bool { false }
     package var exportFramework: Bool { false }
     package var exportFrameworkUnsigned: Bool { false }
+    /// Single source of truth for the team used by standalone `.framework` export and displayed in `InstallCard`.
+    /// Empty means export unsigned.
+    package var effectiveFrameworkSigningTeam: String {
+        if exportFrameworkUnsigned { return "" }
+        let explicit = signingTeam.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !teams.isEmpty {
+            if !explicit.isEmpty, teams.contains(where: { $0.id == explicit }) {
+                return explicit
+            }
+            return teams.first(where: { $0.hasCertificate })?.id ?? teams.first?.id ?? ""
+        }
+        return checked ? "" : explicit
+    }
     package var usbSpeedLookup: @Sendable (String) -> Int64? { { _ in nil } }
     nonisolated package var currentPostBuildTransferMode: PostBuildTransferMode { .defaultMode }
     nonisolated package func askCopy(_ plan: ShellCopyPlan, isCancelled: @escaping @Sendable () -> Bool) -> ShellCopyDecision {
