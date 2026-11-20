@@ -24,12 +24,12 @@ Issue: LNPANDY/NX2Apple#451
  create mode 100644 dm/host/host_image.h
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index b26fb53..0cec3d9 100644
+index aa398f8..30074e8 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
-@@ -25,8 +25,7 @@
- #import <Metal/Metal.h>
+@@ -26,8 +26,7 @@
  #include <CommonCrypto/CommonDigest.h>
+ #include <TargetConditionals.h>
  #include <mach/mach.h>
 -#include <mach-o/getsect.h>
 -#include <mach-o/ldsyms.h>
@@ -37,7 +37,7 @@ index b26fb53..0cec3d9 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -2746,7 +2745,7 @@ static void renderprogs_job(void) {
+@@ -3318,7 +3317,7 @@ static void renderprogs_job(void) {
  // glVertexAttribPointerNV takes other arguments than glVertexAttribPointer, glGetProgramivARB asks about an ARB assembly program
  static void *gl_entry(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
@@ -70,10 +70,10 @@ index d78cd34..42da3e5 100644
      for (unsigned i = 0; i < NVN_NFUNC; i++) nvn_slot[i].fn = (void *)nvn_unimpl_entry;
      for (unsigned k = 0; k < nim; k++) {
 diff --git a/dm/gfx/tests/t_gl_imports.m b/dm/gfx/tests/t_gl_imports.m
-index e0944e4..b65c561 100644
+index 3b72101..f81d52f 100644
 --- a/dm/gfx/tests/t_gl_imports.m
 +++ b/dm/gfx/tests/t_gl_imports.m
-@@ -817,7 +817,7 @@ int main(int argc, char **argv) {
+@@ -1042,7 +1042,7 @@ int main(int argc, char **argv) {
      if (fixture) test_argument_buffers(fixture);
  
      unsigned long sz;
@@ -96,10 +96,10 @@ index 17521a0..47820d2 100644
      *count = bytes / size; return p;
  }
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 8810721..a360193 100644
+index 0c066d9..d78e154 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
-@@ -22,8 +22,7 @@
+@@ -24,8 +24,7 @@
  #import <Metal/Metal.h>
  #include <CommonCrypto/CommonDigest.h>
  #include <CoreFoundation/CoreFoundation.h>
@@ -109,7 +109,7 @@ index 8810721..a360193 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -1885,7 +1884,7 @@ static void frame_end(void) {
+@@ -2926,7 +2925,7 @@ static void frame_end(void) {
  static void *vk_lookup(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
      if (!name || strncmp(name, "vk", 2)) return NULL;
@@ -200,7 +200,7 @@ index 0000000..9dde850
 +extern const struct mach_header_64 __dso_handle;
 +#define DM_HOST_IMAGE (&__dso_handle)
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 19ed028..f241663 100644
+index ec5e0bb..eb50d6c 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -8,9 +8,8 @@
@@ -214,16 +214,16 @@ index 19ed028..f241663 100644
  #if TARGET_OS_IPHONE
  #include <mach/mach.h>
  #endif
-@@ -214,7 +213,7 @@ static uint64_t resolve_sym(module_t *m, const char *name) {
- static const hle_force_ent *g_force; static unsigned g_nforce; static unsigned *g_force_hits;
+@@ -242,7 +241,7 @@ static const hle_force_ent *g_force; static unsigned g_nforce; static unsigned *
  static unsigned *g_fidx, g_fmask;   // name hash over the table: force_lookup runs for every named relocation, and each lookup used to strcmp its way through all 722 entries (the swhle table's scan is hashed the same way, hle.c)
+ static const unsigned k_force_disabled = UINT_MAX;
  static void force_init(void) {
 -    unsigned long sz; g_force = (const hle_force_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swforce", &sz);
 +    unsigned long sz; g_force = (const hle_force_ent *)getsectiondata(DM_HOST_IMAGE, "__DATA", "swforce", &sz);
      g_nforce = g_force ? (unsigned)(sz / sizeof *g_force) : 0;
      g_force_hits = calloc(g_nforce + 1, sizeof *g_force_hits);
      unsigned cap = 16; while (cap < g_nforce * 2) cap <<= 1;
-@@ -760,7 +759,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
+@@ -795,7 +794,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
  }
  // The image the module sections are read from (front.h dm_set_game_image_header). getsectiondata takes any loaded image's header and applies its slide
  #include "front.h"

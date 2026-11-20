@@ -1521,6 +1521,7 @@ def main(argv: list[str] | None = None) -> int:
 _NACP_LANG_CODES = (
     'en-US', 'en-GB', 'ja', 'fr', 'de', 'es-419', 'es', 'it',
     'nl', 'fr-CA', 'pt', 'ru', 'ko', 'zh-Hant', 'zh-Hans', 'pt-BR',
+    'pl', 'th',
 )
 
 

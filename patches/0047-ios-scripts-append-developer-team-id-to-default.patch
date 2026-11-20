@@ -404,7 +404,7 @@ index 604f9ee..f8ec71c 100755
  export DM_LANG=${DM_LANG:-en-US}
  export DM_FORK_PATCHES=$(paste -sd, "$DM/fork_patches.txt" 2>/dev/null || true)   # DMForkPatches in Info.plist (scripts/patches.py writes the list; empty on a build without fork patches)
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index fbe1b92..fffe616 100755
+index b9693df..8574c30 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -57,7 +57,7 @@ TITLE_ID = ''                           # the game to pack when the folder holds
@@ -425,7 +425,7 @@ index fbe1b92..fffe616 100755
  XCODE_WORKSPACE = ''                    # shared .xcworkspace (empty = NxNative.xcworkspace beside the game's NSP folder)
  LANGUAGE = ''                           # game language, a code or a name: 'ja', 'fr', 'de', 'es', 'zh-Hans', 'zh-Hant', 'ko', 'Japanese', ... (empty = English); it must be one the game supports (the console line lists them);
                                          #   DM_LANG=<code> in the app's Documents/env.txt changes it without a rebuild
-@@ -3499,7 +3499,7 @@ def parse_args(argv):
+@@ -3521,7 +3521,7 @@ def parse_args(argv):
      ap.add_argument('-p', '--package', help='version packed into the IPA, e.g. v327680 / v0 (default: the newest in the folder)')
      ap.add_argument('-o', '--out', help='output IPA, or app with --platform mac-app (default: <the profile\'s ipa>, or <game name>.app, in the NSP folder)')
      ap.add_argument('--app-name', help='app name on the home screen (default: the game name in the base NSP)')
@@ -434,16 +434,16 @@ index fbe1b92..fffe616 100755
      ap.add_argument('--romfs', choices=('bundle', 'separate'), help='bundle = the game files go into the IPA (default: the ROMFS setting, bundle); separate = they stay out of the IPA and the Xcode app: the build is small and fast, and the RomFS image '
                      'is copied to the phone once per game version with the scripts/push_romfs.sh command printed at the end (the app refuses an image of another version)')
      ap.add_argument('--shader-files', action=argparse.BooleanOptionalAction, help='an NVN game\'s shader library goes into the IPA as its separate files, not as one file, for install tools that cannot copy '
-@@ -3516,7 +3516,7 @@ def parse_args(argv):
+@@ -3538,7 +3538,7 @@ def parse_args(argv):
      ap.add_argument('--fallback-icon', help='the app icon only when --icon / ICON is not given and the game has none of its own (a dump, a NUP without one), a JPEG or PNG of any size: a game with its own icon '
                      'keeps it, so a front end can pass a stand-in without knowing what the game carries (default: the FALLBACK_ICON setting, else such an app\'s icon is blank)')
      ap.add_argument('--mac-sign', help='--platform mac-app: the codesign identity for the app, e.g. "Developer ID Application: <name> (<team>)" (default: the MAC_SIGN setting, else ad-hoc)')
 -    ap.add_argument('--team-id', help='Apple developer team ID (default: TEAM_ID setting, DM_TEAM_ID environment, or saved Xcode selection)')
 +    ap.add_argument('--team-id', help='Apple developer team ID (default: TEAM_ID setting, DM_TEAM_ID environment, saved Xcode selection, or sole local Apple Development cert when preparing Xcode)')
      ap.add_argument('--xcode-workspace', help='workspace collecting prepared games (default: NxNative.xcworkspace beside the NSP folder; use with --prepare-xcode)')
-     ap.add_argument('-l', '--language', help='game language, a code or a name: ja, fr, de, es, it, nl, pt, ru, ko, zh-Hans, zh-Hant, en-GB, fr-CA, es-419, pt-BR, Japanese, ... (default: the LANGUAGE setting, else English); '
+     ap.add_argument('-l', '--language', help='game language, a code or a name: ja, fr, de, es, it, nl, pt, ru, ko, zh-Hans, zh-Hant, en-GB, fr-CA, es-419, pt-BR, pl, th, Japanese, ... (default: the LANGUAGE setting, else English); '
                      'it must be one the game supports, which the console lists')
-@@ -3551,6 +3551,89 @@ def parse_args(argv):
+@@ -3573,6 +3573,89 @@ def parse_args(argv):
      return ap.parse_args(argv)
  
  
@@ -533,7 +533,7 @@ index fbe1b92..fffe616 100755
  def icon_file(value, option):
      """The image an icon option or setting names, None when it is empty. Checked when the build starts, not after the extraction: build_ipa.sh would only log a missing one"""
      if not value: return None
-@@ -3834,8 +3917,8 @@ def main(args=None):
+@@ -3856,8 +3939,8 @@ def main(args=None):
      # the app name and bundle ID both come from the base NSP: the game name in its control data, and a bundle ID from its title ID; a setting / the command line overrides them
      app_name = args.app_name or APP_NAME or nacp.name(base / 'control.nacp') or (g.get('name') if dump else '')   # a dump has no control data, a NUP may have no NACP
      if not app_name and not (mac and not mac_pack): raise BuildError(f'no game name in the base extraction ({base / "control.nacp"}; an older extraction did not save it: delete extract/ and run again, or give --app-name)')

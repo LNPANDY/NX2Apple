@@ -39,18 +39,18 @@ Issue: LNPANDY/NX2Apple#180
  create mode 100644 dm/third_party/bcdec/bcdec.h
 
 diff --git a/dm/games/010015100B514000/README.md b/dm/games/010015100B514000/README.md
-index ef3b396..f321d8a 100644
+index 98df198..b7f9ac9 100644
 --- a/dm/games/010015100B514000/README.md
 +++ b/dm/games/010015100B514000/README.md
-@@ -104,6 +104,7 @@ Game-specific findings; the general host changes they led to are listed under [F
+@@ -111,6 +111,7 @@ Game-specific findings; the general host changes they led to are listed under [F
  - [The split shader tables differ from a game profile's](../../../docs/reference/packing.md#the-split-shader-tables-differ-from-a-game-profiles).
- - **Its Switch 2 Edition's program:** [A Switch 2 Edition NUP stops at "2 base packages" or "is not a base title ID"](../../../docs/reference/packing.md#a-switch-2-edition-nup-stops-at-2-base-packages-or-is-not-a-base-title-id): the Switch 2 program (`040015100B514001`, no profile) mounts this program's RomFS by program index and the upgrade add-on itself; the NUP packer packs this RomFS beside it.
+ - **Its Switch 2 Edition's program:** [A Switch 2 Edition NUP stops at "2 base packages" or "is not a base title ID"](../../../docs/reference/packing.md#a-switch-2-edition-nup-stops-at-2-base-packages-or-is-not-a-base-title-id): the Switch 2 program ([`040015100B514001`](../040015100B514001/README.md)) mounts this program's RomFS by program index and the upgrade add-on itself; the NUP packer packs this RomFS beside it.
  - **Joy-Cons as dual or single npads:** [Joy-Cons as dual or single npads](../../../docs/reference/services.md#joy-cons-as-dual-or-single-npads): choosing two players splits a Joy-Con 2 pair through the controller applet, one sideways Joy-Con each.
 +- [CPU-decoded BC uploads and format views](../../../docs/reference/rendering.md#cpu-decoded-bc-uploads-and-format-views): A15 corruption and invalid format views with the compatibility option enabled.
  - [Offline pipeline archive missing for the device GPU](../../../docs/reference/shaders.md#offline-pipeline-archive-missing-for-the-device-gpu): archive targets can follow profile metadata while iOS Metal 4 remains opt-in; [the probe above](#offline-pipeline-archive-probe) records the build evidence and open device checks.
  General host changes first needed here; each applies to every game:
  
-@@ -126,3 +127,7 @@ General host changes first needed here; each applies to every game:
+@@ -134,3 +135,7 @@ General host changes first needed here; each applies to every game:
  - On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone), per development.md's known gaps.
  - dm/games/README.md says the heap check turns "Wonder's 1.44 GB" request into a 0xc0000000 alias region; 03 says it asks for 1.47 GB, and the profile's alias region is 0xB8000000.
  - Several addresses in 02 and 03 (`main+0x1070910`, `main+0x107dbc0`, `main+0x4da5c`, `main+0xb8dec`, `main+0xcfd24`, `main+0x36ceff0`) do not name their build; the present-interval ones are from 1.2.1.
@@ -105,7 +105,7 @@ index 65cf7b8..4c56b08 100644
  DM_FPS_HOLD	toggle	on/off	DM_GAME_FPS_HOLD	DM_GAME_FPS_TARGET!=0	Performance	Hold frames when late
  DM_METAL_HUD	toggle	-	0	always	Performance	Performance HUD
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 19fb295..3b479cf 100644
+index ea93e60..e9747a5 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -27,6 +27,7 @@
@@ -125,7 +125,7 @@ index 19fb295..3b479cf 100644
  static NSMutableArray *g_l3_gpu_leaks;
  static int g_nvn_deswz_gpu;
  static id<MTLCommandQueue> g_q;
-@@ -825,6 +828,11 @@ static void mtl_init_once(void) {
+@@ -828,6 +831,11 @@ static void mtl_init_once(void) {
      g_dev = MTLCreateSystemDefaultDevice();
      if (!g_dev) MDIE("no Metal device");
      if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");
@@ -137,7 +137,7 @@ index 19fb295..3b479cf 100644
      g_q = [g_dev newCommandQueue];
      // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
      // Vulkan layers draw on classic queues of their own and need only the device (mtl_device_classic): there the classic part starts and presents are dropped, which is all a
-@@ -856,8 +864,9 @@ static void mtl_init_once(void) {
+@@ -859,8 +867,9 @@ static void mtl_init_once(void) {
          return;
      }
      // BC textures are created and uploaded as BC, with no decompression path (dm/gfx/tex/README.md); without BC the first one aborts in Metal's descriptor validation mid-game
@@ -149,7 +149,7 @@ index 19fb295..3b479cf 100644
      { void crash_set_wait_dump(void (*fn)(void)); void mtl_wait_state_dump(void); crash_set_wait_dump(mtl_wait_state_dump); }
      g_alloc_n = 3;
      for (int i = 0; i < 3; i++) {
-@@ -3194,9 +3203,22 @@ static int tex_atomic_alias(id<MTLTexture> base) {
+@@ -3199,9 +3208,22 @@ static int tex_atomic_alias(id<MTLTexture> base) {
          || pf == MTLPixelFormatRG16Unorm || pf == MTLPixelFormatRG16Snorm || pf == MTLPixelFormatRG16Uint || pf == MTLPixelFormatRG16Sint || pf == MTLPixelFormatRG16Float || pf == MTLPixelFormatR32Float;
      return bytes32 && (base.textureType == MTLTextureType2D || base.textureType == MTLTextureType2DArray) && base.sampleCount == 1 && base.storageMode == MTLStorageModePrivate && !base.buffer && !base.isSparse;
  }
@@ -173,7 +173,7 @@ index 19fb295..3b479cf 100644
      // Metal's limits: 16384 in 2D, 2048 in 3D, 2048 array layers; beyond them Metal aborts the process on an assertion, so they are caught here with a red line
      if (t->d.width > 16384 || t->d.height > 16384 || t->d.depth > 2048) { RED_ONCE(71, "texture size exceeds Metal limits: %u×%u×%u levels %u format %#x target %d (first case ser=%llu)", t->d.width, t->d.height, t->d.depth, t->d.levels, t->d.format, t->d.target, (unsigned long long)t->serial); return nil; }
      MTLTextureDescriptor *d = [MTLTextureDescriptor new];
-@@ -3804,8 +3826,10 @@ static int tex_cpu_wait(const tex_t *t) {
+@@ -3900,8 +3922,10 @@ static int tex_cpu_wait(const tex_t *t) {
      if (!d) return nil;
      d.usage |= keep & (MTLTextureUsageRenderTarget | MTLTextureUsagePixelFormatView);
      int rb_shift = rb_packed_shift(t->d.format);   // the RGB565 family is repacked into Metal's order on the CPU (rb_packed_shift)
@@ -185,12 +185,12 @@ index 19fb295..3b479cf 100644
      if (direct) d.usage |= MTLTextureUsageShaderWrite | MTLTextureUsagePixelFormatView;
      id<MTLTexture> mt = reuse && reuse.pixelFormat == d.pixelFormat && reuse.width == d.width && reuse.height == d.height && reuse.mipmapLevelCount == d.mipmapLevelCount && reuse.textureType == d.textureType
                          && (reuse.usage & d.usage) == d.usage
-@@ -3839,19 +3863,19 @@ static int tex_cpu_wait(const tex_t *t) {
+@@ -3935,19 +3959,19 @@ static int tex_cpu_wait(const tex_t *t) {
      void *mb; uint64_t mo;
      // A texture in a large pool (BIG_MIN) or one that holds only textures is read through a buffer of its own, held by the upload batch: a one-time read must not leave that memory wired for good
      id<MTLBuffer> upsrc = nil; unsigned src_batch = 0;   // the upload batch that holds upsrc (g_up_seq)
--    if (!linear && !rb_shift && !sparse && g_nvn_deswz_gpu) { up_begin(); src_batch = g_up_seq; upsrc = up_big_src((uint64_t)t->mem, t->L.size, &mo); if (upsrc) mb = (__bridge void *)upsrc; }
-+    if (!bc_cpu && !linear && !rb_shift && !sparse && g_nvn_deswz_gpu) { up_begin(); src_batch = g_up_seq; upsrc = up_big_src((uint64_t)t->mem, t->L.size, &mo); if (upsrc) mb = (__bridge void *)upsrc; }
+-    if (!linear && !rb_shift && !sparse && g_nvn_deswz_gpu) { up_begin(); upsrc = up_big_src((uint64_t)t->mem, t->L.size, &mo, 1); src_batch = g_up_seq; if (upsrc) mb = (__bridge void *)upsrc; }
++    if (!bc_cpu && !linear && !rb_shift && !sparse && g_nvn_deswz_gpu) { up_begin(); upsrc = up_big_src((uint64_t)t->mem, t->L.size, &mo, 1); src_batch = g_up_seq; if (upsrc) mb = (__bridge void *)upsrc; }
      // A sparse pool's texture is gathered on the GPU through its page table (sp_pages_gpu), but on the CPU for DM_NVN_ZBLOCK, which counts its blocks there
      uint64_t *spt = NULL, spn = 0;
      t_tex_upload_lookup = 1;
@@ -209,7 +209,7 @@ index 19fb295..3b479cf 100644
      if (use_gpu) {
          // The GPU reads the memory pool at execution time, which is closer to a real Switch than a snapshot at CPU upload time; the dirty-page stamp is still taken before encoding, and later writes still trigger a re-upload.
          up_begin();
-@@ -3917,16 +3941,43 @@ static int tex_cpu_wait(const tex_t *t) {
+@@ -4017,16 +4041,43 @@ static int tex_cpu_wait(const tex_t *t) {
          if (!(part = malloc(t->L.size ? t->L.size : 1))) MDIE("sparse texture copy of %llu bytes failed", (unsigned long long)t->L.size);
          sp_store_wait(t); nvn_sparse_copy(t->pool, part, (uint64_t)(uintptr_t)t->mem, t->L.size); src = part;
      }
@@ -254,7 +254,7 @@ index 19fb295..3b479cf 100644
              if (linear) {   // one 2D level (linear_fit): rows of the storage's stride, the same pitch GetStorageSize counts
                  size_t srow = tex_linear_row(t);
                  if (l || y || z != 1 || srow < pitch || srow * rows > t->L.size) { RED_ONCE(153, "linear texture upload: %ux%u format %#x target %d levels %u is not one 2D level of rows (stride %zu)", t->d.width, t->d.height, t->d.format, t->d.target, t->d.levels, srow); break; }
-@@ -3940,6 +3991,7 @@ static int tex_cpu_wait(const tex_t *t) {
+@@ -4040,6 +4091,7 @@ static int tex_cpu_wait(const tex_t *t) {
              off += pitch * rows * z;
          }
      }
@@ -262,7 +262,7 @@ index 19fb295..3b479cf 100644
      free(part); free(need);
      up_flush();
      return mt;
-@@ -5961,7 +6013,7 @@ static int bc_block_bytes(MTLPixelFormat f) {   // bytes per 4x4 block of a BC f
+@@ -6076,7 +6128,7 @@ static int bc_block_bytes(MTLPixelFormat f) {   // bytes per 4x4 block of a BC f
  // The shadow's format: the view's, when the base is BC (or a depth format, above) and the view is an uncompressed colour format with one block's bytes per pixel
  static int bcrt_view(id<MTLTexture> base, const view_t *v, int has_v, MTLPixelFormat *pf_out) {
      uint32_t pf = 0; uint8_t swz[4]; int bw = 0, bh = 0, side = 0, bb = base ? shrt_block(base.pixelFormat, &side) : 0;
@@ -271,7 +271,7 @@ index 19fb295..3b479cf 100644
      if (nvn_fmt_bpb(v->format, &bw, &bh) != bb || bw != 1 || bh != 1) return 0;
      *pf_out = (MTLPixelFormat)pf; return 1;
  }
-@@ -6015,7 +6067,7 @@ static MTLPixelFormat rt_view_fmt(id<MTLTexture> base, const view_t *v, int has_
+@@ -6130,7 +6182,7 @@ static MTLPixelFormat rt_view_fmt(id<MTLTexture> base, const view_t *v, int has_
      }
      if (!base || !has_v || !v->set_format) return base.pixelFormat;
      uint32_t pf = 0; uint8_t swz[4];
@@ -280,7 +280,7 @@ index 19fb295..3b479cf 100644
      if (tex_need_pfv(base.pixelFormat, (MTLPixelFormat)pf) && !(base.usage & MTLTextureUsagePixelFormatView)) return base.pixelFormat;
      return (MTLPixelFormat)pf;
  }
-@@ -6109,7 +6161,7 @@ static void attach(MTLRenderPassAttachmentDescriptor *a, const tex_t *t, const v
+@@ -6224,7 +6276,7 @@ static void attach(MTLRenderPassAttachmentDescriptor *a, const tex_t *t, const v
              if (vw) { a.texture = vw; defer_obj_unref(vw); }
              else { RED_ONCE(67, "cannot create the render target view: format %#x (base texture Metal format %lu)", v->format, (unsigned long)base.pixelFormat); rtv_note_bad_pair(base.pixelFormat, pf); }
          } else { uint32_t want = 0; uint8_t swz[4];
@@ -289,7 +289,7 @@ index 19fb295..3b479cf 100644
                  RED_ONCE(68, "render target view format %#x cannot be attached (base texture Metal format %lu was created without the format-view usage): drawing in the base format", v->format, (unsigned long)base.pixelFormat); }
      }
  }
-@@ -7493,7 +7545,7 @@ static void treg_pkg_stamp(treg_t *rp, id<MTLTexture> base) {
+@@ -7623,7 +7675,7 @@ static void treg_pkg_stamp(treg_t *rp, id<MTLTexture> base) {
  static int treg_swizzle(const treg_t *r, MTLPixelFormat base_pf, int in_place, uint8_t sw[4], uint32_t *view_pf) {
      uint8_t fsw[4]; int need_sw = 0; *view_pf = 0;
      sw[0] = MTLTextureSwizzleRed; sw[1] = MTLTextureSwizzleGreen; sw[2] = MTLTextureSwizzleBlue; sw[3] = MTLTextureSwizzleAlpha;
@@ -298,7 +298,7 @@ index 19fb295..3b479cf 100644
      if (!in_place) for (int c = 0; c < 4; c++) if (fsw[c] >= MTLTextureSwizzleRed) fsw[c] = (uint8_t)(MTLTextureSwizzleRed + c);
      // Metal cannot cast a depth texture to its single-channel colour equivalent. Use the same depth storage,
      // but present (R, 0, 0, 1) to the NVN swizzle: a float shader reading Metal depth can see depth in G and B too.
-@@ -17264,7 +17316,7 @@ static void clear_tex(const p_clear_tex *c) {
+@@ -17432,7 +17484,7 @@ static void clear_tex(const p_clear_tex *c) {
          t = tex_upgrade(c->tex, t, MTLTextureUsageRenderTarget, t.pixelFormat);   // a clear of a texture made without render-target use (packaged): give it that use
      if (c->has_view && c->view.set_format) {   // View with changed format: the clear value is interpreted in the view format (all 5 of the game's calls are the ui version with an integer view), and the clear is done on a view of the same format
          uint32_t vpf = 0; uint8_t swz[4];
@@ -308,10 +308,10 @@ index 19fb295..3b479cf 100644
          if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf)) {
              id<MTLTexture> v = [t newTextureViewWithPixelFormat:(MTLPixelFormat)vpf];
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 130dd9c..0c799cc 100644
+index c805234..3cc6f04 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -889,3 +889,7 @@ check_t_sparse_pool_cache: RUN_ENV = MTL_DEBUG_LAYER=1
+@@ -940,3 +940,7 @@ check_t_sparse_pool_cache: RUN_ENV = MTL_DEBUG_LAYER=1
  t_sparse_copy: t_sparse_copy.m $(MTL_T_DEP)
  	clang $(CFLAGS) -fobjc-arc -o $@ t_sparse_copy.m $(filter-out ../nvn/hle_nvn.c,$(MTL_T_SRC)) $(FW)
  check_t_sparse_copy: RUN_ENV = MTL_DEBUG_LAYER=1
@@ -807,10 +807,10 @@ index 0000000..5a40608
 +    return 0;
 +}
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 60e94a4..0994e90 100644
+index 8d7154e..6ca5524 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
-@@ -9,6 +9,7 @@
+@@ -10,6 +10,7 @@
  #include <sys/stat.h>
  #include <unistd.h>
  #include "hle_profile.h"   // the runtime game profile (DM_PROFILE): the RomFS marker path comes from it
@@ -818,7 +818,7 @@ index 60e94a4..0994e90 100644
  #include "front.h"
  #include "romfs_image.h"
  #include "DataBookmark.h"
-@@ -207,7 +208,7 @@ static void aoc_locate(void) {
+@@ -212,7 +213,7 @@ static void aoc_locate(void) {
      static char msg[320]; static int done;
      if (done++) return msg[0] ? msg : NULL;
      id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();   // the system default device, the one the graphics layers take (mtl_init repeats this check for the other routes)
@@ -2444,10 +2444,10 @@ index de17ca7..9a48a50 100644
          s = build(BOTW, 'nvn')['DM_FPS_HOLD']
          self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index 9375c1b..a45d247 100644
+index 5952926..3b6e16e 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -2429,3 +2429,12 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
+@@ -2632,3 +2632,12 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
  - **Fix:** the present reports the shape of the frame it draws ([the layer's](#a-crop-only-picks-texels-the-picture-has-the-layers-shape)) whenever its width / height changes (`nvn_mtl.m` `present_now` → `front.h` `front_picture_shape`; every graphics API presents there). The iOS front end lays the game's view out in that shape (`DmLayout.h` takes it as a parameter: the overlay, the split, Fill and the TV alike), so a 1.43:1 picture fills a 1.43:1 screen in Fit and touches are normalized on the picture as drawn; the Mac maps the mouse on the picture's own rectangle. A 16:9 game reports 16:9 and keeps its layout, and a size change of the same shape (1280x720 handheld, 1920x1080 docked) is not reported.
  - **Check:** the [Duo harness](../../dm/ios/tests/duo/README.md) tests the taller picture in Fit, in Fill and on a wider screen, and the production root view following a reported shape and returning to 16:9. Not yet run on a device.
  - **Found on:** [Breath of the Wild](../../dm/games/01007EF00011E000/README.md#screen-shape-dm_screen_aspect-current) and [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md#screen-shape-dm_screen_aspect-current) with `DM_SCREEN_ASPECT=1.43`.
@@ -2461,7 +2461,7 @@ index 9375c1b..a45d247 100644
 +- **Limits:** this does not implement raw compressed-block views, GPU BC block encoding, or decoded-to-compressed readback. It keeps the existing compatibility opt-in and does not change the supported-device check.
 +- **Found on:** [Super Mario Bros. Wonder](../../dm/games/010015100B514000/README.md).
 diff --git a/docs/settings.md b/docs/settings.md
-index 8318401..a25ce7b 100644
+index ea67972..a945fdf 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -5,7 +5,7 @@ The screen before the game starts shows the settings the game supports. A settin

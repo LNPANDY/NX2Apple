@@ -10,33 +10,34 @@ Upstream-Status: pending
 Reason: Fix SIGSEGV in bs_free on active bigstack, SIGTRAP in AudRen/AudioOut shell teardown, route guest exit back to shell, reset GL state on teardown, and add - + + 2s hold to quit
 Issue: LNPANDY/NX2Apple#1314
 ---
- dm/gfx/gl/hle_gl.m              |  62 +++--
- dm/host/dm.h                    |   7 +-
- dm/host/hle_audio.c             | 390 ++++++++++++++++++++++++++------
- dm/host/hle_audren.c            |  70 +++++-
- dm/host/hle_bigstack.c          |  52 ++++-
- dm/host/hle_lifecycle.c         |  46 +++-
- dm/host/hle_svc.c               |  15 ++
- dm/host/hle_thread.c            |  10 +
- dm/host/home_quit.h             |   5 +
- dm/host/tests/Makefile          |   2 +-
- dm/host/tests/t_audio.c         | 305 ++++++++++++++++++++++++-
- dm/host/tests/t_audio_spsc.c    | 109 ++++++++-
- dm/host/tests/t_audren_layout.c |   1 +
- dm/host/tests/t_audren_work.c   |   1 +
- dm/host/tests/t_bigstack.c      |  29 +++
- dm/host/tests/t_home_quit.c     |   9 +
- dm/ios/Sources/DmGamepad.m      | 122 +++++++++-
- dm/ios/Sources/front_ios.m      |  47 +++-
- dm/ios/framework/ShellGlue.h    |   1 +
- dm/ios/framework/ShellGlue.m    |   4 +
- 20 files changed, 1162 insertions(+), 125 deletions(-)
+ dm/gfx/gl/hle_gl.m                         |  59 +++-
+ dm/host/dm.h                               |   7 +-
+ dm/host/hle_audio.c                        | 390 +++++++++++++++++----
+ dm/host/hle_audren.c                       |  70 +++-
+ dm/host/hle_bigstack.c                     |  52 ++-
+ dm/host/hle_lifecycle.c                    |  46 ++-
+ dm/host/hle_svc.c                          |  15 +
+ dm/host/hle_thread.c                       |  10 +
+ dm/host/home_quit.h                        |   5 +
+ dm/host/tests/Makefile                     |   2 +-
+ dm/host/tests/t_audio.c                    | 305 +++++++++++++++-
+ dm/host/tests/t_audio_spsc.c               | 109 +++++-
+ dm/host/tests/t_audren_layout.c            |   1 +
+ dm/host/tests/t_audren_work.c              |   1 +
+ dm/host/tests/t_bigstack.c                 |  29 ++
+ dm/host/tests/t_home_quit.c                |   9 +
+ dm/ios/Sources/DmGamepad.m                 | 122 ++++++-
+ dm/ios/Sources/front_ios.m                 |  47 ++-
+ dm/ios/framework/ShellGlue.h               |   1 +
+ dm/ios/framework/ShellGlue.m               |   4 +
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   1 -
+ 21 files changed, 1159 insertions(+), 126 deletions(-)
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index 18d7469..f524db1 100644
+index dca6d81..67a9b3c 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
-@@ -241,7 +241,12 @@ static void dev_init_once(void) {
+@@ -282,7 +282,12 @@ static void dev_init_once(void) {
          GLOG("Metal device %s; %d shader table entries", g_dev.name.UTF8String, g_nsh);
      }
  }
@@ -50,7 +51,7 @@ index 18d7469..f524db1 100644
  
  // ---------- Command buffers ----------
  // Transient memory (converted indices, staging for blits, large uniform blocks): bump allocation in 4 MB shared buffers, each reused once the command buffer that last used it completed
-@@ -1594,7 +1599,15 @@ static void ubo_bind(GLenum target, GLuint index, GLuint b, GLintptr off, GLsize
+@@ -1885,7 +1890,15 @@ static void ubo_bind(GLenum target, GLuint index, GLuint b, GLintptr off, GLsize
      }
      if (!timeout_ns) return GL_TIMEOUT_EXPIRED;
      uint64_t ms = timeout_ns / 1000000;
@@ -67,7 +68,7 @@ index 18d7469..f524db1 100644
  }
  GL(glGenVertexArrays, void, GLsizei n, GLuint *out) { for (GLsizei i = 0; i < n; i++) out[i] = name_new((void ***)&g_vaos, &g_nvaos, &g_capvaos, sizeof(vao_t)); }
  GL(glDeleteVertexArrays, void, GLsizei n, const GLuint *v) { for (GLsizei i = 0; i < n; i++) if (v[i] && v[i] < g_nvaos && g_vaos[v[i]]) { free(g_vaos[v[i]]); g_vaos[v[i]] = NULL; if (S.vao == v[i]) S.vao = 0; } }
-@@ -2670,8 +2683,9 @@ static void frame_end(void) {
+@@ -3243,8 +3256,9 @@ static void frame_end(void) {
  static int g_cur_key_ok;
  static void cur_release(void *binding) { pthread_mutex_lock(&g_cur_mu); if (g_cur_owner == binding) g_cur_owner = NULL; pthread_mutex_unlock(&g_cur_mu); }
  static void cur_key_init(void) { g_cur_key_ok = pthread_key_create(&g_cur_key, cur_release) == 0; }
@@ -78,7 +79,7 @@ index 18d7469..f524db1 100644
      pthread_once(&g_cur_once, cur_key_init);
      if (!g_cur_key_ok) { t_egl_error = 0x3003; return EGL_FALSE; }   // BAD_ALLOC
      pthread_mutex_lock(&g_cur_mu);
-@@ -2680,9 +2694,9 @@ static void frame_end(void) {
+@@ -3253,9 +3267,9 @@ static void frame_end(void) {
          if (pthread_setspecific(g_cur_key, &t_cur)) { pthread_mutex_unlock(&g_cur_mu); t_egl_error = 0x3003; return EGL_FALSE; }
          g_cur_owner = &t_cur; t_cur.dpy = d; t_cur.ctx = c; t_cur.draw = dr; t_cur.read = rd;
      } else { if (g_cur_owner == &t_cur) g_cur_owner = NULL; pthread_setspecific(g_cur_key, NULL); memset(&t_cur, 0, sizeof t_cur); }
@@ -90,7 +91,7 @@ index 18d7469..f524db1 100644
      pthread_mutex_unlock(&g_cur_mu);
      return EGL_TRUE;
  }
-@@ -2719,25 +2733,33 @@ static void renderprogs_job(void) {
+@@ -3292,25 +3306,33 @@ static void renderprogs_job(void) {
  static uint64_t g_next_swap;   // pacing without the display link: the earliest time of the next swap
  EGL(eglSwapBuffers, EGLBoolean, EGLDisplay d, EGLSurface s) {
      (void)d; (void)s;
@@ -134,7 +135,7 @@ index 18d7469..f524db1 100644
      frame_end();
      renderprogs_job();
      return EGL_TRUE;
-@@ -2844,11 +2866,19 @@ void dm_gl_teardown(void) { @autoreleasepool {
+@@ -3417,7 +3439,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
      g_nclr_cache = 0;
  
      for (int i = 0; i < NWIN; i++) { g_win.col[i] = nil; g_win.serial[i] = g_win.ticket[i] = 0; }
@@ -143,23 +144,23 @@ index 18d7469..f524db1 100644
  
      for (int i = 0; i < g_nsh; i++) { free(g_sh[i].a); free(g_sh[i].u); free(g_sh[i].t); free(g_sh[i].b); }
      free(g_sh); g_sh = NULL; g_nsh = 0;
- 
-+    memset(&P, 0, sizeof P);
-+    memset(&g_pend_clear, 0, sizeof g_pend_clear);
+@@ -3443,6 +3465,11 @@ void dm_gl_teardown(void) { @autoreleasepool {
+     g_capture_dir = g_capture_compiler = NULL;
+     memset(&P, 0, sizeof P); enc_reset(); memset(&g_pend_clear, 0, sizeof g_pend_clear);
+     g_gl_error = 0; g_compiles = 0;
 +    memset(&g_mc_th, 0, sizeof g_mc_th);
 +    g_mc_known = g_mc_sized = 0;
 +    pthread_mutex_lock(&g_cur_mu); g_cur_owner = NULL; pthread_mutex_unlock(&g_cur_mu);   // the next game's thread may make the context current
 +    g_next_swap = 0;
 +    g_frames = 0;
-+
+ 
      g_lib = nil; g_util = nil;
      g_samp0 = nil;
-     g_tex0 = nil; g_cube0 = nil; g_tex3d0 = nil; g_arr0 = nil;
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 7f1ebd3..4a56b3f 100644
+index 8b68777..e6ec611 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
-@@ -236,5 +236,10 @@ void dm_gfx_shot_at(long k, const char *path);   // graphics side: screenshot of
+@@ -249,5 +249,10 @@ void dm_gfx_shot_at(long k, const char *path);   // graphics side: screenshot of
  void dm_shot_written(const char *path, int ok);   // The graphics side finished writing a screenshot to disk (diag.c: DM_TICK_HOLD=E:SHOT unfreezes on this)
  void dm_host_shutdown_then(const char *why, void (*then)(void *), void *arg);   // The same, then(arg) in place of the last _exit(0) (oe::ExecuteProgram: execve of the next program)
  void dm_host_shutdown(const char *why);   // Graceful exit (hle_lifecycle.c): stop background threads and audio, stop the pipeline prewarm, drain graphics, write the pipeline archive, then _exit(0); used by SIGTERM and oe::ExecuteProgram
@@ -814,7 +815,7 @@ index 7469ecc..fe3d6d8 100644
 +    for (int i = 0; i < AOMAX; i++) if (stopped_os[i]) ostream_release(stopped_os[i]);
  }
 diff --git a/dm/host/hle_audren.c b/dm/host/hle_audren.c
-index 47323ea..89de80c 100644
+index deb6fba..fcd806d 100644
 --- a/dm/host/hle_audren.c
 +++ b/dm/host/hle_audren.c
 @@ -27,6 +27,7 @@ void dm_pcmout_start(void *k);
@@ -825,7 +826,7 @@ index 47323ea..89de80c 100644
  
  // P_SIZE: bytes of the game's AudioRendererParameter copied before the two fields are changed. SDK 16's struct is 0x38 bytes; SDK 8's (Link's Awakening) has one more word,
  // its revision at +0x38: copying only 0x38 left the revision uninitialized and the SDK rejected it (CheckValidRevision, Result 0x499). The SDK reads only its own size of the copy
-@@ -101,15 +102,16 @@ HLE_FORCE("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererPar
+@@ -101,17 +102,18 @@ HLE_FORCE("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererPar
  // globals: a second renderer's updates rendered catch-up frames into the first one's output queue, about 10% of its frames (Mario & Luigi: Brothership), and its own frames were never rendered otherwise
  enum { CQ = 4, AR_MAX = 4, RENDER_MIN_NS = 4500000 };   // AR_MAX as g_rev below
  typedef struct {
@@ -839,11 +840,13 @@ index 47323ea..89de80c 100644
      _Atomic uint64_t frames, nonsilent, updates, renders, catchups;
      uint64_t last_r; int updated;            // the render count at the last update, once there was one
      int16_t cq[CQ][FRAME_MAX * DM_AUDIO_SINK_CHANNELS]; int cq_n[CQ]; uint32_t cq_head, cq_tail;   // output queue of catch-up frames
+     // A fresh render holds cq_mu while the SDK signals the renderer event. A woken guest thread can enter RequestUpdate and need cq_mu before the signal's handoff returns.
+     // Take the mutex with dm_host_lock so a thread waiting for it counts as blocked.
 -    pthread_mutex_t cq_mu; pthread_cond_t cq_cv;   // serializes catch-up publication, dequeue and fresh renders; wake on enqueue, dequeue or close
      int sink_logged;
      int32_t up_buf[DM_AUDIO_SINK_CHANNELS * (15 + FRAME_MAX)]; uint32_t up_pos;   // up_3_2's last samples and position
      int16_t pcm[NBUF][FRAME_MAX * DM_AUDIO_SINK_CHANNELS]; aout_buf bufs[NBUF];   // the blocks its output plays from (six channels plus their stereo fold): AudioOut queues only the pointer and copies the samples when the sound card asks (issue #1336)
-@@ -138,14 +140,20 @@ static void render_main(void *arg) {
+@@ -140,14 +142,20 @@ static void render_main(void *arg) {
      void *out = dm_pcmout_open_sink();
      aout_buf *free_list[NBUF]; int nfree = NBUF;
      for (int i = 0; i < NBUF; i++) { a->bufs[i] = (aout_buf){.ptr = a->pcm[i], .cap = sizeof a->pcm[i], .size = 0}; free_list[i] = &a->bufs[i]; }
@@ -865,7 +868,7 @@ index 47323ea..89de80c 100644
              dm_pcmout_wait(out, 10);
              if (!atomic_load(&a->open)) break;
          }
-@@ -179,10 +187,18 @@ static void render_main(void *arg) {
+@@ -181,10 +189,18 @@ static void render_main(void *arg) {
          b->size = bytes;
          if (queued) { a->cq_head++; pthread_cond_broadcast(&a->cq_cv); }   // the producer can reuse the slot after the copy
          pthread_mutex_unlock(&a->cq_mu);
@@ -886,7 +889,7 @@ index 47323ea..89de80c 100644
  }
  
  // Both OpenAudioRenderer forms: CPU rendering + manual execution, then the host's render thread. With the event the game waits on it, which each render signals; without it the
-@@ -264,15 +280,18 @@ static Result ar_open(void **handle, void *ev, const uint8_t *param, void *work,
+@@ -266,15 +282,18 @@ static Result ar_open(void **handle, void *ev, const uint8_t *param, void *work,
      pthread_mutex_lock(&g_ar_mu);
      ar_t *a = NULL;
      for (int i = 0; i < AR_MAX && !a; i++) if (!g_ar[i].handle[0]) a = &g_ar[i];
@@ -909,7 +912,7 @@ index 47323ea..89de80c 100644
      return r;
  }
  HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11SystemEventERKNS0_22AudioRendererParameterEPvm", "open the renderer (with event): CPU rendering + manual execution, the host starts a render thread",
-@@ -285,11 +304,14 @@ HLE_FORCE("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE", "close
+@@ -287,11 +306,14 @@ HLE_FORCE("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE", "close
      // Join the render thread first (it checks open every round and at most every 10 ms while waiting for the output): it may be inside exec(), which uses the renderer the SDK is about to free.
      // A fixed 20 ms sleep used to stand in for this, and a renderer reopened inside that window ran a second thread over the first one's blocks
      ar_t *a = NULL;
@@ -917,14 +920,14 @@ index 47323ea..89de80c 100644
      for (int i = 0; i < AR_MAX && !a; i++) if (g_ar[i].handle[0] == obj) a = &g_ar[i];
 +    pthread_mutex_unlock(&g_ar_mu);
      if (a && a->render_tt) {
-         pthread_mutex_lock(&a->cq_mu);
+         dm_host_lock(&a->cq_mu);
          atomic_store(&a->open, 0);
          pthread_cond_broadcast(&a->cq_cv);
 +        if (a->pcmout) dm_pcmout_wake(a->pcmout);
          pthread_mutex_unlock(&a->cq_mu);
          dm_guest_thread_join(a->render_tt);
          a->render_tt = NULL;
-@@ -697,22 +719,46 @@ HLE_FORCE("_ZN2nn5audio21GetActiveChannelCountEv", "output channel count (SDK 7
+@@ -699,22 +721,46 @@ HLE_FORCE("_ZN2nn5audio21GetActiveChannelCountEv", "output channel count (SDK 7
  void dm_audren_stop_all(void) {
      for (int i = 0; i < AR_MAX; i++) {
          atomic_store(&g_ar[i].open, 0);
@@ -1039,7 +1042,7 @@ index 0aaaf01..7c7ec77 100644
  
  // sp inside the guest address block -> the top of this thread's host stack (16-byte aligned); otherwise 0 (no switch)
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index 3e2cd3c..fa5edfd 100644
+index 9300301..902d2b9 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
 @@ -7,6 +7,7 @@
@@ -1106,7 +1109,7 @@ index 3e2cd3c..fa5edfd 100644
  __attribute__((weak)) void dm_audren_stop_all(void) {}
  __attribute__((weak)) void dm_audren_teardown_post(void) {}
  __attribute__((weak)) void dm_movie_stop_all(void) {}
-@@ -80,8 +112,8 @@ void dm_host_teardown_for_shell(void) {
+@@ -81,8 +113,8 @@ void dm_host_teardown_for_shell(void) {
      dm_cheats_exit();
      dm_vsync_stop_all();
      dm_sf_stop_all();
@@ -1116,7 +1119,7 @@ index 3e2cd3c..fa5edfd 100644
      dm_movie_stop_all();
      dm_codec_video_stop_all();
      dm_save_sync_stop();
-@@ -90,6 +122,8 @@ void dm_host_teardown_for_shell(void) {
+@@ -91,6 +123,8 @@ void dm_host_teardown_for_shell(void) {
      dm_gfx_quit_begin();
      dm_gfx_suspend(1);
      dm_threads_park_all();
@@ -1126,10 +1129,10 @@ index 3e2cd3c..fa5edfd 100644
      dm_switch2_teardown();
      dm_audren_teardown_post();
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index 25a1f78..aa40c30 100644
+index 2870fb0..7c78177 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
-@@ -895,12 +895,22 @@ static void *regions_thread(void *arg) {
+@@ -942,12 +942,22 @@ static void *regions_thread(void *arg) {
  }
  
  int svc_thread(int num, uint64_t *regs);   // hle_thread.c: thread and synchronization kind
@@ -1152,7 +1155,7 @@ index 25a1f78..aa40c30 100644
      case 0x01: {  // SetHeapSize(out_addr*, size)  → x1 = heap base
          size_t size = regs[1];
          // Larger than the heap region: ResultOutOfMemory (0xD001), as Horizon's KPageTable::SetHeapSize returns. nn::os::SetMemoryHeapSize turns only that, 103 and LimitReached into
-@@ -1119,6 +1129,11 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+@@ -1213,6 +1223,11 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
          LOG("Break#%d reason=%#llx Result=%#x svc at %s+%#llx", ++nb, regs[0], res, mm ? mm->name : "?", orig_addr);
          dm_backtrace(regs[29]);
          if (regs[0] & 0x80000000ull) return 0;   // notification only, can continue
@@ -1165,10 +1168,10 @@ index 25a1f78..aa40c30 100644
      }
      case 0x1E: guest_clock_read_wait(); regs[0] = 0; regs[1] = guest_ticks(); return 0;   // GetSystemTick
 diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
-index da58d0a..6075b55 100644
+index 79664e2..4e48c32 100644
 --- a/dm/host/hle_thread.c
 +++ b/dm/host/hle_thread.c
-@@ -331,6 +331,16 @@ void dm_teardown_check_current_thread(void) {
+@@ -336,6 +336,16 @@ void dm_teardown_check_current_thread(void) {
      g_lock();
      teardown_exit_locked(t);
  }
@@ -1202,7 +1205,7 @@ index 8acb4a5..d807b94 100644
  // "system" (the system keeps Home whatever the app asks), "app" (the app decides), "off" (the system does nothing with Home in apps),
  // "unavailable" (could not be read)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 8c91362..4fe1b83 100644
+index 5e9d5b2..4b2d1dd 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -194,7 +194,7 @@ save-sync: $(B)/t_save_sync $(B)/t_save_sync_metadata
@@ -1683,10 +1686,10 @@ index e8c9f42..d3d68f5 100644
      test_ctx t = {0};
      t.bufs = calloc(NBUF, sizeof *t.bufs); t.data = calloc(NBUF, sizeof *t.data); t.sizes = calloc(NBUF, sizeof *t.sizes); t.scratch = malloc(512);
 diff --git a/dm/host/tests/t_audren_layout.c b/dm/host/tests/t_audren_layout.c
-index fe44e91..b664933 100644
+index 95ae8b5..660af2c 100644
 --- a/dm/host/tests/t_audren_layout.c
 +++ b/dm/host/tests/t_audren_layout.c
-@@ -87,6 +87,7 @@ void dm_pcmout_wait(void *k, int ms) {
+@@ -88,6 +88,7 @@ void dm_pcmout_wait(void *k, int ms) {
          pace_advance(callback < timeout ? callback : timeout);
      }
  }
@@ -1695,10 +1698,10 @@ index fe44e91..b664933 100644
  uint32_t hle_dup_readable_handle(uint32_t h) { return h; }
  
 diff --git a/dm/host/tests/t_audren_work.c b/dm/host/tests/t_audren_work.c
-index 0745da5..8181b76 100644
+index 901d1b4..a89c490 100644
 --- a/dm/host/tests/t_audren_work.c
 +++ b/dm/host/tests/t_audren_work.c
-@@ -110,6 +110,7 @@ void dm_pcmout_start(void *k) { (void)k; }
+@@ -111,6 +111,7 @@ void dm_pcmout_start(void *k) { (void)k; }
  int dm_pcmout_append(void *k, void *b) { (void)k; (void)b; return 0; }
  void *dm_pcmout_released(void *k) { (void)k; return NULL; }
  void dm_pcmout_wait(void *k, int ms) { (void)k; (void)ms; }
@@ -1788,7 +1791,7 @@ index 94ef558..19a387f 100644
      return fails != 0;
  }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index cbe68d4..699b357 100644
+index 1c6e931..143828e 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -169,6 +169,8 @@ @implementation DmGamepad {
@@ -1824,16 +1827,16 @@ index cbe68d4..699b357 100644
      [self refresh];
  }
  
-@@ -633,7 +645,7 @@ static void read_pad(GCExtendedGamepad *g) {
-     dm_pad_set_player(p, m, axis(g.leftThumbstick.xAxis.value), axis(g.leftThumbstick.yAxis.value), axis(g.rightThumbstick.xAxis.value), axis(g.rightThumbstick.yAxis.value));
- }
- // Home and Capture: without this iOS takes them as system gestures (Home opens the Games overlay, Capture a screenshot); the app gives them no function
--static void pad_keep_system_buttons(GCController *c) {   // Home held for 2 s opens the quit prompt (front_ios.m): iOS 27 respects the claim when the Home button setting for apps lets the app decide
-+static void pad_keep_system_buttons(GCController *c) {   // Home (or holding both - + + / View + Menu for 2 s) opens the quit prompt (front_ios.m): iOS 27 respects Home claims when the Home button setting for apps lets the app decide
-     for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled;
-     c.extendedGamepad.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL down) { (void)b; (void)v; (void)down; front_ios_quit_poll(); };
- }
-@@ -691,23 +703,126 @@ static BOOL pads_slotted(GCController *gone) {
+@@ -671,7 +683,7 @@ static void read_pad(GCController *c) {
+ static BOOL pad_listen(GCController *c) {
+     GCExtendedGamepad *g = c.extendedGamepad;
+     if (g) {
+-        // Home held for 2 s opens the quit prompt (front_ios.m): iOS 27 respects the claim when the Home button setting for apps lets the app decide
++        // Home (or holding both - + + / View + Menu for 2 s) opens the quit prompt (front_ios.m): iOS 27 respects Home claims when the Home button setting for apps lets the app decide
+         for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled;
+         g.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL down) { (void)b; (void)v; (void)down; front_ios_quit_poll(); };
+         if (g.valueChangedHandler) return NO;
+@@ -748,23 +760,126 @@ static BOOL pads_slotted(GCController *gone) {
      dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
      return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
  }
@@ -1962,7 +1965,7 @@ index cbe68d4..699b357 100644
          }];
      });
  }
-@@ -720,6 +835,7 @@ - (void)updateControlVisibility {
+@@ -777,6 +892,7 @@ - (void)updateControlVisibility {
      if (_padOff && _layout.onTV) {
          ++_menuGen; [_menu.layer removeAllAnimations];
          _menu.alpha = 1; _menu.hidden = YES;
@@ -1971,10 +1974,10 @@ index cbe68d4..699b357 100644
          [self wakeMenu];
      }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index c4d2712..5bfde66 100644
+index 6ea35e5..132355a 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -303,6 +303,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
+@@ -307,6 +307,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
      });
  }
  
@@ -1987,7 +1990,7 @@ index c4d2712..5bfde66 100644
  // The settings the in-game menu offers (GameMenu.swift, from the gamepad's menu button), each taking effect while the game runs; the launcher's other settings need the next start.
  // value NULL: only whether env is one of them; otherwise apply it (GameMenu.swift has saved it and put it in the environment). Console mode changes as on a Switch put in or taken out of its
  // dock (the operation mode change notification); while a TV shows the picture the game stays docked, and the choice applies when the TV is unplugged
-@@ -330,6 +336,16 @@ bool dm_setting_live(const char *env, const char *value) {
+@@ -334,6 +340,16 @@ bool dm_setting_live(const char *env, const char *value) {
          }
          return true;
      }
@@ -2004,7 +2007,7 @@ index c4d2712..5bfde66 100644
      return false;
  }
  @implementation DmTVSceneDelegate
-@@ -663,8 +679,10 @@ static void save_sync_background(void) {
+@@ -667,8 +683,10 @@ static void save_sync_background(void) {
  }
  
  static _Atomic int g_quitting;
@@ -2016,7 +2019,7 @@ index c4d2712..5bfde66 100644
      switch (ev) {
          case 0: quit_close(); dm_movie_active(0); dm_gamepad_reset(); dm_focus_set(2); break;
          case 1: UIApplication.sharedApplication.idleTimerDisabled = NO; dm_focus_set(3); g_audio_bg = 1; front_ios_audio_apply(); guest_clock_freeze_for(1, 1); dm_gfx_suspend(1); save_sync_background(); break;
-@@ -674,12 +692,23 @@ void front_ios_focus_event(int ev) {
+@@ -678,12 +696,23 @@ void front_ios_focus_event(int ev) {
              if (g_audio_intr) { LOG("audio session: active again with no interruption-ended notice; resuming"); g_audio_intr = 0; g_session_off = 1; }
              if (g_session_off) front_ios_audio_session();
              front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); dm_movie_active(1); break;
@@ -2041,7 +2044,7 @@ index c4d2712..5bfde66 100644
  // while it is held). A tap on Quit or A quits, a tap on Cancel or outside the card, B or a new press of Home closes it. While it is open the game is told it lost
  // the focus, as the Switch's HOME menu does, and gets no touch or controller input.
  // Quitting ends the process: one game runs per process (dm_profile() and the host's early loading run once, the shell's ShellMain.m), so the engine cannot hand
-@@ -734,7 +763,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
+@@ -738,7 +767,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
      *home = *a = *b = 0;
      for (GCController *c in GCController.controllers) {
          GCExtendedGamepad *g = c.extendedGamepad; if (!g) continue;
@@ -2050,7 +2053,7 @@ index c4d2712..5bfde66 100644
          *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed;
      }
  }
-@@ -800,9 +829,21 @@ static void front_ios_teardown(void) {
+@@ -804,9 +833,21 @@ static void front_ios_teardown(void) {
          g_root = nil;
      }
      g_layer = nil;
@@ -2085,7 +2088,7 @@ index e5b52e2..d6bfd47 100644
  typedef const char *(*dm_glue_start_fn)(const char *const *argv, int argc, const void *game_image);
  typedef void (*dm_glue_present_fn)(void *window);
 diff --git a/dm/ios/framework/ShellGlue.m b/dm/ios/framework/ShellGlue.m
-index e1c5074..37c7bef 100644
+index bf0b26d..09621f6 100644
 --- a/dm/ios/framework/ShellGlue.m
 +++ b/dm/ios/framework/ShellGlue.m
 @@ -57,8 +57,12 @@ void dm_glue_focus_event(int ev) {
@@ -2101,3 +2104,15 @@ index e1c5074..37c7bef 100644
      return NULL;
  }
  void front_ios_boot(void) {   // front_ios.m, once the game view exists
+diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+index 89127bc..4a5970d 100644
+--- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
++++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+@@ -94,7 +94,6 @@ void dm_motion_clear(int player) {
+ }
+ 
+ uint32_t dm_player_npad(int player) { return player == 0 ? 0x20 : (uint32_t)player; }
+-int dm_players_reported(void) { return __builtin_popcount(duo_harness_state().connected_players | 1u); }
+ 
+ static int g_opmode;   // handheld, until a test or the in-game menu docks it
+ int dm_opmode(void) { return g_opmode; }

@@ -530,7 +530,7 @@ index 0000000..90bbb28
 +#endif
 +#endif
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 21ddc86..c4d2712 100644
+index 7db18c5..6ea35e5 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -19,6 +19,7 @@
@@ -547,9 +547,9 @@ index 21ddc86..c4d2712 100644
  int front_ios_boot_ok(void);
 +void front_ios_audio_session(void);
  const char *front_ios_boot_message(void);   // main.m: why a build that keeps the game files off the IPA found none usable (NULL = the generic hint)
- const char *front_ios_device_check(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported); makes the first Metal device
- bool dm_show_launcher(void *view_controller, void (*done)(void));   // Launcher.swift: false = no launcher (no dm/launcher.json, or DM_LAUNCHER=0)
-@@ -320,6 +322,14 @@ bool dm_setting_live(const char *env, const char *value) {
+ const char *front_ios_device_check(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported)
+ bool front_ios_hud_enabled_from_saved_choice(void);   // main.m: the saved choice enabled Metal's HUD at launch
+@@ -324,6 +326,14 @@ bool dm_setting_live(const char *env, const char *value) {
      if (!strcmp(env, "DM_SHOW_FPS")) { if (value) [g_root showFPS:atoi(value) != 0]; return true; }
      if (!strcmp(env, "DM_TOUCH_HAPTICS")) { if (value) dm_gamepad_touch_feedback(atoi(value) != 0); return true; }
      if (!strcmp(env, "DM_RUMBLE")) { if (value) { dm_haptics_set_enabled(atoi(value) != 0); LOG("front end: game rumble %s (in-game menu)", atoi(value) ? "on" : "off"); } return true; }
@@ -564,7 +564,7 @@ index 21ddc86..c4d2712 100644
      return false;
  }
  @implementation DmTVSceneDelegate
-@@ -580,7 +590,7 @@ void front_save_failed(int err) {
+@@ -584,7 +594,7 @@ void front_save_failed(int err) {
  
  // Audio session: the frames RemoteIO asks for in each callback follow the I/O buffer duration, about 21 ms by default on iOS (1024 frames at 48 kHz). The game keeps only 4 blocks × 5 ms = 20 ms in flight,
  // so every callback came up 1.3 ms short and was zero-filled, about 47 gaps per second (crackling; reproducible on the Mac by forcing 1024-frame callbacks: 1999 underruns in 2000 callbacks). Ask for 5 ms and the system picks the nearest it supports;
@@ -573,7 +573,7 @@ index 21ddc86..c4d2712 100644
  // Set once at boot and again on return to the foreground (the system may reset it after an interruption)
  static int g_session_off;   // the last activation failed (another app or a call still held the session): tried again when the app becomes active
  // Six channels when the route takes them (HDMI, a multichannel interface or dock): the session's maximum is the route's, and it stays 2 on headphones, AirPods included.
-@@ -590,14 +600,20 @@ static void front_ios_audio_channels(AVAudioSession *s) {
+@@ -594,14 +604,20 @@ static void front_ios_audio_channels(AVAudioSession *s) {
      if (want > 2 && ![s setPreferredOutputNumberOfChannels:want error:&e]) LOG("[RED] audio session: %ld output channels could not be set: %s", (long)want, e.localizedDescription.UTF8String);
      LOG("audio session: route %s, output channels %ld (route maximum %ld)", s.currentRoute.outputs.firstObject.portType.UTF8String ?: "(none)", (long)s.outputNumberOfChannels, (long)most);
  }
@@ -597,7 +597,7 @@ index 21ddc86..c4d2712 100644
  }
  // The channels the route takes now (hle_audio.c decides the output from it: six only when the session has six)
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index b1869b8..96405f2 100644
+index 7d56825..89127bc 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 @@ -106,6 +106,9 @@ void dm_haptics_apple_init(void) {}
@@ -611,7 +611,7 @@ index b1869b8..96405f2 100644
  const struct dm_profile *dm_profile(void) {
      static const struct dm_profile profile = {.name = "DuoHarness", .pad_layout = DM_GAME_PAD_LAYOUT};
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index 7570ca0..0c965c7 100644
+index 0b52a7c..fc4ae35 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 @@ -1,4 +1,5 @@
@@ -634,7 +634,7 @@ index 7570ca0..0c965c7 100644
  
  static NSArray<GCController *> *gDuoHarnessControllers;
  static BOOL gDuoHarnessControllerSwizzleInstalled;
-@@ -732,7 +735,7 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
+@@ -797,7 +800,7 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
      [root.view layoutIfNeeded];
      UIView *game = [root valueForKey:@"game"];
      XCTAssertTrue(dm_setting_live("DM_PICTURE_FIT", NULL) && dm_setting_live("DM_OPMODE", NULL) && dm_setting_live("DM_RUMBLE", NULL)
@@ -643,7 +643,7 @@ index 7570ca0..0c965c7 100644
      XCTAssertFalse(dm_setting_live("DM_LANG", NULL), @"A setting the game reads once at start is not offered");
      XCTAssertFalse(dm_setting_live("DM_FPS_TARGET", NULL));
  
-@@ -754,6 +757,42 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
+@@ -819,6 +822,42 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
      dm_setting_live("DM_SHOW_FPS", "0"); XCTAssertTrue(fps.hidden);
  }
  
@@ -831,7 +831,7 @@ index a62565e..f0b35ca 100644
     "DM_TOUCH_HAPTICS","DM_RUMBLE","DM_SAVE","DM_ROMFS","DM_NVN_ENC_THREAD"};
   for(unsigned i=0;i<sizeof drop/sizeof *drop;i++)assert(dm_player_diagnostic_key(drop[i]));
 diff --git a/docs/settings.md b/docs/settings.md
-index cd0cbfa..bc8835e 100644
+index d3c9428..e584ded 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -3,7 +3,7 @@

@@ -23,10 +23,10 @@ Issue: LNPANDY/NX2Apple#123
  6 files changed, 16 insertions(+), 2 deletions(-)
 
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index fde01e3..60e94a4 100644
+index b1f1a89..8d7154e 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
-@@ -237,6 +237,9 @@ static int boot_env(void) {
+@@ -242,6 +242,9 @@ static int boot_env(void) {
      NSString *log = [doc stringByAppendingPathComponent:@"log.txt"], *prev = [doc stringByAppendingPathComponent:@"log.prev.txt"];
      [fm removeItemAtPath:prev error:nil]; [fm moveItemAtPath:log toPath:prev error:nil];
      if (freopen(log.fileSystemRepresentation, "w", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
@@ -94,7 +94,7 @@ index ae7edfb..fd2adc1 100644
      CFArrayRef rules = setting_rules();   // the settings the launch environment already set: the window shows them, fixed
      for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 53b7989..918f688 100755
+index 134682b..91b4ece 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -122,13 +122,20 @@ def settings_rules(listed):   # DMSettings: what the launcher accepts as each se

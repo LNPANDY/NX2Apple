@@ -63,7 +63,7 @@ index 5884467..02f668a 100644
          self.g.table('pso_pairs.tsv').write_text('v\tf6\n')
          self.assertEqual(self.ns['load_pairs'](self.g, self.package), {'v': {'f0', 'f6'}})
 diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
-index b1fdd2b..bd740b8 100644
+index 35e6f3c..379c2ce 100644
 --- a/dm/ios/tests/test_xcode_workflow.py
 +++ b/dm/ios/tests/test_xcode_workflow.py
 @@ -20,6 +20,7 @@ import game

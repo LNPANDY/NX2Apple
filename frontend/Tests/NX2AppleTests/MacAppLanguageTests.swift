@@ -190,7 +190,7 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         try generated.write(to: launcher)
         let language = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { $0 }, preferred: ["sv-SE"])?
             .first { $0.env == "DM_LANG" })
-        XCTAssertEqual(language.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+        XCTAssertEqual(language.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans", "pl", "th"])
         XCTAssertEqual(language.def, "en-US")
         XCTAssertEqual(language.note, "")
         // Reading options must not mutate resources inside a signed Mac app.

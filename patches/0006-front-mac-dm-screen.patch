@@ -35,7 +35,7 @@ index 904ba47..d2902da 100644
          screen_refresh(win.screen ?: NSScreen.mainScreen);
          g_win = win;
 diff --git a/docs/development.md b/docs/development.md
-index 66e1640..439acab 100644
+index 9b87066..3da0598 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -10,7 +10,7 @@ The README covers packing and playing. This page is for working on nxnative itse
