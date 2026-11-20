@@ -81,13 +81,14 @@ enum GalleryCoverage {
         "ControlsCard": [.settingsControls], "StickDeadzoneCard": [.settingsControls], "StickVisualizer": [.settingsControls],
         "KeysCard": [.settingsTools], "ToolsCard": [.settingsTools], "ShellCacheRow": [.settingsTools], "DiagnosticsButton": [.settingsTools],
         "BuildFilesCard": [.settingsTools], "DSOverflowMenu": [.settingsTools], "LauncherDropdown": [.settingsTools, .settings],
-        "UpstreamPicker": [.nxkitEngine], "DSRowMessageView": [.nxkitUnavailable, .desktop(D.nxkitUnreachable)],
-        "LauncherDropdownList": [.desktop(D.dropdownList)], "Hosted": [.settings, .settingsTools],
+        "UpstreamPicker": [.nxkitEngine, .desktop(D.mngBlocked)], "UpstreamBuilderRow": [.desktop(D.mngUpdateAvailable), .desktop(D.mngBlocked)],
+        "MacNativeGamesNotice": [.desktop(D.mngRecommend), .desktop(D.mngRecommendInstalled)], "DSRowMessageView": [.nxkitUnavailable, .desktop(D.nxkitUnreachable)],
+        "LauncherDropdownList": [.desktop(D.dropdownList), .desktop(D.mngDropdownDisabled)], "Hosted": [.settings, .settingsTools],
         // sheets and dialogs
         "LauncherConfirmSheet": [.sheet(.removeGame)], "DSSheet": [.sheet(.removeGame), .sheet(.rename)], "DSSheetConfirmButtons": [.sheet(.removeGame)],
         "DSSheetHeader": [.sheet(.batchRefresh), .sheet(.appUpdate)], "DSSheetButtonRow": [.sheet(.batchRefresh)], "DSSheetPrimaryButton": [.sheet(.rename)],
         "DSScrollingSheet": [.sheet(.saves), .sheet(.controlsSheet)], "DSPathText": [.sheet(.freeSpace)], "DSInlineWarning": [.sheet(.cloudUnreadable)],
-        "DSTag": [.sheet(.supportedGames), .sheet(.cheats)], "DSTextButton": [.sheet(.buildSteps), .settingsTools],
+        "DSTag": [.sheet(.supportedGames), .sheet(.cheats), .desktop(D.mngLibrary), .desktop(D.mngUpdateAvailable)], "DSTextButton": [.sheet(.buildSteps), .settingsTools],
         "DeleteGameSheet": [.sheet(.deleteGame), .desktop(D.deleteGameIOS)], "RenameGameSheet": [.sheet(.rename)],
         "ConsoleControllersSheet": [.sheet(.controllersSheet)], "ControlsView": [.sheet(.controlsSheet)], "PadModeSection": [.sheet(.controlsSheet)],
         "ControllerMappingStatus": [.sheet(.controlsSheet)], "SteamControllerSection": [.sheet(.controlsSheet)],
@@ -171,7 +172,7 @@ enum GalleryCoverage {
         "engine.failure": [.libraryNoticeError, .settingsEngineError], "engine.syncing": [.libraryEngineSyncing],
         "library.skippedBanner": [.libraryNoticeWarning], "hero.signature": [.desktop(D.heroSignature)], "hero.refresh": [.libraryEngineUpdate],
         "hero.switch2": [.librarySwitch2], "hero.gatekeeper": [.libraryGatekeeper], "hero.resign": [.desktop(D.heroResign)],
-        "build.setup": [.buildsSetupHint],
+        "build.setup": [.buildsSetupHint], "build.mngRecommend": [.desktop(D.mngRecommend), .desktop(D.mngRecommendInstalled)],
     ]
 
     /// Every case of `stateEnums`, as "<enum>.<case>", and the scenes that show it.
@@ -279,7 +280,7 @@ enum GalleryCoverage {
     /// What no scene shows, and why: kept short. Each reason names the items it covers.
     static let reasons: [(reason: String, items: [String])] = [
         ("Not used by the launcher: no view creates it, only tests host it.",
-         ["EngineSwitcherCard", "EngineDropdownPanel", "EngineExperimentalBadge", "LauncherCustomDropdownBox", "BuildFooterReveal", "ConsoleChoiceRow",
+         ["EngineSwitcherCard", "EngineDropdownPanel", "EngineExperimentalBadge", "UpstreamVersionPill", "LauncherCustomDropdownBox", "BuildFooterReveal", "ConsoleChoiceRow",
           "ManageButtonLabel", "EngineSwitcherCard.swift .popover EngineDropdownPanel"]),
         ("A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it.",
          ["OnboardingKeysContent.swift .popover VStack", "LibraryArtworkState.swift .popover Text", "LauncherInfoHelp.swift .popover VStack",
@@ -287,7 +288,6 @@ enum GalleryCoverage {
         ("A context menu: macOS draws its items as a menu.", ["LibraryCardContextMenuContent"]),
         ("The app's roots: they choose the onboarding, the launcher or the console demo, whose scenes show what they draw.",
          ["RootView", "ConsoleInLanguage", "ConsoleDemoView"]),
-        ("Rows of MacNativeGames and S2Arm: a developer's engines, set up from a folder of their own (NX2APPLE_MULTI_UPSTREAM).", ["UpstreamBuilderRow"]),
     ]
 
     /// The reason for `item`, nil when none is given.

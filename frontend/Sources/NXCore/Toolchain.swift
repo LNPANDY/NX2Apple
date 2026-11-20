@@ -195,8 +195,9 @@ package enum Toolchain {
     ) -> (ok: Bool, log: String) {
         var log = ""
         func makeEnv() -> [String: String] {
-            ["PATH": BundledTools.path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: base), "HOME": NSHomeDirectory()]
+            let baseEnv = ["PATH": BundledTools.path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: base), "HOME": NSHomeDirectory()]
                 .merging(BundledTools.environment(for: base)) { $1 }
+            return ProxyEnvironment.merged(into: baseEnv)
         }
         func runCapturedOrStreamed(_ exe: String, _ args: [String], lineHandler: ((String) -> Void)? = nil) -> Bool {
             let env = makeEnv()

@@ -39,6 +39,15 @@ struct LibraryGameCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: LibraryCardLayout.radius))
                 // the chip above the clip, inset from the top and leading edge, clear of the corner radius
                 .overlay(alignment: .topLeading) { LibraryArtworkChip(state: state).padding(DS.Interaction.chipInset) }
+                .overlay(alignment: .topTrailing) {
+                    // built with MacNativeGames: a property of the app, a quiet tag in the other corner
+                    if state.isMacNativeGames {
+                        DSTag(loc.t("library.chip.mng"), emphasized: true)
+                            .help(loc.t("library.mng.help"))
+                            .accessibilityLabel(loc.t("library.mng.help"))
+                            .padding(DS.Interaction.chipInset)
+                    }
+                }
                 .dsCardArt(radius: LibraryCardLayout.radius, selected: selected, focused: focused)
                 Text(title).font(DS.Font.headline).lineLimit(1)
                     .opacity(LibraryArtworkTone.titleOpacity(muted: state.monochrome, active: isColorActive))

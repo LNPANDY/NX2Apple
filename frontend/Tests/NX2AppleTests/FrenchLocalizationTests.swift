@@ -32,7 +32,7 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "ios.host.ok", "ios.host.shellName", "ios.ui.interface", "ios.ui.padPlus", "ios.ui.version", "ios.ui.touchEditorPortrait", "ios.ui.gameVersionLabel",
         // Brand and device names on the batch refresh badge and platform tags.
         "batchRefresh.versionBadge", "batchRefresh.platformIOS", "batchRefresh.platformMac",
-        "library.section.mac", "library.section.mobile",
+        "library.section.mac", "library.section.mobile", "library.chip.mng",
     ]
 
     func testNothingIsLeftInEnglishButTheListedNames() {

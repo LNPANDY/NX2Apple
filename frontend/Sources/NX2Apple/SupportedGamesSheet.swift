@@ -50,6 +50,11 @@ struct SupportedGamesSheet: View {
         GameUpdateCatalog.catalogVersion(for: titleID) == GameUpdateCatalog.releaseBaseVersion(appVersion)
     }
 
+    /// One of the titles MacNativeGames maintains (and MacNativeGames is offered at all).
+    static func isMacNativeGamesSupported(_ game: SupportedGame) -> Bool {
+        MacNativeGamesBuilder.featureEnabled && MacNativeGamesBuilder.supportsTitleID(game.titleID)
+    }
+
     /// The release as the tag says it: "1.5" for 1.5.0, a patch release in full.
     static func shortVersion(_ version: String) -> String {
         let parts = version.split(separator: ".")
@@ -76,6 +81,10 @@ struct SupportedGamesSheet: View {
             } else {
                 fields.append(improvedName)
             }
+        }
+        if isMacNativeGamesSupported(game) {   // "MacNativeGames" or "MNG" finds the titles it maintains
+            fields.append(EngineUpstreamKind.macNativeGames.displayName)
+            fields.append("MNG")
         }
         return fields.contains {
             $0.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
@@ -216,6 +225,7 @@ private struct SupportedGameRow: View {
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         HStack(alignment: .center, spacing: DS.Space.xs) {
                             Text(game.name).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
+                            if SupportedGamesSheet.isMacNativeGamesSupported(game) { DSTag(EngineUpstreamKind.macNativeGames.displayName) }
                             if let improved { DSTag(improved) }
                         }
                         Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).multilineTextAlignment(.leading)

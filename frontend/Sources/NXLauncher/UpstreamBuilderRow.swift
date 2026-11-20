@@ -15,7 +15,8 @@ package struct UpstreamPicker: View {
             options: UpstreamBuilderRow.options(build, loc),
             selection: build.buildUpstream.rawValue,
             label: loc.t("engine.title"),
-            style: .button
+            style: .button,
+            disabledValues: UpstreamBuilderRow.disabledValues(build)
         ) { raw in
             if let kind = EngineUpstreamKind(rawValue: raw) {
                 build.selectUpstream(kind)
@@ -26,7 +27,8 @@ package struct UpstreamPicker: View {
     }
 
     private func cycle(_ by: Int) {
-        let options = UpstreamBuilderRow.options(build, loc)
+        let disabled = UpstreamBuilderRow.disabledValues(build)
+        let options = UpstreamBuilderRow.options(build, loc).filter { !disabled.contains($0.value) }
         guard !build.running, let index = options.firstIndex(where: { $0.value == build.buildUpstream.rawValue }), !options.isEmpty,
               let kind = EngineUpstreamKind(rawValue: options[(index + by + options.count) % options.count].value) else { return }
         build.selectUpstream(kind)
@@ -60,6 +62,16 @@ package struct UpstreamBuilderRow: View {
         return opts
     }
 
+    /// The engines the pop-up shows but this game cannot take: MacNativeGames for a title outside the five it maintains (#1473).
+    package static func disabledValues(_ build: BuildStore) -> Set<String> {
+        build.isMNGBlockedByCurrentGame ? [EngineUpstreamKind.macNativeGames.rawValue] : []
+    }
+
+    /// MacNativeGames is in the pop-up and the picked game is not one of its five: the row says why it is dimmed.
+    static func mngBlocked(_ build: BuildStore) -> Bool {
+        MacNativeGamesBuilder.featureEnabled && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames) && build.isMNGBlockedByCurrentGame
+    }
+
     /// The Build engine row has the engine pop-up: more than one engine can build on this Mac.
     package static func offersPicker(_ build: BuildStore, _ loc: Localizer) -> Bool { options(build, loc).count > 1 }
 
@@ -85,6 +97,7 @@ package struct UpstreamBuilderRow: View {
             }
             return BuildEngineRow(detail: build.nxkitStatusLine, message: message, menu: menu)
         }
+        if mngBlocked(build) { return BuildEngineRow(message: .info(loc.t("upstream.mngOnlyFiveTitles"))) }
         guard NxkitBuilder.featureEnabled else { return BuildEngineRow() }
         switch build.nxkitAvailability {
         case .available: return BuildEngineRow()
@@ -96,54 +109,58 @@ package struct UpstreamBuilderRow: View {
     package var body: some View {
         if MacNativeGamesBuilder.featureEnabled && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames) {
             CardDivider()
-            let usable = build.macNativeGamesInstalled
-            let detailText: String = {
-                if build.macNativeGamesPath.isEmpty {
-                    return loc.t("upstream.notSelected")
-                }
-                if usable {
-                    return RepoLayout.shortPath(build.macNativeGamesPath)
-                }
-                return String(format: loc.t("upstream.mngInvalid"), RepoLayout.shortPath(build.macNativeGamesPath))
-            }()
-            CardRow(
-                loc.t("upstream.mngFolder"),
-                detail: detailText,
-                dot: usable ? LauncherPalette.ready : LauncherPalette.building,
-                help: build.macNativeGamesPath
-            ) {
-                Button(loc.t("upstream.choose")) {
-                    pickMNG()
-                }
-                .disabled(build.running)
-                .padTarget("set.upstream.mngFolder", scope: "main", enabled: !build.running) { if !build.running { pickMNG() } }
-            }
+            folderRow(.macNativeGames, title: loc.t("upstream.mngFolder"), path: build.macNativeGamesPath, usable: build.macNativeGamesInstalled,
+                      invalidKey: "upstream.mngInvalid", padID: "set.upstream.mngFolder", pick: pickMNG)
         }
         if S2ArmBuilder.featureEnabled && (build.s2armInstalled || build.buildUpstream == .s2arm) {
             CardDivider()
-            let usable = build.s2armInstalled
-            let detailText: String = {
-                if build.s2armPath.isEmpty {
-                    return loc.t("upstream.notSelected")
+            folderRow(.s2arm, title: loc.t("upstream.s2armFolder"), path: build.s2armPath, usable: build.s2armInstalled,
+                      invalidKey: "upstream.s2armInvalid", padID: "set.upstream.s2armFolder", pick: pickS2Arm)
+        }
+    }
+
+    /// One external engine's row (#1473): its folder, its version as a tag (an arrow and text.primary when GitHub has a newer one),
+    /// Update in the column when it has, Check for updates and Choose in the "…". While it downloads the column says how far.
+    @ViewBuilder private func folderRow(_ kind: EngineUpstreamKind, title: String, path: String, usable: Bool, invalidKey: String,
+                                        padID: String, pick: @escaping () -> Void) -> some View {
+        let state = build.upstreamState(kind)
+        let hasUpdate = build.upstreamHasUpdate(kind)
+        let detail = path.isEmpty ? loc.t("upstream.notSelected")
+            : usable ? RepoLayout.shortPath(path) : String(format: loc.t(invalidKey), RepoLayout.shortPath(path))
+        let failure = UpstreamStatusText.failure(state, loc)
+        let idle = !build.running && !state.isBusy
+        let download = { if idle { _ = build.downloadUpstream(kind) } }
+        CardRow(title, detail: detail, dot: usable ? LauncherPalette.ready : LauncherPalette.building, help: path,
+                message: failure.map { .error($0) }) {
+            if usable {
+                DSTag(build.upstreamVersionBadge(kind), emphasized: hasUpdate)
+                    .help(build.upstreamUpdateTooltip(kind) ?? "")
+            }
+            if let busy = UpstreamStatusText.busy(state, loc) {
+                SettingsUpdateAction(busy, busy: true) {}
+                    .disabled(true)
+            } else if hasUpdate || failure != nil {
+                DSOverflowMenu(label: loc.t("upstream.choose"), options: [("choose", loc.t("upstream.choose"))], padID: padID) { _ in
+                    if idle { pick() }
                 }
+                .disabled(!idle)
+                SettingsUpdateAction(loc.t(hasUpdate ? "upstream.update" : "upstream.retry"), prominent: hasUpdate, action: download)
+                    .disabled(!idle)
+                    .help(build.upstreamUpdateTooltip(kind) ?? "")
+                    .padTarget(padID + ".update", scope: "main", enabled: idle, activate: download)
+            } else {
                 if usable {
-                    return RepoLayout.shortPath(build.s2armPath)
+                    DSOverflowMenu(label: loc.t("repo.check"), options: [("check", loc.t("repo.check"))], padID: padID + ".check") { _ in
+                        if idle { _ = build.checkUpstreamUpdates(kinds: [kind], force: true) }
+                    }
+                    .disabled(!idle)
                 }
-                return String(format: loc.t("upstream.s2armInvalid"), RepoLayout.shortPath(build.s2armPath))
-            }()
-            CardRow(
-                loc.t("upstream.s2armFolder"),
-                detail: detailText,
-                dot: usable ? LauncherPalette.ready : LauncherPalette.building,
-                help: build.s2armPath
-            ) {
-                Button(loc.t("upstream.choose")) {
-                    pickS2Arm()
-                }
-                .disabled(build.running)
-                .padTarget("set.upstream.s2armFolder", scope: "main", enabled: !build.running) { if !build.running { pickS2Arm() } }
+                Button(loc.t("upstream.choose"), action: pick)
+                    .disabled(build.running)
+                    .padTarget(padID, scope: "main", enabled: !build.running) { if !build.running { pick() } }
             }
         }
+        .onAppear { build.refreshUpstreamLocalVersion(for: kind) }
     }
 
     private func pickMNG() {

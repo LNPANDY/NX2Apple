@@ -303,6 +303,7 @@ class MainWindow(QMainWindow):
         if perform_startup_checks:
             for g in self.m.library.games:
                 self.m.artwork.request_banner_async(g.title_id)
+            self.m.check_upstream_updates()
 
         self._init_timer = QTimer(self)
         self._init_timer.setSingleShot(True)
@@ -1409,8 +1410,11 @@ class MainWindow(QMainWindow):
         self.eng_active_title.setObjectName('rowTitle')
         self.eng_experimental_badge = QLabel(self.m.t('engine.experimental'))
         self.eng_experimental_badge.setStyleSheet(self._experimental_badge_style())
+        self.eng_active_badge = QLabel(self.m.t('upstream.builtinBadge'))
+        self.eng_active_badge.setObjectName('engVersionBadge')
         title_row.addWidget(self.eng_active_title)
         title_row.addWidget(self.eng_experimental_badge)
+        title_row.addWidget(self.eng_active_badge)
         title_row.addStretch(1)
 
         self.eng_active_sub = QLabel(self.m.t('engine.switcherNote'))
@@ -1421,7 +1425,6 @@ class MainWindow(QMainWindow):
         self.eng_status_lbl.setStyleSheet(f'color: {style.AMBER}; font-size: 12px;')
         self.eng_status_lbl.setWordWrap(True)
         self.eng_status_lbl.setVisible(False)
-
         col.addLayout(title_row)
         col.addWidget(self.eng_active_sub)
         col.addWidget(self.eng_status_lbl)
@@ -1487,13 +1490,15 @@ class MainWindow(QMainWindow):
             hdr.setSpacing(6)
             title_lbl = QLabel(upstream_store.upstream_display_name(kind))
             title_lbl.setObjectName('rowTitle')
+            badge_lbl = QLabel()
+            badge_lbl.setObjectName('engVersionBadge')
             exp_badge = QLabel(self.m.t('engine.experimental'))
             exp_badge.setStyleSheet(self._experimental_badge_style())
             exp_badge.setVisible(not upstream_store.upstream_is_builtin(kind))
             hdr.addWidget(title_lbl)
+            hdr.addWidget(badge_lbl)
             hdr.addWidget(exp_badge)
             hdr.addStretch(1)
-
             pbar = QProgressBar()
             pbar.setFixedHeight(6)
             pbar.setTextVisible(False)
@@ -1505,6 +1510,23 @@ class MainWindow(QMainWindow):
             tcol.addWidget(pbar)
             tcol.addWidget(sub_lbl)
             rlay.addLayout(tcol, 1)
+
+            upd_btn = QPushButton(self.m.t('upstream.update'))
+            upd_btn.setCursor(Qt.PointingHandCursor)
+            upd_btn.setVisible(False)
+            upd_btn.setStyleSheet(
+                f'QPushButton {{ background: {style.ACCENT}; color: {style.ACCENT_INK}; '
+                f'border: none; border-radius: 11px; padding: 4px 10px; font-weight: 600; font-size: 11px; }}'
+                f'QPushButton:hover {{ background: {style.ACCENT_HOVER}; }}'
+                f'QPushButton:disabled {{ background: {style.ACCENT_DISABLED}; color: {style.MUTED}; }}'
+            )
+            upd_btn.clicked.connect(lambda _=False, k=kind: self.m.download_upstream(k))
+            rlay.addWidget(upd_btn)
+
+            check_lbl = QLabel('✓')
+            check_lbl.setStyleSheet(f'color: {style.GREEN}; font-weight: 700; font-size: 13px; padding-right: 2px;')
+            check_lbl.setVisible(False)
+            rlay.addWidget(check_lbl)
 
             act_btn = QPushButton()
             act_btn.setMinimumWidth(104)
@@ -1527,8 +1549,11 @@ class MainWindow(QMainWindow):
                 'dot': dot,
                 'title': title_lbl,
                 'exp_badge': exp_badge,
+                'badge': badge_lbl,
                 'bar': pbar,
                 'sub': sub_lbl,
+                'update_btn': upd_btn,
+                'check': check_lbl,
                 'btn': act_btn,
             }
 
@@ -1537,6 +1562,21 @@ class MainWindow(QMainWindow):
         self._eng_popup = popup
         return popup
 
+    @staticmethod
+    def _style_version_badge(label: QLabel, *, highlighted: bool, selected_tint: bool = False) -> None:
+        if highlighted:
+            label.setStyleSheet(
+                f'background: rgba(255, 240, 214, 0.14); color: {style.ACCENT}; '
+                f'border: 1px solid rgba(255, 240, 214, 0.28); border-radius: 9px; '
+                f'padding: 1px 6px; font-size: 10.5px; font-weight: 600;'
+            )
+        else:
+            fg = style.ACCENT if selected_tint else style.MUTED
+            label.setStyleSheet(
+                f'background: {style.BTN}; color: {fg}; border: none; '
+                f'border-radius: 9px; padding: 1px 6px; font-size: 10.5px; font-weight: 600;'
+            )
+
     def _toggle_engine_dropdown(self) -> None:
         if self.m.running:
             return
@@ -1544,6 +1584,7 @@ class MainWindow(QMainWindow):
         if popup.isVisible():
             popup.close()
             return
+        self.m.check_upstream_updates()
         self._refresh_engine_popup()
         popup.adjustSize()
         content_h = sum(
@@ -1585,8 +1626,11 @@ class MainWindow(QMainWindow):
             dot: StatusDot = refs['dot']  # type: ignore[assignment]
             title_lbl: QLabel = refs['title']  # type: ignore[assignment]
             exp_badge: QLabel = refs['exp_badge']  # type: ignore[assignment]
+            badge_lbl: QLabel = refs['badge']  # type: ignore[assignment]
             pbar: QProgressBar = refs['bar']  # type: ignore[assignment]
             sub_lbl: QLabel = refs['sub']  # type: ignore[assignment]
+            upd_btn: QPushButton = refs['update_btn']  # type: ignore[assignment]
+            check_lbl: QLabel = refs['check']  # type: ignore[assignment]
             btn: QPushButton = refs['btn']  # type: ignore[assignment]
 
             disp = upstream_store.upstream_display_name(kind)
@@ -1601,16 +1645,39 @@ class MainWindow(QMainWindow):
             frame.style().polish(frame)
 
             if st_kind in ('builtin', 'installed'):
-                badge = t('upstream.builtinBadge' if is_builtin else 'upstream.installedBadge')
-                title_lbl.setText(f'{disp} · {badge}')
+                has_upd = self.m.upstream_has_update(kind)
+                badge = self.m.upstream_version_badge(kind)
+                tooltip = self.m.upstream_update_tooltip(kind)
+                title_lbl.setText(disp)
+                badge_lbl.setText(badge)
+                badge_lbl.setVisible(True)
+                self._style_version_badge(badge_lbl, highlighted=has_upd, selected_tint=is_active)
+                badge_lbl.setToolTip(tooltip)
+                frame.setToolTip(tooltip or t('upstream.activeBadge' if is_active else 'upstream.readySwitch'))
                 _set_dot(dot, style.GREEN if is_active else style.NEUTRAL_DOT)
                 pbar.setVisible(False)
                 sub_lbl.setText(t(upstream_store.upstream_note_key(kind)))
-                btn.setText('✓  ' + t('upstream.activeBadge') if is_active else t('upstream.switchBtn'))
-                btn.setEnabled((not is_active) and (not self.m.running))
+                if has_upd:
+                    upd_btn.setText(t('upstream.update'))
+                    upd_btn.setToolTip(tooltip or t('upstream.update'))
+                    upd_btn.setEnabled(not self.m.running)
+                    upd_btn.setVisible(True)
+                    check_lbl.setVisible(is_active)
+                    btn.setVisible(False)
+                else:
+                    upd_btn.setVisible(False)
+                    check_lbl.setVisible(False)
+                    btn.setVisible(True)
+                    btn.setText('✓  ' + t('upstream.activeBadge') if is_active else t('upstream.switchBtn'))
+                    btn.setEnabled((not is_active) and (not self.m.running))
                 frame.setCursor(Qt.PointingHandCursor if (not is_active and not self.m.running) else Qt.ArrowCursor)
             elif st_kind == 'downloading':
                 title_lbl.setText(disp)
+                badge_lbl.setVisible(False)
+                upd_btn.setVisible(False)
+                check_lbl.setVisible(False)
+                btn.setVisible(True)
+                frame.setToolTip('')
                 _set_dot(dot, style.AMBER)
                 pbar.setVisible(True)
                 if frac is not None:
@@ -1624,6 +1691,11 @@ class MainWindow(QMainWindow):
                 frame.setCursor(Qt.ArrowCursor)
             elif st_kind == 'extracting':
                 title_lbl.setText(disp)
+                badge_lbl.setVisible(False)
+                upd_btn.setVisible(False)
+                check_lbl.setVisible(False)
+                btn.setVisible(True)
+                frame.setToolTip('')
                 _set_dot(dot, style.AMBER)
                 pbar.setVisible(True)
                 pbar.setRange(0, 0)
@@ -1633,6 +1705,11 @@ class MainWindow(QMainWindow):
                 frame.setCursor(Qt.ArrowCursor)
             elif st_kind == 'failed':
                 title_lbl.setText(disp)
+                badge_lbl.setVisible(False)
+                upd_btn.setVisible(False)
+                check_lbl.setVisible(False)
+                btn.setVisible(True)
+                frame.setToolTip('')
                 _set_dot(dot, style.AMBER)
                 pbar.setVisible(False)
                 sub_lbl.setText(t('upstream.downloadFailed' if detail == 'download' else 'upstream.extractFailed'))
@@ -1641,6 +1718,11 @@ class MainWindow(QMainWindow):
                 frame.setCursor(Qt.ArrowCursor)
             else:
                 title_lbl.setText(disp)
+                badge_lbl.setVisible(False)
+                upd_btn.setVisible(False)
+                check_lbl.setVisible(False)
+                btn.setVisible(True)
+                frame.setToolTip('')
                 _set_dot(dot, style.NEUTRAL_DOT)
                 pbar.setVisible(False)
                 sub_lbl.setText(t(upstream_store.upstream_note_key(kind)))
@@ -1654,9 +1736,15 @@ class MainWindow(QMainWindow):
         self.engine_group.set_title(t('engine.title'))
         active_kind = getattr(self.m, 'build_upstream', 'nxnative')
         disp = upstream_store.upstream_display_name(active_kind)
+        badge = self.m.upstream_version_badge(active_kind)
+        has_upd = self.m.upstream_has_update(active_kind)
+        tooltip = self.m.upstream_update_tooltip(active_kind)
         self.eng_active_title.setText(t('engine.switcherTitle'))
         self.eng_experimental_badge.setText(t('engine.experimental'))
         self.eng_active_sub.setText(t('engine.switcherNote'))
+        self.eng_active_badge.setText(badge)
+        self._style_version_badge(self.eng_active_badge, highlighted=has_upd)
+        self.eng_active_badge.setToolTip(tooltip)
 
         status_line = ''
         for kind in upstream_store.available_upstreams():

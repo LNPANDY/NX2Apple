@@ -59,6 +59,7 @@ struct ConsoleGame: Identifiable {
     var lastPlayed: Date?
     var playSeconds: Double = 0
     var olderTools = false
+    var isMacNativeGames = false
     var lastSave: Date?
 
     /// The console's order: the games this Mac can play first, then the rest, each group in the order it came in.

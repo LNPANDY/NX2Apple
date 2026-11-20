@@ -54,7 +54,7 @@ def sync(files: list[str], into: str, *, hard_links: bool = True) -> int:
     root.mkdir(parents=True, exist_ok=True)
     wanted = {staged_name(Path(f).name): f for f in files if f}
     for entry in root.iterdir():   # a stale entry from an earlier selection goes: only game files and links
-        if entry.is_symlink() or (entry.is_file() and entry.suffix.lower() in GAME_SUFFIXES):
+        if entry.is_symlink() or (entry.is_file() and (entry.suffix.lower() in GAME_SUFFIXES or entry.suffix.lower() == '.nup')):
             src = wanted.get(entry.name)
             if src and entry.exists() and _same(src, entry):
                 continue

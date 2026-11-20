@@ -66,6 +66,7 @@ extension BuildStore {
         } else if buildUpstream == .nxkit && !(isUpstreamEnabled(.nxkit) && nxkitInstalled) {
             buildUpstream = .nxnative
         }
+        refreshUpstreamLocalVersions()
     }
 
     package func isUpstreamInstalled(_ kind: EngineUpstreamKind) -> Bool {
@@ -100,7 +101,10 @@ extension BuildStore {
         case .nxnative:
             return true
         case .macNativeGames:
-            return MacNativeGamesBuilder.featureEnabled && macNativeGamesInstalled && !(upstreamDownloads[.macNativeGames]?.isBusy ?? false)
+            return MacNativeGamesBuilder.featureEnabled
+                && macNativeGamesInstalled
+                && !(upstreamDownloads[.macNativeGames]?.isBusy ?? false)
+                && !isMNGBlockedByCurrentGame
         case .s2arm:
             return S2ArmBuilder.featureEnabled && s2armInstalled && !(upstreamDownloads[.s2arm]?.isBusy ?? false)
         case .nxkit:
@@ -137,6 +141,7 @@ extension BuildStore {
         upstreamDownloads[kind] = .downloading(fraction: nil, progressText: "")
         let store = UpstreamEngineStore(root: upstreamsRootURL)
         let transport = upstreamTransport
+        let knownRemote = upstreamRemoteVersions[kind]
         let cancelFlag = UpstreamCancelFlag()
 
         let task = Task { [weak self] in
@@ -165,6 +170,7 @@ extension BuildStore {
                     return store.downloadAndInstall(
                         kind: kind,
                         transport: transport,
+                        remoteInfo: knownRemote,
                         shouldCancel: { cancelFlag.isCancelled },
                         onProgress: progress,
                         onExtracting: extracting
@@ -192,6 +198,7 @@ extension BuildStore {
                     break
                 }
                 self.upstreamDownloads.removeValue(forKey: kind)
+                self.didInstallUpstreamVersion(kind, previousRemote: knownRemote)
                 if !self.running {
                     self.selectUpstream(kind)
                     self.upstreamAutoSwitchRevision &+= 1

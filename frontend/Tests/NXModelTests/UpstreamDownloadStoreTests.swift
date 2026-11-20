@@ -362,4 +362,115 @@ import XCTest
         XCTAssertTrue(store.s2armInstalled)
         XCTAssertEqual(URL(fileURLWithPath: store.s2armPath).standardizedFileURL, installedS2.standardizedFileURL)
     }
+
+    func testCheckUpstreamUpdatesCachesSuccessSkipsFailedCacheAndClearsAfterUpdate() async throws {
+        final class VersionedTransport: EngineTransport, @unchecked Sendable {
+            var dataByURL: [URL: EngineFetch<Data>] = [:]
+            var archivesByURL: [URL: URL] = [:]
+            private let lock = NSLock()
+            var dataHits: [URL: Int] = [:]
+
+            func data(from url: URL) -> EngineFetch<Data> {
+                lock.lock()
+                dataHits[url, default: 0] += 1
+                let reply = dataByURL[url] ?? .failed
+                lock.unlock()
+                return reply
+            }
+
+            func download(from url: URL, to destination: URL) -> Bool {
+                guard let src = archivesByURL[url], let payload = try? Data(contentsOf: src) else { return false }
+                return (try? payload.write(to: destination)) != nil
+            }
+        }
+
+        let oldSHA = "1111111111111111111111111111111111111111"
+        let newSHA = "2222222222222222222222222222222222222222"
+        let s2RefsURL = try XCTUnwrap(UpstreamVersion.infoRefsURL(for: .s2arm))
+        let s2ArchiveURL = try XCTUnwrap(UpstreamEngineStore.archiveURL(for: .s2arm))
+
+        // Build zip with EOCD comment = newSHA via python3
+        let newZip = temporary.appendingPathComponent("s2arm-v058.zip")
+        let s2Dir = temporary.appendingPathComponent("S2Arm-v058", isDirectory: true)
+        try FileManager.default.createDirectory(at: s2Dir.appendingPathComponent("pack/jobs"), withIntermediateDirectories: true)
+        try Data("#!/usr/bin/env python3\n".utf8).write(to: s2Dir.appendingPathComponent("pack/jobs/main.py"))
+        try FileManager.default.createDirectory(at: s2Dir.appendingPathComponent("runtime/rewriter"), withIntermediateDirectories: true)
+        try Data("/* rewriter */\n".utf8).write(to: s2Dir.appendingPathComponent("runtime/rewriter/rewriter.c"))
+        try FileManager.default.createDirectory(at: s2Dir.appendingPathComponent("pack/oneclick"), withIntermediateDirectories: true)
+        try Data("#!/bin/bash\n".utf8).write(to: s2Dir.appendingPathComponent("pack/oneclick/oneclick.sh"))
+        let py = Process()
+        py.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        py.arguments = ["-c", """
+        import os, sys, zipfile
+        src, dst, sha = sys.argv[1], sys.argv[2], sys.argv[3]
+        with zipfile.ZipFile(dst, "w") as zf:
+            for base, _, files in os.walk(src):
+                for fn in files:
+                    full = os.path.join(base, fn)
+                    zf.write(full, os.path.join("S2Arm-main", os.path.relpath(full, src)))
+            zf.comment = sha.encode("utf-8")
+        """, s2Dir.path, newZip.path, newSHA]
+        try py.run()
+        py.waitUntilExit()
+        XCTAssertEqual(py.terminationStatus, 0)
+
+        let transport = VersionedTransport()
+        transport.archivesByURL[s2ArchiveURL] = newZip
+
+        let store = makeStore(transport: transport)
+        let engineStore = UpstreamEngineStore(root: store.upstreamsRootURL)
+        let installed = try engineStore.install(
+            zip: try makeS2ArmZip(),
+            kind: .s2arm,
+            remoteInfo: UpstreamRemoteInfo(kind: .s2arm, commit: oldSHA, version: "v0.5.7", date: "2026.11.10")
+        )
+        store.s2armPath = installed.path
+
+        // 1. Failed fetch must NOT be cached.
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        await store.checkUpstreamUpdates(kinds: [.s2arm], now: t0).value
+        XCTAssertFalse(store.upstreamHasUpdate(.s2arm))
+        XCTAssertEqual(transport.dataHits[s2RefsURL], 1)
+
+        // 2. Subsequent call retries immediately and detects the update via Git Smart HTTP info/refs.
+        transport.dataByURL[s2RefsURL] = .ok(Data((
+            "001e# service=git-upload-pack\n"
+            + "0000003d\(newSHA) refs/heads/main\n"
+            + "003e\(newSHA) refs/tags/v0.5.8\n"
+        ).utf8))
+        await store.checkUpstreamUpdates(kinds: [.s2arm], now: t0.addingTimeInterval(5)).value
+        XCTAssertEqual(transport.dataHits[s2RefsURL], 2)
+        XCTAssertTrue(store.upstreamHasUpdate(.s2arm))
+        XCTAssertEqual(store.upstreamVersionBadge(.s2arm), "v0.5.7 ↑")
+        XCTAssertEqual(store.upstreamUpdateTooltip(.s2arm), "Update available: v0.5.8 (2222222)")
+
+        // 3. Within 10-minute TTL, cached result avoids a repeat network call.
+        await store.checkUpstreamUpdates(kinds: [.s2arm], now: t0.addingTimeInterval(300)).value
+        XCTAssertEqual(transport.dataHits[s2RefsURL], 2)
+
+        // 4. Updating S2Arm writes the new receipt and clears hasUpdate.
+        await store.downloadUpstream(.s2arm).value
+        XCTAssertFalse(store.upstreamHasUpdate(.s2arm))
+        XCTAssertEqual(store.upstreamVersionBadge(.s2arm), "v0.5.8")
+        XCTAssertNil(store.upstreamUpdateTooltip(.s2arm))
+
+        // 5. Same-commit receipt whose version was a bare short SHA auto-upgrades to semantic tag and persists.
+        let s2DirURL = URL(fileURLWithPath: store.s2armPath, isDirectory: true)
+        try UpstreamVersion.writeReceipt(
+            UpstreamVersionReceipt(commit: newSHA, version: "2222222", installedAt: "2026.11.19"),
+            to: s2DirURL
+        )
+        store.refreshUpstreamLocalVersion(for: .s2arm)
+        XCTAssertEqual(store.upstreamVersionBadge(.s2arm), "2222222")
+
+        transport.dataByURL[s2RefsURL] = .ok(Data("003d\(newSHA) refs/heads/main\n003e\(oldSHA) refs/tags/v0.5.8\n".utf8))
+        await store.checkUpstreamUpdates(kinds: [.s2arm], force: true, now: t0.addingTimeInterval(900)).value
+        XCTAssertEqual(store.upstreamVersionBadge(.s2arm), "v0.5.8+")
+        XCTAssertFalse(store.upstreamHasUpdate(.s2arm))
+        let deadline = Date().addingTimeInterval(2)
+        while UpstreamVersion.readReceipt(in: s2DirURL)?.version != "v0.5.8+" && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertEqual(UpstreamVersion.readReceipt(in: s2DirURL)?.version, "v0.5.8+")
+    }
 }

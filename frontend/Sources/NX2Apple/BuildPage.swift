@@ -118,6 +118,7 @@ struct BuildPage: View {
                     queueSection(showsHeading: !queueReview)
                 } else {
                     FilesCard(build: build, library: library, artworkStore: artworkStore, fetchMetadata: fetchMetadata, extrasOpen: $extrasOpen)
+                    MacNativeGamesNotice(build: build)   // the picked title is one MacNativeGames maintains (#1473)
                     TargetCard(build: build)
                 }
             }

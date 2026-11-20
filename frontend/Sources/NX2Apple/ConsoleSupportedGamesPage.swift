@@ -151,6 +151,19 @@ import NXLauncher
         SupportedGamesSheet.detailText(for: game, t: t)
     }
 
+    /// A quiet tag as on the desktop (DSTag): cream is for the selected and the primary only.
+    private func tag(_ text: String) -> some View {
+        Text(text)
+            .font(.manrope(compact ? 12 : 14, .semibold))
+            .foregroundStyle(DS.Color.textSecondary)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, compact ? 8 : 10)
+            .padding(.vertical, 3)
+            .background(DS.Color.surfaceRaised, in: DSPill())
+            .overlay(DSPill().strokeBorder(DS.Color.separator))
+    }
+
     private func row(_ game: SupportedGame) -> some View {
         let id = "console.supported.row." + game.titleID
         let open = expanded == game.titleID
@@ -164,17 +177,10 @@ import NXLauncher
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .center, spacing: 10) {
                             Text(game.name).font(.manrope(compact ? 19 : 23, .semibold)).lineLimit(2)
-                            if let improved {   // Widescreen is in the subtitle, a property, not a tag (#1458)
-                                Text(improved)   // a quiet tag as on the desktop (DSTag): cream is for the selected and the primary only
-                                    .font(.manrope(compact ? 12 : 14, .semibold))
-                                    .foregroundStyle(DS.Color.textSecondary)
-                                    .lineLimit(1)
-                                    .fixedSize()
-                                    .padding(.horizontal, compact ? 8 : 10)
-                                    .padding(.vertical, 3)
-                                    .background(DS.Color.surfaceRaised, in: DSPill())
-                                    .overlay(DSPill().strokeBorder(DS.Color.separator))
+                            if SupportedGamesSheet.isMacNativeGamesSupported(game) {   // one of the titles MacNativeGames maintains
+                                tag(EngineUpstreamKind.macNativeGames.displayName)
                             }
+                            if let improved { tag(improved) }   // Widescreen is in the subtitle, a property, not a tag (#1458)
                         }
                         Text(detail(game)).font(.manrope(compact ? 14 : 17)).foregroundStyle(LauncherPalette.secondaryText)
                     }

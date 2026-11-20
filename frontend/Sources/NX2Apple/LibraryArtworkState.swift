@@ -91,6 +91,8 @@ struct LibraryArtworkState: Equatable {
     let mac: Bool
     let ios: Bool
     let attention: Attention
+    let macUpstream: EngineUpstreamKind?
+    var isMacNativeGames: Bool { mac && macUpstream == .macNativeGames }
     /// The art is dimmed a little, never grey (#1458): the chip says why.
     var monochrome: Bool { attention != .none }
     var chipKey: String? {
@@ -110,19 +112,26 @@ struct LibraryArtworkState: Equatable {
         if attention == .none || attention == .building { return DS.Color.textPrimary }   // a property or a running build: neutral
         return DS.Color.statusWarning   // needs attention
     }
-    init(mac: Bool, ios: Bool, attention: Attention) {
+    init(mac: Bool, ios: Bool, attention: Attention, macUpstream: EngineUpstreamKind? = nil) {
         self.mac = mac
         self.ios = ios
         self.attention = attention
+        self.macUpstream = macUpstream
     }
     init(_ game: LibraryGame, building: Bool = false, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
         var missingMacData = false
+        var detectedUpstream: EngineUpstreamKind? = nil
         if game.appPath.isEmpty { mac = false }
         else {
-            do { mac = try MacGameBundle.read(URL(fileURLWithPath: game.appPath)).titleID == game.titleID }
+            do {
+                let bundle = try MacGameBundle.read(URL(fileURLWithPath: game.appPath))
+                mac = bundle.titleID == game.titleID
+                if mac { detectedUpstream = bundle.upstream }
+            }
             catch MacGameBundle.Invalid.missingData { mac = false; missingMacData = true }
             catch { mac = false }
         }
+        macUpstream = detectedUpstream
         ios = game.hasIOSBuild
         if mac { attention = .none }
         else if building { attention = .building }

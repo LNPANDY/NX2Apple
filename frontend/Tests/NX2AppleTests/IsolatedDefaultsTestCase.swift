@@ -1,3 +1,5 @@
+import Darwin
+import IOKit.pwr_mgt
 import XCTest
 @testable import NXLauncher
 
@@ -27,7 +29,24 @@ class IsolatedDefaultsTestCase: XCTestCase {
     /// The domain the process reads and writes through `UserDefaults.standard`.
     static var sharedDomain: String { Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName }
 
+    private static let testProcessActivity: NSObjectProtocol = ProcessInfo.processInfo.beginActivity(
+        options: [.userInitiated, .idleDisplaySleepDisabled],
+        reason: "NX2AppleTests offscreen rendering and RunLoop timers"
+    )
+    private static var lastDisplayWake: CFAbsoluteTime = 0
+
+    private static func keepDisplayAndRunLoopAwake() {
+        _ = testProcessActivity
+        let now = CFAbsoluteTimeGetCurrent()
+        guard now - lastDisplayWake > 60 else { return }
+        lastDisplayWake = now
+        var assertionID = IOPMAssertionID(0)
+        IOPMAssertionDeclareUserActivity("NX2AppleTests" as CFString, kIOPMUserActiveLocal, &assertionID)
+    }
+
     private static let sharedDomainCleared: Void = {
+        setvbuf(stdout, nil, _IOLBF, 0)
+        setvbuf(stderr, nil, _IONBF, 0)
         UserDefaults.standard.removePersistentDomain(forName: sharedDomain)
     }()
 
@@ -43,6 +62,7 @@ class IsolatedDefaultsTestCase: XCTestCase {
 
     override func invokeTest() {
         _ = Self.sharedDomainCleared
+        Self.keepDisplayAndRunLoopAwake()
         let before = Self.sharedKeys()
         let writes = WriteCounter()
         let observer = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: UserDefaults.standard,

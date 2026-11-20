@@ -219,7 +219,8 @@ struct ConsolePadSnapshot: Equatable {
                            platforms: Self.platforms(of: game), artwork: cover(game), artworkFocus: game.artwork.focus(for: .thumbnail),
                            status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values,
                            mapsButtons: game.isReady && SavedChoices.appReadsControllerMappings(app: game.appPath)
-                               && game.controllerSavingEnabled(environment: game.launchOptions)))
+                               && game.controllerSavingEnabled(environment: game.launchOptions),
+                           isMacNativeGames: game.playableMacBundle?.upstream == .macNativeGames))
     }
 
     /// The library's game behind a console game (LiveConsoleDriver+Mapping.swift reads its own button mapping).

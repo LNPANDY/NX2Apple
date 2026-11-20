@@ -76,6 +76,7 @@ package struct UpstreamEngineStore: Sendable {
     package func install(
         zip: URL,
         kind: EngineUpstreamKind,
+        remoteInfo: UpstreamRemoteInfo? = nil,
         shouldCancel: (@Sendable () -> Bool)? = nil
     ) throws -> URL {
         guard let dest = directory(for: kind) else {
@@ -129,15 +130,18 @@ package struct UpstreamEngineStore: Sendable {
             }
         }
 
+        let receipt = UpstreamVersion.receiptForInstall(kind: kind, zipURL: zip, remoteInfo: remoteInfo)
+        try? UpstreamVersion.writeReceipt(receipt, to: source)
+
+        if kind == .s2arm {
+            S2ArmBootstrap.ensureGitRepo(in: source.path)
+        }
+
         if shouldCancel?() == true {
             throw Failure.cancelled
         }
 
         try replace(dest: dest, with: source, kind: kind)
-        guard Self.isUsableTree(dest.path, kind: kind, fileManager: fm) else {
-            try? fm.removeItem(at: dest)
-            throw Failure.incomplete
-        }
         return dest
     }
 
@@ -172,7 +176,7 @@ package struct UpstreamEngineStore: Sendable {
         }
     }
 
-    /// `source` takes the place of `dest`. The old folder is kept until the new one is in, and put back when the move fails.
+    /// `source` takes the place of `dest`. The old folder is kept until the new one is in, and put back when the move fails or the new tree is not usable.
     func replace(dest: URL, with source: URL, kind: EngineUpstreamKind) throws {
         let fm = FileManager.default
         try? fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -194,6 +198,13 @@ package struct UpstreamEngineStore: Sendable {
             }
             throw Failure.unpack
         }
+        guard Self.isUsableTree(dest.path, kind: kind, fileManager: fm) else {
+            try? fm.removeItem(at: dest)
+            if hadExisting && fm.fileExists(atPath: backup.path) {
+                try? fm.moveItem(at: backup, to: dest)
+            }
+            throw Failure.incomplete
+        }
         if fm.fileExists(atPath: backup.path) {
             try? fm.removeItem(at: backup)
         }
@@ -202,6 +213,7 @@ package struct UpstreamEngineStore: Sendable {
     package func downloadAndInstall(
         kind: EngineUpstreamKind,
         transport: EngineTransport,
+        remoteInfo: UpstreamRemoteInfo? = nil,
         shouldCancel: (@Sendable () -> Bool)? = nil,
         onProgress: (@Sendable (Int64, Int64?) -> Void)? = nil,
         onExtracting: (@Sendable () -> Void)? = nil
@@ -224,9 +236,24 @@ package struct UpstreamEngineStore: Sendable {
         guard ok else {
             return .failure(.download)
         }
+        let resolvedRemote: UpstreamRemoteInfo?
+        if let remoteInfo {
+            resolvedRemote = remoteInfo
+        } else if shouldCancel?() != true {
+            resolvedRemote = UpstreamVersion.fetchRemoteInfo(
+                for: kind,
+                transport: transport,
+                timeout: UpstreamVersion.quickFetchTimeout
+            )
+        } else {
+            resolvedRemote = nil
+        }
+        if shouldCancel?() == true {
+            return .failure(.cancelled)
+        }
         onExtracting?()
         do {
-            return .success(try install(zip: zipFile, kind: kind, shouldCancel: shouldCancel))
+            return .success(try install(zip: zipFile, kind: kind, remoteInfo: resolvedRemote, shouldCancel: shouldCancel))
         } catch let err as Failure {
             return .failure(err)
         } catch {

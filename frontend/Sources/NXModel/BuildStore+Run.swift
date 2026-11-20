@@ -88,47 +88,7 @@ extension BuildStore {
         nxkitRun = false
         nxkitFeedback = nil   // the last build's question goes with its result (#1460)
         if isMacNativeGamesSelected {
-            if let why = macNativeGamesProblem() {
-                fail(why)
-                return
-            }
-            mngRun = true
-            let py = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
-            let baseDir = inputFolder
-            let tidHex = buildKey
-            let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
-            if cloudFolderCheck(workDir) {
-                failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
-                fail(failureWhat(failure!))
-                return
-            }
-            let compressed = ([basePath, updatePath] + dlcPaths).contains {
-                let e = ($0 as NSString).pathExtension.lowercased()
-                return e == "nsz" || e == "xcz"
-            }
-            if compressed, !Toolchain.runOK(py, ["-c", "import nsz"]) {
-                say(t("msg.installingNsz"))
-                let r = runner.runCaptured([py, "-m", "pip", "install", "nsz"],
-                                         env: ["PATH": BuildCommands.toolPath(python: py),
-                                               "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: py)) { $1 }) { @Sendable line in
-                    hop { self.append(line + "\n") }
-                }
-                if !r {
-                    fail(String(format: t("msg.nszFailed"), py))
-                    return
-                }
-            }
-            try? FileManager.default.createDirectory(atPath: workDir, withIntermediateDirectories: true)
-            let macOutput = MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, preferred: macAppPath)
-            oneGameIPAPath = ""
-            macAppPath = ""
-            effectiveWorkDir = workDir
-            let denv = toolEnvironment(python: py)
-            guard let launch = macNativeGamesLaunch(python: py, workDir: workDir, outputAppPath: macOutput.builderURL.path, environment: denv) else {
-                fail(String(format: t("upstream.mngUnsupportedGame"), gameTitleID ?? ""))
-                return
-            }
-            startBuildProcess(launch: launch, envCleanup: nil, macOutput: macOutput)
+            startMacNativeGamesBuild()
             return
         }
         if isNxkitSelected {
@@ -170,64 +130,7 @@ extension BuildStore {
             return
         }
         if isS2ArmSelected {
-            if let why = s2armProblem() {
-                fail(why)
-                return
-            }
-            s2armRun = true
-            let py = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
-            let baseDir = inputFolder
-            let tidHex = buildKey
-            let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
-            if cloudFolderCheck(workDir) {
-                failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
-                fail(failureWhat(failure!))
-                return
-            }
-            let folder = gameFolder
-            let allPaths = folder != nil ? [] : [basePath, updatePath] + dlcPaths
-            let dirs = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).deletingLastPathComponent })
-            let picked = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).lastPathComponent })
-            let unpicked = folder != nil ? [] : ((try? FileManager.default.contentsOfDirectory(atPath: baseDir)) ?? []).filter {
-                ["nsp", "xci", "nsz", "xcz"].contains(($0 as NSString).pathExtension.lowercased()) && !picked.contains($0)
-            }
-            var staged = allPaths
-            if folder == nil, let base = selectedTitleID.flatMap({ UInt64($0, radix: 16) }) ?? TitleID.parse(basePath) {
-                let app = base & ~0xFFF
-                for f in unpicked {
-                    guard let tid = TitleID.parse(f) else { continue }
-                    let low = tid & 0xFFF
-                    let owner = low == 0 ? tid : (low == 0x800 ? tid & ~0xFFF : (tid & ~0xFFF) - 0x1000)
-                    guard owner == app else { continue }
-                    if low == 0x800 && !updatePath.isEmpty { continue }
-                    if low != 0 && low != 0x800 && tid <= app { continue }
-                    staged.append(baseDir + "/" + f)
-                }
-            }
-            var sourceInput = folder?.scriptInput ?? baseDir
-            if folder == nil && (dirs.count > 1 || !unpicked.isEmpty || staged.contains(where: InputStaging.needsLowercaseName)) {
-                let tmp = InputStaging.folder(workDir: workDir)
-                let linked = InputStaging.sync(files: staged, into: tmp)
-                if linked == 0 {
-                    fail(t("msg.stagingFailed"))
-                    return
-                }
-                staging = tmp
-                sourceInput = tmp
-                if !unpicked.isEmpty {
-                    say(String(format: t("msg.stagedFromSharedFolder"), (basePath as NSString).lastPathComponent))
-                }
-            } else {
-                staging = nil
-            }
-            try? FileManager.default.createDirectory(atPath: workDir, withIntermediateDirectories: true)
-            s2armEventsPath = workDir + "/s2a-events.jsonl"
-            effectiveWorkDir = workDir
-            oneGameIPAPath = ""
-            macAppPath = ""
-            let denv = toolEnvironment(python: py)
-            let launch = s2armLaunch(python: py, sourceInput: sourceInput, workDir: workDir, eventsFile: s2armEventsPath, environment: denv)
-            startBuildProcess(launch: launch, envCleanup: nil, macOutput: nil)
+            startS2ArmBuild()
             return
         }
         guard repo.isRepo else {
@@ -414,7 +317,7 @@ extension BuildStore {
         startBuildProcess(launch: launch, envCleanup: tempEnvURL, macOutput: macOutput)
     }
 
-    private func startBuildProcess(launch: ProcessLaunch, envCleanup: URL?, macOutput: MacAppOutput?) {
+    func startBuildProcess(launch: ProcessLaunch, envCleanup: URL?, macOutput: MacAppOutput?) {
         let utf8 = UTF8StreamDecoder.Locked()
         let onExit: @Sendable (Int32) -> Void = { [weak self] status in
             if let envCleanup { try? FileManager.default.removeItem(at: envCleanup) }
@@ -429,17 +332,17 @@ extension BuildStore {
                     self.finishMacApp(macOutput)
                     return
                 }
+                if status == 0, !self.stopping, self.s2armRun {
+                    self.fastRefreshExternalImgPath = nil
+                    self.finishS2ArmBuild()
+                    return
+                }
                 self.running = false
                 if self.stopping {
                     self.stopping = false
                     self.resetProgress()
                     self.doneNote = self.t("msg.stopped")
                     self.cleanupStaging()
-                    return
-                }
-                if status == 0, self.s2armRun {
-                    self.fastRefreshExternalImgPath = nil
-                    self.finishS2ArmBuild()
                     return
                 }
                 if status == 0 {
@@ -521,7 +424,7 @@ extension BuildStore {
     @discardableResult
     func finishMacApp(_ output: MacAppOutput) -> Task<Void, Never> {
         let workDir = effectiveWorkDir.isEmpty ? output.workDirectoryURL.path : effectiveWorkDir
-        let preserveExternalWork = mngRun || nxkitRun   // nxkit's work folder is a cache of the game
+        let preserveExternalWork = mngRun || s2armRun || nxkitRun   // nxkit's work folder is a cache of the game
         let appFolderToTidy = nxkitRun ? output.workDirectoryURL : nil
         archiveGeneration &+= 1
         let generation = archiveGeneration

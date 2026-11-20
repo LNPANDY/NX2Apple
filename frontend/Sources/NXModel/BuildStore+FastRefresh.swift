@@ -76,6 +76,7 @@ extension BuildStore {
         guard !running else { return }
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !tid.isEmpty else { return }
+        hintedTitleID = nil
 
         guard repo.isRepo else {
             fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))

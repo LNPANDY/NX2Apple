@@ -202,7 +202,7 @@ final class LauncherDropdownTests: IsolatedDefaultsTestCase {
             try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(name + ".png"))
         }
 
-        for (code, lang) in [("en", Lang.en), ("zh", Lang.zh)] {
+        for (code, lang) in [("en", Lang.en), ("zh", Lang.zh), ("de", Lang.de)] {
             stores.build.lang = lang
             stores.localizer.lang = lang
             for light in [false] {   // the launcher is dark only (#1458)
@@ -215,6 +215,50 @@ final class LauncherDropdownTests: IsolatedDefaultsTestCase {
                 ]
                 try capture(name: "builds-engine-open-downloading-\(code)-\(scheme)", openDropdown: true, light: light)
                 stores.build.upstreamDownloads = [:]
+            }
+        }
+
+        // Capture installed upstreams with compact versions + update badge + Update button across en/zh/de.
+        let fakeRepo = tempDir.appendingPathComponent("repo-ref", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeRepo, withIntermediateDirectories: true)
+        try Data("0b5fd6020093abcdef1234567890abcdef123456\n".utf8).write(to: fakeRepo.appendingPathComponent(".upstream-ref"))
+        stores.repo.path = fakeRepo.path
+
+        let fakeMNG = tempDir.appendingPathComponent("upstreams/macnativegames", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeMNG.appendingPathComponent("games/totk"), withIntermediateDirectories: true)
+        try Data("#!/usr/bin/env python3\n".utf8).write(to: fakeMNG.appendingPathComponent("build_app.py"))
+        try UpstreamVersion.writeReceipt(
+            UpstreamVersionReceipt(commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", version: "2026.11.18", installedAt: "2026.11.18"),
+            to: fakeMNG
+        )
+        stores.build.macNativeGamesPath = fakeMNG.path
+
+        let fakeS2 = tempDir.appendingPathComponent("upstreams/s2arm", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeS2.appendingPathComponent("pack/jobs"), withIntermediateDirectories: true)
+        try Data("#!/usr/bin/env python3\n".utf8).write(to: fakeS2.appendingPathComponent("pack/jobs/main.py"))
+        try FileManager.default.createDirectory(at: fakeS2.appendingPathComponent("runtime/rewriter"), withIntermediateDirectories: true)
+        try Data("/* rewriter */\n".utf8).write(to: fakeS2.appendingPathComponent("runtime/rewriter/rewriter.c"))
+        try FileManager.default.createDirectory(at: fakeS2.appendingPathComponent("pack/oneclick"), withIntermediateDirectories: true)
+        try Data("#!/bin/bash\n".utf8).write(to: fakeS2.appendingPathComponent("pack/oneclick/oneclick.sh"))
+        try UpstreamVersion.writeReceipt(
+            UpstreamVersionReceipt(commit: "1111111111111111111111111111111111111111", version: "v0.5.7", installedAt: "2026.11.10"),
+            to: fakeS2
+        )
+        stores.build.s2armPath = fakeS2.path
+        stores.build.refreshUpstreamLocalVersions()
+        stores.build.upstreamRemoteVersions = [
+            .macNativeGames: UpstreamRemoteInfo(kind: .macNativeGames, commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", version: "2026.11.19", date: "2026.11.19"),
+            .s2arm: UpstreamRemoteInfo(kind: .s2arm, commit: "2222222222222222222222222222222222222222", version: "v0.5.8", date: "2026.11.19"),
+        ]
+        stores.build.buildUpstream = .s2arm
+
+        for (code, lang) in [("en", Lang.en), ("zh", Lang.zh), ("de", Lang.de)] {
+            stores.build.lang = lang
+            stores.localizer.lang = lang
+            for light in [true, false] {
+                let scheme = light ? "light" : "dark"
+                try capture(name: "builds-engine-version-collapsed-\(code)-\(scheme)", openDropdown: false, light: light)
+                try capture(name: "builds-engine-version-open-\(code)-\(scheme)", openDropdown: true, light: light)
             }
         }
     }

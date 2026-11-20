@@ -49,6 +49,8 @@ enum GalleryDesktopScene: String, CaseIterable {
     case freeSpaceRunning, freeSpaceFailed, sendSelectedDrive, deleteGameIOS, controllerMapping, frameTimes
     // the design system's controls in a state a capture cannot reach with the pointer
     case dropdownList
+    // MacNativeGames, LNPANDY/NX2Apple#1473 (GalleryMacNativeGames.swift)
+    case mngLibrary, mngRecommend, mngRecommendInstalled, mngBlocked, mngDropdownDisabled, mngUpdateAvailable
 
     var title: String {
         switch self {
@@ -130,6 +132,12 @@ enum GalleryDesktopScene: String, CaseIterable {
         case .controllerMapping: return "A game's controller mapping"
         case .frameTimes: return "Frame times: a recording"
         case .dropdownList: return "Dropdown open"
+        case .mngLibrary: return "MacNativeGames: built with it, MNG tag"
+        case .mngRecommend: return "MacNativeGames: recommended, Download & Switch"
+        case .mngRecommendInstalled: return "MacNativeGames: recommended, Switch"
+        case .mngBlocked: return "MacNativeGames: title it does not maintain"
+        case .mngDropdownDisabled: return "MacNativeGames: dimmed in the engine pop-up"
+        case .mngUpdateAvailable: return "MacNativeGames: newer version on GitHub"
         }
     }
 
@@ -138,8 +146,9 @@ enum GalleryDesktopScene: String, CaseIterable {
         case .filterOwned, .filterMac, .filterIOS, .sortName: return .allGames
         case .completionExported, .completionNeedsData, .sendSending, .sendSent, .sendAppNotFound, .sendChooseApp, .sendRefused, .sendFailed,
              .sendCopying, .sendCopied, .queueEveryState, .queueRunning, .transfersEveryState, .logOpen,
-             .footerVerifying, .footerExporting, .footerInstalling, .footerRenewing, .footerSending: return .builds
-        case .appChecking, .appDownloading, .appPreparing, .appAvailable, .engineExperimental, .missingTool, .players, .libraryFolders: return .settings
+             .footerVerifying, .footerExporting, .footerInstalling, .footerRenewing, .footerSending, .mngRecommend, .mngRecommendInstalled: return .builds
+        case .appChecking, .appDownloading, .appPreparing, .appAvailable, .engineExperimental, .missingTool, .players, .libraryFolders,
+             .mngBlocked, .mngUpdateAvailable, .mngDropdownDisabled: return .settings
         case .nxkitIdle, .nxkitChecking, .nxkitWaiting, .nxkitUnreachable, .nxkitAppleSilicon, .nxkitBadSignature, .nxkitChecksum,
              .nxkitIncompatible, .nxkitIncomplete, .nxkitDownload, .nxkitUnpack, .nxkitCancelled: return .nxkit
         case .savesNoDevices, .savesNotConnected, .savesNotInstalled, .savesReading, .savesReady, .savesFailed, .savesTimedOut,
@@ -471,6 +480,8 @@ extension GalleryFixtures {
             }
             try? rows.joined(separator: "\n").write(to: tsv, atomically: true, encoding: .utf8)
             return AnyView(DSCard { FrameTimesRecordingView(file: tsv, t: t) }.padding(DS.Space.l))
+        case .mngLibrary, .mngRecommend, .mngRecommendInstalled, .mngBlocked, .mngDropdownDisabled, .mngUpdateAvailable:
+            return macNativeGamesView(scene, stores: stores, library: library, launcher: launcher)
         case .dropdownList:   // the list a dropdown opens, as the launcher's dropdown layer draws it under its button
             let options = Lang.all.map { (value: $0.code, label: $0.name) }
             return AnyView(LauncherDropdownList(options: options, selection: lang.code, label: t("settings.language"), choose: { _ in }, close: {})

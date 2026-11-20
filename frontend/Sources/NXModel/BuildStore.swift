@@ -110,16 +110,24 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                         doneNote = ""
                     }
                 }
+                enforceUpstreamForCurrentGame()
             }
         }
     }
     /// The program the player chose for this build, including its device checks and retries.
-    var selectedTitleID: String?
+    var selectedTitleID: String? {
+        didSet {
+            if selectedTitleID != oldValue {
+                enforceUpstreamForCurrentGame()
+            }
+        }
+    }
     /// The game folder the rows came from (BuildStore+GameFolder.swift), nil for packages.
     @Published package var gameFolder: GameFolder.Contents? {
         didSet {
             if gameFolder != oldValue {
                 invalidateKeyProblem()
+                enforceUpstreamForCurrentGame()
             }
         }
     }
@@ -210,6 +218,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     @Published package var buildUpstream: EngineUpstreamKind {
         didSet {
+            if !running && MacNativeGamesBuilder.featureEnabled && buildUpstream == .macNativeGames && isMNGBlockedByCurrentGame {
+                buildUpstream = .nxnative
+                return
+            }
             defaults.set(buildUpstream.rawValue, forKey: Self.buildUpstreamKey)
             if buildUpstream.buildsMacOnly && isUpstreamEnabled(buildUpstream) && target != BuildTarget.mac {
                 target = BuildTarget.mac
@@ -223,6 +235,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         didSet {
             defaults.set(macNativeGamesPath, forKey: Self.macNativeGamesPathKey)
             macNativeGamesInstalled = MacNativeGamesBuilder.isUsableTree(macNativeGamesPath)
+            refreshUpstreamLocalVersion(for: .macNativeGames)
         }
     }
     @Published package internal(set) var macNativeGamesInstalled = false
@@ -231,6 +244,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         didSet {
             defaults.set(s2armPath, forKey: Self.s2armPathKey)
             s2armInstalled = S2ArmBuilder.isUsableTree(s2armPath)
+            refreshUpstreamLocalVersion(for: .s2arm)
             if oldValue != s2armPath && buildUpstream == .s2arm {
                 upstreamChanged()
             }
@@ -238,8 +252,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     @Published package internal(set) var s2armInstalled = false
     @Published package internal(set) var upstreamDownloads: [EngineUpstreamKind: UpstreamInstallState] = [:]
+    @Published package internal(set) var upstreamLocalVersions: [EngineUpstreamKind: UpstreamVersionReceipt] = [:]
+    @Published package internal(set) var upstreamRemoteVersions: [EngineUpstreamKind: UpstreamRemoteInfo] = [:]
     package var upstreamDownloadTasks: [EngineUpstreamKind: Task<Void, Never>] = [:]
     package var upstreamDownloadGeneration: [EngineUpstreamKind: UInt64] = [:]
+    package var upstreamVersionChecks = UpstreamVersionCheckState()
     @Published package internal(set) var upstreamAutoSwitchRevision: UInt64 = 0
     package var upstreamTransport: EngineTransport = URLSessionEngineTransport()
     package var s2armRun = false
@@ -304,7 +321,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     let installCancel = LockedFlag()
     var installPhaseActive = false
     package var fastRefreshActive = false
-    package var fastRefreshTitleID: String? = nil
+    package var fastRefreshTitleID: String? = nil {
+        didSet {
+            if fastRefreshTitleID != oldValue {
+                enforceUpstreamForCurrentGame()
+            }
+        }
+    }
     package var fastRefreshGameName: String? = nil
     package var fastRefreshBaseDir: String? = nil
     package var fastRefreshExternalImgPath: String? = nil
@@ -466,6 +489,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             runningTarget = BuildTarget.mac
             defaults.set(BuildTarget.mac, forKey: Self.targetKey)
         }
+        refreshUpstreamLocalVersions()
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.
@@ -554,84 +578,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         }
     }
 
-    func startPSOPoll(stageID: Int, step: String) {
-        psoPollTask?.cancel()
-        psoPollGeneration &+= 1
-        let generation = psoPollGeneration
-        psoStageID = stageID
-        psoStep = step
-        psoNativeProgress = false
-        let workDir = effectiveWorkDir
-        psoPollTask = Task { [weak store = self] in
-            while !Task.isCancelled {
-                if !workDir.isEmpty {
-                    let progress = await Task.detached(priority: .utility) {
-                        BuildProgress.psoArchiveProgress(workDir: workDir)
-                    }.value
-                    guard !Task.isCancelled else { break }
-                    if let progress {
-                        await MainActor.run {
-                            guard let store,
-                                  store.psoPollGeneration == generation,
-                                  store.psoStageID == stageID,
-                                  !store.psoNativeProgress,
-                                  store.effectiveWorkDir == workDir else { return }
-                            store.applyPSOArchiveProgress(progress, stageID: stageID, generation: generation)
-                        }
-                    }
-                }
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard !Task.isCancelled else { break }
-                let keepGoing = await MainActor.run { [weak store] in
-                    guard let store else { return false }
-                    return store.psoPollGeneration == generation && store.psoStageID == stageID && !store.psoNativeProgress
-                }
-                if !keepGoing { break }
-            }
-        }
-    }
-
-    func stopPSOPoll() {
-        psoPollGeneration &+= 1
-        psoPollTask?.cancel()
-        psoPollTask = nil
-        psoStageID = nil
-        psoStep = ""
-        psoNativeProgress = false
-    }
-
     private static func isPSOStage(_ name: String) -> Bool {
         name == "Pipeline archive" || name == "game framework"
-    }
-
-    /// Inspect `<workDir>/pso/mac-work` (or the iOS work directory / logs) for completed `pso_offline.py` batches while the
-    /// `Pipeline archive` or `game framework` stage runs without native JSON counts from the script.
-    package func pollPSOArchive() {
-        guard !psoNativeProgress, let id = psoStageID, !effectiveWorkDir.isEmpty else { return }
-        let generation = psoPollGeneration
-        let workDir = effectiveWorkDir
-        guard let p = BuildProgress.psoArchiveProgress(workDir: workDir),
-              psoPollGeneration == generation,
-              effectiveWorkDir == workDir else { return }
-        applyPSOArchiveProgress(p, stageID: id, generation: generation)
-    }
-
-    private func applyPSOArchiveProgress(_ p: PSOArchiveProgress, stageID: Int, generation: Int) {
-        guard !psoNativeProgress, psoPollGeneration == generation, psoStageID == stageID,
-              let i = stages.firstIndex(where: { $0.id == stageID && $0.state == .running }) else { return }
-        let pct = min(Double(p.done) / Double(p.total) * 100.0, 99.0)
-        let detail = BuildProgress.progressDetail([
-            "step": psoStep,
-            "done": p.done,
-            "total": p.total,
-            "unit": t("prog.unit.batches"),
-            "note": p.merging ? t("prog.note.merging") : "",
-        ])
-        if stages[i].percent != pct || stages[i].detail != detail {
-            stages[i].percent = pct
-            stages[i].detail = detail
-            refreshOverallProgress(parsedTotal: nil)
-        }
     }
 
     // MARK: Output parsing
@@ -659,7 +607,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             return handleEvent(kind, event)
         }
         append(line + "\n")
-        guard let s = BuildProgress.parseStageWithTotal(line) else { return }
+        guard let s = BuildProgress.parseStageWithTotal(line) else {
+            if mngRun || s2armRun { handleExternalUpstreamLogLine(line) }
+            return
+        }
         if s.state == .running {
             if Self.isPSOStage(s.name) {
                 if s.percent != nil {
