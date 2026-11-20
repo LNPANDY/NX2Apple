@@ -29,9 +29,12 @@ package enum SendWhere {
     nonisolated package static let frameworkKey = "exportFramework"
     nonisolated package static let sendWhereKey = "sendWhere"
     nonisolated package static let driveFolderKey = "driveFolder"
+    nonisolated package static let postBuildTransferModeKey = "postBuildTransferMode"
 
     @Published package var devices: [AppleDevice] = []
     @Published package var teams: [SigningTeam] = []
+    /// Negotiated physical USB link speed (bits/sec) per device UDID from the latest IOKit query.
+    @Published package private(set) var usbLinkSpeeds: [String: Int64] = [:]
     /// The listing ran at least once, so the picker shows its spinner until then and "no devices" after.
     @Published package var checked = false
     /// The UDID of the device a build is installed on. Empty: the build stays an IPA. Saved when it changes.
@@ -68,32 +71,47 @@ package enum SendWhere {
     @Published package var driveFolder: String {
         didSet { defaults.set(driveFolder, forKey: Self.driveFolderKey) }
     }
+    /// Strategy for transferring game data after a direct-install build finishes. Defaults to `.ask`.
+    @Published package var postBuildTransferMode: PostBuildTransferMode {
+        didSet {
+            defaults.set(postBuildTransferMode.rawValue, forKey: Self.postBuildTransferModeKey)
+            transferModeBox.set(postBuildTransferMode)
+        }
+    }
     /// The shared app's copy question: the size and the connection (nil: none is up).
     @Published package private(set) var shellCopy: ShellCopyPlan?
     /// Waiting for a cable before the game data goes over.
     @Published package private(set) var shellWaiting = false
+    /// True when the active cable wait is waiting to upgrade a USB 2.0 link to USB 3 / Thunderbolt.
+    @Published package private(set) var shellWaitingForHighSpeed = false
 
     /// The `xcrun` the device tools and the install run through.
     package let xcrun: String
     /// The teams the Mac knows, read by the refresh and again when a signing step fails.
     package var readTeams: @Sendable () -> [SigningTeam]
+    /// Physical USB link speed lookup for a device UDID (bps); injectable for unit tests.
+    package var usbSpeedLookup: @Sendable (String) -> Int64?
 
     private let defaults: UserDefaults
     private let listDevices: @Sendable (_ xcrun: String) -> [AppleDevice]
     private var copyAnswer: ((ShellCopyDecision) -> Void)?
     private let waitCancel = LockedFlag()
+    private let transferModeBox = LockedTransferMode()
     private var refreshGeneration = 0
 
     /// - Parameters:
     ///   - listDevices: the paired devices for an `xcrun` path. Runs off the main actor.
     ///   - readTeams: the signing teams. Runs off the main actor.
+    ///   - usbSpeedLookup: physical USB link speed lookup by UDID (bps). Runs off the main actor.
     package init(runner: ProcessRunner, xcrun: String = "/usr/bin/xcrun", defaults: UserDefaults = .standard,
                  listDevices: (@Sendable (String) -> [AppleDevice])? = nil,
-                 readTeams: (@Sendable () -> [SigningTeam])? = nil) {
+                 readTeams: (@Sendable () -> [SigningTeam])? = nil,
+                 usbSpeedLookup: (@Sendable (String) -> Int64?)? = nil) {
         self.xcrun = xcrun
         self.defaults = defaults
         self.listDevices = listDevices ?? { DeviceTools.devices(xcrun: $0, runner: runner) }
         self.readTeams = readTeams ?? { DeviceTools.teams(runner: runner) }
+        self.usbSpeedLookup = usbSpeedLookup ?? { USBLinkSpeed.linkSpeedBps(forUDID: $0) }
         self.installDevice = defaults.string(forKey: Self.deviceKey) ?? ""
         self.signingTeam = defaults.string(forKey: Self.teamKey) ?? ""
         self.exportIPA = defaults.bool(forKey: Self.exportKey)
@@ -102,6 +120,26 @@ package enum SendWhere {
         self.exportFramework = !savedOneGame && defaults.bool(forKey: Self.frameworkKey)
         self.sendWhere = defaults.string(forKey: Self.sendWhereKey) ?? SendWhere.device
         self.driveFolder = defaults.string(forKey: Self.driveFolderKey) ?? ""
+        let initialTransferMode = PostBuildTransferMode.fromStored(defaults.string(forKey: Self.postBuildTransferModeKey))
+        self.postBuildTransferMode = initialTransferMode
+        self.transferModeBox.set(initialTransferMode)
+    }
+
+    /// Thread-safe snapshot of `postBuildTransferMode` for background install queues.
+    nonisolated package var currentPostBuildTransferMode: PostBuildTransferMode {
+        transferModeBox.value
+    }
+
+    /// Resolved link profile for a paired device using the latest `devicectl` listing and IOKit link speed.
+    package func linkProfile(for udid: String) -> DeviceLinkProfile {
+        guard !udid.isEmpty else { return .disconnected }
+        let device = devices.first { $0.id == udid }
+        return USBLinkSpeed.profile(for: device, usbSpeedBps: usbLinkSpeeds[udid])
+    }
+
+    /// Resolved link profile for the currently selected install device.
+    package var selectedDeviceLinkProfile: DeviceLinkProfile {
+        linkProfile(for: installDevice)
     }
 
     /// A device's name for a message, "iPhone" when this Mac has not listed it.
@@ -112,12 +150,22 @@ package enum SendWhere {
     @discardableResult package func refresh() -> Task<Void, Never> {
         refreshGeneration &+= 1
         let generation = refreshGeneration
-        let xcrun = xcrun, list = listDevices, teamsOf = readTeams
-        let lookup = Task.detached(priority: .userInitiated) { (list(xcrun), teamsOf()) }
+        let xcrun = xcrun, list = listDevices, teamsOf = readTeams, speedOf = usbSpeedLookup
+        let lookup = Task.detached(priority: .userInitiated) { () -> ([AppleDevice], [SigningTeam], [String: Int64]) in
+            let listed = list(xcrun)
+            var speeds: [String: Int64] = [:]
+            for device in listed where device.wired || device.reachable {
+                if let bps = speedOf(device.id), bps > 0 {
+                    speeds[device.id] = bps
+                }
+            }
+            return (listed, teamsOf(), speeds)
+        }
         return Task { @MainActor in
-            let (devices, teams) = await lookup.value
+            let (devices, teams, speeds) = await lookup.value
             guard self.refreshGeneration == generation else { return }
             self.devices = devices
+            self.usbLinkSpeeds = speeds
             self.teams = teams
             self.checked = true
             if teams.isEmpty {
@@ -136,14 +184,27 @@ package enum SendWhere {
 
     // MARK: The copy flow
 
-    /// Asks the player whether the game data goes over now (the card shows the plan with Continue, "Wait for a cable" and "Not now")
+    /// Asks the player whether the game data goes over now (the modal sheet shows the plan with Start, "Wait for a cable" and "Not now")
     /// and blocks the calling queue until they answer. Called by the install on its background queue, never on the main thread.
     nonisolated package func askCopy(_ plan: ShellCopyPlan) -> ShellCopyDecision {
+        askCopy(plan, isCancelled: { false })
+    }
+
+    /// Cancellation-aware variant of `askCopy(_:)`: rechecks `isCancelled()` inside the main-actor hop so a concurrent Stop
+    /// never gets overridden by a late prompt presentation or blocks forever on the semaphore.
+    nonisolated package func askCopy(_ plan: ShellCopyPlan, isCancelled: @escaping @Sendable () -> Bool) -> ShellCopyDecision {
+        if isCancelled() { return .skip }
         let answered = DispatchSemaphore(value: 0)
         let box = Answer()
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
+                if isCancelled() {
+                    box.set(.skip)
+                    answered.signal()
+                    return
+                }
                 self.waitCancel.set(false)
+                self.shellWaitingForHighSpeed = plan.waitsForHighSpeedCable
                 self.copyAnswer = { box.set($0); answered.signal() }
                 self.shellCopy = plan
             }
@@ -152,26 +213,41 @@ package enum SendWhere {
         return box.value
     }
 
-    /// What the player picked on the copy card (Continue, wait for a cable, not now), handed to the install waiting for it.
+    /// What the player picked on the copy sheet (Start, wait for a cable, not now), handed to the install waiting for it.
     package func answerCopy(_ decision: ShellCopyDecision) {
         guard let answer = copyAnswer else { return }
         copyAnswer = nil
+        // Keep the modal presentation continuous when transitioning into cable wait so SwiftUI's sheet onDismiss never fires and self-cancels.
+        if decision == .waitForCable {
+            waitCancel.set(false)
+            shellWaiting = true
+        }
         shellCopy = nil
         answer(decision)
     }
 
     /// The install tells that the cable wait starts or ends. Called from its background queue.
     nonisolated package func setWaiting(_ on: Bool) {
-        DispatchQueue.main.async { MainActor.assumeIsolated { self.shellWaiting = on } }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                if on && self.waitCancel.value { return }
+                self.shellWaiting = on
+            }
+        }
     }
 
-    /// "Stop waiting" while the install waits for a cable: the poll ends at its next look and the game data stays for later.
-    package func cancelWait() { waitCancel.set(true) }
+    /// "Stop waiting" while the install waits for a cable: dismisses immediately and ends the poll on its next slice.
+    package func cancelWait() {
+        waitCancel.set(true)
+        shellWaiting = false
+        shellWaitingForHighSpeed = false
+    }
 
     /// Cancels an active copy prompt or cable wait when the build is stopped.
     package func cancelCopy() {
         cancelWait()
         shellWaiting = false
+        shellWaitingForHighSpeed = false
         answerCopy(.skip)
     }
 
@@ -180,7 +256,7 @@ package enum SendWhere {
 
     /// The install ended: no question and no wait stay on the screen.
     package func copyEnded() {
-        shellCopy = nil; shellWaiting = false
+        shellCopy = nil; shellWaiting = false; shellWaitingForHighSpeed = false
     }
 
     /// The answer the blocked queue reads after the semaphore.
@@ -189,5 +265,12 @@ package enum SendWhere {
         private var decision = ShellCopyDecision.skip
         func set(_ new: ShellCopyDecision) { lock.lock(); decision = new; lock.unlock() }
         var value: ShellCopyDecision { lock.lock(); defer { lock.unlock() }; return decision }
+    }
+
+    private final class LockedTransferMode: @unchecked Sendable {
+        private let lock = NSLock()
+        private var mode: PostBuildTransferMode = .defaultMode
+        func set(_ new: PostBuildTransferMode) { lock.lock(); mode = new; lock.unlock() }
+        var value: PostBuildTransferMode { lock.lock(); defer { lock.unlock() }; return mode }
     }
 }

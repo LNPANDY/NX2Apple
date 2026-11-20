@@ -106,7 +106,7 @@ package struct InstallCard: View {
                                             }
                                             Spacer(minLength: 0)
                                             Text(device.name).font(DS.Font.bodyStrong).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                                            if !device.reachable { Text(loc.t("dev.notConnected")).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary) }
+                                            deviceConnectionSubtitle(for: device)
                                         }.padding(16).frame(height: 136, alignment: .topLeading)
                                             .background(devices.installDevice == device.id ? LauncherPalette.selectedFill : LauncherPalette.selectableFill, in: RoundedRectangle(cornerRadius: 14))
                                             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(devices.installDevice == device.id ? LauncherPalette.selectedBorder : LauncherPalette.selectableBorder, lineWidth: devices.installDevice == device.id ? 1.5 : 1))
@@ -128,6 +128,19 @@ package struct InstallCard: View {
                                     .disabled(build.running)
                                     .padTarget("set.build.install.team", scope: "main", enabled: !build.running, activate: { stepTeam(1, options: teams) }, adjust: { stepTeam($0, options: teams) })
                             }
+                        }
+                        CardDivider()
+                        let linkProfile = devices.selectedDeviceLinkProfile
+                        let transferOptions = PostBuildTransferMode.allCases.map {
+                            (value: $0.rawValue, label: transferModeLabel(for: $0))
+                        }
+                        CardRow(loc.t("dev.transferMode"), detail: linkStatusDetail(for: linkProfile), dot: linkStatusDot(for: linkProfile)) {
+                            LauncherDropdown(options: transferOptions, selection: devices.postBuildTransferMode.rawValue, label: loc.t("dev.transferMode")) {
+                                devices.postBuildTransferMode = PostBuildTransferMode.fromStored($0)
+                            }
+                            .disabled(build.running)
+                            .padTarget("set.build.install.transferMode", scope: "main", enabled: !build.running,
+                                       activate: { stepTransferMode(1) }, adjust: { stepTransferMode($0) })
                         }
                     }
                     if !devices.installDevice.isEmpty {
@@ -224,6 +237,89 @@ package struct InstallCard: View {
         guard !build.running, !options.isEmpty else { return }
         let index = options.firstIndex { $0.value == devices.signingTeam } ?? 0
         devices.signingTeam = options[(index + by + options.count) % options.count].value
+    }
+
+    private func transferModeLabel(for mode: PostBuildTransferMode) -> String {
+        switch mode {
+        case .ask: return loc.t("dev.transferMode.ask")
+        case .auto: return loc.t("dev.transferMode.auto")
+        case .skip: return loc.t("dev.transferMode.skip")
+        }
+    }
+
+    private func stepTransferMode(_ by: Int) {
+        guard !build.running else { return }
+        let all = PostBuildTransferMode.allCases
+        let index = all.firstIndex(of: devices.postBuildTransferMode) ?? 0
+        devices.postBuildTransferMode = all[(index + by + all.count) % all.count]
+    }
+
+    @ViewBuilder private func deviceConnectionSubtitle(for device: AppleDevice) -> some View {
+        let profile = devices.linkProfile(for: device.id)
+        switch profile {
+        case .highSpeedUSB(let bps):
+            HStack(spacing: 5) {
+                Circle().fill(DS.Color.statusReady).frame(width: 6, height: 6)
+                Text(String(format: loc.t("shell.copyBadgeHighSpeed"), USBLinkSpeed.formatRate(bps)))
+                    .font(DS.Font.footnote)
+                    .foregroundStyle(DS.Color.statusReady)
+                    .lineLimit(1)
+            }
+        case .usb2(let bps):
+            HStack(spacing: 5) {
+                Circle().fill(DS.Color.statusWarning).frame(width: 6, height: 6)
+                Text(String(format: loc.t("shell.copyBadgeUSB2"), USBLinkSpeed.formatRate(bps)))
+                    .font(DS.Font.footnote)
+                    .foregroundStyle(DS.Color.statusWarning)
+                    .lineLimit(1)
+            }
+        case .wifi:
+            HStack(spacing: 5) {
+                Circle().fill(DS.Color.statusInfo).frame(width: 6, height: 6)
+                Text(loc.t("shell.copyBadgeWifi"))
+                    .font(DS.Font.footnote)
+                    .foregroundStyle(DS.Color.textSecondary)
+                    .lineLimit(1)
+            }
+        case .wiredUnknown:
+            if device.wired {
+                HStack(spacing: 5) {
+                    Circle().fill(DS.Color.statusReady).frame(width: 6, height: 6)
+                    Text(loc.t("shell.copyBadgeWired"))
+                        .font(DS.Font.footnote)
+                        .foregroundStyle(DS.Color.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+        case .disconnected:
+            if !device.reachable {
+                Text(loc.t("dev.notConnected")).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary)
+            }
+        }
+    }
+
+    private func linkStatusDot(for profile: DeviceLinkProfile) -> Color {
+        switch profile {
+        case .highSpeedUSB, .wiredUnknown: return DS.Color.statusReady
+        case .usb2: return DS.Color.statusWarning
+        case .wifi: return DS.Color.statusInfo
+        case .disconnected: return LauncherPalette.unbuilt
+        }
+    }
+
+    private func linkStatusDetail(for profile: DeviceLinkProfile) -> String {
+        switch profile {
+        case .highSpeedUSB(let bps):
+            return String(format: loc.t("dev.linkHighSpeed"), USBLinkSpeed.formatRate(bps))
+        case .usb2(let bps):
+            return String(format: loc.t("dev.linkUSB2"), USBLinkSpeed.formatRate(bps))
+        case .wifi:
+            return loc.t("dev.linkWifi")
+        case .wiredUnknown:
+            return loc.t("dev.linkWired")
+        case .disconnected:
+            return loc.t("dev.linkDisconnected")
+        }
     }
 
     /// The other kind of IPA: the IPA of the last export is not the one this choice makes, so step 1 starts again.

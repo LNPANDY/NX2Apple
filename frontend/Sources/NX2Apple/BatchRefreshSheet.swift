@@ -619,6 +619,10 @@ struct BatchRefreshSheet: View {
             )
         }
         let ordered = RefreshQueueBuilder.orderedEntries(rawEntries)
+        if !stores.build.running {
+            stores.build.clearUnstartedDraft()
+            stores.queue.prepareForRefreshBatch()
+        }
         stores.queue.enqueue(ordered)
         onConfirmed()
     }

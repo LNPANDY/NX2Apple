@@ -19,7 +19,7 @@ enum GallerySheet: String, CaseIterable {
     case rename, renameCustom, buildSelected, buildSelectedEmpty, supportedGames, supportedGamesExpanded
     case batchRefresh, batchRefreshEmpty, imgGuide, imgGuideNoPackage
     case saves, saveImport
-    case skippedItems, appUpdate, playerName, playerRename, buildSteps, sendSelectedDevice
+    case skippedItems, appUpdate, playerName, playerRename, buildSteps, sendSelectedDevice, shellCopy
     case cheats, invalidXcode
 
     var title: String {
@@ -67,6 +67,7 @@ enum GallerySheet: String, CaseIterable {
         case .playerRename: return "Rename a player"
         case .buildSteps: return "Build steps"
         case .sendSelectedDevice: return "Send game data: no shared app"
+        case .shellCopy: return "Copy game data: USB link speed"
         case .cheats: return "Cheats: no files yet"
         case .invalidXcode: return "Chosen app is not Xcode"
         }
@@ -237,6 +238,17 @@ extension GalleryFixtures {
             return AnyView(BuildProcessStepsSheet(build: stores.build, close: {}))
         case .sendSelectedDevice:
             return AnyView(SendSelectedSheet(mode: .device, build: stores.build, close: {}))
+        case .shellCopy:
+            let plan = ShellCopyPlan(
+                files: 2,
+                bytes: 15_000_000_000,
+                connection: .wired,
+                linkProfile: .usb2(bps: 480_000_000),
+                deviceName: "iPhone",
+                sizeText: String(format: t("shell.copySize"), "15.0 GB", 2),
+                connectionText: String(format: t("shell.copyUSB2"), "480 Mbps", "15.0 GB", 7, 9, "iPhone")
+            )
+            return AnyView(ShellCopySheet(devices: stores.deviceStore, previewPlan: plan))
         case .cheats:
             return AnyView(CheatsView(m: stores.build, library: library, gameID: game.id))
         case .invalidXcode:   // Settings › Tools, Choose… with an app that is not Xcode (ToolsCard)

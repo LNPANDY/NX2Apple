@@ -396,6 +396,8 @@ extension View {
         toolsAge: ToolsAge,
         page: Binding<LauncherPage>,
         buildEditorOpen: Binding<Bool>,
+        editingBuildResult: Binding<Bool>,
+        buildStep: Binding<Int>,
         pad: PadFocus,
         scope: @escaping () -> String
     ) -> some View {
@@ -408,7 +410,9 @@ extension View {
                     onConfirmed: {
                         batchOpen.wrappedValue = false
                         page.wrappedValue = .builds
-                        buildEditorOpen.wrappedValue = true
+                        buildEditorOpen.wrappedValue = false
+                        editingBuildResult.wrappedValue = false
+                        buildStep.wrappedValue = 0
                         if !stores.build.running && stores.build.canStartBuildOrQueue {
                             stores.build.startBuildOrQueue()
                         }
@@ -437,7 +441,9 @@ extension View {
                             stores: stores,
                             libraryFolder: library.folder,
                             page: page,
-                            buildEditorOpen: buildEditorOpen
+                            buildEditorOpen: buildEditorOpen,
+                            editingBuildResult: editingBuildResult,
+                            buildStep: buildStep
                         )
                     },
                     onFallbackFullRebuild: {
@@ -449,7 +455,9 @@ extension View {
                             stores: stores,
                             libraryFolder: library.folder,
                             page: page,
-                            buildEditorOpen: buildEditorOpen
+                            buildEditorOpen: buildEditorOpen,
+                            editingBuildResult: editingBuildResult,
+                            buildStep: buildStep
                         )
                     },
                     close: { imgGuide.wrappedValue = nil }
@@ -473,7 +481,9 @@ extension View {
     stores: LauncherStores,
     libraryFolder: String,
     page: Binding<LauncherPage>,
-    buildEditorOpen: Binding<Bool>
+    buildEditorOpen: Binding<Bool>,
+    editingBuildResult: Binding<Bool>,
+    buildStep: Binding<Int>
 ) {
     let game = context.game
     let assessment = context.assessment
@@ -510,9 +520,15 @@ extension View {
 
     let ordered = RefreshQueueBuilder.orderedEntries(entries)
     guard !ordered.isEmpty else { return }
+    if !stores.build.running {
+        stores.build.clearUnstartedDraft()
+        stores.queue.prepareForRefreshBatch()
+    }
     stores.queue.enqueue(ordered)
     page.wrappedValue = .builds
-    buildEditorOpen.wrappedValue = true
+    buildEditorOpen.wrappedValue = false
+    editingBuildResult.wrappedValue = false
+    buildStep.wrappedValue = 0
     if !stores.build.running && stores.build.canStartBuildOrQueue {
         stores.build.startBuildOrQueue()
     }

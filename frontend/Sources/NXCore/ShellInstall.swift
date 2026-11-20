@@ -316,6 +316,8 @@ package struct ShellInstaller {
     package var runner: ProcessRunner = SystemProcessRunner()
     /// Asked once, only when something must be copied, with the size and the connection. The terminal answers `.copy`.
     package var decideCopy: (ShellCopyPlan) -> ShellCopyDecision = { _ in .copy }
+    /// Physical USB link speed lookup for a device UDID (bps); defaults to live IOKit registry inspection.
+    package var usbSpeedLookup: @Sendable (String) -> Int64? = { USBLinkSpeed.linkSpeedBps(forUDID: $0) }
     /// While waiting for a cable: told true when the wait starts and false when it ends, and asked between polls whether the
     /// player cancelled.
     package var waiting: (Bool) -> Void = { _ in }
@@ -646,8 +648,9 @@ package struct ShellInstaller {
             }
         }
         // The size and the connection first: a cable needs the device unlocked, Wi-Fi takes long enough that a cable may be worth it
-        var link = connection()
-        var plan = copyPlan(files: Set(missing.map(\.file)).count, bytes: needed, connection: link)
+        let link = connection()
+        let profile = linkProfile(for: link)
+        var plan = copyPlan(files: Set(missing.map(\.file)).count, bytes: needed, connection: link, linkProfile: profile)
         if let identity, let previous, identity != previous {
             let note = t("shell.dataChanged")
             plan.versionNote = note
@@ -658,15 +661,7 @@ package struct ShellInstaller {
         if parts > 0 { log(fmt("shell.dataParts", parts) + "\n") }
         var decision = decideCopy(plan)
         if decision == .waitForCable {
-            log(fmt("shell.copyWaiting", deviceName) + "\n")
-            waiting(true)
-            while !waitCancelled() {
-                Thread.sleep(forTimeInterval: pollInterval)
-                link = connection()
-                if link == .wired { break }
-            }
-            waiting(false)
-            decision = link == .wired && !waitCancelled() ? .copy : .skip
+            decision = waitForCable(initialProfile: profile)
         }
         guard decision == .copy else {
             outcome.copySkipped = true
@@ -743,21 +738,6 @@ package struct ShellInstaller {
         copyProgress(needed, needed)
         end(Self.copyStageID, copyName, ok: true)
         return outcome
-    }
-
-    func copyPlan(files: Int, bytes: Int64, connection: ShellInstall.Connection) -> ShellCopyPlan {
-        let connectionText: String
-        switch connection {
-        case .network:
-            let e = ShellInstall.wifiEstimate(bytes: bytes)
-            let size = ShellInstall.sizeText(bytes)
-            connectionText = e.high == 1 ? fmt("shell.copyWifiMinute", size)
-                : e.low == e.high ? fmt("shell.copyWifiOne", size, e.low) : fmt("shell.copyWifi", size, e.low, e.high)
-        case .notConnected, .notPaired: connectionText = fmt("shell.copyNotConnected", deviceName)
-        case .wired, .other: connectionText = fmt("shell.copyWired", deviceName)
-        }
-        return ShellCopyPlan(files: files, bytes: bytes, connection: connection, deviceName: deviceName,
-                             sizeText: fmt("shell.copySize", ShellInstall.sizeText(bytes), files), connectionText: connectionText)
     }
 
     func begin(_ id: Int, _ name: String) { stage(ShellStage(id: id, name: name, state: .running)) }

@@ -83,6 +83,37 @@ extension BuildStore {
         return canBuild && keyProblem == nil
     }
 
+    /// Resets unstarted single-game draft inputs when transitioning to a batch queue or library refresh flow.
+    package func clearUnstartedDraft() {
+        guard !running else { return }
+        leaveGameFolder()
+        for index in slots.indices {
+            slots[index].paths = []
+            slots[index].problem = ""
+            slots[index].note = ""
+        }
+        gameDir = ""
+        hintedTitleID = nil
+        selectedTitleID = nil
+    }
+
+    /// Clears orphaned terminal build results after a finished queue is cleared when no single-game form inputs remain.
+    package func clearOrphanedCompletionResult() {
+        guard !running, basePath.isEmpty, gameFolder == nil else { return }
+        done = false
+        doneNote = ""
+        stages = []
+        failure = nil
+        macAppPath = ""
+        installedOn = ""
+        installedAppPath = ""
+        exportedIPAPath = ""
+        archivePath = ""
+        needsReplaceOldImgReminder = false
+        updatedImgPath = ""
+        completedOperation = nil
+    }
+
     /// Starts the staged jobs on their saved platforms with the chosen iOS install/export mode, or starts a single-game build when no
     /// entries are waiting in the queue.
     package func startBuildOrQueue() {
@@ -110,6 +141,7 @@ extension BuildStore {
                     return
                 }
             }
+            clearUnstartedDraft()
             let packageOnce = hasIOS && iosPackagesSharedApp
             let batchExportsIPA: Bool? = hasIOS ? iosExportsShell : nil
             let batchExportsFramework: Bool? = hasIOS ? iosExportsFramework : nil

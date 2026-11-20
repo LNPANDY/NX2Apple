@@ -4,11 +4,56 @@ import NXCore
 
 // The install on a device after the archive: the shared app, the reinstall, the re-sign and the IPA (LNPANDY/NX2Apple#387).
 
+/// What the build reads from the device store: the device and the team to install on, the names, the listing of the teams, and the
+/// copy flow the install blocks on (its queue is not the main one, so those members are `nonisolated`).
+@MainActor package protocol InstallTarget: AnyObject {
+    var installDevice: String { get }
+    /// The paired devices the last listing found.
+    var devices: [AppleDevice] { get }
+    var signingTeam: String { get }
+    /// The build exports the shared app as an IPA instead of installing it.
+    var exportIPA: Bool { get }
+    /// The export makes one game's own IPA with its game data inside (#540).
+    var exportOneGame: Bool { get }
+    /// The export makes a standalone `.framework` for the shared app without repacking the shell IPA.
+    var exportFramework: Bool { get }
+    /// The folder the game data is copied to (a drive), empty when none is chosen.
+    var driveFolder: String { get set }
+    var xcrun: String { get }
+    var readTeams: @Sendable () -> [SigningTeam] { get }
+    var usbSpeedLookup: @Sendable (String) -> Int64? { get }
+    nonisolated var currentPostBuildTransferMode: PostBuildTransferMode { get }
+    func deviceName(_ udid: String) -> String
+    nonisolated func askCopy(_ plan: ShellCopyPlan) -> ShellCopyDecision
+    nonisolated func askCopy(_ plan: ShellCopyPlan, isCancelled: @escaping @Sendable () -> Bool) -> ShellCopyDecision
+    nonisolated func setWaiting(_ on: Bool)
+    nonisolated var waitCancelled: Bool { get }
+    func cancelCopy()
+    func copyEnded()
+    /// Reads the device listing again (a transfer asks it when a send failed, to tell a device that went away from a refusal).
+    func refreshDevices() async
+}
+
+extension InstallTarget {
+    package var exportFramework: Bool { false }
+    package var usbSpeedLookup: @Sendable (String) -> Int64? { { _ in nil } }
+    nonisolated package var currentPostBuildTransferMode: PostBuildTransferMode { .defaultMode }
+    nonisolated package func askCopy(_ plan: ShellCopyPlan, isCancelled: @escaping @Sendable () -> Bool) -> ShellCopyDecision {
+        isCancelled() ? .skip : askCopy(plan)
+    }
+    package func cancelCopy() {}
+    package func refreshDevices() async {}
+}
+
+extension DeviceStore: InstallTarget {
+    package func refreshDevices() async { await refresh().value }
+}
+
 extension BuildStore {
     // MARK: Installing on a device
 
     /// The installer with this store's tools, log, stages and process hand-off wired in. The install and the export (BuildStore+Export.swift) share it.
-    func makeInstaller() -> ShellInstaller {
+    func makeInstaller(respectSkipMode: Bool = true) -> ShellInstaller {
         let python = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
         var installer = ShellInstaller(xcrun: devices.xcrun, repo: repo.path, python: python, root: shellRoot, device: devices.installDevice, team: devices.signingTeam)
         installer.deviceName = devices.deviceName(devices.installDevice)
@@ -40,10 +85,24 @@ extension BuildStore {
         } }
         installer.runner = runner
         installer.processStarted = { @Sendable p in hop { self.proc = p } }
-        // The size and the connection are shown with Continue, "Wait for a cable" and "Not now" (ShellCopyCard)
+        // The size and the connection are shown with Start, "Wait for a cable" and "Not now" (ShellCopySheet)
         let target = devices
         let cancel = installCancel
-        installer.decideCopy = { plan in cancel.value ? .skip : target.askCopy(plan) }
+        installer.usbSpeedLookup = target.usbSpeedLookup
+        installer.decideCopy = { plan in
+            if cancel.value { return .skip }
+            let prompt: () -> ShellCopyDecision = {
+                target.askCopy(plan, isCancelled: { cancel.value })
+            }
+            switch target.currentPostBuildTransferMode {
+            case .skip:
+                return respectSkipMode ? .skip : prompt()
+            case .auto:
+                return plan.linkProfile.isConnected ? .copy : prompt()
+            case .ask:
+                return prompt()
+            }
+        }
         installer.waiting = { on in if !cancel.value || !on { target.setWaiting(on) } }
         installer.waitCancelled = { cancel.value || target.waitCancelled }
         return installer
@@ -62,7 +121,7 @@ extension BuildStore {
         if dataOnly { failure = nil; done = false; doneNote = "" }
         shellBatchRetry = nil
         shellRetry = (framework, titleID, name, archive)
-        let installer = makeInstaller()
+        let installer = makeInstaller(respectSkipMode: !dataOnly)
         let target = devices
         let device = devices.installDevice
         DispatchQueue.global(qos: .userInitiated).async {
@@ -153,7 +212,7 @@ extension BuildStore {
             ShellInstaller.BatchGame(framework: $0.framework, titleID: $0.titleID, name: $0.name, archive: $0.archive,
                                      pickedArtwork: pickedArtworkForTitleID($0.titleID))
         }
-        let installer = makeInstaller()
+        let installer = makeInstaller(respectSkipMode: !dataOnly)
         let root = installer.root
         let target = devices
         let device = devices.installDevice
@@ -188,7 +247,9 @@ extension BuildStore {
                     } else if let step = result.step { self.noteInstallFailure(step, error: result.message) }
                     return
                 }
-                self.shellBatchRetry = nil
+                if !result.copySkipped {
+                    self.shellBatchRetry = nil
+                }
                 self.installedOn = device
                 self.installedAppPath = result.appPath
                 self.onBatchShellInstalled(games, result.appPath, device)

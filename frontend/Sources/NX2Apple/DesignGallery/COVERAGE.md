@@ -4,9 +4,9 @@ Written by `GalleryCoverageTests` from `GalleryCoverage.swift`: every View type 
 popover and alert, every notice and every case of the state enums the views switch on, with the gallery's scenes
 (`GalleryScene.id`) that show it, or the reason none can. After a change:
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
-325 scenes.
+326 scenes.
 
-## Views: 215 of 228 in a scene
+## Views: 216 of 229 in a scene
 
 | View | Scenes |
 |---|---|
@@ -223,6 +223,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `SetupHintCard` | `buildsSetupHint` |
 | `ShellCacheRow` | `settingsTools` |
 | `ShellCopyCard` | `desktop-sendSending` |
+| `ShellCopySheet` | `shellCopy` |
 | `SkeletonTile` | `desktop-artworkLoading` |
 | `SkippedItemRow` | `skippedItems` |
 | `SkippedLibraryItemsOverlay` | `skippedItems` |
@@ -239,7 +240,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `UpstreamPicker` | `nxkitEngine`, `desktop-mngBlocked` |
 | `UpstreamVersionPill` | Reason: Not used by the launcher: no view creates it, only tests host it. |
 
-## Presentations: 29 of 35 in a scene
+## Presentations: 30 of 36 in a scene
 
 | Presentation | Scenes |
 |---|---|
@@ -275,6 +276,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `OnboardingKeysContent.swift .popover VStack` | Reason: A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it. |
 | `PlayersCard.swift .sheet PlayerNameSheet` | `playerName` |
 | `PlayersCard.swift .sheet LauncherConfirmSheet` | `confirmRemovePlayer` |
+| `ShellCopySheet.swift .sheet ShellCopySheet` | `shellCopy` |
 | `StaleFrameworksPrompt.swift .sheet LauncherConfirmSheet` | `confirmStaleFrameworks` |
 | `ToolsCard.swift .sheet DSSheet` | `invalidXcode` |
 | `ToolsCard.swift .sheet LauncherConfirmSheet` | `confirmEngineChannel` |

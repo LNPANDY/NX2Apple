@@ -63,6 +63,13 @@ struct BuildPage: View {
     private var completionActive: Bool { build.completionStatus != nil && !editingResult.wrappedValue && !queue.active && !queue.hasWaiting && queue.running == nil }
     private var stagingQueue: Bool { !running && !queue.active && queue.hasWaiting }
     private var queueReview: Bool { !running && !queue.active && (queue.hasWaiting || queue.games.contains(where: \.retryable)) }
+    /// Pure finished batch/refresh summary: hides blank single-game form cards until the user clears history or starts a new build.
+    private var finishedQueueSummary: Bool {
+        !running && !processActive && !queue.active && !queue.hasWaiting && !queue.isEmpty
+            && queue.games.allSatisfy { !$0.waiting && !$0.running }
+            && build.basePath.isEmpty && build.gameFolder == nil
+            && !editingResult.wrappedValue
+    }
     private var hasHeroContext: Bool {
         !build.basePath.isEmpty || build.gameFolder != nil || running || processActive || build.done || build.completionStatus != nil || build.failure != nil || !queue.isEmpty
     }
@@ -112,7 +119,7 @@ struct BuildPage: View {
                 }
                 nxkitFeedback
             }
-            if (!running && !processActive) || showRunningSetup {
+            if (!running && !processActive && !finishedQueueSummary) || showRunningSetup {
                 SetupHintCard(repo: repo, dependencies: dependencies, usesExternalUpstream: build.usesExternalUpstreamRepo, onOpenSettings: onOpenSettings)
                 if stagingQueue {
                     queueSection(showsHeading: !queueReview)
@@ -122,25 +129,34 @@ struct BuildPage: View {
                     TargetCard(build: build)
                 }
             }
-            if stagingQueue {
-                if queue.hasIOS { InstallCard(devices: devices, build: build, showLocked: showRunningSetup, forQueue: true) }
-            } else {
-                InstallCard(devices: devices, build: build, showLocked: showRunningSetup)
+            if !finishedQueueSummary {
+                if stagingQueue {
+                    if queue.hasIOS { InstallCard(devices: devices, build: build, showLocked: showRunningSetup, forQueue: true) }
+                } else {
+                    InstallCard(devices: devices, build: build, showLocked: showRunningSetup)
+                }
             }
             if !stagingQueue {
                 queueSection(showsHeading: !queueReview)
+            }
+            if finishedQueueSummary {
+                HStack {
+                    Spacer(minLength: 0)
+                    Button(loc.t("library.newBuild")) { startFreshBuildFromQueueSummary() }
+                        .buttonStyle(DSSecondaryButtonStyle()).fixedSize()
+                        .padTarget("set.build.queue.newBuild", scope: "main") { startFreshBuildFromQueueSummary() }
+                }
             }
             TransferCard(transfers: transfers) { build.revealTransfer($0) }
             LogCard(log: build.log, devices: devices, isOpen: $logOpen,
                     showRequests: BuildNotifier.shared.$showLog.eraseToAnyPublisher(),
                     didShow: { BuildNotifier.shared.showLog = false })
-            if !processActive {
+            if !processActive && !finishedQueueSummary {
                 ActionCard(build: build, dependencies: dependencies, repo: repo)
             }
             Group {
-                ShellCopyCard(devices: devices)
                 if !failedResult && !running { BuildFailureCard(m: build, titleNames: titleNames) }
-                if !running && !processActive && !build.stages.isEmpty && (build.done || build.failure != nil) {
+                if !running && !processActive && !finishedQueueSummary && !build.stages.isEmpty && (build.done || build.failure != nil) {
                     ProgressCard(build: build)
                 }
             }
@@ -171,6 +187,13 @@ struct BuildPage: View {
             if completed && pad.visible && pad.scope == "main" { pad.focused = "set.build.done.library" }
         }
         .onChange(of: BuildNotifier.shared.showLog) { show in if show { logOpen = true; BuildNotifier.shared.showLog = false } }
+        .onChange(of: queue.isEmpty) { empty in
+            if empty && !running && !processActive && build.basePath.isEmpty && build.gameFolder == nil {
+                build.clearOrphanedCompletionResult()
+                editingResult.wrappedValue = false
+                step = 0
+            }
+        }
         .onChange(of: running) { active in if active { editingResult.wrappedValue = false } else { allStepsOpen.wrappedValue = false; showRunningSetup = false } }
     }
 
@@ -178,6 +201,8 @@ struct BuildPage: View {
     @ViewBuilder private var topHeader: some View {
         if queueReview {
             BuildQueueHero(games: queue.games.filter { $0.waiting || $0.running || $0.retryable }, artwork: queueIcon, onSelectGames: onSelectGames)
+        } else if finishedQueueSummary {
+            BuildQueueHero(games: queue.games, artwork: queueIcon, onSelectGames: onSelectGames)
         } else if hasHeroContext {
             BuildMetadataHero(build: build, library: library, artworkStore: artworkStore, fetchMetadata: fetchMetadata,
                               queueGames: (running || queue.active) ? queue.games.filter { $0.running || $0.waiting } : [], queueArtwork: queueIcon,
@@ -207,6 +232,16 @@ struct BuildPage: View {
                 }
             }
         }
+    }
+
+    private func startFreshBuildFromQueueSummary() {
+        guard !build.running else { return }
+        queue.clearFinished()
+        build.clearUnstartedDraft()
+        build.clearOrphanedCompletionResult()
+        editingResult.wrappedValue = false
+        step = 0
+        if pad.visible { pad.focused = "set.build.folder" }
     }
 
     private func cancelDraft() {

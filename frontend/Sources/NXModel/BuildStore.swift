@@ -28,42 +28,6 @@ package struct FilePick: Equatable {
     func install(_ dep: Dep) -> Task<Void, Never>
 }
 
-/// What the build reads from the device store: the device and the team to install on, the names, the listing of the teams, and the
-/// copy flow the install blocks on (its queue is not the main one, so those four are `nonisolated`).
-@MainActor package protocol InstallTarget: AnyObject {
-    var installDevice: String { get }
-    /// The paired devices the last listing found.
-    var devices: [AppleDevice] { get }
-    var signingTeam: String { get }
-    /// The build exports the shared app as an IPA instead of installing it.
-    var exportIPA: Bool { get }
-    /// The export makes one game's own IPA with its game data inside (#540).
-    var exportOneGame: Bool { get }
-    /// The export makes a standalone `.framework` for the shared app without repacking the shell IPA.
-    var exportFramework: Bool { get }
-    /// The folder the game data is copied to (a drive), empty when none is chosen.
-    var driveFolder: String { get set }
-    var xcrun: String { get }
-    var readTeams: @Sendable () -> [SigningTeam] { get }
-    func deviceName(_ udid: String) -> String
-    nonisolated func askCopy(_ plan: ShellCopyPlan) -> ShellCopyDecision
-    nonisolated func setWaiting(_ on: Bool)
-    nonisolated var waitCancelled: Bool { get }
-    func cancelCopy()
-    func copyEnded()
-    /// Reads the device listing again (a transfer asks it when a send failed, to tell a device that went away from a refusal).
-    func refreshDevices() async
-}
-
-extension InstallTarget {
-    package var exportFramework: Bool { false }
-    package func cancelCopy() {}
-    package func refreshDevices() async {}
-}
-
-extension DeviceStore: InstallTarget {
-    package func refreshDevices() async { await refresh().value }
-}
 extension DependencyStore: DependencyInstalling {}
 extension EngineSyncStore: EngineSyncing {}
 
