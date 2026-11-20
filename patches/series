@@ -54,3 +54,4 @@
 0064-older-devices-decode-bc-textures-across-the-cpu.patch
 0067-ios-a-game-framework-s-copies-are-clones-of-the.patch
 0068-game-resplit-nintendo-switch-sports-resort-shade.patch
+0069-build-seed-fix-zero-inode-loop-detection-and-sta.patch
