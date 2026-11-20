@@ -25,6 +25,7 @@ public struct ShellHostView: View {
                             padMerge: model.padMerge, padSnapshot: model.padSnapshot,
                             signingWarning: model.signingWarning,
                             onDismissSigningWarning: { model.dismissSigningWarning() },
+                            sideloadCertificate: model.sideloadCertificate,
                             canOpenHomeButtonSettings: model.canOpenHomeButtonSettings)
                     .disabled(model.launchingGame)
                     .overlay {

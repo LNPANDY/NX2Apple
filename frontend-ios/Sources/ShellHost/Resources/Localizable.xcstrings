@@ -2817,6 +2817,70 @@
         }
       }
     },
+    "No sideload certificate is imported.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es wurde kein Sideload-Zertifikat importiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No sideload certificate is imported."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha importado ningún certificado de sideload."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun certificat de sideload n'est importé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun certificato di sideload importato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドロード証明書が読み込まれていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져온 사이드로드 인증서가 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum certificado de sideload foi importado."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inget certifikat för sidoladdning har importerats."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未导入侧载证书。"
+          }
+        }
+      }
+    },
     "No update address is set up for this app.": {
       "localizations": {
         "de": {
@@ -3069,6 +3133,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "开"
+          }
+        }
+      }
+    },
+    "Only external game frameworks in Documents/Frameworks can be signed on this device.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Gerät können nur externe Spiel-Frameworks in Documents/Frameworks signiert werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only external game frameworks in Documents/Frameworks can be signed on this device."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo los frameworks de juegos externos en Documents/Frameworks se pueden firmar en este dispositivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seuls les frameworks de jeu externes dans Documents/Frameworks peuvent être signés sur cet appareil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su questo dispositivo è possibile firmare solo i framework di gioco esterni in Documents/Frameworks."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末で署名できるのは Documents/Frameworks 内の外部ゲームフレームワークのみです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기에서는 Documents/Frameworks의 외부 게임 프레임워크만 서명할 수 있습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas frameworks de jogos externos em Documents/Frameworks podem ser assinados neste dispositivo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endast externa spelframeworks i Documents/Frameworks kan signeras på den här enheten."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅支持在本机签名位于 Documents/Frameworks 中的外部游戏框架。"
           }
         }
       }
@@ -4353,6 +4481,262 @@
         }
       }
     },
+    "The certificate could not be saved securely to Keychain.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Zertifikat konnte nicht sicher im Schlüsselbund gespeichert werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The certificate could not be saved securely to Keychain."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar el certificado de forma segura en el Llavero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d'enregistrer le certificat de manière sécurisée dans le Trousseau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile salvare in modo sicuro il certificato nel Portachiavi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "証明書をキーチェーンに安全に保存できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증서를 키체인에 안전하게 저장할 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível salvar o certificado com segurança nas Chaves."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certifikatet kunde inte sparas säkert i nyckelringen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将证书安全保存到钥匙串。"
+          }
+        }
+      }
+    },
+    "The certificate details could not be read.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zertifikatsdetails konnten nicht gelesen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The certificate details could not be read."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron leer los detalles del certificado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire les détails du certificat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile leggere i dettagli del certificato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "証明書の詳細を読み取れませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증서 세부 정보를 읽을 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler os detalhes do certificado."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det gick inte att läsa certifikatinformationen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取证书信息。"
+          }
+        }
+      }
+    },
+    "The certificate file does not contain a signing identity and private key.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zertifikatsdatei enthält keine Signaturidentität und keinen privaten Schlüssel."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The certificate file does not contain a signing identity and private key."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo de certificado no contiene una identidad de firma y clave privada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de certificat ne contient pas d'identité de signature ni de clé privée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file del certificato non contiene un'identità di firma e una chiave privata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "証明書ファイルに署名用アイデンティティと秘密鍵が含まれていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증서 파일에 서명 ID와 개인 키가 포함되어 있지 않습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O arquivo de certificado não contém uma identidade de assinatura e chave privada."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certifikatfilen saknar signeringsidentitet och privat nyckel."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书文件中缺少签名身份与私钥。"
+          }
+        }
+      }
+    },
+    "The certificate password is incorrect.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Zertifikatspasswort ist falsch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The certificate password is incorrect."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La contraseña del certificado es incorrecta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le mot de passe du certificat est incorrect."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La password del certificato non è corretta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "証明書のパスワードが正しくありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증서 암호가 올바르지 않습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A senha do certificado está incorreta."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certifikatlösenordet är felaktigt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书密码不正确。"
+          }
+        }
+      }
+    },
     "The cloud saves folder could not be reached on this device.": {
       "localizations": {
         "de": {
@@ -4477,6 +4861,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法保存自定义封面。"
+          }
+        }
+      }
+    },
+    "The file picker could not open here. Open the app on its own and try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Dateiauswahl konnte hier nicht geöffnet werden. Öffne die App direkt und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file picker could not open here. Open the app on its own and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir el selector de archivos aquí. Abre la app directamente e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le sélecteur de fichiers n'a pas pu s'ouvrir ici. Ouvrez l'app directement et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile aprire il selettore di file qui. Apri l'app direttamente e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここではファイル選択画面を開けませんでした。アプリ単体で開いてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기서는 파일 선택기를 열 수 없습니다. 앱을 단독으로 연 다음 다시 시도하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O seletor de arquivos não pôde ser aberto aqui. Abra o app diretamente e tente novamente."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filväljaren kunde inte öppnas här. Öppna appen fristående och försök igen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前无法打开文件选择器。请独立打开应用后再试。"
           }
         }
       }
@@ -4669,6 +5117,390 @@
           "stringUnit": {
             "state": "translated",
             "value": "之前选择的文件夹已无法读取。请重新选择。"
+          }
+        }
+      }
+    },
+    "The game framework binary does not have enough header space for a code signature.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Binärdatei des Spiel-Frameworks hat nicht genug Header-Platz für eine Codesignatur."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game framework binary does not have enough header space for a code signature."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El binario del framework del juego no tiene suficiente espacio de cabecera para una firma de código."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le binaire du framework du jeu ne dispose pas d'assez d'espace d'en-tête pour une signature de code."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file binario del framework del gioco non ha spazio di intestazione sufficiente per una firma del codice."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームフレームワークのバイナリにコード署名を追加するためのヘッダー領域が不足しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 프레임워크 바이너리에 코드 서명을 위한 헤더 공간이 부족합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O binário do framework do jogo não tem espaço de cabeçalho suficiente para uma assinatura de código."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelframeworkets binärfil saknar tillräckligt huvudutrymme för en kodsignatur."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏框架二进制文件头空间不足，无法写入代码签名。"
+          }
+        }
+      }
+    },
+    "The game framework binary is damaged or unsupported.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Binärdatei des Spiel-Frameworks ist beschädigt oder wird nicht unterstützt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game framework binary is damaged or unsupported."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El binario del framework del juego está dañado o no es compatible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le binaire du framework du jeu est endommagé ou non pris en charge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file binario del framework del gioco è danneggiato o non supportato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームフレームワークのバイナリが破損しているか非対応です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 프레임워크 바이너리가 손상되었거나 지원되지 않습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O binário do framework do jogo está corrompido ou não é compatível."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelframeworkets binärfil är skadad eller stöds inte."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏框架二进制文件已损坏或不受支持。"
+          }
+        }
+      }
+    },
+    "The game framework could not be signed with the imported certificate.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Spiel-Framework konnte mit dem importierten Zertifikat nicht signiert werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game framework could not be signed with the imported certificate."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo firmar el framework del juego con el certificado importado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de signer le framework du jeu avec le certificat importé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile firmare il framework del gioco con il certificato importato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込んだ証明書でこのゲームフレームワークに署名できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져온 인증서로 게임 프레임워크에 서명할 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível assinar o framework do jogo com o certificado importado."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det gick inte att signera spelframeworket med det importerade certifikatet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法使用导入的证书为该游戏框架签名。"
+          }
+        }
+      }
+    },
+    "The game framework executable is missing.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausführbare Datei des Spiel-Frameworks fehlt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game framework executable is missing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta el ejecutable del framework del juego."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'exécutable du framework du jeu est manquant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manca l'eseguibile del framework del gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームフレームワークの実行ファイルが見つかりません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 프레임워크 실행 파일이 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O executável do framework do jogo está ausente."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelframeworkets körbara fil saknas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏框架的可执行文件缺失。"
+          }
+        }
+      }
+    },
+    "The game framework executable name is invalid.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Name der ausführbaren Datei des Spiel-Frameworks ist ungültig."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game framework executable name is invalid."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El nombre del ejecutable del framework del juego no es válido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nom de l'exécutable du framework du jeu n'est pas valide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il nome dell'eseguibile del framework del gioco non è valido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームフレームワークの実行ファイル名が無効です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 프레임워크 실행 파일 이름이 잘못되었습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O nome do executável do framework do jogo é inválido."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Namnet på spelframeworkets körbara fil är ogiltigt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏框架的可执行文件名称无效。"
+          }
+        }
+      }
+    },
+    "The game framework is missing Info.plist.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Spiel-Framework fehlt die Datei Info.plist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game framework is missing Info.plist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al framework del juego le falta Info.plist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier Info.plist est absent du framework du jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manca Info.plist nel framework del gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームフレームワークに Info.plist がありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 프레임워크에 Info.plist가 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O framework do jogo não possui Info.plist."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelframeworket saknar Info.plist."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏框架缺少 Info.plist。"
           }
         }
       }
@@ -4925,6 +5757,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "游戏的启动参数不完整。"
+          }
+        }
+      }
+    },
+    "The imported certificate uses an unsupported signing key type.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das importierte Zertifikat verwendet einen nicht unterstützten Signaturschlüsseltyp."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The imported certificate uses an unsupported signing key type."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El certificado importado usa un tipo de clave de firma no compatible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le certificat importé utilise un type de clé de signature non pris en charge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il certificato importato utilizza un tipo di chiave di firma non supportato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込んだ証明書は非対応の署名鍵タイプを使用しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져온 인증서가 지원되지 않는 서명 키 유형을 사용합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O certificado importado usa um tipo de chave de assinatura não compatível."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det importerade certifikatet använder en nyckeltyp som inte stöds."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入的证书使用了不受支持的签名密钥类型。"
           }
         }
       }
@@ -5249,6 +6145,262 @@
         }
       }
     },
+    "The selected certificate file could not be read.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausgewählte Zertifikatsdatei konnte nicht gelesen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected certificate file could not be read."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el archivo de certificado seleccionado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire le fichier de certificat sélectionné."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile leggere il file del certificato selezionato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した証明書ファイルを読み込めませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 인증서 파일을 읽을 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler o arquivo de certificado selecionado."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valda certifikatfilen kunde inte läsas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取所选证书文件。"
+          }
+        }
+      }
+    },
+    "The selected certificate file is empty.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausgewählte Zertifikatsdatei ist leer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected certificate file is empty."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo de certificado seleccionado está vacío."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de certificat sélectionné est vide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file del certificato selezionato è vuoto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した証明書ファイルが空です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 인증서 파일이 비어 있습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O arquivo de certificado selecionado está vazio."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valda certifikatfilen är tom."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选证书文件为空。"
+          }
+        }
+      }
+    },
+    "The selected certificate file is too large.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausgewählte Zertifikatsdatei ist zu groß."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected certificate file is too large."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo de certificado seleccionado es demasiado grande."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de certificat sélectionné est trop volumineux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file del certificato selezionato è troppo grande."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した証明書ファイルが大きすぎます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 인증서 파일이 너무 큽니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O arquivo de certificado selecionado é grande demais."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valda certifikatfilen är för stor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选证书文件过大。"
+          }
+        }
+      }
+    },
+    "The selected file is not a valid .p12 certificate.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausgewählte Datei ist kein gültiges .p12-Zertifikat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected file is not a valid .p12 certificate."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo seleccionado no es un certificado .p12 válido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier sélectionné n'est pas un certificat .p12 valide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file selezionato non è un certificato .p12 valido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したファイルは有効な .p12 証明書ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 파일이 올바른 .p12 인증서가 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O arquivo selecionado não é um certificado .p12 válido."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valda filen är inte ett giltigt .p12-certifikat."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选文件不是有效的 .p12 证书。"
+          }
+        }
+      }
+    },
     "The settings list": {
       "localizations": {
         "de": {
@@ -5309,6 +6461,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "设置列表"
+          }
+        }
+      }
+    },
+    "The signed game framework could not be saved.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das signierte Spiel-Framework konnte nicht gespeichert werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The signed game framework could not be saved."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar el framework del juego firmado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d'enregistrer le framework du jeu signé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile salvare il framework del gioco firmato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "署名済みのゲームフレームワークを保存できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서명된 게임 프레임워크를 저장할 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível salvar o framework do jogo assinado."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det signerade spelframeworket kunde inte sparas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存已签名的游戏框架。"
           }
         }
       }
@@ -5825,130 +7041,130 @@
         }
       }
     },
-    "This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple.": {
+    "This game's framework in Documents/Frameworks is unsigned. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Spiel-Framework in Documents/Frameworks ist nicht signiert. Installiere das Spiel erneut über NX2Apple."
+            "value": "Das Framework dieses Spiels in Documents/Frameworks ist unsigniert. Installiere es mit demselben Signaturteam aus NX2Apple neu oder importiere dein Sideload-.p12-Zertifikat in den Einstellungen, um es auf diesem Gerät automatisch zu signieren."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple."
+            "value": "This game's framework in Documents/Frameworks is unsigned. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El framework de este juego en Documents/Frameworks no tiene firma. Vuelve a instalar el juego desde NX2Apple."
+            "value": "El framework de este juego en Documents/Frameworks no está firmado. Reinstálalo con el mismo equipo de firma desde NX2Apple o importa tu certificado .p12 de sideload en Ajustes para firmarlo automáticamente en este dispositivo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le framework de ce jeu dans Documents/Frameworks n'est pas signé. Réinstallez le jeu depuis NX2Apple."
+            "value": "Le framework de ce jeu dans Documents/Frameworks n'est pas signé. Réinstallez-le avec la même équipe de signature depuis NX2Apple ou importez votre certificat .p12 de sideload dans Réglages pour le signer automatiquement sur cet appareil."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il framework di questo gioco in Documents/Frameworks non è firmato. Installa di nuovo il gioco da NX2Apple."
+            "value": "Il framework di questo gioco in Documents/Frameworks non è firmato. Reinstallalo con lo stesso team di firma da NX2Apple oppure importa il certificato .p12 di sideload in Impostazioni per firmarlo automaticamente su questo dispositivo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Documents/Frameworks 内のゲームフレームワークが未署名です。NX2Apple からもう一度インストールしてください。"
+            "value": "Documents/Frameworks 内のこのゲームのフレームワークは未署名です。NX2Apple から同じ署名チームで再インストールするか、設定でサイドロード用 .p12 証明書を読み込むとこの端末で自動署名して起動できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Documents/Frameworks에 있는 이 게임의 프레임워크가 서명되지 않았습니다. NX2Apple에서 게임을 다시 설치하세요."
+            "value": "Documents/Frameworks에 있는 이 게임 프레임워크가 서명되지 않았습니다. NX2Apple에서 같은 서명 팀으로 다시 설치하거나 설정에서 사이드로드 .p12 인증서를 가져오면 이 기기에서 자동으로 서명됩니다."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O framework deste jogo em Documents/Frameworks não está assinado. Instale o jogo novamente pelo NX2Apple."
+            "value": "O framework deste jogo em Documents/Frameworks não está assinado. Reinstale com a mesma equipe de assinatura no NX2Apple ou importe seu certificado .p12 de sideload em Ajustes para assiná-lo automaticamente neste dispositivo."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spelets ramverk i Documents/Frameworks saknar signatur. Installera spelet igen från NX2Apple."
+            "value": "Det här spelets framework i Documents/Frameworks saknar signatur. Installera om det med samma signeringsteam från NX2Apple eller importera ditt .p12-certifikat för sidoladdning i Inställningar för automatisk signering på den här enheten."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Documents/Frameworks 中的游戏框架未签名。请在 NX2Apple 中重新安装该游戏。"
+            "value": "Documents/Frameworks 中该游戏的框架未签名。请从 NX2Apple 使用相同签名团队重新安装，或在「设置」中导入侧载 .p12 证书即可在本机自动签名运行。"
           }
         }
       }
     },
-    "This game's framework is signed for %@, while this app is signed for team %@. Install the game again from NX2Apple.": {
+    "This game's framework is signed for %@, while this app is signed for team %@. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieses Spiel-Framework ist für %@ signiert, diese App jedoch für Team %@. Installiere das Spiel erneut über NX2Apple."
+            "value": "Das Framework dieses Spiels ist für %@ signiert, während diese App für Team %@ signiert ist. Installiere es mit demselben Signaturteam aus NX2Apple neu oder importiere dein Sideload-.p12-Zertifikat in den Einstellungen, um es auf diesem Gerät automatisch zu signieren."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This game's framework is signed for %@, while this app is signed for team %@. Install the game again from NX2Apple."
+            "value": "This game's framework is signed for %@, while this app is signed for team %@. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El framework de este juego está firmado para %@, mientras que esta app está firmada para el equipo %@. Vuelve a instalar el juego desde NX2Apple."
+            "value": "El framework de este juego está firmado para %@, mientras que esta app está firmada para el equipo %@. Reinstálalo con el mismo equipo de firma desde NX2Apple o importa tu certificado .p12 de sideload en Ajustes para firmarlo automáticamente en este dispositivo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le framework de ce jeu est signé pour %@, tandis que cette app est signée pour l'équipe %@. Réinstallez le jeu depuis NX2Apple."
+            "value": "Le framework de ce jeu est signé pour %@, alors que cette app est signée pour l'équipe %@. Réinstallez-le avec la même équipe de signature depuis NX2Apple ou importez votre certificat .p12 de sideload dans Réglages pour le signer automatiquement sur cet appareil."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il framework di questo gioco è firmato per %@, mentre questa app è firmata per il team %@. Installa di nuovo il gioco da NX2Apple."
+            "value": "Il framework di questo gioco è firmato per %@, mentre questa app è firmata per il team %@. Reinstallalo con lo stesso team di firma da NX2Apple oppure importa il certificato .p12 di sideload in Impostazioni per firmarlo automaticamente su questo dispositivo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このゲームのフレームワークは %@ で署名されていますが、このアプリはチーム %@ で署名されています。NX2Apple からもう一度インストールしてください。"
+            "value": "このゲームのフレームワークは %@ で署名されていますが、このアプリはチーム %@ で署名されています。NX2Apple から同じ署名チームで再インストールするか、設定でサイドロード用 .p12 証明書を読み込むとこの端末で自動署名して起動できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 게임의 프레임워크는 %@용으로 서명되었지만 이 앱은 팀 %@용으로 서명되었습니다. NX2Apple에서 게임을 다시 설치하세요."
+            "value": "이 게임 프레임워크는 %@(으)로 서명되어 있지만 이 앱은 팀 %@(으)로 서명되어 있습니다. NX2Apple에서 같은 서명 팀으로 다시 설치하거나 설정에서 사이드로드 .p12 인증서를 가져오면 이 기기에서 자동으로 서명됩니다."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O framework deste jogo está assinado para %@, enquanto este app está assinado para a equipe %@. Instale o jogo novamente pelo NX2Apple."
+            "value": "O framework deste jogo está assinado para %@, enquanto este app está assinado para a equipe %@. Reinstale com a mesma equipe de assinatura no NX2Apple ou importe seu certificado .p12 de sideload em Ajustes para assiná-lo automaticamente neste dispositivo."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spelets ramverk är signerat för %@, medan den här appen är signerad för team %@. Installera spelet igen från NX2Apple."
+            "value": "Det här spelets framework är signerat för %@, medan den här appen är signerad för team %@. Installera om det med samma signeringsteam från NX2Apple eller importera ditt .p12-certifikat för sidoladdning i Inställningar för automatisk signering på den här enheten."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此游戏框架使用 %@ 签名，而当前应用使用团队 %@ 签名。请在 NX2Apple 中重新安装该游戏。"
+            "value": "该游戏框架的签名团队为 %@，而当前应用的签名团队为 %@。请从 NX2Apple 使用相同签名团队重新安装，或在「设置」中导入侧载 .p12 证书即可在本机自动签名运行。"
           }
         }
       }
@@ -6593,66 +7809,66 @@
         }
       }
     },
-    "iOS refused the code signature of this game's framework. Install the game again from NX2Apple.": {
+    "iOS refused the code signature of this game's framework. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS hat die Codesignatur des Frameworks dieses Spiels abgelehnt. Installiere das Spiel erneut über NX2Apple."
+            "value": "iOS hat die Codesignatur des Frameworks dieses Spiels abgelehnt. Installiere es mit demselben Signaturteam aus NX2Apple neu oder importiere dein Sideload-.p12-Zertifikat in den Einstellungen, um es auf diesem Gerät automatisch zu signieren."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS refused the code signature of this game's framework. Install the game again from NX2Apple."
+            "value": "iOS refused the code signature of this game's framework. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS rechazó la firma de código del framework de este juego. Vuelve a instalar el juego desde NX2Apple."
+            "value": "iOS rechazó la firma de código del framework de este juego. Reinstálalo con el mismo equipo de firma desde NX2Apple o importa tu certificado .p12 de sideload en Ajustes para firmarlo automáticamente en este dispositivo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS a refusé la signature de code du framework de ce jeu. Réinstallez le jeu depuis NX2Apple."
+            "value": "iOS a refusé la signature de code du framework de ce jeu. Réinstallez-le avec la même équipe de signature depuis NX2Apple ou importez votre certificat .p12 de sideload dans Réglages pour le signer automatiquement sur cet appareil."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS ha rifiutato la firma del codice del framework di questo gioco. Installa di nuovo il gioco da NX2Apple."
+            "value": "iOS ha rifiutato la firma del codice del framework di questo gioco. Reinstallalo con lo stesso team di firma da NX2Apple oppure importa il certificato .p12 di sideload in Impostazioni per firmarlo automaticamente su questo dispositivo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS がこのゲームのフレームワークのコード署名を拒否しました。NX2Apple からゲームを再インストールしてください。"
+            "value": "iOS がこのゲームのフレームワークのコード署名を拒否しました。NX2Apple から同じ署名チームで再インストールするか、設定でサイドロード用 .p12 証明書を読み込むとこの端末で自動署名して起動できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS에서 이 게임 프레임워크의 코드 서명을 거부했습니다. NX2Apple에서 게임을 다시 설치하세요."
+            "value": "iOS가 이 게임 프레임워크의 코드 서명을 거부했습니다. NX2Apple에서 같은 서명 팀으로 다시 설치하거나 설정에서 사이드로드 .p12 인증서를 가져오면 이 기기에서 자동으로 서명됩니다."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O iOS recusou a assinatura de código do framework deste jogo. Instale o jogo novamente pelo NX2Apple."
+            "value": "O iOS recusou a assinatura de código do framework deste jogo. Reinstale com a mesma equipe de assinatura no NX2Apple ou importe seu certificado .p12 de sideload em Ajustes para assiná-lo automaticamente neste dispositivo."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS nekade kodsignaturen för det här spelets ramverk. Installera spelet igen från NX2Apple."
+            "value": "iOS nekade kodsignaturen för det här spelets framework. Installera om det med samma signeringsteam från NX2Apple eller importera ditt .p12-certifikat för sidoladdning i Inställningar för automatisk signering på den här enheten."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS 拒绝了此游戏框架的代码签名。请从 NX2Apple 重新安装该游戏。"
+            "value": "iOS 拒绝了该游戏框架的代码签名。请从 NX2Apple 使用相同签名团队重新安装，或在「设置」中导入侧载 .p12 证书即可在本机自动签名运行。"
           }
         }
       }

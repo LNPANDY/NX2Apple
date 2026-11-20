@@ -63,7 +63,8 @@ final class Sandbox: @unchecked Sendable {
                                updateURL: updateURL, defaults: { UserDefaults(suiteName: suite + $0)! },
                                openURL: open, fetchBannerData: fetchBannerData,
                                fetchBannerOutcome: fetchBannerOutcome,
-                               fetchStoreResponse: fetchStoreResponse, now: now)
+                               fetchStoreResponse: fetchStoreResponse, now: now,
+                               sideloadCertBacking: InMemoryCertBacking())
     }
 
     /// The game's app data folder with the marker file the orbit fixture's manifest names (not game data: an empty file).

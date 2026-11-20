@@ -43,6 +43,7 @@ public struct LibraryView: View {
     /// The controller's state while the button test is open, from the host.
     public let padSnapshot: PadSnapshot?
     public let signingWarning: SigningWarning?
+    public let sideloadCertificate: SideloadCertificateSummary?
     public let canOpenHomeButtonSettings: Bool
     public var onDismissSigningWarning: () -> Void
     public var actions: ShellActions
@@ -110,6 +111,7 @@ public struct LibraryView: View {
                 initialControllersOpen: Bool = false, initialShellSettingsOpen: Bool = false, initialFocusVisible: Bool = false,
                 globalPadMap: PadMap = PadMap(), padMerge: Bool = false, padSnapshot: PadSnapshot? = nil,
                 signingWarning: SigningWarning? = nil, onDismissSigningWarning: @escaping () -> Void = {},
+                sideloadCertificate: SideloadCertificateSummary? = nil,
                 initialPadMapping: String? = nil, initialButtonTestOpen: Bool = false,
                 canOpenHomeButtonSettings: Bool = false) {
         ShellPalette.configureNativeAppearance()
@@ -119,6 +121,7 @@ public struct LibraryView: View {
         self.padMerge = padMerge
         self.padSnapshot = padSnapshot
         self.signingWarning = signingWarning
+        self.sideloadCertificate = sideloadCertificate
         self.canOpenHomeButtonSettings = canOpenHomeButtonSettings
         self.onDismissSigningWarning = onDismissSigningWarning
         _padMapping = State(initialValue: initialPadMapping.map { PadMappingState(gameID: $0) })
@@ -430,7 +433,7 @@ public struct LibraryView: View {
                         .allowsHitTesting(!retention.isLeaving(.controllers, open: controllersOpen))
                 }
                 if retention.draws(.shellSettings, open: shellSettingsOpen) {
-                    ShellSettingsView(actions: menuActions, onClose: closeShellSettings)
+                    ShellSettingsView(actions: menuActions, sideloadCertificate: sideloadCertificate, onClose: closeShellSettings)
                         .background(ShellPalette.background)
                         .accessibilityHidden(choice != nil || retention.isLeaving(.shellSettings, open: shellSettingsOpen))
                         .allowsHitTesting(!retention.isLeaving(.shellSettings, open: shellSettingsOpen))

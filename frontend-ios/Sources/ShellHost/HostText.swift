@@ -75,9 +75,9 @@ public func localizeEngineLaunchError(_ raw: String) -> String {
     case "The game's start arguments are incomplete.":
         return hostText("The game's start arguments are incomplete.")
     case "This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple.":
-        return hostText("This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple.")
+        return hostText("This game's framework in Documents/Frameworks is unsigned. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device.")
     case "iOS refused the code signature of this game's framework. Install the game again from NX2Apple.":
-        return hostText("iOS refused the code signature of this game's framework. Install the game again from NX2Apple.")
+        return hostText("iOS refused the code signature of this game's framework. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device.")
     default:
         return raw
     }
