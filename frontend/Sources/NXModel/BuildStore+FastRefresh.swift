@@ -217,6 +217,10 @@ extension BuildStore {
         } else if isMac, let macOutput {
             macAppPath = ""
             args += ["--platform", "mac-app", "-o", macOutput.builderURL.path]
+            if shouldPassSeenShaders(forTitleID: tid) {
+                args += ["--seen-shaders"]
+                say(t("msg.seenShadersOn"))
+            }
             if RepoLayout.supportsFallbackIcon(repo.path) { args += macFallbackIconArguments(tid) }
 
             var romfsCandidates: [String] = []

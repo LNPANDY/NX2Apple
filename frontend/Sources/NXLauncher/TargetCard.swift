@@ -49,8 +49,32 @@ package struct TargetCard: View {
                 .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
                 .padding(.top, 4)
+            } else if build.buildUpstream == .nxnative, let seenInfo = build.cachedSeenShaders {
+                VStack(spacing: 0) {
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(loc.t("opt.seenShaders")).font(.manrope(14))
+                            Text(String(format: loc.t("opt.seenShaders.note"), seenInfo.seenCount.formatted(), seenInfo.totalCount.formatted()))
+                                .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 12)
+                        Toggle(loc.t("opt.seenShaders"), isOn: $build.seenShadersOnly).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(build.running)
+                            .padTarget("set.build.seenShaders", scope: "main", enabled: !build.running,
+                                       activate: { if !build.running { build.seenShadersOnly.toggle() } },
+                                       adjust: { _ in if !build.running { build.seenShadersOnly.toggle() } })
+                    }
+                    .padding(.horizontal, 18).padding(.vertical, 14)
+                }
+                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+                .padding(.top, 4)
             }
         }
+        .onAppear { build.refreshSeenShadersInfo() }
+        .onChange(of: build.detectedGameTitleID16) { _ in build.refreshSeenShadersInfo() }
+        .onChange(of: build.target) { _ in build.refreshSeenShadersInfo() }
+        .onChange(of: build.buildUpstream) { _ in build.refreshSeenShadersInfo() }
     }
 
     private func targetCard(_ value: String, symbol: String, title: String, note: String) -> some View {

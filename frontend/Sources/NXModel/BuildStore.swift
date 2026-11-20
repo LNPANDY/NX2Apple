@@ -52,6 +52,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let outputKey = "buildOutputDirectory"
     nonisolated package static let targetKey = "buildTarget"
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
+    nonisolated package static let seenShadersOnlyKey = "seenShadersOnly"
     nonisolated package static let savedKeysKey = "savedKeysPath"
     nonisolated package static let buildUpstreamKey = "buildUpstream"
     nonisolated package static let macNativeGamesPathKey = "macNativeGamesPath"
@@ -195,6 +196,14 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var bcOnCPU: Bool {
         didSet { defaults.set(bcOnCPU, forKey: Self.bcOnCPUKey) }
     }
+    /// Build only shaders listed in the profile's `shader_seen.tsv` (Mac `nxnative` builds only, `--seen-shaders`).
+    @Published package var seenShadersOnly: Bool {
+        didSet { defaults.set(seenShadersOnly, forKey: Self.seenShadersOnlyKey) }
+    }
+    /// Cached `shader_seen.tsv` counts for the currently selected game when eligible on Mac `nxnative`.
+    @Published package internal(set) var cachedSeenShaders: SeenShadersInfo? = nil
+    var seenShadersGeneration: UInt64 = 0
+    var seenShadersLoadedKey: String = ""
     /// The prod.keys chosen once for every game (Settings, "Keys", #996): a build whose keys row is empty or names a file that is gone
     /// takes it (BuildStore+SavedKeys.swift). Empty when none is saved.
     @Published package internal(set) var savedKeys: String {
@@ -481,6 +490,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         target = savedTarget
         runningTarget = savedTarget
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
+        seenShadersOnly = defaults.bool(forKey: Self.seenShadersOnlyKey)
         savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
         let savedMNGPath = defaults.string(forKey: Self.macNativeGamesPathKey) ?? ""
         let savedS2ArmPath = defaults.string(forKey: Self.s2armPathKey) ?? ""
