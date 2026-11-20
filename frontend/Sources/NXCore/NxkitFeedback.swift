@@ -111,6 +111,21 @@ package enum NxkitFeedback {
         s.addingPercentEncoding(withAllowedCharacters: unreserved) ?? ""
     }
 
+    /// "Send feedback" with nxkit (Beta) chosen, outside any build: the same issue form, prefilled only with what this Mac knows
+    /// (nxkit version, engine build, Mac model, macOS). The player picks the game and the result in the form.
+    package static func feedbackURL(nxkitVersion: String, engineBuild: String, macModel: String = NxkitFeedback.macModel,
+                                    macOSVersion: String = NxkitFeedback.macOSVersion) -> URL {
+        let fields: [(String, String)] = [
+            (Field.template, Field.templateName),
+            (Field.nxkitVersion, nxkitVersion),
+            (Field.engineBuild, engineBuild),
+            (Field.macModel, macModel),
+            (Field.macOSVersion, macOSVersion),
+        ].filter { !$0.1.isEmpty }
+        let url = newIssueURL + "?" + fields.map { $0.0 + "=" + encode($0.1) }.joined(separator: "&")
+        return URL(string: url) ?? URL(string: newIssueURL)!
+    }
+
     /// The new-issue URL. The log is cut from the top until the whole URL is under `maxURLLength`.
     package static func issueURL(_ r: Report, home: String = NSHomeDirectory(), user: String = NSUserName()) -> URL {
         let name = scrub(r.gameName, home: home, user: user)

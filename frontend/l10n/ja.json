@@ -1883,6 +1883,8 @@
   "nxkit.feedback.no": "動きません",
   "nxkit.feedback.problems": "問題あり",
   "nxkit.feedback.report": "報告",
+  "nxkit.feedback.send": "フィードバックを送る",
+  "nxkit.feedback.sendHelp": "GitHub で nxkit の新しい Issue を開きます。自動では何も送信されません。",
   "nxkit.feedback.title": "うまく動きましたか？",
   "nxkit.feedback.which": "何が起きましたか？",
   "nxkit.feedback.yes": "動きます",

@@ -59,9 +59,9 @@ enum GalleryCoverage {
         "BuildCompletionTimerStroke": [.desktop(D.buildJustFinished), .motion(.buildFinishing)], "LauncherWordmark": [.onboarding(.fresh)],
         // the build page
         "BuildPage": [.buildsIdle, .gamePage], "LauncherPageScroll": [.buildsIdle],
-        "EngineSwitcherCard": [.buildsIdle, .desktop(D.mngRecommend), .desktop(D.mngRecommendInstalled)],
+        "EngineSwitcherCard": [.buildsIdle, .nxkitFailed, .desktop(D.mngRecommend), .desktop(D.mngRecommendInstalled)],
         "EngineDropdownPanel": [.desktop(D.engineDropdown)], "LauncherCustomDropdownBox": [.desktop(D.engineDropdown)],
-        "EngineExperimentalBadge": [.buildsIdle, .desktop(D.engineDropdown)], "UpstreamVersionPill": [.buildsIdle, .desktop(D.engineDropdown)],
+        "EngineExperimentalBadge": [.desktop(D.engineDropdown)], "UpstreamVersionPill": [.buildsIdle, .desktop(D.engineDropdown)],
         "FilesCard": [.addGameFound, .addGamePartial], "FileRow": [.addGameFound], "FileRowDivider": [.addGameFound],
         "LauncherInfoHelp": [.addGameFound], "ActionCard": [.addGameFound], "TargetCard": [.gamePage, .wizardPlatform],
         "InstallCard": [.wizardInstall], "RefreshDevicesButton": [.wizardInstall], "LauncherBrandMark": [.wizardInstall],

@@ -1884,6 +1884,8 @@
   "nxkit.feedback.no": "작동하지 않습니다",
   "nxkit.feedback.problems": "문제 있음",
   "nxkit.feedback.report": "알리기",
+  "nxkit.feedback.send": "피드백 보내기",
+  "nxkit.feedback.sendHelp": "GitHub에서 nxkit의 새 이슈를 엽니다. 자동으로 전송되는 것은 없습니다.",
   "nxkit.feedback.title": "잘 작동했나요?",
   "nxkit.feedback.which": "무슨 일이 있었나요?",
   "nxkit.feedback.yes": "작동합니다",

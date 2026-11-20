@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NXCore
 import NXModel
@@ -80,7 +81,6 @@ package struct EngineSwitcherCard: View {
                                 .font(DS.Font.bodyStrong)
                                 .foregroundStyle(LauncherPalette.text)
                                 .lineLimit(1)
-                            EngineExperimentalBadge(text: loc.t("engine.experimental"))
                             UpstreamVersionPill(
                                 text: badgeText,
                                 highlighted: activeHasUpdate,
@@ -94,6 +94,16 @@ package struct EngineSwitcherCard: View {
                             .font(DS.Font.callout)
                             .foregroundStyle(LauncherPalette.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
+                        if active == .nxkit {
+                            // nxkit (Beta) is chosen: feedback goes to v0lumehi/nxkit at any time, not only after a build (#1460, #1498 review)
+                            Button(loc.t("nxkit.feedback.send")) { NSWorkspace.shared.open(build.nxkitSendFeedbackURL) }
+                                .buttonStyle(DSTextButtonStyle())
+                                .help(loc.t("nxkit.feedback.sendHelp"))
+                                .accessibilityIdentifier("engine.nxkit.feedback")
+                                .padTarget("set.build.nxkitFeedback", scope: "main", enabled: !build.running) {
+                                    NSWorkspace.shared.open(build.nxkitSendFeedbackURL)
+                                }
+                        }
                         if let busy {
                             Text(busyStatusText(busy))
                                 .font(.manrope(12))
