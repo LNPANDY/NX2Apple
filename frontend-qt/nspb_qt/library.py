@@ -15,6 +15,7 @@ import struct
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 import zipfile
@@ -1420,8 +1421,16 @@ class ArtworkStore:
     TITLEDB_URL = 'https://raw.githubusercontent.com/blawar/titledb/master/US.en.json'
     FALLBACK_BANNERS: dict[str, str] = dict(_kb.SWITCH2_FALLBACK_BANNERS)
     KNOWN_BANNERS: dict[str, str] = _kb.KNOWN_BANNERS
+    DIRECT_PROBE_ERROR_BUDGET = 24.0
+    DIRECT_PROBE_COOLDOWN = 60.0
 
-    def __init__(self, state_dir: Path | None = None, on_updated: Callable[[str], None] | None = None) -> None:
+    def __init__(
+        self,
+        state_dir: Path | None = None,
+        on_updated: Callable[[str], None] | None = None,
+        *,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         self.state_dir = state_dir or default_state_dir()
         self.banners_dir = self.state_dir / 'banners'
         self.custom_file = self.state_dir / 'custom_artwork.json'
@@ -1431,6 +1440,9 @@ class ArtworkStore:
         self._titledb_cache: dict[str, str] | None = None
         self._lock = threading.Lock()
         self._index_lock = threading.Lock()
+        self._clock = clock or time.monotonic
+        self._probe_error_elapsed = 0.0
+        self._probe_paused_at: float | None = None
         self._load_custom()
 
     def _load_custom(self) -> None:
@@ -1473,12 +1485,9 @@ class ArtworkStore:
         custom = self.custom_paths.get(tid, '')
         if custom and os.path.isfile(custom):
             return custom
-        cached = self.banners_dir / f'{tid}.jpg'
-        if cached.is_file():
+        cached = _kb.cached_banner_path(tid, self.banners_dir)
+        if cached is not None:
             return str(cached)
-        cached_png = self.banners_dir / f'{tid}.png'
-        if cached_png.is_file():
-            return str(cached_png)
         if repo_path:
             gal = self._gallery_map(repo_path)
             if tid in gal:
@@ -1516,7 +1525,7 @@ class ArtworkStore:
         if os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
             return
         tid = title_id.upper()
-        if self.has_custom(tid) or (self.banners_dir / f'{tid}.jpg').is_file() or (self.banners_dir / f'{tid}.png').is_file():
+        if self.has_custom(tid) or _kb.cached_banner_path(tid, self.banners_dir) is not None:
             return
         with self._lock:
             if tid in self._fetching:
@@ -1584,33 +1593,109 @@ class ArtworkStore:
                 pass
             return mapping
 
+    def _save_banner_bytes(self, tid: str, data: bytes) -> bool:
+        if not data or len(data) <= 64:
+            return False
+        normalized = _kb.normalize_banner_bytes(data)
+        if normalized is None:
+            return False
+        out_bytes, ext = normalized
+        self.banners_dir.mkdir(parents=True, exist_ok=True)
+        dest = self.banners_dir / f'{tid}.{ext}'
+        tmp_dest = self.banners_dir / f'.{tid}.{uuid.uuid4().hex}.{ext}.tmp'
+        try:
+            tmp_dest.write_bytes(out_bytes)
+            os.replace(tmp_dest, dest)
+        finally:
+            if tmp_dest.exists():
+                try:
+                    tmp_dest.unlink()
+                except OSError:
+                    pass
+        if self.on_updated:
+            self.on_updated(tid)
+        return True
+
     def _download_banner_url(self, tid: str, url: str, *, timeout: float = 30.0) -> bool:
+        if not _kb.is_allowed_banner_url(url):
+            return False
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'NX2Apple/1.5'})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with _kb.open_allowed_url(req, timeout=timeout, validator=_kb.is_allowed_banner_url) as resp:
                 status = getattr(resp, 'status', 200)
                 if status not in (None, 200):
                     return False
+                final_url = _kb._response_final_url(resp, url)
+                if not _kb.is_allowed_banner_url(final_url):
+                    return False
                 data = _kb.read_response_chunked(resp, chunk_size=65536, max_bytes=_kb.MAX_BANNER_BYTES)
-            if _kb.is_valid_image_bytes(data) and len(data) > 64:
-                self.banners_dir.mkdir(parents=True, exist_ok=True)
-                ext = _kb.image_ext_for_bytes(data)
-                dest = self.banners_dir / f'{tid}.{ext}'
-                tmp_dest = self.banners_dir / f'.{tid}.{uuid.uuid4().hex}.{ext}.tmp'
-                try:
-                    tmp_dest.write_bytes(data)
-                    os.replace(tmp_dest, dest)
-                finally:
-                    if tmp_dest.exists():
-                        try:
-                            tmp_dest.unlink()
-                        except OSError:
-                            pass
-                if self.on_updated:
-                    self.on_updated(tid)
-                return True
+            return self._save_banner_bytes(tid, data)
         except Exception:
-            pass
+            return False
+
+    def _probe_budget_exhausted(self) -> bool:
+        with self._lock:
+            if self._probe_paused_at is None:
+                return False
+            if self._clock() - self._probe_paused_at >= self.DIRECT_PROBE_COOLDOWN:
+                self._probe_paused_at = None
+                self._probe_error_elapsed = 0.0
+                return False
+            return True
+
+    def _record_probe_transient_error(self, elapsed: float) -> None:
+        with self._lock:
+            self._probe_error_elapsed += max(0.0, elapsed)
+            if self._probe_error_elapsed >= self.DIRECT_PROBE_ERROR_BUDGET:
+                self._probe_paused_at = self._clock()
+
+    def _reset_probe_budget(self) -> None:
+        with self._lock:
+            self._probe_error_elapsed = 0.0
+            self._probe_paused_at = None
+
+    def _try_store_banner(self, tid: str) -> bool:
+        if self._probe_budget_exhausted():
+            return False
+        started = self._clock()
+        state, img_bytes = _kb.fetch_nintendo_store_banner(tid, timeout=_kb.STORE_REQUEST_TIMEOUT)
+        if state == 'ok' and img_bytes:
+            self._reset_probe_budget()
+            return self._save_banner_bytes(tid, img_bytes)
+        if state == 'transient':
+            self._record_probe_transient_error(self._clock() - started)
+        return False
+
+    def _try_nlib_banner(self, tid: str) -> bool:
+        if self._probe_budget_exhausted():
+            return False
+        direct_url = _kb.nlib_banner_url(tid)
+        if not direct_url:
+            return False
+        started = self._clock()
+        try:
+            req = urllib.request.Request(direct_url, headers={'User-Agent': 'NX2Apple/1.5'})
+            with _kb.open_allowed_url(req, timeout=8.0, validator=_kb.is_allowed_banner_url) as resp:
+                status = getattr(resp, 'status', 200)
+                if status is not None and status >= 500:
+                    self._record_probe_transient_error(self._clock() - started)
+                    return False
+                if status not in (None, 200):
+                    return False
+                final_url = _kb._response_final_url(resp, direct_url)
+                if not _kb.is_allowed_banner_url(final_url):
+                    return False
+                data = _kb.read_response_chunked(resp, chunk_size=65536, max_bytes=_kb.MAX_BANNER_BYTES)
+            if self._save_banner_bytes(tid, data):
+                self._reset_probe_budget()
+                return True
+        except urllib.error.HTTPError as exc:
+            if exc.code >= 500:
+                self._record_probe_transient_error(self._clock() - started)
+        except ValueError:
+            return False
+        except Exception:
+            self._record_probe_transient_error(self._clock() - started)
         return False
 
     def _fetch_one(self, tid: str) -> None:
@@ -1622,10 +1707,13 @@ class ArtworkStore:
             if self._download_banner_url(tid, url, timeout=30.0):
                 return
         else:
-            # Tier 2: single-title nlib.cc endpoint (8s timeout) before downloading the 90 MB title database.
-            direct_url = _kb.nlib_banner_url(tid)
-            if direct_url and self._download_banner_url(tid, direct_url, timeout=8.0):
-                return
+            # Tier 2: single-title probes (Switch 2: ec.nintendo.com -> nlib.cc; Switch 1: nlib.cc -> ec.nintendo.com).
+            if _kb.is_switch2_title_id(tid):
+                if self._try_store_banner(tid) or self._try_nlib_banner(tid):
+                    return
+            else:
+                if self._try_nlib_banner(tid) or self._try_store_banner(tid):
+                    return
         # Tier 3: streaming regional title database fallback (30s per-chunk socket timeout).
         mapping = self._load_or_fetch_index()
         fallback_url = mapping.get(tid) or self.FALLBACK_BANNERS.get(tid)

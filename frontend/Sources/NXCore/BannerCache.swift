@@ -44,7 +44,8 @@ package enum BannerCache {
     }
 
     /// Synchronous single-banner fetch for iOS packaging when the local cache has no banner yet.
-    /// Reads only the local `index.json` (if present) and `KnownGameBanners`, never downloading the 90 MB title database.
+    /// Reads only the local `index.json` (if present), `KnownGameBanners`, `ec.nintendo.com` (US -> HK),
+    /// and `api.nlib.cc`, never downloading the 90 MB title database.
     @discardableResult
     package static func ensureCachedBanner(
         titleID: String,
@@ -52,30 +53,26 @@ package enum BannerCache {
         timeout: TimeInterval = 10,
         allowsFileURLs: Bool = false,
         fm: FileManager = .default,
-        fetcher: DataFetcher? = nil
+        fetcher: DataFetcher? = nil,
+        storeTransport: NintendoStoreBanner.SyncTransport? = nil
     ) -> URL? {
         let id = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard KnownGameBanners.isValidTitleID(id) else { return nil }
         if let existing = cached(id, in: banners, fm: fm) { return existing }
 
         let indexLink = indexBannerURL(for: id, in: banners)
-        var candidates: [(link: String, timeout: TimeInterval)] = []
+        var primaryCandidates: [(link: String, timeout: TimeInterval)] = []
         var seenLinks = Set<String>()
-        func append(_ link: String?, timeout: TimeInterval) {
+        func appendPrimary(_ link: String?, timeout: TimeInterval) {
             guard let link, !link.isEmpty else { return }
             for cand in KnownGameBanners.downloadCandidates(for: link, lightweight: false) where seenLinks.insert(cand).inserted {
-                candidates.append((cand, timeout))
+                primaryCandidates.append((cand, timeout))
             }
         }
-        append(KnownGameBanners.bannerURL(for: id, preferred: indexLink), timeout: timeout)
-        append(KnownGameBanners.nlibBannerURL(for: id), timeout: min(timeout, 8))
+        appendPrimary(KnownGameBanners.bannerURL(for: id, preferred: indexLink), timeout: timeout)
 
         let fetch = fetcher ?? defaultFetcher
-        for item in candidates {
-            guard let url = URL(string: item.link),
-                  KnownGameBanners.isAllowedURL(url, allowsFileURLs: allowsFileURLs),
-                  let data = fetch(url, item.timeout),
-                  KnownGameBanners.isValidImageData(data) else { continue }
+        func writeBanner(_ data: Data) -> URL? {
             do {
                 try fm.createDirectory(at: banners, withIntermediateDirectories: true)
                 let dest = banners.appendingPathComponent(id + ".jpg")
@@ -84,6 +81,43 @@ package enum BannerCache {
             } catch {
                 return nil
             }
+        }
+        func tryLink(_ link: String, timeout: TimeInterval) -> URL? {
+            guard let url = URL(string: link),
+                  KnownGameBanners.isAllowedURL(url, allowsFileURLs: allowsFileURLs),
+                  let data = fetch(url, timeout),
+                  KnownGameBanners.isValidImageData(data) else { return nil }
+            let out = (url.host?.lowercased() == "assets.nintendo.com")
+                ? (KnownGameBanners.normalizedJPEGData(data) ?? data) : data
+            return writeBanner(out)
+        }
+        func tryNintendoStore() -> URL? {
+            if fetcher != nil && storeTransport == nil { return nil }
+            let outcome = NintendoStoreBanner.fetchBannerSync(
+                titleID: id,
+                timeout: min(timeout, NintendoStoreBanner.requestTimeout),
+                transport: storeTransport
+            )
+            if case .image(let jpegData, _) = outcome {
+                return writeBanner(jpegData)
+            }
+            return nil
+        }
+        func tryNlib() -> URL? {
+            guard let nlib = KnownGameBanners.nlibBannerURL(for: id),
+                  seenLinks.insert(nlib).inserted else { return nil }
+            return tryLink(nlib, timeout: min(timeout, 8))
+        }
+
+        for item in primaryCandidates {
+            if let saved = tryLink(item.link, timeout: item.timeout) { return saved }
+        }
+        if KnownGameBanners.isSwitch2TitleID(id) {
+            if let saved = tryNintendoStore() { return saved }
+            if let saved = tryNlib() { return saved }
+        } else {
+            if let saved = tryNlib() { return saved }
+            if let saved = tryNintendoStore() { return saved }
         }
         return nil
     }
@@ -136,30 +170,7 @@ package enum BannerCache {
     }
 
     private static let defaultFetcher: DataFetcher = { url, timeout in
-        // Avoid accidental live internet traffic during XCTest runs that did not inject a fake fetcher.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            return nil
-        }
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = max(2, timeout)
-        config.timeoutIntervalForResource = max(4, timeout * 1.5)
-        let session = URLSession(configuration: config)
-        defer { session.finishTasksAndInvalidate() }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: max(2, timeout))
-        request.setValue("NX2Apple/1.5", forHTTPHeaderField: "User-Agent")
-
-        final class Box: @unchecked Sendable { var data: Data? }
-        let box = Box()
-        let sema = DispatchSemaphore(value: 0)
-        let task = session.dataTask(with: request) { data, response, error in
-            defer { sema.signal() }
-            guard error == nil, let data else { return }
-            if let http = response as? HTTPURLResponse, http.statusCode != 200 { return }
-            box.data = data
-        }
-        task.resume()
-        _ = sema.wait(timeout: .now() + max(2, timeout * 1.5))
-        return box.data
+        NintendoStoreBanner.fetchAllowedImageSync(from: url, timeout: timeout, maxBytes: (20 << 20) - 1)
     }
 
     /// `<dir>/<TITLEID>/icon.jpg` (online square metadata icon).

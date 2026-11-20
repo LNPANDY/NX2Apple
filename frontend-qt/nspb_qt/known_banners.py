@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import struct
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -21,12 +23,34 @@ ALLOWED_IMAGE_HOSTS: frozenset[str] = frozenset({
     'cdn2.steamgriddb.com',
     'www.nintendo.com',
     'api.nlib.cc',
+    'assets.nintendo.com',
 })
 
 BANNER_EXTS: tuple[str, ...] = ('jpg', 'png', 'jpeg', 'heic', 'webp')
 MAX_BANNER_BYTES = 20 << 20
+MAX_STORE_HTML_BYTES = 8 << 20
+MAX_STORE_IMAGE_BYTES = 16 << 20
+STORE_REQUEST_TIMEOUT = 8.0
+STORE_REGIONS: tuple[str, ...] = ('US', 'HK')
+BROWSER_USER_AGENT = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+)
 _TITLE_ID_RE = re.compile(r'^[0-9A-F]{16}$')
 _NINTENDO_SIZE_RE = re.compile(r'_image\d+w\.')
+_NEXT_DATA_RE = re.compile(
+    r'<script\b[^>]*\bid\s*=\s*["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
+    re.IGNORECASE | re.DOTALL,
+)
+_ASSETS_IMAGE_RE = re.compile(
+    r'"image"\s*:\s*"(https://assets\.nintendo\.com/image/upload/[^"]*/store/software/switch2?/[0-9]+/[^"]+)"'
+)
+_META_TAG_RE = re.compile(r'<meta\b[^>]+>', re.IGNORECASE)
+_OG_IMAGE_PROP_RE = re.compile(r'\bproperty\s*=\s*["\']og:image["\']', re.IGNORECASE)
+_OG_ESHOP_CONTENT_RE = re.compile(
+    r'\bcontent\s*=\s*["\'](https://img-eshop\.cdn\.nintendo\.net/i/[0-9a-fA-F]+\.(?:jpg|png|webp))["\']',
+    re.IGNORECASE,
+)
 
 SWITCH2_FALLBACK_BANNERS: dict[str, str] = {
     '0400245021D2C000': 'https://cdn2.steamgriddb.com/grid/4019460f699df3ca57bb36a6cc8b1ce5.png',  # Yoshi and the Mysterious Book
@@ -184,13 +208,20 @@ KNOWN_BANNERS: dict[str, str] = {
     '0100FD8022DAA000': 'https://img-eshop.cdn.nintendo.net/i/8bbdbdd29d7f552054aa65c07fcd3a9b3c3dafdb590ccbec28e97a582c69d4ad.jpg',
     '0100FF500E34A000': 'https://www.nintendo.com/eu/media/images/10_share_images/games_15/nintendo_switch_4/H2x1_NSwitch_XenobladeChroniclesDefinitiveEdition_image500w.jpg',
     '0400245021D2C000': 'https://cdn2.steamgriddb.com/grid/4019460f699df3ca57bb36a6cc8b1ce5.png',
+    '040032B023CA4000': 'https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000098973/4c02a7ceaaacde0b7f51cde1e58b3b575ff2ed94a7c7530e4631b40d0f26413d',
     '0400380020056000': 'https://cdn2.steamgriddb.com/grid/220a08c045f283231e519ed83cd21466.png',
     '04003F40232DE000': 'https://cdn2.steamgriddb.com/grid/30430599d3640690ebddef63609c5f31.png',
+    '040041E0212AE000': 'https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000096904/f10f7517f94ce8630b76b1654eb5a79d316e18d4e9bc279a74e6964fe3f8ce86',
     '0400486024DEC000': 'https://cdn2.steamgriddb.com/grid/925526bdfb5910517494acb4db2537d5.png',
+    '040057C02159A000': 'https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000096813/8a2fc51b02035bf067a473a66938322f1f1570bf21034f0ad2134ce93b0d1cac',
     '040074A01BF12000': 'https://img-eshop.cdn.nintendo.net/i/3a40edb8fc1354911e0907f1494b5678c2fa37acb8925967e638bd63d06e4580.jpg',
+    '040077201BE50000': 'https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000103775/61c47511e5fc392c271d6f4736fa0575e2aed19c30e6fe73b50906cadb9b2996',
     '04007EF01F8AE000': 'https://cdn2.steamgriddb.com/grid/f73cc1e0813d90b30a22ca9af2e9c8b0.png',
+    '04008E001F098000': 'https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000125145/60f801a1d48a78691408a9ed7f51d87cb0279dc7419a616950b18b9016d9dbd0',
+    '0400921025B32000': 'https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000108238/fac34531ef37ddb8652dbfdf6c718dc5eacc0e4869dc52cad9ab12c0433e2735',
     '0400A3A01EE4C000': 'https://cdn2.steamgriddb.com/grid/00b97e285bef52b2826cfbeecd4d30f7.png',
     '0400C3F00006E000': 'https://www.nintendo.com/eu/media/images/assets/nintendo_switch_2_games/mariokartworld/2x1_NSwitch2_MarioKartWorld_image500w.jpg',
+    '0400C76024710000': 'https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000101665/3a8331b2f7b73d1fdb9b92dd9afdb2aff9602f1d89a9cfa171bf2561e480076e',
     '0400D4201C6EA000': 'https://cdn2.steamgriddb.com/grid/eb3353d1afeb0b6b1c6507bb5d39c757.png',
     '0400E88025B1A000': 'https://cdn2.steamgriddb.com/grid/a82908cc940793dc1d63acfc0218b2f9.jpg',
 }
@@ -198,6 +229,29 @@ KNOWN_BANNERS: dict[str, str] = {
 
 def is_valid_title_id(title_id: str) -> bool:
     return bool(_TITLE_ID_RE.fullmatch((title_id or '').strip().upper()))
+
+
+def is_switch2_title_id(title_id: str) -> bool:
+    tid = (title_id or '').strip().upper()
+    return is_valid_title_id(tid) and tid.startswith('0400')
+
+
+def nintendo_store_page_url(title_id: str, region: str) -> str | None:
+    tid = (title_id or '').strip().upper()
+    reg = (region or '').strip().upper()
+    if not is_valid_title_id(tid) or not reg:
+        return None
+    return f'https://ec.nintendo.com/apps/{tid}/{reg}'
+
+
+def is_allowed_store_url(url: str) -> bool:
+    if not url:
+        return False
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() != 'https':
+        return False
+    host = (parsed.hostname or '').lower().rstrip('.')
+    return host == 'nintendo.com' or host.endswith('.nintendo.com') or host == 'store.nintendo.com.hk'
 
 
 def nlib_banner_url(title_id: str) -> str | None:
@@ -212,9 +266,51 @@ def is_allowed_banner_url(url: str, *, allow_file: bool = False) -> bool:
     if not url:
         return False
     parsed = urllib.parse.urlparse(url)
-    if allow_file and parsed.scheme == 'file':
+    scheme = parsed.scheme.lower()
+    if allow_file and scheme == 'file':
         return True
-    return parsed.scheme == 'https' and (parsed.hostname or '').lower() in ALLOWED_IMAGE_HOSTS
+    host = (parsed.hostname or '').lower().rstrip('.')
+    return scheme == 'https' and host in ALLOWED_IMAGE_HOSTS
+
+
+class _PolicyRejectionError(ValueError):
+    """Raised when an HTTP redirect or payload violates host/size policy (never counted as a transient network error)."""
+
+
+class _AllowedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Validates every 3xx redirect target against `validator` before issuing the next HTTP hop."""
+
+    def __init__(self, validator: Callable[[str], bool]) -> None:
+        super().__init__()
+        self._validator = validator
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urllib.parse.urljoin(req.full_url, newurl)
+        if not self._validator(target):
+            raise _PolicyRejectionError(f'disallowed redirect target: {target}')
+        return super().redirect_request(req, fp, code, msg, headers, target)
+
+
+def make_safe_opener(validator: Callable[[str], bool]) -> Callable:
+    """Build a `urllib` opener that validates every redirect hop before connecting."""
+    return urllib.request.build_opener(_AllowedRedirectHandler(validator)).open
+
+
+def open_allowed_url(
+    req: urllib.request.Request,
+    *,
+    timeout: float,
+    validator: Callable[[str], bool],
+    opener: Callable | None = None,
+):
+    """Open `req` with pre-hop redirect validation, preserving `unittest.mock.patch('urllib.request.urlopen')` hooks."""
+    if not validator(req.full_url):
+        raise _PolicyRejectionError(f'disallowed request url: {req.full_url}')
+    if opener is not None:
+        return opener(req, timeout=timeout)
+    if getattr(urllib.request.urlopen, '__module__', '') != 'urllib.request':
+        return urllib.request.urlopen(req, timeout=timeout)
+    return make_safe_opener(validator)(req, timeout=timeout)
 
 
 def is_valid_image_bytes(data: bytes) -> bool:
@@ -240,6 +336,261 @@ def image_ext_for_bytes(data: bytes) -> str:
     if data[4:8] == b'ftyp':
         return 'heic'
     return 'jpg'
+
+
+def image_dimensions(data: bytes) -> tuple[int, int] | None:
+    """Return `(width, height)` for PNG, JPEG, or WebP in pure Python, with optional QImage fallback."""
+    if not data or len(data) < 12:
+        return None
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        if len(data) >= 24 and data[12:16] == b'IHDR':
+            w, h = struct.unpack('>II', data[16:24])
+            return (w, h) if (w > 0 and h > 0) else None
+        return None
+    if data[:2] == b'\xff\xd8':
+        pos = 2
+        n = len(data)
+        while pos + 1 < n:
+            if data[pos] != 0xFF:
+                pos += 1
+                continue
+            while pos < n and data[pos] == 0xFF:
+                pos += 1
+            if pos >= n:
+                break
+            marker = data[pos]
+            pos += 1
+            if marker == 0xD9 or marker == 0xDA:
+                break
+            if marker == 0x01 or (0xD0 <= marker <= 0xD8):
+                continue
+            if pos + 2 > n:
+                break
+            seg_len = struct.unpack('>H', data[pos:pos + 2])[0]
+            if seg_len < 2 or pos + seg_len > n:
+                break
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                if seg_len >= 7 and pos + 7 <= n:
+                    h, w = struct.unpack('>HH', data[pos + 3:pos + 7])
+                    return (w, h) if (w > 0 and h > 0) else None
+                return None
+            pos += seg_len
+        return None
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        if len(data) >= 30 and data[12:16] == b'VP8X':
+            w = 1 + int.from_bytes(data[24:27], 'little')
+            h = 1 + int.from_bytes(data[27:30], 'little')
+            return (w, h) if (w > 0 and h > 0) else None
+        if len(data) >= 30 and data[12:16] == b'VP8 ' and data[23:26] == b'\x9d\x01\x2a':
+            w = struct.unpack('<H', data[26:28])[0] & 0x3FFF
+            h = struct.unpack('<H', data[28:30])[0] & 0x3FFF
+            return (w, h) if (w > 0 and h > 0) else None
+        if len(data) >= 25 and data[12:16] == b'VP8L' and data[20] == 0x2F:
+            bits = struct.unpack('<I', data[21:25])[0]
+            w = (bits & 0x3FFF) + 1
+            h = ((bits >> 14) & 0x3FFF) + 1
+            return (w, h) if (w > 0 and h > 0) else None
+        return None
+    try:
+        from PySide6.QtGui import QImage
+        img = QImage.fromData(data)
+        if not img.isNull() and img.width() > 0 and img.height() > 0:
+            return (img.width(), img.height())
+    except Exception:
+        pass
+    return None
+
+
+def is_valid_landscape_image_bytes(data: bytes, *, max_bytes: int = MAX_STORE_IMAGE_BYTES) -> bool:
+    if not is_valid_image_bytes(data) or len(data) > max_bytes:
+        return False
+    dims = image_dimensions(data)
+    return dims is not None and dims[0] > dims[1] > 0
+
+
+def normalize_banner_bytes(data: bytes) -> tuple[bytes, str] | None:
+    """Return `(payload, ext)` ensuring JPEG/PNG are preserved and WebP/HEIF transcode to JPEG when Qt is available."""
+    if not is_valid_image_bytes(data):
+        return None
+    ext = image_ext_for_bytes(data)
+    if ext in ('jpg', 'png'):
+        return data, ext
+    try:
+        from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+        from PySide6.QtGui import QImage
+        img = QImage.fromData(data)
+        if not img.isNull() and img.width() > 0 and img.height() > 0:
+            buf_bytes = QByteArray()
+            buf = QBuffer(buf_bytes)
+            if buf.open(QIODevice.OpenModeFlag.WriteOnly) and img.save(buf, 'JPG', 92):
+                out = bytes(buf_bytes.data())
+                if is_valid_image_bytes(out):
+                    return out, 'jpg'
+    except Exception:
+        pass
+    return data, ext
+
+
+def _validated_assets_url(raw: str) -> str | None:
+    cand = (raw or '').strip()
+    if not cand:
+        return None
+    parsed = urllib.parse.urlparse(cand)
+    if parsed.scheme.lower() == 'https' and (parsed.hostname or '').lower() == 'assets.nintendo.com':
+        return cand
+    return None
+
+
+def extract_nintendo_store_banner_url(html: str) -> str | None:
+    """Extract an official banner image URL from Nintendo US/HK store HTML."""
+    if not html:
+        return None
+    m_next = _NEXT_DATA_RE.search(html)
+    if m_next:
+        try:
+            root = json.loads(m_next.group(1))
+            if isinstance(root, dict):
+                props = root.get('props')
+                page_props = props.get('pageProps') if isinstance(props, dict) else None
+                linked = page_props.get('linkedData') if isinstance(page_props, dict) else None
+                items = linked if isinstance(linked, list) else ([linked] if isinstance(linked, dict) else [])
+                for obj in items:
+                    if not isinstance(obj, dict):
+                        continue
+                    img = obj.get('image')
+                    if isinstance(img, str):
+                        ok = _validated_assets_url(img)
+                        if ok:
+                            return ok
+                    elif isinstance(img, list):
+                        for entry in img:
+                            if isinstance(entry, str):
+                                ok = _validated_assets_url(entry)
+                                if ok:
+                                    return ok
+        except Exception:
+            pass
+
+    m_assets = _ASSETS_IMAGE_RE.search(html)
+    if m_assets:
+        ok = _validated_assets_url(m_assets.group(1))
+        if ok:
+            return ok
+
+    for tag in _META_TAG_RE.findall(html):
+        if _OG_IMAGE_PROP_RE.search(tag):
+            m_content = _OG_ESHOP_CONTENT_RE.search(tag)
+            if m_content:
+                cand = m_content.group(1)
+                if is_allowed_banner_url(cand):
+                    return cand
+    return None
+
+
+def _response_final_url(resp, fallback_url: str) -> str:
+    geturl = getattr(resp, 'geturl', None)
+    if callable(geturl):
+        try:
+            val = geturl()
+            if isinstance(val, str) and val:
+                return val
+        except Exception:
+            pass
+    url_attr = getattr(resp, 'url', None)
+    if isinstance(url_attr, str) and url_attr:
+        return url_attr
+    return fallback_url
+
+
+def fetch_nintendo_store_banner(
+    title_id: str,
+    *,
+    timeout: float = STORE_REQUEST_TIMEOUT,
+    opener: Callable | None = None,
+) -> tuple[str, bytes | None]:
+    """Probe `ec.nintendo.com/apps/<TID>/US|HK` and return `('ok', bytes)`, `('not_found', None)`, or `('transient', None)`."""
+    tid = (title_id or '').strip().upper()
+    if not is_valid_title_id(tid):
+        return 'not_found', None
+    eff_timeout = max(2.0, min(float(timeout), STORE_REQUEST_TIMEOUT))
+    had_transient = False
+
+    for region in STORE_REGIONS:
+        page_url = nintendo_store_page_url(tid, region)
+        if not page_url:
+            continue
+        page_req = urllib.request.Request(
+            page_url,
+            headers={
+                'User-Agent': BROWSER_USER_AGENT,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+        )
+        try:
+            with open_allowed_url(page_req, timeout=eff_timeout, validator=is_allowed_store_url, opener=opener) as resp:
+                status = getattr(resp, 'status', 200)
+                if status in (404, 410):
+                    continue
+                if status is not None and status >= 500:
+                    had_transient = True
+                    continue
+                if status not in (None, 200):
+                    continue
+                final_page_url = _response_final_url(resp, page_url)
+                if not is_allowed_store_url(final_page_url):
+                    continue
+                raw_html = read_response_chunked(resp, chunk_size=65536, max_bytes=MAX_STORE_HTML_BYTES)
+        except urllib.error.HTTPError as exc:
+            if exc.code in (404, 410):
+                continue
+            if exc.code >= 500:
+                had_transient = True
+            continue
+        except ValueError:
+            continue
+        except Exception:
+            had_transient = True
+            continue
+
+        html = raw_html.decode('utf-8', errors='replace')
+        image_url = extract_nintendo_store_banner_url(html)
+        if not image_url or not is_allowed_banner_url(image_url):
+            continue
+
+        img_req = urllib.request.Request(
+            image_url,
+            headers={
+                'User-Agent': BROWSER_USER_AGENT,
+                'Accept': 'image/jpeg,image/png,image/*;q=0.8',
+            },
+        )
+        try:
+            with open_allowed_url(img_req, timeout=eff_timeout, validator=is_allowed_banner_url, opener=opener) as img_resp:
+                img_status = getattr(img_resp, 'status', 200)
+                if img_status is not None and img_status >= 500:
+                    had_transient = True
+                    continue
+                if img_status not in (None, 200):
+                    continue
+                final_img_url = _response_final_url(img_resp, image_url)
+                if not is_allowed_banner_url(final_img_url):
+                    continue
+                img_bytes = read_response_chunked(img_resp, chunk_size=65536, max_bytes=MAX_STORE_IMAGE_BYTES)
+        except urllib.error.HTTPError as exc:
+            if exc.code >= 500:
+                had_transient = True
+            continue
+        except ValueError:
+            continue
+        except Exception:
+            had_transient = True
+            continue
+
+        if not is_valid_landscape_image_bytes(img_bytes, max_bytes=MAX_STORE_IMAGE_BYTES):
+            continue
+        return 'ok', img_bytes
+
+    return ('transient' if had_transient else 'not_found'), None
 
 
 def download_candidates(url: str, *, prefer_large: bool = False) -> list[str]:
@@ -353,46 +704,77 @@ def ensure_cached_banner(
         or KNOWN_BANNERS.get(tid)
         or SWITCH2_FALLBACK_BANNERS.get(tid)
     )
-    candidates: list[tuple[str, float]] = []
+    primary_candidates: list[tuple[str, float]] = []
     seen_urls: set[str] = set()
     if primary_url:
         for cand in download_candidates(primary_url, prefer_large=prefer_large):
             if cand not in seen_urls:
                 seen_urls.add(cand)
-                candidates.append((cand, timeout))
-    direct_url = nlib_banner_url(tid)
-    if direct_url and direct_url not in seen_urls:
-        seen_urls.add(direct_url)
-        candidates.append((direct_url, min(timeout, 8.0)))
+                primary_candidates.append((cand, timeout))
 
-    fetch = opener or urllib.request.urlopen
     bdir = Path(banners_dir)
-    for cand, cand_timeout in candidates:
+
+    def _write_banner_bytes(raw_bytes: bytes) -> str | None:
+        normalized = normalize_banner_bytes(raw_bytes)
+        if normalized is None:
+            return None
+        out_bytes, ext = normalized
+        bdir.mkdir(parents=True, exist_ok=True)
+        dest = bdir / f'{tid}.{ext}'
+        tmp = bdir / f'.{tid}.{uuid.uuid4().hex}.{ext}.tmp'
+        try:
+            tmp.write_bytes(out_bytes)
+            os.replace(tmp, dest)
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+        return str(dest)
+
+    def _try_direct_url(cand: str, cand_timeout: float) -> str | None:
         if not is_allowed_banner_url(cand):
-            continue
+            return None
         try:
             req = urllib.request.Request(cand, headers={'User-Agent': 'NX2Apple/1.5'})
-            with fetch(req, timeout=cand_timeout) as resp:
+            with open_allowed_url(req, timeout=cand_timeout, validator=is_allowed_banner_url, opener=opener) as resp:
                 status = getattr(resp, 'status', 200)
                 if status not in (None, 200):
-                    continue
+                    return None
+                final_url = _response_final_url(resp, cand)
+                if not is_allowed_banner_url(final_url):
+                    return None
                 data = read_response_chunked(resp, chunk_size=65536, max_bytes=MAX_BANNER_BYTES)
             if not is_valid_image_bytes(data):
-                continue
-            bdir.mkdir(parents=True, exist_ok=True)
-            ext = image_ext_for_bytes(data)
-            dest = bdir / f'{tid}.{ext}'
-            tmp = bdir / f'.{tid}.{uuid.uuid4().hex}.{ext}.tmp'
-            try:
-                tmp.write_bytes(data)
-                os.replace(tmp, dest)
-            finally:
-                if tmp.exists():
-                    try:
-                        tmp.unlink()
-                    except OSError:
-                        pass
-            return str(dest)
+                return None
+            return _write_banner_bytes(data)
         except Exception:
-            continue
-    return None
+            return None
+
+    def _try_store() -> str | None:
+        state, img_bytes = fetch_nintendo_store_banner(tid, timeout=min(timeout, STORE_REQUEST_TIMEOUT), opener=opener)
+        if state == 'ok' and img_bytes:
+            return _write_banner_bytes(img_bytes)
+        return None
+
+    def _try_nlib() -> str | None:
+        direct_url = nlib_banner_url(tid)
+        if not direct_url or direct_url in seen_urls:
+            return None
+        seen_urls.add(direct_url)
+        return _try_direct_url(direct_url, min(timeout, 8.0))
+
+    for cand, cand_timeout in primary_candidates:
+        saved = _try_direct_url(cand, cand_timeout)
+        if saved:
+            return saved
+    if is_switch2_title_id(tid):
+        saved = _try_store()
+        if saved:
+            return saved
+        return _try_nlib()
+    saved = _try_nlib()
+    if saved:
+        return saved
+    return _try_store()

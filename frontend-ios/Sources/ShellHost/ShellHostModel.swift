@@ -28,6 +28,10 @@ public struct ShellHostConfig: Sendable {
     public var saveImageToPhotos: @MainActor @Sendable (Data) async -> Bool
     /// Fetches official 16:9 banner bytes for games missing bundled banners. Injectable for offline tests.
     public var fetchBannerData: @Sendable (URL) async -> Data?
+    /// Status-aware fetcher used by the default network path so 5xx/timeouts never poison the negative cache.
+    public var fetchBannerOutcome: (@Sendable (URL) async -> GameBannerStore.DirectImageOutcome)?
+    /// Fetches Nintendo store pages/images for `ec.nintendo.com` fallback. Nil uses the built-in bounded transport.
+    public var fetchStoreResponse: GameBannerStore.StoreHTTPFetcher?
     public var prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)?
     public var cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)?
     public var startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)?
@@ -51,7 +55,9 @@ public struct ShellHostConfig: Sendable {
                 openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen,
                 copyToPasteboard: @escaping @MainActor @Sendable (String) -> Void = ShellHostConfig.systemCopyToPasteboard,
                 saveImageToPhotos: @escaping @MainActor @Sendable (Data) async -> Bool = ShellHostConfig.systemSaveImageToPhotos,
-                fetchBannerData: @escaping @Sendable (URL) async -> Data? = GameBannerStore.fetchRemoteBanner,
+                fetchBannerData: (@Sendable (URL) async -> Data?)? = nil,
+                fetchBannerOutcome: (@Sendable (URL) async -> GameBannerStore.DirectImageOutcome)? = nil,
+                fetchStoreResponse: GameBannerStore.StoreHTTPFetcher? = nil,
                 prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)? = nil,
                 cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)? = nil,
                 startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)? = nil,
@@ -71,7 +77,15 @@ public struct ShellHostConfig: Sendable {
         self.openURL = openURL
         self.copyToPasteboard = copyToPasteboard
         self.saveImageToPhotos = saveImageToPhotos
-        self.fetchBannerData = fetchBannerData
+        self.fetchBannerData = fetchBannerData ?? GameBannerStore.fetchRemoteBanner
+        if let fetchBannerOutcome {
+            self.fetchBannerOutcome = fetchBannerOutcome
+        } else if fetchBannerData == nil {
+            self.fetchBannerOutcome = { url in await GameBannerStore.fetchRemoteBannerOutcome(from: url) }
+        } else {
+            self.fetchBannerOutcome = nil
+        }
+        self.fetchStoreResponse = fetchStoreResponse
         self.prepareFloatingGuide = prepareFloatingGuide
         self.cancelPreparedFloatingGuide = cancelPreparedFloatingGuide
         self.startFloatingGuide = startFloatingGuide
@@ -946,43 +960,53 @@ public struct ShellHostConfig: Sendable {
     }
 
     /// Low-priority background backfill of official 16:9 banners for installed games lacking bundled/custom/auto banners.
-    /// Tries built-in `KnownGameBanners` first, then falls back to `https://api.nlib.cc/nx/<TID>/banner/720p`.
+    /// Tries built-in `KnownGameBanners` first, then `ec.nintendo.com` (US -> HK) and `api.nlib.cc` according to title type.
+    /// Only definitive `.saved` / `.notFound` outcomes are recorded in `attemptedBannerFetches`; cancellation, transient
+    /// errors, and budget cutoffs leave remaining titles eligible for automatic retry on subsequent reloads.
     private func startMissingBannerFetch() {
         let bannersRoot = config.bannersRoot
-        let candidates: [(id: String, urls: [URL])] = entries.compactMap { entry in
+        let candidates: [CatalogueEntry] = entries.filter { entry in
             let key = entry.id.uppercased()
-            guard !attemptedBannerFetches.contains(key) else { return nil }
-            let urls = GameBannerStore.autoBackfillURLs(for: entry, bannersRoot: bannersRoot)
-            guard !urls.isEmpty else { return nil }
-            return (entry.id, urls)
+            guard !attemptedBannerFetches.contains(key) else { return false }
+            return GameBannerStore.needsBackfill(for: entry, bannersRoot: bannersRoot)
         }
         guard !candidates.isEmpty else { return }
-        for item in candidates {
-            attemptedBannerFetches.insert(item.id.uppercased())
-        }
 
         bannerFetchTask?.cancel()
         bannerFetchGeneration &+= 1
         let generation = bannerFetchGeneration
         let fetcher = config.fetchBannerData
+        let outcomeFetcher = config.fetchBannerOutcome
+        let storeTransport = config.fetchStoreResponse
+        let clock = config.now
 
         bannerFetchTask = Task { [weak self] in
-            for item in candidates {
+            var errorBudgetElapsed: TimeInterval = 0
+            for entry in candidates {
                 guard !Task.isCancelled else { return }
-                let savedURL: URL? = await Task.detached(priority: .utility) { () -> URL? in
-                    for remoteURL in item.urls {
-                        guard !Task.isCancelled else { return nil }
-                        guard let data = await fetcher(remoteURL), !Task.isCancelled else { continue }
-                        if let url = try? GameBannerStore.saveAutoBanner(data, for: item.id, bannersRoot: bannersRoot) {
-                            return url
-                        }
-                    }
-                    return nil
+                if errorBudgetElapsed >= GameBannerStore.batchErrorBudget { return }
+                let started = clock()
+                let outcome: GameBannerStore.BackfillOutcome = await Task.detached(priority: .utility) {
+                    await GameBannerStore.fetchAndSaveAutoBanner(
+                        for: entry,
+                        bannersRoot: bannersRoot,
+                        fetchBannerData: fetcher,
+                        fetchBannerOutcome: outcomeFetcher,
+                        storeTransport: storeTransport
+                    )
                 }.value
                 guard let self, !Task.isCancelled, self.bannerFetchGeneration == generation else { return }
-                if let savedURL, self.entry(item.id) != nil {
-                    self.artwork.removeValue(forKey: savedURL)
-                    self.refresh(item.id)
+                switch outcome {
+                case .saved(let savedURL):
+                    self.attemptedBannerFetches.insert(entry.id.uppercased())
+                    if self.entry(entry.id) != nil {
+                        self.artwork.removeValue(forKey: savedURL)
+                        self.refresh(entry.id)
+                    }
+                case .notFound:
+                    self.attemptedBannerFetches.insert(entry.id.uppercased())
+                case .transientFailure:
+                    errorBudgetElapsed += max(0, clock().timeIntervalSince(started))
                 }
             }
         }

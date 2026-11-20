@@ -48,6 +48,7 @@ actor ArtworkStore {
     private let retryCooldown: TimeInterval
     private let knownBanners: [String: String]
     private let directBannerURL: @Sendable (String) -> String?
+    private let storeBannerFetcher: @Sendable (String) async -> NintendoStoreBanner.FetchOutcome
     private var index: Index?
     private var listFailedAt: Date?   // cools down instead of locking the entire session after a transient outage
     private var running = false
@@ -55,6 +56,8 @@ actor ArtworkStore {
 
     /// Default cooldown after a title list or catalogue fetch error before retrying automatically.
     static let listRetryCooldown: TimeInterval = 60
+    /// Cumulative network-error budget for Tier-2 direct probes within a single batch so offline runs stop quickly.
+    static let directProbeErrorBudget: TimeInterval = 24
 
     /// What the list knows of a title besides its banner: up to `maxScreenshots` gameplay screenshots (1920×1080).
     struct Media: Codable, Equatable {
@@ -104,6 +107,7 @@ actor ArtworkStore {
     init(directory: URL, titleList: URL = ArtworkStore.titleListURL, allowsFileURLs: Bool = false, regional: [String: URL]? = nil,
          catalogue: CleanArt.Lookup? = nil, knownBanners: [String: String]? = nil,
          directBannerURL: (@Sendable (String) -> String?)? = nil,
+         storeBannerFetcher: (@Sendable (String) async -> NintendoStoreBanner.FetchOutcome)? = nil,
          now: @escaping () -> Date = Date.init, retryCooldown: TimeInterval = ArtworkStore.listRetryCooldown) {
         self.directory = directory
         self.titleList = titleList
@@ -112,6 +116,7 @@ actor ArtworkStore {
         self.retryCooldown = max(0, retryCooldown)
         self.knownBanners = knownBanners ?? (allowsFileURLs ? [:] : KnownGameBanners.urls)
         self.directBannerURL = directBannerURL ?? (allowsFileURLs ? { _ in nil } : { KnownGameBanners.nlibBannerURL(for: $0) })
+        self.storeBannerFetcher = storeBannerFetcher ?? (allowsFileURLs ? { _ in .notFound } : { await NintendoStoreBanner.fetchBanner(titleID: $0) })
         self.regional = regional ?? Dictionary(uniqueKeysWithValues: Self.regionalLists.keys.compactMap { code in Self.titleListURL(for: code).map { (code, $0) } })
         // searching.nintendo-europe.com times out at TLS; skip the dead live lookup unless a caller injects one.
         let emptyLookup: CleanArt.Lookup = { _, _ in [:] }
@@ -260,26 +265,50 @@ actor ArtworkStore {
             if languageGeneration == generation { writeSources(sources) }
             return []
         }
-        // Tier 1: KnownGameBanners / clean catalogue. Tier 2: single-title nlib.cc endpoint (8s timeout) before fetching the 90 MB title list.
+        // Tier 1: KnownGameBanners / clean catalogue. Tier 2: single-title probes (Switch 2: ec.nintendo.com -> nlib.cc; Switch 1: nlib.cc -> ec.nintendo.com).
         let useShippedBanners = !knownBanners.isEmpty
         var fromList = wanted.filter { clean(for: $0) == nil && !(useShippedBanners && knownBanners[$0] != nil) }
         var added: [String] = []
         var directHandled: Set<String> = []
         if !fromList.isEmpty {
+            var probeErrorElapsed: TimeInterval = 0
             for id in fromList.sorted() {
                 guard languageGeneration == generation else { return added }
-                guard Self.cachedBanner(id, in: directory) == nil,
-                      index?.banners[id] == nil,
-                      let directLink = directBannerURL(id) else { continue }
-                do {
-                    let data = try await fetchImageData(directLink, timeout: 8)
+                if probeErrorElapsed >= Self.directProbeErrorBudget { break }
+                guard Self.cachedBanner(id, in: directory) == nil, index?.banners[id] == nil else { continue }
+                let steps: [Bool] = KnownGameBanners.isSwitch2TitleID(id) ? [true, false] : [false, true]
+                for useStore in steps {
                     guard languageGeneration == generation else { return added }
-                    try writeImageData(data, to: directory.appendingPathComponent(id + ".jpg"))
-                    sources[id] = directLink
-                    added.append(id)
-                    directHandled.insert(id)
-                } catch {
-                    fputs("artwork: \(id): direct \(directLink): \(error.localizedDescription)\n", stderr)
+                    if probeErrorElapsed >= Self.directProbeErrorBudget { break }
+                    let started = now()
+                    if useStore {
+                        switch await storeBannerFetcher(id) {
+                        case .image(let jpegData, let sourceURL):
+                            guard languageGeneration == generation else { return added }
+                            if (try? writeImageData(jpegData, to: directory.appendingPathComponent(id + ".jpg"))) != nil {
+                                sources[id] = sourceURL.absoluteString
+                                added.append(id)
+                                directHandled.insert(id)
+                            }
+                        case .transientError:
+                            probeErrorElapsed += max(0, now().timeIntervalSince(started))
+                        case .notFound:
+                            break
+                        }
+                    } else if let directLink = directBannerURL(id) {
+                        do {
+                            let data = try await fetchImageData(directLink, timeout: 8)
+                            guard languageGeneration == generation else { return added }
+                            try writeImageData(data, to: directory.appendingPathComponent(id + ".jpg"))
+                            sources[id] = directLink
+                            added.append(id)
+                            directHandled.insert(id)
+                        } catch {
+                            if !Self.isMissing(error) { probeErrorElapsed += max(0, now().timeIntervalSince(started)) }
+                            fputs("artwork: \(id): direct \(directLink): \(error.localizedDescription)\n", stderr)
+                        }
+                    }
+                    if directHandled.contains(id) { break }
                 }
             }
             if !directHandled.isEmpty { fromList.subtract(directHandled) }
@@ -353,9 +382,11 @@ actor ArtworkStore {
                 for candidate in candidates {
                     if cached && sources[id] == candidate { break }
                     do {
-                        let data = try await fetchImageData(candidate)
+                        let raw = try await fetchImageData(candidate)
                         guard languageGeneration == generation else { return added }
-                        try writeImageData(data, to: directory.appendingPathComponent(id + ".jpg"))
+                        let out = (URL(string: candidate)?.host?.lowercased() == "assets.nintendo.com")
+                            ? (KnownGameBanners.normalizedJPEGData(raw) ?? raw) : raw
+                        try writeImageData(out, to: directory.appendingPathComponent(id + ".jpg"))
                         sources[id] = candidate
                         added.append(id)
                         break
@@ -476,8 +507,25 @@ actor ArtworkStore {
         let maxAttempts = (url.isFileURL || timeout != nil) ? 1 : 2
         for attempt in 0..<maxAttempts {
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw URLError(.badServerResponse) }
+                let data: Data
+                if url.isFileURL {
+                    let (fileData, _) = try await URLSession.shared.data(for: request)
+                    data = fileData
+                } else {
+                    do {
+                        let resp = try await NintendoStoreBanner.fetchAllowedImageAsync(
+                            from: url,
+                            timeout: timeout ?? 30,
+                            maxBytes: (20 << 20) - 1
+                        )
+                        if resp.statusCode != 200 { throw URLError(.badServerResponse) }
+                        data = resp.data
+                    } catch NintendoStoreBanner.TransportError.disallowedRedirect {
+                        throw ArtworkError.refused
+                    } catch NintendoStoreBanner.TransportError.responseTooLarge {
+                        throw ArtworkError.unreadable
+                    }
+                }
                 guard data.count < 20 << 20, NSImage(data: data) != nil else { throw ArtworkError.unreadable }
                 return data
             } catch {
@@ -591,6 +639,7 @@ actor ArtworkStore {
 
     init(directory: URL, titleList: URL, fallbacks: [String: String], catalogue: CleanArt.Lookup? = nil,
          knownBanners: [String: String] = [:], directBannerURL: (@Sendable (String) -> String?)? = nil,
+         storeBannerFetcher: (@Sendable (String) async -> NintendoStoreBanner.FetchOutcome)? = nil,
          now: @escaping () -> Date = Date.init, retryCooldown: TimeInterval = ArtworkStore.listRetryCooldown) {
         self.directory = directory
         self.titleList = titleList
@@ -599,6 +648,7 @@ actor ArtworkStore {
         self.retryCooldown = max(0, retryCooldown)
         self.knownBanners = knownBanners
         self.directBannerURL = directBannerURL ?? { _ in nil }
+        self.storeBannerFetcher = storeBannerFetcher ?? { _ in .notFound }
         self.regional = [:]
         self.catalogue = catalogue ?? { _, _ in [:] }
         self.customFallbacks = fallbacks
@@ -649,8 +699,7 @@ actor ArtworkStore {
 
     /// Only Nintendo's image CDN or the verified fallback host over HTTPS: the list is third-party data.
     private func allowed(_ url: URL) -> Bool {
-        if allowsFileURLs && url.isFileURL { return true }
-        return url.scheme == "https" && Self.imageHosts.contains(url.host ?? "")
+        KnownGameBanners.isAllowedURL(url, allowsFileURLs: allowsFileURLs)
     }
 }
 

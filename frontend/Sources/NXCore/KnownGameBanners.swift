@@ -1,5 +1,7 @@
+import CoreGraphics
 import Foundation
 import ImageIO
+import UniformTypeIdentifiers
 
 /// Shared compact banner index for shipped game profiles and Switch 2 fallbacks.
 /// Used by both the Mac launcher's `ArtworkStore` and `NXCore` iOS packaging (`BannerCache`) so known
@@ -10,6 +12,7 @@ package enum KnownGameBanners {
         "cdn2.steamgriddb.com",
         "www.nintendo.com",
         "api.nlib.cc",
+        "assets.nintendo.com",
     ]
 
     /// Switch 2 and Nintendo Classics titles that blawar/titledb's regional lists may not carry yet:
@@ -171,19 +174,31 @@ package enum KnownGameBanners {
         "0100FD8022DAA000": "https://img-eshop.cdn.nintendo.net/i/8bbdbdd29d7f552054aa65c07fcd3a9b3c3dafdb590ccbec28e97a582c69d4ad.jpg",   // Super Mario Galaxy 2
         "0100FF500E34A000": "https://www.nintendo.com/eu/media/images/10_share_images/games_15/nintendo_switch_4/H2x1_NSwitch_XenobladeChroniclesDefinitiveEdition_image500w.jpg",   // Xenoblade Chronicles: Definitive Edition
         "0400245021D2C000": "https://cdn2.steamgriddb.com/grid/4019460f699df3ca57bb36a6cc8b1ce5.png",   // Yoshi and the Mysterious Book
+        "040032B023CA4000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000098973/4c02a7ceaaacde0b7f51cde1e58b3b575ff2ed94a7c7530e4631b40d0f26413d",   // Orbitals
         "0400380020056000": "https://cdn2.steamgriddb.com/grid/220a08c045f283231e519ed83cd21466.png",   // Splatoon Raiders
         "04003F40232DE000": "https://cdn2.steamgriddb.com/grid/30430599d3640690ebddef63609c5f31.png",   // Hyrule Warriors: Age of Imprisonment
+        "040041E0212AE000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000096904/f10f7517f94ce8630b76b1654eb5a79d316e18d4e9bc279a74e6964fe3f8ce86",   // Fast Fusion
         "0400486024DEC000": "https://cdn2.steamgriddb.com/grid/925526bdfb5910517494acb4db2537d5.png",   // The Legend of Zelda: Ocarina of Time
+        "040057C02159A000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000096813/8a2fc51b02035bf067a473a66938322f1f1570bf21034f0ad2134ce93b0d1cac",   // Nintendo Switch 2 Welcome Tour
         "040074A01BF12000": "https://img-eshop.cdn.nintendo.net/i/3a40edb8fc1354911e0907f1494b5678c2fa37acb8925967e638bd63d06e4580.jpg",   // Donkey Kong Bananza
+        "040077201BE50000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000103775/61c47511e5fc392c271d6f4736fa0575e2aed19c30e6fe73b50906cadb9b2996",   // Kirby Air Riders
         "04007EF01F8AE000": "https://cdn2.steamgriddb.com/grid/f73cc1e0813d90b30a22ca9af2e9c8b0.png",   // Fire Emblem Fortune's Weave
+        "04008E001F098000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000125145/60f801a1d48a78691408a9ed7f51d87cb0279dc7419a616950b18b9016d9dbd0",   // Nintendo Switch Sports Resort
+        "0400921025B32000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000108238/fac34531ef37ddb8652dbfdf6c718dc5eacc0e4869dc52cad9ab12c0433e2735",   // Sonic Frontiers Definitive Edition
         "0400A3A01EE4C000": "https://cdn2.steamgriddb.com/grid/00b97e285bef52b2826cfbeecd4d30f7.png",   // Pokemon Pokopia
         "0400C3F00006E000": "https://www.nintendo.com/eu/media/images/assets/nintendo_switch_2_games/mariokartworld/2x1_NSwitch2_MarioKartWorld_image500w.jpg",   // Mario Kart World
+        "0400C76024710000": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000101665/3a8331b2f7b73d1fdb9b92dd9afdb2aff9602f1d89a9cfa171bf2561e480076e",   // PRAGMATA
         "0400D4201C6EA000": "https://cdn2.steamgriddb.com/grid/eb3353d1afeb0b6b1c6507bb5d39c757.png",   // Mario Tennis Fever
         "0400E88025B1A000": "https://cdn2.steamgriddb.com/grid/a82908cc940793dc1d63acfc0218b2f9.jpg",   // Star Fox
     ]
 
     package static func isValidTitleID(_ titleID: String) -> Bool {
         titleID.range(of: "^[0-9A-F]{16}$", options: .regularExpression) != nil
+    }
+
+    package static func isSwitch2TitleID(_ titleID: String) -> Bool {
+        let id = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        return isValidTitleID(id) && id.hasPrefix("0400")
     }
 
     package static func bannerURL(for titleID: String, preferred: String? = nil) -> String? {
@@ -214,22 +229,61 @@ package enum KnownGameBanners {
 
     package static func isAllowedURL(_ url: URL, allowsFileURLs: Bool = false) -> Bool {
         if allowsFileURLs && url.isFileURL { return true }
-        return url.scheme == "https" && imageHosts.contains(url.host ?? "")
+        guard url.scheme?.lowercased() == "https",
+              var host = url.host?.lowercased(), !host.isEmpty else { return false }
+        while host.hasSuffix(".") { host.removeLast() }
+        return imageHosts.contains(host)
     }
 
-    /// Validates that downloaded bytes are a bounded, decodable image with a recognized magic header.
-    package static func isValidImageData(_ data: Data) -> Bool {
-        guard data.count >= 12, data.count < (20 << 20) else { return false }
+    /// True when `url` is an HTTPS Nintendo store page (`nintendo.com`, `*.nintendo.com`, or `store.nintendo.com.hk`).
+    package static func isAllowedStoreURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              var host = url.host?.lowercased(), !host.isEmpty else { return false }
+        while host.hasSuffix(".") { host.removeLast() }
+        return host == "nintendo.com" || host.hasSuffix(".nintendo.com") || host == "store.nintendo.com.hk"
+    }
+
+    /// Returns pixel dimensions when `data` is a bounded, decodable image with a recognized magic header.
+    package static func imagePixelSize(_ data: Data, maxBytes: Int = 20 << 20) -> (width: Int, height: Int)? {
+        guard data.count >= 12, data.count <= maxBytes else { return nil }
         let bytes = [UInt8](data.prefix(12))
         let isJPEG = bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF
         let isPNG = bytes.prefix(8).elementsEqual([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
         let isWebP = bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46
             && bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50
         let isHEIF = bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70
-        guard isJPEG || isPNG || isWebP || isHEIF else { return false }
+        guard isJPEG || isPNG || isWebP || isHEIF else { return nil }
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetCount(source) > 0,
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return false }
-        return image.width > 0 && image.height > 0
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              image.width > 0, image.height > 0 else { return nil }
+        return (image.width, image.height)
+    }
+
+    /// Validates that downloaded bytes are a bounded, decodable image with a recognized magic header.
+    package static func isValidImageData(_ data: Data) -> Bool {
+        imagePixelSize(data, maxBytes: (20 << 20) - 1) != nil
+    }
+
+    /// Validates that downloaded bytes decode to a bounded landscape image (`width > height`).
+    package static func isValidLandscapeImageData(_ data: Data, maxBytes: Int = 16 << 20) -> Bool {
+        guard let size = imagePixelSize(data, maxBytes: maxBytes) else { return false }
+        return size.width > size.height
+    }
+
+    /// Returns JPEG bytes matching `.jpg` extension: preserves valid JPEG bytes verbatim and transcodes PNG/WebP/HEIF via ImageIO.
+    package static func normalizedJPEGData(_ data: Data, quality: CGFloat = 0.92, maxBytes: Int = 16 << 20) -> Data? {
+        guard imagePixelSize(data, maxBytes: maxBytes) != nil else { return nil }
+        let bytes = [UInt8](data.prefix(3))
+        if bytes.count == 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
+            return data
+        }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        guard CGImageDestinationFinalize(dest), out.length > 0 else { return nil }
+        return out as Data
     }
 }
