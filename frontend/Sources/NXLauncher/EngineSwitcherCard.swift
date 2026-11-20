@@ -254,18 +254,16 @@ package struct EngineSwitcherCard: View {
             let store = build
             let localizer = loc
             let focus = pad
-            withAnimation(.easeOut(duration: 0.12)) {
-                dropdownHost.custom = LauncherCustomDropdown(
-                    id: dropdownID,
-                    width: Self.panelWidth,
-                    maxHeight: Self.panelMaxHeight,
-                    label: label
-                ) { close in
-                    AnyView(
-                        EngineDropdownPanel(build: store, maxHeight: Self.panelMaxHeight, close: close)
-                            .environmentObject(localizer).environmentObject(focus)
-                    )
-                }
+            dropdownHost.custom = LauncherCustomDropdown(
+                id: dropdownID,
+                width: Self.panelWidth,
+                maxHeight: Self.panelMaxHeight,
+                label: label
+            ) { close in
+                AnyView(
+                    EngineDropdownPanel(build: store, maxHeight: Self.panelMaxHeight, close: close)
+                        .environmentObject(localizer).environmentObject(focus)
+                )
             }
         } else {
             fallbackPopoverOpen = true

@@ -259,7 +259,7 @@ private struct OfflineUpstreamTransport: EngineTransport {
         try Data(#"{"format":1,"version":"0.10.3","platform":"macos","arch":"arm64","macos_min":"26.0","files":{"nxb":"a","nxkit-host":"b"}}"#.utf8)
             .write(to: pair.appendingPathComponent("MANIFEST.json"))
 
-        let stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
+        let stores = LauncherStores(defaults: testDefaults), pad = PadFocus(), dropdowns = LauncherDropdownState()
         let build = stores.build
         build.upstreamTransport = OfflineUpstreamTransport()
         build.upstreamChanged = {}
@@ -285,32 +285,46 @@ private struct OfflineUpstreamTransport: EngineTransport {
         let library = GameLibrary(file: root.appendingPathComponent("library.json"))
         let window = OffscreenWindow(size: .init(width: 1100, height: 1400))
         defer { window.contentView = nil; window.orderOut(nil); window.close() }
-        window.contentView = NSHostingView(rootView: LauncherView(
+        let host = NSHostingView(rootView: LauncherView(
             stores: stores,
             library: library,
             initialPage: .builds,
             performStartupChecks: false,
-            padFocus: pad
-        ))
+            controls: ControlLayout(defaults: testDefaults),
+            gamepad: LauncherGamepad(steam: nil, observeSystem: false),
+            padFocus: pad,
+            dropdowns: dropdowns
+        ).defaultAppStorage(testDefaults))
+        window.contentView = host
         window.orderFront(nil)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        func waitUntil(timeout: TimeInterval = 3.0, _ condition: () -> Bool) -> Bool {
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline {
+                host.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                if condition() { return true }
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            return condition()
+        }
+        XCTAssertTrue(waitUntil { Set(pad.frames["main", default: []].map(\.id)).contains("set.build.engine") },
+                      "Builds page must show top EngineSwitcherCard")
 
         let mainIDs = Set(pad.frames["main", default: []].map(\.id))
-        XCTAssertTrue(mainIDs.contains("set.build.engine"), "Builds page must show top EngineSwitcherCard")
         XCTAssertFalse(mainIDs.contains("set.build.engine.change"), "Builds page must not show duplicate EngineFootnote")
         XCTAssertEqual(pad.frames["main", default: []].filter { $0.id == "set.build.mngRecommend" }.count, 1,
                        "Only the EngineSwitcherCard MNG recommendation bar should be registered")
 
         pad.show(default: "set.build.engine")
         pad.activate()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.25))
-        XCTAssertEqual(pad.scope, "engineDropdown")
-        XCTAssertNotNil(pad.frame(of: "set.build.engine.nxkit"), "Engine dropdown must list nxkit (Beta) when selectable")
+        XCTAssertTrue(waitUntil { pad.scope == "engineDropdown" && pad.frame(of: "set.build.engine.nxkit") != nil },
+                      "Engine dropdown must list nxkit (Beta) when selectable")
 
         pad.focused = "set.build.engine.nxkit"
         pad.activate()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
-        XCTAssertEqual(build.buildUpstream, .nxkit)
-        XCTAssertEqual(build.target, BuildTarget.mac)
+        XCTAssertTrue(waitUntil { build.buildUpstream == .nxkit && build.target == BuildTarget.mac },
+                      "Selecting nxkit from the dropdown must switch upstream and target Mac")
     }
 }
