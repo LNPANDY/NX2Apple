@@ -40,6 +40,9 @@ TRAP_BASE = 0xFFFE_0000     # one 4-byte slot (a ret) per Python-trapped import
 FAST_BASE = 0xFFFD_0000     # unhooked native ARM64 machine-code stubs for hot libc / allocator calls
 STACK_TOP, STACK_SIZE = 0x7F00_0000_0000, 32 << 20
 HEAP_BASE = 0x6000_0000_0000
+DEFAULT_HEAP_SIZE = 96 << 20
+MAX_HEAP_SIZE = 2 << 30
+HEAP_GROW_STEP = 64 << 20
 TLS_BASE = 0x5F00_0000_0000
 HEAP_CTL_ADDR = TLS_BASE + 0xF000   # [heap_top: u64, heap_limit: u64, slow_malloc: u64, slow_calloc: u64]
 ERRNO_ADDR = TLS_BASE + 0xF020      # int32 errno storage
@@ -607,13 +610,23 @@ class Machine:
     def __init__(
         self,
         modules: list[tuple[str, str | Path]],
-        heap_size: int = 96 << 20,
+        heap_size: int = DEFAULT_HEAP_SIZE,
         *,
+        max_heap_size: int = MAX_HEAP_SIZE,
         use_fast_stubs: bool = True,
         pre_relocated: dict | None = None,
     ) -> None:
         """Load `modules` (`[(name, NSO path), ...]`) into an emulated ARM64 address space."""
         _ensure_unicorn()
+        if heap_size <= 0 or max_heap_size <= 0:
+            raise EmuError(
+                f'invalid emulated heap sizes (initial={heap_size}, max={max_heap_size})'
+            )
+        heap_size = up(heap_size, PAGE)
+        max_heap_size = up(max(max_heap_size, heap_size), PAGE)
+        if max_heap_size > (STACK_TOP - STACK_SIZE) - HEAP_BASE:
+            raise EmuError(f'emulated max_heap_size exceeds address space ({max_heap_size:#x})')
+
         self.uc = uc = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
         uc.reg_write(UC_ARM64_REG_CPACR_EL1, 0x300000)  # FP / SIMD on
         self.use_fast_stubs = use_fast_stubs
@@ -737,8 +750,12 @@ class Machine:
         uc.reg_write(UC_ARM64_REG_TPIDRRO_EL0, TLS_BASE)
         uc.reg_write(UC_ARM64_REG_TPIDR_EL0, TLS_BASE + 0x8000)
 
+        self.initial_heap_size = heap_size
         self.heap_size = heap_size
+        self.max_heap_size = max_heap_size
         self.heap_limit = HEAP_BASE + heap_size
+        self.heap_max_limit = HEAP_BASE + max_heap_size
+        self._extra_heap_regions: list[tuple[int, int]] = []
         uc.mem_map(HEAP_BASE, heap_size, UC_PROT_ALL)
         self.heap_top = HEAP_BASE
         self.blocks: dict[int, int] = {}
@@ -783,13 +800,45 @@ class Machine:
         self.heap_top = val
         self.uc.mem_write(HEAP_CTL_ADDR, struct.pack('<Q', val))
 
+    def _set_vm_heap_limit(self, val: int) -> None:
+        self.uc.mem_write(HEAP_CTL_ADDR + 8, struct.pack('<Q', val))
+        self.heap_limit = val
+        self.heap_size = val - HEAP_BASE
+
     def malloc(self, n: int, align: int = 16) -> int:
+        if n < 0:
+            raise EmuError(f'emulated heap invalid allocation size ({n})')
+        if align <= 0 or (align & (align - 1)) != 0:
+            raise EmuError(f'emulated heap invalid alignment ({align})')
+        eff_align = max(align, 16)
         cur = max(self.heap_top, self._vm_heap_top())
+        if cur < HEAP_BASE or cur > self.heap_limit:
+            raise EmuError(f'emulated heap top out of bounds ({cur:#x})')
+        max_avail = self.heap_max_limit - cur
+        if max_avail < 16 or n > max_avail - 16:
+            raise EmuError(
+                f'emulated heap full (limit {self.max_heap_size >> 20} MB, requested {n} bytes)'
+            )
         sz = up(max(n, 1), 16)
-        a = up(cur + 16, max(align, 16))
+        a = up(cur + 16, eff_align)
+        if a > self.heap_max_limit or sz > self.heap_max_limit - a:
+            raise EmuError(
+                f'emulated heap full (limit {self.max_heap_size >> 20} MB, requested {n} bytes)'
+            )
         new_top = a + sz
         if new_top > self.heap_limit:
-            raise EmuError(f'emulated heap full ({self.heap_size >> 20} MB)')
+            need = new_top - self.heap_limit
+            step = max(PAGE, up(HEAP_GROW_STEP, PAGE))
+            grow = min(up(need, step), self.heap_max_limit - self.heap_limit)
+            seg_base = self.heap_limit
+            try:
+                self.uc.mem_map(seg_base, grow, UC_PROT_ALL)
+            except UcError as exc:
+                raise EmuError(
+                    f'emulated heap grow failed ({(self.heap_size + grow) >> 20} MB): {exc}'
+                ) from None
+            self._extra_heap_regions.append((seg_base, grow))
+            self._set_vm_heap_limit(seg_base + grow)
         self.uc.mem_write(a - 16, struct.pack('<Q', sz))
         self._set_vm_heap_top(new_top)
         self.blocks[a] = n
@@ -800,11 +849,24 @@ class Machine:
         return self.heap_top
 
     def heap_reset(self, mark: int) -> None:
+        if mark < HEAP_BASE or mark > self.heap_limit:
+            raise EmuError(f'emulated heap reset mark out of bounds ({mark:#x})')
         self._set_vm_heap_top(mark)
         if self.blocks:
             # Fast check: only rebuild `self.blocks` if something was recorded at or above `mark`
             if any(a >= mark for a in self.blocks):
                 self.blocks = {a: n for a, n in self.blocks.items() if a < mark}
+        if self._extra_heap_regions and hasattr(self.uc, 'mem_unmap'):
+            while self._extra_heap_regions and self._extra_heap_regions[-1][0] >= mark:
+                seg_base, seg_size = self._extra_heap_regions[-1]
+                try:
+                    self.uc.mem_unmap(seg_base, seg_size)
+                except UcError as exc:
+                    raise EmuError(
+                        f'emulated heap shrink failed ({seg_size >> 20} MB): {exc}'
+                    ) from None
+                self._extra_heap_regions.pop()
+                self._set_vm_heap_limit(seg_base)
 
     def write(self, a: int, b: bytes | bytearray | memoryview) -> None:
         self.uc.mem_write(a, bytes(b))
@@ -947,7 +1009,12 @@ class Machine:
             )
             uc.emu_stop()
             return
-        r = h(self)
+        try:
+            r = h(self)
+        except EmuError as exc:
+            self.fault = str(exc)
+            uc.emu_stop()
+            return
         if r is not None:
             uc.reg_write(UC_ARM64_REG_X0, r & 0xFFFFFFFFFFFFFFFF)
 
@@ -998,10 +1065,23 @@ def _malloc(m: Machine) -> int:
 
 
 def _calloc(m: Machine) -> int:
-    n = m.x(0) * m.x(1)
+    nmemb, size = m.x(0), m.x(1)
+    if nmemb > 0 and size > m.max_heap_size // nmemb:
+        raise EmuError(
+            f'emulated heap calloc overflow ({nmemb} * {size} exceeds limit {m.max_heap_size >> 20} MB)'
+        )
+    n = nmemb * size
     a = m.malloc(n)
     if n:
-        m.uc.mem_write(a, b'\0' * n)
+        if n <= (1 << 20):
+            m.uc.mem_write(a, b'\0' * n)
+        else:
+            zero_chunk = b'\0' * (1 << 20)
+            off = 0
+            while off < n:
+                take = min(len(zero_chunk), n - off)
+                m.uc.mem_write(a + off, zero_chunk if take == len(zero_chunk) else b'\0' * take)
+                off += take
     return a
 
 
@@ -1018,10 +1098,10 @@ def _posix_memalign(m: Machine) -> int:
 def _realloc(m: Machine) -> int:
     p, n = m.x(0), m.x(1)
     old_n = m.blocks.get(p)
-    if old_n is None and HEAP_BASE + 16 <= p <= m._vm_heap_top():
+    if old_n is None and HEAP_BASE + 16 <= p <= min(m._vm_heap_top(), m.heap_limit):
         old_n = struct.unpack('<Q', m.uc.mem_read(p - 16, 8))[0]
     a = m.malloc(n)
-    if p and old_n:
+    if p and old_n and n:
         m.uc.mem_write(a, bytes(m.uc.mem_read(p, min(n, old_n))))
     return a
 
