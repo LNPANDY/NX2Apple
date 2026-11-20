@@ -296,7 +296,9 @@ import NXLauncher
         let runner = GalleryProcessRunner()
         let stores = LauncherStores(localizer: Localizer(lang), runner: runner, gitCheckout: SystemGitCheckout(runner: runner),
                                     releases: GalleryReleases(), xcrun: "/usr/bin/false", volumesRoot: directory.appendingPathComponent("Volumes").path,
-                                    defaults: defaults)
+                                    defaults: defaults,
+                                    // a scene that changes the engine checks the tools again: the fixture's answer, never xcrun (#1474)
+                                    dependencyScan: { _, _ in Self.dependencyResult })
         stores.repo.path = sharedEnginePath
         stores.dependencies.checked = true
         stores.dependencies.deps = [Dep(id: "xcode", name: "Xcode", hint: "", present: true, installCmd: [])]
@@ -304,6 +306,10 @@ import NXLauncher
         configureNxkit(stores.build)   // a stand-in of the bundled pair, never run (GalleryNxkit.swift)
         return (stores, defaults)
     }
+
+    /// What the tools check finds in every scene: Xcode, nothing else to install.
+    nonisolated static let dependencyResult = DependencyCheck.Result(
+        deps: [Dep(id: "xcode", name: "Xcode", hint: "", present: true, installCmd: [])], python: "", dotnet: "")
 
     private func makeLibrary(count: Int) -> GameLibrary {
         let folder = directory.appendingPathComponent("library-" + UUID().uuidString, isDirectory: true)

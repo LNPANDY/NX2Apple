@@ -148,9 +148,14 @@ import XCTest
         }
         let editor = ArtworkEditor(game: fixture.game, slot: .hero, artworkDirectory: artwork, env: environment, labels: { L10n.string($0, .en) })
         defer { editor.cancel(); settle(); fixture.cleanup() }
-        await editor.load()
+        // each step with an end: a starved concurrency pool fails here with its name, not at the CI job's limit (#1474)
+        let loaded = expectation(description: "artwork loaded")
+        Task { await editor.load(); loaded.fulfill() }
+        await fulfillment(of: [loaded], timeout: 30)
         editor.setFocus(.init(x: 0.7, y: 0.5))
-        await editor.measureSelected()
+        let measured = expectation(description: "selection measured")
+        Task { await editor.measureSelected(); measured.fulfill() }
+        await fulfillment(of: [measured], timeout: 30)
         let focus = PadFocus(), gamepad = LauncherGamepad(), stores = LauncherStores(defaults: testDefaults)
         let window = OffscreenWindow(size: .init(width: 1000, height: 680))
         window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: fixture.library,

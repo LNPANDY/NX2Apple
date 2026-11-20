@@ -65,6 +65,9 @@ package enum DependencyCheck {
         }
     }
 
+    /// The longest one probe of the scan may run (an xcrun that answers takes well under a second, a first run a few).
+    package static let probeTimeout: TimeInterval = 60
+
     /// The rows. `needsIOS`: the xcode row asks for the iOS SDK. `repo`: the checkout whose lock pins the Metal compiler ("" for none).
     package static func detect(
         needsIOS: Bool,
@@ -73,7 +76,7 @@ package enum DependencyCheck {
         upstream: EngineUpstreamKind = .nxnative,
         s2armPath: String = ""
     ) -> [Dep] {
-        let runner = SystemProcessRunner(xcodeApp: customApp)
+        let runner = SystemProcessRunner(xcodeApp: customApp, probeTimeout: DependencyCheck.probeTimeout)
         let macMetal = Toolchain.firstOutputLine("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"], runner: runner)
         let macSDK = Toolchain.runOK("/usr/bin/xcrun", ["--sdk", "macosx", "--show-sdk-version"], runner: runner)
         var out = [xcodeDep(needsIOS: needsIOS, customApp: customApp, runner: runner, macToolchainRuns: macMetal != nil && macSDK)]

@@ -46,7 +46,7 @@ import NXModel
     ///   - defaults: where the stores keep their settings: a test passes its own suite, so it neither reads nor writes the shared ones.
     init(localizer: Localizer = Localizer(), runner: ProcessRunner? = nil, gitCheckout: GitCheckout? = nil,
          releases: ReleaseSource = GitHubReleases(), xcrun: String = "/usr/bin/xcrun", volumesRoot: String = "/Volumes",
-         defaults: UserDefaults = .standard) {
+         defaults: UserDefaults = .standard, dependencyScan: (@Sendable (String, Bool) -> DependencyCheck.Result)? = nil) {
         _ = Self.endGroupsWhenQuitting
         let runner = runner ?? SystemProcessRunner(defaults: defaults)
         let git = gitCheckout ?? SystemGitCheckout(runner: runner)
@@ -60,10 +60,18 @@ import NXModel
             isReleaseApp: { laterEngine.value?.usesEngineStore ?? false },
             log: { log.append($0) },
             didMove: { _ = laterEngine.value?.syncEngine() })   // the pull may have moved the pin or the patches
+        let appVersion = AppUpdateStore.appVersion
+        let writesReport = dependencyScan == nil
+        let dependencyReport: @Sendable ([Dep]) -> Void = { deps in
+            if writesReport { DependencyCheck.writeReport(deps, appVersion: appVersion) }
+        }
         let dependencies = DependencyStore(
             localizer: localizer, runner: runner, repo: repo, defaults: defaults,
             needsIOS: { Self.needsIOSPlatform(defaults: defaults) },
             upstreamContext: { (laterBuild.value?.buildUpstream ?? .nxnative, laterBuild.value?.s2armPath ?? "") },
+            // a stand-in detection (the state gallery) starts no xcrun and writes no report
+            scan: dependencyScan,
+            report: dependencyReport,
             openAppStore: { NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/App Store.app")) },
             log: { log.append($0) },
             installFailed: { laterBuild.value?.note($0) })
