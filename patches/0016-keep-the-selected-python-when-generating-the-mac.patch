@@ -153,7 +153,7 @@ index 59f4d38..bfdb78d 100644
          nsp = script('build_ipa_from_nsp')
          self.host_dirs(nsp.HOST_DIRS)
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index 86bba56..ea4e31c 100644
+index 9f55226..923a55e 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
 @@ -107,6 +107,13 @@

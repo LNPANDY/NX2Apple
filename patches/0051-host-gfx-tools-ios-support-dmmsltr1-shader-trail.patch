@@ -17,7 +17,7 @@ Issue: LNPANDY/NX2Apple
  dm/gfx/nvn/msl_mount.c               | 260 ++++++++++++
  dm/gfx/nvn/nvn_mtl.m                 |  46 ++-
  dm/gfx/tests/t_shmap_warm.m          |  78 ++++
- dm/gfx/vk/hle_vk.m                   | 108 +++--
+ dm/gfx/vk/hle_vk.m                   |  92 +++--
  dm/host/hle_lifecycle.c              |   2 +
  dm/host/romfs_identity.h             |  10 +-
  dm/host/romfs_image.h                | 119 +++++-
@@ -29,7 +29,7 @@ Issue: LNPANDY/NX2Apple
  dm/tools/romfs.py                    |  69 +++-
  dm/tools/romfs_image.py              | 577 ++++++++++++++++++++++++++-
  dm/tools/tests/test_msl_trailer.py   | 491 +++++++++++++++++++++++
- 17 files changed, 1916 insertions(+), 112 deletions(-)
+ 17 files changed, 1903 insertions(+), 109 deletions(-)
  create mode 100644 dm/gfx/msl_mount.h
  create mode 100644 dm/gfx/nvn/msl_mount.c
  create mode 100644 dm/tools/tests/test_msl_trailer.py
@@ -494,7 +494,7 @@ index 0000000..4167f1c
 +    pthread_mutex_unlock(&g_msl_tr_mu);
 +}
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 4a5ee65..e9fe5e0 100644
+index a4846ad..155f0cc 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -41,6 +41,7 @@
@@ -505,7 +505,7 @@ index 4a5ee65..e9fe5e0 100644
  #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
  #include "game_profile.h"   // game profile constants (profile id, the profile's switches)
  // Texture slot table per stage: 0-127 the combined handles (nvnCommandBufferBindTexture), 128-255 the separate texture binds (NVN_SEPTEX_SLOT0, nvn_obj.h)
-@@ -6628,13 +6629,25 @@ static int clear_rect_zero(int i) {
+@@ -6638,13 +6639,25 @@ static int clear_rect_zero(int i) {
      *img = m;
      return m ? msl_image_find(m, path.lastPathComponent.UTF8String) : NULL;
  }
@@ -534,7 +534,7 @@ index 4a5ee65..e9fe5e0 100644
  }
  static NSString *exe_rel(const char *rel) {
      char buf[4096]; uint32_t n = sizeof buf;
-@@ -6670,10 +6683,13 @@ static void shmap_read(void) {
+@@ -6680,10 +6693,13 @@ static void shmap_read(void) {
      g_shmap_path = path;
      const char *m = getenv("DM_MSL_DIR");
      // Library directory = <DM_MSL_DIR or default cache>/b-<translation chain version>: the version comes from dm/gfx/nvn/dmsh_chain.h (tools/dmsh_chain.py), one for every game; a host built from an old source tree only accepts libraries of the old version
@@ -549,7 +549,7 @@ index 4a5ee65..e9fe5e0 100644
          else MLOG("[RED] shader library %s (a folder or a .img file) does not exist: translation chain version %s of this source tree has not been built yet (dm/gfx/tools/dmsh_build.py)", g_msl_dir.UTF8String, DMSH_CHAIN);
      }
      // The library's stamp (inputs.tsv, written by a full dmsh_build.py run): the game and the digest of the profile inputs it was built from. The chain version is the same for every
-@@ -6870,14 +6886,20 @@ static void pso_user_record(const char *fmt, ...) {
+@@ -6881,14 +6897,20 @@ static void pso_user_record(const char *fmt, ...) {
  // The library is tagged with its digest (lib_tag), from the mapped bytes
  static id<MTLLibrary> lib_from_file(NSString *path, NSError **err) {
      int fd = open(path.fileSystemRepresentation, O_RDONLY); struct stat st;
@@ -572,7 +572,7 @@ index 4a5ee65..e9fe5e0 100644
      }
      if (fd < 0 || fstat(fd, &st) || st.st_size <= 0) { if (fd >= 0) close(fd); if (err) *err = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"cannot open %@", path]}]; return nil; }
      size_t len = (size_t)st.st_size; void *m = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0); close(fd);
-@@ -11177,8 +11199,13 @@ static int pre_later_take(PreLater *l, int wait) {
+@@ -11242,8 +11264,13 @@ static int pre_later_take(PreLater *l, int wait) {
  // their bases cannot be made yet, so the stamp names one such file (pre_device_stamp) and a later start builds them once it is there. g_pre_nolib_file: the first one seen in this
  // run, a name in the library, under g_pre_fail_lock
  static _Atomic int g_pre_nolib; static NSString *g_pre_nolib_file;
@@ -588,7 +588,7 @@ index 4a5ee65..e9fe5e0 100644
  // 1 (and the file noted) when the library lacks <key><suffix>
  static int pre_lib_absent(NSString *key, NSString *suffix) {
      NSString *name = [key stringByAppendingString:suffix];
-@@ -20041,10 +20068,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -20106,10 +20133,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
  
      romfs_img *mimg = atomic_exchange(&g_msl_img, NULL);
      if (mimg) romfs_image_close(mimg);
@@ -691,7 +691,7 @@ index 5caa8ab..3935568 100644
      printf("%d checks, %d failed\n", g_checks, g_failed);
      return g_failed != 0;
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 7477a08..5bf2d4a 100644
+index 7477a08..79ffa9a 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
 @@ -25,9 +25,13 @@
@@ -708,11 +708,32 @@ index 7477a08..5bf2d4a 100644
  
  int mtl_fps_target(void);   // nvn_mtl.m: 60, or 30 when the frame rate is halved
  int mtl_link_active(void); int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns);   // nvn_mtl.m: whether the display link presents, and the wait for its ticks
-@@ -231,44 +235,77 @@ static int sh_read_resources(shinfo *s, char *res) {
+@@ -231,44 +235,67 @@ static int sh_read_resources(shinfo *s, char *res) {
      }
      s->res = entries; return 1;
  }
--static void sh_read_table(FILE *f) {
++static void sh_parse_row(char *line, int *cap) {
++    if (line[0] == '#' || line[0] == '\n' || line[0] == '\r' || !line[0]) return;
++    char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\r\n");   // strsep keeps the empty resource field of a shader without resources
++    if (!key || !stage || !res || strlen(key) != 16) { LOG("[vk] [RED] malformed shader table row; shader refused"); return; }
++    shinfo s = {0}; memcpy(s.key, key, 16); s.frag = !strcmp(stage, "frag");
++    if (!strncmp(stage, "comp:", 5)) {
++        const char *p = stage + 5; unsigned x, y, z;
++        if (!sh_number(&p, &x) || *p++ != ',' || !sh_number(&p, &y) || *p++ != ',' || !sh_number(&p, &z) || *p || !x || !y || !z) goto invalid_stage;
++        s.comp = 1; s.wg[0] = (uint16_t)x; s.wg[1] = (uint16_t)y; s.wg[2] = (uint16_t)z;
++    } else if (!strncmp(stage, "geomvp:", 7)) {
++        const char *p = stage + 7; unsigned loc;
++        if (!sh_number(&p, &loc) || *p || loc >= 32) goto invalid_stage;
++        s.geom_vp = (int)loc + 1;
++    } else if (strcmp(stage, "vert") && !s.frag) goto invalid_stage;
++    if (!sh_read_resources(&s, res)) return;
++    if (g_nsh == *cap) { *cap = *cap ? *cap * 2 : 128; shinfo *q = realloc(g_sh, (size_t)*cap * sizeof *g_sh); if (!q) die("[vk] out of memory for the shader table"); g_sh = q; }
++    g_sh[g_nsh++] = s;
++    return;
++invalid_stage:
++    LOG("[vk] [RED] shader table %s: invalid stage %s; shader refused", key, stage);
++}
+ static void sh_read_table(FILE *f) {
 -    char *line = NULL; size_t length = 0; int cap = 0;
 -    while (getline(&line, &length, f) >= 0) {
 -        if (line[0] == '#' || line[0] == '\n') continue;
@@ -735,29 +756,12 @@ index 7477a08..5bf2d4a 100644
 -    invalid_stage:
 -        LOG("[vk] [RED] shader table %s: invalid stage %s; shader refused", key, stage);
 -    }
--    free(line);
--    if (ferror(f)) die("[vk] cannot read the shader table");
++    char *line = NULL; size_t length = 0; int cap = g_nsh;
++    while (getline(&line, &length, f) >= 0) sh_parse_row(line, &cap);
+     free(line);
+     if (ferror(f)) die("[vk] cannot read the shader table");
 -    qsort(g_sh, g_nsh, sizeof *g_sh, sh_cmp);   // looked up by key (Super Mario Galaxy creates over 3,000 modules at boot)
-+static void sh_parse_row(char *line, int *cap) {
-+    if (line[0] == '#' || line[0] == '\n' || line[0] == '\r' || !line[0]) return;
-+    char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\r\n");   // strsep keeps the empty resource field of a shader without resources
-+    if (!key || !stage || !res || strlen(key) != 16) { LOG("[vk] [RED] malformed shader table row; shader refused"); return; }
-+    shinfo s = {0}; memcpy(s.key, key, 16); s.frag = !strcmp(stage, "frag");
-+    if (!strncmp(stage, "comp:", 5)) {
-+        const char *p = stage + 5; unsigned x, y, z;
-+        if (!sh_number(&p, &x) || *p++ != ',' || !sh_number(&p, &y) || *p++ != ',' || !sh_number(&p, &z) || *p || !x || !y || !z) goto invalid_stage;
-+        s.comp = 1; s.wg[0] = (uint16_t)x; s.wg[1] = (uint16_t)y; s.wg[2] = (uint16_t)z;
-+    } else if (!strncmp(stage, "geomvp:", 7)) {
-+        const char *p = stage + 7; unsigned loc;
-+        if (!sh_number(&p, &loc) || *p || loc >= 32) goto invalid_stage;
-+        s.geom_vp = (int)loc + 1;
-+    } else if (strcmp(stage, "vert") && !s.frag) goto invalid_stage;
-+    if (!sh_read_resources(&s, res)) return;
-+    if (g_nsh == *cap) { *cap = *cap ? *cap * 2 : 128; shinfo *q = realloc(g_sh, (size_t)*cap * sizeof *g_sh); if (!q) die("[vk] out of memory for the shader table"); g_sh = q; }
-+    g_sh[g_nsh++] = s;
-+    return;
-+invalid_stage:
-+    LOG("[vk] [RED] shader table %s: invalid stage %s; shader refused", key, stage);
++    qsort(g_sh, (size_t)g_nsh, sizeof *g_sh, sh_cmp);   // looked up by key (Super Mario Galaxy creates over 3,000 modules at boot)
  }
  static void sh_load(void) {
      const char *d = getenv("DM_MSL_DIR"); char p[1024];
@@ -771,32 +775,15 @@ index 7477a08..5bf2d4a 100644
 +    if (d && *d) {
 +        snprintf(p, sizeof p, "%s/vk/vk_shaders.tsv", d);
 +        f = fopen(p, "r");
-+    }
-+    int cap = 0;
-+    if (f) {
-+        char *line = NULL; size_t length = 0;
-+        while (getline(&line, &length, f) >= 0) sh_parse_row(line, &cap);
-+        free(line);
-+        int read_err = ferror(f);
-+        fclose(f);
-+        if (read_err) die("[vk] cannot read the shader table");
++        if (!f) { LOG("[vk] [RED] cannot open %s (run dm/gfx/tools/vk_shaders.py first)", p); return; }
++        sh_read_table(f); fclose(f);
 +    } else {
-+        void *tbuf = NULL; size_t tlen = 0;
-+        if (!dm_msl_trailer_read("vk/vk_shaders.tsv", &tbuf, &tlen)) {
-+            if (d && *d) LOG("[vk] [RED] cannot open %s (run dm/gfx/tools/vk_shaders.py first)", p);
-+            else LOG("[vk] [RED] DM_MSL_DIR not set and DM_ROMFS has no vk/vk_shaders.tsv trailer");
-+            return;
-+        }
-+        char *cur = (char *)tbuf;
-+        while (cur && *cur) {
-+            char *nl = strchr(cur, '\n');
-+            if (nl) *nl = '\0';
-+            sh_parse_row(cur, &cap);
-+            cur = nl ? nl + 1 : NULL;
-+        }
++        void *tbuf = NULL; size_t tlen = 0;   // no DM_MSL_DIR: the shader table of the RomFS image's DMMSLTR1 trailer
++        if (!dm_msl_trailer_read("vk/vk_shaders.tsv", &tbuf, &tlen)) { LOG("[vk] [RED] DM_MSL_DIR not set and DM_ROMFS has no vk/vk_shaders.tsv trailer"); return; }
++        f = fmemopen(tbuf, tlen, "r");
++        if (f) { sh_read_table(f); fclose(f); } else LOG("[vk] [RED] cannot read the shader table of the RomFS trailer");
 +        free(tbuf);
 +    }
-+    qsort(g_sh, (size_t)g_nsh, sizeof *g_sh, sh_cmp);   // looked up by key (Super Mario Galaxy creates over 3,000 modules at boot)
      NSError *err = nil;
 -    g_lib = [g_dev newLibraryWithURL:[NSURL fileURLWithPath:@(p)] error:&err];
 -    if (!g_lib) LOG("[vk] [RED] shader library failed to load %s: %s", p, err.localizedDescription.UTF8String);
@@ -820,7 +807,7 @@ index 7477a08..5bf2d4a 100644
  }
  static const shinfo *sh_find(const char *key) { shinfo k; memcpy(k.key, key, 16); return g_nsh ? bsearch(&k, g_sh, g_nsh, sizeof *g_sh, sh_cmp) : NULL; }
  
-@@ -3004,7 +3041,7 @@ static void vk_set_free_cb(const void *value, void *context) {
+@@ -3004,7 +3031,7 @@ static void vk_set_free_cb(const void *value, void *context) {
  }
  
  void dm_vk_teardown(void) { @autoreleasepool {
@@ -829,7 +816,7 @@ index 7477a08..5bf2d4a 100644
      dm_vk_drain();
  
      pthread_mutex_lock(&g_sets_mu);
-@@ -3043,6 +3080,7 @@ void dm_vk_teardown(void) { @autoreleasepool {
+@@ -3043,6 +3070,7 @@ void dm_vk_teardown(void) { @autoreleasepool {
      atomic_store(&g_n_resume, 0);
      g_fan_ps = nil; g_fan_failed = 0;
      g_lib = nil;

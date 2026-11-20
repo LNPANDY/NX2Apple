@@ -22,7 +22,7 @@ Issue: LNPANDY/NX2Apple#1025
  3 files changed, 147 insertions(+), 8 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 78a98fc..593c1ac 100644
+index 70b6bfa..ac6c8bf 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -64,12 +64,16 @@ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t

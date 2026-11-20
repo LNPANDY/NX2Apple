@@ -20,7 +20,7 @@ Issue: LNPANDY/NX2Apple#1314
  dm/host/hle_thread.c                       |  10 +
  dm/host/home_quit.h                        |   5 +
  dm/host/tests/Makefile                     |   2 +-
- dm/host/tests/t_audio.c                    | 305 +++++++++++++++-
+ dm/host/tests/t_audio.c                    | 306 +++++++++++++++-
  dm/host/tests/t_audio_spsc.c               | 109 +++++-
  dm/host/tests/t_audren_layout.c            |   1 +
  dm/host/tests/t_audren_work.c              |   1 +
@@ -31,7 +31,7 @@ Issue: LNPANDY/NX2Apple#1314
  dm/ios/framework/ShellGlue.h               |   1 +
  dm/ios/framework/ShellGlue.m               |   4 +
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   1 -
- 21 files changed, 1159 insertions(+), 126 deletions(-)
+ 21 files changed, 1160 insertions(+), 126 deletions(-)
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
 index dca6d81..67a9b3c 100644
@@ -815,10 +815,10 @@ index 7469ecc..fe3d6d8 100644
 +    for (int i = 0; i < AOMAX; i++) if (stopped_os[i]) ostream_release(stopped_os[i]);
  }
 diff --git a/dm/host/hle_audren.c b/dm/host/hle_audren.c
-index deb6fba..fcd806d 100644
+index 1803757..a54838f 100644
 --- a/dm/host/hle_audren.c
 +++ b/dm/host/hle_audren.c
-@@ -27,6 +27,7 @@ void dm_pcmout_start(void *k);
+@@ -30,6 +30,7 @@ void dm_pcmout_start(void *k);
  int dm_pcmout_append(void *k, void *b);
  void *dm_pcmout_released(void *k);
  void dm_pcmout_wait(void *k, int ms);
@@ -826,7 +826,7 @@ index deb6fba..fcd806d 100644
  
  // P_SIZE: bytes of the game's AudioRendererParameter copied before the two fields are changed. SDK 16's struct is 0x38 bytes; SDK 8's (Link's Awakening) has one more word,
  // its revision at +0x38: copying only 0x38 left the revision uninitialized and the SDK rejected it (CheckValidRevision, Result 0x499). The SDK reads only its own size of the copy
-@@ -101,17 +102,18 @@ HLE_FORCE("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererPar
+@@ -104,17 +105,18 @@ HLE_FORCE("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererPar
  // globals: a second renderer's updates rendered catch-up frames into the first one's output queue, about 10% of its frames (Mario & Luigi: Brothership), and its own frames were never rendered otherwise
  enum { CQ = 4, AR_MAX = 4, RENDER_MIN_NS = 4500000 };   // AR_MAX as g_rev below
  typedef struct {
@@ -846,7 +846,7 @@ index deb6fba..fcd806d 100644
      int sink_logged;
      int32_t up_buf[DM_AUDIO_SINK_CHANNELS * (15 + FRAME_MAX)]; uint32_t up_pos;   // up_3_2's last samples and position
      int16_t pcm[NBUF][FRAME_MAX * DM_AUDIO_SINK_CHANNELS]; aout_buf bufs[NBUF];   // the blocks its output plays from (six channels plus their stereo fold): AudioOut queues only the pointer and copies the samples when the sound card asks (issue #1336)
-@@ -140,14 +142,20 @@ static void render_main(void *arg) {
+@@ -167,15 +169,21 @@ static void render_main(void *arg) {
      void *out = dm_pcmout_open_sink();
      aout_buf *free_list[NBUF]; int nfree = NBUF;
      for (int i = 0; i < NBUF; i++) { a->bufs[i] = (aout_buf){.ptr = a->pcm[i], .cap = sizeof a->pcm[i], .size = 0}; free_list[i] = &a->bufs[i]; }
@@ -859,6 +859,7 @@ index deb6fba..fcd806d 100644
      LOG("audren: render thread %d started (%d buffers in flight, paced by the output)", ar_index(a), NBUF);
      uint64_t next_exec = 0;
      int prefill = NBUF;
+     int rt = render_rt();
      while (atomic_load(&a->open)) {
          while (!nfree) {   // wait for the output to hand a block back (silent sink / sound card, one every 5 ms); it signals each release, so the thread sleeps until then (it used to poll every 1 ms)
 +            if (!atomic_load(&a->open)) break;
@@ -868,7 +869,7 @@ index deb6fba..fcd806d 100644
              dm_pcmout_wait(out, 10);
              if (!atomic_load(&a->open)) break;
          }
-@@ -181,10 +189,18 @@ static void render_main(void *arg) {
+@@ -209,11 +217,19 @@ static void render_main(void *arg) {
          b->size = bytes;
          if (queued) { a->cq_head++; pthread_cond_broadcast(&a->cq_cv); }   // the producer can reuse the slot after the copy
          pthread_mutex_unlock(&a->cq_mu);
@@ -876,6 +877,7 @@ index deb6fba..fcd806d 100644
 +        if (!atomic_load(&a->open) || !dm_pcmout_append(out, b)) free_list[nfree++] = b;
          else if (prefill) prefill--;
      }
+     if (rt) render_rt_end();
 -    dm_pcmout_close(out);   // the output would otherwise keep its sound card callback or silent sink running and hold one of the AudioOut slots after the renderer closes
 +    pthread_mutex_lock(&a->cq_mu);
 +    void *owned_out = a->pcmout;
@@ -889,7 +891,7 @@ index deb6fba..fcd806d 100644
  }
  
  // Both OpenAudioRenderer forms: CPU rendering + manual execution, then the host's render thread. With the event the game waits on it, which each render signals; without it the
-@@ -266,15 +282,18 @@ static Result ar_open(void **handle, void *ev, const uint8_t *param, void *work,
+@@ -295,15 +311,18 @@ static Result ar_open(void **handle, void *ev, const uint8_t *param, void *work,
      pthread_mutex_lock(&g_ar_mu);
      ar_t *a = NULL;
      for (int i = 0; i < AR_MAX && !a; i++) if (!g_ar[i].handle[0]) a = &g_ar[i];
@@ -912,7 +914,7 @@ index deb6fba..fcd806d 100644
      return r;
  }
  HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11SystemEventERKNS0_22AudioRendererParameterEPvm", "open the renderer (with event): CPU rendering + manual execution, the host starts a render thread",
-@@ -287,11 +306,14 @@ HLE_FORCE("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE", "close
+@@ -316,11 +335,14 @@ HLE_FORCE("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE", "close
      // Join the render thread first (it checks open every round and at most every 10 ms while waiting for the output): it may be inside exec(), which uses the renderer the SDK is about to free.
      // A fixed 20 ms sleep used to stand in for this, and a renderer reopened inside that window ran a second thread over the first one's blocks
      ar_t *a = NULL;
@@ -927,7 +929,7 @@ index deb6fba..fcd806d 100644
          pthread_mutex_unlock(&a->cq_mu);
          dm_guest_thread_join(a->render_tt);
          a->render_tt = NULL;
-@@ -699,22 +721,46 @@ HLE_FORCE("_ZN2nn5audio21GetActiveChannelCountEv", "output channel count (SDK 7
+@@ -728,22 +750,46 @@ HLE_FORCE("_ZN2nn5audio21GetActiveChannelCountEv", "output channel count (SDK 7
  void dm_audren_stop_all(void) {
      for (int i = 0; i < AR_MAX; i++) {
          atomic_store(&g_ar[i].open, 0);
@@ -1218,10 +1220,10 @@ index 5e9d5b2..4b2d1dd 100644
  $(B)/t_mii: t_mii.c ../hle_mii.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. $(GINC) -o $@ t_mii.c
 diff --git a/dm/host/tests/t_audio.c b/dm/host/tests/t_audio.c
-index 79c06cb..1d2f774 100644
+index 79c06cb..85aed23 100644
 --- a/dm/host/tests/t_audio.c
 +++ b/dm/host/tests/t_audio.c
-@@ -1,21 +1,107 @@
+@@ -1,21 +1,108 @@
  // hle_audio.c unit test (silent sink): release events wake the reader, which drains the buffers in order.
  // Expected values are computed directly from the sample rate and block length: 4800 frames / 48 kHz = 100 ms.
  #include "../hle_audio.c"
@@ -1229,6 +1231,7 @@ index 79c06cb..1d2f774 100644
  #include <time.h>
  #include <sys/mman.h>
  __thread _Atomic int dm_host_work;   // defined by the graphics host in a full build
++void dm_host_lock(pthread_mutex_t *m) { pthread_mutex_lock(m); }
  uint64_t now_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (uint64_t)t.tv_sec * 1000000000ull + t.tv_nsec; }
 -static struct { const void *k; void *v; } om[8];
 -void *objmap_get(const void *k) { for (int i = 0; i < 8; i++) if (om[i].k == k) return om[i].v; return NULL; }
@@ -1333,7 +1336,7 @@ index 79c06cb..1d2f774 100644
  // A callback can finish several buffers, and the notifier can combine pending wakes.
  // Only inspect the released queue after an event, then take everything it announced.
  static int drain_signaled(void *out, aout_buf *buffers, int count, int *got, int *seen) {
-@@ -136,8 +222,216 @@ static int test_rate_refused(void) {
+@@ -136,8 +223,216 @@ static int test_rate_refused(void) {
      puts("AudioOut rate: 44.1 kHz refused with 0x699 and nothing opened; 0 and 48000 open at 48 kHz");
      return 0;
  }
@@ -1551,7 +1554,7 @@ index 79c06cb..1d2f774 100644
      char out[64], ev[64]; uint8_t prm[16]; aout_buf b[3]; static int16_t pcm[3][4800 * 2];
      h_au_InitParam(prm);
      if (h_au_Open(out, ev, NULL, prm)) return 1;
-@@ -214,4 +508,3 @@ int main(void) {
+@@ -214,4 +509,3 @@ int main(void) {
      return !ok3;
  }
  
@@ -1686,10 +1689,10 @@ index e8c9f42..d3d68f5 100644
      test_ctx t = {0};
      t.bufs = calloc(NBUF, sizeof *t.bufs); t.data = calloc(NBUF, sizeof *t.data); t.sizes = calloc(NBUF, sizeof *t.sizes); t.scratch = malloc(512);
 diff --git a/dm/host/tests/t_audren_layout.c b/dm/host/tests/t_audren_layout.c
-index 95ae8b5..660af2c 100644
+index 73354d4..686532c 100644
 --- a/dm/host/tests/t_audren_layout.c
 +++ b/dm/host/tests/t_audren_layout.c
-@@ -88,6 +88,7 @@ void dm_pcmout_wait(void *k, int ms) {
+@@ -109,6 +109,7 @@ void dm_pcmout_wait(void *k, int ms) {
          pace_advance(callback < timeout ? callback : timeout);
      }
  }
