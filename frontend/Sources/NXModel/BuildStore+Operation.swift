@@ -132,6 +132,11 @@ extension BuildStore {
         guard !running else { return t("queue.cannotStart") }
         activeQueuedGameID = entry.gameID
         let normalizedTarget = BuildTarget.normalized(entry.target)
+        let trimmedTitleID = entry.titleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if buildUpstream == .macNativeGames,
+           normalizedTarget != BuildTarget.mac || (!trimmedTitleID.isEmpty && !MacNativeGamesBuilder.supportsTitleID(trimmedTitleID)) {
+            buildUpstream = .nxnative
+        }
         if !entry.outputDirectory.isEmpty {
             outDir = entry.outputDirectory
         }
@@ -156,6 +161,7 @@ extension BuildStore {
         }
 
         if entry.fastRefresh {
+            hintedTitleID = nil
             let explicitOutDir: String? = {
                 if !entry.outputDirectory.isEmpty { return entry.outputDirectory }
                 if let app = entry.existingAppPath, !app.isEmpty {
@@ -196,6 +202,7 @@ extension BuildStore {
             }
             gameDir = (basePath as NSString).deletingLastPathComponent
         }
+        applyKnownTitleID(trimmedTitleID)
         if let extImg = entry.externalImgPath?.trimmingCharacters(in: .whitespacesAndNewlines),
            !extImg.isEmpty,
            FileManager.default.fileExists(atPath: extImg) {

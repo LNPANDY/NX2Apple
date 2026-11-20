@@ -24,13 +24,27 @@ package struct UpstreamBuilderRow: View {
         return opts
     }
 
+    private var disabledValues: Set<String> {
+        build.isMNGBlockedByCurrentGame ? [EngineUpstreamKind.macNativeGames.rawValue] : []
+    }
+
+    private var rowDetail: String {
+        if MacNativeGamesBuilder.featureEnabled
+            && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames)
+            && build.isMNGBlockedByCurrentGame {
+            return loc.t("upstream.mngOnlyFiveTitles")
+        }
+        return loc.t("upstream.note")
+    }
+
     package var body: some View {
-        CardRow(loc.t("upstream.title"), detail: loc.t("upstream.note")) {
+        CardRow(loc.t("upstream.title"), detail: rowDetail) {
             LauncherDropdown(
                 options: availableOptions,
                 selection: build.buildUpstream.rawValue,
                 label: loc.t("upstream.title"),
-                style: .button
+                style: .button,
+                disabledValues: disabledValues
             ) { raw in
                 if let kind = EngineUpstreamKind(rawValue: raw) {
                     build.selectUpstream(kind)
@@ -92,7 +106,8 @@ package struct UpstreamBuilderRow: View {
     }
 
     private func cycle(_ by: Int) {
-        let options = availableOptions
+        let disabled = disabledValues
+        let options = availableOptions.filter { !disabled.contains($0.value) }
         guard !build.running, let index = options.firstIndex(where: { $0.value == build.buildUpstream.rawValue }), !options.isEmpty,
               let kind = EngineUpstreamKind(rawValue: options[(index + by + options.count) % options.count].value) else { return }
         build.selectUpstream(kind)

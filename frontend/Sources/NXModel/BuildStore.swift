@@ -112,16 +112,24 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                         doneNote = ""
                     }
                 }
+                enforceUpstreamForCurrentGame()
             }
         }
     }
     /// The program the player chose for this build, including its device checks and retries.
-    var selectedTitleID: String?
+    var selectedTitleID: String? {
+        didSet {
+            if selectedTitleID != oldValue {
+                enforceUpstreamForCurrentGame()
+            }
+        }
+    }
     /// The game folder the rows came from (BuildStore+GameFolder.swift), nil for packages.
     @Published package var gameFolder: GameFolder.Contents? {
         didSet {
             if gameFolder != oldValue {
                 invalidateKeyProblem()
+                enforceUpstreamForCurrentGame()
             }
         }
     }
@@ -215,6 +223,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var nxbRun = false   // the running build is `nxb build`, not the script: its exit code has its own messages
     @Published package var buildUpstream: EngineUpstreamKind {
         didSet {
+            if !running && MacNativeGamesBuilder.featureEnabled && buildUpstream == .macNativeGames && isMNGBlockedByCurrentGame {
+                buildUpstream = .nxnative
+                return
+            }
             defaults.set(buildUpstream.rawValue, forKey: Self.buildUpstreamKey)
             if MacNativeGamesBuilder.featureEnabled && buildUpstream == .macNativeGames && target != BuildTarget.mac {
                 target = BuildTarget.mac
@@ -228,6 +240,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         didSet {
             defaults.set(macNativeGamesPath, forKey: Self.macNativeGamesPathKey)
             macNativeGamesInstalled = MacNativeGamesBuilder.isUsableTree(macNativeGamesPath)
+            refreshUpstreamLocalVersion(for: .macNativeGames)
         }
     }
     @Published package internal(set) var macNativeGamesInstalled = false
@@ -236,6 +249,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         didSet {
             defaults.set(s2armPath, forKey: Self.s2armPathKey)
             s2armInstalled = S2ArmBuilder.isUsableTree(s2armPath)
+            refreshUpstreamLocalVersion(for: .s2arm)
             if oldValue != s2armPath && buildUpstream == .s2arm {
                 upstreamChanged()
             }
@@ -243,8 +257,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     @Published package internal(set) var s2armInstalled = false
     @Published package internal(set) var upstreamDownloads: [EngineUpstreamKind: UpstreamInstallState] = [:]
+    @Published package internal(set) var upstreamLocalVersions: [EngineUpstreamKind: UpstreamVersionReceipt] = [:]
+    @Published package internal(set) var upstreamRemoteVersions: [EngineUpstreamKind: UpstreamRemoteInfo] = [:]
     package var upstreamDownloadTasks: [EngineUpstreamKind: Task<Void, Never>] = [:]
     package var upstreamDownloadGeneration: [EngineUpstreamKind: UInt64] = [:]
+    package var upstreamVersionChecks = UpstreamVersionCheckState()
     @Published package internal(set) var upstreamAutoSwitchRevision: UInt64 = 0
     package var upstreamTransport: EngineTransport = URLSessionEngineTransport()
     package var s2armRun = false
@@ -291,7 +308,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     let installCancel = LockedFlag()
     var installPhaseActive = false
     package var fastRefreshActive = false
-    package var fastRefreshTitleID: String? = nil
+    package var fastRefreshTitleID: String? = nil {
+        didSet {
+            if fastRefreshTitleID != oldValue {
+                enforceUpstreamForCurrentGame()
+            }
+        }
+    }
     package var fastRefreshGameName: String? = nil
     package var fastRefreshBaseDir: String? = nil
     package var fastRefreshExternalImgPath: String? = nil
@@ -452,6 +475,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             runningTarget = BuildTarget.mac
             defaults.set(BuildTarget.mac, forKey: Self.targetKey)
         }
+        refreshUpstreamLocalVersions()
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.
@@ -645,7 +669,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             return handleEvent(kind, event)
         }
         append(line + "\n")
-        guard let s = BuildProgress.parseStageWithTotal(line) else { return }
+        guard let s = BuildProgress.parseStageWithTotal(line) else {
+            if mngRun || s2armRun { handleExternalUpstreamLogLine(line) }
+            return
+        }
         if s.state == .running {
             if Self.isPSOStage(s.name) {
                 if s.percent != nil {

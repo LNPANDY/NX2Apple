@@ -27,6 +27,7 @@ extension BuildStore {
         }
         if let u = found.update, !fits(u, .update) { found.update = nil }
         found.dlc = found.dlc.filter { fits($0, .dlc) }
+        if found.base != nil { hintedTitleID = nil }
         slots = Self.merged(slots, with: found)
         for (kind, text) in rejected { updateSlot(kind == .update ? "update" : "dlc") { $0.problem = text } }
         if found.update != nil { updateSlot("update") { $0.note = updateNote(found) } }

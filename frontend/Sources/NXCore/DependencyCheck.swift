@@ -106,6 +106,16 @@ package enum DependencyCheck {
                            installCmd: dotnetInstallCmd))
         }
 
+        let isMNG = upstream == .macNativeGames
+        if isMNG {
+            let py314 = MacNativeGamesBuilder.findMNGPython314(runner: runner)
+            out.append(Dep(id: "python", name: "dep.python", hint: "dep.python.hint",
+                           present: py314 != nil,
+                           detail: py314 ?? "dep.python.mngMissing",
+                           installCmd: MacNativeGamesBuilder.python314InstallCommand()))
+            return out
+        }
+
         let (py, pyOK) = Toolchain.findPython(includeS2Arm: isS2Arm)
         // A too-old interpreter is a different problem from a missing package: say which one it is,
         // because the fix differs (install a newer Python vs pip install into this one).
@@ -142,7 +152,12 @@ package enum DependencyCheck {
     ) -> Result {
         let isS2Arm = upstream == .s2arm
         let deps = detect(needsIOS: needsIOS, repo: repo, customApp: customApp, upstream: upstream, s2armPath: s2armPath)
-        let (py, _) = Toolchain.findPython(includeS2Arm: isS2Arm)
+        let py: String
+        if upstream == .macNativeGames {
+            py = MacNativeGamesBuilder.findMNGPython314() ?? Toolchain.findPython().path
+        } else {
+            py = Toolchain.findPython(includeS2Arm: isS2Arm).path
+        }
         let dn = isS2Arm ? S2ArmBuilder.findDotnet(tree: s2armPath).path : Toolchain.findDotnet().path
         return Result(deps: deps, python: py, dotnet: FileManager.default.isExecutableFile(atPath: dn) ? dn : "")
     }
@@ -176,9 +191,11 @@ package enum DependencyCheck {
         ["/bin/bash", "-c", cmd.map { $0.contains(" ") ? "'" + $0 + "'" : $0 }.joined(separator: " ")]
     }
 
-    /// The environment an install runs in: Homebrew's folders in front, and no prompt.
+    /// The environment an install runs in: Homebrew's folders in front, proxy variables preserved, and no prompt.
     package static func installEnvironment() -> [String: String] {
-        ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-         "HOME": NSHomeDirectory(), "NONINTERACTIVE": "1", "USER": NSUserName()]
+        ProxyEnvironment.merged(into: [
+            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME": NSHomeDirectory(), "NONINTERACTIVE": "1", "USER": NSUserName()
+        ])
     }
 }

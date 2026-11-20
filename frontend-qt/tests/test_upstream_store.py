@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -37,11 +38,15 @@ class UpstreamStoreTests(unittest.TestCase):
 
     def test_available_upstreams(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop('NX2APPLE_MULTI_UPSTREAM', None)
+            os.environ.pop('NX2APPLE_ENABLE_S2ARM', None)
+            self.assertEqual(upstream_store.available_upstreams(is_windows=True), ('nxnative',))
+            self.assertEqual(upstream_store.available_upstreams(is_windows=False), ('nxnative',))
+        with mock.patch.dict(os.environ, {'NX2APPLE_MULTI_UPSTREAM': '1'}, clear=False):
+            os.environ.pop('NX2APPLE_ENABLE_S2ARM', None)
+            self.assertEqual(upstream_store.available_upstreams(is_windows=True), ('nxnative',))
+        with mock.patch.dict(os.environ, {'NX2APPLE_ENABLE_S2ARM': '1'}, clear=False):
             self.assertEqual(upstream_store.available_upstreams(is_windows=True), ('nxnative', 's2arm'))
             self.assertEqual(upstream_store.available_upstreams(is_windows=False), ('nxnative', 's2arm'))
-        with mock.patch.dict(os.environ, {'NX2APPLE_MULTI_UPSTREAM': '0'}, clear=False):
-            self.assertEqual(upstream_store.available_upstreams(is_windows=True), ('nxnative',))
 
     def test_format_download_progress(self) -> None:
         frac, text = upstream_store.format_download_progress(10 * 1024 * 1024, 40 * 1024 * 1024)
@@ -228,6 +233,165 @@ class UpstreamStoreTests(unittest.TestCase):
         self.assertEqual(coord.state('s2arm', installed=True), ('installed', None, ''))
         self.assertEqual(len(installed_events), 1)
 
+    def test_version_receipt_eocd_legacy_fallback_and_remote_parsing(self) -> None:
+        old_sha = '1111111111111111111111111111111111111111'
+        new_sha = '2222222222222222222222222222222222222222'
+
+        zip_path = self.temp_dir / 's2arm-eocd.zip'
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr('S2Arm-main/pack/jobs/main.py', '#!/usr/bin/env python3\n')
+            zf.writestr('S2Arm-main/runtime/rewriter/rewriter.c', '/* rewriter */\n')
+            zf.writestr('S2Arm-main/pack/oneclick/oneclick.sh', '#!/bin/bash\n')
+            zf.writestr('S2Arm-main/pack/orch/oneclick_win.py', '#!/usr/bin/env python3\n')
+            zf.comment = old_sha.upper().encode('utf-8')
+
+        self.assertEqual(upstream_store.extract_git_commit_from_zip(zip_path), old_sha)
+
+        remote_v057 = upstream_store.UpstreamRemoteInfo(kind='s2arm', commit=old_sha, version='v0.5.7', date='2026.11.10')
+        installed = upstream_store.install_upstream_zip(
+            zip_path,
+            's2arm',
+            self.store_root,
+            remote_info=remote_v057,
+            is_windows=False,
+        )
+        receipt = upstream_store.read_local_receipt('s2arm', str(installed), is_windows=False)
+        self.assertIsNotNone(receipt)
+        assert receipt is not None
+        self.assertEqual(receipt.commit, old_sha)
+        self.assertEqual(receipt.version, 'v0.5.7')
+        self.assertFalse(upstream_store.has_update(receipt, remote_v057))
+
+        # Failed update preserves old receipt and directory
+        bad_zip = self._make_s2arm_zip('incomplete-update.zip', complete=False)
+        with self.assertRaises(upstream_store.UpstreamInstallError):
+            upstream_store.install_upstream_zip(bad_zip, 's2arm', self.store_root, is_windows=False)
+        preserved = upstream_store.read_local_receipt('s2arm', str(installed), is_windows=False)
+        self.assertEqual(preserved, receipt)
+
+        # Legacy install without .upstream-version.json falls back to entry mtime and flags update
+        (installed / upstream_store.RECEIPT_FILENAME).unlink()
+        entry = installed / 'pack' / 'jobs' / 'main.py'
+        os.utime(entry, (1_763_424_000, 1_763_424_000))
+        legacy = upstream_store.read_local_receipt('s2arm', str(installed), is_windows=False)
+        self.assertIsNotNone(legacy)
+        assert legacy is not None
+        self.assertIsNone(legacy.commit)
+        self.assertEqual(legacy.version, '2025.11.18')
+        self.assertTrue(upstream_store.has_update(legacy, remote_v057))
+
+        # Remote parsing via Git Smart HTTP info/refs: exact tag, ahead (+), annotated ^{}, ignore impactor-*
+        tag_obj_sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        refs_exact = (
+            '001e# service=git-upload-pack\n'
+            f'00000159{new_sha} HEAD\x00multi_ack\n'
+            f'003d{new_sha} refs/heads/main\n'
+            f'0040{old_sha} refs/tags/impactor-1.0\n'
+            f'003e{tag_obj_sha} refs/tags/v0.5.8\n'
+            f'0041{new_sha} refs/tags/v0.5.8^{{}}\n'
+        )
+        refs_ahead = (
+            f'003d{new_sha} refs/heads/main\n'
+            f'0040{new_sha} refs/tags/impactor-2.0\n'
+            f'003e{old_sha} refs/tags/v0.5.8\n'
+        )
+        refs_notags = f'003d{new_sha} refs/heads/main\n'
+        exact = upstream_store.parse_info_refs('s2arm', refs_exact)
+        ahead = upstream_store.parse_info_refs('s2arm', refs_ahead)
+        fallback = upstream_store.parse_info_refs('s2arm', refs_notags)
+        self.assertIsNotNone(exact)
+        self.assertIsNotNone(ahead)
+        self.assertIsNotNone(fallback)
+        assert exact and ahead and fallback
+        self.assertEqual(exact.version, 'v0.5.8')
+        self.assertEqual(ahead.version, 'v0.5.8+')
+        self.assertEqual(fallback.version, new_sha[:7])
+
+        # MacNativeGames source-YYYYMMDD-<sha> tags: exact vs ahead (+) and same-day SHA comparison
+        mng_refs_ahead = (
+            f'003d{new_sha} refs/heads/main\n'
+            f'0050{old_sha} refs/tags/source-20261118-{old_sha[:8]}\n'
+        )
+        mng_remote = upstream_store.parse_info_refs('macnativegames', mng_refs_ahead)
+        assert mng_remote is not None
+        self.assertEqual(mng_remote.version, '2026.11.18+')
+        mng_local_old = upstream_store.UpstreamVersionReceipt(commit=old_sha, version='2026.11.18', installed_at='2026.11.18')
+        self.assertTrue(upstream_store.has_update(mng_local_old, mng_remote))
+
+        # First-time download without remote_info auto-queries info/refs for semantic tag receipt
+        first_root = self.temp_dir / 'first-dl'
+        first_payload = zip_path.read_bytes()
+        installed_first = upstream_store.download_and_install_upstream(
+            's2arm',
+            first_root,
+            downloader=lambda _u, dst, _p: dst.write_bytes(first_payload),
+            fetch_text=lambda _u: refs_ahead,
+            is_windows=False,
+        )
+        first_rec = upstream_store.read_local_receipt('s2arm', str(installed_first), is_windows=False)
+        assert first_rec is not None
+        self.assertEqual(first_rec.commit, old_sha)
+        self.assertEqual(first_rec.version, 'v0.5.8+')
+
+        # Built-in .upstream-ref short SHA
+        fake_repo = self.temp_dir / 'repo'
+        fake_repo.mkdir()
+        (fake_repo / '.upstream-ref').write_text('0b5fd6020093abcdef1234567890abcdef123456\n', encoding='utf-8')
+        builtin_rec = upstream_store.read_local_receipt('nxnative', repo_path=str(fake_repo))
+        assert builtin_rec is not None
+        self.assertEqual(builtin_rec.version, '0b5fd60')
+        self.assertEqual(
+            upstream_store.compact_badge_text('nxnative', builtin_rec, update_available=False, builtin_fallback='Built-in', installed_fallback='Installed'),
+            '0b5fd60',
+        )
+        self.assertEqual(
+            upstream_store.compact_badge_text('s2arm', receipt, update_available=True, builtin_fallback='Built-in', installed_fallback='Installed'),
+            'v0.5.7 ↑',
+        )
+
+    def test_version_checker_caches_success_and_never_caches_failure(self) -> None:
+        now_box = [1000.0]
+        hits: list[str] = []
+        should_fail = [True]
+        sha = '3333333333333333333333333333333333333333'
+
+        def fake_fetch(url: str):
+            hits.append(url)
+            if should_fail[0]:
+                raise RuntimeError('offline')
+            return f'003d{sha} refs/heads/main\n003e{sha} refs/tags/v0.5.8\n'
+
+        checker = upstream_store.UpstreamVersionChecker(now_fn=lambda: now_box[0])
+        threads = checker.check_async(('s2arm',), is_installed=lambda k: k == 's2arm', fetch_text=fake_fetch)
+        for t in threads:
+            t.join(timeout=5.0)
+        self.assertIsNone(checker.remote_info('s2arm'))
+        self.assertEqual(len(hits), 1)
+
+        # Retry immediately after failure succeeds
+        should_fail[0] = False
+        threads = checker.check_async(('s2arm',), is_installed=lambda k: k == 's2arm', fetch_text=fake_fetch)
+        for t in threads:
+            t.join(timeout=5.0)
+        info = checker.remote_info('s2arm')
+        self.assertIsNotNone(info)
+        assert info is not None
+        self.assertEqual(info.version, 'v0.5.8')
+        hits_after_ok = len(hits)
+
+        # Within 10-minute TTL, cached result skips network
+        now_box[0] += 300.0
+        threads = checker.check_async(('s2arm',), is_installed=lambda k: k == 's2arm', fetch_text=fake_fetch)
+        self.assertEqual(threads, [])
+        self.assertEqual(len(hits), hits_after_ok)
+
+        # After TTL expires, fetches again
+        now_box[0] += 400.0
+        threads = checker.check_async(('s2arm',), is_installed=lambda k: k == 's2arm', fetch_text=fake_fetch)
+        for t in threads:
+            t.join(timeout=5.0)
+        self.assertGreater(len(hits), hits_after_ok)
+
 
 try:
     from PySide6.QtCore import QSettings
@@ -253,7 +417,7 @@ class QtEngineDropdownTests(unittest.TestCase):
             os.environ,
             {
                 'NX2APPLE_UPSTREAMS_DIR': str(self.temp_dir / 'upstreams'),
-                'NX2APPLE_MULTI_UPSTREAM': '1',
+                'NX2APPLE_ENABLE_S2ARM': '1',
             },
             clear=False,
         )
@@ -330,6 +494,148 @@ class QtEngineDropdownTests(unittest.TestCase):
         self.assertFalse(win._eng_popup_rows['s2arm']['exp_badge'].isHidden())
         self.assertEqual(win._eng_popup_rows['s2arm']['exp_badge'].text(), m.t('engine.experimental'))
         self.assertFalse(popup.isVisible())
+
+        # Install S2Arm with an older SHA, inject newer remote info, verify compact badge + Update button
+        old_sha = '1111111111111111111111111111111111111111'
+        new_sha = '2222222222222222222222222222222222222222'
+        zip_path = self.temp_dir / 's2arm-old.zip'
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr('S2Arm-main/pack/jobs/main.py', '#!/usr/bin/env python3\n')
+            zf.writestr('S2Arm-main/runtime/rewriter/rewriter.c', '/* rewriter */\n')
+            zf.writestr('S2Arm-main/pack/oneclick/oneclick.sh', '#!/bin/bash\n')
+            zf.writestr('S2Arm-main/pack/orch/oneclick_win.py', '#!/usr/bin/env python3\n')
+            zf.comment = old_sha.encode('utf-8')
+        installed = upstream_store.install_upstream_zip(
+            zip_path,
+            's2arm',
+            self.temp_dir / 'upstreams',
+            remote_info=upstream_store.UpstreamRemoteInfo('s2arm', old_sha, 'v0.5.7', '2026.11.10'),
+            is_windows=False,
+        )
+        m.s2arm_path = str(installed)
+        m.select_upstream('s2arm')
+        m._upstream_version_checker.set_remote_info(
+            's2arm',
+            upstream_store.UpstreamRemoteInfo('s2arm', new_sha, 'v0.5.8', '2026.11.19'),
+        )
+        win._refresh_engine_switcher()
+        win._refresh_engine_popup()
+        self.assertEqual(win.eng_active_badge.text(), 'v0.5.7 ↑')
+        self.assertIn('v0.5.8', win.eng_active_badge.toolTip())
+        self.assertFalse(win._eng_popup_rows['s2arm']['update_btn'].isHidden())
+        self.assertEqual(win._eng_popup_rows['s2arm']['update_btn'].text(), m.t('upstream.update'))
+        self.assertTrue(win._eng_popup_rows['nxnative']['update_btn'].isHidden())
+
+        # Same-commit local short-hash receipt upgrades to semantic remote version on disk and UI
+        upstream_store.write_version_receipt(
+            installed,
+            upstream_store.UpstreamVersionReceipt(commit=new_sha, version=new_sha[:7], installed_at='2026.11.19'),
+        )
+        m._upstream_version_checker.set_remote_info(
+            's2arm',
+            upstream_store.UpstreamRemoteInfo('s2arm', new_sha, 'v0.5.8+', '2026.11.19'),
+        )
+        win._refresh_engine_switcher()
+        self.assertEqual(win.eng_active_badge.text(), 'v0.5.8+')
+        upgraded_disk = upstream_store.read_local_receipt('s2arm', str(installed), is_windows=False)
+        assert upgraded_disk is not None
+        self.assertEqual(upgraded_disk.version, 'v0.5.8+')
+
+    def test_default_disabled_hides_s2arm_and_falls_back_persisted_setting(self) -> None:
+        from nspb_qt import model, ui
+
+        payload = self._make_s2arm_bytes()
+        zip_path = self.temp_dir / 's2arm-existing.zip'
+        zip_path.write_bytes(payload)
+        installed = upstream_store.install_upstream_zip(zip_path, 's2arm', self.temp_dir / 'upstreams', is_windows=False)
+
+        with mock.patch.dict(os.environ, {'NX2APPLE_ENABLE_S2ARM': '1'}, clear=False):
+            enabled_model = model.Model()
+            enabled_model.s2arm_path = str(installed)
+            self.assertTrue(enabled_model.select_upstream('s2arm'))
+            self.assertEqual(enabled_model.build_upstream, 's2arm')
+
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('NX2APPLE_ENABLE_S2ARM', None)
+            os.environ.pop('NX2APPLE_MULTI_UPSTREAM', None)
+            self.assertEqual(upstream_store.available_upstreams(), ('nxnative',))
+
+            disabled_model = model.Model()
+            # Simulate persisted settings from an earlier opt-in session.
+            disabled_model.settings.setValue('buildUpstream', 's2arm')
+            disabled_model.settings.setValue('s2armPath', str(installed))
+            reloaded = model.Model()
+            self.assertEqual(reloaded.build_upstream, 'nxnative')
+            self.assertFalse(reloaded.is_s2arm_selected)
+            self.assertFalse(reloaded.select_upstream('s2arm'))
+            self.assertIsNone(reloaded.download_upstream('s2arm'))
+            hits: list[str] = []
+            threads = reloaded.check_upstream_updates(
+                kinds=('s2arm',),
+                force=True,
+                fetch_text=lambda url: hits.append(url) or '',
+            )
+            for t in threads:
+                t.join(timeout=2.0)
+            self.assertEqual(hits, [])
+            self.assertEqual(reloaded.check_upstream_updates(force=True), [])
+
+            win = ui.MainWindow(reloaded, perform_startup_checks=False)
+            self.addCleanup(win.close)
+            win._ensure_engine_popup()
+            win._refresh_engine_popup()
+            self.assertEqual(tuple(win._eng_popup_rows.keys()), ('nxnative',))
+            self.assertEqual(win.eng_dropdown_btn.text(), 'nxnative  ▾')
+
+    def test_s2arm_and_upstream_store_work_with_pyside6_masked(self) -> None:
+        script_path = self.temp_dir / 'verify_no_pyside6.py'
+        script_path.write_text(
+            f"""import importlib.util
+import os
+import sys
+from unittest import mock
+
+class _BlockingFinderWrapper:
+    def __init__(self, inner):
+        self._inner = inner
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == 'PySide6' or fullname.startswith('PySide6.'):
+            return None
+        fn = getattr(self._inner, 'find_spec', None)
+        return fn(fullname, path, target) if fn is not None else None
+
+for k in list(sys.modules):
+    if k == 'PySide6' or k.startswith('PySide6.'):
+        del sys.modules[k]
+sys.meta_path[:] = [_BlockingFinderWrapper(f) for f in sys.meta_path]
+assert importlib.util.find_spec('PySide6') is None
+
+sys.path.insert(0, {repr(str(ROOT / 'frontend-qt'))})
+from nspb_qt import s2arm_builder, upstream_store
+
+with mock.patch.dict(os.environ, {{}}, clear=False):
+    os.environ.pop('NX2APPLE_ENABLE_S2ARM', None)
+    os.environ.pop('NX2APPLE_MULTI_UPSTREAM', None)
+    assert s2arm_builder.feature_enabled() is False
+    assert upstream_store.available_upstreams() == ('nxnative',)
+    os.environ['NX2APPLE_MULTI_UPSTREAM'] = '1'
+    assert s2arm_builder.feature_enabled() is False
+    assert upstream_store.available_upstreams() == ('nxnative',)
+
+with mock.patch.dict(os.environ, {{'NX2APPLE_ENABLE_S2ARM': '1'}}, clear=False):
+    assert s2arm_builder.feature_enabled() is True
+    assert upstream_store.available_upstreams() == ('nxnative', 's2arm')
+""",
+            encoding='utf-8',
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr or proc.stdout)
 
 
 if __name__ == '__main__':

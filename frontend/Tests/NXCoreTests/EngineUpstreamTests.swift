@@ -99,6 +99,25 @@ final class EngineUpstreamTests: XCTestCase {
         XCTAssertEqual(RepoLayout.missingTools(in: repo.path, for: .macNativeGames), [])
     }
 
+    func testS2ArmDefaultDisabledAndAvailableOnMac() {
+        XCTAssertFalse(S2ArmBuilder.isFeatureEnabled(environment: [:]))
+        XCTAssertFalse(S2ArmBuilder.isFeatureEnabled(environment: ["NX2APPLE_MULTI_UPSTREAM": "1"]))
+        XCTAssertTrue(S2ArmBuilder.isFeatureEnabled(environment: ["NX2APPLE_ENABLE_S2ARM": "1"]))
+
+        XCTAssertEqual(
+            EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: false),
+            [.nxnative, .macNativeGames]
+        )
+        XCTAssertEqual(
+            EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: true),
+            [.nxnative, .macNativeGames, .s2arm]
+        )
+        if ProcessInfo.processInfo.environment["NX2APPLE_ENABLE_S2ARM"] != "1" {
+            XCTAssertFalse(S2ArmBuilder.featureEnabled)
+            XCTAssertEqual(EngineUpstream.availableOnMac(), [.nxnative, .macNativeGames])
+        }
+    }
+
     private func createFakeApp(
         name: String,
         plist: [String: Any],

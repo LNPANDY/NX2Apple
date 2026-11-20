@@ -17,6 +17,12 @@ extension BuildStore {
         case .failure(let problem):
             refuseGameFolder(gameFolderProblemText(problem))
         case .success(let contents):
+            if !running,
+               isMacNativeGamesSelected,
+               contents.hasTitleID,
+               !MacNativeGamesBuilder.supportsTitleID(contents.titleIDHex) {
+                buildUpstream = .nxnative
+            }
             if let why = gameFolderEngineProblem(contents) { refuseGameFolder(why); return }
             gameFolder = contents
             updateSlot("base") { $0.paths = [contents.basePath] }
@@ -116,8 +122,8 @@ extension BuildStore {
     package var gameTitleID: String? {
         if fastRefreshActive, let fastRefreshTitleID, !fastRefreshTitleID.isEmpty { return fastRefreshTitleID }
         if let selectedTitleID { return selectedTitleID }
-        if let f = gameFolder { return f.hasTitleID ? f.titleIDHex : nil }
-        return TitleID.parse(basePath).map { String(format: "%016llX", $0) }
+        if let f = gameFolder { return f.hasTitleID ? f.titleIDHex : effectiveHintedTitleID }
+        return TitleID.parse(basePath).map { String(format: "%016llX", $0) } ?? effectiveHintedTitleID
     }
 
     /// The chosen game is a Switch 2 game by its engine profile (GameFolder.profileIsSwitch2): the Builds page says how far the engine's support goes.

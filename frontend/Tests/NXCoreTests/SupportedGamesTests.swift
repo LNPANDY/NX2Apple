@@ -52,4 +52,45 @@ final class SupportedGamesTests: XCTestCase {
         XCTAssertLessThanOrEqual(text.count, SupportedGames.noteLimit)
         XCTAssertTrue(text.hasSuffix("profile."))
     }
+
+    func testIncludeMacNativeGamesCompletesAllFiveWithoutDuplicates() throws {
+        try profile(
+            "0100F2C0115B6000",
+            tsv: "# The Legend of Zelda: Tears of the Kingdom (Switch, update 1.4.3).\ntitle_id\t0100F2C0115B6000\nname\tThe Legend of Zelda: Tears of the Kingdom\npackage\tv720896\nbuild\tv720896\t1.4.3\tmain=aa\n",
+            readme: "# TOTK\n\nExisting upstream profile notes.\n"
+        )
+        try profile(
+            "0100000000010000",
+            tsv: "# Super Mario Odyssey (Switch).\ntitle_id\t0100000000010000\nname\tSuper Mario Odyssey\n",
+            readme: "# SMO\n\nOdyssey notes.\n"
+        )
+
+        let raw = SupportedGames.list(engineRoot: root.path, includeMacNativeGames: false)
+        XCTAssertEqual(Set(raw.map(\.titleID)), ["0100F2C0115B6000", "0100000000010000"])
+
+        let completed = SupportedGames.list(engineRoot: root.path, includeMacNativeGames: true)
+        let ids = completed.map(\.titleID)
+        XCTAssertEqual(ids.count, Set(ids).count, "must not duplicate existing profiles")
+        XCTAssertEqual(Set(ids), [
+            "0100000000010000",
+            "0100F2C0115B6000",
+            "01007EF00011E000",
+            "0400486024DEC000",
+            "040074A01BF12000",
+            "0400A3A01EE4C000",
+        ])
+
+        let totk = try XCTUnwrap(completed.first { $0.titleID == "0100F2C0115B6000" })
+        XCTAssertEqual(totk.version, "1.4.3")
+        XCTAssertEqual(totk.notes, "Existing upstream profile notes.")
+
+        let oot = try XCTUnwrap(completed.first { $0.titleID == "0400486024DEC000" })
+        XCTAssertEqual(oot.name, "The Legend of Zelda: Ocarina of Time")
+        XCTAssertEqual(oot.edition, .switch2)
+        XCTAssertFalse(oot.notes.isEmpty)
+
+        let pokopia = try XCTUnwrap(completed.first { $0.titleID == "0400A3A01EE4C000" })
+        XCTAssertEqual(pokopia.edition, .switch2)
+        XCTAssertFalse(pokopia.notes.isEmpty)
+    }
 }

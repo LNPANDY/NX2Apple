@@ -41,10 +41,11 @@ extension LiveConsoleDriver {
     /// with the library's games by title ID so an owned row opens that game's page.
     func openSupportedGames() {
         let root = EngineLayout.root(repo())
+        let includeMNG = MacNativeGamesBuilder.featureEnabled
         let owned = Dictionary(library.games.filter { game in state.games.contains { $0.id == game.id.uuidString } }
             .map { ($0.titleID.uppercased(), $0.id.uuidString) }) { a, _ in a }
         DispatchQueue.global(qos: .userInitiated).async {
-            let list = SupportedGames.list(engineRoot: root)
+            let list = SupportedGames.list(engineRoot: root, includeMacNativeGames: includeMNG)
             DispatchQueue.main.async { [weak self] in self?.state.openSupportedGames(list, owned: owned) }
         }
     }

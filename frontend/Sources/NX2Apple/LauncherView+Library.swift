@@ -331,6 +331,10 @@ extension LauncherView {
 
     @ViewBuilder private func metadataBadgeContent(_ game: LibraryGame) -> some View {
         Group {
+            if game.playableMacBundle?.upstream == .macNativeGames {
+                ArtworkStatusChip(title: loc.t("library.chip.mng"), color: LauncherPalette.accent, showsIndicator: false)
+                    .help(loc.t("library.mng.help"))
+            }
             if GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {   // #445
                 ArtworkStatusChip(title: loc.t("switch2.badge"), color: LauncherPalette.notice, showsIndicator: false)
                     .help(loc.t("switch2.help"))

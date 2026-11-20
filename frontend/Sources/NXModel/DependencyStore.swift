@@ -189,10 +189,11 @@ import NXCore
         let base = pythonPath
         let cmd = dep.installCmd
         let isPython = depID == "python"
-        let includeS2Arm = upstreamContext().kind == .s2arm
+        let upstreamKind = upstreamContext().kind
+        let includeS2Arm = upstreamKind == .s2arm
         return Task {
             let outcome = await Task.detached { [weak self] () -> (ok: Bool, failure: (error: String, fix: String)?, output: String?) in
-                if isPython {
+                if isPython && upstreamKind != .macNativeGames {
                     let r = Toolchain.makeVenv(base: base, includeS2Arm: includeS2Arm, runner: runner) { fraction, detail in
                         Task { @MainActor [weak self] in
                             guard let self else { return }

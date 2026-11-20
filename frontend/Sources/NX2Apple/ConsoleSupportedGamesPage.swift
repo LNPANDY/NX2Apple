@@ -164,6 +164,16 @@ import NXLauncher
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .center, spacing: 10) {
                             Text(game.name).font(.manrope(compact ? 19 : 23, .semibold)).lineLimit(2)
+                            if SupportedGamesSheet.isMacNativeGamesSupported(game) {
+                                Text(EngineUpstreamKind.macNativeGames.displayName)
+                                    .font(.manrope(compact ? 12 : 14, .semibold))
+                                    .foregroundStyle(LauncherPalette.ready)
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                    .padding(.horizontal, compact ? 8 : 10)
+                                    .padding(.vertical, 3)
+                                    .background(LauncherPalette.ready.opacity(0.16), in: Capsule())
+                            }
                             if isCurrentUpdate {
                                 Text(t("supported.updatedCurrent"))
                                     .font(.manrope(compact ? 12 : 14, .semibold))
