@@ -71,6 +71,8 @@ struct ShellSettingsView: View {
     /// Counts the changes in the defaults, so the rows read the store again.
     @State private var revision = 0
     @State private var pendingCertFileName: String?
+    @State private var certPromptPresented = false
+    @State private var certConfirming = false
     @State private var certPassword = ""
     @State private var certImportError: String?
     @State private var certBusy = false
@@ -204,10 +206,11 @@ struct ShellSettingsView: View {
         .alert(
             Text(verbatim: ShellStrings.text("Enter certificate password")),
             isPresented: Binding(
-                get: { pendingCertFileName != nil },
+                get: { certPromptPresented },
                 set: { presented in
+                    certPromptPresented = presented
                     if !presented {
-                        cancelCertificatePasswordPrompt()
+                        scheduleCancelIfNotConfirmed()
                     }
                 }
             )
@@ -327,7 +330,9 @@ struct ShellSettingsView: View {
             switch outcome {
             case .picked(let fileName):
                 certPassword = ""
+                certConfirming = false
                 pendingCertFileName = fileName
+                certPromptPresented = true
             case .cancelled:
                 break
             case .failed(let message):
@@ -341,22 +346,40 @@ struct ShellSettingsView: View {
             cancelCertificatePasswordPrompt()
             return
         }
+        // Mark confirming before clearing prompt state so SwiftUI's `isPresented.set(false)` can never race
+        // and discard the entered password or the host's staged `.p12` bytes.
+        certConfirming = true
         let password = certPassword
         certPassword = ""
         pendingCertFileName = nil
+        certPromptPresented = false
         certBusy = true
         Task {
             let failure = await confirm(password)
             certBusy = false
+            certConfirming = false
             if let failure, !failure.isEmpty {
                 certImportError = failure
             }
         }
     }
 
+    private func scheduleCancelIfNotConfirmed() {
+        // Defer one MainActor turn so if SwiftUI toggles `isPresented` before firing the `Import` button action,
+        // `confirmCertificatePassword()` sets `certConfirming = true` before any cleanup runs.
+        Task { @MainActor in
+            await Task.yield()
+            if !certConfirming && !certPromptPresented && pendingCertFileName != nil {
+                cancelCertificatePasswordPrompt()
+            }
+        }
+    }
+
     private func cancelCertificatePasswordPrompt() {
+        certConfirming = false
         certPassword = ""
         pendingCertFileName = nil
+        certPromptPresented = false
         actions.onCancelSideloadCertificateImport?()
     }
 

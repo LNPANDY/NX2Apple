@@ -1689,10 +1689,14 @@ public struct ShellHostConfig: Sendable {
             }
         }
 
-        if let failure = await finishLaunch(game, suppressNotice: suppressErrorNotice) {
+        switch await finishLaunch(game, expectedGeneration: checkGeneration, suppressNotice: suppressErrorNotice) {
+        case .launched:
+            return .launched
+        case .cancelled:
+            return .failed(nil)
+        case .failed(let failure):
             return .failed(failure)
         }
-        return .launched
     }
 
     public func resolveCloudConflict(_ decision: CloudSaveDecision) {
@@ -1785,7 +1789,7 @@ public struct ShellHostConfig: Sendable {
             let wasDeepLink = deepLinkCloudPending
             let errorURL = pendingDeepLinkErrorURL
             deepLinkCloudPending = false
-            if let failure = await finishLaunch(game, suppressNotice: wasDeepLink && errorURL != nil), wasDeepLink {
+            if case .failed(let failure) = await finishLaunch(game, expectedGeneration: pending.generation, suppressNotice: wasDeepLink && errorURL != nil), wasDeepLink {
                 pendingDeepLinkSuccessURL = nil
                 pendingDeepLinkErrorURL = nil
                 if let errorURL {
@@ -1819,38 +1823,104 @@ public struct ShellHostConfig: Sendable {
         notice = hostText("Restored the save backup from \(restored.label). Your previous save was backed up first.")
     }
 
-    @discardableResult
-    private func finishLaunch(_ baseGame: LaunchableGame, suppressNotice: Bool = false) async -> String? {
+    private enum FinishLaunchOutcome {
+        case launched
+        case cancelled
+        case failed(String)
+    }
+
+    private func isLaunchStillValid(_ game: LaunchableGame, expectedGeneration: UInt64) -> Bool {
+        cloudCheckGeneration == expectedGeneration
+            && !stoppingRunningGame
+            && entry(game.titleID)?.manifest == game.manifest
+    }
+
+    private func finishLaunch(_ baseGame: LaunchableGame, expectedGeneration: UInt64, suppressNotice: Bool = false) async -> FinishLaunchOutcome {
         var game = baseGame
         // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
         LastPlayedStore(defaults: config.defaults(game.titleID)).record(config.now())
         refresh(game.titleID)
         do {
-            if let hotRoot = config.hotFrameworksRoot,
-               MachOLocalSigner.isInsideAllowedRoot(game.frameworkURL, allowedRoot: hotRoot) {
+            let hotRoot = config.hotFrameworksRoot
+            let isHotExternal = hotRoot.map { MachOLocalSigner.isInsideAllowedRoot(game.frameworkURL, allowedRoot: $0) } ?? false
+            var usedCachedReceipt = false
+
+            if let hotRoot, isHotExternal {
                 let fwURL = game.frameworkURL
                 let hostID = config.hostBundleID()
                 let store = sideloadCertificateStore
                 let clock = config.now
-                try await Task.detached(priority: .userInitiated) {
-                    guard store.hasCertificate else { return }
-                    try MachOLocalSigner.ensureSignedIfNeeded(
+                usedCachedReceipt = try await Task.detached(priority: .userInitiated) { () throws -> Bool in
+                    guard store.hasCertificate else { return false }
+                    let didSign = try MachOLocalSigner.ensureSignedIfNeeded(
                         frameworkURL: fwURL,
                         allowedRoot: hotRoot,
                         hostBundleID: hostID,
                         store: store,
                         now: clock()
                     )
+                    return !didSign
                 }.value
+                guard isLaunchStillValid(game, expectedGeneration: expectedGeneration) else {
+                    return .cancelled
+                }
             }
+
             game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
-            try await launcher.launch(game)
-            return nil
+            guard isLaunchStillValid(game, expectedGeneration: expectedGeneration) else {
+                return .cancelled
+            }
+
+            do {
+                try await launcher.launch(game)
+                return .launched
+            } catch let launchError {
+                // If an external framework skipped signing via a cached `.nx-local-sign.json` receipt and then failed
+                // to launch (e.g. modified bundle resources or iOS `sigRefused`), clear the stale receipt, force a
+                // fresh-inode re-sign once, and retry launch so the player is never stuck in a receipt deadlock.
+                guard usedCachedReceipt, let hotRoot, isHotExternal else {
+                    throw launchError
+                }
+                let fwURL = game.frameworkURL
+                let hostID = config.hostBundleID()
+                let store = sideloadCertificateStore
+                let clock = config.now
+                let didForceSign = try await Task.detached(priority: .userInitiated) { () throws -> Bool in
+                    MachOLocalSigner.removeReceipt(for: fwURL)
+                    guard store.hasCertificate else { return false }
+                    let identity = try store.loadIdentity()
+                    _ = try MachOLocalSigner.signFramework(
+                        at: fwURL,
+                        allowedRoot: hotRoot,
+                        identity: identity,
+                        hostBundleID: hostID,
+                        now: clock()
+                    )
+                    return true
+                }.value
+                guard isLaunchStillValid(game, expectedGeneration: expectedGeneration) else {
+                    return .cancelled
+                }
+                guard didForceSign else {
+                    throw launchError
+                }
+                do {
+                    try await launcher.launch(game)
+                    return .launched
+                } catch {
+                    // Keep the receipt cleared after a failed retry so the next attempt can recover cleanly.
+                    MachOLocalSigner.removeReceipt(for: fwURL)
+                    throw error
+                }
+            }
         } catch {
+            guard isLaunchStillValid(game, expectedGeneration: expectedGeneration) else {
+                return .cancelled
+            }
             if !suppressNotice {
                 notice = error.localizedDescription
             }
-            return error.localizedDescription
+            return .failed(error.localizedDescription)
         }
     }
 

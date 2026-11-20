@@ -18,6 +18,22 @@ private struct FakeCertPicker: SideloadCertificatePicker {
     }
 }
 
+@MainActor private final class FailOnceThenSucceedLauncher: GameLauncher {
+    enum TestLaunchError: LocalizedError {
+        case refusedSignature
+        var errorDescription: String? { "iOS refused the code signature of this game's framework." }
+    }
+    private(set) var attempts = 0
+    private(set) var succeededGames: [LaunchableGame] = []
+    func launch(_ game: LaunchableGame) async throws {
+        attempts += 1
+        if attempts == 1 {
+            throw TestLaunchError.refusedSignature
+        }
+        succeededGames.append(game)
+    }
+}
+
 @Suite(.serialized) struct MachOLocalSignerTests {
     private struct CommandOutput {
         var status: Int32
@@ -316,6 +332,16 @@ private struct FakeCertPicker: SideloadCertificatePicker {
         let chainG6 = AppleCertificateAuthorities.completeChain(leafDER: wwdrG6.0, providedChainDER: [])
         #expect(chainG6.count == 2)
         #expect(X509CertificateParser.parse(der: chainG6[1])?.commonName == "Apple Root CA - G3")
+
+        // Unordered + unrelated extra certs in `providedChainDER` must still walk strictly leaf -> intermediate -> root.
+        let rootG1 = try #require(parsed.first { $0.1.commonName == "Apple Root CA" })
+        let rootG3 = try #require(parsed.first { $0.1.commonName == "Apple Root CA - G3" })
+        let orderedFromShuffled = AppleCertificateAuthorities.completeChain(
+            leafDER: wwdrG3.0,
+            providedChainDER: [rootG3.0, rootG1.0],
+            extraCandidatesDER: []
+        )
+        #expect(orderedFromShuffled == [wwdrG3.0, rootG1.0])
     }
 
     @Test func rejectsWrongPasswordDamagedMachOAndOutsideAllowedRootSafely() throws {
@@ -360,11 +386,84 @@ private struct FakeCertPicker: SideloadCertificatePicker {
         #expect(try Data(contentsOf: damagedExe) == truncatedBytes, "failed signing must leave original file intact")
         #expect(!FileManager.default.fileExists(atPath: damagedFW.appendingPathComponent("_CodeSignature").path))
 
+        // Fat / Universal Mach-O header (0xCAFEBABE) must be rejected cleanly without corrupting the file.
+        let fatBytes = Data([0xca, 0xfe, 0xba, 0xbe, 0x00, 0x00, 0x00, 0x01]) + Data(repeating: 0, count: 64)
+        try fatBytes.write(to: damagedExe)
+        do {
+            _ = try MachOLocalSigner.signFramework(at: damagedFW, allowedRoot: hotRoot, identity: identity, hostBundleID: "com.test.app")
+            Issue.record("Expected invalidMachO for Fat/Universal Mach-O binary")
+        } catch MachOLocalSignerError.invalidMachO {
+            // Expected.
+        }
+        #expect(try Data(contentsOf: damagedExe) == fatBytes, "Fat binary rejection must leave file untouched")
+        #expect(!FileManager.default.fileExists(atPath: damagedFW.appendingPathComponent("_CodeSignature").path))
+
+        // Insufficient header pad space (non-zero bytes right after load commands) must throw `.insufficientHeaderSpace`.
+        let (tightFW, tightExe) = try Self.buildMinimalFramework(in: hotRoot, titleID: "0100000000090001", stripSignature: true)
+        var tightData = try Data(contentsOf: tightExe)
+        let sizeofcmds = Int(UInt32(tightData[20]) | (UInt32(tightData[21]) << 8)
+                             | (UInt32(tightData[22]) << 16) | (UInt32(tightData[23]) << 24))
+        let insertOff = 32 + sizeofcmds
+        #expect(insertOff + 16 <= tightData.count)
+        tightData[insertOff] = 0xAA // poison the header pad slot so inserting LC_CODE_SIGNATURE would overwrite non-zero bytes
+        try tightData.write(to: tightExe)
+        #expect(throws: MachOLocalSignerError.insufficientHeaderSpace) {
+            try MachOLocalSigner.signFramework(at: tightFW, allowedRoot: hotRoot, identity: identity, hostBundleID: "com.test.app")
+        }
+        #expect(try Data(contentsOf: tightExe) == tightData, "insufficientHeaderSpace must leave original binary untouched")
+        #expect(!FileManager.default.fileExists(atPath: tightFW.appendingPathComponent("_CodeSignature").path))
+
         // Refuses to touch read-only bundled framework outside `hotFrameworksRoot`.
         let (bundledFW, _) = try Self.buildMinimalFramework(in: bundledRoot, stripSignature: true)
         #expect(throws: MachOLocalSignerError.outsideAllowedRoot) {
             try MachOLocalSigner.signFramework(at: bundledFW, allowedRoot: hotRoot, identity: identity, hostBundleID: "com.test.app")
         }
+    }
+
+    @MainActor @Test func cachedReceiptLaunchFailureTriggersForceResignAndRetry() async throws {
+        let box = try Sandbox()
+        let hotRoot = box.root.appendingPathComponent("Documents/Frameworks", isDirectory: true)
+        try FileManager.default.createDirectory(at: hotRoot, withIntermediateDirectories: true)
+
+        let (fwURL, exeURL) = try Self.buildMinimalFramework(in: hotRoot, titleID: Fixtures.orbit, stripSignature: true)
+        let fixtureDir = box.games.appendingPathComponent(Fixtures.orbit, isDirectory: true)
+        try FileManager.default.copyItem(at: fixtureDir.appendingPathComponent("launcher.json"),
+                                         to: fwURL.appendingPathComponent("launcher.json"))
+        try FileManager.default.copyItem(at: fixtureDir.appendingPathComponent("DmGame.framework/msl"),
+                                         to: fwURL.appendingPathComponent("msl"))
+        try FileManager.default.removeItem(at: fixtureDir)
+        try box.giveAppData(Fixtures.orbit)
+
+        let p12 = try Self.generateP12(in: box.root, name: "heal_dev", keyKind: "rsa",
+                                       commonName: "Apple Development: Heal User", teamID: "HEAL123456", password: "pw")
+        let backing = InMemoryCertBacking()
+        let store = SideloadCertificateStore(backing: backing)
+        _ = try store.importPKCS12(data: p12, password: "pw")
+
+        // Pre-sign once so a valid `.nx-local-sign.json` receipt exists.
+        let hostID = "com.sidestore.nx2apple.HEAL"
+        #expect(try MachOLocalSigner.ensureSignedIfNeeded(frameworkURL: fwURL, allowedRoot: hotRoot, hostBundleID: hostID, store: store))
+        // Modify a sealed resource (banner.jpg) while leaving the executable's inode/size/mtime intact so the receipt still hits.
+        try Data([0xff, 0xd8, 0xff, 0xfe, 0x00, 0x02, 0xff, 0xd9]).write(to: fwURL.appendingPathComponent("banner.jpg"))
+        let inodeBeforeHeal = try Self.inode(of: exeURL)
+
+        var cfg = box.config()
+        cfg.hotFrameworksRoot = hotRoot
+        cfg.sideloadCertBacking = backing
+        cfg.hostBundleID = { hostID }
+        let launcher = FailOnceThenSucceedLauncher()
+        let model = ShellHostModel(config: cfg, launcher: launcher)
+        await model.waitForStartupTasks()
+
+        // Launch hits cached receipt -> first launch fails -> model clears receipt, force re-signs (fresh inode + updated CodeResources), retries and succeeds.
+        await model.playNow(Fixtures.orbit)
+        #expect(model.notice == nil)
+        #expect(launcher.attempts == 2)
+        #expect(launcher.succeededGames.count == 1)
+        #expect(try Self.inode(of: exeURL) != inodeBeforeHeal, "self-healing force re-sign must allocate a fresh inode")
+
+        let verify = try Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=4", fwURL.path])
+        #expect(verify.status == 0, "self-healed framework failed strict codesign verify:\n\(verify.stderr)")
     }
 
     @MainActor @Test func shellHostModelImportsCertificateAndSignsHotFrameworkOnLaunch() async throws {

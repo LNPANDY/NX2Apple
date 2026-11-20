@@ -369,7 +369,7 @@ public enum MachOLocalSigner {
         var linkeditVMSize: UInt64
         var existingCodeSigCmdOffset: Int?
         var existingCodeSigDataOff: UInt32
-        var minSectionOffset: UInt64
+        var minPayloadOffset: UInt64
         var maxNonSignatureEnd: UInt64
     }
 
@@ -401,14 +401,21 @@ public enum MachOLocalSigner {
         var linkeditVMSize: UInt64 = 0
         var existingCodeSigCmdOffset: Int?
         var existingCodeSigDataOff: UInt32 = 0
-        var minSectionOffset = totalSize
+        var minPayloadOffset = totalSize
         var maxNonSigEnd: UInt64 = UInt64(cmdsEnd)
+
+        func trackMinPayload(_ offset: UInt64) {
+            if offset > 0 && offset < minPayloadOffset {
+                minPayloadOffset = offset
+            }
+        }
 
         func trackEnd(_ offset: UInt64, _ size: UInt64) throws {
             guard size > 0 else { return }
             guard offset <= totalSize, size <= totalSize - offset else {
                 throw MachOLocalSignerError.invalidMachO("load command payload exceeds file size")
             }
+            trackMinPayload(offset)
             let end = offset + size
             if end > maxNonSigEnd { maxNonSigEnd = end }
         }
@@ -438,6 +445,8 @@ public enum MachOLocalSigner {
                     foundText = true
                     textFileOff = fileoff
                     textFileSize = filesize
+                } else {
+                    trackMinPayload(fileoff)
                 }
                 if segName == "__LINKEDIT" {
                     linkeditCmdOffset = cursor
@@ -455,9 +464,7 @@ public enum MachOLocalSigner {
                 for s in 0..<nsects {
                     let sectBase = cursor + 72 + s * 80
                     let sectOff = UInt64(readU32LE(data, sectBase + 48))
-                    if sectOff > 0 && sectOff < minSectionOffset {
-                        minSectionOffset = sectOff
-                    }
+                    trackMinPayload(sectOff)
                 }
 
             case lcCodeSignature:
@@ -526,7 +533,7 @@ public enum MachOLocalSigner {
             linkeditVMSize: linkeditVMSize,
             existingCodeSigCmdOffset: existingCodeSigCmdOffset,
             existingCodeSigDataOff: existingCodeSigDataOff,
-            minSectionOffset: minSectionOffset,
+            minPayloadOffset: minPayloadOffset,
             maxNonSignatureEnd: maxNonSigEnd
         )
     }
@@ -548,8 +555,9 @@ public enum MachOLocalSigner {
             rawCodeEnd = max(originalSize, layout.maxNonSignatureEnd)
         }
 
-        let codeLimit = alignUp(rawCodeEnd, to: 16)
-        guard codeLimit >= layout.linkeditFileOff, codeLimit <= UInt64(UInt32.max) else {
+        guard let codeLimit = alignUp(rawCodeEnd, to: 16),
+              codeLimit >= layout.linkeditFileOff,
+              codeLimit <= UInt64(UInt32.max) else {
             throw MachOLocalSignerError.invalidMachO("codeLimit out of valid 32-bit range")
         }
 
@@ -560,11 +568,23 @@ public enum MachOLocalSigner {
 
         let codeSigCmdOffset: Int
         if let existing = layout.existingCodeSigCmdOffset {
+            guard existing >= 32, existing <= prefix.count, prefix.count - existing >= 16 else {
+                throw MachOLocalSignerError.invalidMachO("existing LC_CODE_SIGNATURE out of bounds")
+            }
             codeSigCmdOffset = existing
         } else {
             let insertOffset = 32 + Int(layout.sizeofcmds)
-            guard UInt64(insertOffset) <= layout.minSectionOffset,
-                  layout.minSectionOffset - UInt64(insertOffset) >= 16 else {
+            guard layout.ncmds < UInt32.max,
+                  layout.sizeofcmds <= UInt32.max - 16,
+                  insertOffset >= 32,
+                  insertOffset <= prefix.count,
+                  prefix.count - insertOffset >= 16,
+                  UInt64(insertOffset) <= layout.minPayloadOffset,
+                  layout.minPayloadOffset - UInt64(insertOffset) >= 16 else {
+                throw MachOLocalSignerError.insufficientHeaderSpace
+            }
+            let targetSlice = prefix[(prefix.startIndex + insertOffset)..<(prefix.startIndex + insertOffset + 16)]
+            guard targetSlice.allSatisfy({ $0 == 0 }) else {
                 throw MachOLocalSignerError.insufficientHeaderSpace
             }
             codeSigCmdOffset = insertOffset
@@ -578,15 +598,23 @@ public enum MachOLocalSigner {
         let requirementsHash = Data(SHA256.hash(data: requirementsBlob))
         let codeResourcesHash = Data(SHA256.hash(data: codeResourcesData))
 
-        // Converge on an exact SuperBlob byte length (RSA always converges in 2 passes; ECDSA DER signatures vary by
-        // 0-2 bytes and converge in 2-4 passes, with safe zero-pad fallback if needed).
+        // Converge strictly on a SuperBlob byte length matching the written Mach-O header fields.
+        // RSA always converges exactly on attempt 1; ECDSA DER signatures vary by 0-2 bytes and either converge
+        // exactly on attempts 1-2 or reserve a 16-byte-aligned ceiling from attempt 2 onward for guaranteed convergence.
         var allocatedSigSize: UInt32 = 0
         var finalSuperBlob = Data()
+        var converged = false
 
         for attempt in 0..<8 {
             let linkeditBytesBeforeSig = codeLimit - layout.linkeditFileOff
+            guard UInt64(allocatedSigSize) <= UInt64.max - linkeditBytesBeforeSig else {
+                throw MachOLocalSignerError.invalidMachO("__LINKEDIT filesize overflow")
+            }
             let newLinkeditFileSize = linkeditBytesBeforeSig + UInt64(allocatedSigSize)
-            let alignedLinkeditVMSize = max(layout.linkeditVMSize, alignUp(newLinkeditFileSize, to: arm64VMPageSize))
+            guard let alignedVM = alignUp(newLinkeditFileSize, to: arm64VMPageSize) else {
+                throw MachOLocalSignerError.invalidMachO("__LINKEDIT vmsize overflow")
+            }
+            let alignedLinkeditVMSize = max(layout.linkeditVMSize, alignedVM)
 
             writeU32LE(&prefix, at: codeSigCmdOffset + 8, UInt32(codeLimit))
             writeU32LE(&prefix, at: codeSigCmdOffset + 12, allocatedSigSize)
@@ -615,22 +643,36 @@ public enum MachOLocalSigner {
                 requirementsBlob: requirementsBlob,
                 cmsBlob: cmsBlob
             )
+            guard superBlob.count <= Int(UInt32.max) else {
+                throw MachOLocalSignerError.signatureFailed("signature blob exceeds 32-bit size limit")
+            }
 
             if attempt > 0 && superBlob.count == Int(allocatedSigSize) {
                 finalSuperBlob = superBlob
+                converged = true
                 break
             }
-            if attempt >= 5 && superBlob.count <= Int(allocatedSigSize) {
+            if attempt >= 3 && superBlob.count <= Int(allocatedSigSize) {
                 var padded = superBlob
                 padded.append(Data(repeating: 0, count: Int(allocatedSigSize) - superBlob.count))
                 finalSuperBlob = padded
+                converged = true
                 break
             }
-            allocatedSigSize = UInt32(superBlob.count)
-            finalSuperBlob = superBlob
+            if attempt >= 2 {
+                let ceilingBase = UInt64(max(Int(allocatedSigSize), superBlob.count))
+                guard ceilingBase <= UInt64(UInt32.max) - 16,
+                      let reserved = alignUp(ceilingBase + 16, to: 16),
+                      reserved <= UInt64(UInt32.max) else {
+                    throw MachOLocalSignerError.signatureFailed("signature blob size overflow")
+                }
+                allocatedSigSize = UInt32(reserved)
+            } else {
+                allocatedSigSize = UInt32(superBlob.count)
+            }
         }
 
-        guard finalSuperBlob.count == Int(allocatedSigSize) else {
+        guard converged, finalSuperBlob.count == Int(allocatedSigSize) else {
             throw MachOLocalSignerError.signatureFailed("signature blob size did not converge")
         }
 
@@ -938,9 +980,13 @@ public enum MachOLocalSigner {
         return st
     }
 
-    private static func alignUp(_ value: UInt64, to alignment: UInt64) -> UInt64 {
+    private static func alignUp(_ value: UInt64, to alignment: UInt64) -> UInt64? {
+        guard alignment > 0 else { return nil }
         let rem = value % alignment
-        return rem == 0 ? value : value + (alignment - rem)
+        if rem == 0 { return value }
+        let pad = alignment - rem
+        guard value <= UInt64.max - pad else { return nil }
+        return value + pad
     }
 
     private static func readU32LE(_ data: Data, _ offset: Int) -> UInt32 {

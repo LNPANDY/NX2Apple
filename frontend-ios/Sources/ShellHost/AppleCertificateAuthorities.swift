@@ -127,37 +127,50 @@ enum AppleCertificateAuthorities {
         Data(base64Encoded: $0, options: .ignoreUnknownCharacters)
     }
 
-    /// Completes the certificate chain starting from `leafDER` and any certificates already present in the `.p12`.
-    /// Matches each certificate's raw X.509 `issuer` Name TLV against known candidates' `subject` Name TLV until
-    /// reaching a self-signed root or exhausting known issuers.
+    /// Completes the certificate chain starting strictly from `leafDER` by walking `issuerRawTLV -> subjectRawTLV`
+    /// upward to a self-signed root. Certificates supplied in `providedChainDER` are indexed with priority over
+    /// `extraCandidatesDER`, so unordered or unrelated extra certificates in a `.p12` never break the chain.
     static func completeChain(leafDER: Data, providedChainDER: [Data], extraCandidatesDER: [Data] = allDER) -> [Data] {
         var ordered: [Data] = [leafDER]
         var seen: Set<Data> = [leafDER]
 
-        // Keep certificates supplied by the `.p12` first, preserving order and dropping duplicates.
-        for cert in providedChainDER where !cert.isEmpty && seen.insert(cert).inserted {
-            ordered.append(cert)
+        struct Candidate {
+            let der: Data
+            let priority: Int
+            let notAfter: Date
         }
 
-        // Build an index of candidate certificates by raw DER Subject Name TLV.
-        var bySubject: [Data: [Data]] = [:]
-        for cert in extraCandidatesDER {
-            guard let parsed = X509CertificateParser.parse(der: cert) else { continue }
-            bySubject[parsed.subjectRawTLV, default: []].append(cert)
+        // Index both provided chain certificates (priority 0) and built-in CAs (priority 1) by raw DER Subject Name TLV.
+        var bySubject: [Data: [Candidate]] = [:]
+        func addCandidates(_ certs: [Data], priority: Int) {
+            for cert in certs where !cert.isEmpty {
+                guard let parsed = X509CertificateParser.parse(der: cert) else { continue }
+                let expiry = parsed.notAfter ?? .distantPast
+                bySubject[parsed.subjectRawTLV, default: []].append(Candidate(der: cert, priority: priority, notAfter: expiry))
+            }
+        }
+        addCandidates(providedChainDER, priority: 0)
+        addCandidates(extraCandidatesDER, priority: 1)
+
+        for key in bySubject.keys {
+            bySubject[key]?.sort { a, b in
+                if a.priority != b.priority { return a.priority < b.priority }
+                return a.notAfter > b.notAfter
+            }
         }
 
-        // Walk upward from the current chain tail while the issuer is not yet self-signed.
+        // Walk strictly from leaf -> issuer -> ... -> self-signed root (bounded depth, cycle-safe).
         var depth = 0
         while depth < 8, let tail = ordered.last, let parsedTail = X509CertificateParser.parse(der: tail) {
             if parsedTail.issuerRawTLV == parsedTail.subjectRawTLV {
                 break
             }
             guard let matches = bySubject[parsedTail.issuerRawTLV],
-                  let next = matches.first(where: { !seen.contains($0) }) else {
+                  let next = matches.first(where: { !seen.contains($0.der) }) else {
                 break
             }
-            seen.insert(next)
-            ordered.append(next)
+            seen.insert(next.der)
+            ordered.append(next.der)
             depth += 1
         }
 
