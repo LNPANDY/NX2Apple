@@ -236,6 +236,52 @@ class PushedPaths(unittest.TestCase):
             self.assertEqual(H.pre_commit(), 0)
         self.assertEqual([c.args[0] for c in run.call_args_list], ['python3 tools/engine.py check'])
 
+    def test_pre_commit_stops_when_a_staged_patch_differs_in_the_working_tree(self):
+        self.commit('patches/series', 'a')
+        self.repo.joinpath('patches/series').write_text('staged')
+        git(self.repo, 'add', '-A')
+        self.repo.joinpath('patches/series').write_text('rebuilt, not staged')
+        err = io.StringIO()
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('the check would read the wrong files')), contextlib.redirect_stderr(err):
+            self.assertEqual(H.pre_commit(), 1)
+        self.assertIn('patches/series', err.getvalue())
+
+    def test_pre_commit_stops_for_an_untracked_patch_file(self):
+        self.commit('patches/series', 'a')
+        self.repo.joinpath('patches/series').write_text('0001-new.patch')
+        git(self.repo, 'add', '-A')
+        self.repo.joinpath('patches/0001-new.patch').write_text('x')
+        err = io.StringIO()
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('the check would read the wrong files')), contextlib.redirect_stderr(err):
+            self.assertEqual(H.pre_commit(), 1)
+        self.assertIn('patches/0001-new.patch', err.getvalue())
+
+    def test_pre_commit_is_not_stopped_by_an_unrelated_change(self):
+        self.commit('patches/series', 'a')
+        self.repo.joinpath('patches/series').write_text('b')
+        git(self.repo, 'add', '-A')
+        self.repo.joinpath('README.md').write_text('being edited')
+        with mock.patch.object(H, 'sh', return_value=0), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(H.pre_commit(), 0)
+
+    def test_push_stops_when_the_pushed_patches_differ_from_the_working_tree(self):
+        git(self.repo, 'checkout', '-q', '-b', 'feature')
+        head = self.commit('patches/0036-x.patch', 'old, does not apply')
+        self.repo.joinpath('patches/0036-x.patch').write_text('rebuilt, not committed')
+        err = io.StringIO()
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('the check would read the wrong files')), contextlib.redirect_stderr(err):
+            self.assertEqual(H.pre_push([f'refs/heads/feature {head} refs/heads/feature {H.ZERO}']), 1)
+        self.assertIn('patches/0036-x.patch', err.getvalue())
+
+    def test_push_without_patch_changes_ignores_the_working_tree(self):
+        git(self.repo, 'checkout', '-q', '-b', 'feature')
+        self.commit('patches/series', 'a')
+        git(self.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+        head = self.commit('README.md', 'b')
+        self.repo.joinpath('patches/series').write_text('being edited')
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('nothing may run')), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(H.pre_push([f'refs/heads/feature {head} refs/heads/feature {H.ZERO}']), 0)
+
 
 class InstallHooks(unittest.TestCase):
     def setUp(self):
