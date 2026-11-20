@@ -126,6 +126,19 @@ public enum GameCatalogue {
         return (files, bytes)
     }
 
+    /// True when `hotRoot` contains at least one `.staging-*` folder whose `.ready` marker has landed.
+    public static func hasReadyStagedFramework(in hotRoot: URL, fileManager fm: FileManager = .default) -> Bool {
+        guard let items = try? fm.contentsOfDirectory(atPath: hotRoot.path) else { return false }
+        for name in items where name.hasPrefix(HotFrameworkReady.stagingPrefix) {
+            let readyPath = hotRoot.appendingPathComponent(name, isDirectory: true)
+                .appendingPathComponent(HotFrameworkReady.fileName).path
+            if fm.fileExists(atPath: readyPath) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Promotes completed `.staging-*` framework folders inside `hotRoot` into `hotRoot/DmGame<ID>.framework` atomically.
     /// Staging folders without `.ready` that are newer than `staleAge` stay untouched (a transfer may still be in flight).
     public static func promoteStagedFrameworks(in hotRoot: URL, gameDataRoot: URL? = nil, now: Date = Date(),

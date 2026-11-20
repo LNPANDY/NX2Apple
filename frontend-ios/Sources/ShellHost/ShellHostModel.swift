@@ -134,9 +134,13 @@ public struct ShellHostConfig: Sendable {
     /// The log the host view shows in a read-only sheet.
     public var log: LogPresentation?
     /// Play is preparing the game's resources or handing over to the engine.
-    public private(set) var launchingGame = false
+    public private(set) var launchingGame = false {
+        didSet { handleBusyStateChanged() }
+    }
     /// Pure-black transition overlay active while resolving/switching/launching a deep link.
-    public private(set) var isDeepLinkLaunching = false
+    public private(set) var isDeepLinkLaunching = false {
+        didSet { handleBusyStateChanged() }
+    }
     /// Cloud save conflict or unreadable-archive prompt awaiting the player's decision before launch.
     public var cloudConflict: CloudSavePrompt?
     /// Mild heads-up when the app's provisioning profile expires within 48 hours.
@@ -172,11 +176,11 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var shellMatches: [String: URL] = [:]
     @ObservationIgnored private var shellScan: Task<Void, Never>?
     @ObservationIgnored private var romfsChecks: [URL: RomfsCheck] = [:]
-    @ObservationIgnored private var startupJoinTask: Task<Void, Never>?
+    @ObservationIgnored private var joinAndClaimTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingJoinAndClaim = false
     @ObservationIgnored private var joinGeneration: UInt64 = 0
     @ObservationIgnored private var joiningProgress: [String: DataParts.Progress] = [:]
-    @ObservationIgnored private var looseClaimTask: Task<Void, Never>?
-    @ObservationIgnored private var looseClaimGeneration: UInt64 = 0
+    @ObservationIgnored nonisolated(unsafe) private var directoryWatcher: GameDirectoryWatcher?
     @ObservationIgnored private var pickGeneration: [String: UInt64] = [:]
     @ObservationIgnored private var pickedDataNotes: [String: String] = [:]
     @ObservationIgnored private var cloudCheckGeneration: UInt64 = 0
@@ -211,37 +215,19 @@ public struct ShellHostConfig: Sendable {
         shellChoices = Self.choices(of: shellSettings)
         globalPadMap = shellSettings.padMap
         padMerge = shellSettings.padMerge
+        reload(afterClaim: true)
         // Off the main actor, it lists folders and may write GB: a file the Mac launcher sent in parts is joined first (#899), then
         // the game files are kept out of the iCloud backup (#618), also what an earlier version put there. A joined file can make a
         // game playable, so the library is read again.
-        let dataRoot = config.appDataRoot
-        let joinGen = joinGeneration
-        let partSize = config.joinPartSize
-        let progressHook = config.onJoinProgress
-        let reportProgress: @Sendable (DataParts.Progress) -> Void = { [weak self] progress in
-            Task { @MainActor in
-                self?.applyJoinProgress(progress, generation: joinGen)
+        scheduleJoinAndClaim(isStartup: true)
+        let watcher = GameDirectoryWatcher(appDataRoot: config.appDataRoot, hotFrameworksRoot: config.hotFrameworksRoot) { [weak self] hint in
+            Task { @MainActor [weak self] in
+                self?.handleDirectoryChange(hint)
             }
-            progressHook?(progress)
         }
-        let gamesRoot = config.gamesRoot
-        let hotRoot = config.hotFrameworksRoot
-        let bannersRoot = config.bannersRoot
-        startupJoinTask = Task { [weak self] in
-            let joined = await Task.detached(priority: .utility) { () -> Bool in
-                let documents = dataRoot.deletingLastPathComponent()
-                DataParts.writeFeatures(documents: documents)
-                let joined = DataParts.joinAll(appDataRoot: dataRoot, partSize: partSize, onProgress: reportProgress)
-                let allEntries = GameCatalogue.scan(root: gamesRoot, hotRoot: hotRoot, gameDataRoot: dataRoot)
-                let claimed = LooseRomfsClaimer.claimAll(documents: documents, appDataRoot: dataRoot, entries: allEntries)
-                BackupExclusion.apply(appDataRoot: dataRoot)
-                if FileManager.default.fileExists(atPath: bannersRoot.path) {
-                    BackupExclusion.exclude(bannersRoot)
-                }
-                return !joined.isEmpty || !claimed.isEmpty
-            }.value
-            self?.finishJoinRun(joined: joined, generation: joinGen)
-        }
+        directoryWatcher = watcher
+        watcher.setPaused(isBusyWithGame)
+        watcher.start()
         let expirationReader = config.provisioningExpiration
         let clock = config.now
         signingCheckTask = Task { [weak self] in
@@ -249,7 +235,6 @@ public struct ShellHostConfig: Sendable {
             guard let self, !self.signingWarningDismissed else { return }
             self.signingWarning = ProvisioningProfile.warning(expiration: expiration, now: clock())
         }
-        reload(afterClaim: true)
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
         }
@@ -258,7 +243,7 @@ public struct ShellHostConfig: Sendable {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.stopHomeScreenFloatingGuide()
-                guard !self.launchingGame, !self.isDeepLinkLaunching else { return }
+                guard !self.isBusyWithGame else { return }
                 self.reload()
             }
         }
@@ -269,6 +254,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     deinit {
+        directoryWatcher?.stop()
         defaultsObserver.map(NotificationCenter.default.removeObserver)
         foregroundObserver.map(NotificationCenter.default.removeObserver)
         returnObserver.map(NotificationCenter.default.removeObserver)
@@ -298,9 +284,37 @@ public struct ShellHostConfig: Sendable {
         signingWarning = nil
     }
 
+    private var isBusyWithGame: Bool {
+        if launchingGame || isDeepLinkLaunching { return true }
+        if let runningID = config.activeRunningGameID(), !runningID.isEmpty { return true }
+        return false
+    }
+
+    private func handleBusyStateChanged() {
+        let busy = isBusyWithGame
+        directoryWatcher?.setPaused(busy)
+        if !busy && pendingJoinAndClaim {
+            scheduleJoinAndClaim()
+        }
+    }
+
+    private func handleDirectoryChange(_ hint: GameDirectoryWatcher.ChangeHint) {
+        if isBusyWithGame {
+            pendingJoinAndClaim = true
+            return
+        }
+        if hint.hasReadyHotFramework {
+            reload()
+        } else {
+            scheduleJoinAndClaim()
+        }
+    }
+
     func waitForStartupTasks() async {
-        await startupJoinTask?.value
-        await looseClaimTask?.value
+        await directoryWatcher?.waitUntilReady()
+        while let task = joinAndClaimTask {
+            await task.value
+        }
         await signingCheckTask?.value
         await backupScanTask?.value
         await bannerFetchTask?.value
@@ -315,15 +329,93 @@ public struct ShellHostConfig: Sendable {
         refresh(progress.titleID)
     }
 
-    private func finishJoinRun(joined: Bool, generation: UInt64) {
-        guard joinGeneration == generation else { return }
-        // Advance the generation so any queued progress update from this finished run is ignored.
+    private struct JoinPassInputs: Sendable {
+        var generation: UInt64
+        var isStartup: Bool
+        var dataRoot: URL
+        var gamesRoot: URL
+        var hotRoot: URL?
+        var bannersRoot: URL
+        var partSize: Int64
+        var progressHook: (@Sendable (DataParts.Progress) -> Void)?
+    }
+
+    private func makeJoinPassInputs(isStartup: Bool) -> JoinPassInputs {
+        joinGeneration &+= 1
+        return JoinPassInputs(
+            generation: joinGeneration,
+            isStartup: isStartup,
+            dataRoot: config.appDataRoot,
+            gamesRoot: config.gamesRoot,
+            hotRoot: config.hotFrameworksRoot,
+            bannersRoot: config.bannersRoot,
+            partSize: config.joinPartSize,
+            progressHook: config.onJoinProgress
+        )
+    }
+
+    private func scheduleJoinAndClaim(isStartup: Bool = false) {
+        if !isStartup && isBusyWithGame {
+            pendingJoinAndClaim = true
+            return
+        }
+        if joinAndClaimTask != nil {
+            pendingJoinAndClaim = true
+            return
+        }
+        pendingJoinAndClaim = false
+        let initialInputs = makeJoinPassInputs(isStartup: isStartup)
+        joinAndClaimTask = Task { [weak self] in
+            var currentInputs: JoinPassInputs? = initialInputs
+            while let inputs = currentInputs {
+                let runGeneration = inputs.generation
+                let progressHook = inputs.progressHook
+                let reportProgress: @Sendable (DataParts.Progress) -> Void = { [weak self] progress in
+                    Task { @MainActor in
+                        self?.applyJoinProgress(progress, generation: runGeneration)
+                    }
+                    progressHook?(progress)
+                }
+
+                let didChange = await Task.detached(priority: .utility) { () -> Bool in
+                    let documents = inputs.dataRoot.deletingLastPathComponent()
+                    DataParts.writeFeatures(documents: documents)
+                    let joined = DataParts.joinAll(appDataRoot: inputs.dataRoot, partSize: inputs.partSize, onProgress: reportProgress)
+                    let hadReadyHot = inputs.hotRoot.map { GameCatalogue.hasReadyStagedFramework(in: $0) } ?? false
+                    let allEntries = GameCatalogue.scan(root: inputs.gamesRoot, hotRoot: inputs.hotRoot, gameDataRoot: inputs.dataRoot)
+                    let claimed = LooseRomfsClaimer.claimAll(documents: documents, appDataRoot: inputs.dataRoot, entries: allEntries)
+                    if inputs.isStartup || !joined.isEmpty || !claimed.isEmpty {
+                        BackupExclusion.apply(appDataRoot: inputs.dataRoot)
+                        if FileManager.default.fileExists(atPath: inputs.bannersRoot.path) {
+                            BackupExclusion.exclude(inputs.bannersRoot)
+                        }
+                    }
+                    return !joined.isEmpty || !claimed.isEmpty || hadReadyHot
+                }.value
+
+                guard let self else { return }
+                self.finishJoinPass(changed: didChange, generation: runGeneration)
+
+                guard self.pendingJoinAndClaim else { break }
+                if self.isBusyWithGame {
+                    break
+                }
+                self.pendingJoinAndClaim = false
+                currentInputs = self.makeJoinPassInputs(isStartup: false)
+            }
+            self?.joinAndClaimTask = nil
+        }
+    }
+
+    private func finishJoinPass(changed: Bool, generation: UInt64) {
+        let invalidated = (joinGeneration != generation)
+        // Advance the generation so any queued progress update from this finished pass is ignored.
         joinGeneration &+= 1
         let affected = Array(joiningProgress.keys)
         joiningProgress.removeAll()
-        if joined {
+        if changed && !isBusyWithGame {
             reload(afterClaim: true)
-        } else {
+        } else if !invalidated || !affected.isEmpty {
             for id in affected { refresh(id) }
         }
     }
@@ -394,8 +486,10 @@ public struct ShellHostConfig: Sendable {
 
     /// For tests: returns when the shell scan and the pending RomFS identity checks are done.
     func waitForDataChecks() async {
-        await startupJoinTask?.value
-        await looseClaimTask?.value
+        await directoryWatcher?.waitUntilReady()
+        while let task = joinAndClaimTask {
+            await task.value
+        }
         await shellScan?.value
         await signingCheckTask?.value
         await backupScanTask?.value
@@ -442,35 +536,9 @@ public struct ShellHostConfig: Sendable {
         startShellScan(force: true)
         startBackupScan()
         startMissingBannerFetch()
-        if !afterClaim && !launchingGame {
-            startLooseRomfsClaim()
-        }
-    }
-
-    private func startLooseRomfsClaim() {
-        looseClaimTask?.cancel()
-        looseClaimGeneration &+= 1
-        let generation = looseClaimGeneration
-        let gamesRoot = config.gamesRoot
-        let hotRoot = config.hotFrameworksRoot
-        let dataRoot = config.appDataRoot
-        let joinTask = startupJoinTask
-        looseClaimTask = Task { [weak self] in
-            await joinTask?.value
-            guard !Task.isCancelled else { return }
-            let didClaim = await Task.detached(priority: .utility) { () -> Bool in
-                let entries = GameCatalogue.scan(root: gamesRoot, hotRoot: hotRoot, gameDataRoot: dataRoot)
-                let claimed = LooseRomfsClaimer.claimAll(
-                    documents: dataRoot.deletingLastPathComponent(),
-                    appDataRoot: dataRoot,
-                    entries: entries
-                )
-                return !claimed.isEmpty
-            }.value
-            guard let self, !Task.isCancelled, self.looseClaimGeneration == generation, !self.launchingGame else { return }
-            if didClaim {
-                self.reload(afterClaim: true)
-            }
+        directoryWatcher?.refreshTargets()
+        if !afterClaim && !isBusyWithGame {
+            scheduleJoinAndClaim()
         }
     }
 
@@ -701,6 +769,12 @@ public struct ShellHostConfig: Sendable {
             case .ready:
                 return ""
             case .staleTrailer(let imgChain, let expChain):
+                if let progress = joiningProgress[id], progress.totalBytes > 0 {
+                    let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
+                    let doneSize = Self.formatByteSize(clampedDone)
+                    let totalSize = Self.formatByteSize(progress.totalBytes)
+                    return hostText("Joining .nxpart split files in this app's folder (\(doneSize) of \(totalSize)).")
+                }
                 if !imgChain.isEmpty && !expChain.isEmpty {
                     return hostText("Shader files in this game data (\(imgChain)) do not match this app's version (\(expChain)). Send or copy updated game data from NX2Apple.")
                 } else {
@@ -1210,8 +1284,9 @@ public struct ShellHostConfig: Sendable {
     }
 
     private func processDeepLinkRequest(_ request: DeepLinkRequest, generation: UInt64) async {
-        await startupJoinTask?.value
-        await looseClaimTask?.value
+        while let task = joinAndClaimTask {
+            await task.value
+        }
         guard deepLinkGeneration == generation, !Task.isCancelled else { return }
 
         let preserveRunningSession = stoppingRunningGame || !(config.activeRunningGameID() ?? "").isEmpty
@@ -1309,6 +1384,10 @@ public struct ShellHostConfig: Sendable {
         isDeepLinkLaunching = false
         if let successURL {
             config.openURL(successURL)
+        }
+        directoryWatcher?.setPaused(isBusyWithGame)
+        if !isBusyWithGame {
+            scheduleJoinAndClaim()
         }
     }
 
