@@ -6,6 +6,11 @@ import XCTest
 @testable import NXModel
 @testable import NXLauncher
 
+private struct OfflineUpstreamTransport: EngineTransport {
+    func data(from url: URL) -> EngineFetch<Data> { .failed }
+    func download(from url: URL, to destination: URL) -> Bool { false }
+}
+
 @MainActor final class UpstreamNavigationTests: IsolatedDefaultsTestCase {
     func testEngineCardsSettingsChoicesAndMacOnlyTargetKeepControllerNavigation() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -15,6 +20,8 @@ import XCTest
         defer { MacNativeGamesBuilder.featureEnabled = oldMNG; S2ArmBuilder.featureEnabled = oldS2 }
         let stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
         let build = stores.build
+        build.upstreamTransport = OfflineUpstreamTransport()
+        build.upstreamChanged = {}
         let dropdowns = LauncherDropdownState()
         build.macNativeGamesPath = ""; build.s2armPath = ""; build.buildUpstream = .nxnative
         let window = OffscreenWindow(size: .init(width: 900, height: 500))
@@ -81,6 +88,7 @@ import XCTest
         MacNativeGamesBuilder.featureEnabled = true; S2ArmBuilder.featureEnabled = true
         defer { MacNativeGamesBuilder.featureEnabled = oldMNG; S2ArmBuilder.featureEnabled = oldS2 }
         let stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
+        stores.build.upstreamTransport = OfflineUpstreamTransport()
         let dropdowns = LauncherDropdownState()
         let window = OffscreenWindow(size: .init(width: 900, height: 240))
         defer { window.contentView = nil; window.orderOut(nil); window.close() }
@@ -116,6 +124,8 @@ import XCTest
 
         let stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
         let build = stores.build
+        build.upstreamTransport = OfflineUpstreamTransport()
+        build.upstreamChanged = {}
         let mngDir = root.appendingPathComponent("mng")
         try FileManager.default.createDirectory(at: mngDir.appendingPathComponent("games/totk"), withIntermediateDirectories: true)
         try Data("#!/usr/bin/env python3\n".utf8).write(to: mngDir.appendingPathComponent("build_app.py"))
@@ -175,8 +185,23 @@ import XCTest
             inputs: ["base": [nonMngUntaggedFile.path]]
         )
         let library = GameLibrary(file: root.appendingPathComponent("library.json"))
-        let launcherView = LauncherView(stores: stores, library: library, performStartupChecks: false)
-        launcherView.configureBuild(untaggedGame)
+        library.upsert(untaggedGame)
+        library.selectedID = library.games.first?.id
+        let launcherHost = NSHostingView(rootView: LauncherView(
+            stores: stores,
+            library: library,
+            initialPage: .library,
+            performStartupChecks: false,
+            controls: ControlLayout(defaults: testDefaults),
+            gamepad: LauncherGamepad(steam: nil, observeSystem: false),
+            padFocus: pad
+        ).defaultAppStorage(testDefaults))
+        window.contentView = launcherHost
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        build.leaveGameFolder()
+        build.updateSlot("base") { $0.paths = [nonMngUntaggedFile.path] }
+        build.applyKnownTitleID(untaggedGame.titleID)
+        build.target = build.isMacNativeGamesSelected ? BuildTarget.mac : untaggedGame.lastTarget
         XCTAssertEqual(build.buildUpstream, .nxnative)
         XCTAssertEqual(build.target, BuildTarget.ios)
         XCTAssertTrue(build.isMNGBlockedByCurrentGame)
