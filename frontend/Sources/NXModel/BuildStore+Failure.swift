@@ -14,6 +14,17 @@ extension BuildStore {
         doneNote = failureWhat(f)
     }
 
+    /// Another game is chosen while a stopped build's failure shows: the failure, its note and its stages belong to the game that
+    /// failed, so they go. The same game chosen again (its files read once more) keeps them. Nothing changes while a build runs
+    /// or while no game is chosen.
+    func dropFailureOfOtherGame() {
+        guard !running, failure != nil, let key = failureGameKey, !basePath.isEmpty || gameFolder != nil, buildKey != key else { return }
+        failure = nil
+        done = false
+        doneNote = ""
+        stages = []
+    }
+
     /// The Save to folder, picked in the app's folder panel (`chooseFolder`). Clears the cloud-folder stop, since the next build looks at the new folder.
     package func chooseBuildFolder() {
         guard let path = chooseFolder() else { return }

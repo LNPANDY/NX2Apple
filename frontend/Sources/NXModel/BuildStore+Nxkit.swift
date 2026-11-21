@@ -72,6 +72,12 @@ extension BuildStore {
         isUpstreamEnabled(buildUpstream) && buildUpstream.buildsMacOnly
     }
 
+    /// An iOS entry that waited in the queue from before a Mac-only engine was chosen is not built and needs no device. MacNativeGames
+    /// hands such an entry to nxnative instead (`startQueued`), so this holds for the other Mac-only engines (nxkit).
+    package var skipsQueuedIOS: Bool {
+        isMacOnlyUpstreamSelected && buildUpstream != .macNativeGames
+    }
+
     package var macOnlyNoteKey: String {
         buildUpstream.macOnlyNoteKey ?? "upstream.mngMacOnly"
     }

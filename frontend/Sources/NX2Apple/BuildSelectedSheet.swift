@@ -15,6 +15,9 @@ struct BuildSelectedSheet: View {
     /// Whether the Build page currently builds into the shared app (either direct install or shared IPA export).
     var packagesSharedApp: Bool = false
     var exportsFramework: Bool = false
+    /// The selected engine makes Mac apps only (nxkit, MacNativeGames): its note. The sheet then builds for the Mac only and offers
+    /// no iPhone or iPad target. nil for an engine that builds both.
+    var macOnlyNoteKey: String? = nil
     var added: (String) -> Void = { _ in }
     let close: () -> Void
     @EnvironmentObject var loc: Localizer
@@ -41,11 +44,19 @@ struct BuildSelectedSheet: View {
             HStack(spacing: DS.Space.s) {
                 Text(loc.t("queue.buildFor")).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary)
                 Spacer()
-                LauncherSegmented(options: [(BuildTarget.mac, loc.t("library.section.mac")), (BuildTarget.ios, loc.t("build.ios")), ("both", loc.t("onboarding.platform.both"))],
-                                  selection: selectedTarget) { selectedTarget = $0 }
-                    .frame(width: 260)
-                    .padTarget("batch.platform", scope: "batch", activate: changeTarget,
-                               adjust: { adjustTarget($0) })
+                if macOnlyNoteKey == nil {
+                    LauncherSegmented(options: [(BuildTarget.mac, loc.t("library.section.mac")), (BuildTarget.ios, loc.t("build.ios")), ("both", loc.t("onboarding.platform.both"))],
+                                      selection: selectedTarget) { selectedTarget = $0 }
+                        .frame(width: 260)
+                        .padTarget("batch.platform", scope: "batch", activate: changeTarget,
+                                   adjust: { adjustTarget($0) })
+                } else {
+                    Text(loc.t("library.section.mac")).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+                }
+            }
+            if let macOnlyNoteKey {
+                Text(loc.t(macOnlyNoteKey)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if candidates.isEmpty {
                 Text(loc.t(sourceGames.isEmpty ? "queue.selectEmpty" : "queue.noApplicable")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
@@ -109,7 +120,7 @@ struct BuildSelectedSheet: View {
             }
         }
         .onAppear {
-            selectedTarget = target
+            selectedTarget = macOnlyNoteKey == nil ? target : BuildTarget.mac
             focus.scope = "batch"
             focus.focused = candidates.first(where: available).map { "batch.game." + $0.id.uuidString } ?? "batch.cancel"
         }
@@ -149,9 +160,17 @@ struct BuildSelectedSheet: View {
         .padTarget("batch.game." + game.id.uuidString, scope: "batch", radius: DS.Radius.chip, enabled: available(game)) { toggle(game.id) }
     }
 
-    private var targets: [String] { selectedTarget == "both" ? [BuildTarget.mac, BuildTarget.ios] : [selectedTarget] }
+    /// The platforms the chosen games are queued for: the Mac only with a Mac-only engine, whatever the segment held.
+    private var targets: [String] {
+        Self.targets(selectedTarget, macOnly: macOnlyNoteKey != nil)
+    }
+    static func targets(_ selection: String, macOnly: Bool) -> [String] {
+        if macOnly { return [BuildTarget.mac] }
+        return selection == "both" ? [BuildTarget.mac, BuildTarget.ios] : [selection]
+    }
     private func changeTarget() { adjustTarget(1) }
     private func adjustTarget(_ by: Int) {
+        guard macOnlyNoteKey == nil else { return }
         let values = [BuildTarget.mac, BuildTarget.ios, "both"]
         selectedTarget = values[((values.firstIndex(of: selectedTarget) ?? 0) + by + values.count) % values.count]
     }
@@ -169,7 +188,7 @@ struct BuildSelectedSheet: View {
                            exportFramework: target != BuildTarget.mac && exportsFramework ? true : nil)
             }
         })
-        added(selectedTarget == BuildTarget.mac ? BuildTarget.mac : BuildTarget.ios)
+        added(targets == [BuildTarget.mac] ? BuildTarget.mac : BuildTarget.ios)
         close()
     }
 }

@@ -131,7 +131,7 @@ struct BuildPage: View {
             }
             if !finishedQueueSummary {
                 if stagingQueue {
-                    if queue.hasIOS { InstallCard(devices: devices, build: build, showLocked: showRunningSetup, forQueue: true) }
+                    if queue.hasIOS && !build.skipsQueuedIOS { InstallCard(devices: devices, build: build, showLocked: showRunningSetup, forQueue: true) }
                 } else {
                     InstallCard(devices: devices, build: build, showLocked: showRunningSetup)
                 }

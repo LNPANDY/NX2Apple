@@ -66,6 +66,7 @@ extension BuildStore {
 
     private var queueHasIOSTarget: Bool {
         guard hasQueuedBuilds else { return false }
+        guard !skipsQueuedIOS else { return false }
         return queue?.queued.contains { effectiveQueuedTarget(for: $0) != BuildTarget.mac } ?? false
     }
 
@@ -168,6 +169,10 @@ extension BuildStore {
         if buildUpstream == .macNativeGames,
            normalizedTarget != BuildTarget.mac || (!trimmedTitleID.isEmpty && !MacNativeGamesBuilder.supportsTitleID(trimmedTitleID)) {
             buildUpstream = .nxnative
+        }
+        if skipsQueuedIOS, normalizedTarget != BuildTarget.mac {   // queued for iOS before nxkit was chosen
+            activeQueuedGameID = nil
+            return t(macOnlyNoteKey)
         }
         if !entry.outputDirectory.isEmpty {
             outDir = entry.outputDirectory

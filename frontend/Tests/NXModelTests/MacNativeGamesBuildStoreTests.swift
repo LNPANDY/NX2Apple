@@ -152,6 +152,7 @@ import XCTest
         let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
         store.buildUpstream = .macNativeGames
         store.target = BuildTarget.ios
+        XCTAssertEqual(store.target, BuildTarget.mac, "a Mac-only engine keeps the Mac target")
 
         let base = temporary.appendingPathComponent("Game [0100F2C0115B6000].nsp")
         let keys = temporary.appendingPathComponent("prod.keys")
@@ -164,7 +165,7 @@ import XCTest
 
         XCTAssertFalse(runnerStarted)
         XCTAssertFalse(store.running)
-        XCTAssertEqual(store.doneNote, localizer.t("upstream.mngMacOnly"))
+        XCTAssertNotEqual(store.doneNote, localizer.t("upstream.mngMacOnly"), "no iOS build to refuse")
     }
 
     func testTreeAndGameValidation() throws {
