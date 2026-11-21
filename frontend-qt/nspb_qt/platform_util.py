@@ -5,6 +5,7 @@ the window never branch on sys.platform themselves.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 import os
 import re
 import shutil
@@ -12,6 +13,7 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 IS_WIN = sys.platform.startswith('win')
@@ -269,6 +271,9 @@ def _runs(exe: str, args: list[str]) -> bool:
         return False
 
 
+_ORIG_RUNS = _runs
+
+
 def venv_dir() -> Path:
     if IS_WIN:
         base = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local'))
@@ -280,6 +285,124 @@ def venv_dir() -> Path:
 def venv_python() -> str:
     v = venv_dir()
     return str(v / ('Scripts/python.exe' if IS_WIN else 'bin/python3'))
+
+
+def _is_under_dir(candidate: Path, root: Path) -> bool:
+    """Return whether `candidate` resides under `root`, resolving parents without dereferencing leaf symlinks."""
+    try:
+        cand_real = Path(os.path.realpath(candidate.parent)) / candidate.name
+        root_real = Path(os.path.realpath(root))
+        cand_real.relative_to(root_real)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def is_app_managed_python(py: str) -> bool:
+    """Return whether `py` belongs to the launcher's own venv or Windows app-managed Python."""
+    if not py:
+        return False
+    p = Path(os.path.abspath(py))
+    if _is_under_dir(p, venv_dir()):
+        return True
+    if IS_WIN:
+        local_app = Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local')))
+        tools_root = local_app / 'NS Port Builder' / 'tools'
+        if _is_under_dir(p, tools_root):
+            return True
+    return False
+
+
+def _marker_in_tree(root: Path) -> bool:
+    """Check typical PEP 668 `EXTERNALLY-MANAGED` marker locations under an interpreter prefix."""
+    direct = (
+        root / 'EXTERNALLY-MANAGED',
+        root / 'lib' / 'EXTERNALLY-MANAGED',
+        root / 'Lib' / 'EXTERNALLY-MANAGED',
+    )
+    if any(p.is_file() for p in direct):
+        return True
+    lib_dir = root / 'lib'
+    if lib_dir.is_dir():
+        try:
+            for sub in lib_dir.iterdir():
+                if sub.is_dir() and sub.name.startswith('python') and (sub / 'EXTERNALLY-MANAGED').is_file():
+                    return True
+        except OSError:
+            pass
+    return False
+
+
+def has_externally_managed_marker(py: str, *, env: Mapping[str, str] | None = None) -> bool:
+    """Return whether `py` is marked as externally managed per PEP 668."""
+    if not py:
+        return False
+    p = Path(os.path.abspath(py))
+    is_venv_layout = (p.parent.parent / 'pyvenv.cfg').is_file() or (p.parent / 'pyvenv.cfg').is_file()
+
+    if (p.parent / 'EXTERNALLY-MANAGED').is_file() or _marker_in_tree(p.parent.parent):
+        return True
+
+    if is_venv_layout:
+        # A venv isolates its own site-packages from the base interpreter's EXTERNALLY-MANAGED marker.
+        return False
+
+    try:
+        resolved = p.resolve()
+        if (resolved.parent / 'EXTERNALLY-MANAGED').is_file() or _marker_in_tree(resolved.parent.parent):
+            return True
+    except OSError:
+        pass
+
+    if not p.is_file():
+        return False
+
+    probe = (
+        'import os, sys, sysconfig; '
+        'p = sysconfig.get_path("stdlib") or ""; '
+        'm = os.path.join(p, "EXTERNALLY-MANAGED") if p else ""; '
+        'v = sys.prefix != sys.base_prefix; '
+        'print("1" if (not v and m and os.path.isfile(m)) else "0")'
+    )
+    try:
+        r = subprocess.run(
+            [str(p), '-c', probe],
+            capture_output=True,
+            text=True,
+            errors='replace',
+            timeout=10,
+            env=dict(env) if env is not None else child_env(),
+            **no_window_kwargs(),
+        )
+        return r.returncode == 0 and r.stdout.strip() == '1'
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def find_standalone_nsz(env: Mapping[str, str] | None = None) -> str | None:
+    """Return a standalone nsz >= 5.0 executable on PATH (supports `--keys`), or None."""
+    run_env = dict(env) if env is not None else child_env()
+    search_path = run_env.get('PATH')
+    for name in ('nsz', 'nsz-cli-macos-arm64'):
+        exe = shutil.which(name, path=search_path)
+        if not exe:
+            continue
+        exe_abs = str(Path(exe).absolute())
+        try:
+            r = subprocess.run(
+                [exe_abs, '--help'],
+                capture_output=True,
+                text=True,
+                errors='replace',
+                timeout=30,
+                env=run_env,
+                **no_window_kwargs(),
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode == 0 and '--keys' in (r.stdout or ''):
+            return exe_abs
+    return None
 
 
 # ---------------------------------------------------------------- dotnet
@@ -435,6 +558,68 @@ def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     env.setdefault('PYTHONIOENCODING', 'utf-8')
     if extra:
         env.update(extra)
+    return env
+
+
+_PROXY_KEY_PAIRS: tuple[tuple[str, str], ...] = (
+    ('http_proxy', 'HTTP_PROXY'),
+    ('https_proxy', 'HTTPS_PROXY'),
+    ('all_proxy', 'ALL_PROXY'),
+    ('no_proxy', 'NO_PROXY'),
+)
+_ACTIVE_PROXY_KEYS: frozenset[str] = frozenset({
+    'http_proxy', 'HTTP_PROXY',
+    'https_proxy', 'HTTPS_PROXY',
+    'all_proxy', 'ALL_PROXY',
+})
+
+
+def proxy_env(
+    base_env: Mapping[str, str] | None = None,
+    *,
+    system_proxies: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Return a child env with paired proxy variables, falling back to OS system proxy settings."""
+    env = dict(base_env) if base_env is not None else child_env()
+    has_explicit = False
+    for low_key, up_key in _PROXY_KEY_PAIRS:
+        val = str(env.get(low_key) or env.get(up_key) or '').strip()
+        if val:
+            env[low_key] = val
+            env[up_key] = val
+            if low_key in _ACTIVE_PROXY_KEYS:
+                has_explicit = True
+    if not has_explicit:
+        sys_p: Mapping[str, str] = {}
+        if system_proxies is not None:
+            sys_p = system_proxies
+        else:
+            try:
+                sys_p = urllib.request.getproxies()
+            except Exception:
+                sys_p = {}
+        applied = False
+        http_val = str(sys_p.get('http') or '').strip()
+        https_val = str(sys_p.get('https') or '').strip()
+        socks_val = str(sys_p.get('socks') or sys_p.get('all') or '').strip()
+        no_val = str(sys_p.get('no') or '').strip()
+        if http_val and not env.get('http_proxy'):
+            env['http_proxy'] = http_val
+            env['HTTP_PROXY'] = http_val
+            applied = True
+        if https_val and not env.get('https_proxy'):
+            env['https_proxy'] = https_val
+            env['HTTPS_PROXY'] = https_val
+            applied = True
+        if not applied and socks_val and not env.get('all_proxy'):
+            if '://' not in socks_val:
+                socks_val = f'socks5h://{socks_val}'
+            env['all_proxy'] = socks_val
+            env['ALL_PROXY'] = socks_val
+            applied = True
+        if applied and no_val and not env.get('no_proxy'):
+            env['no_proxy'] = no_val
+            env['NO_PROXY'] = no_val
     return env
 
 
