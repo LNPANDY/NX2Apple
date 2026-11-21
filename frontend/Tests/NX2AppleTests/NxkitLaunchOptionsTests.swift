@@ -64,15 +64,54 @@ final class NxkitLaunchOptionsTests: IsolatedDefaultsTestCase {
         XCTAssertTrue(NxkitLaunch.isNxkit(app: app))
         XCTAssertEqual(LaunchSetting.listURL(app: app).path, app + "/Contents/Resources/nxkit/launcher.json")
         let list = try rows(app)
-        XCTAssertEqual(list.map(\.env), ["NXKIT_OP_MODE", "NXKIT_FULLSCREEN", "NXKIT_PAUSE_UNFOCUSED", "NXKIT_HOME_MENU", "NXKIT_HOME_QUIT"],
-                       "no Display mode, game language, macOS Game Mode or other row of dm's")
+        XCTAssertEqual(list.map(\.env), ["NXKIT_OP_MODE", "NXKIT_FULLSCREEN", "NXKIT_LANGUAGE", "NXKIT_PAUSE_UNFOCUSED", "NXKIT_RUMBLE",
+                                         "NXKIT_RUMBLE_GAIN", "NXKIT_RUMBLE_MIN", "NXKIT_HOME_MENU", "NXKIT_HOME_QUIT", "NXKIT_METAL_HUD"],
+                       "no Display mode, DM_LANG, macOS Game Mode or other row of dm's")
         XCTAssertTrue(list.allSatisfy(\.storeBacked), "every row is a saved choice")
         XCTAssertTrue(list.allSatisfy { $0.base == nil && $0.macLanguage == nil && $0.packedDefault == nil })
         let mode = list[0]
         XCTAssertEqual([mode.kind, mode.def, mode.sectionTitle], ["choice", "handheld", "Game"], "the default is the title module's mode")
         XCTAssertEqual(mode.options ?? [], [["docked", "TV (docked)"], ["handheld", "Handheld"]])
-        XCTAssertEqual(list.filter(\.isBasic).map(\.env), ["NXKIT_OP_MODE", "NXKIT_FULLSCREEN"], "the list's level decides")
-        XCTAssertEqual(list.filter { $0.sectionTitle == "Controls" }.map(\.env), ["NXKIT_HOME_MENU", "NXKIT_HOME_QUIT"])
+        XCTAssertEqual(list.filter(\.isBasic).map(\.env), ["NXKIT_OP_MODE", "NXKIT_FULLSCREEN", "NXKIT_LANGUAGE", "NXKIT_RUMBLE"],
+                       "the list's level decides")
+        XCTAssertEqual(list.filter { $0.sectionTitle == "Controls" }.map(\.env),
+                       ["NXKIT_RUMBLE", "NXKIT_RUMBLE_GAIN", "NXKIT_RUMBLE_MIN", "NXKIT_HOME_MENU", "NXKIT_HOME_QUIT"])
+        XCTAssertEqual(list.filter { LaunchCategory.of($0) == .performance }.map(\.env), ["NXKIT_METAL_HUD"], "by its section")
+    }
+
+    /// nxkit's game language is not DM_LANG: the empty value follows the Mac's language in the host, so the launcher puts in no Mac
+    /// language of its own, narrows nothing by the RomFS and writes nothing ahead of the player.
+    func testTheGameLanguageRowIsDrawnAsItIs() throws {
+        let app = try nxkitApp()
+        let french = ["fr-FR", "en-US"]
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: titleID, repo: "", labels: { L10n.string($0, .de) }, preferred: french))
+        let lang = try XCTUnwrap(list.first { $0.env == "NXKIT_LANGUAGE" })
+        XCTAssertEqual(lang.def, "")
+        XCTAssertNil(lang.macLanguage)
+        XCTAssertNil(lang.packedDefault)
+        XCTAssertEqual(lang.options ?? [], [["", "Wie der Mac"], ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["fr", "Français"], ["de", "Deutsch"]],
+                       "the languages keep their own names")
+        let store = SavedChoices(app: app, titleID: titleID)
+        store.preselectLanguage(list, preferred: french)
+        XCTAssertNil(store.raw("NXKIT_LANGUAGE"), "no Mac language is written ahead of the player")
+        XCTAssertNil(SavedChoices.macLanguage(lang, preferred: french))
+        store.set(lang, "fr")
+        XCTAssertEqual(store.value(lang), "fr")
+        store.set(lang, "")
+        XCTAssertNil(store.raw("NXKIT_LANGUAGE"), "the Mac's language is the default, so the key goes")
+        XCTAssertFalse(store.hasChoices(list))
+    }
+
+    func testTheRumbleStrengthIsASubSettingOfRumble() throws {
+        let list = try rows(try nxkitApp())
+        let gain = try XCTUnwrap(list.first { $0.env == "NXKIT_RUMBLE_GAIN" }), least = try XCTUnwrap(list.first { $0.env == "NXKIT_RUMBLE_MIN" })
+        XCTAssertTrue(gain.isShown(in: list) { $0.env == "NXKIT_RUMBLE" ? "1" : $0.def })
+        XCTAssertFalse(least.isShown(in: list) { $0.env == "NXKIT_RUMBLE" ? "0" : $0.def })
+        XCTAssertEqual([gain.min, gain.max, gain.step], [0, 3, 0.1])
+        XCTAssertTrue(gain.isDefault("1"), "a slider writes 1.00 for the default 1.0")
+        XCTAssertTrue(gain.accepts("2.5"))
+        XCTAssertFalse(gain.accepts("3.5"))
+        XCTAssertFalse(least.accepts("0.95"))
     }
 
     func testAnNxkitAppWithoutAListHasNoneAndDmsPlaceIsNotRead() throws {
@@ -95,8 +134,11 @@ final class NxkitLaunchOptionsTests: IsolatedDefaultsTestCase {
         let list = try JSONDecoder().decode(NxkitList.self, from: Data(contentsOf: Self.fixture)).settings
         for row in list {
             XCTAssertEqual(L10n.string("launch.set." + row.env, .en), row.label, row.env)
-            XCTAssertEqual(L10n.string("launch.set.\(row.env).note", .en), row.note, row.env)
-            for option in row.options ?? [] { XCTAssertEqual(L10n.string("launch.opt.\(row.env).\(option[0])", .en), option[1], row.env) }
+            if !row.note.isEmpty { XCTAssertEqual(L10n.string("launch.set.\(row.env).note", .en), row.note, row.env) }
+            // the game language's names stay in their own language: only the Mac's entry has a text here
+            for option in row.options ?? [] where row.env != "NXKIT_LANGUAGE" || option[0].isEmpty {
+                XCTAssertEqual(L10n.string("launch.opt.\(row.env).\(option[0])", .en), option[1], row.env)
+            }
         }
         let de = try rows(try nxkitApp(), .de)
         XCTAssertEqual(de[0].label, "Konsolenmodus")
@@ -164,9 +206,9 @@ final class NxkitLaunchOptionsTests: IsolatedDefaultsTestCase {
             stores.build.lang = lang
             stores.localizer.lang = lang
             let view = LaunchOptionsView(m: stores.build, library: library, gameID: library.games[0].id)
-                .environmentObject(PadFocus()).environmentObject(stores.localizer).frame(width: 760, height: 560)
+                .environmentObject(PadFocus()).environmentObject(stores.localizer).frame(width: 760, height: 760)
             let host = NSHostingView(rootView: view)
-            let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: 760, height: 560), styleMask: [.borderless], backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: 760, height: 760), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = host
             window.orderBack(nil)
