@@ -32,7 +32,16 @@ enum GameStart {
         environment["DM_HOME_QUIT_TEXT"] = HomeButtonHint.promptText(gameName: game.displayName(lang), labels: labels, homeMenu: homeMenu)   // the game's Home button quit prompt in the launcher's language (#336)
         // Console mode's game: the Home menu's Back to console mode, which pauses it in the background (#952). The desktop's Play passes none.
         if homeMenu { environment.merge(HomeButtonHint.homeMenuEnvironment(launcherBundleID: launcherBundleID)) { $1 } }
-        if let sticks { environment.merge(sticks.environment) { _, own in own } }   // DM_STICK_DEADZONE_L / _R: off adds nothing
+        if let sticks { environment.merge(sticks.environment) { _, own in own } }
+        // An app nxkit built reads nxkit's names only: full screen (console mode, or the player's Display choice), the screen,
+        // the Home button's texts and, from console mode, the launcher its Home menu goes back to
+        if NxkitLaunch.isNxkit(app: game.appPath) {
+            let nxkit = NxkitLaunch.environment(fullscreen: fullscreen || environment["DM_FULLSCREEN"] == "1",
+                                                displayID: environment["DM_SCREEN"].flatMap(UInt32.init),
+                                                homeText: environment["DM_HOME_QUIT_TEXT"],
+                                                launcherBundleID: homeMenu ? launcherBundleID : nil)
+            environment.merge(nxkit) { $1 }
+        }   // DM_STICK_DEADZONE_L / _R: off adds nothing
         // The global setup and this game's own choices (SaveLocation.swift): a save folder and a cloud folder. A game with nothing set adds nothing.
         var base = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
         if let saves {
