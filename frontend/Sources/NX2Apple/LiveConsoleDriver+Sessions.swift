@@ -171,6 +171,27 @@ extension LiveConsoleDriver {
                 MainActor.assumeIsolated { self?.gameResumed(hostPID: pid) }
             },
         ]
+        guard tracking.notificationPrefix == NxkitLaunch.notificationPrefix else { return }
+        // An app nxkit built opens over the console (NXKIT_OVERLAY): its start is this Starting screen, with the
+        // pipelines it prepares as the progress, and it ends when the game shows its first picture
+        tracking.observers += [
+            center.addObserver(forName: Notification.Name("org.nxkit.loading.\(pid)"), object: nil, queue: .main) { [weak self] note in
+                let done = (note.userInfo?["done"] as? NSNumber)?.intValue ?? 0, total = (note.userInfo?["total"] as? NSNumber)?.intValue ?? 0
+                MainActor.assumeIsolated { self?.gameLoading(done: done, total: total) }
+            },
+            center.addObserver(forName: Notification.Name("org.nxkit.shown.\(pid)"), object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.gameWindowAppeared() }
+            },
+        ]
+    }
+
+    /// The game prepares its pipelines before its first picture: the Starting screen shows how far, and waits for it
+    /// rather than for the usual timeout.
+    func gameLoading(done: Int, total: Int) {
+        guard state.startingGameID != nil, total > 0 else { return }
+        timeoutTask?.cancel()
+        // Once the pipelines are ready the game boots: "Loading game" until its picture shows (org.nxkit.shown)
+        state.starting = done >= total ? .opening : .compilingShaders(completed: done, total: total)
     }
 
     private func endObserving() {
