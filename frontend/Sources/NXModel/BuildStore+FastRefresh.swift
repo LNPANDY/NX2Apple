@@ -88,7 +88,7 @@ extension BuildStore {
         }
 
         let py = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
-        let seedRoot = BuildSeedCache.defaultRoot(home: self.home)
+        let seedRoot = seedCacheRoot
         let trimmedExternalImg = externalImgPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let validExternalImg: String? = (!trimmedExternalImg.isEmpty && FileManager.default.fileExists(atPath: trimmedExternalImg))
             ? trimmedExternalImg
@@ -106,7 +106,7 @@ extension BuildStore {
             if sameGame && !inputFolder.isEmpty && inputFolder != "/" {
                 return inputFolder
             }
-            return (BuildSeedCache.defaultRoot(home: self.home) as NSString).deletingLastPathComponent + "/refresh-builds"
+            return self.refreshBuildsRoot
         }()
 
         try? FileManager.default.createDirectory(atPath: resolvedOutDir, withIntermediateDirectories: true)
@@ -152,6 +152,11 @@ extension BuildStore {
         }
 
         if !isMac, !exportsOneGame, !exportsFramework, let why = shellRootProblem() {
+            fail(why)
+            clearFastRefreshContext()
+            return
+        }
+        if let why = seedRootProblem() {
             fail(why)
             clearFastRefreshContext()
             return
@@ -267,6 +272,7 @@ extension BuildStore {
             let runner = self.runner
             let adoptEnv = ["PATH": BuildCommands.toolPath(python: py), "HOME": self.home]
                 .merging(BundledTools.environment(for: py)) { $1 }
+                .merging(seedEnvironment) { $1 }
             let prepGeneration = archiveGeneration
             let immutableBaseArgs = args
             let immutableEnvURL = tempEnvURL

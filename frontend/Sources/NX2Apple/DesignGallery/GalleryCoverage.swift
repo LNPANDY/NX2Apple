@@ -82,7 +82,7 @@ enum GalleryCoverage {
         "PersonalDefaultsCard": [.settings], "MissingToolRow": [.desktop(D.missingTool)], "LibraryFoldersCard": [.settingsLibrary, .desktop(D.libraryFolders)],
         "GlobalSavesCard": [.settingsLibrary], "CloudSavesCard": [.settingsLibrary, .gameOptions], "PlayersCard": [.desktop(D.players)],
         "ControlsCard": [.settingsControls], "StickDeadzoneCard": [.settingsControls], "StickVisualizer": [.settingsControls],
-        "KeysCard": [.settingsTools], "ToolsCard": [.settingsTools], "ShellCacheRow": [.settingsTools], "DiagnosticsButton": [.settingsTools],
+        "KeysCard": [.settingsTools], "ToolsCard": [.settingsTools], "ShellCacheRow": [.settingsTools], "CacheFolderRow": [.settingsTools], "BuildCacheRows": [.settingsTools], "DiagnosticsButton": [.settingsTools],
         "BuildFilesCard": [.settingsTools], "DSOverflowMenu": [.settingsTools], "LauncherDropdown": [.settingsTools, .settings],
         "UpstreamPicker": [.nxkitEngine, .desktop(D.mngBlocked)], "UpstreamBuilderRow": [.desktop(D.mngUpdateAvailable), .desktop(D.mngBlocked), .desktop(D.mngDownloadingSettings)],
         "DSRowMessageView": [.nxkitUnavailable, .desktop(D.nxkitUnreachable)],

@@ -92,14 +92,14 @@ extension BuildStore {
             return
         }
         if isNxkitSelected {
-            if let why = nxkitProblem() {
+            if let why = nxkitProblem() ?? nxkitWorkRootProblem() {
                 fail(why)
                 return
             }
             nxkitRun = true
             let tidHex = buildKey
             // The work folder is a cache of the game (a second build reuses its stages). The app is built in the output folder's `<id>_build` and placed beside it.
-            let workDir = NxkitBuilder.workDirectory(home: home, key: tidHex)
+            let workDir = NxkitBuilder.workDirectory(root: nxkitWorkRoot, key: tidHex)
             let appFolder = (outDir.isEmpty ? inputFolder : outDir) + "/" + tidHex + "_build"
             if cloudFolderCheck(appFolder) {
                 failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: appFolder)
@@ -203,6 +203,11 @@ extension BuildStore {
         // The shared app's own folder is decided before the long steps too: one on a read-only volume (a saved
         // /NX2Apple-shell, a DMG chosen as Save to) failed at the last step after the whole build (#492).
         if target != BuildTarget.mac, !exportsOneGame, !exportsFramework, let why = shellRootProblem() {
+            fail(why)
+            return
+        }
+        // The script writes the game's build seed at the end: not onto this Mac's disk when the seeds' drive is not connected
+        if let why = seedRootProblem() {
             fail(why)
             return
         }

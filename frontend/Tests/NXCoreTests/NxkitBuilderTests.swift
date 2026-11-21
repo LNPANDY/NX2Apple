@@ -152,7 +152,10 @@ final class NxkitBuilderTests: XCTestCase {
         let env = NxkitBuilder.environment(folder: "/A.app/Contents/Resources/nxbuild", base: ["HOME": "/h"])
         XCTAssertEqual(env["NXB_NXKIT_HOST"], "/A.app/Contents/Resources/nxbuild/nxkit-host")
         XCTAssertEqual(env["HOME"], "/h")
-        XCTAssertEqual(NxkitBuilder.workDirectory(home: "/Users/p", key: "0100F2C0115B6000"), "/Users/p/Library/Caches/NX2Apple/nxkit/0100F2C0115B6000")
+        XCTAssertEqual(NxkitBuilder.workDirectory(root: BuildCacheRoots.defaultNxkitRoot(home: "/Users/p"), key: "0100F2C0115B6000"),
+                       "/Users/p/Library/Caches/NX2Apple/nxkit/0100F2C0115B6000")
+        XCTAssertEqual(NxkitBuilder.workDirectory(root: "/Volumes/Big/Games/NX2Apple-nxkit", key: "0100F2C0115B6000"),
+                       "/Volumes/Big/Games/NX2Apple-nxkit/0100F2C0115B6000", "a moved work root holds the game's folder")
     }
 
     func testExitCodesAndTheLastLines() {

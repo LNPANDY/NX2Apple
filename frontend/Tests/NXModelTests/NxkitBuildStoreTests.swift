@@ -311,6 +311,38 @@ import XCTest
 
     // MARK: The build
 
+    /// A work folder the player moved (Settings, Tools): nxb works in the game's folder inside it.
+    func testBuildWorksInTheMovedWorkFolder() throws {
+        try bundlePair()
+        let runner = ChunkedRunner()
+        let store = makeStore(runner: runner)
+        let moved = temporary.appendingPathComponent("Drive/NX2Apple-nxkit").path
+        defaults.set(moved, forKey: BuildCacheRoots.nxkitKey)
+        store.selectUpstream(.nxkit)
+        try pickGame(store)
+        store.startBuild()
+        let launch = try XCTUnwrap(runner.launches.first)
+        XCTAssertEqual(launch.arguments[launch.arguments.firstIndex(of: "--work-dir")! + 1], moved + "/01007EF00011E000")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: moved + "/01007EF00011E000"))
+    }
+
+    /// The drive with the moved work folder is not connected: the build stops before nxb starts and says so, and no folder is made
+    /// for the drive (it would land on this Mac's disk).
+    func testBuildStopsWhenTheDriveWithTheWorkFolderIsNotConnected() throws {
+        try bundlePair()
+        let runner = ChunkedRunner()
+        let store = makeStore(runner: runner)
+        let drive = "/Volumes/NX2Apple-test-missing-" + UUID().uuidString
+        defaults.set(drive + "/Games/NX2Apple-nxkit", forKey: BuildCacheRoots.nxkitKey)
+        store.selectUpstream(.nxkit)
+        try pickGame(store)
+        store.startBuild()
+        XCTAssertTrue(runner.launches.isEmpty, "nxb does not start")
+        XCTAssertEqual(store.doneNote, String(format: localizer.t("nxkitCache.driveMissing"), store.shortPath(drive + "/Games/NX2Apple-nxkit")))
+        XCTAssertFalse(store.running)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: drive))
+    }
+
     func testBuildRunsTheBundledNxbWithTheDocumentedArgumentsAndNamesTheVersion() throws {
         try bundlePair()
         let runner = ChunkedRunner()

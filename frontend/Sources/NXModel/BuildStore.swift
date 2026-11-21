@@ -297,8 +297,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     var shellBatchRetry: [DeferredShellGame]?
     var shellDeviceChecked = false
     package let driveCancel = LockedFlag()   // Stop of the copy to a drive (BuildStore+Send.swift)
-    @Published package var shellMove: ShellMove = .idle   // Move cache folder (BuildStore+ShellRoot.swift, #427)
-    package let shellMoveStop = LockedFlag()
+    @Published package var shellMove: CacheMove = .idle   // Move cache folder (BuildStore+ShellRoot.swift, #427)
+    @Published package var nxkitMove: CacheMove = .idle   // the nxkit work folder and the build seeds (BuildStore+CacheFolders.swift)
+    @Published package var seedMove: CacheMove = .idle
+    package let shellMoveStop = LockedFlag()   // Stop of the cache move that runs (one at a time, on `running`)
     let installCancel = LockedFlag()
     var installPhaseActive = false
     package var fastRefreshActive = false
@@ -323,6 +325,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     /// The home folder the default shell root is in. Tests use a temporary one, so they never touch the real Application Support.
     package var home = NSHomeDirectory()
+    /// The launcher's own environment, read for `DM_SEED_CACHE_DIR` (BuildCacheRoots). Tests set their own.
+    package var launcherEnvironment = ProcessInfo.processInfo.environment
 
     // ---- The app's side: AppKit and the wiring, as closures ----
     /// The games whose data can go to a device: the app fills it from the library (title ID, name, the packed data folder).
@@ -519,8 +523,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     package func stop() {
         if running { stoppedByPlayer = true }
-        if case .moving = shellMove {
-            stopShellMove()
+        if cacheMoveRuns {
+            stopCacheMove()
             return
         }
         if stopPendingInstallOrCopy() { return }

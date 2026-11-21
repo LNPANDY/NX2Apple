@@ -46,7 +46,7 @@ struct MissingImgGuideSheet: View {
         let dir = ToolsAge.resolvedOutputDirectory(for: game, libraryFolder: libraryFolder)
         if !dir.isEmpty { return dir }
         if !stores.build.outDir.isEmpty { return stores.build.outDir }
-        return (BuildSeedCache.defaultRoot(home: stores.build.home) as NSString).deletingLastPathComponent + "/refresh-builds"
+        return stores.build.refreshBuildsRoot
     }
 
     private var defaultGamesDirectory: String {
