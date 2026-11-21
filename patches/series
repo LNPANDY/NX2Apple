@@ -57,3 +57,4 @@
 0069-build-seed-fix-zero-inode-loop-detection-and-sta.patch
 0070-packing-nsp-derive-shader-map-when-only-main-dup.patch
 0071-packing-shaders-refresh-stardew-valley-animal-cr.patch
+0072-hid-honor-setnpadjoyholdtype-on-single-joy-con-f.patch
