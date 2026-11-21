@@ -195,16 +195,109 @@ import XCTest
         XCTAssertEqual(makeStore().buildUpstream, .nxnative)
     }
 
+    func testIOSIsNeverTheTargetWithNxkitAndTheSavedChoiceComesBackWithNxnative() throws {
+        try bundlePair()
+        devices.exportIPA = true
+        defer { devices.exportIPA = false }
+        let store = makeStore()
+        store.target = BuildTarget.ios
+        XCTAssertTrue(store.exportsShell, "nxnative exports the IPA")
+        store.selectUpstream(.nxkit)
+        XCTAssertEqual(store.target, BuildTarget.mac)
+        store.target = BuildTarget.ios   // the library's last target, a gallery or an old setting asks for iOS
+        XCTAssertEqual(store.target, BuildTarget.mac, "nxkit builds for the Mac only")
+        XCTAssertFalse(store.exportsShell, "no IPA export with nxkit")
+        XCTAssertFalse(store.installsDirectly)
+        XCTAssertEqual(BuildTarget.saved(defaults), BuildTarget.ios, "the player's own choice is kept")
+        XCTAssertEqual(makeStore().target, BuildTarget.mac, "nxkit selected at launch: still the Mac")
+        store.selectUpstream(.nxnative)
+        XCTAssertEqual(store.target, BuildTarget.ios, "back to nxnative: iOS again")
+        XCTAssertTrue(store.exportsShell)
+    }
+
+    func testTheQueueTakesNoIOSEntryWithNxkit() throws {
+        try bundlePair()
+        let store = makeStore()
+        let queue = BuildQueueStore(file: nil, engineID: { "e" }, busy: { false }, start: { _ in nil })
+        store.queue = queue
+        XCTAssertFalse(queue.macOnly)
+        store.selectUpstream(.nxkit)
+        XCTAssertTrue(queue.macOnly)
+        func entry(_ target: String) -> QueueEntry {
+            QueueEntry(titleID: "01007EF00011E000", name: "Zelda", target: target, inputs: ["base": ["/g/z.nsp"]],
+                       outputDirectory: "/out", engineID: "e", batch: UUID(), packageAfter: target == BuildTarget.ios, exportIPA: true)
+        }
+        queue.enqueue([entry(BuildTarget.mac), entry(BuildTarget.ios)])   // "Both" in Build selected games
+        XCTAssertEqual(queue.entries.map(\.target), [BuildTarget.mac], "one Mac entry, no iOS entry")
+        XCTAssertFalse(queue.hasIOS)
+        store.selectUpstream(.nxnative)
+        XCTAssertFalse(queue.macOnly)
+    }
+
+    func testAnIOSEntryQueuedBeforeNxkitIsNotBuilt() throws {
+        try bundlePair()
+        let runner = ChunkedRunner()
+        let store = makeStore(runner: runner)
+        let entry = QueueEntry(titleID: "01007EF00011E000", name: "Zelda", target: BuildTarget.ios, inputs: ["base": ["/g/z.nsp"]],
+                               outputDirectory: "", engineID: "e", batch: UUID(), packageAfter: true)
+        store.selectUpstream(.nxkit)
+        XCTAssertEqual(store.startQueued(entry), localizer.t("upstream.nxkitMacOnly"))
+        XCTAssertTrue(runner.launches.isEmpty)
+        XCTAssertEqual(store.target, BuildTarget.mac)
+    }
+
     func testIOSBuildWithNxkitSelectedDoesNotStart() throws {
         try bundlePair()
         let runner = ChunkedRunner()
         let store = makeStore(runner: runner)
-        store.selectUpstream(.nxkit)
         try pickGame(store)
         store.target = BuildTarget.ios
+        store.selectUpstream(.nxkit)
+        XCTAssertEqual(store.target, BuildTarget.mac, "the build is a Mac build")
+        XCTAssertNil(store.nxkitProblem())
+    }
+
+    // MARK: A failure belongs to its game
+
+    private func otherGame(_ store: BuildStore) throws {
+        let base = temporary.appendingPathComponent("Hades [0100535012974000].nsp")
+        try Data([0]).write(to: base)
+        store.updateSlot("base") { $0.paths = [base.path] }
+    }
+
+    func testAnNxkitFailureIsNotShownForAnotherGame() throws {
+        try bundlePair()
+        let runner = ChunkedRunner()
+        runner.chunks = [Data("nxb: exiting\n".utf8)]
+        runner.exitStatus = 3
+        let store = makeStore(runner: runner)
+        store.selectUpstream(.nxkit)
+        try pickGame(store)
         store.startBuild()
-        XCTAssertTrue(runner.launches.isEmpty)
-        XCTAssertEqual(store.doneNote, localizer.t("upstream.nxkitMacOnly"))
+        waitUntil { store.failure != nil && !store.running }
+        XCTAssertEqual(store.failure?.kind, .nxkit)
+        XCTAssertEqual(store.failureGameKey, "01007EF00011E000")
+
+        let zelda = store.basePath
+        store.updateSlot("base") { $0.paths = [] }
+        store.updateSlot("base") { $0.paths = [zelda] }   // the same game chosen again keeps its failure
+        XCTAssertEqual(store.failure?.kind, .nxkit)
+
+        try otherGame(store)
+        XCTAssertNil(store.failure, "the failure was Zelda's")
+        XCTAssertEqual(store.doneNote, "")
+        XCTAssertTrue(store.stages.isEmpty)
+        XCTAssertNil(store.failureGameKey)
+    }
+
+    func testAnNxnativeFailureIsNotShownForAnotherGame() throws {
+        let store = makeStore()
+        try pickGame(store)
+        store.failure = BuildFailure(kind: .keysOld, gameName: nil)
+        store.doneNote = store.failureWhat(store.failure!)
+        try otherGame(store)
+        XCTAssertNil(store.failure)
+        XCTAssertEqual(store.doneNote, "")
     }
 
     func testNxkitNeedsNoNxnativeCheckout() throws {

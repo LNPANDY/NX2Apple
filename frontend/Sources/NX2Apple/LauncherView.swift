@@ -445,6 +445,7 @@ struct LauncherView: View {
         .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)
         .sheet(isPresented: $selectingGames) {
             BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !m.exportsOneGame && !m.exportsFramework, exportsFramework: m.exportsFramework,
+                macOnlyNoteKey: m.isMacOnlyUpstreamSelected ? m.macOnlyNoteKey : nil,
                 added: { target in m.target = target; buildEditorOpen = true; page = .builds }) { selectingGames = false }
                 .environmentObject(loc).environmentObject(padFocus)
         }
@@ -613,7 +614,7 @@ struct LauncherView: View {
         m.leaveGameFolder()
         m.hintedTitleID = nil
         for index in m.slots.indices { m.slots[index].paths = []; m.slots[index].problem = ""; m.slots[index].note = "" }
-        m.gameDir = ""; m.done = false; m.doneNote = ""; m.macAppPath = ""; m.stages = []
+        m.gameDir = ""; m.done = false; m.doneNote = ""; m.macAppPath = ""; m.stages = []; m.failure = nil
         if m.outDir.isEmpty && !library.folder.isEmpty { m.outDir = library.folder }
         page = .builds
     }
@@ -639,7 +640,7 @@ struct LauncherView: View {
         m.macAppPath = game.appPath
         m.outDir = game.outputDirectory
         m.done = false; m.doneNote = ""; m.stages = []
-        m.target = m.isMacNativeGamesSelected ? BuildTarget.mac : game.lastTarget
+        m.target = m.isMacOnlyUpstreamSelected ? BuildTarget.mac : game.lastTarget   // nxkit and MacNativeGames build for the Mac only
         page = .builds
     }
 

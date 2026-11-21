@@ -74,7 +74,10 @@ struct BatchRefreshSheet: View {
         let canFastMac: Bool
         let canFastIOS: Bool
         let disabledMac: Bool
+        /// The iPhone and iPad side cannot be refreshed: its package is missing, or the engine builds for the Mac only (nxkit).
         let disabledIOS: Bool
+        /// The iPhone and iPad side lacks its original package (the hint under the row).
+        var missingIOSPackage = false
         let externalIOSImgPath: String?
 
         var id: UUID { game.id }
@@ -84,7 +87,7 @@ struct BatchRefreshSheet: View {
         }
 
         var showsMissingPackageHint: Bool {
-            (hasMac && disabledMac) || (hasIOS && disabledIOS)
+            (hasMac && disabledMac) || (hasIOS && missingIOSPackage)
         }
 
         var showsMissingImgHint: Bool {
@@ -162,7 +165,8 @@ struct BatchRefreshSheet: View {
             let canFastMac = hasMac && assessment.canFastRefreshMac
             let canFastIOS = hasIOS && (assessment.canFastRefreshIOS || (assessment.needsMissingImgGuideIOS && extImg != nil))
             let disabledMac = hasMac && !canFastMac && assessment.missingOriginalPackage
-            let disabledIOS = hasIOS && !canFastIOS && assessment.missingOriginalPackage
+            let missingIOSPackage = hasIOS && !canFastIOS && assessment.missingOriginalPackage
+            let disabledIOS = missingIOSPackage || (hasIOS && stores.build.isMacOnlyUpstreamSelected)
 
             return CandidateRow(
                 game: game,
@@ -173,6 +177,7 @@ struct BatchRefreshSheet: View {
                 canFastIOS: canFastIOS,
                 disabledMac: disabledMac,
                 disabledIOS: disabledIOS,
+                missingIOSPackage: missingIOSPackage,
                 externalIOSImgPath: extImg
             )
         }
@@ -554,7 +559,7 @@ struct BatchRefreshSheet: View {
         guard !driveFolder.isEmpty else { return }
         let pending = rows
             .filter { $0.hasIOS && $0.assessment.needsMissingImgGuideIOS && externalDriveImages[$0.id] == nil }
-            .map { (id: $0.id, titleID: $0.game.titleID, expected: $0.assessment.expectedRomfsIdentity, wasDisabled: $0.disabledIOS) }
+            .map { (id: $0.id, titleID: $0.game.titleID, expected: $0.assessment.expectedRomfsIdentity, wasDisabled: $0.missingIOSPackage) }
         guard !pending.isEmpty else { return }
 
         driveScanGeneration &+= 1
