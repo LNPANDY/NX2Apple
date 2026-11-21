@@ -57,9 +57,21 @@ struct CheatFiles {
 
     /// The build ID the cheat files are named by: the first 16 hex digits of the main NSO's build ID, upper case. The packed app
     /// records the whole ID in `dm/main.fixups.tsv` (`# BUILD_ID <hex>`): the Mac app under Contents/Resources, the iOS app at its root.
-    static func buildID(appPath: String, iosAppPath: String) -> String? {
-        let candidates = [appPath.isEmpty ? nil : appPath + "/Contents/Resources/dm/main.fixups.tsv",
+    /// A shared-shell build has no app of its own: its `DmGame<title ID>.framework` carries the file at `dm/main.fixups.tsv`, mirrored
+    /// in `<shell root>/frameworks` (the root of the shared app in `iosAppPath`, or `shellRoot`) and inside the app for an older build (#1469).
+    static func buildID(appPath: String, iosAppPath: String, titleID: String = "", shellRoot: String = "") -> String? {
+        var candidates = [appPath.isEmpty ? nil : appPath + "/Contents/Resources/dm/main.fixups.tsv",
                           iosAppPath.isEmpty ? nil : iosAppPath + "/dm/main.fixups.tsv"]
+        let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if !tid.isEmpty {
+            var frameworks: [String] = []
+            if !shellRoot.isEmpty { frameworks.append(ShellInstall.mirroredFramework(root: shellRoot, titleID: tid)) }
+            if !iosAppPath.isEmpty {
+                if let shared = ShellInstall.paths(ofApp: iosAppPath) { frameworks.append(ShellInstall.mirroredFramework(root: shared.root, titleID: tid)) }
+                frameworks.append(iosAppPath + "/Frameworks/DmGame\(tid).framework")
+            }
+            candidates += frameworks.map { $0 + "/dm/main.fixups.tsv" }
+        }
         for path in candidates.compactMap({ $0 }) {
             guard let text = try? String(contentsOfFile: path, encoding: .utf8), let id = buildID(fixups: text) else { continue }
             return id
