@@ -307,9 +307,11 @@ import XCTest
         runner.onStartInspect = { launch in
             launchedCommand = [launch.executable] + launch.arguments
             guard let outFlagIndex = launch.arguments.firstIndex(of: "-o"),
-                  outFlagIndex + 1 < launch.arguments.count else { return }
+                  outFlagIndex + 1 < launch.arguments.count,
+                  let workFlagIndex = launch.arguments.firstIndex(of: "--work"),
+                  workFlagIndex + 1 < launch.arguments.count else { return }
             let builderApp = URL(fileURLWithPath: launch.arguments[outFlagIndex + 1])
-            let workDirURL = builderApp.deletingLastPathComponent()
+            let workDirURL = URL(fileURLWithPath: launch.arguments[workFlagIndex + 1])
             let romfsDir = workDirURL.appendingPathComponent("extract/v1/RomFS")
             let aocDir = workDirURL.appendingPathComponent("aoc")
             try? FileManager.default.createDirectory(at: romfsDir, withIntermediateDirectories: true)
@@ -733,6 +735,9 @@ import XCTest
     func testMNGNszInstallTargetsTheLauncherFolderForAnExternallyManagedPython() throws {
         repo.isRepo = false
         let validTree = try makeFakeMNGTree()
+        let nszVenvDir = Toolchain.nszVenvDir(home: temporary.path)
+        let nszVenvPy = nszVenvDir + "/bin/python3"
+        let nszVenvBin = nszVenvDir + "/bin/nsz"
         let runner = ChunkedRunner()
         runner.captureAnswer = { launch in
             if launch.arguments.contains("import nsz") {
@@ -740,14 +745,23 @@ import XCTest
             }
             return self.defaultMNGCaptureAnswer(launch)
         }
+        var pipExecutable = ""
         var pipArguments: [String] = []
-        var pipPythonPath = ""
         runner.streamHandler = { launch, _ in
+            if launch.arguments.contains("-m") && launch.arguments.contains("venv") {
+                let fm = FileManager.default
+                try? fm.createDirectory(atPath: nszVenvDir + "/bin", withIntermediateDirectories: true)
+                try? Data("#!/bin/sh\n".utf8).write(to: URL(fileURLWithPath: nszVenvPy))
+                try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nszVenvPy)
+                return true
+            }
             if launch.arguments.contains("pip") && launch.arguments.contains("nsz") {
+                pipExecutable = launch.executable
                 pipArguments = launch.arguments
-                pipPythonPath = launch.environment?["PYTHONPATH"] ?? ""
-                // Plain `pip install` is what an externally managed Python refuses (#1500). A target install passes.
-                return launch.arguments.contains("--target")
+                let fm = FileManager.default
+                try? Data("#!/bin/sh\n".utf8).write(to: URL(fileURLWithPath: nszVenvBin))
+                try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nszVenvBin)
+                return launch.executable.hasPrefix(nszVenvDir + "/")
             }
             return true
         }
@@ -757,7 +771,7 @@ import XCTest
         store.buildUpstream = .macNativeGames
         store.macNativeGamesPath = validTree
         store.target = BuildTarget.mac
-        let base = temporary.appendingPathComponent("Zelda [0100F2C0115B6000].nsz")
+        let base = temporary.appendingPathComponent("Zelda [0100F2C0115B6000].xcz")
         let keys = temporary.appendingPathComponent("prod.keys")
         try Data([0]).write(to: base)
         try Data([0]).write(to: keys)
@@ -770,13 +784,10 @@ import XCTest
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
 
-        let packages = temporary.path + "/Library/Application Support/NX2Apple/python-packages/"
-        XCTAssertTrue(pipArguments.contains("--target"))
+        XCTAssertTrue(pipExecutable.hasPrefix(nszVenvDir + "/"), "pip executable was \(pipExecutable)")
         XCTAssertFalse(pipArguments.contains("--break-system-packages"))
-        XCTAssertTrue(pipPythonPath.hasPrefix(packages), "PYTHONPATH was \(pipPythonPath)")
-        if let i = pipArguments.firstIndex(of: "--target") {
-            XCTAssertTrue(pipPythonPath.hasPrefix(pipArguments[i + 1]))
-        }
+        XCTAssertTrue(pipArguments.contains("install"))
+        XCTAssertTrue(pipArguments.contains("nsz"))
     }
 
     func testQueueAndHintedTitleIDFallbackForMNG() throws {

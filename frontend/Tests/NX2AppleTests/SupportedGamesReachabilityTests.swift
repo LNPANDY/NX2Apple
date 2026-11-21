@@ -301,6 +301,30 @@ import XCTest
         let restoredIDs = Set(try XCTUnwrap(focus.frames["supported"]).map(\.id))
         XCTAssertTrue(restoredIDs.contains("supported.row.\(regularGame.titleID)"))
         XCTAssertTrue(restoredIDs.contains("supported.row.\(mngGame.titleID)"))
+
+        // Reconcile focus across all three row-level target prefixes (row, rebuild, show).
+        for prefix in SupportedGamesSheet.rowFocusPrefixes {
+            XCTAssertEqual(
+                SupportedGamesSheet.reconciledFocus(focused: prefix + regularGame.titleID, shown: [mngGame], hasMacNativeGames: true),
+                "supported.row.\(mngGame.titleID)"
+            )
+            XCTAssertEqual(
+                SupportedGamesSheet.reconciledFocus(focused: prefix + regularGame.titleID, shown: [], hasMacNativeGames: true),
+                "supported.filter"
+            )
+            XCTAssertEqual(
+                SupportedGamesSheet.reconciledFocus(focused: prefix + regularGame.titleID, shown: [], hasMacNativeGames: false),
+                "supported.close"
+            )
+            XCTAssertEqual(
+                SupportedGamesSheet.reconciledFocus(focused: prefix + mngGame.titleID, shown: [mngGame], hasMacNativeGames: true),
+                prefix + mngGame.titleID
+            )
+        }
+        XCTAssertEqual(
+            SupportedGamesSheet.reconciledFocus(focused: "supported.close", shown: [], hasMacNativeGames: true),
+            "supported.close"
+        )
     }
 
     func testBuildSelectedSheetRowEngineTagReflectsMacNativeGamesSelectionAndTarget() throws {

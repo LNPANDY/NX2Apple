@@ -191,8 +191,10 @@ extension GalleryFixtures {
                 SupportedGame(titleID: entry.titleID, name: entry.name, edition: .switch1, version: index % 3 == 0 ? nil : "1.\(index).0",
                               notes: index == 0 ? "Runs at full speed. The first start compiles its shaders, which takes a few minutes." : "")
             }
-            supported.append(SupportedGame(titleID: GalleryFixtures.mngTitleID, name: "Harbor of Echoes", edition: .switch2, version: nil,
-                                           notes: "Supported by MacNativeGames for macOS native builds."))
+            if !supported.contains(where: { $0.titleID.uppercased() == GalleryFixtures.mngTitleID.uppercased() }) {
+                supported.append(SupportedGame(titleID: GalleryFixtures.mngTitleID, name: "Harbor of Echoes", edition: .switch2, version: nil,
+                                               notes: "Supported by MacNativeGames for macOS native builds."))
+            }
             return AnyView(SupportedGamesSheet(games: supported, owned: { id in library.games.first { $0.titleID.uppercased() == id.uppercased() } },
                                                covers: .saved(in: library.artworkDirectory, maxPixel: SupportedGamesSheet.coverPixels), showInLibrary: { _ in },
                                                // the first two stand in for profiles improved in this release, the first with an older build

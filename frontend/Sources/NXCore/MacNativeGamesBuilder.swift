@@ -90,8 +90,11 @@ package enum MacNativeGamesBuilder {
         return nil
     }
 
+    package static let botwTitleID = "01007EF00011E000"
+
     package static func needsAutoSharedFonts(
         route: Route,
+        titleID: String? = nil,
         gameInput: String,
         isUnencryptedInput: Bool,
         workDir: String,
@@ -99,7 +102,10 @@ package enum MacNativeGamesBuilder {
     ) -> Bool {
         guard !isUnencryptedInput else { return false }
         let ext = (gameInput as NSString).pathExtension.lowercased()
-        guard ext != "xci" && ext != "xcz" else { return false }
+        let isBOTW = normalizedHex16(titleID) == botwTitleID
+        if (ext == "xci" || ext == "xcz") && !isBOTW {
+            return false
+        }
         switch route {
         case .unifiedBuildApp:
             let manifest = workDir + "/totk/extracted/firmware/shared-fonts/manifest.json"

@@ -149,6 +149,24 @@ struct SupportedGamesSheet: View {
         return improved(game.titleID) ? String(format: loc.t("supported.improvedIn"), Self.shortVersion(GameUpdateCatalog.releaseBaseVersion(appVersion))) : nil
     }
 
+    static let rowFocusPrefixes = ["supported.row.", "supported.rebuild.", "supported.show."]
+
+    /// Returns a valid fallback pad focus target when `focused` points to a row control whose game is no longer visible.
+    static func reconciledFocus(focused: String?, shown: [SupportedGame], hasMacNativeGames: Bool) -> String? {
+        guard let id = focused, let prefix = rowFocusPrefixes.first(where: { id.hasPrefix($0) }) else { return focused }
+        let titleID = String(id.dropFirst(prefix.count))
+        guard !shown.contains(where: { $0.titleID == titleID }) else { return id }
+        return shown.first.map { "supported.row." + $0.titleID } ?? (hasMacNativeGames ? "supported.filter" : "supported.close")
+    }
+
+    private func reconcileSelectionAndFocus() {
+        let visible = shown
+        if let current = selected, !visible.contains(where: { $0.titleID == current }) {
+            selected = nil
+        }
+        focus.focused = Self.reconciledFocus(focused: focus.focused, shown: visible, hasMacNativeGames: hasMacNativeGames)
+    }
+
     func detail(_ game: SupportedGame) -> String {
         Self.detailText(for: game, appVersion: appVersion, t: { loc.t($0) })
     }
@@ -241,14 +259,8 @@ struct SupportedGamesSheet: View {
         .frame(width: 680)
         .frame(maxHeight: Self.height(screen: NSScreen.main?.visibleFrame.height ?? 800))
         .dsSheetSurface()
-        .onChange(of: upstreamFilter) { _ in
-            if let current = selected, !shown.contains(where: { $0.titleID == current }) {
-                selected = nil
-            }
-            if let id = focus.focused, id.hasPrefix("supported.row."), !shown.contains(where: { "supported.row." + $0.titleID == id }) {
-                focus.focused = shown.first.map { "supported.row." + $0.titleID } ?? (hasMacNativeGames ? "supported.filter" : "supported.close")
-            }
-        }
+        .onChange(of: upstreamFilter) { _ in reconcileSelectionAndFocus() }
+        .onChange(of: search) { _ in reconcileSelectionAndFocus() }
         .onAppear {
             searchFocused = true
             focus.scope = "supported"

@@ -237,7 +237,8 @@ extension BuildStore {
         // A compressed dump (NSZ / XCZ) needs `nsz` either in `py` or as an `nsz` executable on PATH
         // (`build_ipa_from_nsp.py:nsz_command`). Never run bare `pip install` against an externally managed
         // interpreter (PEP 668): reuse BundledTools or an app-managed `nsz-venv` and prepend its bin dir to PATH.
-        let compressed = ([basePath, updatePath] + dlcPaths).contains {
+        // Inspect `staged` so auto-staged sibling updates/DLCs in .nsz/.xcz format also trigger nsz provisioning.
+        let compressed = staged.contains {
             let e = ($0 as NSString).pathExtension.lowercased()
             return e == "nsz" || e == "xcz"
         }
@@ -258,9 +259,15 @@ extension BuildStore {
                     }
                 }
                 if extraNszBinDir == nil {
+                    // Pass a clean base environment (without `py`'s PYTHONHOME/PYTHONPATH) so `nsz-venv` is never contaminated.
+                    let cleanNszProbeEnv = ProxyEnvironment.merged(into: [
+                        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                        "HOME": home,
+                        "LANG": "en_US.UTF-8",
+                    ])
                     if let ready = Toolchain.readyManagedNszTool(
                         venvDir: Toolchain.nszVenvDir(home: home),
-                        environment: probeEnv,
+                        environment: cleanNszProbeEnv,
                         runner: runner
                     ) {
                         extraNszBinDir = ready.binDir
@@ -476,6 +483,7 @@ extension BuildStore {
                     self.stopping = false
                     self.resetProgress()
                     self.doneNote = self.t("msg.stopped")
+                    macOutput?.cleanupEmptyStagingDirectory()
                     self.cleanupStaging()
                     return
                 }
@@ -536,6 +544,7 @@ extension BuildStore {
                         }
                         self.noteFailure()
                     }
+                    macOutput?.cleanupEmptyStagingDirectory()
                     self.cleanupStaging()
                 }
             }
@@ -550,6 +559,7 @@ extension BuildStore {
             }, onExit: onExit)
         } catch {
             if let envCleanup { try? FileManager.default.removeItem(at: envCleanup) }
+            macOutput?.cleanupEmptyStagingDirectory()
             fail(String(format: t("msg.launchFailed"), error.localizedDescription))
         }
     }

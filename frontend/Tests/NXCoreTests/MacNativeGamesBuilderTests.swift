@@ -419,13 +419,30 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         ))
         XCTAssertFalse(MacNativeGamesBuilder.needsAutoSharedFonts(
             route: .unifiedBuildApp,
+            titleID: "0100F2C0115B6000",
             gameInput: "/roms/totk.xci",
+            isUnencryptedInput: false,
+            workDir: workDir.path
+        ))
+        // BOTW cartridges lack a system update partition, so .xci/.xcz must auto-generate shared fonts.
+        XCTAssertTrue(MacNativeGamesBuilder.needsAutoSharedFonts(
+            route: .unifiedBuildApp,
+            titleID: "01007EF00011E000",
+            gameInput: "/roms/botw.xci",
+            isUnencryptedInput: false,
+            workDir: workDir.path
+        ))
+        XCTAssertTrue(MacNativeGamesBuilder.needsAutoSharedFonts(
+            route: .unifiedBuildApp,
+            titleID: "01007EF00011E000",
+            gameInput: "/roms/botw.xcz",
             isUnencryptedInput: false,
             workDir: workDir.path
         ))
         XCTAssertFalse(MacNativeGamesBuilder.needsAutoSharedFonts(
             route: .unifiedBuildApp,
-            gameInput: "/roms/totk.nup",
+            titleID: "01007EF00011E000",
+            gameInput: "/roms/botw.nup",
             isUnencryptedInput: true,
             workDir: workDir.path
         ))
@@ -476,5 +493,83 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         XCTAssertEqual(s3?.name, "shaders")
 
         XCTAssertNil(MacNativeGamesBuilder.parseStageLine("normal log line"))
+    }
+
+    func testUnpackCompressedPackageDisambiguatesSameStemAcrossDirectories() throws {
+        let fm = FileManager.default
+        let baseDir = temporary.appendingPathComponent("Base", isDirectory: true)
+        let updateDir = temporary.appendingPathComponent("Update", isDirectory: true)
+        let workDir = temporary.appendingPathComponent("work", isDirectory: true)
+        let venvBin = temporary.appendingPathComponent("nsz-venv/bin", isDirectory: true)
+        try fm.createDirectory(at: baseDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: updateDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: workDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: venvBin, withIntermediateDirectories: true)
+
+        let baseNSZ = baseDir.appendingPathComponent("game.nsz")
+        let updateNSZ = updateDir.appendingPathComponent("game.nsz")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data("base-compressed".utf8).write(to: baseNSZ)
+        try Data("update-compressed".utf8).write(to: updateNSZ)
+        try Data("keys".utf8).write(to: keys)
+
+        let nszExe = venvBin.appendingPathComponent("nsz")
+        try Data("#!/bin/sh\n".utf8).write(to: nszExe)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nszExe.path)
+        let tool = ManagedNszTool(
+            venvDir: venvBin.deletingLastPathComponent().path,
+            binDir: venvBin.path,
+            pythonPath: venvBin.appendingPathComponent("python3").path,
+            executablePath: nszExe.path
+        )
+
+        var streamCount = 0
+        final class UnpackRunner: ProcessRunner, @unchecked Sendable {
+            var handler: (ProcessLaunch) -> Bool = { _ in true }
+            func capture(_ launch: ProcessLaunch) -> ProcessResult { ProcessResult() }
+            func stream(_ launch: ProcessLaunch, line: @escaping (String) -> Void) -> Bool { handler(launch) }
+            func streamLines(_ launch: ProcessLaunch, started: @escaping (RunningProcess) -> Void, line: @escaping (String) -> Void) -> ProcessResult {
+                started(FakeRunningProcess()); return ProcessResult()
+            }
+            func start(_ launch: ProcessLaunch, onOutput: @escaping (Data) -> Void, onExit: @escaping (Int32) -> Void) throws -> RunningProcess {
+                onExit(0); return FakeRunningProcess()
+            }
+        }
+        let runner = UnpackRunner()
+        runner.handler = { launch in
+            streamCount += 1
+            guard let oIdx = launch.arguments.firstIndex(of: "-o"), oIdx + 1 < launch.arguments.count,
+                  let inputPath = launch.arguments.last else { return false }
+            let staging = launch.arguments[oIdx + 1]
+            let payload = inputPath.contains("/Base/") ? "UNPACKED-BASE" : "UNPACKED-UPDATE"
+            try? Data(payload.utf8).write(to: URL(fileURLWithPath: staging + "/game.nsp"))
+            return true
+        }
+
+        let resBase = Toolchain.unpackCompressedPackage(
+            input: baseNSZ.path, keysPath: keys.path, workDir: workDir.path,
+            tool: tool, environment: [:], runner: runner
+        )
+        let resUpdate = Toolchain.unpackCompressedPackage(
+            input: updateNSZ.path, keysPath: keys.path, workDir: workDir.path,
+            tool: tool, environment: [:], runner: runner
+        )
+        let unpackedBase = try resBase.get()
+        let unpackedUpdate = try resUpdate.get()
+        XCTAssertNotEqual(unpackedBase, unpackedUpdate, "Same-stem packages from distinct directories must not overwrite each other")
+        XCTAssertEqual(try String(contentsOfFile: unpackedBase, encoding: .utf8), "UNPACKED-BASE")
+        XCTAssertEqual(try String(contentsOfFile: unpackedUpdate, encoding: .utf8), "UNPACKED-UPDATE")
+        XCTAssertEqual(streamCount, 2)
+
+        // Both receipts hit cache on repeat calls without re-running nsz.
+        XCTAssertEqual(try Toolchain.unpackCompressedPackage(
+            input: baseNSZ.path, keysPath: keys.path, workDir: workDir.path,
+            tool: tool, environment: [:], runner: runner
+        ).get(), unpackedBase)
+        XCTAssertEqual(try Toolchain.unpackCompressedPackage(
+            input: updateNSZ.path, keysPath: keys.path, workDir: workDir.path,
+            tool: tool, environment: [:], runner: runner
+        ).get(), unpackedUpdate)
+        XCTAssertEqual(streamCount, 2)
     }
 }
