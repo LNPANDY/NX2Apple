@@ -302,7 +302,8 @@ extension BuildStore {
             if RepoLayout.supportsFallbackIcon(repo.path) { args += macFallbackIconArguments(tidHex) }
         } else {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
-            args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
+            args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam,
+                                                gpu: exportsShell ? nil : DeviceGPU.target(udid: devices.installDevice))
         }
         // The archive step packs whatever folder the build reported, and without --work-dir that is the
         // script's default, which is the same workDir unless a separate output folder was chosen.
