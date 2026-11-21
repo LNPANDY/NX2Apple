@@ -16,6 +16,17 @@ final class NxkitLaunchTests: XCTestCase {
         XCTAssertEqual(env, [:])
     }
 
+    func testTheControlsPagesMapsGoUnderNxkitsNames() {
+        let env = NxkitLaunch.controlMaps(["DM_PAD_MAP": "A=B,B=A", "DM_KEYMAP": "A=0,", "DM_PAD_MERGE": "1",
+                                           "DM_STICK_DEADZONE_L": "10", "DM_FPS_TARGET": "60"])
+        XCTAssertEqual(env, ["NXKIT_PAD_MAP": "A=B,B=A", "NXKIT_KEYMAP": "A=0,"])
+    }
+
+    func testAMapTheHostWouldRejectPassesNothing() {
+        XCTAssertEqual(NxkitLaunch.controlMaps(["DM_PAD_MAP": "A=Shout", "DM_KEYMAP": "A=999"]), [:])
+        XCTAssertEqual(NxkitLaunch.controlMaps(["DM_PAD_MAP": ""]), [:])
+    }
+
     func testAnAppThatIsNotThereIsNotNxkit() {
         XCTAssertFalse(NxkitLaunch.isNxkit(app: "/nonexistent/Game.app"))
         XCTAssertEqual(NxkitLaunch.notificationPrefix(app: "/nonexistent/Game.app"), "org.nxnative")
