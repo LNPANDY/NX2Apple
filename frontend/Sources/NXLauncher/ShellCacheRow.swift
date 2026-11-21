@@ -88,6 +88,9 @@ package struct CacheFolderRow: View {
                 panel.padding(.leading, axis).padding(.trailing, 18).padding(.bottom, 14)
             }
         }
+        // CardRow's `frame(minHeight:)` lets a row shrink to its minimum height when the stack around it is short of room, and its
+        // texts then spill over the lines under it (the note, the panel, the next row). The row always takes the height it needs.
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func pickFolder() {
