@@ -53,7 +53,7 @@ final class SupportedGamesTests: XCTestCase {
         XCTAssertTrue(text.hasSuffix("profile."))
     }
 
-    func testIncludeMacNativeGamesCompletesAllFiveWithoutDuplicates() throws {
+    func testIncludeMacNativeGamesCompletesAllTwelveWithoutDuplicates() throws {
         try profile(
             "0100F2C0115B6000",
             tsv: "# The Legend of Zelda: Tears of the Kingdom (Switch, update 1.4.3).\ntitle_id\t0100F2C0115B6000\nname\tThe Legend of Zelda: Tears of the Kingdom\npackage\tv720896\nbuild\tv720896\t1.4.3\tmain=aa\n",
@@ -64,25 +64,35 @@ final class SupportedGamesTests: XCTestCase {
             tsv: "# Super Mario Odyssey (Switch).\ntitle_id\t0100000000010000\nname\tSuper Mario Odyssey\n",
             readme: "# SMO\n\nOdyssey notes.\n"
         )
+        try profile(
+            "0100152000022000",
+            tsv: "# Mario Kart 8 Deluxe (Switch).\ntitle_id\t0100152000022000\nname\tMario Kart 8 Deluxe\n",
+            readme: "# MK8D\n\nMK8D notes.\n"
+        )
 
         let raw = SupportedGames.list(engineRoot: root.path, includeMacNativeGames: false)
-        XCTAssertEqual(Set(raw.map(\.titleID)), ["0100F2C0115B6000", "0100000000010000"])
+        XCTAssertEqual(Set(raw.map(\.titleID)), ["0100F2C0115B6000", "0100000000010000", "0100152000022000"])
 
         let completed = SupportedGames.list(engineRoot: root.path, includeMacNativeGames: true)
         let ids = completed.map(\.titleID)
         XCTAssertEqual(ids.count, Set(ids).count, "must not duplicate existing profiles")
-        XCTAssertEqual(Set(ids), [
-            "0100000000010000",
-            "0100F2C0115B6000",
-            "01007EF00011E000",
-            "0400486024DEC000",
-            "040074A01BF12000",
-            "0400A3A01EE4C000",
-        ])
+        XCTAssertEqual(Set(ids), MacNativeGamesBuilder.supportedTitleIDs.union(["0100152000022000"]))
+        XCTAssertEqual(ids.count, 13)
 
         let totk = try XCTUnwrap(completed.first { $0.titleID == "0100F2C0115B6000" })
         XCTAssertEqual(totk.version, "1.4.3")
         XCTAssertEqual(totk.notes, "Existing upstream profile notes.")
+
+        let odyssey = try XCTUnwrap(completed.first { $0.titleID == "0100000000010000" })
+        XCTAssertEqual(odyssey.notes, "Odyssey notes.", "existing dm/games entry must not be overwritten")
+
+        let worldend = try XCTUnwrap(completed.first { $0.titleID == "010048900CF64000" })
+        XCTAssertEqual(worldend.name, "WORLDEND SYNDROME")
+        XCTAssertEqual(worldend.edition, .switch1)
+
+        let tmnt = try XCTUnwrap(completed.first { $0.titleID == "0100FE701475A000" })
+        XCTAssertEqual(tmnt.name, "Teenage Mutant Ninja Turtles: Shredder's Revenge")
+        XCTAssertEqual(tmnt.edition, .switch1)
 
         let oot = try XCTUnwrap(completed.first { $0.titleID == "0400486024DEC000" })
         XCTAssertEqual(oot.name, "The Legend of Zelda: Ocarina of Time")

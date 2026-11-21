@@ -35,7 +35,7 @@ package enum SupportedGames {
     package static let noteLimit = 320
 
     /// Every profile under `<engineRoot>/dm/games`, by name. A folder that is not a profile (no `title_id`, no `name`) is left out.
-    /// When `includeMacNativeGames` is true, any missing title among the 5 MacNativeGames-supported games is appended cleanly.
+    /// When `includeMacNativeGames` is true, any missing title among the 12 MacNativeGames-supported games is appended cleanly.
     package static func list(engineRoot: String, includeMacNativeGames: Bool = false) -> [SupportedGame] {
         var loaded: [SupportedGame] = []
         if !engineRoot.isEmpty {
@@ -88,9 +88,58 @@ package enum SupportedGames {
             version: nil,
             notes: "Switch 2 release supported by MacNativeGames for macOS native builds."
         ),
+        SupportedGame(
+            titleID: "010093801237C000",
+            name: "Metroid Dread",
+            edition: .switch1,
+            version: nil,
+            notes: "Supported by MacNativeGames for macOS native builds."
+        ),
+        SupportedGame(
+            titleID: "01002DA013484000",
+            name: "The Legend of Zelda: Skyward Sword HD",
+            edition: .switch1,
+            version: nil,
+            notes: "Supported by MacNativeGames for macOS native builds."
+        ),
+        SupportedGame(
+            titleID: "010048900CF64000",
+            name: "WORLDEND SYNDROME",
+            edition: .switch1,
+            version: nil,
+            notes: "Supported by MacNativeGames for macOS native builds."
+        ),
+        SupportedGame(
+            titleID: "0100FE701475A000",
+            name: "Teenage Mutant Ninja Turtles: Shredder's Revenge",
+            edition: .switch1,
+            version: nil,
+            notes: "Supported by MacNativeGames for macOS native builds."
+        ),
+        SupportedGame(
+            titleID: "01006F8002326000",
+            name: "Animal Crossing: New Horizons",
+            edition: .switch1,
+            version: nil,
+            notes: "Supported by MacNativeGames for macOS native builds."
+        ),
+        SupportedGame(
+            titleID: "01008CF01BAAC000",
+            name: "The Legend of Zelda: Echoes of Wisdom",
+            edition: .switch1,
+            version: nil,
+            notes: "Supported by MacNativeGames for macOS native builds."
+        ),
+        SupportedGame(
+            titleID: "0100000000010000",
+            name: "Super Mario Odyssey",
+            edition: .switch1,
+            version: nil,
+            notes: "Supported by MacNativeGames for macOS native builds."
+        ),
     ]
 
-    /// Ensures all 5 MacNativeGames-supported titles appear in `games` without duplicating existing profiles.
+    /// Ensures all 12 MacNativeGames-supported titles appear in `games` without duplicating existing profiles.
     package static func withMacNativeGames(_ games: [SupportedGame]) -> [SupportedGame] {
         var existingIDs = Set(games.map { $0.titleID.uppercased() })
         var out = games

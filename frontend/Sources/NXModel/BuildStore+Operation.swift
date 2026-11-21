@@ -165,15 +165,42 @@ extension BuildStore {
         guard !running else { return t("queue.cannotStart") }
         activeQueuedGameID = entry.gameID
         let normalizedTarget = BuildTarget.normalized(entry.target)
-        let trimmedTitleID = entry.titleID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if buildUpstream == .macNativeGames,
-           normalizedTarget != BuildTarget.mac || (!trimmedTitleID.isEmpty && !MacNativeGamesBuilder.supportsTitleID(trimmedTitleID)) {
-            buildUpstream = .nxnative
+        var resolvedTitleID = entry.titleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if MacNativeGamesBuilder.normalizedHex16(resolvedTitleID) == nil,
+           !entry.fastRefresh,
+           let base = entry.inputs["base"]?.first,
+           !base.isEmpty {
+            if let parsed = TitleID.parse(base) {
+                resolvedTitleID = String(format: "%016llX", parsed)
+            } else {
+                let entryKeys = entry.inputs["keys"]?.first ?? ""
+                let effectiveKeys = entryKeys.isEmpty ? keysPath : entryKeys
+                if !effectiveKeys.isEmpty, let headerID = readPackageTitleID(base, effectiveKeys),
+                   let normalized = MacNativeGamesBuilder.normalizedHex16(headerID) {
+                    resolvedTitleID = normalized
+                }
+            }
         }
         if skipsQueuedIOS, normalizedTarget != BuildTarget.mac {   // queued for iOS before nxkit was chosen
             activeQueuedGameID = nil
             return t(macOnlyNoteKey)
         }
+        let targetUpstream: EngineUpstreamKind = {
+            if entry.fastRefresh { return .nxnative }
+            let requested = entry.upstream ?? buildUpstream
+            switch requested {
+            case .macNativeGames:
+                let allowed = MacNativeGamesBuilder.featureEnabled
+                    && macNativeGamesInstalled
+                    && normalizedTarget == BuildTarget.mac
+                    && MacNativeGamesBuilder.supportsTitleID(resolvedTitleID)
+                return allowed ? .macNativeGames : .nxnative
+            case .nxkit:
+                return normalizedTarget == BuildTarget.mac ? .nxkit : .nxnative
+            case .nxnative, .s2arm:
+                return requested
+            }
+        }()
         if !entry.outputDirectory.isEmpty {
             outDir = entry.outputDirectory
         }
@@ -198,6 +225,10 @@ extension BuildStore {
         }
 
         if entry.fastRefresh {
+            activeQueueEntryUpstream = .nxnative
+            if buildUpstream != .nxnative {
+                buildUpstream = .nxnative
+            }
             hintedTitleID = nil
             let explicitOutDir: String? = {
                 if !entry.outputDirectory.isEmpty { return entry.outputDirectory }
@@ -221,6 +252,7 @@ extension BuildStore {
                 externalImgPath: entry.externalImgPath
             )
             if running { return nil }
+            activeQueueEntryUpstream = nil
             queuedExportIPA = nil
             queuedExportOneGame = nil
             queuedExportFramework = nil
@@ -239,7 +271,11 @@ extension BuildStore {
             }
             gameDir = (basePath as NSString).deletingLastPathComponent
         }
-        applyKnownTitleID(trimmedTitleID)
+        applyKnownTitleID(resolvedTitleID)
+        activeQueueEntryUpstream = targetUpstream
+        if buildUpstream != targetUpstream {
+            buildUpstream = targetUpstream
+        }
         if let extImg = entry.externalImgPath?.trimmingCharacters(in: .whitespacesAndNewlines),
            !extImg.isEmpty,
            FileManager.default.fileExists(atPath: extImg) {
@@ -254,6 +290,8 @@ extension BuildStore {
         stages = []
         runBuild()
         if running { return nil }
+        activeQueueEntryUpstream = nil
+        enforceUpstreamForCurrentGame()
         fastRefreshExternalImgPath = nil
         queuedExportIPA = nil
         queuedExportOneGame = nil

@@ -6,6 +6,12 @@ import NXCore
 /// and the user of it looks for one itself.
 @MainActor package protocol PythonLocation: AnyObject {
     var pythonPath: String { get }
+    /// The build upstream for which `pythonPath` was resolved, or nil before the first check completes.
+    var pythonUpstream: EngineUpstreamKind? { get }
+}
+
+extension PythonLocation {
+    package var pythonUpstream: EngineUpstreamKind? { nil }
 }
 
 /// What the build needs to know about the tools, without the store that installs them: the check ran, everything it needs is
@@ -47,6 +53,8 @@ import NXCore
     /// The interpreter the build runs under, set by the check.
     @Published package var pythonPath = ""
     @Published package var dotnetPath = ""
+    /// Which build upstream `pythonPath` and `dotnetPath` belong to.
+    @Published package private(set) var pythonUpstream: EngineUpstreamKind? = nil
     /// Live fraction (0...1) and status line while a dependency row installs.
     @Published package var installProgress: [String: Double] = [:]
     @Published package var installDetail: [String: String] = [:]
@@ -145,6 +153,11 @@ import NXCore
         let generation = checkGeneration
         let path = repo.path, needsIOS = needsIOS(), scan = self.scan, report = self.report, selection = xcodeApp
         let upstreamCtx = upstreamContext()
+        if pythonUpstream != upstreamCtx.kind {
+            pythonPath = ""
+            dotnetPath = ""
+            pythonUpstream = nil
+        }
         return Task {
             let found = await Task.detached { () -> DependencyCheck.Result in
                 let r = scan?(path, needsIOS) ?? DependencyCheck.scan(
@@ -165,6 +178,7 @@ import NXCore
             deps = found.deps
             pythonPath = found.python                // the interpreter the build runs under
             dotnetPath = found.dotnet
+            pythonUpstream = upstreamCtx.kind
             checked = true
         }
     }
@@ -186,10 +200,16 @@ import NXCore
         installDetail.removeValue(forKey: depID)
         let runner = self.runner
         let log = self.log
-        let base = pythonPath
+        let upstreamKind = upstreamContext().kind
+        let base: String = {
+            if upstreamKind != .macNativeGames,
+               (pythonUpstream != nil && pythonUpstream != upstreamKind) || MacNativeGamesBuilder.isManagedUVPython(pythonPath) {
+                return ""
+            }
+            return pythonPath
+        }()
         let cmd = dep.installCmd
         let isPython = depID == "python"
-        let upstreamKind = upstreamContext().kind
         let includeS2Arm = upstreamKind == .s2arm
         return Task {
             let outcome = await Task.detached { [weak self] () -> (ok: Bool, failure: (error: String, fix: String)?, output: String?) in

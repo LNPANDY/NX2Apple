@@ -89,12 +89,12 @@ package struct UpstreamBuilderRow: View {
         return opts
     }
 
-    /// The engines the pop-up shows but this game cannot take: MacNativeGames for a title outside the five it maintains (#1473).
+    /// The engines the pop-up shows but this game or staged queue cannot take: MacNativeGames outside its 12 supported titles (#1473).
     package static func disabledValues(_ build: BuildStore) -> Set<String> {
         build.isMNGBlockedByCurrentGame ? [EngineUpstreamKind.macNativeGames.rawValue] : []
     }
 
-    /// MacNativeGames is in the pop-up and the picked game is not one of its five: the row says why it is dimmed.
+    /// MacNativeGames is in the pop-up and blocked by the current game or staged queue: the row says why it is dimmed.
     static func mngBlocked(_ build: BuildStore) -> Bool {
         MacNativeGamesBuilder.featureEnabled && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames) && build.isMNGBlockedByCurrentGame
     }
@@ -124,7 +124,7 @@ package struct UpstreamBuilderRow: View {
             }
             return BuildEngineRow(detail: build.nxkitStatusLine, message: message, menu: menu)
         }
-        if mngBlocked(build) { return BuildEngineRow(message: .info(loc.t("upstream.mngOnlyFiveTitles"))) }
+        if mngBlocked(build) { return BuildEngineRow(message: .info(loc.t(build.mngBlockedReasonKey))) }
         guard NxkitBuilder.featureEnabled else { return BuildEngineRow() }
         switch build.nxkitAvailability {
         case .available: return BuildEngineRow()

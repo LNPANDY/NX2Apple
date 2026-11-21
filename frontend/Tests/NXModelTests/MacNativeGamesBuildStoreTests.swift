@@ -195,23 +195,23 @@ import XCTest
         let validTree = try makeFakeMNGTree()
         store.macNativeGamesPath = validTree
 
-        // Unknown 16-hex title ID cannot switch to MNG and auto-reverts if an unsupported game is chosen.
-        let unsupportedBase = temporary.appendingPathComponent("Unsupported [0100000000010000].nsp")
+        // Unsupported 16-hex title ID cannot switch to MNG and auto-reverts if an unsupported game is chosen.
+        let unsupportedBase = temporary.appendingPathComponent("Unsupported [0100152000022000].nsp")
         try Data([0]).write(to: unsupportedBase)
         store.updateSlot("base") { $0.paths = [unsupportedBase.path] }
         XCTAssertEqual(store.buildUpstream, .nxnative)
         XCTAssertTrue(store.isMNGBlockedByCurrentGame)
         XCTAssertFalse(store.canSelectUpstream(.macNativeGames))
 
-        // Unrecognized title ID (no 16-hex ID) stays selectable in UI, but startBuild still blocks with upstream.mngUnsupportedGame.
+        // Unrecognized title ID (no 16-hex ID, Default-Deny) also blocks MNG selection and auto-reverts to nxnative.
         let unknownBase = temporary.appendingPathComponent("MysteryGame.nsp")
         try Data([0]).write(to: unknownBase)
         store.updateSlot("base") { $0.paths = [unknownBase.path] }
         store.buildUpstream = .macNativeGames
-        store.target = BuildTarget.mac
-        store.startBuild()
+        XCTAssertEqual(store.buildUpstream, .nxnative)
+        XCTAssertTrue(store.isMNGBlockedByCurrentGame)
+        XCTAssertFalse(store.canSelectUpstream(.macNativeGames))
         XCTAssertFalse(runnerStarted)
-        XCTAssertEqual(store.doneNote, String(format: localizer.t("upstream.mngUnsupportedGame"), "MysteryGame.nsp"))
     }
 
     func testAutoRevertsToNxnativeAcrossAllEntryPointsAndRecommendsOnSupportedFive() throws {
@@ -221,7 +221,7 @@ import XCTest
         store.macNativeGamesPath = mngTree
 
         let supportedBase = temporary.appendingPathComponent("TOTK [0100F2C0115B6000].nsp")
-        let unsupportedBase = temporary.appendingPathComponent("Odyssey [0100000000010000].nsp")
+        let unsupportedBase = temporary.appendingPathComponent("MarioKart [0100152000022000].nsp")
         let keys = temporary.appendingPathComponent("prod.keys")
         try Data([0]).write(to: supportedBase)
         try Data([0]).write(to: unsupportedBase)
@@ -268,10 +268,10 @@ import XCTest
         store.take(dropped: [unsupportedBase.path])
         XCTAssertEqual(store.buildUpstream, .nxnative)
 
-        // 5. Multi-game selectedTitleID picking a non-5 title reverts to nxnative; picking Pokopia keeps MNG.
+        // 5. Multi-game selectedTitleID picking a non-12 title reverts to nxnative; picking Pokopia keeps MNG.
         store.updateSlot("base") { $0.paths = [] }
         store.selectUpstream(.macNativeGames)
-        store.selectedTitleID = "010093801237C000"
+        store.selectedTitleID = "0100152000022000"
         XCTAssertEqual(store.buildUpstream, .nxnative)
 
         store.selectedTitleID = "0400A3A01EE4C000"
@@ -674,6 +674,9 @@ import XCTest
     func testStopDuringMNGPrepNszInstallResetsStateWithoutFailure() throws {
         repo.isRepo = false
         let validTree = try makeFakeMNGTree()
+        let dreadDir = URL(fileURLWithPath: validTree).appendingPathComponent("games/dread")
+        try FileManager.default.createDirectory(at: dreadDir, withIntermediateDirectories: true)
+        try Data("#!/usr/bin/env python3\n".utf8).write(to: dreadDir.appendingPathComponent("build.py"))
         let runner = ChunkedRunner()
         runner.captureAnswer = { launch in
             if launch.arguments.contains("import nsz") {
@@ -690,7 +693,8 @@ import XCTest
         store.macNativeGamesPath = validTree
         store.target = BuildTarget.mac
 
-        let base = temporary.appendingPathComponent("Zelda [0100F2C0115B6000].nsz")
+        // Per-game script (Metroid Dread) with .nsz creates an isolated nsz-venv without mutating py314.
+        let base = temporary.appendingPathComponent("Dread [010093801237C000].nsz")
         let keys = temporary.appendingPathComponent("prod.keys")
         try Data([0]).write(to: base)
         try Data([0]).write(to: keys)
@@ -698,7 +702,7 @@ import XCTest
         store.updateSlot("keys") { $0.paths = [keys.path] }
 
         runner.streamHandler = { [weak store] launch, _ in
-            if launch.arguments.contains("pip") && launch.arguments.contains("nsz") {
+            if launch.arguments.contains("venv") {
                 let sem = DispatchSemaphore(value: 0)
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
@@ -783,10 +787,10 @@ import XCTest
         store.macNativeGamesPath = validTree
 
         let keys = temporary.appendingPathComponent("prod.keys")
-        let odysseyNoTag = temporary.appendingPathComponent("Odyssey.nsp")
+        let mk8dNoTag = temporary.appendingPathComponent("MarioKart.nsp")
         let totkTagged = temporary.appendingPathComponent("TOTK [0100F2C0115B6000].nsp")
         try Data([0]).write(to: keys)
-        try Data([0]).write(to: odysseyNoTag)
+        try Data([0]).write(to: mk8dNoTag)
         try Data([0]).write(to: totkTagged)
 
         // 1. iOS queue entry reverts MNG to nxnative even for a supported title ID.
@@ -804,19 +808,19 @@ import XCTest
         XCTAssertEqual(store.buildUpstream, .nxnative)
         XCTAssertNotEqual(store.doneNote, localizer.t("upstream.mngMacOnly"))
 
-        // 2. Mac queue entry with non-5 titleID and untagged filename reverts MNG and blocks MNG via hintedTitleID.
+        // 2. Mac queue entry with non-12 titleID and untagged filename reverts MNG and blocks MNG via hintedTitleID.
         store.buildUpstream = .macNativeGames
         let macUnsupportedEntry = QueueEntry(
-            titleID: "0100000000010000",
-            name: "Odyssey",
+            titleID: "0100152000022000",
+            name: "Mario Kart 8 Deluxe",
             target: BuildTarget.mac,
-            inputs: ["base": [odysseyNoTag.path], "keys": [keys.path]],
+            inputs: ["base": [mk8dNoTag.path], "keys": [keys.path]],
             outputDirectory: temporary.path,
             engineID: "main"
         )
         _ = store.startQueued(macUnsupportedEntry)
         XCTAssertEqual(store.buildUpstream, .nxnative)
-        XCTAssertEqual(store.detectedGameTitleID16, "0100000000010000")
+        XCTAssertEqual(store.detectedGameTitleID16, "0100152000022000")
         XCTAssertTrue(store.isMNGBlockedByCurrentGame)
 
         // 3. Switching base slot clears stale hintedTitleID.
