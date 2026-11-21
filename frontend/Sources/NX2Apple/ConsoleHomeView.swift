@@ -41,15 +41,23 @@ struct ConsoleClock: View {
     }
 }
 
-/// How the console home moves when another game is focused: not at all. The title, the artwork, the row and the focused tile switch
-/// in the same frame, as a console's home does. Only the same game's large image arriving later fades in (ConsoleBackdrop).
+/// How the console home moves when another game is focused: light and short, with the values the home had before the launcher
+/// redesign (e6c789659, before #1458 brought the Library's timing and the row's slide). The new title fades in while the old one goes
+/// at once, so two titles never overlap. The art cross-fades softly. The row and the focused tile move gently. Nothing blurs.
 enum ConsoleHomeMotion {
-    /// The animation of a change of the focused game on the home: none, so nothing cross-fades, slides or blurs.
-    static let focusSwitch: Animation? = nil
-    /// A tile's focus ring and scale: at once on the home row (`coverflow`), with the rest of the switch. A short ease in a grid
-    /// (all games, the search), where only the ring moves.
+    /// The title: the new one fades in, the old one is gone in the same frame. The same under Reduce Motion, a fade moves nothing.
+    static let title: Animation = .easeInOut(duration: 0.12)
+    static let titleTransition: AnyTransition = .asymmetric(insertion: .opacity, removal: .identity)
+    /// Another game's art cross-fades with the old one. Under Reduce Motion it switches at once.
+    static func artwork(reduceMotion: Bool) -> Animation { .easeInOut(duration: reduceMotion ? 0.01 : 0.38) }
+    static let artworkTransition: AnyTransition = .opacity
+    /// The same game's large image arriving later replaces its cover.
+    static func heroArrival(reduceMotion: Bool) -> Animation { .easeInOut(duration: reduceMotion ? 0.01 : 0.25) }
+    /// The row moving to the next tile: a short ease, none under Reduce Motion.
+    static func row(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .easeOut(duration: 0.2) }
+    /// A tile's focus ring and scale: the home row's quick ease (`coverflow`), the grid's (all games, the search) a little longer.
     static func tileFocus(coverflow: Bool, reduceMotion: Bool) -> Animation? {
-        coverflow || reduceMotion ? nil : .easeOut(duration: 0.22)
+        reduceMotion ? nil : .easeOut(duration: coverflow ? 0.15 : 0.22)
     }
 }
 
@@ -156,17 +164,21 @@ enum ConsoleHomeMotion {
 
     // MARK: Title
 
-    /// A fixed-height slot, so the rows below never move, whatever the title's length. Another game's title replaces the old one in
-    /// the same frame as the artwork and the row: no cross-fade, no slide (ConsoleHomeMotion). Availability stays on the artwork chip.
+    /// A fixed-height slot, so the rows below never move, whatever the title's length. Another game's title fades in quickly and the
+    /// old one goes at once, so two titles of different lengths never show at the same time (ConsoleHomeMotion). No blur, no slide.
+    /// Availability stays on the artwork chip.
     private func title(_ game: ConsoleGame) -> some View {
-        Text(game.title).font(compact ? DS.Console.Font.title : DS.Console.Font.largeTitle)
-            .tracking(DS.Console.Font.largeTitleTracking).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            .foregroundStyle(DS.Color.textPrimary)
-            .shadow(color: .black.opacity(0.45), radius: 12)
-            .accessibilityAddTraits(.isHeader)
-            .animation(ConsoleHomeMotion.focusSwitch, value: game.id)
-            .padding(.horizontal, inset)
-            .frame(height: titleHeight, alignment: .bottomLeading)
+        ZStack(alignment: .bottomLeading) {
+            Text(game.title).font(compact ? DS.Console.Font.title : DS.Console.Font.largeTitle)
+                .tracking(DS.Console.Font.largeTitleTracking).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(DS.Color.textPrimary)
+                .shadow(color: .black.opacity(0.45), radius: 12)
+                .accessibilityAddTraits(.isHeader)
+                .id(game.id).transition(ConsoleHomeMotion.titleTransition)
+        }
+        .dsAnimation(ConsoleHomeMotion.title, value: game.id)
+        .padding(.horizontal, inset)
+        .frame(height: titleHeight, alignment: .bottomLeading)
     }
 
     private var titleHeight: CGFloat { compact ? 130 : 54 + 2.4 * DS.Console.Font.largeTitleSize }
@@ -200,7 +212,7 @@ enum ConsoleHomeMotion {
         .offset(x: -CGFloat(index) * step)
         .frame(width: size.width, alignment: .leading)
         .clipped()
-        .animation(ConsoleHomeMotion.focusSwitch, value: index)   // the row jumps to the next tile with the title and the artwork
+        .dsAnimation(ConsoleHomeMotion.row(reduceMotion: reduceMotion), value: index)   // the row moves to the next tile with a short ease
         .background(ConsoleHomeWheelView { step in moveRow(step) })
         .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { gesture in
             if let step = ConsoleHomePointerInput.drag(gesture.translation) { moveRow(step) }
