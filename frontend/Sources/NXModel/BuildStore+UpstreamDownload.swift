@@ -199,7 +199,7 @@ extension BuildStore {
                 }
                 self.upstreamDownloads.removeValue(forKey: kind)
                 self.didInstallUpstreamVersion(kind, previousRemote: knownRemote)
-                if !self.running {
+                if !self.running && self.canSelectUpstream(kind) {
                     self.selectUpstream(kind)
                     self.upstreamAutoSwitchRevision &+= 1
                 }

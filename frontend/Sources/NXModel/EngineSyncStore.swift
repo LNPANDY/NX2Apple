@@ -120,7 +120,17 @@ import NXCore
         guard EngineLayout.isStale(path) else { failure = nil; then?(true); return Task {} }
         syncWaiting = then.map { [$0] } ?? []
         syncing = true; failure = nil
-        let chosen = python.pythonPath, runner = self.runner, log = self.log
+        let rawChosen = python.pythonPath
+        let chosenUpstream = python.pythonUpstream
+        let chosen: String = {
+            guard !rawChosen.isEmpty,
+                  chosenUpstream == nil || chosenUpstream == .nxnative,
+                  !MacNativeGamesBuilder.isManagedUVPython(rawChosen) else {
+                return ""
+            }
+            return rawChosen
+        }()
+        let runner = self.runner, log = self.log
         log("$ python3 tools/engine.py sync\n")
         let tail = Tail()   // what failureKind reads when the sync stops
         return Task {

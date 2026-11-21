@@ -75,6 +75,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                     }
                 }
                 enforceUpstreamForCurrentGame()
+                probeBasePackageTitleIDIfNeeded()
             }
         }
     }
@@ -92,6 +93,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             if gameFolder != oldValue {
                 invalidateKeyProblem()
                 enforceUpstreamForCurrentGame()
+                probeBasePackageTitleIDIfNeeded()
             }
         }
     }
@@ -106,8 +108,15 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var running = false {
         didSet {
             if !running, !buildingGame { runningTarget = target }
-            if !running { completedOperation = operation?.kind; operation = nil }
-            if !running, oldValue { applyPendingNxkitSwitch() }   // an nxkit update waits for the build (BuildStore+Nxkit.swift)
+            if !running {
+                completedOperation = operation?.kind
+                operation = nil
+                activeQueueEntryUpstream = nil
+            }
+            if !running, oldValue {
+                applyPendingNxkitSwitch()   // an nxkit update waits for the build (BuildStore+Nxkit.swift)
+                enforceUpstreamForCurrentGame()
+            }
         }
     }
     /// What runs right now: operation, game and destination, taken when the work starts and independent of the Build form
@@ -177,7 +186,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package internal(set) var savedKeys: String {
         didSet {
             if savedKeys.isEmpty { defaults.removeObject(forKey: Self.savedKeysKey) } else { defaults.set(savedKeys, forKey: Self.savedKeysKey) }
-            if savedKeys != oldValue { invalidateKeyProblem() }
+            if savedKeys != oldValue {
+                invalidateKeyProblem()
+                probeBasePackageTitleIDIfNeeded()
+            }
         }
     }
     @Published package var buildUpstream: EngineUpstreamKind {
@@ -317,18 +329,40 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The build queue (#943), wired by the app so the Build page's start actions can run a staged queue batch.
     package weak var queue: BuildQueueStore? {
         didSet {
+            queue?.bindUpstreamProvider(
+                currentUpstream: { [weak self] in self?.buildUpstream ?? .nxnative },
+                defaultKeysPath: { [weak self] in self?.keysPath ?? "" },
+                readPackageTitleID: { [weak self] path, keys in
+                    let reader = self?.readPackageTitleID ?? { PackageHeaderTitleID.readHex16(path: $0, keysPath: $1) }
+                    return reader(path, keys)
+                }
+            )
             queueHasIOS = queue?.hasIOS ?? false
             let count = queue?.games.filter(\.waiting).count ?? 0
             if queuedCount != count { queuedCount = count }
+            let blocksMNG = queue?.queued.contains { !Self.canQueueEntryUseMNG($0) } ?? false
+            if queueBlocksMNG != blocksMNG { queueBlocksMNG = blocksMNG }
+            enforceUpstreamForCurrentGame()
             queueSubscription = queue?.$entries.sink { [weak self] entries in
-                self?.queueHasIOS = entries.contains { $0.status == .queued && $0.target != BuildTarget.mac }
+                guard let self else { return }
+                let queuedEntries = entries.filter { $0.status == .queued }
+                self.queueHasIOS = queuedEntries.contains { BuildTarget.normalized($0.target) != BuildTarget.mac }
                 let next = QueueGame.grouped(entries).filter(\.waiting).count
-                if self?.queuedCount != next { self?.queuedCount = next }
+                if self.queuedCount != next { self.queuedCount = next }
+                let nextBlocksMNG = queuedEntries.contains { !Self.canQueueEntryUseMNG($0) }
+                if self.queueBlocksMNG != nextBlocksMNG { self.queueBlocksMNG = nextBlocksMNG }
+                self.enforceUpstreamForCurrentGame()
             }
         }
     }
     @Published package private(set) var queueHasIOS = false
     @Published package private(set) var queuedCount = 0
+    @Published package private(set) var queueBlocksMNG = false
+    var activeQueueEntryUpstream: EngineUpstreamKind? = nil
+    var packageHeaderProbeGeneration: UInt64 = 0
+    package var readPackageTitleID: @Sendable (_ path: String, _ keysPath: String) -> String? = {
+        PackageHeaderTitleID.readHex16(path: $0, keysPath: $1)
+    }
     private var queueSubscription: AnyCancellable?
     /// The running send of each transfer asks this flag whether it was cancelled.
     var transferCancels: [UUID: LockedFlag] = [:]
