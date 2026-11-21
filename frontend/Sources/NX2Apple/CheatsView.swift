@@ -35,7 +35,7 @@ struct CheatsView: View {
         return support.map { CheatFiles(titleID: game.titleID, support: $0) } ?? CheatFiles(titleID: game.titleID)
     }
 
-    private var buildID: String? { game.flatMap { CheatFiles.buildID(appPath: $0.appPath, iosAppPath: $0.iosAppPath) } }
+    private var buildID: String? { game.flatMap { CheatFiles.buildID(appPath: $0.appPath, iosAppPath: $0.iosAppPath, titleID: $0.titleID, shellRoot: m.shellRoot) } }
     private var current: CheatFiles.Found? { buildID.flatMap { id in files.first { $0.buildID == id } } }
     private var bundle: String { game.flatMap { NSDictionary(contentsOfFile: $0.iosAppPath + "/Info.plist")?["CFBundleIdentifier"] as? String } ?? "" }
     private var canCopy: Bool { !busy && (game?.onDevice ?? false) && !bundle.isEmpty && !files.isEmpty }

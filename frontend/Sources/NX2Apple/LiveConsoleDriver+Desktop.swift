@@ -67,7 +67,7 @@ extension LiveConsoleDriver {
     func cheats(_ game: LibraryGame) -> ConsoleCheats {
         let files = CheatFiles(titleID: game.titleID)
         var result = ConsoleCheats(masterOn: files.masterOn)
-        guard let buildID = CheatFiles.buildID(appPath: game.appPath, iosAppPath: game.iosAppPath) else { result.note = t("console.cheats.noBuild"); return result }
+        guard let buildID = CheatFiles.buildID(appPath: game.appPath, iosAppPath: game.iosAppPath, titleID: game.titleID, shellRoot: shellRoot()) else { result.note = t("console.cheats.noBuild"); return result }
         guard let file = files.found().first(where: { $0.buildID == buildID }), let all = files.cheats(of: file) else {
             result.note = t("console.cheats.noFile"); return result
         }
@@ -117,7 +117,7 @@ extension LiveConsoleDriver {
     }
 
     func setCheat(gameID: String, key: String, on value: Bool) {
-        guard let game = libraryGame(gameID), let buildID = CheatFiles.buildID(appPath: game.appPath, iosAppPath: game.iosAppPath) else { return }
+        guard let game = libraryGame(gameID), let buildID = CheatFiles.buildID(appPath: game.appPath, iosAppPath: game.iosAppPath, titleID: game.titleID, shellRoot: shellRoot()) else { return }
         let files = CheatFiles(titleID: game.titleID)
         guard let file = files.found().first(where: { $0.buildID == buildID }), let all = files.cheats(of: file),
               all.contains(where: { $0.key == key && $0.switchable }) else { return }
