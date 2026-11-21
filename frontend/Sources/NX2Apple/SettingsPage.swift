@@ -99,7 +99,7 @@ struct SettingsPage: View {
     @ViewBuilder private var tools: some View {
         KeysCard(build: build)
         ToolsCard(repo: repo, engine: engine, dependencies: dependencies, buildRunning: build.running,
-                  shellCache: { ShellCacheRow(build: build) }, builder: {
+                  shellCache: { ShellCacheRow(build: build); BuildCacheRows(build: build) }, builder: {
             // rows of the build tools group, under its last row. Each brings the divider above it.
             if MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled { UpstreamBuilderRow(build: build) }
         }, upstream: UpstreamBuilderRow.offersPicker(build, loc) ? { UpstreamPicker(build: build) } : nil,

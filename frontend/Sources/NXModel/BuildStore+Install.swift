@@ -459,6 +459,7 @@ extension BuildStore {
                                                   team: team, python: python, path: toolPath, home: NSHomeDirectory(), user: NSUserName(),
                                                   tmp: NSTemporaryDirectory(), package: package, engine: engineRoot)
         env.merge(BundledTools.environment(for: python)) { $1 }
+        env.merge(seedEnvironment) { $1 }
         let xcconfig = shell.root + "/project/Gen/dm.xcconfig"
         if (try? String(contentsOfFile: xcconfig, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true
             || FileManager.default.fileExists(atPath: shell.root + "/project/entitlements-empty") {

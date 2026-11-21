@@ -16,6 +16,8 @@ extension BuildStore {
         // The bundled Python lives inside the signed app: a .pyc written there would change what the signature seals
         // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
         denv.merge(BundledTools.environment(for: py)) { $1 }
+        // The engine finds the build seeds itself (build_seed.py): a moved seed root goes to every engine process (BuildCacheRoots)
+        denv.merge(seedEnvironment) { $1 }
         return ProxyEnvironment.merged(into: denv)
     }
 }

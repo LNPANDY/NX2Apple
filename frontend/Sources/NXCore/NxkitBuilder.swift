@@ -199,9 +199,10 @@ package enum NxkitBuilder {
         return env
     }
 
-    /// The work folder of one game, under the launcher's caches. A second build with the same files reuses its stages.
-    package static func workDirectory(home: String, key: String) -> String {
-        home + "/Library/Caches/NX2Apple/nxkit/" + key
+    /// The work folder of one game, inside the nxkit work root (`~/Library/Caches/NX2Apple/nxkit` unless the player moved it,
+    /// BuildCacheRoots). A second build with the same files reuses its stages.
+    package static func workDirectory(root: String, key: String) -> String {
+        root + "/" + key
     }
 
     // MARK: Exit codes and output

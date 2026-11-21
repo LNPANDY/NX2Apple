@@ -274,6 +274,51 @@ import XCTest
         XCTAssertEqual(store.effectiveOutputFolder, expectedFallback)
     }
 
+    /// Seeds the player moved (Settings, Tools): the script reads them there, a refresh without an output folder builds in the
+    /// moved refresh-builds beside them, and the engine gets DM_SEED_CACHE_DIR for its own lookups.
+    func testAMovedSeedRootIsWhereTheRefreshReadsAndBuilds() throws {
+        let runner = StartRecordingRunner()
+        let store = makeStore(runner: runner)
+        store.launcherEnvironment = [:]
+        let repoDir = temporary.appendingPathComponent("repo").path
+        try setupMockRepo(in: repoDir)
+        self.repo.path = repoDir
+        let seeds = temporary.appendingPathComponent("Drive/NX2Apple-build-seeds/build-seeds").path
+        defaults.set(seeds, forKey: BuildCacheRoots.seedKey)
+        store.outDir = ""
+        store.leaveGameFolder()
+        store.updateSlot("base") { $0.paths = [] }
+        let tid = "0100555500005555"
+
+        store.startFastRefresh(titleID: tid, target: 0)
+
+        let moved = temporary.appendingPathComponent("Drive/NX2Apple-build-seeds/refresh-builds").path
+        XCTAssertEqual(store.effectiveOutputFolder, moved)
+        let launch = try XCTUnwrap(runner.launches.first { $0.arguments.contains("--from-seed") })
+        XCTAssertEqual(launch.arguments[launch.arguments.firstIndex(of: "--seed-cache-dir")! + 1], seeds)
+        XCTAssertTrue(launch.arguments.contains(moved + "/" + tid + "_build"))
+        XCTAssertEqual(launch.environment?["DM_SEED_CACHE_DIR"], seeds)
+    }
+
+    func testARefreshStopsWhenTheDriveWithTheSeedsIsNotConnected() throws {
+        let runner = StartRecordingRunner()
+        let store = makeStore(runner: runner)
+        store.launcherEnvironment = [:]
+        let repoDir = temporary.appendingPathComponent("repo").path
+        try setupMockRepo(in: repoDir)
+        self.repo.path = repoDir
+        let drive = "/Volumes/NX2Apple-test-missing-" + UUID().uuidString
+        defaults.set(drive + "/NX2Apple-build-seeds/build-seeds", forKey: BuildCacheRoots.seedKey)
+        store.outDir = temporary.appendingPathComponent("out").path
+
+        store.startFastRefresh(titleID: "0100555500005555", target: 0)
+
+        XCTAssertTrue(runner.launches.isEmpty, "the script does not start")
+        XCTAssertEqual(store.doneNote, String(format: localizer.t("seedCache.driveMissing"), store.shortPath(drive + "/NX2Apple-build-seeds/build-seeds")))
+        XCTAssertFalse(store.running)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: drive))
+    }
+
     func testHomeDirectoryIsolation() throws {
         let runner = StartRecordingRunner()
         let store = makeStore(runner: runner)
