@@ -186,6 +186,7 @@ package struct DSScrollingSheet<Content: View, Leading: View, Buttons: View>: Vi
     let buttons: Buttons
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dsSheetMaxHeight) private var maxHeight
+    @State private var settled = false   // one runloop after onAppear: from then on a focus change scrolls with animation
 
     package var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -198,7 +199,11 @@ package struct DSScrollingSheet<Content: View, Leading: View, Buttons: View>: Vi
                         .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DS.Space.xxs).padding(.bottom, DSSheetInsets.gap)
                 }
                 .onChange(of: scrollTarget) { id in
-                    if let id { withAnimation(reduceMotion ? nil : .easeInOut(duration: DS.Motion.standard)) { proxy.scrollTo(id, anchor: .center) } }
+                    guard let id else { return }
+                    // a focus set in the sheet's onAppear lands here during the first layout: an animated scroll then slides the
+                    // content in from the sheet's top left corner, so it only animates once the sheet has appeared
+                    if settled { withAnimation(reduceMotion ? nil : .easeInOut(duration: DS.Motion.standard)) { proxy.scrollTo(id, anchor: .center) } }
+                    else { var still = Transaction(); still.disablesAnimations = true; withTransaction(still) { proxy.scrollTo(id, anchor: .center) } }
                 }
             }
             DSSheetButtonRow(leading: { leading }, buttons: { buttons })
@@ -206,6 +211,7 @@ package struct DSScrollingSheet<Content: View, Leading: View, Buttons: View>: Vi
         }
         .frame(width: width, height: height.map { min($0, maxHeight) })   // never higher than the screen (#1458)
         .dsSheetSurface()
+        .onAppear { DispatchQueue.main.async { settled = true } }
     }
 }
 
