@@ -51,17 +51,25 @@ struct LaunchSetting: Decodable, Identifiable {
 
     /// The settings a Mac app was packed with; nil for an app packed before they were (see LaunchList for the schema).
     static func read(app: String) -> [LaunchSetting]? {
-        let url = URL(fileURLWithPath: app).appendingPathComponent("Contents/Resources/dm/launcher.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let data = try? Data(contentsOf: listURL(app: app)) else { return nil }
         return LaunchList.parse(data)?.settings
+    }
+
+    /// Where the app keeps its list: `Contents/Resources/dm/launcher.json` for a dm app, `Contents/Resources/nxkit/launcher.json`
+    /// for an app nxkit built (nxkit-abi's launch.rs, the same schema 1).
+    static func listURL(app: String) -> URL {
+        URL(fileURLWithPath: app).appendingPathComponent(NxkitLaunch.isNxkit(app: app) ? "Contents/Resources/nxkit/launcher.json" : "Contents/Resources/dm/launcher.json")
     }
 
     /// The app's settings as the Mac shows them: the Mac-only Display mode added when the list has none (the host reads
     /// DM_FULLSCREEN in front_mac.m; a list from settings.tsv will carry it as a platform:mac row), and the render scale's
-    /// base size from the game's profile in the repository when the list does not carry it (render_base).
+    /// base size from the game's profile in the repository when the list does not carry it (render_base). An nxkit app gets its own
+    /// rows only: Display mode, the game language, macOS Game Mode and the render base are dm's, and nxkit's list has a full screen row.
     static func forMac(app: String, titleID: String, repo: String, labels: (String) -> String,
                        preferred: [String] = Locale.preferredLanguages) -> [LaunchSetting]? {
         guard var list = read(app: app)?.map({ $0.localized(labels) }) else { return nil }
+        // nxkit's host reads none of the DM_* variables and reads the saved choices of its own rows itself
+        if NxkitLaunch.isNxkit(app: app) { return list }
         if !list.contains(where: { $0.env == "DM_FULLSCREEN" }) {
             let display = LaunchSetting(env: "DM_FULLSCREEN", kind: "choice", label: labels("launch.display"), note: "", def: "",
                                         section: "Game", options: [["", labels("launch.display.window")], ["1", labels("launch.display.fullscreen")]],

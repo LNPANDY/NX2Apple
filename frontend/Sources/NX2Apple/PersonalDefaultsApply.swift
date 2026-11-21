@@ -37,7 +37,9 @@ extension GameLibrary {
             guard let settings = LaunchSetting.read(app: game.appPath) else { continue }
             if !personal.isEmpty {
                 SavedChoices(app: game.appPath, titleID: game.titleID).applyPersonal(personal, to: settings)
-                if let display = personal.value(for: "DM_FULLSCREEN"), display != "0", game.launchOptions["DM_FULLSCREEN"] == nil {
+                // Display mode is dm's (LaunchSetting.forMac): an nxkit app has its own full screen row and no DM_FULLSCREEN
+                if let display = personal.value(for: "DM_FULLSCREEN"), display != "0", game.launchOptions["DM_FULLSCREEN"] == nil,
+                   !NxkitLaunch.isNxkit(app: game.appPath) {
                     game.launchOptions["DM_FULLSCREEN"] = display
                 }
             }

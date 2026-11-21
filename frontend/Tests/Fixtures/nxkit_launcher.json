@@ -1,0 +1,142 @@
+{
+ "schema": 1,
+ "game": "0100346017304000",
+ "settings": [
+  {
+   "env": "NXKIT_OP_MODE",
+   "kind": "choice",
+   "label": "Console mode",
+   "note": "The mode the game sees: the TV picture of the docked console or the screen of the handheld. Games made for the touch screen work best in handheld mode.",
+   "default": "handheld",
+   "section": "Game",
+   "level": "basic",
+   "options": [
+    [
+     "docked",
+     "TV (docked)"
+    ],
+    [
+     "handheld",
+     "Handheld"
+    ]
+   ]
+  },
+  {
+   "env": "NXKIT_FULLSCREEN",
+   "kind": "toggle",
+   "label": "Full screen",
+   "note": "The window starts in full screen.",
+   "default": "0",
+   "section": "Game",
+   "level": "basic",
+   "on": "1",
+   "off": "0"
+  },
+  {
+   "env": "NXKIT_LANGUAGE",
+   "kind": "choice",
+   "label": "Game language",
+   "note": "",
+   "default": "",
+   "section": "Game",
+   "level": "basic",
+   "options": [
+    [
+     "",
+     "Same as the Mac"
+    ],
+    [
+     "en-US",
+     "English (US)"
+    ],
+    [
+     "en-GB",
+     "English (UK)"
+    ],
+    [
+     "fr",
+     "Fran\u00e7ais"
+    ],
+    [
+     "de",
+     "Deutsch"
+    ]
+   ]
+  },
+  {
+   "env": "NXKIT_PAUSE_UNFOCUSED",
+   "kind": "toggle",
+   "label": "Pause in the background",
+   "note": "The game pauses when its window loses the focus.",
+   "default": "0",
+   "section": "Game",
+   "on": "1",
+   "off": "0"
+  },
+  {
+   "env": "NXKIT_RUMBLE",
+   "kind": "toggle",
+   "label": "Rumble",
+   "note": "",
+   "default": "1",
+   "section": "Controls",
+   "level": "basic",
+   "on": "1",
+   "off": "0"
+  },
+  {
+   "env": "NXKIT_RUMBLE_GAIN",
+   "kind": "range",
+   "label": "Rumble strength",
+   "note": "",
+   "default": "1.0",
+   "section": "Controls",
+   "needs": "NXKIT_RUMBLE=1",
+   "min": 0.0,
+   "max": 3.0,
+   "step": 0.1
+  },
+  {
+   "env": "NXKIT_RUMBLE_MIN",
+   "kind": "range",
+   "label": "Lightest rumble",
+   "note": "A rumble weaker than this does not move the controller.",
+   "default": "0",
+   "section": "Controls",
+   "needs": "NXKIT_RUMBLE=1",
+   "min": 0.0,
+   "max": 0.9,
+   "step": 0.05
+  },
+  {
+   "env": "NXKIT_HOME_MENU",
+   "kind": "toggle",
+   "label": "Home menu",
+   "note": "A short press of the controller's Home button opens the Home menu.",
+   "default": "1",
+   "section": "Controls",
+   "on": "1",
+   "off": "0"
+  },
+  {
+   "env": "NXKIT_HOME_QUIT",
+   "kind": "toggle",
+   "label": "Hold Home to quit",
+   "note": "Holding the controller's Home button for 2 seconds asks whether to quit the game.",
+   "default": "1",
+   "section": "Controls",
+   "on": "1",
+   "off": "0"
+  },
+  {
+   "env": "NXKIT_METAL_HUD",
+   "kind": "toggle",
+   "label": "Performance HUD",
+   "note": "Metal's HUD over the game: frame rate, frame time and GPU time.",
+   "default": "0",
+   "section": "Performance",
+   "on": "1",
+   "off": "0"
+  }
+ ]
+}

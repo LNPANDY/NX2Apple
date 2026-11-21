@@ -20,7 +20,8 @@ enum GameStart {
         let overrides = game.launchEnvironment(settings).merging(game.controllerLaunchOverrides) { _, manual in manual }
         let savingEnabled = game.controllerSavingEnabled(environment: overrides)
         let mappings = SavedChoices.appReadsControllerMappings(app: game.appPath) ? game.controllerPreferences() : nil
-        let mods = GameMod.list(in: GameMod.folder(for: game, library: library.folder), titleID: game.titleID)
+        // nxkit's host reads no DM_ROMFS_OVERLAY: an app it built starts without the mods
+        let mods = NxkitLaunch.isNxkit(app: game.appPath) ? [] : GameMod.list(in: GameMod.folder(for: game, library: library.folder), titleID: game.titleID)
         var environment = game.startEnvironment(controls: controls.environment, settings: settings, mods: mods,
                                                 store: SavedChoices(app: game.appPath, titleID: game.titleID),
                                                 appReadsStore: SavedChoices.appReadsStore(app: game.appPath),
@@ -33,10 +34,10 @@ enum GameStart {
         // Console mode's game: the Home menu's Back to console mode, which pauses it in the background (#952). The desktop's Play passes none.
         if homeMenu { environment.merge(HomeButtonHint.homeMenuEnvironment(launcherBundleID: launcherBundleID)) { $1 } }
         if let sticks { environment.merge(sticks.environment) { _, own in own } }
-        // An app nxkit built reads nxkit's names only: full screen (console mode, or the player's Display choice), the screen,
-        // the Home button's texts and the Controls page's maps. From console mode it opens over the console
-        // (overlay): the Starting screen is its loading screen and Quit fades it out with the console right under it. Its Home menu
-        // has Resume and Quit: no launcher is named, so it has no Back to console mode
+        // An app nxkit built reads nxkit's names only: full screen from console mode (the player's own choice is its NXKIT_FULLSCREEN
+        // row, a saved choice the host reads itself), the screen, the Home button's texts and the Controls page's maps. From console
+        // mode it opens over the console (overlay): the Starting screen is its loading screen and Quit fades it out with the console
+        // right under it. Its Home menu has Resume and Quit: no launcher is named, so it has no Back to console mode
         if NxkitLaunch.isNxkit(app: game.appPath) {
             let nxkit = NxkitLaunch.environment(fullscreen: fullscreen || environment["DM_FULLSCREEN"] == "1",
                                                 displayID: environment["DM_SCREEN"].flatMap(UInt32.init),

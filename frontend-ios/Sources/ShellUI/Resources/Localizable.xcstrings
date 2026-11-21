@@ -577,6 +577,134 @@
         }
       }
     },
+    "A rumble weaker than this does not move the controller.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine schwächere Vibration bewegt den Controller nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A rumble weaker than this does not move the controller."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una vibración más débil que esta no mueve el mando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une vibration plus faible ne fait pas bouger la manette."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una vibrazione più debole di questa non muove il controller."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これより弱い振動ではコントローラは振動しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이보다 약한 진동은 컨트롤러를 움직이지 않습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma vibração mais fraca que esta não move o controle."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En svagare vibration än denna rör inte kontrollen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比这更弱的震动不会让手柄震动。"
+          }
+        }
+      }
+    },
+    "A short press of the controller's Home button opens the Home menu.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein kurzer Druck auf die Home-Taste des Controllers öffnet das Home-Menü."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A short press of the controller's Home button opens the Home menu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una pulsación corta del botón Inicio del mando abre el menú Inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une pression courte sur le bouton Home de la manette ouvre le menu Home."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una pressione breve del tasto Home del controller apre il menu Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントローラの HOME ボタンを短く押すと HOME メニューが開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨트롤러의 홈 버튼을 짧게 누르면 홈 메뉴가 열립니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um toque curto no botão Início do controle abre o menu Início."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ett kort tryck på kontrollens hemknapp öppnar hemmenyn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "短按手柄的 Home 键打开 HOME 菜单。"
+          }
+        }
+      }
+    },
     "Add NX2Apple under Home Button Override.": {
       "localizations": {
         "de": {
@@ -8001,6 +8129,70 @@
         }
       }
     },
+    "Full screen": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollbild"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pantalla completa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plein écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schermo intero"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルスクリーン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 화면"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tela cheia"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Helskärm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏"
+          }
+        }
+      }
+    },
     "Fullscreen": {
       "localizations": {
         "de": {
@@ -9153,6 +9345,70 @@
         }
       }
     },
+    "Hold Home to quit": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home halten zum Beenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Home to quit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener Inicio para salir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintenir Home pour quitter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuto Home per uscire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HOME 長押しで終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 버튼을 길게 눌러 종료"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segurar Início para sair"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håll in hemknappen för att avsluta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住 Home 键退出"
+          }
+        }
+      }
+    },
     "Hold frames when late": {
       "localizations": {
         "de": {
@@ -9213,6 +9469,134 @@
           "stringUnit": {
             "state": "translated",
             "value": "帧延迟时保持"
+          }
+        }
+      }
+    },
+    "Holding the controller's Home button for 2 seconds asks whether to quit the game.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hältst du die Home-Taste des Controllers 2 Sekunden lang gedrückt, fragt das Spiel, ob es beendet werden soll."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holding the controller's Home button for 2 seconds asks whether to quit the game."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si mantienes pulsado el botón Inicio del mando 2 segundos, el juego pregunta si quieres salir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintenir le bouton Home de la manette pendant 2 secondes demande s’il faut quitter le jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tenendo premuto il tasto Home del controller per 2 secondi, il gioco chiede se vuoi uscire."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントローラの HOME ボタンを 2 秒長押しすると、ゲームを終了するか確認します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨트롤러의 홈 버튼을 2초간 누르면 게임을 종료할지 묻습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segurar o botão Início do controle por 2 segundos pergunta se você quer sair do jogo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håller du in kontrollens hemknapp i 2 sekunder frågar spelet om det ska avslutas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住手柄的 Home 键 2 秒，游戏会询问是否退出。"
+          }
+        }
+      }
+    },
+    "Home menu": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home-Menü"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home menu"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menú Inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu Home"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu Home"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HOME メニュー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 메뉴"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu Início"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hemmeny"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HOME 菜单"
           }
         }
       }
@@ -11649,6 +12033,70 @@
         }
       }
     },
+    "Lightest rumble": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schwächste Vibration"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightest rumble"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibración más suave"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibration la plus légère"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibrazione più leggera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最も弱い振動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가장 약한 진동"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibração mais leve"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lättaste vibration"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最轻的震动"
+          }
+        }
+      }
+    },
     "Loads each program's shader libraries in the background, whether a draw uses them or not.": {
       "localizations": {
         "de": {
@@ -11901,6 +12349,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "Metal 4 管线"
+          }
+        }
+      }
+    },
+    "Metal's HUD over the game: frame rate, frame time and GPU time.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metals HUD über dem Spiel: Bildrate, Bildzeit und GPU-Zeit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metal's HUD over the game: frame rate, frame time and GPU time."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El HUD de Metal sobre el juego: fotogramas por segundo, tiempo de fotograma y tiempo de GPU."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le HUD de Metal sur le jeu : fréquence d’images, durée d’image et temps GPU."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’HUD di Metal sopra il gioco: frequenza fotogrammi, tempo per fotogramma e tempo GPU."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームの上に Metal の HUD を表示します（フレームレート、フレーム時間、GPU 時間）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 위에 Metal HUD를 표시합니다. 프레임 레이트, 프레임 시간, GPU 시간."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O HUD do Metal sobre o jogo: taxa de quadros, tempo de quadro e tempo de GPU."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metals HUD över spelet: bildfrekvens, bildtid och GPU-tid."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在游戏上方显示 Metal 的 HUD：帧率、帧时间和 GPU 时间。"
           }
         }
       }
@@ -14333,6 +14845,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "叠在画面上"
+          }
+        }
+      }
+    },
+    "Pause in the background": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Hintergrund pausieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause in the background"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausar en segundo plano"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause en arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausa in background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックグラウンドで一時停止"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "백그라운드에서 일시 정지"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausar em segundo plano"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausa i bakgrunden"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在后台暂停"
           }
         }
       }
@@ -17473,6 +18049,70 @@
         }
       }
     },
+    "Rumble": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibration"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rumble"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibración"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibrations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibrazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "振動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진동"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibração"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibration"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "震动"
+          }
+        }
+      }
+    },
     "Rumble cutoff": {
       "localizations": {
         "de": {
@@ -17661,6 +18301,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "俄语"
+          }
+        }
+      }
+    },
+    "Same as the Mac": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie der Mac"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same as the Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igual que el Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comme le Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come il Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac と同じ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac과 동일"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igual ao Mac"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samma som Macen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与 Mac 相同"
           }
         }
       }
@@ -19393,6 +20097,70 @@
         }
       }
     },
+    "TV (docked)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TV (angedockt)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TV (docked)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TV (sobremesa)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TV (station)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TV (sulla base)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TV モード（ドック）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TV 모드(독)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TV (na base)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TV (dockad)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电视模式（底座）"
+          }
+        }
+      }
+    },
     "Tap Launch Game at the top, choose Rename, and paste the copied game title.": {
       "localizations": {
         "de": {
@@ -20033,6 +20801,70 @@
         }
       }
     },
+    "The game pauses when its window loses the focus.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Spiel pausiert, wenn sein Fenster den Fokus verliert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game pauses when its window loses the focus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El juego se pausa cuando su ventana pierde el foco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le jeu se met en pause quand sa fenêtre perd le focus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il gioco va in pausa quando la sua finestra perde il focus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウのフォーカスが外れるとゲームを一時停止します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창이 포커스를 잃으면 게임이 일시 정지됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O jogo pausa quando a janela perde o foco."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelet pausas när dess fönster tappar fokus."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏窗口失去焦点时暂停游戏。"
+          }
+        }
+      }
+    },
     "The game’s data on this device is deleted and the game leaves the list. A folder you chose yourself is not touched. Send the game data from your Mac again to bring it back.": {
       "localizations": {
         "de": {
@@ -20097,6 +20929,70 @@
         }
       }
     },
+    "The mode the game sees: the TV picture of the docked console or the screen of the handheld. Games made for the touch screen work best in handheld mode.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Modus, den das Spiel sieht: das TV-Bild der angedockten Konsole oder der Bildschirm im Handheld-Modus. Spiele für den Touchscreen laufen im Handheld-Modus am besten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The mode the game sees: the TV picture of the docked console or the screen of the handheld. Games made for the touch screen work best in handheld mode."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El modo que ve el juego: la imagen de TV de la consola en sobremesa o la pantalla en modo portátil. Los juegos hechos para la pantalla táctil funcionan mejor en modo portátil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le mode que voit le jeu : l’image TV de la console sur sa station ou l’écran en mode portable. Les jeux faits pour l’écran tactile fonctionnent mieux en mode portable."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La modalità che vede il gioco: l’immagine TV della console sulla base o lo schermo in modalità portatile. I giochi pensati per il touch screen funzionano meglio in modalità portatile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームから見えるモードです。ドックに置いた本体の TV 画面か、携帯モードの画面かを選びます。タッチスクリーン向けのゲームは携帯モードが最適です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임이 인식하는 모드입니다. 독에 거치한 콘솔의 TV 화면 또는 휴대 모드의 화면입니다. 터치스크린용 게임은 휴대 모드에서 가장 잘 작동합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O modo que o jogo vê: a imagem de TV do console na base ou a tela no modo portátil. Jogos feitos para a tela sensível ao toque funcionam melhor no modo portátil."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läget som spelet ser: TV-bilden från den dockade konsolen eller skärmen i handhållet läge. Spel gjorda för pekskärmen fungerar bäst i handhållet läge."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏看到的模式：插在底座上的主机的电视画面，或掌机模式的屏幕。为触摸屏设计的游戏在掌机模式下效果最好。"
+          }
+        }
+      }
+    },
     "The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.": {
       "localizations": {
         "de": {
@@ -20157,6 +21053,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "屏幕控件的大小。尺寸放不下时，控件会向中等尺寸靠拢。"
+          }
+        }
+      }
+    },
+    "The window starts in full screen.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Fenster startet im Vollbild."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window starts in full screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ventana se abre en pantalla completa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fenêtre s’ouvre en plein écran."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La finestra si apre a schermo intero."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウをフルスクリーンで開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창이 전체 화면으로 시작됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A janela abre em tela cheia."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fönstret startar i helskärm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口以全屏打开。"
           }
         }
       }
