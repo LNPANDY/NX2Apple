@@ -128,6 +128,9 @@ enum ConsoleInput: Equatable {
         .foregroundStyle(DS.Color.textPrimary)
         .font(DS.Console.Font.body)
         .tint(DS.Color.accent)
+        // a controller scrolls the console, never a scroll bar: `showsIndicators: false` is only .hidden, which macOS still draws as a
+        // dark legacy scroller down the window's right edge with "Show scroll bars: Always" or a mouse connected. .never ignores it.
+        .scrollIndicators(.never)
         .consoleDarkAppearance()   // the console stays dark in Light: every token resolves to its Dark value here
         .environmentObject(pad)
         .padScope("console", pad)
@@ -199,7 +202,6 @@ enum ConsoleInput: Equatable {
         }, content: {
             sheetContent(sheet, compact: compact)
                 .padding(.top, compact ? DS.Console.Space.m : DS.Console.Space.xxl)
-                .padding(.trailing, compact ? 0 : DS.Console.Space.l)
         })
         .padScope(sheet.scope, pad)
     }
@@ -370,7 +372,7 @@ enum ConsoleInput: Equatable {
             menuRow("console.menu.exit", symbol: "rectangle.portrait.and.arrow.right", title: t("console.menu.exit"), note: "",
                     compact: compact) { driver.confirmExit() }
         }
-        .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
+        .padding(.horizontal, compact ? DS.Console.Space.l : DS.Console.Space.xl).padding(.bottom, compact ? 24 : 40)
         .consoleScrollContent()
         }
         .consoleScrollFade()
@@ -395,7 +397,7 @@ enum ConsoleInput: Equatable {
             ScrollView {
                 VStack(spacing: 0) {
                 ConsoleLibraryList(driver: driver, lang: lang, compact: compact)
-                    .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
+                    .padding(.horizontal, compact ? DS.Console.Space.l : DS.Console.Space.xl).padding(.bottom, compact ? 24 : 40)
                 }.consoleScrollContent()
             }
             .consoleScrollFade()
@@ -409,7 +411,7 @@ enum ConsoleInput: Equatable {
             ScrollView {
                 VStack(spacing: 0) {
                 ConsoleSettingsList(driver: driver, lang: lang, compact: compact, languageName: languageName(languageCode))
-                    .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
+                    .padding(.horizontal, compact ? DS.Console.Space.l : DS.Console.Space.xl).padding(.bottom, compact ? 24 : 40)
                 }.consoleScrollContent()
             }
             .consoleScrollFade()
@@ -442,7 +444,7 @@ enum ConsoleInput: Equatable {
                         .id(id)
                     }
                 }
-                .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
+                .padding(.horizontal, compact ? DS.Console.Space.l : DS.Console.Space.xl).padding(.bottom, compact ? 24 : 40)
                 }.consoleScrollContent()
             }
             .consoleScrollFade()
@@ -466,7 +468,7 @@ enum ConsoleInput: Equatable {
             // the build, the files or the folder are the desktop's: it opens with this game selected
             primaryButton(t("console.openOnDesktop"), id: "console.explanation.desktop", scope: "console.explanation") { driver.openOnDesktop(game.id) }
         }
-        .padding(compact ? 24 : 40)
+        .padding(.horizontal, compact ? DS.Console.Space.l : DS.Console.Space.xl).padding(.vertical, compact ? 24 : 40)
     }
 
     /// Shown once, after a game quit, when that game reported that the system keeps the Home button for itself (#336): what the
@@ -491,7 +493,7 @@ enum ConsoleInput: Equatable {
                 .background(ConsoleButtonWidths.reader("console.homeHint.later"))
             }
         }
-        .padding(compact ? 24 : 40)
+        .padding(.horizontal, compact ? DS.Console.Space.l : DS.Console.Space.xl).padding(.vertical, compact ? 24 : 40)
     }
 
     /// Starting a game: the title once over the full, dimmed artwork (the start transition), a labelled progress (the shader count when

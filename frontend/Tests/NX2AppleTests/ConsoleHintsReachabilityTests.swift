@@ -156,7 +156,7 @@ import XCTest
             let last = try XCTUnwrap(pad.frames[scope]?.first { $0.id == prefix + "0" })
             XCTAssertGreaterThan(first.frame.width, 40)
             XCTAssertEqual(first.frame.height, 56, accuracy: 1)
-            XCTAssertEqual(first.frame.minX, (1280 * DS.Console.Scale.artColumn).rounded() + 40, accuracy: 1, "the content column, after the artwork")
+            XCTAssertEqual(first.frame.minX, (1280 * DS.Console.Scale.artColumn).rounded() + DS.Console.Space.xl, accuracy: 1, "the content column, after the artwork, at the hint bar's left edge")
             XCTAssertLessThanOrEqual(last.frame.maxX, 1280 - 40, "nothing clipped at the right")
             driver.back(); settle()
         }
@@ -431,5 +431,41 @@ import XCTest
         XCTAssertTrue(ids(pad, "console.controllers").contains("console.controller.menuSwap"), "\(ids(pad, "console.controllers"))")
         pad.focused = "console.controller.menuSwap"; pad.activate(); settle()
         XCTAssertTrue(driver.state.menuSwapAB)
+    }
+
+    /// A two-column page's rows end where its hint bar ends, on the left and on the right, from a laptop to a 2560 pt display. On a
+    /// wider one both stop together at DS.Console.Control.pageColumn (the content stopped at 860 pt, far left of the bar's Back).
+    func testPageContentLinesUpWithTheHintBarAcrossWidths() throws {
+        for width: CGFloat in [1280, 1440, 2000, 2560, 3200] {
+            window?.orderOut(nil); window?.contentView = nil; window?.close(); window = nil
+            let driver = MockConsoleDriver(scenario: .full, animated: false), pad = PadFocus(), gamepad = LauncherGamepad()
+            host(driver, pad, gamepad, width: width)
+            driver.openMenu(); driver.openControllers(); settle()
+            let art = (width * DS.Console.Scale.artColumn).rounded()
+            let column = min(width - art, DS.Console.Control.pageColumn)
+            // the hint bar's edges, as ConsolePageLayout pads it
+            let barLeft = art + DS.Console.Space.xl
+            let barRight = art + column - DS.Console.Space.xl - ConsolePageLayout<EmptyView, EmptyView>.trailingInset(compact: false)
+            let row = try XCTUnwrap(pad.frames["console.controllers"]?.first { $0.id == "console.controller.merge" }, "\(width)")
+            XCTAssertEqual(row.frame.minX, barLeft, accuracy: 1, "rows start at the hint bar's left edge at \(width)")
+            XCTAssertEqual(row.frame.maxX, barRight, accuracy: 1, "rows end at the hint bar's right edge at \(width)")
+            if width <= 2560 { XCTAssertEqual(barRight, width - 2 * DS.Console.Space.xl, accuracy: 1, "the column fills the screen at \(width)") }
+        }
+    }
+
+    /// A segment is never narrower than its label and its padding while the labels fit, equal segments when every label fits an equal
+    /// share, and the padding stays when the labels have to shrink.
+    func testSegmentsKeepTheirLabelsPadding() {
+        let pad = ConsoleSegmentsLayout.labelPadding
+        let ideal: [CGFloat] = [60 + 2 * pad, 220 + 2 * pad, 150 + 2 * pad, 190 + 2 * pad]
+        let equal = ConsoleSegmentsLayout.widths(ideal: ideal, total: 1200, spacing: 4, padding: pad)
+        XCTAssertEqual(Set(equal.map { $0.rounded() }).count, 1, "equal segments when every label fits a share")
+        let fitted = ConsoleSegmentsLayout.widths(ideal: ideal, total: 800, spacing: 4, padding: pad)
+        for (width, need) in zip(fitted, ideal) { XCTAssertGreaterThanOrEqual(width, need - 0.5, "no label closer than its padding to its edge") }
+        XCTAssertEqual(fitted.reduce(0, +) + 3 * 4, 800, accuracy: 0.5, "the segments fill the track")
+        let tight = ConsoleSegmentsLayout.widths(ideal: ideal, total: 500, spacing: 4, padding: pad)
+        XCTAssertEqual(tight.reduce(0, +) + 3 * 4, 500, accuracy: 0.5)
+        for width in tight { XCTAssertGreaterThanOrEqual(width, 2 * pad, "the padding stays when labels shrink") }
+        XCTAssertGreaterThan(tight[1], tight[0], "the longer label keeps more room")
     }
 }

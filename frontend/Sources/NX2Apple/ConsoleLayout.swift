@@ -142,6 +142,9 @@ struct ConsoleArtColumn: View {
 
 /// A page over the whole screen: the context column on the left (45 %, DS.Console.Scale.artColumn), the content on the right and
 /// the hint bar at the bottom of the content. Narrow windows drop the artwork and keep the title above the content.
+/// The content and the hint bar share one column with the same edges: a page insets its rows by DS.Console.Space.xl on both sides,
+/// as the hint bar does, and the layout adds `trailingInset` to both. Up to DS.Console.Control.pageColumn the column fills the
+/// screen. On a wider display both stop there together, next to the artwork, so rows never grow absurdly wide or part from the bar.
 struct ConsolePageLayout<Leading: View, Content: View>: View {
     let compact: Bool
     let context: ConsolePageContext
@@ -161,18 +164,22 @@ struct ConsolePageLayout<Leading: View, Content: View>: View {
                             .padding(.horizontal, DS.Console.Space.l).padding(.top, DS.Console.Space.l).accessibilityAddTraits(.isHeader)
                     }
                     content()
-                        .frame(maxWidth: DS.Console.Control.contentWidth, maxHeight: .infinity, alignment: .topLeading)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .padding(.trailing, Self.trailingInset(compact: compact))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     ConsoleHintBar(items: hints, trailing: trailingHints)
                         .padding(.horizontal, compact ? DS.Console.Space.l : DS.Console.Space.xl)
-                        .padding(.trailing, compact ? 0 : DS.Console.Space.xl)
+                        .padding(.trailing, Self.trailingInset(compact: compact))
                         .padding(.bottom, DS.Console.Space.s)
                 }
-                .frame(width: g.size.width - artWidth, height: g.size.height)
+                .frame(maxWidth: compact ? .infinity : DS.Console.Control.pageColumn, alignment: .leading)
+                .frame(width: g.size.width - artWidth, height: g.size.height, alignment: .leading)
             }
         }
         .background(DS.Color.background)
     }
+
+    /// The room right of the content and the hint bar, on top of their own inset, away from the screen's edge. None in compact mode.
+    static func trailingInset(compact: Bool) -> CGFloat { compact ? 0 : DS.Console.Space.xl }
 }
 
 extension ConsolePageLayout where Leading == ConsoleArtColumn {
@@ -200,8 +207,9 @@ struct ConsoleProgressBar: View {
 
 // MARK: Segmented control
 
-/// One flat segmented control: equal segments, the chosen one filled inside the control, the shoulder buttons' glyphs at both ends,
-/// centred on the control. A click or A on a segment picks it.
+/// One flat segmented control: the segments fill the track, the chosen one filled inside the control, the shoulder buttons' glyphs at
+/// both ends, centred on the control. A click or A on a segment picks it. Every label keeps DS.Console.Space.m to its segment's
+/// edge (ConsoleSegmentsLayout), so a long label never runs into the chosen pill or the end of the track.
 struct ConsoleSegmentedControl: View {
     let segments: [(id: String, title: String)]
     let selected: Int
@@ -214,13 +222,19 @@ struct ConsoleSegmentedControl: View {
     var body: some View {
         HStack(alignment: .center, spacing: DS.Console.Space.s) {
             if let previousGlyph { ConsoleGlyphView(glyph: previousGlyph, size: DS.Console.Control.glyph).foregroundStyle(DS.Color.symbolDefault) }
-            HStack(spacing: DS.Console.Space.xxs) {
+            ConsoleSegmentsLayout(spacing: DS.Console.Space.xxs, padding: ConsoleSegmentsLayout.labelPadding) {
                 ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
                     let on = index == selected
                     Button { pick(index) } label: {
-                        Text(segment.title).font(on ? DS.Console.Font.bodyStrong : DS.Console.Font.body).lineLimit(1).minimumScaleFactor(0.7)
-                            .foregroundStyle(on ? DS.Color.accentOn : DS.Color.textSecondary)
-                            .frame(maxWidth: .infinity).frame(height: DS.Console.Control.segment - 2 * DS.Console.Space.xxs)
+                        ZStack {
+                            // sized by the bold label, so a segment keeps its width when it is chosen
+                            Text(segment.title).font(DS.Console.Font.bodyStrong).hidden()
+                            Text(segment.title).font(on ? DS.Console.Font.bodyStrong : DS.Console.Font.body)
+                                .foregroundStyle(on ? DS.Color.accentOn : DS.Color.textSecondary)
+                        }
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                        .padding(.horizontal, ConsoleSegmentsLayout.labelPadding)
+                        .frame(maxWidth: .infinity).frame(height: DS.Console.Control.segment - 2 * DS.Console.Space.xxs)
                             .background(on ? DS.Color.accent : .clear, in: Capsule())
                             .contentShape(Capsule())
                     }
@@ -235,6 +249,49 @@ struct ConsoleSegmentedControl: View {
             .overlay(RoundedRectangle(cornerRadius: DS.Console.Control.segment / 2).strokeBorder(DS.Color.separator))
             if let nextGlyph { ConsoleGlyphView(glyph: nextGlyph, size: DS.Console.Control.glyph).foregroundStyle(DS.Color.symbolDefault) }
         }
+    }
+}
+
+/// The segments of a ConsoleSegmentedControl across the width it is given. Equal widths when every label fits in an equal share,
+/// else each segment its label's width plus the same share of what is left, so a long label gets the room it needs. When even that
+/// does not fit, the labels shrink (their minimumScaleFactor) but keep their padding.
+struct ConsoleSegmentsLayout: Layout {
+    /// The room between a label and its segment's edge, the chosen pill's included.
+    static let labelPadding: CGFloat = DS.Console.Space.m
+    var spacing: CGFloat
+    var padding: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let ideals = subviews.map { $0.sizeThatFits(.unspecified) }
+        let height = ideals.map(\.height).max() ?? 0
+        let natural = ideals.map(\.width).reduce(0, +) + spacing * CGFloat(max(0, subviews.count - 1))
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? natural
+        let fitted = proposal.height.flatMap { $0.isFinite ? $0 : nil } ?? height
+        return CGSize(width: width, height: fitted)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let widths = Self.widths(ideal: subviews.map { $0.sizeThatFits(.unspecified).width }, total: bounds.width, spacing: spacing, padding: padding)
+        var x = bounds.minX
+        for (subview, width) in zip(subviews, widths) {
+            subview.place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading, proposal: ProposedViewSize(width: width, height: bounds.height))
+            x += width + spacing
+        }
+    }
+
+    /// The width of each segment: `ideal` is each label's width with its padding.
+    static func widths(ideal: [CGFloat], total: CGFloat, spacing: CGFloat, padding: CGFloat) -> [CGFloat] {
+        guard !ideal.isEmpty else { return [] }
+        let count = CGFloat(ideal.count)
+        let available = max(0, total - spacing * (count - 1))
+        let sum = ideal.reduce(0, +)
+        if (ideal.max() ?? 0) * count <= available { return ideal.map { _ in available / count } }
+        if sum <= available { return ideal.map { $0 + (available - sum) / count } }
+        // too little room: the padding stays, the labels share what is left by their width
+        let pads = 2 * padding * count
+        let labels = max(0, sum - pads)
+        guard labels > 0, available > pads else { return ideal.map { $0 * available / max(sum, 1) } }
+        return ideal.map { 2 * padding + max(0, $0 - 2 * padding) * (available - pads) / labels }
     }
 }
 

@@ -132,7 +132,7 @@ struct ConsoleQuestion: View {
 
     static var scope: String { "console.gamePad" }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
-    private var inset: CGFloat { embedded ? 40 : (compact ? 24 : 70) }
+    private var inset: CGFloat { embedded ? DS.Console.Space.xl : (compact ? 24 : 70) }
     private var rumbles: Bool { game.controllerSettings.contains { $0.env.hasPrefix("DM_RUMBLE") } }
 
     /// Where the focus starts: the first setting, else the test, else the mapping.

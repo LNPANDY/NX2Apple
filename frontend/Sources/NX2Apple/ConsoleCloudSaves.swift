@@ -150,7 +150,7 @@ enum ConsoleCloudSaves {
 
     static let scope = "console.saves"
     private func t(_ key: String) -> String { L10n.string(key, lang) }
-    private var inset: CGFloat { embedded ? 40 : (compact ? 24 : 64) }
+    private var inset: CGFloat { embedded ? DS.Console.Space.xl : (compact ? 24 : 64) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

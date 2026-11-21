@@ -47,7 +47,7 @@ import NXLauncher
     static var scope: String { "console.allGames" }
     private var state: ConsoleState { driver.state }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
-    private var inset: CGFloat { embedded ? 40 : compact ? 24 : 64 }
+    private var inset: CGFloat { embedded ? DS.Console.Space.xl : compact ? 24 : 64 }
 
     var body: some View {
         let games = state.libraryGames
@@ -214,7 +214,7 @@ import NXLauncher
     static var keyRows: [[String]] { ConsoleKeyboard.rows }
     private var state: ConsoleState { driver.state }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
-    private var inset: CGFloat { embedded ? 40 : compact ? 24 : 64 }
+    private var inset: CGFloat { embedded ? DS.Console.Space.xl : compact ? 24 : 64 }
     private var keySize: CGSize { embedded ? CGSize(width: max(24, (availableWidth - 2 * inset - 72) / 10), height: 56) : compact ? CGSize(width: 30, height: 44) : CGSize(width: 64, height: 56) }
 
     var body: some View {

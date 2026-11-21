@@ -30,7 +30,7 @@ import NXLauncher
 
     private var layout: ConsolePadLayout { driver.state.padLayout }
     private var isGame: Bool { layout.gameTitle != nil }
-    private var inset: CGFloat { embedded ? 40 : (compact ? 24 : 64) }
+    private var inset: CGFloat { embedded ? DS.Console.Space.xl : (compact ? 24 : 64) }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
     /// A button's name as the Controls page writes it ("A", "Left stick press", "None").
     private func name(_ button: String) -> String { button == "none" ? t("controls.none") : t("controls.fn." + button) }

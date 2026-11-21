@@ -40,7 +40,7 @@ struct ConsoleCloudSaveView: View {
             }
             .buttonStyle(.plain).padTarget("console.cloudSave.cancel", scope: Self.scope, activate: cancel)
         }
-        .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
+        .padding(.horizontal, compact ? DS.Console.Space.l : DS.Console.Space.xl).padding(.bottom, compact ? 24 : 40)
     }
 
     private func note(_ text: String) -> some View {

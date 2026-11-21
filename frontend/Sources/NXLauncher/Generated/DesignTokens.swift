@@ -222,8 +222,10 @@ package enum DS {
             package static let valueBar: CGFloat = 4
             /// The value stepper's column, wide enough for every language
             package static let stepper: CGFloat = 240
-            /// The content column at its widest
+            /// The starting screen's centred hint row at its widest
             package static let contentWidth: CGFloat = 860
+            /// The right column of a two-column page at its widest, its content and hint bar together. Wide enough to fill the column up to a 2560 pt screen
+            package static let pageColumn: CGFloat = 1440
             /// The controller hint bar at the bottom of a page
             package static let hintBar: CGFloat = 72
         }
