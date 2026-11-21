@@ -34,12 +34,14 @@ enum GameStart {
         if homeMenu { environment.merge(HomeButtonHint.homeMenuEnvironment(launcherBundleID: launcherBundleID)) { $1 } }
         if let sticks { environment.merge(sticks.environment) { _, own in own } }
         // An app nxkit built reads nxkit's names only: full screen (console mode, or the player's Display choice), the screen,
-        // the Home button's texts, the Controls page's maps and, from console mode, the launcher its Home menu goes back to
+        // the Home button's texts and the Controls page's maps. From console mode it opens over the console
+        // (overlay): the Starting screen is its loading screen and Quit fades it out with the console right under it. Its Home menu
+        // has Resume and Quit: no launcher is named, so it has no Back to console mode
         if NxkitLaunch.isNxkit(app: game.appPath) {
             let nxkit = NxkitLaunch.environment(fullscreen: fullscreen || environment["DM_FULLSCREEN"] == "1",
                                                 displayID: environment["DM_SCREEN"].flatMap(UInt32.init),
                                                 homeText: environment["DM_HOME_QUIT_TEXT"],
-                                                launcherBundleID: homeMenu ? launcherBundleID : nil)
+                                                overlay: homeMenu)
             environment.merge(nxkit) { $1 }
             environment.merge(NxkitLaunch.controlMaps(environment)) { $1 }
         }   // DM_STICK_DEADZONE_L / _R: off adds nothing
