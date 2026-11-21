@@ -33,16 +33,17 @@ enum GameStart {
         // Console mode's game: the Home menu's Back to console mode, which pauses it in the background (#952). The desktop's Play passes none.
         if homeMenu { environment.merge(HomeButtonHint.homeMenuEnvironment(launcherBundleID: launcherBundleID)) { $1 } }
         if let sticks { environment.merge(sticks.environment) { _, own in own } }
-        // An app nxkit built reads nxkit's names only: full screen (console mode, or the player's Display choice), the screen and
-        // the Home button's texts. From console mode it opens over the console (overlay): the Starting screen is its loading screen
-        // and Quit fades it out with the console right under it. Its Home menu has Resume and Quit: no launcher is named, so it has
-        // no Back to console mode
+        // An app nxkit built reads nxkit's names only: full screen (console mode, or the player's Display choice), the screen,
+        // the Home button's texts and the Controls page's maps. From console mode it opens over the console
+        // (overlay): the Starting screen is its loading screen and Quit fades it out with the console right under it. Its Home menu
+        // has Resume and Quit: no launcher is named, so it has no Back to console mode
         if NxkitLaunch.isNxkit(app: game.appPath) {
             let nxkit = NxkitLaunch.environment(fullscreen: fullscreen || environment["DM_FULLSCREEN"] == "1",
                                                 displayID: environment["DM_SCREEN"].flatMap(UInt32.init),
                                                 homeText: environment["DM_HOME_QUIT_TEXT"],
                                                 overlay: homeMenu)
             environment.merge(nxkit) { $1 }
+            environment.merge(NxkitLaunch.controlMaps(environment)) { $1 }
         }   // DM_STICK_DEADZONE_L / _R: off adds nothing
         // The global setup and this game's own choices (SaveLocation.swift): a save folder and a cloud folder. A game with nothing set adds nothing.
         var base = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
