@@ -256,6 +256,64 @@ private final class FakeFetch: CloudFileFetching, @unchecked Sendable {
         XCTAssertFalse(CloudSaveStart.takesChoice(app: root.appendingPathComponent("Hades.app").path))
     }
 
+    // ---- an app nxkit built: nxkit-host --save-sync-report answers ----
+
+    /// A stand-in for nxkit-host: prints `line` and exits with `status`, and keeps the environment it ran with beside it.
+    private func nxkitPlan(_ line: String, status: Int32 = 0) throws -> CloudSaveStart {
+        let host = root.appendingPathComponent("nxkit-host")
+        try "#!/bin/sh\nenv > \"$0.env\"\necho '\(line)'\nexit \(status)\n".write(to: host, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: host.path)
+        var start = plan()
+        start.report = [host.path, "--save-sync-report=10000"]
+        start.environment = ["NXKIT_SAVE": save.path, "NXKIT_SAVE_SYNC": root.appendingPathComponent("Saves").path]
+        start.choiceKey = NxkitSaveEngine().choiceKey
+        start.unaskedChoice = NxkitSaveEngine().unaskedChoice
+        return start
+    }
+
+    func testAnNxkitConflictAsksAndStartsWithNxkitsChoice() async throws {
+        let line = "sync=1 cloud=1 local=\(older) saved=1700000000 files=1 size=4 chash=\(other) csaved=1700000100 cfiles=1 csize=4 cdevice=iPhone17,1 sametitle=1 conflict=1 pull=0"
+        let gate = CloudSaveGate(fetcher: FakeFetch(.ready))
+        let start = try nxkitPlan(line)
+        let started = await run(gate, plan: start)
+        XCTAssertNil(started)
+        let q = try XCTUnwrap(question(gate))
+        XCTAssertEqual(q.outcome, .bothChanged)
+        XCTAssertEqual(q.local.hash, older)
+        XCTAssertEqual(q.cloud?.hash, other)
+        let env = try String(contentsOfFile: root.appendingPathComponent("nxkit-host.env").path, encoding: .utf8)
+        XCTAssertTrue(env.contains("NXKIT_SAVE=" + save.path), "the report runs with the game's environment")
+        var chosen: [String: String]?
+        gate.cancel()
+        gate.begin(LibraryGame(titleID: titleID, name: "Hades"), plan: start, proceed: { chosen = $0 })
+        await settle(gate) { chosen != nil }
+        gate.choose(.cloud)
+        XCTAssertEqual(chosen, ["NXKIT_SAVE_SYNC_CHOICE": "cloud:" + other])
+    }
+
+    func testAnNxkitGameWithoutAConflictStartsWithAsk() async throws {
+        let line = "sync=1 cloud=1 local=\(older) saved=1 files=1 size=4 chash=\(other) csaved=2 cfiles=1 csize=4 cdevice=- sametitle=1 conflict=0 pull=1"
+        let started = await run(CloudSaveGate(fetcher: FakeFetch(.ready)), plan: try nxkitPlan(line))
+        XCTAssertEqual(started, ["NXKIT_SAVE_SYNC_CHOICE": "ask"])
+    }
+
+    func testAnNxkitSaveThatCannotBeReadStartsWithoutAQuestion() async throws {
+        let started = await run(CloudSaveGate(fetcher: FakeFetch(.ready)), plan: try nxkitPlan("", status: 1))
+        XCTAssertEqual(started, ["NXKIT_SAVE_SYNC_CHOICE": "ask"])
+    }
+
+    func testAnNxkitCloudThatDidNotComeOffersOffline() async throws {
+        let line = "sync=1 cloud=-1 local=\(older) saved=1 files=1 size=4 chash=- csaved=0 cfiles=0 csize=0 cdevice=- sametitle=1 conflict=0 pull=0"
+        let gate = CloudSaveGate(fetcher: FakeFetch(.ready))
+        var started = await run(gate, plan: try nxkitPlan(line))
+        XCTAssertEqual(question(gate)?.outcome, .unreadable)
+        gate.cancel()
+        gate.begin(LibraryGame(titleID: titleID, name: "Hades"), plan: try nxkitPlan(line), proceed: { started = $0 })
+        await settle(gate) { started != nil }
+        gate.choose(.offline)
+        XCTAssertEqual(started, ["NXKIT_SAVE_SYNC_CHOICE": "offline"])
+    }
+
     func testTheLogSaysTheGameWaitsForTheChoice() {
         let log = "[dm] save sync: on: /x/save.dmsync\n[dm] save sync: both changed: the cloud's save (from iPhone17,1, saved 2026-11-08 10:00:00) and this device's (saved 2026-11-08 11:00:00); playing on with this device's, and neither replaces the other until the player chooses at the next start\n"
         XCTAssertEqual(CloudSaveSync.state(fromLog: log), .waitingForChoice)

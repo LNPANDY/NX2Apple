@@ -299,7 +299,7 @@ struct ConsolePadSnapshot: Equatable {
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
         cloudGameID = gameID
-        cloudGate.begin(game, proceed: { [weak self] choice in   // the cloud's save first (LiveConsoleDriver+CloudSave.swift, #957)
+        cloudGate.begin(game, environment: environment, proceed: { [weak self] choice in   // the cloud's save first (LiveConsoleDriver+CloudSave.swift, #957)
             guard let self, self.launchGeneration == generation, self.state.startingGameID == gameID else { return }
             self.state.starting = .preparing
             self.prepareLaunch { [weak self] in
@@ -334,7 +334,12 @@ struct ConsolePadSnapshot: Equatable {
                     self.library.recordPlayed(game.id)   // the Recently played order (#937)
                     if let pid { self.beginTracking(game, pid: pid, environment: environment) }   // the session, its pause and its end (+Sessions)
                     self.launchedGame = game
-                    if let pid { GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in self?.gameDidTerminate(pid: pid) } }   // the launcher's one watcher and its switch (ReturnAfterPlay.swift)
+                    if let pid {   // the launcher's one watcher and its switch (ReturnAfterPlay.swift), and the cloud's send an engine leaves to it (SaveEngine)
+                        GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in
+                            CloudSaveSend.afterExit(app: game.appPath, environment: environment, engine: SaveEngines.forApp(game.appPath))
+                            self?.gameDidTerminate(pid: pid)
+                        }
+                    }
                     self.state.starting = .opening
                     self.timeoutTask?.cancel()
                     // An app nxkit built says when its picture shows (org.nxkit.shown, at the latest 45 s after its window):

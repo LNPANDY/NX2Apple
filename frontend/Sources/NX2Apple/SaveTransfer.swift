@@ -49,10 +49,12 @@ struct SaveTransfer {
 
     /// The Mac app's DM_SAVE, by launcher.c's rule: beside the app when the app's folder holds the library marker, else ~/Library.
     /// The second value is the ~/Library save the app copies across on its first start in a library folder (nil without the marker).
+    /// An app nxkit built keeps its save in its engine's place, ~/Library/Application Support/nxkit/<TITLE ID>/save (SaveEngine).
     static func macSave(titleID: String, appPath: String,
                         support: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]) -> (save: URL, legacy: URL?) {
-        let legacy = legacyMacSave(titleID: titleID, support: support)
-        guard !appPath.isEmpty else { return (legacy, nil) }
+        let engine = SaveEngines.forApp(appPath)
+        let legacy = engine.defaultSave(titleID: titleID, support: support)
+        guard !appPath.isEmpty, engine.savesInLibraryFolder else { return (legacy, nil) }
         let folder = URL(fileURLWithPath: appPath).deletingLastPathComponent()
         guard FileManager.default.fileExists(atPath: folder.appendingPathComponent(GameLog.marker).path) else { return (legacy, nil) }
         return (folder.appendingPathComponent("save").appendingPathComponent(titleID), legacy)

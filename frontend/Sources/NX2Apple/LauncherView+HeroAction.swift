@@ -147,9 +147,11 @@ extension LauncherView {
         do {
             _ = try MacGameBundle.read(URL(fileURLWithPath: game.appPath))
             beginMacLaunch(game)
+            let environment = macEnvironment(game)   // the cloud check of an engine with its own report runs with it (CloudSaveGate)
             cloudGate.begin(
                 game,
-                proceed: { startMacGame(game, cloudChoice: $0) },
+                environment: environment,
+                proceed: { startMacGame(game, environment: environment, cloudChoice: $0) },
                 ended: { endGameLaunch() }
             )
         } catch {
@@ -157,10 +159,9 @@ extension LauncherView {
         }
     }
 
-    private func startMacGame(_ game: LibraryGame, cloudChoice: [String: String]) {
+    private func macEnvironment(_ game: LibraryGame) -> [String: String] {
         let currentGame = library.games.first(where: { $0.id == game.id }) ?? game
-        let configuration = NSWorkspace.OpenConfiguration()
-        let environment = GameStart.environment(
+        return GameStart.environment(
             for: currentGame,
             library: library,
             controls: controls,
@@ -171,6 +172,11 @@ extension LauncherView {
             saves: (stores.saveSettings.global, stores.saveSettings.game(currentGame.titleID)),
             sticks: stores.sticks.settings
         )
+    }
+
+    private func startMacGame(_ game: LibraryGame, environment: [String: String], cloudChoice: [String: String]) {
+        let currentGame = library.games.first(where: { $0.id == game.id }) ?? game
+        let configuration = NSWorkspace.OpenConfiguration()
         let withRecording = environment
             .merging(FrameTimes.recordingEnvironment(for: currentGame, library: library.folder)) { $1 }
             .merging(cloudChoice) { $1 }
@@ -194,7 +200,11 @@ extension LauncherView {
                                 return
                             }
                             library.recordPlayed(currentGame.id)
-                            if let pid { GameReturnWatcher.shared.didStart(pid: pid) }
+                            if let pid {   // and the cloud's send an engine leaves to the launcher (SaveEngine)
+                                GameReturnWatcher.shared.didStart(pid: pid) {
+                                    CloudSaveSend.afterExit(app: currentGame.appPath, environment: withRecording, engine: SaveEngines.forApp(currentGame.appPath))
+                                }
+                            }
                             if let app, !app.isFinishedLaunching, !app.isTerminated {
                                 Task { @MainActor in
                                     let deadline = Date().addingTimeInterval(5.0)
