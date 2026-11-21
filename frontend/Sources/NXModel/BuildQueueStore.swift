@@ -29,8 +29,8 @@ import NXCore
     @Published package private(set) var paused: Bool
 
     /// The selected engine makes Mac apps only (nxkit, MacNativeGames): a new entry is queued for the Mac whatever target it asked for,
-    /// with no iOS package or IPA export. A refresh of an iPhone app is left as it is (it needs that app). The build store sets it.
-    package var macOnly = false
+    /// with no iOS package or IPA export. A refresh of an iPhone app is left as it is (it needs that app). The build store wires it to the engine it selects.
+    package var macOnly: () -> Bool = { false }
 
     /// True once the player explicitly starts or resumes the queue, until the batch finishes, pauses, or is cancelled.
     @Published package private(set) var active = false
@@ -101,7 +101,7 @@ import NXCore
         guard !new.isEmpty else { return }
         for var entry in new {
             entry.target = BuildTarget.normalized(entry.target)
-            if macOnly, entry.target != BuildTarget.mac, !entry.fastRefresh {   // a refresh of an iPhone app stays one: `startQueued` skips it
+            if macOnly(), entry.target != BuildTarget.mac, !entry.fastRefresh {   // a refresh of an iPhone app stays one: `startQueued` skips it
                 entry.target = BuildTarget.mac
                 entry.packageAfter = false; entry.exportIPA = nil; entry.exportFramework = nil
             }

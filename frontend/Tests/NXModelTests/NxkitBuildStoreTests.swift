@@ -220,9 +220,9 @@ import XCTest
         let store = makeStore()
         let queue = BuildQueueStore(file: nil, engineID: { "e" }, busy: { false }, start: { _ in nil })
         store.queue = queue
-        XCTAssertFalse(queue.macOnly)
+        XCTAssertFalse(queue.macOnly())
         store.selectUpstream(.nxkit)
-        XCTAssertTrue(queue.macOnly)
+        XCTAssertTrue(queue.macOnly())
         func entry(_ target: String) -> QueueEntry {
             QueueEntry(titleID: "01007EF00011E000", name: "Zelda", target: target, inputs: ["base": ["/g/z.nsp"]],
                        outputDirectory: "/out", engineID: "e", batch: UUID(), packageAfter: target == BuildTarget.ios, exportIPA: true)
@@ -230,8 +230,8 @@ import XCTest
         queue.enqueue([entry(BuildTarget.mac), entry(BuildTarget.ios)])   // "Both" in Build selected games
         XCTAssertEqual(queue.entries.map(\.target), [BuildTarget.mac], "one Mac entry, no iOS entry")
         XCTAssertFalse(queue.hasIOS)
-        store.selectUpstream(.nxnative)
-        XCTAssertFalse(queue.macOnly)
+        store.nxkitAvailability = .needsNewerMacOS   // nxkit no longer runs here: the queue follows without an engine switch
+        XCTAssertFalse(queue.macOnly())
     }
 
     func testAnIOSEntryQueuedBeforeNxkitIsNotBuilt() throws {

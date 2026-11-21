@@ -201,7 +201,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                 return
             }
             defaults.set(buildUpstream.rawValue, forKey: Self.buildUpstreamKey)
-            queue?.macOnly = isMacOnlyUpstreamSelected
             if isMacOnlyUpstreamSelected && target != BuildTarget.mac {
                 target = BuildTarget.mac
             } else if !isMacOnlyUpstreamSelected, oldValue.buildsMacOnly, !running {
@@ -335,7 +334,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The build queue (#943), wired by the app so the Build page's start actions can run a staged queue batch.
     package weak var queue: BuildQueueStore? {
         didSet {
-            queue?.macOnly = isMacOnlyUpstreamSelected
+            queue?.macOnly = { [weak self] in self?.isMacOnlyUpstreamSelected ?? false }
             queueHasIOS = queue?.hasIOS ?? false
             let count = queue?.games.filter(\.waiting).count ?? 0
             if queuedCount != count { queuedCount = count }
