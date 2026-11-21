@@ -22,7 +22,14 @@ struct SupportedGamesSheet: View {
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var focus: PadFocus
     @Environment(\.dismiss) private var dismiss
+    /// Filter scope for the supported games list.
+    enum UpstreamFilter: String, Equatable {
+        case all
+        case macNativeGames
+    }
+
     @State private var search = ""
+    @State private var upstreamFilter: UpstreamFilter
     @State private var selected: String?
     @FocusState private var searchFocused: Bool
 
@@ -31,7 +38,9 @@ struct SupportedGamesSheet: View {
 
     init(games: [SupportedGame], owned: @escaping (String) -> LibraryGame?, covers: @escaping @autoclosure () -> SupportedCovers,
          showInLibrary: @escaping (UUID) -> Void, olderBuild: @escaping (UUID) -> Bool = { _ in false }, rebuild: @escaping (UUID) -> Void = { _ in },
-         appVersion: String = AppUpdateStore.appVersion, improved: ((String) -> Bool)? = nil, expanded: String? = nil) {
+         appVersion: String = AppUpdateStore.appVersion, improved: ((String) -> Bool)? = nil, expanded: String? = nil,
+         initialFilter: UpstreamFilter = .all) {
+        _upstreamFilter = State(initialValue: initialFilter)
         _selected = State(initialValue: expanded)   // visual QA: a row with its notes open
         self.games = games
         self.owned = owned
@@ -91,23 +100,47 @@ struct SupportedGamesSheet: View {
         }
     }
 
-    /// The subtitle: the edition, the game version the profile was made with, and the release
-    /// that last changed the profile unless it is this one (the Improved tag says that).
+    /// The subtitle: the edition, the game version the profile was made with (or the MacNativeGames engine note for
+    /// MacNativeGames-only entries without a profile version), and the release that last changed the profile unless it is this one.
     static func detailText(for game: SupportedGame, appVersion: String = AppUpdateStore.appVersion, t: (String) -> String) -> String {
         var parts: [String] = []
         if game.edition == .switch2 { parts.append(t("switch2.badge")) }
-        parts.append(game.version.map { String(format: t("supported.version"), $0) } ?? t("supported.noVersion"))
+        if let version = game.version {
+            parts.append(String(format: t("supported.version"), version))
+        } else if isMacNativeGamesSupported(game) {
+            parts.append(t("upstream.mngCardNote"))
+        } else {
+            parts.append(t("supported.noVersion"))
+        }
         if let updated = GameUpdateCatalog.catalogVersion(for: game.titleID), !isUpdatedInCurrentRelease(titleID: game.titleID, appVersion: appVersion) {
             parts.append(String(format: t("supported.lastUpdated"), updated))
         }
         return parts.joined(separator: " · ")
     }
 
-    var shown: [SupportedGame] {
+    /// Filters supported games by upstream scope and search query.
+    static func filterGames(_ games: [SupportedGame], upstreamFilter: UpstreamFilter, needle: String,
+                            ownedName: (SupportedGame) -> String, improvedName: (SupportedGame) -> String,
+                            appVersion: String = AppUpdateStore.appVersion) -> [SupportedGame] {
         games.filter { game in
-            Self.matchesSearch(game, needle: search, ownedName: owned(game.titleID)?.displayName(loc.lang) ?? "",
-                               improvedName: improvedTag(game) ?? "", appVersion: appVersion)
+            if upstreamFilter == .macNativeGames && !isMacNativeGamesSupported(game) { return false }
+            return matchesSearch(game, needle: needle, ownedName: ownedName(game),
+                                 improvedName: improvedName(game), appVersion: appVersion)
         }
+    }
+
+    var macNativeGamesCount: Int {
+        games.filter(Self.isMacNativeGamesSupported).count
+    }
+
+    var hasMacNativeGames: Bool {
+        MacNativeGamesBuilder.featureEnabled && macNativeGamesCount > 0
+    }
+
+    var shown: [SupportedGame] {
+        Self.filterGames(games, upstreamFilter: hasMacNativeGames ? upstreamFilter : .all, needle: search,
+                         ownedName: { owned($0.titleID)?.displayName(loc.lang) ?? "" },
+                         improvedName: { improvedTag($0) ?? "" }, appVersion: appVersion)
     }
 
     /// This row's Improved tag.
@@ -118,6 +151,29 @@ struct SupportedGamesSheet: View {
 
     func detail(_ game: SupportedGame) -> String {
         Self.detailText(for: game, appVersion: appVersion, t: { loc.t($0) })
+    }
+
+    private var upstreamFilterControl: some View {
+        let allLabel = loc.t("console.filter.all")
+        let mngLabel = "\(EngineUpstreamKind.macNativeGames.displayName) (\(macNativeGamesCount))"
+        return LauncherSegmented(
+            options: [
+                (UpstreamFilter.all.rawValue, allLabel),
+                (UpstreamFilter.macNativeGames.rawValue, mngLabel)
+            ],
+            selection: upstreamFilter.rawValue
+        ) { value in
+            upstreamFilter = UpstreamFilter(rawValue: value) ?? .all
+        }
+        .compactFrame(minWidth: 260)
+        .padTarget(
+            "supported.filter",
+            scope: "supported",
+            activate: { upstreamFilter = upstreamFilter == .all ? .macNativeGames : .all },
+            adjust: { upstreamFilter = $0 > 0 ? .macNativeGames : .all }
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(loc.t("engine.title"))
     }
 
     var body: some View {
@@ -132,6 +188,9 @@ struct SupportedGamesSheet: View {
                 .padding(.horizontal, DS.Space.s).frame(height: DS.Control.height)
                 .background(DS.Color.surfaceRaised, in: Capsule())
                 .overlay(DSPill().strokeBorder(searchFocused ? DS.Color.accent : DS.Color.separator))
+                if hasMacNativeGames {
+                    upstreamFilterControl
+                }
             }
             .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
             DS.Color.separator.frame(height: 1)   // the top edge of the full-width list
@@ -182,6 +241,14 @@ struct SupportedGamesSheet: View {
         .frame(width: 680)
         .frame(maxHeight: Self.height(screen: NSScreen.main?.visibleFrame.height ?? 800))
         .dsSheetSurface()
+        .onChange(of: upstreamFilter) { _ in
+            if let current = selected, !shown.contains(where: { $0.titleID == current }) {
+                selected = nil
+            }
+            if let id = focus.focused, id.hasPrefix("supported.row."), !shown.contains(where: { "supported.row." + $0.titleID == id }) {
+                focus.focused = shown.first.map { "supported.row." + $0.titleID } ?? (hasMacNativeGames ? "supported.filter" : "supported.close")
+            }
+        }
         .onAppear {
             searchFocused = true
             focus.scope = "supported"
@@ -225,7 +292,9 @@ private struct SupportedGameRow: View {
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         HStack(alignment: .center, spacing: DS.Space.xs) {
                             Text(game.name).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
-                            if SupportedGamesSheet.isMacNativeGamesSupported(game) { DSTag(EngineUpstreamKind.macNativeGames.displayName) }
+                            if SupportedGamesSheet.isMacNativeGamesSupported(game) {
+                                DSTag(EngineUpstreamKind.macNativeGames.displayName, emphasized: true)
+                            }
                             if let improved { DSTag(improved) }
                         }
                         Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).multilineTextAlignment(.leading)

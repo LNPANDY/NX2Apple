@@ -152,16 +152,16 @@ import NXLauncher
     }
 
     /// A quiet tag as on the desktop (DSTag): cream is for the selected and the primary only.
-    private func tag(_ text: String) -> some View {
+    private func tag(_ text: String, emphasized: Bool = false) -> some View {
         Text(text)
             .font(.manrope(compact ? 12 : 14, .semibold))
-            .foregroundStyle(DS.Color.textSecondary)
+            .foregroundStyle(emphasized ? DS.Color.textPrimary : DS.Color.textSecondary)
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, compact ? 8 : 10)
             .padding(.vertical, 3)
             .background(DS.Color.surfaceRaised, in: DSPill())
-            .overlay(DSPill().strokeBorder(DS.Color.separator))
+            .overlay(DSPill().strokeBorder(emphasized ? DS.Color.textTertiary : DS.Color.separator))
     }
 
     private func row(_ game: SupportedGame) -> some View {
@@ -178,7 +178,7 @@ import NXLauncher
                         HStack(alignment: .center, spacing: 10) {
                             Text(game.name).font(.manrope(compact ? 19 : 23, .semibold)).lineLimit(2)
                             if SupportedGamesSheet.isMacNativeGamesSupported(game) {   // one of the titles MacNativeGames maintains
-                                tag(EngineUpstreamKind.macNativeGames.displayName)
+                                tag(EngineUpstreamKind.macNativeGames.displayName, emphasized: true)
                             }
                             if let improved { tag(improved) }   // Widescreen is in the subtitle, a property, not a tag (#1458)
                         }
