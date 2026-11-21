@@ -52,10 +52,13 @@ package enum SaveLocations {
     }
 
     /// The save folder the game reads. `volumeHolds` answers for a path (VolumeSaves.holdsSaves, a fake in tests); nil means unknown and counts as yes.
+    /// `engine` is the app's (SaveEngines.forApp): its usual place, and whether a library folder keeps the save beside the app.
     package static func effectiveSave(titleID: String, appPath: String, global: SaveGlobalSettings, game: SaveGameOverride,
                                       support: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
+                                      engine: (any SaveEngine)? = nil,
                                       volumeHolds: (String) -> Bool? = { VolumeSaves.holdsSaves(at: $0) }) -> EffectiveSave {
-        let usual = support.appendingPathComponent("nxnative").appendingPathComponent(titleID).appendingPathComponent("save")
+        let engine = engine ?? SaveEngines.forApp(appPath)
+        let usual = engine.defaultSave(titleID: titleID, support: support)
         func result(_ url: URL, _ source: Source) -> EffectiveSave {
             // A chosen folder on a volume that cannot hold a save is not used: the usual place is, and the UI says why.
             if source == .game || source == .global, volumeHolds(url.path) == false {
@@ -67,7 +70,7 @@ package enum SaveLocations {
         if let root = global.saveRoot, !root.isEmpty {
             return result(URL(fileURLWithPath: root, isDirectory: true).appendingPathComponent(titleID.uppercased()).appendingPathComponent("save"), .global)
         }
-        if !appPath.isEmpty {
+        if !appPath.isEmpty, engine.savesInLibraryFolder {
             let folder = URL(fileURLWithPath: appPath).deletingLastPathComponent()
             if FileManager.default.fileExists(atPath: folder.appendingPathComponent(".nx2apple-library").path) {
                 let library = folder.appendingPathComponent("save").appendingPathComponent(titleID)
@@ -91,13 +94,12 @@ package enum SaveLocations {
         return EffectiveCloud(folder: nil, source: .standard)
     }
 
-    /// The launch environment these settings add. Nothing for a game with nothing set, so a usual start is unchanged.
-    /// `DM_SAVE_SYNC` is only written when the global setup or an override decides, never over a setting the game made for itself.
-    package static func environment(save: EffectiveSave, cloud: EffectiveCloud) -> [String: String] {
+    /// The launch environment these settings add, under the engine's names. Nothing for a game with nothing set, so a usual start is unchanged.
+    /// The cloud folder (`DM_SAVE_SYNC`) is only written when the global setup, an override or the game's own setting decides.
+    package static func environment(save: EffectiveSave, cloud: EffectiveCloud, engine: any SaveEngine = DmSaveEngine()) -> [String: String] {
         var env: [String: String] = [:]
-        if [.game, .global, .libraryFolder, .fallback].contains(save.source) { env["DM_SAVE"] = save.path.path }
-        if cloud.source == .global { env[CloudSaveSync.key] = cloud.folder ?? "0" }
-        else if cloud.source == .game { env[CloudSaveSync.key] = cloud.folder ?? "0" }
+        if [.game, .global, .libraryFolder, .fallback].contains(save.source) { env[engine.saveKey] = save.path.path }
+        if cloud.source == .global || cloud.source == .game { env[engine.syncKey] = cloud.folder ?? "0" }
         return env
     }
 }
