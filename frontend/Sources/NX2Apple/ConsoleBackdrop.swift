@@ -38,7 +38,7 @@ struct ConsoleBackdrop: View {
                     .frame(height: min(300, size.height * 0.32)).allowsHitTesting(false)
             }
         }
-        .dsAnimation(ConsoleHomeMotion.artwork(reduceMotion: reduceMotion), value: game?.id)   // the art cross-fades, slowly and softly
+        .dsAnimation(ConsoleHomeMotion.artwork(reduceMotion: reduceMotion), value: game?.id)   // the art cross-fades, short and quiet
         .clipped().ignoresSafeArea().accessibilityHidden(true)
     }
 
