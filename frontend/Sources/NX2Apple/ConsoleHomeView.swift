@@ -41,6 +41,18 @@ struct ConsoleClock: View {
     }
 }
 
+/// How the console home moves when another game is focused: not at all. The title, the artwork, the row and the focused tile switch
+/// in the same frame, as a console's home does. Only the same game's large image arriving later fades in (ConsoleBackdrop).
+enum ConsoleHomeMotion {
+    /// The animation of a change of the focused game on the home: none, so nothing cross-fades, slides or blurs.
+    static let focusSwitch: Animation? = nil
+    /// A tile's focus ring and scale: at once on the home row (`coverflow`), with the rest of the switch. A short ease in a grid
+    /// (all games, the search), where only the ring moves.
+    static func tileFocus(coverflow: Bool, reduceMotion: Bool) -> Animation? {
+        coverflow || reduceMotion ? nil : .easeOut(duration: 0.22)
+    }
+}
+
 /// The home screen (#816): the top bar (the activity, the controllers, the clock, Search and the menu), the focused game's title, and
 /// one row of every game with All games as its last tile, as a PlayStation 5 home (#1458). Left and right walk the row (ConsoleView
 /// handles the presses, ConsoleHome.move decides), up goes to the top bar and down from it back to the same tile.
@@ -144,23 +156,17 @@ struct ConsoleClock: View {
 
     // MARK: Title
 
-    /// A fixed-height slot: the old and the new title overlap and cross-fade in place with the Library timing, so nothing slides and the rows below
-    /// never move, whatever the title's length. Availability stays on the artwork chip.
+    /// A fixed-height slot, so the rows below never move, whatever the title's length. Another game's title replaces the old one in
+    /// the same frame as the artwork and the row: no cross-fade, no slide (ConsoleHomeMotion). Availability stays on the artwork chip.
     private func title(_ game: ConsoleGame) -> some View {
-        return ZStack(alignment: .bottomLeading) {
-            VStack(alignment: .leading, spacing: compact ? 10 : 16) {
-                Text(game.title).font(compact ? DS.Console.Font.title : DS.Console.Font.largeTitle)
-                    .tracking(DS.Console.Font.largeTitleTracking).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    .foregroundStyle(DS.Color.textPrimary)
-                    .shadow(color: .black.opacity(0.45), radius: 12)
-                    .accessibilityAddTraits(.isHeader)
-
-            }
-            .id(game.id).transition(.opacity)
-        }
-        .dsAnimation(LibraryHeroTransition.metadata(reduceMotion: reduceMotion), value: game.id)
-        .padding(.horizontal, inset)
-        .frame(height: titleHeight, alignment: .bottomLeading)
+        Text(game.title).font(compact ? DS.Console.Font.title : DS.Console.Font.largeTitle)
+            .tracking(DS.Console.Font.largeTitleTracking).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            .foregroundStyle(DS.Color.textPrimary)
+            .shadow(color: .black.opacity(0.45), radius: 12)
+            .accessibilityAddTraits(.isHeader)
+            .animation(ConsoleHomeMotion.focusSwitch, value: game.id)
+            .padding(.horizontal, inset)
+            .frame(height: titleHeight, alignment: .bottomLeading)
     }
 
     private var titleHeight: CGFloat { compact ? 130 : 54 + 2.4 * DS.Console.Font.largeTitleSize }
@@ -194,7 +200,7 @@ struct ConsoleClock: View {
         .offset(x: -CGFloat(index) * step)
         .frame(width: size.width, alignment: .leading)
         .clipped()
-        .dsAnimation(reduceMotion ? nil : .easeOut(duration: 0.22), value: index)
+        .animation(ConsoleHomeMotion.focusSwitch, value: index)   // the row jumps to the next tile with the title and the artwork
         .background(ConsoleHomeWheelView { step in moveRow(step) })
         .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { gesture in
             if let step = ConsoleHomePointerInput.drag(gesture.translation) { moveRow(step) }
@@ -269,7 +275,7 @@ struct ConsoleClock: View {
                 .overlay(RoundedRectangle(cornerRadius: DS.Console.Radius.art).strokeBorder(selected ? DS.Color.accent : DS.Color.separator,
                                                                                         lineWidth: selected ? DS.Console.Control.focusRing : 1))
                 .scaleEffect(selected && !reduceMotion ? DS.Console.Scale.focus : 1)
-                .dsAnimation(reduceMotion ? nil : .easeOut(duration: 0.22), value: selected)
+                .dsAnimation(ConsoleHomeMotion.tileFocus(coverflow: true, reduceMotion: reduceMotion), value: selected)
                 Text(t("console.allGames")).opacity(captionVisible ? 1 : 0)
                     .font(DS.Console.Font.callout).lineLimit(1)
                     .foregroundStyle(selected ? DS.Color.textPrimary : DS.Color.textSecondary)

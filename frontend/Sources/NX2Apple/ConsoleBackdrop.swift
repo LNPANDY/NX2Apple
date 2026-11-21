@@ -25,7 +25,10 @@ struct ConsoleBackdrop: View {
                     else { home(game) }
                 }
                 .saturation(LibraryArtworkTone.saturation(muted: game.needsMutedArtworkTone))
-                .id(game.id).transition(.opacity)
+                // The same game's large image arriving later replaces its cover with a short fade. Inside the game's identity, so a
+                // switch to another game never runs it.
+                .animation(LibraryHeroTransition.artwork(reduceMotion: reduceMotion), value: game.hero != nil)
+                .id(game.id)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -35,8 +38,7 @@ struct ConsoleBackdrop: View {
                     .frame(height: min(300, size.height * 0.32)).allowsHitTesting(false)
             }
         }
-        .animation(LibraryHeroTransition.artwork(reduceMotion: reduceMotion), value: game?.id)   // the art cross-fades, slowly and softly
-        .animation(LibraryHeroTransition.artwork(reduceMotion: reduceMotion), value: game?.hero != nil)   // the large image replaces the cover
+        .animation(ConsoleHomeMotion.focusSwitch, value: game?.id)   // another game's art replaces the old one at once, no cross-fade
         .clipped().ignoresSafeArea().accessibilityHidden(true)
     }
 

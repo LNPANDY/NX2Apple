@@ -80,6 +80,39 @@ import AppKit
         XCTAssertNil(ConsoleHomePointerInput.drag(CGSize(width: 1, height: 10)))
     }
 
+    // MARK: Switching games
+
+    /// Another game on the home row switches at once: the title, the artwork, the row and the focused tile change in the same frame,
+    /// with no cross-fade or slide (#1458 had them cross-fade with the Library's timing). A grid's tiles keep their short focus ease.
+    func testTheHomeSwitchesGamesWithoutAnimation() {
+        XCTAssertNil(ConsoleHomeMotion.focusSwitch)
+        XCTAssertNil(ConsoleHomeMotion.tileFocus(coverflow: true, reduceMotion: false), "the home row's tile focus moves with the switch")
+        XCTAssertNil(ConsoleHomeMotion.tileFocus(coverflow: true, reduceMotion: true))
+        XCTAssertNotNil(ConsoleHomeMotion.tileFocus(coverflow: false, reduceMotion: false), "a grid's focus ring still eases")
+        XCTAssertNil(ConsoleHomeMotion.tileFocus(coverflow: false, reduceMotion: true))
+    }
+
+    /// The home's views key no animation of their own to the focused game: every animation that changes with the game, its place in
+    /// the row or a tile's focus is ConsoleHomeMotion's, and no game's view fades in or out by its id.
+    func testTheHomeViewsAnimateNoGameSwitch() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/NX2Apple")
+        let keyed = try NSRegularExpression(pattern: #"\.(?:ds)?[aA]nimation\((.*), value: (?:game\??\.id|index|selected|tilt)\)"#)
+        var checked = 0
+        for name in ["ConsoleHomeView.swift", "ConsoleBackdrop.swift", "ConsoleTiles.swift"] {
+            let text = try String(contentsOf: sources.appendingPathComponent(name), encoding: .utf8)
+            XCTAssertFalse(text.contains(".id(game.id).transition("), "\(name) fades a game's view in and out on a switch")
+            XCTAssertFalse(text.contains("LibraryHeroTransition.metadata"), "\(name) cross-fades the title with the Library's timing")
+            for (number, line) in text.components(separatedBy: "\n").enumerated() {
+                guard let match = keyed.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+                      let animation = Range(match.range(at: 1), in: line) else { continue }
+                checked += 1
+                XCTAssertTrue(line[animation].hasPrefix("ConsoleHomeMotion."), "\(name):\(number + 1) animates the switch to another game")
+            }
+        }
+        XCTAssertGreaterThanOrEqual(checked, 5, "the title, the artwork, the row and the tiles are found")
+    }
+
     // MARK: All games and a game's page
 
     func testFiltersAndTabsStepAndStopAtTheEnds() {
