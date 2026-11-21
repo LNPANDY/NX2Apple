@@ -190,4 +190,170 @@ import XCTest
         state.supportedText = "9.9.9"
         XCTAssertTrue(state.supportedShown.isEmpty)
     }
+
+    func testMacNativeGamesFilterAndSubtitleDetailText() {
+        let original = MacNativeGamesBuilder.featureEnabled
+        defer { MacNativeGamesBuilder.featureEnabled = original }
+        MacNativeGamesBuilder.featureEnabled = true
+
+        let mngOnlySwitch2 = SupportedGame(
+            titleID: "0400486024DEC000",
+            name: "The Legend of Zelda: Ocarina of Time",
+            edition: .switch2,
+            version: nil,
+            notes: "Switch 2 edition supported by MacNativeGames for macOS native builds."
+        )
+        let mngOnlySwitch1 = SupportedGame(
+            titleID: "01007EF00011E000",
+            name: "The Legend of Zelda: Breath of the Wild",
+            edition: .switch1,
+            version: nil,
+            notes: "Supported by MacNativeGames for macOS native builds."
+        )
+        let mngWithProfileVersion = SupportedGame(
+            titleID: "0100F2C0115B6000",
+            name: "The Legend of Zelda: Tears of the Kingdom",
+            edition: .switch1,
+            version: "1.2.1",
+            notes: "Profile note."
+        )
+        let nxnativeOnly = SupportedGame(
+            titleID: "0100000000009998",
+            name: "Standard Switch Game",
+            edition: .switch1,
+            version: nil,
+            notes: ""
+        )
+        let allGames = [mngOnlySwitch2, mngOnlySwitch1, mngWithProfileVersion, nxnativeOnly]
+
+        let allFiltered = SupportedGamesSheet.filterGames(allGames, upstreamFilter: .all, needle: "", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.0")
+        XCTAssertEqual(allFiltered.map(\.titleID), allGames.map(\.titleID))
+
+        let mngFiltered = SupportedGamesSheet.filterGames(allGames, upstreamFilter: .macNativeGames, needle: "", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.0")
+        XCTAssertEqual(mngFiltered.map(\.titleID), [mngOnlySwitch2.titleID, mngOnlySwitch1.titleID, mngWithProfileVersion.titleID])
+
+        let mngCombinedSearch = SupportedGamesSheet.filterGames(allGames, upstreamFilter: .macNativeGames, needle: "Ocarina", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.0")
+        XCTAssertEqual(mngCombinedSearch.map(\.titleID), [mngOnlySwitch2.titleID])
+
+        let en = { (key: String) in L10n.string(key, .en) }
+        let zh = { (key: String) in L10n.string(key, .zh) }
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.0", t: en), "Switch 2 · Mac native port engine")
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch1, appVersion: "1.5.0", t: en), "Mac native port engine")
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.0", t: zh), "Switch 2 · Mac 原生移植引擎")
+        XCTAssertFalse(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.0", t: en).contains(en("supported.noVersion")))
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngWithProfileVersion, appVersion: "1.5.0", t: en), String(format: en("supported.version"), "1.2.1"))
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: nxnativeOnly, appVersion: "1.5.0", t: en), en("supported.noVersion"))
+
+        MacNativeGamesBuilder.featureEnabled = false
+        XCTAssertTrue(SupportedGamesSheet.filterGames(allGames, upstreamFilter: .macNativeGames, needle: "", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.0").isEmpty)
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch1, appVersion: "1.5.0", t: en), en("supported.noVersion"))
+    }
+
+    func testSupportedGamesSheetFilterPillPadTargetTogglesRows() throws {
+        let original = MacNativeGamesBuilder.featureEnabled
+        defer { MacNativeGamesBuilder.featureEnabled = original }
+        MacNativeGamesBuilder.featureEnabled = true
+
+        // Without any MacNativeGames-supported game, the filter pill is hidden.
+        let plainFocus = PadFocus()
+        let (plainWindow, _) = sheetWindow(focus: plainFocus)
+        defer { plainWindow.orderOut(nil) }
+        settle()
+        let plainIDs = Set(try XCTUnwrap(plainFocus.frames["supported"]).map(\.id))
+        XCTAssertFalse(plainIDs.contains("supported.filter"))
+
+        // With a MacNativeGames-supported game present, the filter pill appears and toggles visible rows.
+        let mngGame = SupportedGame(titleID: "0100F2C0115B6000", name: "The Legend of Zelda: Tears of the Kingdom", edition: .switch1, version: nil, notes: "Supported by MacNativeGames.")
+        let regularGame = SupportedGame(titleID: "0100000000000001", name: "Example Game", edition: .switch1, version: "1.0.0", notes: "")
+        let focus = PadFocus()
+        let sheet = SupportedGamesSheet(
+            games: [regularGame, mngGame],
+            owned: { _ in nil },
+            covers: .saved(in: URL(fileURLWithPath: "/nonexistent"), maxPixel: SupportedGamesSheet.coverPixels),
+            showInLibrary: { _ in }
+        )
+            .environmentObject(Localizer(.en))
+            .environmentObject(focus)
+        let window = OffscreenWindow(size: NSSize(width: 680, height: 600))
+        window.contentView = NSHostingView(rootView: AnyView(sheet))
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.orderOut(nil); window.close() }
+        settle()
+
+        let initialIDs = Set(try XCTUnwrap(focus.frames["supported"]).map(\.id))
+        XCTAssertTrue(initialIDs.contains("supported.filter"), "\(initialIDs)")
+        XCTAssertTrue(initialIDs.contains("supported.row.\(regularGame.titleID)"))
+        XCTAssertTrue(initialIDs.contains("supported.row.\(mngGame.titleID)"))
+
+        focus.focused = "supported.filter"
+        focus.activate()
+        settle()
+
+        let filteredIDs = Set(try XCTUnwrap(focus.frames["supported"]).map(\.id))
+        XCTAssertTrue(filteredIDs.contains("supported.filter"))
+        XCTAssertTrue(filteredIDs.contains("supported.row.\(mngGame.titleID)"))
+        XCTAssertFalse(filteredIDs.contains("supported.row.\(regularGame.titleID)"), "non-MNG game must be filtered out")
+
+        focus.focused = "supported.filter"
+        focus.activate()
+        settle()
+
+        let restoredIDs = Set(try XCTUnwrap(focus.frames["supported"]).map(\.id))
+        XCTAssertTrue(restoredIDs.contains("supported.row.\(regularGame.titleID)"))
+        XCTAssertTrue(restoredIDs.contains("supported.row.\(mngGame.titleID)"))
+    }
+
+    func testBuildSelectedSheetRowEngineTagReflectsMacNativeGamesSelectionAndTarget() throws {
+        let original = MacNativeGamesBuilder.featureEnabled
+        defer { MacNativeGamesBuilder.featureEnabled = original }
+        MacNativeGamesBuilder.featureEnabled = true
+
+        let mngID = "0100F2C0115B6000"
+        let nonMngID = "0100000000000001"
+
+        XCTAssertNil(BuildSelectedSheet.rowEngineTag(for: mngID, selectedTarget: BuildTarget.mac, macNativeGamesSelected: false))
+        XCTAssertNil(BuildSelectedSheet.rowEngineTag(for: nonMngID, selectedTarget: BuildTarget.mac, macNativeGamesSelected: false))
+
+        XCTAssertEqual(BuildSelectedSheet.rowEngineTag(for: mngID, selectedTarget: BuildTarget.mac, macNativeGamesSelected: true), .macNativeGames)
+        XCTAssertEqual(BuildSelectedSheet.rowEngineTag(for: nonMngID, selectedTarget: BuildTarget.mac, macNativeGamesSelected: true), .nxnative)
+        XCTAssertEqual(BuildSelectedSheet.rowEngineTag(for: mngID, selectedTarget: "both", macNativeGamesSelected: true), .macNativeGames)
+        XCTAssertEqual(BuildSelectedSheet.rowEngineTag(for: nonMngID, selectedTarget: "both", macNativeGamesSelected: true), .nxnative)
+        XCTAssertEqual(BuildSelectedSheet.rowEngineTag(for: mngID, selectedTarget: BuildTarget.ios, macNativeGamesSelected: true), .nxnative)
+
+        MacNativeGamesBuilder.featureEnabled = false
+        XCTAssertNil(BuildSelectedSheet.rowEngineTag(for: mngID, selectedTarget: BuildTarget.mac, macNativeGamesSelected: true))
+
+        // Render BuildSelectedSheet with macNativeGamesSelected enabled to verify layout and pad targets.
+        MacNativeGamesBuilder.featureEnabled = true
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: tempDir) }
+        var mngLibGame = LibraryGame(titleID: mngID, name: "Tears of the Kingdom")
+        mngLibGame.inputs["base"] = ["/tmp/totk.nsp"]
+        var regularLibGame = LibraryGame(titleID: nonMngID, name: "Example Game")
+        regularLibGame.inputs["base"] = ["/tmp/example.nsp"]
+        let libFile = tempDir.appendingPathComponent("library.json")
+        try JSONEncoder().encode([mngLibGame, regularLibGame]).write(to: libFile)
+        let library = GameLibrary(file: libFile)
+        let queue = BuildQueueStore(file: nil, engineID: { "test-engine" }, busy: { false }, start: { _ in nil })
+        let focus = PadFocus()
+        let sheet = BuildSelectedSheet(
+            library: library,
+            queue: queue,
+            engineID: "test-engine",
+            target: BuildTarget.mac,
+            macNativeGamesSelected: true,
+            close: {}
+        )
+            .environmentObject(Localizer(.en))
+            .environmentObject(focus)
+        let window = OffscreenWindow(size: NSSize(width: 680, height: 600))
+        window.contentView = NSHostingView(rootView: AnyView(sheet))
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.orderOut(nil); window.close() }
+        settle()
+        let batchIDs = Set(try XCTUnwrap(focus.frames["batch"]).map(\.id))
+        XCTAssertTrue(batchIDs.contains("batch.game.\(mngLibGame.id.uuidString)"))
+        XCTAssertTrue(batchIDs.contains("batch.game.\(regularLibGame.id.uuidString)"))
+    }
 }

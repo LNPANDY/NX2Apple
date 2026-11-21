@@ -15,6 +15,8 @@ struct BuildSelectedSheet: View {
     /// Whether the Build page currently builds into the shared app (either direct install or shared IPA export).
     var packagesSharedApp: Bool = false
     var exportsFramework: Bool = false
+    /// Whether the launcher currently has MacNativeGames selected as the active build engine.
+    var macNativeGamesSelected: Bool = false
     var added: (String) -> Void = { _ in }
     let close: () -> Void
     @EnvironmentObject var loc: Localizer
@@ -115,6 +117,14 @@ struct BuildSelectedSheet: View {
         }
     }
 
+    /// The engine tag shown for a row when MacNativeGames is the active launcher engine.
+    /// Returns nil when another engine is active so standard nxnative batch builds stay uncluttered.
+    static func rowEngineTag(for titleID: String, selectedTarget: String, macNativeGamesSelected: Bool) -> EngineUpstreamKind? {
+        guard macNativeGamesSelected, MacNativeGamesBuilder.featureEnabled else { return nil }
+        let buildsMac = selectedTarget == BuildTarget.mac || selectedTarget == "both"
+        return (buildsMac && MacNativeGamesBuilder.supportsTitleID(titleID)) ? .macNativeGames : .nxnative
+    }
+
     /// A game of the checklist: the check (the accent when chosen), its icon, its name and the platforms it already waits for.
     private func row(_ game: LibraryGame) -> some View {
         let on = checked.contains(game.id)
@@ -135,6 +145,9 @@ struct BuildSelectedSheet: View {
                 .accessibilityHidden(true)
                 Text(game.displayName(loc.lang)).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
                 Spacer(minLength: DS.Space.xs)
+                if let engineTag = Self.rowEngineTag(for: game.titleID, selectedTarget: selectedTarget, macNativeGamesSelected: macNativeGamesSelected) {
+                    DSTag(engineTag.displayName, emphasized: engineTag == .macNativeGames)
+                }
                 if let existing = queue.games.first(where: { $0.titleID.caseInsensitiveCompare(game.titleID) == .orderedSame }), existing.waiting || existing.running || existing.entries.contains(where: { $0.packagePending != nil }) {
                     BuildPlatformChip(targets: existing.entries.map(\.target))
                         .help(loc.t("queue.alreadyQueued"))
