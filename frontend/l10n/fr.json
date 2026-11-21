@@ -2043,6 +2043,7 @@
   "players.default": "Joueur 1",
   "players.group": "Joueurs",
   "players.name": "Nom",
+  "players.nameNote": "Les jeux lancés d’ici utilisent le nom du joueur comme le vôtre. Joueur 1 garde le nom du jeu tant qu’il n’est pas renommé.",
   "players.new": "Nouveau joueur…",
   "players.newNote": "Un nouveau joueur commence chaque jeu avec une sauvegarde vide. Les sauvegardes dans le cloud restent au premier joueur.",
   "players.newTitle": "Nouveau joueur",

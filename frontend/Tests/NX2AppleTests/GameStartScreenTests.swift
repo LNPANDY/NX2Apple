@@ -72,4 +72,22 @@ import XCTest
         XCTAssertNil(GameStart.environment(for: game, library: library, controls: layout, repo: "", labels: { $0 },
                                           screen: nil, defaults: testDefaults)["DM_SCREEN"])
     }
+
+    // #1128: Play hands the game the player's name as its user name
+    func testPlayGivesTheGameThePlayersName() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("GameStartNickTests-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let library = GameLibrary(file: dir.appendingPathComponent("library.json"))
+        let layout = ControlLayout(defaults: TestDefaults.make("GameStartNickTests"))
+        let game = LibraryGame(titleID: "01001A9012345000", name: "X", appPath: dir.appendingPathComponent("X.app").path)
+        func nick(_ player: PlayerProfile?) -> String? {
+            GameStart.environment(for: game, library: library, controls: layout, repo: "", labels: { $0 }, player: player, screen: nil)["DM_NICK"]
+        }
+        XCTAssertEqual(nick(PlayerProfile(id: "ana", name: "Ana")), "Ana")
+        XCTAssertEqual(nick(PlayerProfile(id: PlayerProfile.defaultID, name: "Bartek")), "Bartek")
+        XCTAssertNil(nick(PlayerProfile(id: PlayerProfile.defaultID, name: "")))
+        XCTAssertNil(nick(nil))
+    }
 }
+

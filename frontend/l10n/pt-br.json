@@ -2043,6 +2043,7 @@
   "players.default": "Jogador 1",
   "players.group": "Jogadores",
   "players.name": "Nome",
+  "players.nameNote": "Os jogos iniciados daqui usam o nome do jogador como o seu. Jogador 1 mantém o nome do jogo até ser renomeado.",
   "players.new": "Novo jogador…",
   "players.newNote": "Um jogador novo começa todo jogo com um save vazio. Os saves na nuvem ficam com o primeiro jogador.",
   "players.newTitle": "Novo jogador",
