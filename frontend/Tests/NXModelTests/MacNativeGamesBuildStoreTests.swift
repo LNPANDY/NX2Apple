@@ -635,10 +635,12 @@ import XCTest
         var launchedExec = ""
         var launchedPath = ""
         var launchedTmpDir = ""
+        var launchedPythonPath = ""
         runner.onStartInspect = { launch in
             launchedExec = launch.executable
             launchedPath = launch.environment?["PATH"] ?? ""
             launchedTmpDir = launch.environment?["TMPDIR"] ?? ""
+            launchedPythonPath = launch.environment?["PYTHONPATH"] ?? ""
         }
 
         let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
@@ -664,6 +666,7 @@ import XCTest
         XCTAssertTrue(launchedPath.hasPrefix(installedPyURL.deletingLastPathComponent().path + ":"))
         let expectedTmp = store.effectiveWorkDir + "/.tmp"
         XCTAssertEqual(launchedTmpDir, expectedTmp)
+        XCTAssertFalse(launchedPythonPath.contains("python-packages"), "a build without NSZ or XCZ must not get the nsz folder (#1500)")
         XCTAssertTrue(FileManager.default.fileExists(atPath: expectedTmp))
     }
 
@@ -720,6 +723,55 @@ import XCTest
         XCTAssertFalse(store.installPhaseActive)
         XCTAssertTrue(store.stages.isEmpty)
         XCTAssertEqual(store.doneNote, localizer.t("msg.stopped"))
+    }
+
+    func testMNGNszInstallTargetsTheLauncherFolderForAnExternallyManagedPython() throws {
+        repo.isRepo = false
+        let validTree = try makeFakeMNGTree()
+        let runner = ChunkedRunner()
+        runner.captureAnswer = { launch in
+            if launch.arguments.contains("import nsz") {
+                return ProcessResult(status: 1, out: "")
+            }
+            return self.defaultMNGCaptureAnswer(launch)
+        }
+        var pipArguments: [String] = []
+        var pipPythonPath = ""
+        runner.streamHandler = { launch, _ in
+            if launch.arguments.contains("pip") && launch.arguments.contains("nsz") {
+                pipArguments = launch.arguments
+                pipPythonPath = launch.environment?["PYTHONPATH"] ?? ""
+                // Plain `pip install` is what an externally managed Python refuses (#1500). A target install passes.
+                return launch.arguments.contains("--target")
+            }
+            return true
+        }
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        store.buildUpstream = .macNativeGames
+        store.macNativeGamesPath = validTree
+        store.target = BuildTarget.mac
+        let base = temporary.appendingPathComponent("Zelda [0100F2C0115B6000].nsz")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: base)
+        try Data([0]).write(to: keys)
+        store.updateSlot("base") { $0.paths = [base.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+
+        store.startBuild()
+        let dl = Date().addingTimeInterval(3)
+        while pipArguments.isEmpty && Date() < dl {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+
+        let packages = temporary.path + "/Library/Application Support/NX2Apple/python-packages/"
+        XCTAssertTrue(pipArguments.contains("--target"))
+        XCTAssertFalse(pipArguments.contains("--break-system-packages"))
+        XCTAssertTrue(pipPythonPath.hasPrefix(packages), "PYTHONPATH was \(pipPythonPath)")
+        if let i = pipArguments.firstIndex(of: "--target") {
+            XCTAssertTrue(pipPythonPath.hasPrefix(pipArguments[i + 1]))
+        }
     }
 
     func testQueueAndHintedTitleIDFallbackForMNG() throws {

@@ -239,16 +239,20 @@ extension BuildStore {
             let e = ($0 as NSString).pathExtension.lowercased()
             return e == "nsz" || e == "xcz"
         }
-        if compressed, !Toolchain.runOK(py, ["-c", "import nsz"]) {
-            say(t("msg.installingNsz"))
-            let r = runner.runCaptured([py, "-m", "pip", "install", "nsz"],
-                                     env: ["PATH": BuildCommands.toolPath(python: py),
-                                           "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: py)) { $1 }) { @Sendable line in
-                hop { self.append(line + "\n") }
-            }
-            if !r {
-                fail(String(format: t("msg.nszFailed"), py))
-                return
+        // nsz lives in a folder the launcher owns: an externally managed Python refuses pip install (#1500).
+        // Only a compressed input uses it, so other builds never see its packages on PYTHONPATH.
+        if compressed {
+            let nszEnv = PythonPackages.environment(python: py, env: ["PATH": BuildCommands.toolPath(python: py),
+                                                                      "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: py)) { $1 }, runner: runner)
+            if !Toolchain.runOK(py, ["-c", "import nsz"], env: ProcessInfo.processInfo.environment.merging(nszEnv) { $1 }) {
+                say(t("msg.installingNsz"))
+                let r = PythonPackages.installNsz(python: py, env: nszEnv, runner: runner) { @Sendable line in
+                    hop { self.append(line + "\n") }
+                }
+                if !r {
+                    fail(String(format: t("msg.nszFailed"), py))
+                    return
+                }
             }
         }
         let engine = EngineLayout.root(repo.path)   // the checkout's engine/ (#214)
@@ -312,6 +316,7 @@ extension BuildStore {
         // 'NuGet-Migrations' + lstat("") == ENOENT before any project is read. NSTemporaryDirectory()
         // is the per-user temp folder whether or not the app's own environment carries one.
         var denv = toolEnvironment(python: py)
+        if compressed { denv = PythonPackages.environment(python: py, env: denv, runner: runner) }
         if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
         let launch = ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
         startBuildProcess(launch: launch, envCleanup: tempEnvURL, macOutput: macOutput)
