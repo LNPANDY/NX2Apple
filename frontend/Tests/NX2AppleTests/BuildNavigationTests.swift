@@ -92,6 +92,24 @@ import XCTest
         }
     }
 
+    /// A long detail of the running stage is cut, so a row is never wider than the steps sheet's card: before, the detail kept
+    /// its whole width and the rows overflowed the sheet on both sides.
+    func testStepRowsWithALongDetailFitTheStepsSheet() throws {
+        let detail = "archive batches still running · 12,840 / 59,024 files · copying shader libraries · copying the shader cache"
+        let stages = [Stage(id: 0, name: "extract", state: .done),
+                      Stage(id: 1, name: "Preparing the game files", state: .running, detail: detail, percent: 40),
+                      Stage(id: 2, name: "sign", state: .pending)]
+        let width: CGFloat = 600 - 2 * DSSheetInsets.horizontal
+        var measured: CGSize?
+        let host = NSHostingView(rootView: RowProbe(width: width, measured: { measured = $0 }) { BuildProcessRows(stages: stages) }
+            .environmentObject(Localizer(.en)))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        host.layoutSubtreeIfNeeded()
+        settle(0.1)
+        let size = try XCTUnwrap(measured)
+        XCTAssertLessThanOrEqual(size.width, width + 0.5, "a long detail must not make the steps rows wider than the sheet")
+    }
+
     func testMissingSetupShowsHintAndRoutesToToolsWithoutLosingDraft() throws {
         try withBuilds(ready: false) { stores, library, focus, pad, _, _ in
             let source = library.games[0].inputs["base"]!
@@ -607,5 +625,19 @@ import XCTest
             XCTAssertTrue(focus.frames["main", default: []].contains { $0.id == "build.activity" })
             XCTAssertFalse(focus.frames["main", default: []].contains { $0.id == "build.activity.dismiss" })
         }
+    }
+}
+
+/// Asks its one subview for its size at a fixed width and reports it, as the steps sheet's card proposes it.
+private struct RowProbe: Layout {
+    let width: CGFloat
+    let measured: (CGSize) -> Void
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let size = subviews.first?.sizeThatFits(ProposedViewSize(width: width, height: nil)) ?? .zero
+        measured(size)
+        return size
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: width, height: nil))
     }
 }

@@ -111,16 +111,19 @@ struct BuildProcessRows: View {
                         }
                     }.font(.system(size: 15)).frame(width: DS.Control.leadingSlot, height: DS.Control.leadingSlot)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage.state)
+                    // the name keeps its width, the detail takes what is left and is cut in the middle (its start and the clock
+                    // stay), so a long detail never makes the row wider than the card or the steps sheet. .help has all of it.
                     Text(stage.displayName(loc.t)).font(DS.Font.body).lineLimit(1).truncationMode(.tail)
                         .foregroundStyle(stage.state == .pending ? DS.Color.textTertiary : stage.state == .done ? DS.Color.textSecondary : DS.Color.textPrimary)
+                        .layoutPriority(1)
                     Spacer(minLength: DS.Space.xs)
                     TimelineView(.periodic(from: Date(), by: 1)) { context in
                         let clock = stage.state == .running ? stage.clock(at: context.date, left: loc.t("prog.etaEstimate")) : ""
                         let detail = stage.state == .running ? stage.detail : ""
                         Text([detail, clock].filter { !$0.isEmpty }.joined(separator: " · "))
                             .font(DS.Font.callout).monospacedDigit().foregroundStyle(DS.Color.textSecondary)
-                            .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                    }.layoutPriority(1)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
                     Text(stage.state == .running ? stage.percent.map { "\(Int($0))%" } ?? "" : "")
                         .font(DS.Font.body).monospacedDigit().foregroundStyle(DS.Color.textPrimary).frame(width: 44, alignment: .trailing)
                 }.frame(height: 36)
