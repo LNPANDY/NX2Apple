@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Classified root cause for a failed `nsz` tool installation, so the UI surfaces actionable guidance instead of a generic hint.
@@ -138,7 +139,10 @@ extension Toolchain {
         let vpy = nszVenvPython(venvDir: venvDir)
         let nszBin = nszExecutable(venvDir: venvDir)
         guard fm.isExecutableFile(atPath: vpy) else { return nil }
-        let env = ProxyEnvironment.merged(into: environment.merging(BundledTools.environment(for: vpy)) { $1 })
+        var cleanEnv = environment
+        cleanEnv.removeValue(forKey: "PYTHONHOME")
+        cleanEnv.removeValue(forKey: "PYTHONPATH")
+        let env = ProxyEnvironment.merged(into: cleanEnv.merging(BundledTools.environment(for: vpy)) { $1 })
         guard runOK(vpy, ["-c", "import nsz"], env: env, runner: runner) else { return nil }
         let exe = fm.isExecutableFile(atPath: nszBin) ? nszBin : nil
         return ManagedNszTool(
@@ -280,8 +284,9 @@ extension Toolchain {
 
         let unpackDir = workDir + "/.nsz-unpacked"
         let stem = ((input as NSString).lastPathComponent as NSString).deletingPathExtension
-        let outPath = unpackDir + "/" + stem + "." + outExt
-        let receiptPath = unpackDir + "/" + stem + "." + outExt + ".receipt"
+        let hash8 = SHA256.hash(data: Data(resolvedInput.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
+        let outPath = unpackDir + "/" + stem + "-" + hash8 + "." + outExt
+        let receiptPath = outPath + ".receipt"
 
         if size >= 0,
            fm.fileExists(atPath: outPath),

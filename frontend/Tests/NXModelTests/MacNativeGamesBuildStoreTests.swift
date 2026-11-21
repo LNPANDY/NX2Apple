@@ -306,9 +306,11 @@ import XCTest
         runner.onStartInspect = { launch in
             launchedCommand = [launch.executable] + launch.arguments
             guard let outFlagIndex = launch.arguments.firstIndex(of: "-o"),
-                  outFlagIndex + 1 < launch.arguments.count else { return }
+                  outFlagIndex + 1 < launch.arguments.count,
+                  let workFlagIndex = launch.arguments.firstIndex(of: "--work"),
+                  workFlagIndex + 1 < launch.arguments.count else { return }
             let builderApp = URL(fileURLWithPath: launch.arguments[outFlagIndex + 1])
-            let workDirURL = builderApp.deletingLastPathComponent()
+            let workDirURL = URL(fileURLWithPath: launch.arguments[workFlagIndex + 1])
             let romfsDir = workDirURL.appendingPathComponent("extract/v1/RomFS")
             let aocDir = workDirURL.appendingPathComponent("aoc")
             try? FileManager.default.createDirectory(at: romfsDir, withIntermediateDirectories: true)

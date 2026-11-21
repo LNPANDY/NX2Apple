@@ -290,8 +290,10 @@ def venv_python() -> str:
 def _is_under_dir(candidate: Path, root: Path) -> bool:
     """Return whether `candidate` resides under `root`, resolving parents without dereferencing leaf symlinks."""
     try:
-        cand_real = Path(os.path.realpath(candidate.parent)) / candidate.name
-        root_real = Path(os.path.realpath(root))
+        cand_real = Path(
+            os.path.normcase(os.path.abspath(os.path.join(os.path.realpath(candidate.parent), candidate.name)))
+        )
+        root_real = Path(os.path.normcase(os.path.abspath(os.path.realpath(root))))
         cand_real.relative_to(root_real)
         return True
     except (OSError, ValueError):

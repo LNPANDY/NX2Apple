@@ -451,10 +451,11 @@ import XCTest
             || runner.captures.contains { $0.executable == fakePy314Path && $0.arguments.contains("pip") }
         XCTAssertFalse(barePipOnPy314, "Must never run bare pip install against uv-managed Python 3.14")
 
-        // Must pass the unpacked .nsp to games/dread/build.py without --platform.
+        // Must pass the unpacked .nsp (with path-hash suffix) to games/dread/build.py without --platform.
         let args = try XCTUnwrap(launched?.arguments)
         XCTAssertEqual(args.first, mngTree + "/games/dread/build.py")
-        XCTAssertTrue(args[1].hasSuffix("/.nsz-unpacked/Dread [010093801237C000].nsp"))
+        XCTAssertTrue(args[1].contains("/.nsz-unpacked/Dread [010093801237C000]-"), args[1])
+        XCTAssertTrue(args[1].hasSuffix(".nsp"), args[1])
         XCTAssertFalse(args.contains("--platform"))
     }
 
@@ -552,5 +553,163 @@ import XCTest
         store.selectUpstream(.macNativeGames)
         XCTAssertEqual(store.buildUpstream, .nxnative)
         XCTAssertEqual(store.upstreamAutoSwitchRevision, revBefore)
+    }
+
+    func testMNGFirstBuildSeparatesOutFromWorkAndCleansEmptyStageDir() throws {
+        repo.isRepo = false
+        let mngTree = try makeFakeMNGTree(withPorts: [.tmnt])
+        let runner = RecordingRunner()
+        runner.captureHandler = { launch in
+            if launch.arguments.contains(where: { $0.contains("sys.version_info") }) {
+                return ProcessResult(status: 0, out: "3.14\n")
+            }
+            return ProcessResult(status: 0, out: "")
+        }
+
+        var launchedArgs: [String] = []
+        runner.onStart = { launch in
+            launchedArgs = launch.arguments
+            guard let oIdx = launch.arguments.firstIndex(of: "-o"), oIdx + 1 < launch.arguments.count else { return }
+            let appURL = URL(fileURLWithPath: launch.arguments[oIdx + 1])
+            let macos = appURL.appendingPathComponent("Contents/MacOS")
+            try? FileManager.default.createDirectory(at: macos, withIntermediateDirectories: true)
+            let exe = macos.appendingPathComponent("tmnt")
+            try? Data("#!/bin/sh\n".utf8).write(to: exe)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: exe.path)
+            let plist: [String: Any] = [
+                "CFBundleIdentifier": "org.macnativegames.tmnt.private",
+                "CFBundleExecutable": "tmnt",
+                "CFBundleName": "TMNT",
+            ]
+            if let data = try? PropertyListSerialization.data(fromPropertyList: plist, format: .binary, options: 0) {
+                try? data.write(to: appURL.appendingPathComponent("Contents/Info.plist"))
+            }
+        }
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        defaults.set(false, forKey: MacPreflight.defaultsKey)
+        store.home = temporary.path
+        store.buildUpstream = .macNativeGames
+        store.macNativeGamesPath = mngTree
+        store.target = BuildTarget.mac
+        let outDir = temporary.appendingPathComponent("out")
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        store.outDir = outDir.path
+
+        let tmntBase = temporary.appendingPathComponent("TMNT [0100FE701475A000].nsp")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: tmntBase)
+        try Data([0]).write(to: keys)
+        store.updateSlot("base") { $0.paths = [tmntBase.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+
+        store.startBuild()
+        XCTAssertTrue(waitUntil { store.done && !launchedArgs.isEmpty })
+
+        let outIdx = try XCTUnwrap(launchedArgs.firstIndex(of: "-o"))
+        let workIdx = try XCTUnwrap(launchedArgs.firstIndex(of: "--work"))
+        let outPath = URL(fileURLWithPath: launchedArgs[outIdx + 1]).standardized.path
+        let workPath = URL(fileURLWithPath: launchedArgs[workIdx + 1]).standardized.path
+        XCTAssertNotEqual(outPath, workPath)
+        XCTAssertFalse(outPath.hasPrefix(workPath + "/"), "MNG -o (\(outPath)) must not live inside --work (\(workPath))")
+        XCTAssertFalse(workPath.hasPrefix(outPath + "/"), "MNG --work (\(workPath)) must not live inside -o (\(outPath))")
+        XCTAssertTrue(store.macAppPath.hasSuffix("/TMNT.app"), store.macAppPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("0100FE701475A000_stage").path))
+    }
+
+    func testApplyKnownTitleIDInvalidatesInFlightHeaderProbe() throws {
+        let mngTree = try makeFakeMNGTree()
+        let store = BuildStore(localizer: localizer, runner: RecordingRunner(), repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.macNativeGamesPath = mngTree
+
+        let keys = temporary.appendingPathComponent("prod.keys")
+        let renamed = temporary.appendingPathComponent("Untagged.nsp")
+        try Data([0]).write(to: keys)
+        try Data([0]).write(to: renamed)
+
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        store.readPackageTitleID = { _, _ in
+            entered.signal()
+            _ = release.wait(timeout: .now() + 2)
+            return "0100F2C0115B6000"
+        }
+
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+        store.updateSlot("base") { $0.paths = [renamed.path] }
+        XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+
+        store.applyKnownTitleID("0100152000022000")
+        release.signal()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+
+        XCTAssertEqual(store.detectedGameTitleID16, "0100152000022000", "Delayed probe must not overwrite explicit applyKnownTitleID")
+        XCTAssertTrue(store.isMNGBlockedByCurrentGame)
+    }
+
+    func testNxnativeSiblingStagedNSZTriggersCleanNszVenvProbe() throws {
+        let nxRepo = try makeFakeNxnativeRepo()
+        repo.path = nxRepo
+
+        let extRoot = temporary.appendingPathComponent("ext-py")
+        try FileManager.default.createDirectory(at: extRoot.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: extRoot.appendingPathComponent("lib/python3.13"), withIntermediateDirectories: true)
+        let extPy = extRoot.appendingPathComponent("bin/python3.13")
+        try Data("#!/bin/sh\n".utf8).write(to: extPy)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: extPy.path)
+        try Data("[externally-managed]\n".utf8).write(to: extRoot.appendingPathComponent("lib/python3.13/EXTERNALLY-MANAGED"))
+        deps.pythonPath = extPy.path
+        deps.pythonUpstream = .nxnative
+
+        let nszVenvDir = Toolchain.nszVenvDir(home: temporary.path)
+        let nszVenvPy = Toolchain.nszVenvPython(venvDir: nszVenvDir)
+        let nszExe = Toolchain.nszExecutable(venvDir: nszVenvDir)
+        try FileManager.default.createDirectory(atPath: nszVenvDir + "/bin", withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: URL(fileURLWithPath: nszVenvPy))
+        try Data("#!/bin/sh\n".utf8).write(to: URL(fileURLWithPath: nszExe))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nszVenvPy)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nszExe)
+
+        var readyProbeEnv: [String: String]?
+        let runner = RecordingRunner()
+        runner.captureHandler = { launch in
+            if launch.arguments.contains("import nsz") {
+                if launch.executable == extPy.path { return ProcessResult(status: 1, out: "") }
+                if launch.executable == nszVenvPy {
+                    readyProbeEnv = launch.environment
+                    return ProcessResult(status: 0, out: "")
+                }
+            }
+            return ProcessResult(status: 0, out: "")
+        }
+        var buildLaunch: ProcessLaunch?
+        runner.onStart = { buildLaunch = $0 }
+
+        let romsDir = temporary.appendingPathComponent("roms")
+        try FileManager.default.createDirectory(at: romsDir, withIntermediateDirectories: true)
+        let baseNSP = romsDir.appendingPathComponent("Game [0100152000022000].nsp")
+        let siblingUpdateNSZ = romsDir.appendingPathComponent("Game Update [0100152000022800].nsz")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: baseNSP)
+        try Data([0]).write(to: siblingUpdateNSZ)
+        try Data([0]).write(to: keys)
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        store.buildUpstream = .nxnative
+        store.target = BuildTarget.mac
+        store.outDir = temporary.appendingPathComponent("out").path
+        try FileManager.default.createDirectory(atPath: store.outDir, withIntermediateDirectories: true)
+        store.updateSlot("base") { $0.paths = [baseNSP.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+
+        store.startBuild()
+        XCTAssertTrue(waitUntil { buildLaunch != nil })
+
+        let probedEnv = try XCTUnwrap(readyProbeEnv, "Sibling auto-staged .nsz must trigger managed nsz-venv probe")
+        XCTAssertNil(probedEnv["PYTHONHOME"])
+        XCTAssertNil(probedEnv["PYTHONPATH"])
+        let buildPath = try XCTUnwrap(buildLaunch?.environment?["PATH"])
+        XCTAssertTrue(buildPath.hasPrefix(nszVenvDir + "/bin:"), buildPath)
     }
 }

@@ -2389,6 +2389,7 @@ class Model(QObject):
             if hasattr(self, '_proc'):
                 self._proc = proc
 
+        created_vdir = False
         if not Path(vpy).is_file():
             # The panel's last resort is /usr/bin/python3 (3.9) or the venv path itself, and
             # neither can run `-m venv`: the row used to stay red however often Install ran.
@@ -2408,11 +2409,13 @@ class Model(QObject):
                     force=True,
                 )
             vdir = pu.venv_dir()
+            vdir_existed = vdir.exists()
             vdir.parent.mkdir(parents=True, exist_ok=True)
             self.log(f'$ {base} -m venv {vdir}\n')
             if pu._runs is not pu._ORIG_RUNS:
                 if not pu._runs(base, ['-m', 'venv', str(vdir)]):
-                    shutil.rmtree(vdir, ignore_errors=True)
+                    if not vdir_existed:
+                        shutil.rmtree(vdir, ignore_errors=True)
                     self.log('venv creation failed\n')
                     return False
             else:
@@ -2425,7 +2428,8 @@ class Model(QObject):
                     popen_cls=subprocess.Popen,
                 )
                 if was_cancelled or rc_venv != 0:
-                    shutil.rmtree(vdir, ignore_errors=True)
+                    if not vdir_existed:
+                        shutil.rmtree(vdir, ignore_errors=True)
                     if was_cancelled:
                         self.log('venv creation cancelled\n')
                     else:
@@ -2434,6 +2438,12 @@ class Model(QObject):
                             kind = 'venv'
                         self.log(nsz_setup.format_failure_guidance(kind, base, venv_out))
                     return False
+            created_vdir = not vdir_existed
+
+        def _cleanup_partial_venv() -> None:
+            if created_vdir:
+                shutil.rmtree(pu.venv_dir(), ignore_errors=True)
+
         ver_str = pu._python_version(vpy)
         ver = pu._ver_tuple(ver_str)
         pkgs = ['lz4', 'capstone', 'unicorn', 'fonttools', 'zbic', 'nsz']
@@ -2444,6 +2454,7 @@ class Model(QObject):
         last_pip_out = ''
         for attempt_wheels in ([wheels, None] if wheels else [None]):
             if _cancelled():
+                _cleanup_partial_venv()
                 return False
             args = self._pip_args(pkgs, attempt_wheels)
             self.log(f'$ {vpy} -m pip {" ".join(args)}'
@@ -2465,8 +2476,10 @@ class Model(QObject):
                 )
                 p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, text=True, encoding='utf-8',
-                                     errors='replace', env=pip_env, **pu.no_window_kwargs())
+                                     errors='replace', env=pip_env, **pu.process_group_kwargs())
                 _set_proc(p)
+                if _cancelled():
+                    pu.kill_process_tree(p)
                 assert p.stdout is not None
                 seen_pkgs: list[str] = []
                 for line in p.stdout:
@@ -2495,6 +2508,7 @@ class Model(QObject):
                 p.wait()
                 last_pip_out = ''.join(pip_lines)
                 if _cancelled():
+                    _cleanup_partial_venv()
                     return False
                 if p.returncode == 0:
                     if can_prog and dep is not None:
@@ -2509,14 +2523,23 @@ class Model(QObject):
                     return True
             except OSError as e:
                 self.log(f'{e}\n')
+                _cleanup_partial_venv()
                 return False
             finally:
                 _set_proc(None)
-                if p is not None and _cancelled():
-                    pu.kill_process_tree(p)
+                if p is not None:
+                    if _cancelled() or (callable(getattr(p, 'poll', None)) and p.poll() is None):
+                        pu.kill_process_tree(p)
+                    close_out = getattr(getattr(p, 'stdout', None), 'close', None)
+                    if callable(close_out):
+                        try:
+                            close_out()
+                        except OSError:
+                            pass
         if last_pip_out:
             kind = nsz_setup.classify_pip_error(last_pip_out)
             self.log(nsz_setup.format_failure_guidance(kind, vpy, last_pip_out))
+        _cleanup_partial_venv()
         return False
 
     def install_all_missing(self) -> None:
@@ -3965,7 +3988,8 @@ class Model(QObject):
                 if nsz_res.cancelled or getattr(self, '_build_cancelled', False):
                     return False, self.t('msg.stopped')
                 if not nsz_res.ok:
-                    return False, self.t('msg.nszFailed', nsz_res.python_path or active_py)
+                    msg_key, msg_args = nsz_setup.failure_message_spec(nsz_res, active_py)
+                    return False, self.t(msg_key, *msg_args)
                 if nsz_res.python_path:
                     active_py = nsz_res.python_path
                 if nsz_res.switched_venv:

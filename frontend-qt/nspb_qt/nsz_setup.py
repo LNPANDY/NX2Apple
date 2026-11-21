@@ -127,6 +127,22 @@ def format_failure_guidance(kind: str, py: str, output: str = '') -> str:
     return f'{_GUIDANCE_PREFIX} Failed to install nsz with {py}{detail}.\n'
 
 
+def failure_message_spec(
+    result: NszEnsureResult,
+    fallback_py: str,
+    venv_dir: str | None = None,
+) -> tuple[str, tuple[str, ...]]:
+    """Map a failed `NszEnsureResult` to its localized l10n key and format arguments."""
+    target_py = result.python_path or fallback_py
+    if result.error_kind == 'pep668':
+        return 'msg.nszFailedPEP668', (target_py,)
+    if result.error_kind == 'permission':
+        return 'msg.nszFailedPermission', (venv_dir if venv_dir is not None else str(pu.venv_dir()),)
+    if result.error_kind == 'network':
+        return 'msg.nszFailedNetwork', ()
+    return 'msg.nszFailed', (target_py,)
+
+
 def stream_command(
     cmd: list[str],
     *,
@@ -376,7 +392,7 @@ def ensure_nsz_for_build(
     vpy = pu.venv_python()
     if (
         vpy
-        and os.path.abspath(vpy) != os.path.abspath(py)
+        and os.path.normcase(os.path.abspath(vpy)) != os.path.normcase(os.path.abspath(py))
         and _python_usable_for_app_venv(vpy)
         and not pu.has_externally_managed_marker(vpy, env=run_env)
         and pu._runs(vpy, ['-c', BUILD_PROBE])

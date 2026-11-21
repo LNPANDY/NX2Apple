@@ -43,8 +43,9 @@ extension BuildStore {
         return titleID
     }
 
-    /// Applies a known library/queue title ID (hinting 16-hex IDs and reverting MacNativeGames for non-5/non-hex IDs).
+    /// Applies a known library/queue title ID (hinting 16-hex IDs and reverting MacNativeGames for non-12/non-hex IDs).
     package func applyKnownTitleID(_ titleID: String?) {
+        packageHeaderProbeGeneration &+= 1
         let trimmed = titleID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         hintedTitleID = trimmed.isEmpty ? nil : trimmed
         if !running,
@@ -136,7 +137,8 @@ extension BuildStore {
                       self.packageHeaderProbeGeneration == gen,
                       self.gameFolder == nil,
                       self.basePath == capturedBase,
-                      TitleID.parse(self.basePath) == nil else { return }
+                      TitleID.parse(self.basePath) == nil,
+                      self.effectiveHintedTitleID == nil else { return }
                 if let resolved, let normalized = MacNativeGamesBuilder.normalizedHex16(resolved) {
                     self.hintedTitleID = normalized
                 }
@@ -219,18 +221,28 @@ extension BuildStore {
         mngRun = true
         let baseDir = inputFolder
         let tidHex = buildKey
-        let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+        let resolvedTitleID = gameTitleID
+        let outputRoot = outDir.isEmpty ? baseDir : outDir
+        let workDir = outputRoot + "/" + tidHex + "_build"
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
             fail(failureWhat(failure!))
             return
         }
-        guard let route = MacNativeGamesBuilder.route(forTitleID: gameTitleID, in: macNativeGamesPath) else {
-            fail(String(format: t("upstream.mngUnsupportedGame"), gameTitleID ?? ""))
+        guard let route = MacNativeGamesBuilder.route(forTitleID: resolvedTitleID, in: macNativeGamesPath) else {
+            fail(String(format: t("upstream.mngUnsupportedGame"), resolvedTitleID ?? ""))
             return
         }
         try? FileManager.default.createDirectory(atPath: workDir, withIntermediateDirectories: true)
-        let macOutput = MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, preferred: macAppPath)
+        // Keep first-build `-o` outside `--work` (required by games/tmnt/build.py: --out and --work must be separate).
+        let stageDir = URL(fileURLWithPath: outputRoot + "/" + tidHex + "_stage")
+        let macOutput = MacAppOutput(
+            workDir: URL(fileURLWithPath: workDir),
+            key: tidHex,
+            titleID: resolvedTitleID,
+            preferred: macAppPath,
+            stagingDirectory: stageDir
+        )
         oneGameIPAPath = ""
         macAppPath = ""
         effectiveWorkDir = workDir
@@ -490,6 +502,7 @@ extension BuildStore {
             var sharedFontsPath = ""
             if MacNativeGamesBuilder.needsAutoSharedFonts(
                 route: route,
+                titleID: resolvedTitleID,
                 gameInput: effectiveGameInput,
                 isUnencryptedInput: isUnencrypted,
                 workDir: workDir
@@ -555,6 +568,9 @@ extension BuildStore {
                 ) else {
                     self.fail(String(format: self.t("upstream.mngUnsupportedGame"), self.gameTitleID ?? ""))
                     return
+                }
+                if let stagingDir = macOutput.stagingDirectoryURL {
+                    try? FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
                 }
                 self.startBuildProcess(launch: launch, envCleanup: nil, macOutput: macOutput)
             }

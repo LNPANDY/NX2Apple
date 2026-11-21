@@ -572,6 +572,130 @@ class Pep668NszInstallTest(unittest.TestCase):
             self.assertEqual(m.python_path, str(vpy_path))
             self.assertIn('installed nsz into app venv', ''.join(logged))
 
+    def test_failure_message_spec_maps_all_error_kinds(self) -> None:
+        self.assertEqual(
+            nsz_setup.failure_message_spec(
+                nsz_setup.NszEnsureResult(ok=False, python_path='/usr/bin/python3', error_kind='pep668'),
+                '/fallback/py',
+            ),
+            ('msg.nszFailedPEP668', ('/usr/bin/python3',)),
+        )
+        self.assertEqual(
+            nsz_setup.failure_message_spec(
+                nsz_setup.NszEnsureResult(ok=False, python_path='/usr/bin/python3', error_kind='permission'),
+                '/fallback/py',
+                venv_dir='/data/venv',
+            ),
+            ('msg.nszFailedPermission', ('/data/venv',)),
+        )
+        self.assertEqual(
+            nsz_setup.failure_message_spec(
+                nsz_setup.NszEnsureResult(ok=False, python_path='/usr/bin/python3', error_kind='network'),
+                '/fallback/py',
+            ),
+            ('msg.nszFailedNetwork', ()),
+        )
+        self.assertEqual(
+            nsz_setup.failure_message_spec(
+                nsz_setup.NszEnsureResult(ok=False, python_path='', error_kind='other'),
+                '/fallback/py',
+            ),
+            ('msg.nszFailed', ('/fallback/py',)),
+        )
+
+    def test_case_insensitive_path_checks_use_normcase(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            vdir = root / 'AppData' / 'Venv'
+            vpy = vdir / 'Scripts' / 'python.exe'
+            vpy.parent.mkdir(parents=True, exist_ok=True)
+            vpy.write_text('', encoding='utf-8')
+            lower_vpy = Path(str(vpy).lower())
+
+            with mock.patch.object(os.path, 'normcase', side_effect=lambda s: s.lower()):
+                self.assertTrue(pu._is_under_dir(lower_vpy, vdir))
+                with (
+                    mock.patch.object(pu, 'venv_dir', return_value=vdir),
+                    mock.patch.object(pu, 'venv_python', return_value=str(vpy)),
+                    mock.patch.object(pu, 'find_standalone_nsz', return_value=None),
+                    mock.patch.object(pu, '_runs', return_value=False),
+                    mock.patch.object(pu, 'is_app_managed_python', return_value=True),
+                    mock.patch.object(pu, 'has_externally_managed_marker', return_value=False),
+                    mock.patch.object(nsz_setup, '_python_usable_for_app_venv', side_effect=AssertionError('must skip same interpreter regardless of case')),
+                    mock.patch.object(nsz_setup, '_install_nsz_into_python', return_value=(False, False, 'network timeout')),
+                ):
+                    res = nsz_setup.ensure_nsz_for_build(
+                        py=str(lower_vpy),
+                        log=lambda _m: None,
+                        make_venv=lambda _b: False,
+                    )
+                    self.assertFalse(res.ok)
+                    self.assertEqual(res.error_kind, 'network')
+
+    @unittest.skipIf(Model is None, 'PySide6 is not installed')
+    def test_make_venv_uses_process_group_and_cleans_partial_new_venv_on_cancel(self) -> None:
+        import types
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            vdir = root / 'app_data' / 'venv'
+            vpy = vdir / 'bin' / 'python3'
+            base_py = _write_exe(
+                root / 'sys' / 'python3',
+                textwrap.dedent(
+                    f"""\
+                    #!{sys.executable}
+                    import sys
+                    from pathlib import Path
+                    args = sys.argv[1:]
+                    if args == ['-c', 'import sys;print("%d.%d"%sys.version_info[:2])']:
+                        print('3.12')
+                        sys.exit(0)
+                    if args[:2] == ['-m', 'venv']:
+                        target = Path(args[2])
+                        (target / 'bin').mkdir(parents=True, exist_ok=True)
+                        stub = target / 'bin' / 'python3'
+                        stub.write_text('#!{sys.executable}\\nimport sys, time\\nif sys.argv[1:2] == ["-c"]:\\n print("3.12"); sys.exit(0)\\nprint("Collecting...", flush=True)\\ntime.sleep(5)\\n', encoding='utf-8')
+                        stub.chmod(0o755)
+                        sys.exit(0)
+                    sys.exit(0)
+                    """
+                ),
+            )
+            logs: list[str] = []
+            seen_kwargs: list[dict] = []
+            real_popen = subprocess.Popen
+
+            fake = types.SimpleNamespace(
+                log=logs.append,
+                _pip_args=lambda pkgs, wheels: ['install', *pkgs],
+                bundled_wheels=lambda: None,
+                _build_cancelled=False,
+                _proc=None,
+            )
+
+            def spy_popen(cmd, *a, **kw):
+                cmd_list = [str(x) for x in cmd]
+                if len(cmd_list) >= 3 and cmd_list[1:3] == ['-m', 'pip']:
+                    seen_kwargs.append(dict(kw))
+                    fake._build_cancelled = True
+                return real_popen(cmd, *a, **kw)
+
+            from nspb_qt import model as model_mod
+            with (
+                mock.patch.object(pu, 'IS_WIN', False),
+                mock.patch.object(pu, 'venv_dir', return_value=vdir),
+                mock.patch.object(pu, 'venv_python', return_value=str(vpy)),
+                mock.patch.object(pu, 'python_candidates', return_value=[]),
+                mock.patch.object(model_mod.subprocess, 'Popen', side_effect=spy_popen),
+            ):
+                ok = Model._make_venv(fake, base_py)
+
+            self.assertFalse(ok)
+            self.assertTrue(seen_kwargs, 'pip Popen should have been called')
+            self.assertTrue(seen_kwargs[0].get('start_new_session'), f'expected process_group_kwargs, got {seen_kwargs[0]}')
+            self.assertFalse(vdir.exists(), 'newly created partial venv must be cleaned up when pip is cancelled')
+
 
 if __name__ == '__main__':
     unittest.main()
