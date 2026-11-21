@@ -26,11 +26,11 @@
 
 #### 🆕 Die wichtigsten Neuerungen
 
-- **Windows-Launcher (`NX2Apple-windows-x64.zip`)**: Baue iPhone- und iPad-IPAs unter Windows mit derselben 1.2-Oberfläche, einem mitgelieferten Engine-Verzeichnis (kein git nötig), geführter Ersteinrichtung, mehrkernigem NSO-Rewriting und integriertem Selbst-Update (`NX2Apple.exe`).
-- **Switch-2-Spiele**: Wähle im Mac- oder Windows-Launcher einen Switch-2-Spielordner oder eine `.nup`-Datei ohne `prod.keys` aus und spiele auf Mac, iPhone oder iPad.
-- **Eigene Touch-Steuerung, geteilte Joy-Con und Steam Controller (2026)**: Ändere die Tastengröße, verschiebe den linken Stick oder platziere jede Taste im visuellen Layout-Editor auf iPhone und iPad. Physische Controller unterstützen eine Tastenbelegung pro Spiel oder global, die Aufteilung eines Bluetooth-Joy-Con-Paars in zwei quer gehaltene Controller auf dem Mac sowie den Steam Controller (2026).
-- **Eine App für iPhone und iPad**: Alle deine Spiele landen in einer einzigen Shell-App (oder als unsignierte IPA für AltStore und SideStore), jedes mit seinem eigenen Host-Framework, sodass Engine-Updates keinen Neubau erzwingen, mit Cover Flow im Querformat, Einstellungen und Mods pro Spiel, Löschen unter Beibehaltung der Spielstände und 6 Sprachen.
-- **Konsolenmodus**: Schließe einen Controller an und drücke Select oder starte direkt im Konsolenmodus. Die Bibliothek wird zum Vollbild-Menü wie auf einer Switch, und 2 Sekunden Home beendet ein Spiel.
+- **Multi-Engine-Arbeitsbereich und Dark-Glass-Oberfläche**: Wechsle mit einem Klick zwischen `nxnative`, `nxkit (Beta)` (mit Ed25519-Selbstaktualisierung und In-App-Overlay im Konsolenmodus) und `MacNativeGames` für fünf gepflegte First-Party-Titel, vereint in einer einheitlichen Dark-Liquid-Glass-Oberfläche mit überarbeitetem zweispaltigem Controller-Konsolenmodus.
+- **iOS-Spiele ohne Neuinstallation hinzufügen und schlanke Shared-Shell**: Alle Spiele teilen sich eine nur wenige Dutzend MB große Shell-App (`DMMSLTR1`-Shader ausgelagert in `.img`, mit automatischer `.nxpart`-Zusammenführung im Vordergrund). Füge Spiele per Hot-Push hinzu oder lege `DmGame.framework` direkt in `Documents/Frameworks` ab (inklusive Import von `.p12`-Sideload-Zertifikaten für automatisches lokales Signieren auf dem Gerät), ohne die Shell-IPA neu zu installieren. Unterstützung für **10 Sprachen**.
+- **Persistente Build-Seeds und Stapel-Schnellaktualisierung**: Mit gespeicherten `build-seeds` lassen sich die meisten Upgrades in wenigen Minuten im Stapel aktualisieren, ganz ohne Original-Spieledateien oder `_build`-Ordner, inklusive Update-Versions-Badge (z. B. `1.5`) und Wiederherstellung fehlender `.img`-Dateien. Der Windows-Launcher (`NX2Apple-windows-x64.zip`) bietet eine Stapel-Warteschlange (`BuildQueue`), einen dynamischen Simulations-Heap bis 2 GiB und Selbstaktualisierung.
+- **Kurzbefehle-PiP-Assistent, Hintergrund-Audiomixing und Controller**: Integrierter 6-Schritte-Assistent für Home-Bildschirm-Kurzbefehle (mit Bild-in-Bild-Fenster) und Autostart beim Anschließen eines Controllers, gleichzeitige Wiedergabe mit anderem Ton (`DM_AUDIO_MIX`), `16:9`-Cover-Zuschnitt, eigene Touch-Layouts, Aufteilung eines Bluetooth-Joy-Con-Paars mit Ausrichtungs-Mapping für einzelne quer gehaltene Joy-Cons sowie Steam Controller (2026).
+- **208 Spieleprofile, davon 19 Switch-2-Spiele**: Wähle im Mac- oder Windows-Launcher direkt einen Switch-2-Spielordner oder eine `.nup`-Datei aus, ganz ohne `prod.keys`.
 
 Alle Versionen stehen im [Changelog](CHANGELOG.md).
 
@@ -57,17 +57,17 @@ Fork ergänzt den Launcher und eine kurze Liste von Patches und folgt nxnative j
 - **Ein Mac mit Apple Silicon.** Der Launcher startet ab **macOS 13**. Zum Bauen brauchst du Xcode mit
   dem iOS SDK, und NVN-Spiele brauchen [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.2) 27.2 (macOS 26.6
   oder neuer), außer du baust mit `--allow-other-metal`. Nimm 27.2 von Apples Download-Seite, nicht das
-  neuere Xcode aus dem App Store. Ist zusätzlich ein neueres Xcode installiert, benenne 27.2 in `Xcode-27.2.app` um und wähle es aus:
-  `sudo xcode-select -s /Applications/Xcode-27.2.app`.
+  neuere Xcode aus dem App Store. Sind beide installiert, benenne 27.2 eindeutig um, etwa in `Xcode-27.2.app`. Wähle unter **Einstellungen → Werkzeuge → Xcode auswählen…** die für NX2Apple zu verwendende Kopie aus, auch wenn sie auf einem externen Laufwerk liegt. Klicke bei der Ersteinrichtung auf **Später einrichten**, um zu den Einstellungen zu gelangen, und nach der Auswahl von Xcode auf **Einrichtung erneut ausführen**. **System-Xcode verwenden** übernimmt die Befehlszeilen-Auswahl des Macs (zum Beispiel `sudo xcode-select -s /Applications/Xcode-27.2.app`).
 - **Deine eigenen Spiele-Dumps** (NSP oder XCI) und **deine eigene `prod.keys`** von deiner eigenen
   Konsole. Nichts davon liegt bei, wird heruntergeladen oder für dich nachgeschlagen. Dieselbe `prod.keys`
   öffnet alle deine Switch-Spiele. Ein aktueller Dump deckt alle Retail-Titel ab. Switch-2-Spiele (ein
   Spielordner oder eine `.nup`-Datei) brauchen keine `prod.keys`.
 - Für ein iPhone oder iPad: iOS oder iPadOS 26 oder neuer und ein aktuelles Gerät. Ältere Geräte sind ungetestet.
 
-Die App bringt ihre eigenen Build-Werkzeuge und ihr eigenes Python mit, also brauchst du weder Homebrew
-noch eine Python-Installation. Das .NET SDK 10 ist das einzige Werkzeug, das sie dir noch installiert.
-Die Seite „Abhängigkeiten“ des Launchers prüft jede Voraussetzung und installiert, was sie kann, mit einem Klick.
+Für `nxnative` bringt die App ihre eigenen Build-Werkzeuge und ihr eigenes Python mit, du brauchst also weder
+Homebrew noch eine Python-Installation, und das .NET SDK 10 ist das einzige Werkzeug, das sie dir noch installiert.
+`nxkit` benötigt weder Python noch .NET. Die Seite „Abhängigkeiten“ des Launchers prüft jede Voraussetzung und
+installiert, was sie kann, mit einem Klick.
 
 ## Installation
 
@@ -86,6 +86,13 @@ Die Seite „Abhängigkeiten“ des Launchers prüft jede Voraussetzung und inst
 
 Von Hand im Terminal zu bauen ist in [BUILDING.md](BUILDING.md) beschrieben.
 
+**Bereits gebaute Spiele aktualisieren (Schnell-Update & Neubau).** Für die meisten Engine- oder Shell-Updates
+genügt dank persistenter Build-Seeds (**Mac aktualisieren** / **Stapel-Aktualisierung**) ein Schnell-Update in
+wenigen Minuten, ohne dass du die ursprünglichen Spieledateien oder `_build`-Ordner aufbewahren musst. Für eine
+Update-NSP wähle das Spiel in der Bibliothek aus, klicke auf **Neu bauen**, behalte das Basisspiel bei und wähle
+die neue NSP unter **Updates & Zusatzinhalte** für **Dieser Mac** im selben Ausgabeordner. Deine Spielstände
+liegen außerhalb der `.app` nach Title-ID sortiert und bleiben beim Neubau in derselben Bibliothek erhalten.
+
 ## Die iPhone- und iPad-App
 
 Das Ziel **iPhone / iPad** baut eine Shell-App, die alle deine Spiele enthält, so wie es der Mac-Launcher
@@ -96,12 +103,12 @@ gewählte Spiel oben steht. Auf der Seite liegend ist es ein Cover Flow. Ein iPa
 
 <img src="frontend/screenshots/ios-cover-flow-en.webp" width="100%" alt="Die iPhone-App auf der Seite liegend: Cover Flow mit den Covern von Breath of the Wild, Hades und Tears of the Kingdom">
 
-- **Spiele vom Mac hinzufügen.** Baue ein Spiel mit dem Ziel **iPhone / iPad**, und der Launcher kopiert es
-  in die App. Die App neu zu signieren und neu zu installieren behält deine Spieldaten und Spielstände.
+- **Spiele vom Mac hinzufügen und Frameworks direkt laden.** Baue ein Spiel mit dem Ziel **iPhone / iPad**, und der Launcher kopiert es in die App. Alternativ kannst du `DmGame.framework` direkt in `Documents/Frameworks` ablegen und bei Bedarf ein `.p12`-Zertifikat in der App importieren, um Frameworks automatisch lokal auf dem Gerät zu signieren, ganz ohne Neuinstallation der Shell-IPA. Erneutes Signieren und Installieren behält deine Spieldaten und Spielstände bei.
 - **Spielen.** Wähle ein Spiel und tippe auf **Spielen**. Fehlen einem Spiel seine Daten oder braucht es eine
   neuere App, steht das auf seiner Karte, und sie bietet die Lösung an.
 - **Einstellungen für jedes Spiel.** Der Einstellungen-Button (oder X auf einem Controller) öffnet die
-  Startoptionen dieses Spiels. **Zurücksetzen** stellt jede Wahl wieder auf den Standard.
+  Startoptionen dieses Spiels, inklusive `16:9`-Cover-Zuschnitt und **Mit anderem Ton wiedergeben** (`DM_AUDIO_MIX`) für Hintergrund-Audiomixing. **Zurücksetzen** stellt jede Wahl wieder auf den Standard.
+- **Home-Bildschirm-Kurzbefehle.** Ein integrierter 6-Schritte-Assistent mit Bild-in-Bild-Anleitung hilft beim Anlegen von Spiel-Kurzbefehlen und unterstützt den Autostart beim Anschließen eines Controllers.
 - **Controller oder Tastatur.** Die ganze App lässt sich mit einem Controller bedienen: Steuerkreuz und
   Stick bewegen, A wählt aus, B geht zurück, X öffnet die Einstellungen und Y listet die Controller auf. Eine
   Hardware-Tastatur funktioniert genauso.
@@ -109,7 +116,7 @@ gewählte Spiel oben steht. Auf der Seite liegend ist es ein Cover Flow. Ein iPa
   wählst, zum Beispiel auf einer externen Festplatte, oder aus dem eigenen Ordner der App.
 - **Cloud-Spielstände.** Wähle einen iCloud-Drive-Ordner, damit die Spielstände eines Spiels mit dem Mac
   im Gleichschritt bleiben.
-- **Sprache.** Die App folgt der Systemsprache, Englisch oder vereinfachtes Chinesisch.
+- **Sprache.** Die App folgt der Systemsprache und unterstützt alle 10 Sprachen: Englisch, vereinfachtes Chinesisch, Schwedisch, Deutsch, Französisch, Italienisch, Spanisch, Japanisch, Koreanisch und brasilianisches Portugiesisch.
 
 Die App braucht iOS oder iPadOS 26 oder neuer. Die Cover sind die eShop-Banner, die der Mac-Launcher für
 deine eigenen Spiele zwischenspeichert.
@@ -158,7 +165,7 @@ gehört zu [seedds/nxnative](https://github.com/seedds/nxnative/issues). Hänge 
 
 ## Spiele
 
-147 Spiele haben ein Profil. Einige gelten upstream auf einem iPhone als spielbar, und die meisten haben
+208 Spiele haben ein Profil. Einige gelten upstream auf einem iPhone als spielbar, und die meisten haben
 ein Profil, das noch nicht auf einem Handy ausprobiert wurde. Einige davon:
 
 | | Spiel | Wo es läuft | Status |
@@ -173,6 +180,19 @@ ein Profil, das noch nicht auf einem Handy ausprobiert wurde. Einige davon:
 **[GAMES.md](GAMES.md)** enthält die Screenshot-Galerie mit der Installationsgröße jedes Spiels und die
 vollständige Tabelle mit der Update-Version, die jedes Spiel braucht: Die angezeigte Version der Update-NSP
 muss zu der des Profils passen, sonst sagt dir das der Build.
+
+**Switch-2-Spiele** sind neu in der Engine. 19 Titel haben bereits ein Profil: Donkey Kong Bananza,
+Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia, Hyrule Warriors: Age of Imprisonment,
+Mario Kart World, Mario Tennis Fever, Star Fox, Yoshi and the Mysterious Book,
+The Legend of Zelda: Ocarina of Time, Kirby Air Riders,
+Super Mario Bros. Wonder – Nintendo Switch 2 Edition + Meetup in Bellabel Park, Orbitals, Fast Fusion,
+Resident Evil 4, Nintendo Switch 2 Welcome Tour, Nintendo Switch Sports Resort,
+Sonic Frontiers Definitive Edition und PRAGMATA. Wähle auf der Build-Seite den Spielordner
+(`base/`, `updates/`, `dlc/`) oder die `.nup`-Datei aus, ganz ohne `prod.keys`. Die Bibliothek markiert sie
+als **Switch 2**. Donkey Kong Bananza wurde über den Launcher auf Mac, iPhone und iPad verifiziert (ohne
+Probleme auf Mac und iPhone, nahezu ohne auf dem iPad), The Legend of Zelda: Ocarina of Time (Switch-2-Version)
+wurde auf dem Mac komplett durchgespielt und verifiziert, und Fire Emblem Fortune's Weave wurde auf dem iPhone
+mit 60 fps verifiziert. Details stehen in [GAMES.md](GAMES.md#switch-2-games).
 
 ## Einschränkungen
 

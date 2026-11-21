@@ -502,18 +502,18 @@ nothing changes: Homebrew's tools, a system Python or the launcher's venv. To tr
 ## Language
 
 The interface follows the system language at every launch: a device language that has a file in
-`l10n/` gets that language (any Chinese variant gets Chinese, Swedish gets Swedish, German gets German,
-French gets French) and every other language gets English. Settings > Language overrides
+`l10n/` gets that language and every other language gets English. Settings > Language overrides
 that. The texts and the language list are not in Swift. Every language is one JSON file in `l10n/`
-(`en.json`, `zh.json`, `sv.json`, `de.json`, `fr.json`): a flat object with the keys sorted, UTF-8 text
-without escapes, and a `_language` entry. It holds the language's own name (`name`, which the picker
+(`en.json`, `zh.json`, `sv.json`, `de.json`, `fr.json`, `it.json`, `es.json`, `ja.json`, `ko.json`,
+`pt-br.json`): a flat object with the keys sorted, UTF-8 text without escapes, and a `_language`
+entry. It holds the language's own name (`name`, which the picker
 shows), the lowercased locale prefixes that select it (`locales`) and optionally its place in the picker
 (`order`, languages without one come last by code).
 `Sources/NXCore/Localization.swift` keeps only `Lang` (a language is its code, and `Lang.all` is the list
 of files) and the lookup, and `LocalizationFiles.swift` reads the files once, at the first lookup. A new
 language is one new file under `l10n/`: the picker, the device detection and the lookup find it with no
 change in Swift, and the iOS shell offers it too (below). A new string is a line in
-`l10n/en.json` and one in `l10n/zh.json`: English and Chinese have every key. Swedish, German and French
+`l10n/en.json` and one in `l10n/zh.json`: English and Chinese have every key. Other languages
 may miss a key and then show the English text, and `GermanLocalizationTests` and
 `FrenchLocalizationTests` check the entries they have (placeholders match the English text). The Windows
 launcher reads the same files, so one edit serves both.
@@ -532,7 +532,7 @@ text of the JSON key, and each language file that has the JSON key adds a locali
 code stays as it is). A new shell text is a line in every language file under the prefix, the same words in the Swift call
 and `python3 tools/l10n_shell_catalogs.py`. A new language file shows up in both catalogs with no change in the tool. Unlike the
 launchers' texts, every shell text has every language: `python3 tools/l10n_shell_catalogs.py --check` fails when a language file
-lacks one, and so do `ShellStringsTests` (each catalog entry has all seven) and `ShellTextSourcesTests` (each `ShellStrings.text` and
+lacks one, and so do `ShellStringsTests` (checks the 7 core shell languages `en`, `zh-Hans`, `de`, `sv`, `fr`, `it`, `ja`) and `ShellTextSourcesTests` (each `ShellStrings.text` and
 `hostText` literal of the sources is a catalog key) in frontend-ios. A text a language writes as English does (OK, Minus, Version)
 is listed in `ShellStringsTests.cognates` and in the German and French launcher tests. `tools/tests/test_l10n_shell_catalogs.py` fails when a
 committed catalog differs from what the files give, and when the app's `CFBundleLocalizations` (the Demo app, `tools/try-local`
@@ -586,7 +586,7 @@ swift test --package-path frontend --filter LauncherPerformanceTests
 ```
 
 The test builds a synthetic library in a temporary folder. It has 30 owned games
-with banners, and every third game is built. The checkout has 150 game profiles.
+with banners, and every third game is built. The checkout has 208 game profiles.
 One game has two frame time recordings of about 3 MB together. No real game
 files or keys are used. The launcher is hosted in a window and driven with the
 gamepad. The test measures six interactions: a redraw of the library, the three
