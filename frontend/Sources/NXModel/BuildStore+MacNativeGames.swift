@@ -245,13 +245,15 @@ extension BuildStore {
             let pyBin = (py314 as NSString).deletingLastPathComponent
             let basePathEnv = BuildCommands.toolPath(python: py314)
             let mergedPath = pyBin.isEmpty ? basePathEnv : (pyBin + ":" + basePathEnv)
-            let prepEnv: [String: String] = ProxyEnvironment.merged(into: [
+            let baseEnv: [String: String] = ProxyEnvironment.merged(into: [
                 "PATH": mergedPath,
                 "HOME": homeDir,
                 "LANG": "en_US.UTF-8",
                 "TMPDIR": effectiveTmpDir,
             ].merging(BundledTools.environment(for: py314)) { $1 }
              .merging(MacNativeGamesBuilder.environment(languageCode: langCode)) { $1 })
+            // nsz lives in a folder the launcher owns: an externally managed Python refuses pip install (#1500).
+            let prepEnv = compressed ? PythonPackages.environment(python: py314, env: baseEnv, home: homeDir, runner: runner) : baseEnv
 
             if compressed, !Toolchain.runOK(py314, ["-c", "import nsz"], env: prepEnv, runner: runner) {
                 if cancel.value {
@@ -263,7 +265,7 @@ extension BuildStore {
                     self.beginExternalStage(name: installingNszMsg)
                     self.say(installingNszMsg)
                 }
-                let ok = runner.runCaptured([py314, "-m", "pip", "install", "nsz"], env: prepEnv) { @Sendable line in
+                let ok = PythonPackages.installNsz(python: py314, env: prepEnv, home: homeDir, runner: runner) { @Sendable line in
                     hop {
                         guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
                         self.append(line + "\n")
