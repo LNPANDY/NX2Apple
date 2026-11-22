@@ -188,8 +188,14 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private let launcher: any GameLauncher
     @ObservationIgnored private let picker: any FolderPicker
     @ObservationIgnored private let certificatePicker: any SideloadCertificatePicker
+    @ObservationIgnored let cheatPicker: any CheatFilePicker
     @ObservationIgnored private let sideloadCertificateStore: SideloadCertificateStore
     @ObservationIgnored private var pendingPKCS12Data: Data?
+    @ObservationIgnored var pendingCheatImport: (gameID: String, token: String, targetBuildID: String, data: Data)?
+    @ObservationIgnored var cheatsOpGeneration: [String: UInt64] = [:]
+    @ObservationIgnored var cheatsSummaries: [String: GameCheatsSummary] = [:]
+    @ObservationIgnored var cheatsScanTask: Task<Void, Never>?
+    @ObservationIgnored var cheatsScanGeneration: UInt64 = 0
     @ObservationIgnored private var certificateGeneration: UInt64 = 0
     @ObservationIgnored private var certificateLoadTask: Task<Void, Never>?
     @ObservationIgnored private let adapter = GamepadAdapter()
@@ -243,11 +249,13 @@ public struct ShellHostConfig: Sendable {
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
                 certificatePicker: any SideloadCertificatePicker = NoSideloadCertificatePicker(),
+                cheatPicker: any CheatFilePicker = NoCheatFilePicker(),
                 shellSettings: ShellSettingsStore = .current, playHistory: PlayHistoryStore? = nil) {
         self.config = config
         self.launcher = launcher
         self.picker = picker
         self.certificatePicker = certificatePicker
+        self.cheatPicker = cheatPicker
         self.sideloadCertificateStore = SideloadCertificateStore(backing: config.sideloadCertBacking, now: config.now)
         self.shellSettings = shellSettings
         self.playHistory = playHistory ?? PlayHistoryStore(fileURL: PlayHistoryStore.defaultFileURL(appDataRoot: config.appDataRoot))
@@ -381,6 +389,7 @@ public struct ShellHostConfig: Sendable {
         await signingCheckTask?.value
         await certificateLoadTask?.value
         await backupScanTask?.value
+        await cheatsScanTask?.value
         await bannerFetchTask?.value
         for task in romfsChecks.values.compactMap(\.task) {
             await task.value
@@ -585,6 +594,7 @@ public struct ShellHostConfig: Sendable {
         await signingCheckTask?.value
         await certificateLoadTask?.value
         await backupScanTask?.value
+        await cheatsScanTask?.value
         await bannerFetchTask?.value
         for entry in entries { _ = await verifiedData(for: entry) }
     }
@@ -658,6 +668,7 @@ public struct ShellHostConfig: Sendable {
         rebuildActivityLog()
         startShellScan(force: true)
         startBackupScan()
+        startCheatsSummaryScan()
         startMissingBannerFetch()
         directoryWatcher?.refreshTargets()
         if !afterClaim && !isBusyWithGame {
@@ -676,6 +687,12 @@ public struct ShellHostConfig: Sendable {
             details[d] = detail(for: entries[e])
         }
         rebuildActivityLog()
+    }
+
+    func updateCheatsSummary(_ summary: GameCheatsSummary, for id: String) {
+        cheatsSummaries[id] = summary
+        guard let d = details.firstIndex(where: { $0.id == id }) else { return }
+        details[d].cheatsSummary = summary
     }
 
     private func settingsSnapshot(for id: String, profile: LauncherProfile) -> (sections: [SettingSection], hasModifiedSettings: Bool) {
@@ -890,13 +907,14 @@ public struct ShellHostConfig: Sendable {
         var shellFolder = false
         if case .url = shellCloud.resolve() { shellFolder = true }
         let snapshot = settingsSnapshot(for: entry.id, profile: profile)
+        let cheatsSummary = cheatsSummaries[entry.id]
         return GameDetail(
             game: tile, sections: snapshot.sections,
             dataSource: dataSource(data), dataNote: dataNote(for: entry.id, data: data, found: data.found, readiness: readiness),
             cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: snapshot.hasModifiedSettings,
             dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
             cloudCanUseShell: shellFolder && !cloudFromShell,
-            latestSaveBackup: latestBackup, playSummary: playSummary)
+            latestSaveBackup: latestBackup, playSummary: playSummary, cheatsSummary: cheatsSummary)
     }
 
     private func dataSource(_ data: DataResolution) -> String {
@@ -1036,6 +1054,48 @@ public struct ShellHostConfig: Sendable {
             },
             onRemoveSideloadCertificate: { [weak self] in
                 self?.removeSideloadCertificate()
+            },
+            onLoadCheats: { [weak self] id in
+                self?.loadCheatsSnapshot(for: id) ?? GameCheatsSnapshot(gameID: id, gameTitle: "")
+            },
+            onLoadCheatsAsync: { [weak self] id in
+                guard let self else { return GameCheatsSnapshot(gameID: id, gameTitle: "") }
+                return await self.loadCheatsSnapshotAsync(for: id)
+            },
+            onToggleCheatMaster: { [weak self] id, on in
+                self?.setCheatMaster(for: id, on: on) ?? GameCheatsSnapshot(gameID: id, gameTitle: "")
+            },
+            onToggleCheatMasterAsync: { [weak self] id, on in
+                guard let self else { return GameCheatsSnapshot(gameID: id, gameTitle: "") }
+                return await self.setCheatMasterAsync(for: id, on: on)
+            },
+            onToggleCheatEntry: { [weak self] id, key, on in
+                self?.setCheatEntry(for: id, key: key, on: on) ?? GameCheatsSnapshot(gameID: id, gameTitle: "")
+            },
+            onToggleCheatEntryAsync: { [weak self] id, key, on in
+                guard let self else { return GameCheatsSnapshot(gameID: id, gameTitle: "") }
+                return await self.setCheatEntryAsync(for: id, key: key, on: on)
+            },
+            onImportCheatFile: { [weak self] id in
+                guard let self else { return .cancelled }
+                return await self.importCheatFileNow(for: id)
+            },
+            onConfirmMismatchCheatImport: { [weak self] id, token in
+                self?.confirmMismatchCheatImport(for: id, token: token) ?? .cancelled
+            },
+            onConfirmMismatchCheatImportAsync: { [weak self] id, token in
+                guard let self else { return .cancelled }
+                return await self.confirmMismatchCheatImportAsync(for: id, token: token)
+            },
+            onCancelMismatchCheatImport: { [weak self] id in
+                self?.cancelMismatchCheatImport(for: id)
+            },
+            onDismissCheatFuseAlert: { [weak self] id in
+                self?.dismissCheatFuseAlert(for: id) ?? GameCheatsSnapshot(gameID: id, gameTitle: "")
+            },
+            onDismissCheatFuseAlertAsync: { [weak self] id in
+                guard let self else { return GameCheatsSnapshot(gameID: id, gameTitle: "") }
+                return await self.dismissCheatFuseAlertAsync(for: id)
             })
     }
 

@@ -476,7 +476,12 @@ struct LauncherView: View {
             if let id = savesFor { SavesView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost(dropdowns, pad: padFocus) }
         }
         .onChange(of: savesFor) { id in padFocus.scope = id != nil ? "saves" : currentPadScope }
-        .cheatsSheet(for: $cheatsFor, m: m, library: library, pad: padFocus) { currentPadScope }
+        .cheatsSheet(for: $cheatsFor, m: m, library: library, pad: padFocus, restoreScope: { currentPadScope }) {
+            page = .builds
+            buildEditorOpen = false
+            editingBuildResult = false
+            buildStep = 0
+        }
         .onChange(of: optionsFor) { id in
             if id == nil { controllerMappingOpen = false }
             padFocus.scope = currentPadScope

@@ -722,4 +722,55 @@ import XCTest
         XCTAssertTrue(storeImg.needsReplaceOldImgReminder)
         XCTAssertEqual(storeImg.updatedImgPath, targetImg)
     }
+
+    func testIOSFastRefreshPassesCheatDirWhenScriptSupportsItAndCheatsExist() throws {
+        let runner = StartRecordingRunner()
+        let store = makeStore(runner: runner)
+        let repoDir = temporary.appendingPathComponent("repo-cheats").path
+        try setupMockRepo(in: repoDir)
+        let buildScript = repoDir + "/scripts/build_ipa_from_nsp.py"
+        let originalScript = try String(contentsOfFile: buildScript, encoding: .utf8)
+        try (originalScript + "\nap.add_argument('--cheat-dir')\n").write(toFile: buildScript, atomically: true, encoding: .utf8)
+        self.repo.path = repoDir
+        self.devices.exportIPA = true
+        self.devices.exportOneGame = false
+
+        let tid = "0100888800008888"
+        let cheatsDir = temporary.appendingPathComponent("game-cheats")
+        try fm.createDirectory(at: cheatsDir, withIntermediateDirectories: true)
+        try Data("[Speed]\n04000000 00000800 1E202800\n".utf8).write(to: cheatsDir.appendingPathComponent("CD57B23FA4BBAD65.txt"))
+
+        store.startFastRefresh(titleID: tid, targetName: BuildTarget.ios, cheatsDir: cheatsDir.path)
+
+        let launch = try XCTUnwrap(runner.launches.first { $0.arguments.contains("--from-seed") })
+        let idx = try XCTUnwrap(launch.arguments.firstIndex(of: "--cheat-dir"))
+        XCTAssertEqual(launch.arguments[idx + 1], cheatsDir.path)
+
+        // Mac builds never pass --cheat-dir (Mac uses live writable code aliases).
+        let macRunner = StartRecordingRunner()
+        let macStore = makeStore(runner: macRunner)
+        macStore.startFastRefresh(titleID: tid, targetName: BuildTarget.mac, cheatsDir: cheatsDir.path)
+        let macLaunch = try XCTUnwrap(macRunner.launches.first { $0.arguments.contains("--from-seed") })
+        XCTAssertFalse(macLaunch.arguments.contains("--cheat-dir"))
+    }
+
+    func testIOSFastRefreshOmitsCheatDirWhenLegacyScriptLacksFlag() throws {
+        let runner = StartRecordingRunner()
+        let store = makeStore(runner: runner)
+        let legacyRepoDir = temporary.appendingPathComponent("repo-legacy-no-cheat-dir").path
+        try setupMockRepo(in: legacyRepoDir) // build_ipa_from_nsp.py only has --from-seed, no --cheat-dir
+        self.repo.path = legacyRepoDir
+        self.devices.exportIPA = true
+        self.devices.exportOneGame = false
+
+        let tid = "0100888800008889"
+        let cheatsDir = temporary.appendingPathComponent("legacy-game-cheats")
+        try fm.createDirectory(at: cheatsDir, withIntermediateDirectories: true)
+        try Data("[Speed]\n04000000 00000800 1E202800\n".utf8).write(to: cheatsDir.appendingPathComponent("CD57B23FA4BBAD65.txt"))
+
+        store.startFastRefresh(titleID: tid, targetName: BuildTarget.ios, cheatsDir: cheatsDir.path)
+
+        let launch = try XCTUnwrap(runner.launches.first { $0.arguments.contains("--from-seed") })
+        XCTAssertFalse(launch.arguments.contains("--cheat-dir"))
+    }
 }

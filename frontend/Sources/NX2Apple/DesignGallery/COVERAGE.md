@@ -6,7 +6,7 @@ popover and alert, every notice and every case of the state enums the views swit
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
 332 scenes.
 
-## Views: 224 of 234 in a scene
+## Views: 228 of 238 in a scene
 
 | View | Scenes |
 |---|---|
@@ -48,6 +48,10 @@ popover and alert, every notice and every case of the state enums the views swit
 | `CardRow` | `settings` |
 | `ChangedDot` | `console-mappingCustom` |
 | `ChangedLabel` | `gameOptions` |
+| `CheatCapabilityTag` | `cheats` |
+| `CheatTriggerKeyPill` | `cheats` |
+| `CheatsCountPill` | `cheats` |
+| `CheatsOverviewCard` | `cheats` |
 | `CheatsView` | `cheats` |
 | `CloudSaveSheet` | `cloudChoose`, `cloudFetching` |
 | `CloudSavesCard` | `settingsLibrary`, `gameOptions` |

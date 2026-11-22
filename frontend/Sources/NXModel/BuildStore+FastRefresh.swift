@@ -18,7 +18,8 @@ extension BuildStore {
         outDir: String? = nil,
         gameName: String? = nil,
         existingMacAppPath: String? = nil,
-        externalImgPath: String? = nil
+        externalImgPath: String? = nil,
+        cheatsDir: String? = nil
     ) {
         startFastRefresh(
             titleID: titleID,
@@ -26,7 +27,8 @@ extension BuildStore {
             outDir: outDir,
             gameName: gameName,
             existingMacAppPath: existingMacAppPath,
-            externalImgPath: externalImgPath
+            externalImgPath: externalImgPath,
+            cheatsDir: cheatsDir
         )
     }
 
@@ -43,7 +45,8 @@ extension BuildStore {
             outDir: nil,
             gameName: gameName,
             existingMacAppPath: existingMacAppPath,
-            externalImgPath: nil
+            externalImgPath: nil,
+            cheatsDir: nil
         )
     }
 
@@ -60,7 +63,8 @@ extension BuildStore {
             outDir: nil,
             gameName: gameName,
             existingMacAppPath: existingMacAppPath,
-            externalImgPath: nil
+            externalImgPath: nil,
+            cheatsDir: nil
         )
     }
 
@@ -71,7 +75,8 @@ extension BuildStore {
         outDir: String? = nil,
         gameName: String? = nil,
         existingMacAppPath: String? = nil,
-        externalImgPath: String? = nil
+        externalImgPath: String? = nil,
+        cheatsDir: String? = nil
     ) {
         guard !running else { return }
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -141,7 +146,8 @@ extension BuildStore {
                     outDir: outDir,
                     gameName: gameName,
                     existingMacAppPath: existingMacAppPath,
-                    externalImgPath: externalImgPath
+                    externalImgPath: externalImgPath,
+                    cheatsDir: cheatsDir
                 )
             }
             return
@@ -250,6 +256,10 @@ extension BuildStore {
             args += ["--env-file", envURL.path]
             if bcOnCPU { say(t("msg.bcOn")) }
             args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
+        }
+        if !isMac, RepoLayout.supportsCheatDir(repo.path),
+           let activeCheatsDir = RepoLayout.existingCheatsDir(titleID: tid, explicit: cheatsDir, home: self.home) {
+            args += ["--cheat-dir", activeCheatsDir]
         }
 
         let repoPath = repo.path

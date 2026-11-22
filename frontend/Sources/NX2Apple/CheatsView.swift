@@ -16,6 +16,7 @@ struct CheatsView: View {
     var devicectl: DeviceControl? = nil   // tests and the visual QA hand in a stand-in
     var support: URL? = nil               // the Application Support folder; tests use a temporary one
     var dropped = false                   // the drop highlight drawn from the start (visual QA)
+    var onStartedFastBake: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var focus: PadFocus
 
@@ -27,6 +28,27 @@ struct CheatsView: View {
     @State private var tripped: CheatFiles.TrippedReceipt?
     @State private var busy = false
     @State private var result: (text: String, ok: Bool)?
+    @State private var fixupsMetadata = CheatMainFixupsMetadata()
+    @State private var trampolinesMetadata: CheatTrampolineMetadata?
+    @State private var bundle = ""
+    @State private var hasUsableSeed = false
+    @State private var supportsFastBakeTools = false
+    @State private var loadGeneration: UInt64 = 0
+    @State private var actionGeneration: UInt64 = 0
+
+    private struct RefreshPayload: Sendable {
+        var files: [CheatFiles.Found]
+        var master: Bool
+        var safeMode: Bool
+        var tripped: CheatFiles.TrippedReceipt?
+        var fixups: CheatMainFixupsMetadata
+        var trampolines: CheatTrampolineMetadata?
+        var cheats: [CheatFiles.Cheat]
+        var on: Set<String>
+        var bundle: String
+        var hasUsableSeed: Bool
+        var supportsFastBakeTools: Bool
+    }
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
     private var deviceName: String { game.map { m.devices.deviceName($0.installedDevice) } ?? "iPhone" }
@@ -36,11 +58,27 @@ struct CheatsView: View {
         return support.map { CheatFiles(titleID: game.titleID, support: $0) } ?? CheatFiles(titleID: game.titleID)
     }
 
-    private var buildID: String? { game.flatMap { CheatFiles.buildID(appPath: $0.appPath, iosAppPath: $0.iosAppPath, titleID: $0.titleID, shellRoot: m.shellRoot) } }
+    private var buildID: String? { fixupsMetadata.buildID ?? trampolinesMetadata?.buildID }
     private var current: CheatFiles.Found? { buildID.flatMap { id in files.first { $0.buildID == id } } }
-    private var bundle: String { game.flatMap { NSDictionary(contentsOfFile: $0.iosAppPath + "/Info.plist")?["CFBundleIdentifier"] as? String } ?? "" }
     private var canCopy: Bool { !busy && (game?.onDevice ?? false) && !bundle.isEmpty && !files.isEmpty }
-    private var shown: [CheatFiles.Cheat] { cheats.filter { !$0.pairOff && !($0.kind == .label && $0.name.isEmpty) } }
+    private var capabilitySummary: CheatsCapabilitySummary { CheatsCapabilitySummary(cheats: cheats) }
+    private var showsIOSGuidance: Bool { game?.cheatsNeedIOSNote ?? false }
+    private var canFastBake: Bool {
+        guard !busy, !m.running, showsIOSGuidance, current != nil, capabilitySummary.codeNeedsBake > 0 else { return false }
+        return hasUsableSeed && supportsFastBakeTools
+    }
+    private var fastBakeDisabledReason: String? {
+        guard showsIOSGuidance, current != nil, capabilitySummary.codeNeedsBake > 0 else { return nil }
+        if m.running { return loc.t("cheats.fastBakeBusy") }
+        if !supportsFastBakeTools {
+            return loc.t("cheats.fastBakeToolsOld")
+        }
+        if !hasUsableSeed { return loc.t("cheats.fastBakeNoSeed") }
+        return nil
+    }
+    private var shown: [CheatFiles.Cheat] {
+        cheats.filter { !$0.pairOff && !($0.kind == .label && ($0.name.isEmpty || $0.isSectionMarker)) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -49,7 +87,17 @@ struct CheatsView: View {
             VStack(alignment: .leading, spacing: DSSheetInsets.gap) {
                 if let tripped { fuseTrippedBanner(tripped) }
                 buildCard
-                if game?.cheatsNeedIOSNote ?? false { iosNoteCard }
+                if current != nil, capabilitySummary.totalActive > 0 {
+                    CheatsOverviewCard(
+                        summary: capabilitySummary,
+                        showsIOSGuidance: showsIOSGuidance,
+                        canFastBake: canFastBake,
+                        fastBakeDisabledReason: fastBakeDisabledReason,
+                        onFastBake: startFastBakeCheats
+                    )
+                } else if showsIOSGuidance {
+                    iosNoteCard
+                }
                 if files.isEmpty { emptyCard } else { listCard }
                 actions
                 if busy {
@@ -78,10 +126,14 @@ struct CheatsView: View {
             .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.gap).padding(.bottom, DSSheetInsets.vertical)
         }
         .padScope("cheats", focus)
-        .frame(width: 600, height: 700)
+        .frame(width: 640, height: 800)
         .dsSheetSurface()
         .modifier(GameFilesDrop(enabled: !busy, label: loc.t("cheats.dropHint"), targeted: dropped) { importPaths($0) })
         .onAppear(perform: refresh)
+        .onDisappear {
+            loadGeneration &+= 1
+            actionGeneration &+= 1
+        }
     }
 
     // ---- the cards ----
@@ -217,26 +269,44 @@ struct CheatsView: View {
                 .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 4)
         }
         switch cheat.kind {
-        case .label where cheat.name.hasPrefix("--Section"):
+        case .label where cheat.isSectionMarker || cheat.name.hasPrefix("--Section"):
             EmptyView()
         case .label:
             Text(cheat.name).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).padding(.horizontal, 18).padding(.vertical, 5)
         case .master:
             HStack(spacing: 10) {
-                Text(cheat.name).font(DS.Font.body)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: DS.Space.xs) {
+                        Text(cheat.name).font(DS.Font.body).lineLimit(2)
+                        if let combo = cheat.triggerCombo {
+                            CheatTriggerKeyPill(combo: combo)
+                        }
+                    }
+                    if !cheat.broken {
+                        CheatCapabilityTag(capability: cheat.capability)
+                    }
+                }
                 Spacer(minLength: 8)
                 Text(loc.t("cheats.alwaysOn")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
             }
             .padding(.horizontal, 18).padding(.vertical, 6)
         case .cheat:
             HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(cheat.name).font(DS.Font.body).lineLimit(2)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: DS.Space.xs) {
+                        Text(cheat.name).font(DS.Font.body).lineLimit(2)
+                        if let combo = cheat.triggerCombo {
+                            CheatTriggerKeyPill(combo: combo)
+                        }
+                    }
                     if cheat.broken {
                         Label(loc.t("cheats.broken"), systemImage: "exclamationmark.triangle.fill").font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                             .labelStyle(CheatWarningLabel())
+                    } else if cheat.once {
+                        Text(loc.t("cheats.once")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                    } else {
+                        CheatCapabilityTag(capability: cheat.capability)
                     }
-                    else if cheat.once { Text(loc.t("cheats.once")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary) }
                 }
                 Spacer(minLength: 8)
                 if cheat.switchable {
@@ -268,15 +338,95 @@ struct CheatsView: View {
     // ---- what the controls do ----
 
     private func refresh() {
-        guard let cheatFiles else { return }
-        if let game, !CheatsView.running(game: game) {
-            cheatFiles.recoverIfArmed()
+        guard let cheatFiles, let game else { return }
+        loadGeneration &+= 1
+        let gen = loadGeneration
+        let targetID = game.id
+        let titleID = game.titleID
+        let appPath = game.appPath
+        let iosAppPath = game.iosAppPath
+        let shellRoot = m.shellRoot
+        let seedRoot = m.seedCacheRoot
+        let repoPath = m.repo.path
+        let isRunning = CheatsView.running(game: game)
+
+        Task.detached(priority: .userInitiated) {
+            if !isRunning {
+                cheatFiles.recoverIfArmed()
+            }
+            let found = cheatFiles.found()
+            let masterOn = cheatFiles.masterOn
+            let isSafeMode = cheatFiles.safeMode
+            let trippedReceipt = cheatFiles.readTripped()
+            let fixups = CheatFiles.mainFixupsMetadata(
+                appPath: appPath,
+                iosAppPath: iosAppPath,
+                titleID: titleID,
+                shellRoot: shellRoot
+            )
+            let trampolines = CheatFiles.trampolinesMetadata(
+                appPath: appPath,
+                iosAppPath: iosAppPath,
+                titleID: titleID,
+                shellRoot: shellRoot
+            )
+            let activeBuildID = fixups.buildID ?? trampolines?.buildID
+            let matched = activeBuildID.flatMap { id in found.first { $0.buildID == id } }
+            let parsedCheats: [CheatFiles.Cheat]
+            let enabledKeys: Set<String>
+            if let file = matched {
+                parsedCheats = cheatFiles.cheats(of: file, rxEnd: fixups.mainRxEnd, trampolines: trampolines) ?? []
+                enabledKeys = cheatFiles.enabled(file.buildID)
+            } else {
+                parsedCheats = []
+                enabledKeys = []
+            }
+            let bundleID = iosAppPath.isEmpty
+                ? ""
+                : (NSDictionary(contentsOfFile: iosAppPath + "/Info.plist")?["CFBundleIdentifier"] as? String ?? "")
+            let seedUsable = BuildSeedCache.inspect(titleID: titleID, seedRoot: seedRoot, repoPath: repoPath).isUsable
+            let toolsSupported = RepoLayout.supportsBuildSeed(repoPath) && RepoLayout.supportsCheatDir(repoPath)
+            let payload = RefreshPayload(
+                files: found,
+                master: masterOn,
+                safeMode: isSafeMode,
+                tripped: trippedReceipt,
+                fixups: fixups,
+                trampolines: trampolines,
+                cheats: parsedCheats,
+                on: enabledKeys,
+                bundle: bundleID,
+                hasUsableSeed: seedUsable,
+                supportsFastBakeTools: toolsSupported
+            )
+            await MainActor.run {
+                guard loadGeneration == gen, self.game?.id == targetID else { return }
+                files = payload.files
+                master = payload.master
+                safeMode = payload.safeMode
+                tripped = payload.tripped
+                fixupsMetadata = payload.fixups
+                trampolinesMetadata = payload.trampolines
+                cheats = payload.cheats
+                on = payload.on
+                bundle = payload.bundle
+                hasUsableSeed = payload.hasUsableSeed
+                supportsFastBakeTools = payload.supportsFastBakeTools
+            }
         }
-        files = cheatFiles.found()
-        master = cheatFiles.masterOn
-        safeMode = cheatFiles.safeMode
-        tripped = cheatFiles.readTripped()
-        if let file = current { cheats = cheatFiles.cheats(of: file) ?? []; on = cheatFiles.enabled(file.buildID) } else { cheats = []; on = [] }
+    }
+
+    private func startFastBakeCheats() {
+        guard canFastBake, let game, let cheatFiles else { return }
+        m.startFastRefresh(
+            titleID: game.titleID,
+            targetName: BuildTarget.ios,
+            gameName: game.name,
+            existingMacAppPath: game.appPath.isEmpty ? nil : game.appPath,
+            cheatsDir: cheatFiles.folder.path
+        )
+        onStartedFastBake?()
+        dismiss()
     }
 
     private func dismissTripped() {
@@ -310,19 +460,40 @@ struct CheatsView: View {
     }
 
     private func importPaths(_ paths: [String]) {
-        guard let cheatFiles else { return }
-        do {
-            let outcome = try cheatFiles.importFiles(from: paths.map { URL(fileURLWithPath: $0) })
-            refresh()
-            result = Self.importMessage(outcome, loc: loc)
-        } catch { result = (String(format: loc.t("cheats.writeFailed"), error.localizedDescription), false) }
+        guard let cheatFiles, let game else { return }
+        actionGeneration &+= 1
+        let gen = actionGeneration
+        let targetID = game.id
+        let urls = paths.map { URL(fileURLWithPath: $0) }
+        busy = true
+        result = nil
+        Task.detached(priority: .userInitiated) {
+            let outcomeResult: Result<CheatFiles.ImportResult, Error>
+            do {
+                outcomeResult = .success(try cheatFiles.importFiles(from: urls))
+            } catch {
+                outcomeResult = .failure(error)
+            }
+            await MainActor.run {
+                guard actionGeneration == gen, self.game?.id == targetID else { return }
+                busy = false
+                switch outcomeResult {
+                case .success(let outcome):
+                    refresh()
+                    result = Self.importMessage(outcome, loc: loc)
+                case .failure(let error):
+                    result = (String(format: loc.t("cheats.writeFailed"), error.localizedDescription), false)
+                }
+            }
+        }
     }
 
-    /// What an import says: how many files came in, and the ones without a build ID in their name.
+    /// What an import says: how many files came in, and the ones without a build ID or exceeding 4 MB.
     static func importMessage(_ r: CheatFiles.ImportResult, loc: Localizer) -> (String, Bool) {
         var parts: [String] = []
         if !r.imported.isEmpty { parts.append(String(format: loc.t("cheats.imported"), r.imported.count)) }
         if !r.skipped.isEmpty { parts.append(String(format: loc.t("cheats.notNamed"), r.skipped.prefix(3).joined(separator: ", "))) }
+        if !r.tooLarge.isEmpty { parts.append(String(format: loc.t("cheats.tooLarge"), r.tooLarge.prefix(3).joined(separator: ", "))) }
         if parts.isEmpty { return (loc.t("cheats.nothingFound"), false) }
         return (parts.joined(separator: " "), !r.imported.isEmpty)
     }
@@ -335,15 +506,22 @@ struct CheatsView: View {
 
     private func copyToDevice() {
         guard let cheatFiles, let game else { return }
+        actionGeneration &+= 1
+        let gen = actionGeneration
+        let targetID = game.id
+        let targetDeviceName = deviceName
         let transfer = CheatTransfer(files: cheatFiles, device: game.installedDevice, bundle: bundle, devicectl: devicectl ?? .xcrun(m.devices.xcrun))
         busy = true; result = nil
         DispatchQueue.global(qos: .userInitiated).async {
             let outcome: (String, Bool)
-            do { try transfer.toDevice(); outcome = (String(format: loc.t("cheats.copied"), deviceName), true) }
+            do { try transfer.toDevice(); outcome = (String(format: loc.t("cheats.copied"), targetDeviceName), true) }
             catch CheatTransfer.Failure.noFiles { outcome = (loc.t("cheats.empty"), false) }
             catch CheatTransfer.Failure.device(let line) { outcome = (String(format: loc.t("cheats.copyFailed"), line), false) }
             catch { outcome = (String(format: loc.t("cheats.copyFailed"), error.localizedDescription), false) }
-            DispatchQueue.main.async { busy = false; result = outcome; focus.focused = "cheats.done" }
+            DispatchQueue.main.async {
+                guard actionGeneration == gen, self.game?.id == targetID else { return }
+                busy = false; result = outcome; focus.focused = "cheats.done"
+            }
         }
     }
 
@@ -352,9 +530,19 @@ struct CheatsView: View {
 
 extension View {
     /// The Cheats sheet of the game `id` names, with the controller's scope following it (the launcher's other sheets do the same inline).
-    func cheatsSheet(for id: Binding<UUID?>, m: BuildStore, library: GameLibrary, pad: PadFocus, restoreScope: @escaping () -> String) -> some View {
+    func cheatsSheet(
+        for id: Binding<UUID?>,
+        m: BuildStore,
+        library: GameLibrary,
+        pad: PadFocus,
+        restoreScope: @escaping () -> String,
+        onStartedFastBake: (() -> Void)? = nil
+    ) -> some View {
         sheet(isPresented: Binding(get: { id.wrappedValue != nil }, set: { if !$0 { id.wrappedValue = nil } })) {
-            if let game = id.wrappedValue { CheatsView(m: m, library: library, gameID: game).environmentObject(pad) }
+            if let game = id.wrappedValue {
+                CheatsView(m: m, library: library, gameID: game, onStartedFastBake: onStartedFastBake)
+                    .environmentObject(pad)
+            }
         }
         .onChange(of: id.wrappedValue) { open in pad.scope = open != nil ? "cheats" : restoreScope() }
     }

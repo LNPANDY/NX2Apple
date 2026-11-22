@@ -158,4 +158,112 @@ import XCTest
         cancelButton.tap()
         XCTAssertTrue(importButton.waitForExistence(timeout: 5))
     }
+
+    func testGameSettingsCheatsImportTriageAndToggleFlow() throws {
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en", "--host", "--select", "0100000000010000", "--screen", "settings", "--mock-cheat-file"]
+        app.launch()
+
+        let cheatsEntry = app.buttons["set.cheats"]
+        XCTAssertTrue(cheatsEntry.waitForExistence(timeout: 10))
+        saveOptionalScreenshot(named: "ios-settings-cheats-entry-en")
+
+        cheatsEntry.tap()
+        XCTAssertTrue(app.staticTexts["cheats.buildID"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["cheats.buildID"].label, "CD57B23FA4BBAD65")
+        XCTAssertTrue(app.otherElements["cheats.emptyCard"].exists || app.staticTexts["No cheats imported yet"].exists)
+
+        let importButton = app.buttons["cheats.import"]
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5))
+        importButton.tap()
+
+        // Triage card shows direct-ready count + code-needs-bake guidance + share button.
+        XCTAssertTrue(app.staticTexts["cheats.triageNeedsBakeText"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["cheats.shareForBake"].exists || app.buttons["cheats.share"].exists)
+
+        // Direct-on-iPhone and baked-code entries expose live switches, while unbaked code entries show locked badge.
+        let healthToggle = app.switches["cheats.toggle.Infinite Health"]
+        let scroll = app.scrollViews.firstMatch
+        for _ in 0..<4 where !healthToggle.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(healthToggle.waitForExistence(timeout: 5))
+        healthToggle.tap()
+        XCTAssertEqual(healthToggle.value as? String, "1")
+
+        let moonJumpKey = app.descendants(matching: .any)["cheats.key.Moon Jump (Hold ZR+B)"].firstMatch
+        for _ in 0..<4 where !moonJumpKey.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(moonJumpKey.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.switches["cheats.toggle.Moon Jump (Hold ZR+B)"].exists)
+
+        let lockedCode = app.buttons["cheats.locked.2x Movement Speed"]
+        for _ in 0..<4 where !lockedCode.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(lockedCode.waitForExistence(timeout: 5))
+    }
+
+    func testCheatsBuildMismatchShowsConfirmationAlert() {
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en", "--host", "--select", "0100000000010000", "--screen", "settings", "--mock-cheat-mismatch"]
+        app.launch()
+
+        let cheatsEntry = app.buttons["set.cheats"]
+        XCTAssertTrue(cheatsEntry.waitForExistence(timeout: 10))
+        cheatsEntry.tap()
+
+        let importButton = app.buttons["cheats.import"]
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5))
+        importButton.tap()
+
+        let alert = app.alerts["Build ID does not match"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Import for this build"].tap()
+
+        XCTAssertTrue(app.staticTexts["cheats.triageNeedsBakeText"].waitForExistence(timeout: 5))
+    }
+
+    func testCaptureCheatsScreenshotsEnAndZh() throws {
+        guard let shotDir = ProcessInfo.processInfo.environment["NX_IOS_CHEATS_SHOT_DIR"], !shotDir.isEmpty else {
+            throw XCTSkip("Set NX_IOS_CHEATS_SHOT_DIR to capture iOS Cheats screenshots")
+        }
+        let dirURL = URL(fileURLWithPath: shotDir, isDirectory: true)
+        try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+
+        func capture(_ name: String) throws {
+            let png = XCUIScreen.main.screenshot().pngRepresentation
+            try png.write(to: dirURL.appendingPathComponent("\(name).png"))
+        }
+
+        for (langTag, appleLang) in [("en", "en"), ("zh", "zh-Hans")] {
+            XCUIDevice.shared.orientation = .portrait
+            app.launchArguments = [
+                "-AppleLanguages", "(\(appleLang))",
+                "-AppleLocale", appleLang,
+                "--host", "--select", "0100000000010000", "--screen", "settings", "--mock-cheat-preloaded"
+            ]
+            app.launch()
+            let cheatsEntry = app.buttons["set.cheats"]
+            XCTAssertTrue(cheatsEntry.waitForExistence(timeout: 10))
+            try capture("ios-settings-cheats-entry-\(langTag)")
+
+            cheatsEntry.tap()
+            XCTAssertTrue(app.staticTexts["cheats.buildID"].waitForExistence(timeout: 5))
+            try capture("ios-cheats-triage-top-\(langTag)")
+
+            app.scrollViews.firstMatch.swipeUp()
+            sleep(1)
+            try capture("ios-cheats-entries-list-\(langTag)")
+            app.terminate()
+        }
+    }
+
+    private func saveOptionalScreenshot(named name: String) {
+        guard let shotDir = ProcessInfo.processInfo.environment["NX_IOS_CHEATS_SHOT_DIR"], !shotDir.isEmpty else { return }
+        let url = URL(fileURLWithPath: shotDir, isDirectory: true).appendingPathComponent("\(name).png")
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: url)
+    }
 }

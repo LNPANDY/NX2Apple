@@ -142,6 +142,54 @@ import NXModel
         """)
         XCTAssertEqual(cheats.map(\.section), ["Items", "Items", "Items", ""])
         XCTAssertEqual(cheats.map(\.kind), [.label, .cheat, .label, .cheat])
+        XCTAssertEqual(cheats.map(\.isSectionMarker), [true, false, true, false])
+    }
+
+    func testZingSectionMarkersGroupEntriesAndStayOutOfEnabled() {
+        let cheats = parse("""
+        [Player Stats]
+        20000000
+        [Infinite HP]
+        04000000 00180020 000003E7
+        [Player Stats End]
+        20000001
+        [Loose]
+        04000000 00180040 00000001
+        """)
+        XCTAssertEqual(cheats.map(\.section), ["Player Stats", "Player Stats", "Player Stats", ""])
+        XCTAssertEqual(cheats.map(\.kind), [.label, .cheat, .label, .cheat])
+        XCTAssertEqual(cheats.map(\.isSectionMarker), [true, false, true, false])
+        XCTAssertEqual(cheats.map(\.switchable), [false, true, false, true])
+        XCTAssertEqual(CheatFiles.enabledText(cheats, on: ["Player Stats", "Infinite HP", "Player Stats End"]), "Infinite HP\n")
+    }
+
+    func testFourTierCapabilitiesAndKeyMaskExtractionMatchFixupsAndTrampolines() {
+        let trampolines = CheatTrampolineMetadata.parse("""
+        # BUILD_ID\t\(build)
+        # MAIN_RX_END\t0x100000
+        row_type\tname\tcheat_key\tkind\tslot_id\tvariant_mask\ttarget_off\tpatched_word\tkey_mask\tdetail
+        entry\tMoon Jump\tMoon Jump\tbaked_conditional\t0\t0x1\t0x400\t0xd503201f\t0x202\t
+        site\tMoon Jump\tMoon Jump\tbaked_conditional\t0\t0x1\t0x400\t0xd503201f\t0x202\t
+        """)
+        let raw = """
+        [Infinite HP]
+        04000000 00180020 000003E7
+        [Moon Jump]
+        80000202
+        04000000 00000400 D503201F
+        20000000
+        [2x Speed]
+        80000040
+        04000000 00000800 1E202800
+        20000000
+        [Max Rupees]
+        04100000 00004200 000F423F
+        """
+        let cheats = CheatFiles.parse(Data(raw.utf8), rxEnd: 0x100000, trampolines: trampolines, buildID: build)
+        XCTAssertEqual(cheats.map(\.capability), [.dataReady, .codeBaked, .codeNeedsBake, .fixedHeapWarning])
+        XCTAssertEqual(cheats[1].triggerCombo, "B + ZR")
+        XCTAssertEqual(cheats[2].triggerCombo, "L")
+        XCTAssertNil(cheats[0].triggerCombo)
     }
 
     func testTheMetaFileMakesOnePassCheatsAndPairsOutOfTheirSwitches() {
@@ -398,8 +446,30 @@ import NXModel
         let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build; m.lang = .en
         XCTAssertEqual(CheatsView.importMessage(.init(imported: ["A", "B"]), loc: mStores.localizer).0, "Files imported: 2.")
         XCTAssertTrue(CheatsView.importMessage(.init(imported: ["A"], skipped: ["x.txt"]), loc: mStores.localizer).0.contains("x.txt"))
+        XCTAssertTrue(CheatsView.importMessage(.init(tooLarge: ["huge.txt"]), loc: mStores.localizer).0.contains("huge.txt"))
+        XCTAssertFalse(CheatsView.importMessage(.init(tooLarge: ["huge.txt"]), loc: mStores.localizer).1)
         XCTAssertFalse(CheatsView.importMessage(.init(), loc: mStores.localizer).1)
         XCTAssertTrue(CheatsView.importMessage(.init(imported: ["A"]), loc: mStores.localizer).1)
+    }
+
+    func testOversizedCheatFileRejectedOnImportAndRead() throws {
+        let cf = files
+        let src = temporary.appendingPathComponent("oversized")
+        try fm.createDirectory(at: src, withIntermediateDirectories: true)
+        let hugeURL = src.appendingPathComponent("CD57B23FA4BBAD65.txt")
+        let overLimit = Data(repeating: UInt8(ascii: "A"), count: CheatFiles.maxFileBytes + 64)
+        try overLimit.write(to: hugeURL)
+
+        let imported = try cf.importFiles(from: [hugeURL])
+        XCTAssertTrue(imported.imported.isEmpty)
+        XCTAssertEqual(imported.tooLarge, ["CD57B23FA4BBAD65.txt"])
+        XCTAssertFalse(fm.fileExists(atPath: cf.folder.appendingPathComponent("CD57B23FA4BBAD65.txt").path))
+
+        // Even if placed manually on disk, cheats(of:) skips oversized files without reading them into memory.
+        try fm.createDirectory(at: cf.folder, withIntermediateDirectories: true)
+        try overLimit.write(to: cf.folder.appendingPathComponent("CD57B23FA4BBAD65.txt"))
+        let found = try XCTUnwrap(cf.found().first)
+        XCTAssertNil(cf.cheats(of: found))
     }
 
     // ---- the copy to the device ----
@@ -505,13 +575,32 @@ import NXModel
         }
         let info: [String: Any] = ["DMTitleID": game, "CFBundleDisplayName": "The Legend of Zelda: Breath of the Wild", "CFBundleExecutable": "nxnative"]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
-        try write("# BUILD_ID\tcd57b23fa4bbad65803d9788c01821ee\n", "Contents/Resources/dm/main.fixups.tsv", under: app)
+        try write("# BUILD_ID\tcd57b23fa4bbad65803d9788c01821ee\n# MAIN_RX_END\t0x100000\n", "Contents/Resources/dm/main.fixups.tsv", under: app)
         let ios = temporary.appendingPathComponent("DmIOS.app")
         try fm.createDirectory(at: ios, withIntermediateDirectories: true)
         try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "com.example.zelda"], format: .xml, options: 0).write(to: ios.appendingPathComponent("Info.plist"))
+        try write("# BUILD_ID\tcd57b23fa4bbad65803d9788c01821ee\n# MAIN_RX_END\t0x100000\n", "dm/main.fixups.tsv", under: ios)
+        try write("""
+        # BUILD_ID\tCD57B23FA4BBAD65
+        # MAIN_RX_END\t0x100000
+        # SLOTS_USED\t1
+        row_type\tname\tcheat_key\tkind\tslot_id\tvariant_mask\ttarget_off\tpatched_word\tkey_mask\tdetail
+        entry\tMoon Jump\tMoon Jump\tbaked_conditional\t0\t0x1\t0x400\t0xd503201f\t0x202\t
+        site\tMoon Jump\tMoon Jump\tbaked_conditional\t0\t0x1\t0x400\t0xd503201f\t0x202\t
+        """, "dm/cheat_trampolines.tsv", under: ios)
 
         let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         model.lang = .en
+        let mockRepo = temporary.appendingPathComponent("mock-repo")
+        try write("ap.add_argument('--from-seed')\nap.add_argument('--cheat-dir')\n", "scripts/build_ipa_from_nsp.py", under: mockRepo)
+        modelStores.repo.path = mockRepo.path
+        let mockSeeds = temporary.appendingPathComponent("mock-seeds")
+        let seedDir = mockSeeds.appendingPathComponent(game)
+        try write("{\"schema\":1,\"title_id\":\"\(game)\",\"gfx_api\":\"vulkan\"}\n", "seed.json", under: seedDir)
+        try write("main", "ExeFS/main", under: seedDir)
+        try fm.createDirectory(at: seedDir.appendingPathComponent("shader/pkg"), withIntermediateDirectories: true)
+        try write("vk", "shader/ios/vk/vk_shaders.metallib", under: seedDir)
+        testDefaults.set(mockSeeds.path, forKey: BuildCacheRoots.seedKey)
         MainActor.assumeIsolated { modelStores.dependencies.checked = true }
         MainActor.assumeIsolated { modelStores.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
@@ -520,32 +609,37 @@ import NXModel
         let support = temporary.appendingPathComponent("Application Support")
         let folder = CheatFiles.macFolder(titleID: game, support: support)
         try write("""
-        [Cheat Manager]
-        {Always unlimited stamina}
-        04000000 00000010 00000001
-        [--SectionStart:Link--]
-        [Infinite health]
-        04000000 00000020 00000002
-        [Infinite stamina]
-        04000000 00000030 00000003
-        [Max rupees]
-        04000000 00000040 00000004
-        [--SectionEnd:Link--]
-        [--SectionStart:World--]
+        [Movement & Combat]
+        20000000
+        [Moon Jump]
+        80000202
+        04000000 00000400 D503201F
+        20000000
         [Walk through walls]
-        04000000 00000050 00000005
+        80000040
+        04000000 00000800 1E202800
+        20000000
+        [Infinite health]
+        04000000 00180020 000003E7
+        [Max rupees]
+        04100000 00004200 000F423F
+        [Movement & Combat End]
+        20000001
+        [--SectionStart:Extras--]
+        {Always unlimited stamina}
+        04000000 00180010 00000001
         [Always sunny]
-        04000000 00000060 00000006
+        04000000 00180060 00000006
         [Broken by hand]
-        04000000 00000060 0006 junk
-        [--SectionEnd:World--]
+        04000000 00180060 0006 junk
+        [--SectionEnd:Extras--]
         """, "CD57B23FA4BBAD65.txt", under: folder)
-        try write("[Other]\n04000000 00000001 00000001\n", "FF773E90972D5440.txt", under: folder)
-        try write("Infinite health\nAlways sunny\n", "CD57B23FA4BBAD65.enabled", under: folder)
+        try write("[Other]\n04000000 00180001 00000001\n", "FF773E90972D5440.txt", under: folder)
+        try write("Infinite health\nMoon Jump\nAlways sunny\n", "CD57B23FA4BBAD65.enabled", under: folder)
 
-        func shot(_ name: String, _ view: some View, height: CGFloat = 700) throws {
+        func shot(_ name: String, _ view: some View, height: CGFloat = 800) throws {
             let host = NSHostingView(rootView: view.environmentObject(PadFocus()))
-            let window = OffscreenWindow(size: NSSize(width: 600, height: height))
+            let window = OffscreenWindow(size: NSSize(width: 640, height: height))
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.6))

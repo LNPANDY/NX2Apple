@@ -81,6 +81,65 @@ extension LibraryView {
                 if !gate.isSystemEcho { removeCert() }
             }
         }
+        if let loadCheats = o.onLoadCheatsAsync {
+            a.onLoadCheatsAsync = { @MainActor id in
+                await loadCheats(id)
+            }
+        }
+        if let importCheat = o.onImportCheatFile {
+            a.onImportCheatFile = { @MainActor id in
+                guard !gate.isSystemEcho else { return .cancelled }
+                return await importCheat(id)
+            }
+        }
+        a.onToggleCheatMaster = o.onToggleCheatMaster.map { toggle in
+            { id, on in echo() ? (o.onLoadCheats?(id) ?? GameCheatsSnapshot(gameID: id, gameTitle: "")) : toggle(id, on) }
+        }
+        if let toggleMasterAsync = o.onToggleCheatMasterAsync {
+            a.onToggleCheatMasterAsync = { @MainActor id, on in
+                if gate.isSystemEcho {
+                    if let load = o.onLoadCheatsAsync { return await load(id) }
+                    return GameCheatsSnapshot(gameID: id, gameTitle: "")
+                }
+                return await toggleMasterAsync(id, on)
+            }
+        }
+        a.onToggleCheatEntry = o.onToggleCheatEntry.map { toggle in
+            { id, key, on in echo() ? (o.onLoadCheats?(id) ?? GameCheatsSnapshot(gameID: id, gameTitle: "")) : toggle(id, key, on) }
+        }
+        if let toggleEntryAsync = o.onToggleCheatEntryAsync {
+            a.onToggleCheatEntryAsync = { @MainActor id, key, on in
+                if gate.isSystemEcho {
+                    if let load = o.onLoadCheatsAsync { return await load(id) }
+                    return GameCheatsSnapshot(gameID: id, gameTitle: "")
+                }
+                return await toggleEntryAsync(id, key, on)
+            }
+        }
+        a.onConfirmMismatchCheatImport = o.onConfirmMismatchCheatImport.map { confirm in
+            { id, token in echo() ? .cancelled : confirm(id, token) }
+        }
+        if let confirmAsync = o.onConfirmMismatchCheatImportAsync {
+            a.onConfirmMismatchCheatImportAsync = { @MainActor id, token in
+                guard !gate.isSystemEcho else { return .cancelled }
+                return await confirmAsync(id, token)
+            }
+        }
+        a.onCancelMismatchCheatImport = o.onCancelMismatchCheatImport.map { cancel in
+            { id in if !echo() { cancel(id) } }
+        }
+        a.onDismissCheatFuseAlert = o.onDismissCheatFuseAlert.map { dismiss in
+            { id in echo() ? (o.onLoadCheats?(id) ?? GameCheatsSnapshot(gameID: id, gameTitle: "")) : dismiss(id) }
+        }
+        if let dismissAsync = o.onDismissCheatFuseAlertAsync {
+            a.onDismissCheatFuseAlertAsync = { @MainActor id in
+                if gate.isSystemEcho {
+                    if let load = o.onLoadCheatsAsync { return await load(id) }
+                    return GameCheatsSnapshot(gameID: id, gameTitle: "")
+                }
+                return await dismissAsync(id)
+            }
+        }
         return a
     }
     /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when
@@ -187,6 +246,17 @@ extension LibraryView {
     func closeHomeScreen() {
         guard !fromSystemEcho else { return }
         homeScreenGameID = nil
+        focus.id = returnFocus
+    }
+    func openCheats(_ id: String) {
+        guard noteTouch(), actions.supportsCheats else { return }
+        returnFocus = focus.id
+        cheatsGameID = id
+        focus.id = "cht.close"
+    }
+    func closeCheats() {
+        guard !fromSystemEcho else { return }
+        cheatsGameID = nil
         focus.id = returnFocus
     }
     var activeCoverCrop: CoverCropSession? {
@@ -366,6 +436,7 @@ extension LibraryView {
             if touchLayout.held { touchLayout.putDown() } else if touchLayout.confirmingExit { touchLayout.confirmingExit = false } else if touchLayout.requestExit() { closeTouchLayout() }
         }
         else if helpGameID != nil { closeHelp() }
+        else if cheatsGameID != nil { closeCheats() }
         else if restoreBackupGameID != nil { closeRestoreBackup() }
         else if homeScreenGameID != nil { closeHomeScreen() }
         else if deleteGameID != nil { closeDelete() }
@@ -462,6 +533,7 @@ extension LibraryView {
         if padMapping != nil { return .padMapping }
         if choice != nil { return .choice }
         if touchLayout != nil { return .touchLayout }
+        if cheatsGameID != nil { return .cheats }
         if activityLogOpen { return .activityLog }
         if controllersOpen { return .controllers }
         if shellSettingsOpen { return .shellSettings }
@@ -476,6 +548,7 @@ extension LibraryView {
         guard topLayer == .settings, let selected else { return [] }
         return GameDetailView.orderedFocusRowIDs(
             detail: selected,
+            showsCheats: actions.supportsCheats,
             showsHomeScreen: actions.supportsHomeScreen,
             showsChangeCover: actions.supportsCustomCover,
             showsDelete: true
@@ -522,6 +595,7 @@ extension LibraryView {
         if let choice { return "pick." + choice.row.value }
         if touchLayout != nil { return activeTargets.contains { $0.id == "lay.done" } ? "lay.done" : "lay.options" }
         if helpGameID != nil { return "help.done" }
+        if cheatsGameID != nil { return "cht.close" }
         if restoreBackupGameID != nil { return "rst.cancel" }
         if homeScreenGameID != nil { return "hsc.save" }
         if deleteGameID != nil { return "del.cancel" }

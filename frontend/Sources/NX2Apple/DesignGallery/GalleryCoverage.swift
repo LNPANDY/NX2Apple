@@ -102,6 +102,7 @@ enum GalleryCoverage {
         "SkippedLibraryItemsOverlay": [.sheet(.skippedItems)], "SkippedItemRow": [.sheet(.skippedItems)], "UpdateSheet": [.sheet(.appUpdate)],
         "PlayerNameSheet": [.sheet(.playerName)], "BuildProcessStepsSheet": [.sheet(.buildSteps)],
         "SendSelectedSheet": [.sheet(.sendSelectedDevice), .desktop(D.sendSelectedDrive)], "ShellCopySheet": [.sheet(.shellCopy)], "CheatsView": [.sheet(.cheats)],
+        "CheatsOverviewCard": [.sheet(.cheats)], "CheatsCountPill": [.sheet(.cheats)], "CheatTriggerKeyPill": [.sheet(.cheats)], "CheatCapabilityTag": [.sheet(.cheats)],
         "LaunchOptionsView": [.gameOptions], "ChangedLabel": [.gameOptions], "GameSavesSection": [.gameOptions], "LauncherSlider": [.gameOptions],
         "GameControllerMappingView": [.desktop(D.controllerMapping)], "FrameTimesRecordingView": [.desktop(D.frameTimes)],
         // the first run

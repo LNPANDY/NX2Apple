@@ -161,5 +161,19 @@ final class FocusNavigationTests: XCTestCase {
         XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.appdata", action: .up, orderedRows: ordered), "set.row.padMapping")
         XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.row.DM_OPMODE", action: .up, orderedRows: ordered), "set.back")
         XCTAssertNil(GameDetailView.fallbackVerticalTarget(from: "set.back", action: .up, orderedRows: ordered))
+
+        // Enabling cheats places set.cheats first in orderedFocusRowIDs and maps scrollRowID directly.
+        XCTAssertEqual(GameDetailView.scrollRowID(for: "set.cheats"), "set.cheats")
+        let orderedWithCheats = GameDetailView.orderedFocusRowIDs(
+            detail: detail,
+            showsCheats: true,
+            showsHomeScreen: true,
+            showsChangeCover: true,
+            showsDelete: true
+        )
+        XCTAssertEqual(orderedWithCheats.first, "set.cheats")
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.back", action: .down, orderedRows: orderedWithCheats), "set.cheats")
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.cheats", action: .down, orderedRows: orderedWithCheats), "set.row.DM_OPMODE")
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.cheats", action: .up, orderedRows: orderedWithCheats), "set.back")
     }
 }

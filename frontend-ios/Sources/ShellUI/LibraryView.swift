@@ -72,6 +72,8 @@ public struct LibraryView: View {
     @State var restoreBackupLabel = ""
     /// The game whose Add to Home Screen guide is open.
     @State var homeScreenGameID: String?
+    /// The game whose Cheats center sheet is open.
+    @State var cheatsGameID: String?
     /// The game currently picking or cropping a custom 16:9 cover.
     @State var coverPickerGameID: String?
     @State var coverPickerPresented = false
@@ -275,6 +277,7 @@ public struct LibraryView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: helpGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: restoreBackupGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: homeScreenGameID)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: cheatsGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: deleteGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: choice)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: padMapping)
@@ -287,6 +290,7 @@ public struct LibraryView: View {
         .environment(\.shellShowHelp, { game in openHelp(game.id) })
         .environment(\.shellAskRestoreBackup, { game, label in openRestoreBackup(game.id, label: label) })
         .environment(\.shellAskHomeScreen, actions.supportsHomeScreen ? { game in openHomeScreen(game.id) } : nil)
+        .environment(\.shellOpenCheats, actions.supportsCheats ? { game in openCheats(game.id) } : nil)
         .environment(\.shellAskChangeCover, actions.supportsCustomCover ? { game in openCoverPicker(game.id) } : nil)
         .environment(\.shellAskDelete, { game in openDelete(game.id) })
         #if canImport(PhotosUI)
@@ -351,7 +355,7 @@ public struct LibraryView: View {
     }
 
     var menuPresented: Bool {
-        touchLayout != nil || settingsOpen || controllersOpen || shellSettingsOpen || activityLogOpen || helpGameID != nil
+        touchLayout != nil || settingsOpen || controllersOpen || shellSettingsOpen || activityLogOpen || cheatsGameID != nil || helpGameID != nil
             || restoreBackupGameID != nil || homeScreenGameID != nil || deleteGameID != nil || choice != nil || padMapping != nil || buttonTestOpen
     }
 
@@ -408,6 +412,7 @@ public struct LibraryView: View {
         helpGameID = nil
         restoreBackupGameID = nil
         homeScreenGameID = nil
+        cheatsGameID = nil
         deleteGameID = nil
         let leaving: PanelRetention.Panel? = activityLogOpen ? .activityLog : controllersOpen ? .controllers : shellSettingsOpen ? .shellSettings : nil
         activityLogOpen = false
@@ -481,7 +486,7 @@ public struct LibraryView: View {
             ZStack {
                 if settingsOpen, let selected {
                     settingsPane(selected, width: geometry.size.width)
-                        .accessibilityHidden(controllersOpen || shellSettingsOpen || activityLogOpen || choice != nil || padMapping != nil || helpGameID != nil || restoreBackupGameID != nil || homeScreenGameID != nil || deleteGameID != nil)
+                        .accessibilityHidden(controllersOpen || shellSettingsOpen || activityLogOpen || cheatsGameID != nil || choice != nil || padMapping != nil || helpGameID != nil || restoreBackupGameID != nil || homeScreenGameID != nil || deleteGameID != nil)
                 }
                 if retention.draws(.controllers, open: controllersOpen) {
                     ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap,
@@ -536,6 +541,16 @@ public struct LibraryView: View {
                     }
                     .background(ShellPalette.background)
                 }
+                if let id = cheatsGameID, let detail = games.first(where: { $0.id == id }) {
+                    let placeholder = GameCheatsSnapshot(
+                        gameID: id,
+                        gameTitle: detail.game.title,
+                        buildID: detail.cheatsSummary?.buildID
+                    )
+                    CheatsSheetView(snapshot: placeholder, actions: guardedActions, onClose: closeCheats)
+                        .id(id)
+                        .background(ShellPalette.background)
+                }
                 if let id = deleteGameID, let game = games.first(where: { $0.id == id })?.game {
                     ScrollView { DeleteGameView(game: game, saves: $deleteSaves, delete: { confirmDelete(id) }, cancel: closeDelete) }
                         .background(ShellPalette.background)
@@ -560,12 +575,13 @@ public struct LibraryView: View {
     }
 
     var tabletopSettings: Bool {
-        horizontalDivision && settingsOpen && !controllersOpen && !shellSettingsOpen && !activityLogOpen && choice == nil
+        horizontalDivision && settingsOpen && !controllersOpen && !shellSettingsOpen && !activityLogOpen && cheatsGameID == nil && choice == nil
             && padMapping == nil && !buttonTestOpen && helpGameID == nil && restoreBackupGameID == nil && homeScreenGameID == nil && deleteGameID == nil
     }
 
     var menuTitle: String {
         guard choice == nil, padMapping == nil, !buttonTestOpen, helpGameID == nil, restoreBackupGameID == nil, homeScreenGameID == nil, deleteGameID == nil else { return "" }
+        if cheatsGameID != nil { return ShellStrings.text("Cheats") }
         if activityLogOpen { return ShellStrings.text("Activity log") }
         if controllersOpen { return ShellStrings.text("Controllers") }
         if shellSettingsOpen { return ShellStrings.text("Settings") }
@@ -656,7 +672,7 @@ public struct LibraryView: View {
                     .buttonStyle(.borderedProminent).tint(ShellPalette.cream).foregroundStyle(.black)
             }
         }
-        if settingsOpen, helpGameID == nil, restoreBackupGameID == nil, homeScreenGameID == nil, deleteGameID == nil, choice == nil, padMapping == nil,
+        if settingsOpen, cheatsGameID == nil, helpGameID == nil, restoreBackupGameID == nil, homeScreenGameID == nil, deleteGameID == nil, choice == nil, padMapping == nil,
            !controllersOpen, !shellSettingsOpen, !activityLogOpen, let selected {
             ToolbarItem(placement: .primaryAction) {
                 toolbarButton(selected.game.state.actionTitle, selected.game.state.actionSymbol, "state.action", "set.play") { primary(selected, fromSettings: true) }
@@ -745,6 +761,7 @@ public struct LibraryView: View {
                     .init(title: "Done", symbol: "checkmark", id: "touchLayout.done", target: "lay.done", placement: .done, action: confirmTouchLayout)]
         }
         if helpGameID != nil { return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "help.done", target: "help.done", placement: .close, action: closeHelp)] }
+        if cheatsGameID != nil { return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "cheats.close", target: "cht.close", placement: .close, action: closeCheats)] }
         if homeScreenGameID != nil { return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "homeScreen.close", target: "hsc.close", placement: .close, action: closeHomeScreen)] }
         if restoreBackupGameID != nil { return [] }
         if deleteGameID != nil { return [] }
@@ -801,6 +818,7 @@ public struct LibraryView: View {
         else if padMapping != nil { prefix = "map." }
         else if choice != nil { prefix = "pick." }
         else if touchLayout != nil { prefix = "lay." }
+        else if cheatsGameID != nil { prefix = "cht." }
         else if helpGameID != nil { prefix = "help." }
         else if restoreBackupGameID != nil { prefix = "rst." }
         else if homeScreenGameID != nil { prefix = "hsc." }
