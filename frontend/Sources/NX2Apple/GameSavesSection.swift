@@ -27,7 +27,7 @@ struct GameSavesSection: View {
         let _ = settings.revision
         let save = effective
         VStack(alignment: .leading, spacing: 10) {
-            Text(loc.t("saves.title")).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
+            Text(loc.t("saves.title")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
             VStack(spacing: 0) {
                 CardRow(loc.t("savesloc.folder"), detail: SaveLocationText.shown(save.path.path), detail2: "", help: save.path.path) {
                     Button(loc.t("savesloc.show")) { reveal(save.path) }
@@ -65,7 +65,7 @@ struct GameSavesSection: View {
             .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             if let result {
-                Text(result.text).font(.manrope(12)).foregroundStyle(result.ok ? Color.secondary : CloudSavesCard.attention)
+                Text(result.text).font(DS.Font.callout).foregroundStyle(result.ok ? Color.secondary : CloudSavesCard.attention)
                     .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -188,8 +188,8 @@ enum SaveLocationText {
     static func shown(_ path: String) -> String { (path as NSString).abbreviatingWithTildeInPath }
 }
 
-/// The 560 pt confirmation of an import: the game, where the files come from, where they go, and that the current save is backed up.
-/// Cancel has the focus, so Return never replaces a save.
+/// The confirmation of an import, on the sheet layout: where the files come from, where they go, and that the
+/// current save is backed up. Import replaces the save, so it is the destructive button: Return and Escape cancel.
 struct SaveImportSheet: View {
     let gameName: String
     let source: String
@@ -197,41 +197,16 @@ struct SaveImportSheet: View {
     let cancel: () -> Void
     let confirm: () -> Void
     @EnvironmentObject var loc: Localizer
-    @EnvironmentObject private var pad: PadFocus
-    @FocusState private var cancelFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(loc.t("savesloc.importTitle")).font(.manrope(26, .heavy)).tracking(-0.6)
-                Text(gameName).font(.manrope(13)).foregroundStyle(.secondary)
+        LauncherConfirmSheet(title: loc.t("savesloc.importTitle"), subtitle: gameName, note: loc.t("savesloc.importNote"),
+                             cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("savesloc.importButton"), destructive: true,
+                             scope: "saveimport", cancel: cancel, confirm: confirm) {
+            DSSection("") {
+                DSRow(loc.t("savesloc.source"), detail: SaveLocationText.shown(source), help: source) {}
+                DSRowDivider()
+                DSRow(loc.t("savesloc.target"), detail: SaveLocationText.shown(target), help: target) {}
             }
-            .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 18)
-            VStack(spacing: 0) {
-                CardRow(loc.t("savesloc.source"), detail: SaveLocationText.shown(source), help: source) {}
-                CardDivider()
-                CardRow(loc.t("savesloc.target"), detail: SaveLocationText.shown(target), help: target) {}
-            }
-            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-            .padding(.horizontal, 30)
-            Text(loc.t("savesloc.importNote")).font(.manrope(12.5)).foregroundStyle(.secondary).padding(.horizontal, 32).padding(.top, 12)
-            Divider().opacity(0.3).padding(.top, 20)
-            HStack(spacing: 12) {
-                Spacer(minLength: 8)
-                Button(loc.t("saves.cancel"), action: cancel).keyboardShortcut(.cancelAction).focused($cancelFocused)
-                    .padTarget("saveimport.cancel", scope: "saveimport", activate: cancel)
-                Button(loc.t("savesloc.importButton"), action: confirm)
-                    .padTarget("saveimport.confirm", scope: "saveimport", activate: confirm)
-            }
-            .buttonStyle(LauncherSecondaryButtonStyle())
-            .padding(.horizontal, 30).padding(.vertical, 16)
         }
-        .padScope("saveimport", pad)
-        .frame(width: 560)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(LauncherPalette.background)
-        .launcherAppearance()
-        .tint(LauncherPalette.cream)
-        .onAppear { cancelFocused = true }
     }
 }

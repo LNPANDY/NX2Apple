@@ -26,11 +26,11 @@
 
 #### 🆕 Les nouveautés
 
-- **Lanceur Windows (`NX2Apple-windows-x64.zip`)** : compilez des IPA pour iPhone et iPad sous Windows avec la même interface 1.2, une arborescence du moteur embarquée (pas besoin de git), une configuration initiale guidée, une réécriture NSO multicœur et une mise à jour automatique intégrée (`NX2Apple.exe`).
-- **Jeux Switch 2** : choisissez un dossier de jeu Switch 2 ou un fichier `.nup` dans le lanceur Mac ou Windows, sans `prod.keys`, et jouez sur Mac, iPhone ou iPad.
-- **Commandes tactiles personnalisées, Joy-Con séparés et Steam Controller (2026)** : redimensionnez les boutons, déplacez le stick gauche ou placez chaque commande dans l’éditeur visuel sur iPhone et iPad. Les manettes physiques prennent en charge la réattribution par jeu ou globale, la séparation d’une paire de Joy-Con Bluetooth en deux manettes tenues à l’horizontale sur Mac et le Steam Controller (2026).
-- **Une seule app pour iPhone et iPad** : tous vos jeux sont réunis dans une seule app coque (ou exportés en IPA non signé pour AltStore et SideStore), chacun embarquant son propre framework hôte pour que les mises à jour du moteur n’imposent jamais de recompiler, avec Cover Flow en paysage, réglages et mods par jeu, suppression du jeu en gardant les sauvegardes et 6 langues.
-- **Mode console** : branchez une manette et appuyez sur Select, ou démarrez directement en mode console. La bibliothèque passe en plein écran comme sur une Switch, et maintenir Home 2 secondes quitte un jeu.
+- **Espace de travail multi-moteurs et interface Dark Glass** : basculez en un clic entre `nxnative`, `nxkit (Beta)` (avec mise à jour automatique signée par Ed25519 et superposition intégrée en mode console) et `MacNativeGames` pour cinq titres maison entretenus, réunis dans une interface Dark Liquid Glass unifiée et un mode console à deux colonnes repensé pour la manette.
+- **Ajout de jeux iOS sans réinstallation et coque partagée allégée** : tous vos jeux partagent une app coque de quelques dizaines de Mo (shaders `DMMSLTR1` externalisés dans `.img`, avec fusion automatique des `.nxpart` au premier plan). Ajoutez des jeux par envoi rapide ou en déposant `DmGame.framework` dans `Documents/Frameworks` (avec import de certificats `.p12` sur l’appareil pour signer automatiquement en local) sans jamais réinstaller l’IPA coque. Prise en charge de **10 langues**.
+- **Graines de compilation persistantes et actualisation groupée rapide** : grâce aux `build-seeds` conservés, la plupart des mises à niveau s’actualisent par lots en quelques minutes sans garder les fichiers originaux du jeu ni le dossier `_build`, avec badge de version de mise à jour (ex. `1.5`) et récupération des `.img` manquants. Le lanceur Windows (`NX2Apple-windows-x64.zip`) ajoute la file d’attente de compilation par lots (`BuildQueue`), un tas de simulation dynamique jusqu’à 2 Gio et sa propre mise à jour automatique.
+- **Assistant Raccourcis en Image dans l’image, mixage audio en arrière-plan et manettes** : assistant intégré en 6 étapes pour les raccourcis d’écran d’accueil (avec fenêtre flottante Image dans l’image) et lancement automatique à la connexion d’une manette, lecture simultanée avec d’autres sons (`DM_AUDIO_MIX`), recadrage des jaquettes en `16:9`, dispositions tactiles personnalisées, séparation d’une paire de Joy-Con Bluetooth avec mappage d’orientation à l’horizontale et prise en charge du Steam Controller (2026).
+- **208 profils de jeux, dont 19 jeux Switch 2** : choisissez directement un dossier de jeu Switch 2 ou un fichier `.nup` dans le lanceur Mac ou Windows, sans `prod.keys`.
 
 Toutes les versions sont dans le [journal des modifications](CHANGELOG.md).
 
@@ -56,16 +56,15 @@ et une courte liste de correctifs, et suit nxnative chaque jour.
 - **Un Mac Apple silicon.** Le lanceur s’ouvre sur **macOS 13 ou plus récent**. Pour compiler, il faut Xcode avec
   le SDK iOS, et les jeux NVN demandent [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.2) 27.2 (macOS 26.6
   ou plus récent), sauf compilation avec `--allow-other-metal`. Prenez la version 27.2 sur la page de téléchargement
-  d’Apple, pas le Xcode plus récent de l’App Store. Si un Xcode plus récent est aussi installé, renommez 27.2 en `Xcode-27.2.app` et sélectionnez-le :
-  `sudo xcode-select -s /Applications/Xcode-27.2.app`.
+  d’Apple, pas le Xcode plus récent de l’App Store. Si les deux sont installés, donnez à 27.2 un nom distinct tel que `Xcode-27.2.app`. Dans **Réglages → Outils → Choisir Xcode…**, sélectionnez la copie à utiliser avec NX2Apple, y compris sur un disque externe. Lors de la configuration initiale, cliquez sur **Configurer plus tard** pour accéder aux Réglages, puis sur **Relancer la configuration** après avoir choisi Xcode. **Xcode du système** suit la sélection en ligne de commande du Mac (par exemple `sudo xcode-select -s /Applications/Xcode-27.2.app`).
 - **Vos propres dumps de jeux** (NSP ou XCI) et **votre propre `prod.keys`**, issu de votre propre console. Rien
   n’est fourni, téléchargé ou recherché pour vous. Le même `prod.keys` ouvre tous vos jeux Switch. Un dump
   récent couvre tous les titres du commerce. Les jeux Switch 2 (un dossier de jeu ou un fichier `.nup`)
   n’ont pas besoin de `prod.keys`.
 - Pour un iPhone ou un iPad : iOS ou iPadOS 26 ou plus récent et un appareil récent. Les appareils plus anciens ne sont pas testés.
 
-L’app embarque ses propres outils de compilation et son propre Python, donc pas besoin de Homebrew ni d’installer
-Python. Le SDK .NET 10 est le seul outil qu’elle installe encore pour vous. La page des dépendances du lanceur
+Pour `nxnative`, l’app embarque ses propres outils de compilation et son propre Python, donc pas besoin de Homebrew ni d’installer
+Python. Le SDK .NET 10 est le seul outil qu’elle installe encore pour vous. `nxkit` ne nécessite ni Python ni .NET. La page des dépendances du lanceur
 vérifie chaque prérequis et installe ce qu’elle peut en un clic.
 
 ## Installation
@@ -85,6 +84,13 @@ vérifie chaque prérequis et installe ce qu’elle peut en un clic.
 
 La compilation à la main depuis un terminal est décrite dans [BUILDING.md](BUILDING.md).
 
+**Mettre à jour des jeux déjà compilés (actualisation rapide et recompilation).** Grâce aux graines de
+compilation persistantes (**Actualiser Mac** / **Actualisation groupée**), la plupart des mises à jour du moteur
+ou de la coque s’appliquent en quelques minutes sans conserver les fichiers d’origine du jeu ni le dossier `_build`.
+Pour appliquer un NSP de mise à jour, sélectionnez le jeu dans la bibliothèque, choisissez **Recompiler**, gardez
+le jeu de base sélectionné et indiquez le nouveau NSP dans **Mises à jour et contenus additionnels** pour **Ce Mac**
+dans le même dossier de sortie. Vos sauvegardes restent hors du `.app` par identifiant de titre et sont conservées.
+
 ## L’app iPhone et iPad
 
 La cible **iPhone / iPad** compile une app coque qui contient tous vos jeux, comme le fait le lanceur Mac. Sa
@@ -95,18 +101,18 @@ l’horizontale, c’est un Cover Flow. Un iPad affiche une grille.
 
 <img src="frontend/screenshots/ios-cover-flow-en.webp" width="100%" alt="L’app iPhone à l’horizontale : Cover Flow avec les jaquettes de Breath of the Wild, Hades et Tears of the Kingdom">
 
-- **Ajoutez des jeux depuis le Mac.** Compilez un jeu avec la cible **iPhone / iPad** et le lanceur le copie
-  dans l’app. Signer et réinstaller l’app de nouveau conserve vos données de jeu et vos sauvegardes.
+- **Ajoutez des jeux depuis le Mac ou chargez des frameworks.** Compilez un jeu avec la cible **iPhone / iPad** et le lanceur le copie dans l’app. Vous pouvez aussi déposer directement `DmGame.framework` dans `Documents/Frameworks` et importer un certificat `.p12` dans l’app pour signer automatiquement en local sur l’appareil, sans réinstaller l’IPA coque. Signer et réinstaller l’app conserve vos données de jeu et vos sauvegardes.
 - **Jouez.** Choisissez un jeu et touchez **Jouer**. Un jeu auquel il manque ses données, ou qui demande une app
   plus récente, le dit sur sa carte et propose la solution.
 - **Des réglages pour chaque jeu.** Le bouton des réglages (ou X sur une manette) ouvre les options de lancement
-  de ce jeu. **Rétablir les valeurs par défaut** remet chaque choix à sa valeur par défaut.
+  de ce jeu, avec recadrage des jaquettes en `16:9` et **Lire avec d’autres sons** (`DM_AUDIO_MIX`) pour le mixage audio en arrière-plan. **Rétablir les valeurs par défaut** remet chaque choix à sa valeur par défaut.
+- **Raccourcis sur l’écran d’accueil.** Un assistant intégré en 6 étapes avec guide en Image dans l’image aide à créer des raccourcis de jeu et permet le lancement automatique dès qu’une manette est connectée.
 - **Manette ou clavier.** Toute l’app se pilote à la manette : la croix directionnelle et le stick déplacent,
   A valide, B revient en arrière, X ouvre les réglages et Y liste les manettes. Un clavier matériel fonctionne de la même façon.
 - **Dossier des données du jeu.** Chaque jeu peut lire ses données depuis un dossier choisi dans l’app Fichiers,
   par exemple sur un disque externe, ou depuis le dossier propre de l’app.
 - **Sauvegardes dans le cloud.** Choisissez un dossier iCloud Drive pour garder les sauvegardes d’un jeu en phase avec le Mac.
-- **Langue.** L’app suit la langue du système, anglais ou chinois simplifié.
+- **Langue.** L’app suit la langue du système et prend en charge les 10 langues : anglais, chinois simplifié, suédois, allemand, français, italien, espagnol, japonais, coréen et portugais brésilien.
 
 L’app demande iOS ou iPadOS 26 ou plus récent. Les jaquettes sont les bannières de l’eShop que le lanceur Mac
 met en cache pour vos propres jeux.
@@ -117,12 +123,12 @@ met en cache pour vos propres jeux.
 Les **Options de lancement** (par jeu, conservées d’une compilation à l’autre) règlent la fréquence d’images, le
 mode de la console (TV ou portable), l’échelle de rendu et la mise à l’échelle, la langue du jeu, les commandes et
 plus encore. Ce que fait chaque option est décrit dans
-[docs/settings.md](https://github.com/seedds/nxnative/blob/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/settings.md). Une manette pilote le lanceur aussi bien que les jeux.
+[docs/settings.md](https://github.com/seedds/nxnative/blob/99224562186a8fdb7e97afb872319a21941ec317/docs/settings.md). Une manette pilote le lanceur aussi bien que les jeux.
 
 **Sur l’iPhone**, l’app montre les mêmes réglages avant le démarrage du jeu. Touchez **Jouer**. Les commandes
 tactiles existent en disposition 2D et 3D (touchez le bouton en haut au centre), et une manette connectée
 (Xbox, PlayStation, Switch Pro, MFi) les remplace.
-[docs/playing.md](https://github.com/seedds/nxnative/blob/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/playing.md) traite du tactile, des vibrations et du mouvement. De courtes saccades la première fois
+[docs/playing.md](https://github.com/seedds/nxnative/blob/99224562186a8fdb7e97afb872319a21941ec317/docs/playing.md) traite du tactile, des vibrations et du mouvement. De courtes saccades la première fois
 qu’une scène apparaît sont normales : l’app compile les graphismes pour elle une fois et s’en souvient. Les
 données du jeu (`romfs.img`) peuvent se trouver sur un disque externe choisi dans l’app Fichiers.
 
@@ -146,34 +152,48 @@ même fichier. Quand une même clé est définie plusieurs fois, l’ordre est :
 et `~/Library/Logs/nxnative/<title ID>.log`. Sur l’iPhone, ils sont dans l’app Fichiers sous le nom de l’app :
 `save/` et `log.txt` (l’exécution précédente est `log.prev.txt`).
 
-**Signaler un bug.** Utilisez les [formulaires de ticket](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
-(problème de jeu, de compilation, de lanceur). Chacun demande le jeu et son title ID, vos versions et votre
-appareil, **Réglages > Copier les diagnostics** et le journal du jeu. [CONTRIBUTING.md](CONTRIBUTING.md) explique
-pourquoi. Un signalement avec le `log.txt` complet est examiné en premier. Ne joignez jamais de clés, de fichiers
+**Signaler un bug.** Un problème de lanceur ou de compilation va dans les [formulaires de ticket](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
+(problème de compilation, de lanceur). Chacun demande vos versions et votre ordinateur,
+**Réglages > Copier les diagnostics** et, pour une compilation, le journal de compilation. [CONTRIBUTING.md](CONTRIBUTING.md) explique
+pourquoi. Un jeu qui plante, se fige, tourne lentement ou s’affiche mal va chez
+[seedds/nxnative](https://github.com/seedds/nxnative/issues). Ne joignez jamais de clés, de fichiers
 de jeu ni rien d’extrait d’un jeu.
 
 ## Jeux
 
-147 jeux ont un profil. Plusieurs sont signalés jouables sur un iPhone en amont, et la plupart ont un
+208 jeux ont un profil. Plusieurs sont signalés jouables sur un iPhone en amont, et la plupart ont un
 profil qui n’a pas encore été essayé sur un téléphone. En voici quelques-uns :
 
 | | Jeu | Où il tourne | Statut |
 |---|---|---|---|
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac et iPhone | **Vérifié ici** : 304 243 fichiers, vérifiés octet par octet, environ 17 Go |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac et iPhone | **Vérifié ici** |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Vérifié ici** : tourne de façon fluide |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Signalé jouable en amont |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Signalé jouable en amont, 60 fps avec 1.9.0 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Signalé jouable en amont |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac et iPhone | **Vérifié ici** : 304 243 fichiers, vérifiés octet par octet, environ 17 Go |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac et iPhone | **Vérifié ici** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Vérifié ici** : tourne de façon fluide |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Signalé jouable en amont |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Signalé jouable en amont, 60 fps avec 1.9.0 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Signalé jouable en amont |
 
 **[GAMES.md](GAMES.md)** contient la galerie de captures avec la taille d’installation de chaque jeu, et le
 tableau complet avec la version de mise à jour dont chaque jeu a besoin : la version affichée du NSP de mise à
 jour doit correspondre à celle du profil, sinon la compilation le signale.
 
+**Les jeux Switch 2** sont nouveaux dans le moteur. 19 titres disposent d’un profil : Donkey Kong Bananza,
+Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia, Hyrule Warriors: Age of Imprisonment,
+Mario Kart World, Mario Tennis Fever, Star Fox, Yoshi and the Mysterious Book,
+The Legend of Zelda: Ocarina of Time, Kirby Air Riders,
+Super Mario Bros. Wonder – Nintendo Switch 2 Edition + Meetup in Bellabel Park, Orbitals, Fast Fusion,
+Resident Evil 4, Nintendo Switch 2 Welcome Tour, Nintendo Switch Sports Resort,
+Sonic Frontiers Definitive Edition et PRAGMATA. Sélectionnez le dossier du jeu (`base/`, `updates/`, `dlc/`)
+ou son fichier `.nup` sur la page de compilation, sans avoir besoin de `prod.keys`. La bibliothèque les marque
+**Switch 2**. Donkey Kong Bananza a été vérifié via le lanceur sur Mac, iPhone et iPad (sans problème sur Mac
+et iPhone, quasi aucun sur iPad), The Legend of Zelda: Ocarina of Time (version Switch 2) a été terminé et
+vérifié sur Mac, et Fire Emblem Fortune's Weave a été vérifié à 60 fps sur iPhone. Les détails sont dans
+[GAMES.md](GAMES.md#switch-2-games).
+
 ## Limites
 
 - **Seulement les jeux qui ont un profil.** Un titre hors de la liste demande son propre travail de mise en route.
-  Le point de départ est [docs/agents](https://github.com/seedds/nxnative/blob/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/agents/README.md), le guide du projet en amont pour un autre titre Switch.
+  Le point de départ est [docs/agents](https://github.com/seedds/nxnative/blob/99224562186a8fdb7e97afb872319a21941ec317/docs/agents/README.md), le guide du projet en amont pour un autre titre Switch.
 - **Les gros jeux atteignent une limite de mémoire sur iPhone.** Sans l’entitlement Increased Memory Limit, iOS
   donne à l’app environ 3,4 Go, ce qui ne suffit pas pour Tears of the Kingdom. L’app le demande, et
   AltStore Classic 2.2+, Impactor et Xcode avec une Personal Team le conservent. SideStore avec un identifiant
@@ -197,7 +217,7 @@ jour doit correspondre à celle du profil, sinon la compilation le signale.
   l’explique, et `python3 tools/engine.py status` liste ce qui est porté. Une tâche quotidienne déplace l’épingle
   et ouvre une pull request, ou un ticket qui nomme le correctif qui ne s’applique plus. Les liens vers les
   documents du moteur dans ce README pointent vers nxnative au commit épinglé.
-- **Un autre jeu Switch :** [docs/agents](https://github.com/seedds/nxnative/blob/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/agents/README.md) (extraction, analyse du binaire, mise en route).
+- **Un autre jeu Switch :** [docs/agents](https://github.com/seedds/nxnative/blob/99224562186a8fdb7e97afb872319a21941ec317/docs/agents/README.md) (extraction, analyse du binaire, mise en route).
 - **Historique des versions :** [CHANGELOG.md](CHANGELOG.md).
 
 ## Remerciements
@@ -225,7 +245,7 @@ Tout le travail sur le moteur est celui d’autres personnes. Ce dépôt ajoute 
 - **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)** : de SPIR-V vers Metal Shading Language.
 - **yuzu**, **deko3d**, **libvpx**, **stb_vorbis**, **libdeflate** : la liste de remerciements du projet en amont dit ce que chacun apporte.
 
-`dm/third_party` contient d’autres projets avec leurs licences ([liste](https://github.com/seedds/nxnative/blob/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/dm/third_party/README.md)).
+`dm/third_party` contient d’autres projets avec leurs licences ([liste](https://github.com/seedds/nxnative/blob/99224562186a8fdb7e97afb872319a21941ec317/dm/third_party/README.md)).
 
 ## Mentions légales
 

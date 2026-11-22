@@ -7,6 +7,10 @@ import NXModel
 /// when the library changes, empties or finishes a re-sign before an earlier `security cms` check returns.
 @MainActor final class SignatureTracker: ObservableObject {
     @Published private(set) var expiry: [UUID: Date] = [:]
+    /// `expiry`: the state gallery's dates, until the first refresh replaces them.
+    init(expiry: [UUID: Date] = [:]) { self.expiry = expiry; fixed = !expiry.isEmpty }
+    /// The state gallery's dates stay: nothing is read from the apps.
+    private let fixed: Bool
     private(set) var generation = 0
 
     func refresh(games: [LibraryGame], runner: ProcessRunner) {
@@ -15,6 +19,7 @@ import NXModel
     }
 
     func refresh(apps: [(UUID, String)], runner: ProcessRunner) {
+        guard !fixed else { return }
         generation &+= 1
         let expected = generation
         guard !apps.isEmpty else {
@@ -43,7 +48,8 @@ extension LauncherView {
     /// is not rebuilt, and its Documents stay.
     func resign(_ game: LibraryGame) {
         resignNote = nil
-        m.resignOnDevice(app: game.iosAppPath, device: game.installedDevice) {
+        let app = game.iosAppPath.isEmpty ? ShellInstall.appPath(root: m.shellCachePath) : game.iosAppPath
+        m.resignOnDevice(app: app, device: game.installedDevice) {
             resignNote = m.doneNote
             if !m.installedOn.isEmpty { library.recordSharedAppInstalled(app: m.installedAppPath, device: m.installedOn) }
             readSignatures()

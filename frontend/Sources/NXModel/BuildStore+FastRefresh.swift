@@ -76,6 +76,11 @@ extension BuildStore {
         guard !running else { return }
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !tid.isEmpty else { return }
+        // Fast refresh is exclusive to nxnative; never run under MacNativeGames or an external builder's Python.
+        if buildUpstream != .nxnative {
+            buildUpstream = .nxnative
+        }
+        hintedTitleID = nil
 
         guard repo.isRepo else {
             fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))
@@ -86,8 +91,8 @@ extension BuildStore {
             return
         }
 
-        let py = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
-        let seedRoot = BuildSeedCache.defaultRoot(home: self.home)
+        let py = resolveBuildPython()
+        let seedRoot = seedCacheRoot
         let trimmedExternalImg = externalImgPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let validExternalImg: String? = (!trimmedExternalImg.isEmpty && FileManager.default.fileExists(atPath: trimmedExternalImg))
             ? trimmedExternalImg
@@ -105,7 +110,7 @@ extension BuildStore {
             if sameGame && !inputFolder.isEmpty && inputFolder != "/" {
                 return inputFolder
             }
-            return (BuildSeedCache.defaultRoot(home: self.home) as NSString).deletingLastPathComponent + "/refresh-builds"
+            return self.refreshBuildsRoot
         }()
 
         try? FileManager.default.createDirectory(atPath: resolvedOutDir, withIntermediateDirectories: true)
@@ -150,7 +155,12 @@ extension BuildStore {
             return
         }
 
-        if !isMac, !exportsOneGame, let why = shellRootProblem() {
+        if !isMac, !exportsOneGame, !exportsFramework, let why = shellRootProblem() {
+            fail(why)
+            clearFastRefreshContext()
+            return
+        }
+        if let why = seedRootProblem() {
             fail(why)
             clearFastRefreshContext()
             return
@@ -171,6 +181,10 @@ extension BuildStore {
         installedOn = ""
         installedAppPath = ""
         exportedIPAPath = ""
+        if !deferShellPackaging {
+            needsReplaceOldImgReminder = false
+            updatedImgPath = ""
+        }
         send = .idle
 
         if let message = preflightSpaceProblem() {
@@ -262,6 +276,7 @@ extension BuildStore {
             let runner = self.runner
             let adoptEnv = ["PATH": BuildCommands.toolPath(python: py), "HOME": self.home]
                 .merging(BundledTools.environment(for: py)) { $1 }
+                .merging(seedEnvironment) { $1 }
             let prepGeneration = archiveGeneration
             let immutableBaseArgs = args
             let immutableEnvURL = tempEnvURL
@@ -436,9 +451,11 @@ extension BuildStore {
                         let fw = ShellInstall.builtFramework(workDir: self.effectiveWorkDir)
                             ?? ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: key)
                         let outTID = ShellInstall.titleID(ofFramework: fw)
-                        self.packArchive(workDir: self.effectiveWorkDir, titleID: outTID) { archive in
+                        self.packArchive(workDir: self.effectiveWorkDir, titleID: outTID, isFastRefresh: true) { archive in
                             if self.deferShellPackaging {
                                 self.deferShellPackage(framework: fw, titleID: outTID, name: name, archive: archive)
+                            } else if self.exportsFramework {
+                                self.exportFrameworkBundle(framework: fw, titleID: outTID, name: name)
                             } else if self.exportsShell {
                                 self.exportShell(framework: fw, titleID: outTID, name: name)
                             } else {

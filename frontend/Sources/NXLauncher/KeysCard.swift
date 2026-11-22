@@ -15,14 +15,18 @@ package struct KeysCard: View {
         let path = build.savedKeys
         let missing = !path.isEmpty && !build.savedKeysExist
         let detail = path.isEmpty ? loc.t("keys.unset") : missing ? String(format: loc.t("keys.missing"), build.shortPath(path)) : build.shortPath(path)
-        CardGroup(loc.t("section.keys"), footnote: loc.t("keys.settingsHint")) {
-            CardRow(loc.t("data.keys"), detail: detail, dot: path.isEmpty || missing ? LauncherPalette.unbuilt : LauncherPalette.ready, help: path) {
+        // A DSRow as every Settings row (#1458): the status dot in the 20 pt slot (not chosen: warning, chosen: success, gone: error
+        // with the row's message), Choose or Change in the control column, Remove in the "…" beside it. No icon tile.
+        CardGroup(loc.t("section.keys")) {
+            CardRow(loc.t("data.keys"), detail: missing ? "" : detail,
+                    dot: path.isEmpty ? DSTone.warning.color : missing ? DSTone.error.color : DSTone.success.color,
+                    help: path, info: ("set.keys.help", loc.t("keys.settingsHint")), message: missing ? .error(detail) : nil) {
                 if !path.isEmpty {
-                    Button(loc.t("keys.remove")) { build.forgetSavedKeys() }.buttonStyle(.plain)
-                        .font(.manrope(13)).foregroundStyle(.secondary)
-                        .padTarget("set.keysRemove", scope: "main") { build.forgetSavedKeys() }
+                    DSOverflowMenu(label: loc.t("keys.remove"), options: [("remove", loc.t("keys.remove"))], padID: "set.keysRemove",
+                                   destructiveValues: ["remove"]) { _ in build.forgetSavedKeys() }
                 }
                 Button(loc.t(path.isEmpty ? "data.choose" : "data.change")) { build.chooseSavedKeys() }
+                    .buttonStyle(DSRowButtonStyle())
                     .padTarget("set.keys", scope: "main") { build.chooseSavedKeys() }
             }
         }

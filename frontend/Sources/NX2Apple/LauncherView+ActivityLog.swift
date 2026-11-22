@@ -9,25 +9,17 @@ extension LauncherView {
         activityLogOpen = true
     }
 
-    func activityLogButton(compact: Bool) -> some View {
-        Button(action: openActivityLog) {
-            if compact {
-                Image(systemName: "chart.bar.xaxis").font(.system(size: 13, weight: .semibold)).frame(height: LauncherControl.height - 18)
-            } else {
-                Label(loc.t("activity.button"), systemImage: "chart.bar.xaxis").frame(height: LauncherControl.height - 18)
-            }
-        }
-        .buttonStyle(LauncherSecondaryButtonStyle())
-        .help(loc.t("activity.title")).accessibilityLabel(loc.t("activity.title"))
-        .padTarget("library.activity", scope: "main", radius: 9, activate: openActivityLog)
+    func activityLogButton() -> some View {
+        Button(loc.t("activity.button"), action: openActivityLog)
+            .buttonStyle(LauncherSecondaryButtonStyle())
+            .help(loc.t("activity.title"))
+            .padTarget("library.activity", scope: "main", activate: openActivityLog)
     }
 
-    func heroMetaText(for game: LibraryGame) -> String? {
-        let versionPart = (game.playVersion ?? game.unbuiltVersion).map { String(format: loc.t("console.version"), $0) }
+    /// The game's total play time for the hero's metadata tags, nil below a minute.
+    func heroPlayTime(for game: LibraryGame) -> String? {
         let seconds = playSessions[game.titleID]?.seconds ?? 0
-        let playPart = seconds >= 60 ? ConsoleTimes.duration(seconds, lang: loc.lang) : nil
-        let parts = [versionPart, playPart].compactMap { $0 }.filter { !$0.isEmpty }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        return seconds >= 60 ? ConsoleTimes.duration(seconds, lang: loc.lang) : nil
     }
 }
 

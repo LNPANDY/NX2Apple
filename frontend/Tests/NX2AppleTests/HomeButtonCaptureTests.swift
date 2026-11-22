@@ -7,19 +7,20 @@ import XCTest
 @testable import NXModel
 
 /// #336: the buttons this feature adds keep one width per role in every language, at the default text size and a larger one, and
-/// their label fits or wraps inside. Settings > Controls: "Open Settings" is a row control like its neighbours (LauncherControl.width).
+/// their label fits or wraps inside. Settings actions size to content while sharing the standard row height.
 /// Console mode: the hint's "Open Settings" and "Not now" take the sheet's width. Set NX_LAUNCHER_CAPTURE_DIR to keep PNGs of both
 /// in English, German, Chinese and the language whose label is longest.
-@MainActor final class HomeButtonCaptureTests: XCTestCase {
+@MainActor final class HomeButtonCaptureTests: IsolatedDefaultsTestCase {
     private final class Box<T> { var value: T; init(_ value: T) { self.value = value } }
     private let typeSizes: [DynamicTypeSize] = [.large, .xxxLarge]
 
     private func controlsCard(_ lang: Lang, open: (() -> Void)?) -> some View {
-        let localizer = LauncherStores().localizer; localizer.lang = lang
+        let localizer = LauncherStores(defaults: testDefaults).localizer; localizer.lang = lang
         return ControlsCard(controlChanges: 0, padMerge: .constant(false), consolePrompt: .constant(true), startInConsole: .constant(false),
                             onOpenControls: {}, onOpenControllers: {}, onOpenHomeSettings: open)
             .buttonStyle(LauncherSecondaryButtonStyle())   // as on the Settings page (LauncherPageScroll)
             .environmentObject(localizer).environmentObject(PadFocus())
+            .defaultAppStorage(testDefaults)
             .padding(24).frame(width: 760).background(LauncherPalette.background).preferredColorScheme(.dark)
     }
 
@@ -40,7 +41,7 @@ import XCTest
         return (host, window)
     }
 
-    func testOpenSettingsInControlsHasTheRowControlWidthInEveryLanguage() throws {
+    func testOpenSettingsInControlsSizesToItsContentInEveryLanguage() throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         for typeSize in typeSizes {
             for lang in Lang.all {
@@ -52,7 +53,7 @@ import XCTest
                 let at = "\(lang.code), \(typeSize)"
                 XCTAssertGreaterThanOrEqual(samples.value.count, 3, "\(at): Customize, Open and Open Settings")
                 for (index, sample) in samples.value.enumerated() {
-                    XCTAssertEqual(sample.size.width, LauncherControl.width, "\(at), button \(index): the same width as its neighbours, whatever the label")
+                    XCTAssertGreaterThan(sample.size.width, sample.labelWidth, "\(at), button \(index): keeps horizontal padding around its label")
                     XCTAssertEqual(sample.size.height, LauncherControl.height, "\(at), button \(index)")
                     XCTAssertLessThanOrEqual(sample.labelWidth, sample.room, "\(at), button \(index): the label fits on one line")
                 }

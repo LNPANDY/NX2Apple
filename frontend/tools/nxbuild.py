@@ -1,16 +1,60 @@
 #!/usr/bin/env python3
-"""The nxbuild release the app bundles (frontend/nxbuild.pin, LNPANDY/NX2Apple#749).
-  nxbuild.py fetch <Resources dir> <work dir>   download the pinned zip, check its SHA-256 before anything is unpacked, put nxb into <Resources>/nxbuild/
-                                                and sign it ad hoc (the app's codesign --deep does not reach code in Resources). A placeholder digest
-                                                bundles nothing and says so (exit 0): the launcher's setting then needs a chosen nxb.
+"""The nxkit release the app bundles as its build engine "nxkit (Beta)" (frontend/nxbuild.pin, LNPANDY/NX2Apple#1460).
+  nxbuild.py fetch <Resources dir> <work dir>   download the pinned zip and the release's SHA256SUMS, check the zip's SHA-256 against the pin and
+                                                SHA256SUMS before anything is unpacked, put nxb and nxkit-host (with MANIFEST.json, LICENSE and
+                                                THIRD_PARTY.md) into <Resources>/nxbuild/, check both programs against MANIFEST.json and SHA256SUMS,
+                                                and sign both ad hoc (the app's codesign --deep does not reach code in Resources). A placeholder
+                                                digest bundles nothing and says so (exit 0).
   nxbuild.py bump <version>                     pin a new release: its digest from the release's SHA256SUMS
-Nothing here runs nxb: a zip whose digest differs is deleted and the step fails."""
-import hashlib, os, re, shutil, subprocess, sys, time, urllib.error, urllib.request, zipfile
+When the release has SHA256SUMS.sig (0.10.3 and later), fetch and bump first verify it over the exact bytes of SHA256SUMS with the launcher's
+Ed25519 key (NxkitUpdate.publicKey, read from NxkitUpdate.swift), through frontend/tools/verify_ed25519.swift (CryptoKit, the same check as
+the launcher). A signature that does not verify fails the step. A release without one (0.10.2 and older) is checked against its checksums only.
+Nothing here runs nxb: a zip whose digest differs is deleted and the step fails, a program whose digest differs is not bundled."""
+import hashlib, json, os, re, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.request, zipfile
 from pathlib import Path
 
 PIN = Path(__file__).resolve().parents[1] / 'nxbuild.pin'
 RETRY_HTTP = {408, 429, 500, 502, 503, 504}
 GH_RELEASE_RE = re.compile(r'^https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+)/([^/]+)$')
+PROGRAMS = ('nxb', 'nxkit-host')                       # both are checked and signed, the app needs the pair
+EXTRAS = ('MANIFEST.json', 'LICENSE', 'THIRD_PARTY.md')   # copied beside them when the release has them, MANIFEST.json is required
+MANIFEST_FORMATS = {1}
+NXKIT_UPDATE = Path(__file__).resolve().parents[1] / 'Sources' / 'NXCore' / 'NxkitUpdate.swift'
+VERIFIER = Path(__file__).resolve().parent / 'verify_ed25519.swift'
+SIGNATURE = 'SHA256SUMS.sig'
+
+
+def public_key(source=NXKIT_UPDATE):
+    """The launcher's Ed25519 key for nxkit releases, base64 of 32 bytes: one place for it, NxkitUpdate.publicKey."""
+    m = re.search(r'static let publicKey = "([A-Za-z0-9+/=]+)"', Path(source).read_text())
+    if not m: raise SystemExit(f'{source}: no publicKey')
+    return m[1]
+
+
+def verify_signature(sums_path, sig_path, key=None):
+    """True when sig_path (base64 of 64 bytes) is an Ed25519 signature of sums_path's exact bytes by the launcher's key."""
+    swift = shutil.which('swift')
+    if not swift: raise SystemExit(f'[RED] {SIGNATURE} cannot be verified: no swift (Xcode command line tools) on PATH')
+    r = subprocess.run([swift, str(VERIFIER), key or public_key(), str(sums_path), str(sig_path)])
+    if r.returncode == 2: raise SystemExit(f'[RED] {VERIFIER.name} could not read the key, {sums_path} or {sig_path}')
+    return r.returncode == 0
+
+
+def signed_sums(base_url, work):
+    """The release's SHA256SUMS, verified with its SHA256SUMS.sig when the release has one. Writes both into work."""
+    work.mkdir(parents=True, exist_ok=True)
+    sums_path, sig_path = work / 'SHA256SUMS', work / SIGNATURE
+    sums = download(base_url + '/SHA256SUMS', sums_path)
+    try:
+        download(base_url + '/' + SIGNATURE, sig_path, retries=2)
+    except urllib.error.HTTPError as e:
+        if e.code != 404: raise
+        print(f'nxkit: the release has no {SIGNATURE}, checked against SHA256SUMS only')
+        return sums.decode()
+    if not verify_signature(sums_path, sig_path):
+        raise SystemExit(f'[RED] {SIGNATURE} does not verify with NxkitUpdate.publicKey: not bundled')
+    print(f'nxkit: {SIGNATURE} verifies (Ed25519, NxkitUpdate.publicKey)')
+    return sums.decode()
 
 
 def _gh_release_download(url, part):
@@ -61,61 +105,93 @@ def digest(path):
     return h.hexdigest()
 
 
-DATA = ('rewrite-rules', 'own-front')   # folders of the release that nxb finds next to its own file
+def sums_table(text):
+    """SHA256SUMS as {listed path: digest} ("<hex>  <path>" lines, a '*' before binary names)"""
+    out = {}
+    for ln in text.splitlines():
+        m = re.fullmatch(r'([0-9a-fA-F]{64})\s+\*?(\S+)', ln.strip())
+        if m: out[m[2]] = m[1].lower()
+    return out
 
 
-def unpack(zip_path, expected, dest):
-    """Check the zip against expected, then copy its nxb (wherever it sits in the zip) to dest/nxb, and the data folders beside it. Returns the path of nxb"""
+def sums_digest(text, name):   # the digest of name in a SHA256SUMS text: its listed path, else the one entry with that file name
+    table = sums_table(text)
+    if name in table: return table[name]
+    hits = [v for k, v in table.items() if Path(k).name == name]
+    if len(hits) == 1: return hits[0]
+    raise SystemExit(f'SHA256SUMS lists no {name}')
+
+
+def unpack(zip_path, expected, dest, sums_text):
+    """Check the zip against the pin and SHA256SUMS, then copy nxb and nxkit-host (and the extras) from the zip's one release folder
+    into dest, each program checked against MANIFEST.json and SHA256SUMS. Returns the paths of the programs. Nothing stays in dest on a failure."""
     got = digest(zip_path)
     if got != expected:
         os.unlink(zip_path)
-        raise SystemExit(f'[RED] nxbuild zip has SHA-256 {got}, the pin says {expected}: not bundled')
+        raise SystemExit(f'[RED] nxkit zip has SHA-256 {got}, the pin says {expected}: not bundled')
+    listed = sums_digest(sums_text, Path(zip_path).name)
+    if listed != expected:
+        os.unlink(zip_path)
+        raise SystemExit(f'[RED] SHA256SUMS lists {listed} for {Path(zip_path).name}, the pin says {expected}: not bundled')
     with zipfile.ZipFile(zip_path) as z:
-        names = [n for n in z.namelist() if Path(n).name == 'nxb' and not n.endswith('/')]
-        if len(names) != 1: raise SystemExit(f'[RED] nxbuild zip holds {len(names)} files named nxb, expected one')
-        dest.mkdir(parents=True, exist_ok=True)
-        out = dest / 'nxb'
-        out.write_bytes(z.read(names[0]))
-        # The data nxb reads from beside its own file (the rewrite rules, the own front end's verdicts), as the release lays them out next to nxb
-        root = Path(names[0]).parent
-        for n in z.namelist():
-            rel = Path(n).relative_to(root) if Path(n).is_relative_to(root) else None
-            if rel is None or n.endswith('/') or rel.parts[0] not in DATA or '..' in rel.parts: continue
-            (dest / rel).parent.mkdir(parents=True, exist_ok=True)
-            (dest / rel).write_bytes(z.read(n))
-    out.chmod(0o755)
-    return out
+        files = [n for n in z.namelist() if not n.endswith('/')]
+        nxbs = [n for n in files if Path(n).name == 'nxb']
+        if len(nxbs) != 1: raise SystemExit(f'[RED] nxkit zip holds {len(nxbs)} files named nxb, expected one')
+        root = Path(nxbs[0]).parent
+        def member(name):
+            n = (root / name).as_posix()
+            return n if n in files else None
+        for name in PROGRAMS + ('MANIFEST.json',):
+            if member(name) is None: raise SystemExit(f'[RED] nxkit zip has no {name} beside nxb: not bundled')
+        manifest = json.loads(z.read(member('MANIFEST.json')))
+        if manifest.get('format') not in MANIFEST_FORMATS:
+            raise SystemExit(f'[RED] MANIFEST.json format {manifest.get("format")} is not one this launcher reads')
+        if manifest.get('arch') != 'arm64': raise SystemExit(f'[RED] MANIFEST.json arch is {manifest.get("arch")}, not arm64')
+        blobs = {}
+        for name in PROGRAMS:
+            data = z.read(member(name))
+            have = hashlib.sha256(data).hexdigest()
+            want = (manifest.get('files') or {}).get(name)
+            if have != want: raise SystemExit(f'[RED] {name} has SHA-256 {have}, MANIFEST.json says {want}: not bundled')
+            listed = sums_table(sums_text).get(member(name))
+            if have != listed: raise SystemExit(f'[RED] {name} has SHA-256 {have}, SHA256SUMS says {listed}: not bundled')
+            blobs[name] = data
+        for name in EXTRAS:
+            if member(name): blobs[name] = z.read(member(name))
+    if dest.exists(): shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    for name, data in blobs.items():
+        (dest / name).write_bytes(data)
+    for name in PROGRAMS:
+        (dest / name).chmod(0o755)
+    return [dest / name for name in PROGRAMS]
 
 
 def fetch(resources, work):
     pin = read()
     if not pin['sha256']:
-        print(f'nxbuild {pin["version"]}: no digest pinned yet (PLACEHOLDER in {PIN.name}), the app bundles no nxb')
+        print(f'nxkit {pin["version"]}: no digest pinned yet (PLACEHOLDER in {PIN.name}), the app bundles no nxkit')
         return None
     work.mkdir(parents=True, exist_ok=True)
     z = work / Path(pin['url']).name
     download(pin['url'], z)
-    nxb = unpack(z, pin['sha256'], resources / 'nxbuild')
-    subprocess.run(['codesign', '--force', '--sign', '-', str(nxb)], check=True)
-    print(f'nxbuild {pin["version"]}: {nxb} ({pin["sha256"]})')
-    return nxb
-
-
-def sums_digest(text, name):   # the digest of name in a SHA256SUMS text ("<hex>  <name>" lines, a '*' before binary names)
-    for ln in text.splitlines():
-        m = re.fullmatch(r'([0-9a-fA-F]{64})\s+\*?(\S+)', ln.strip())
-        if m and Path(m[2]).name == name: return m[1].lower()
-    raise SystemExit(f'SHA256SUMS lists no {name}')
+    sums = signed_sums(pin['url'].rsplit('/', 1)[0], work)
+    programs = unpack(z, pin['sha256'], resources / 'nxbuild', sums)
+    for p in programs:
+        subprocess.run(['codesign', '--force', '--sign', '-', str(p)], check=True)
+    print(f'nxkit {pin["version"]}: {", ".join(str(p) for p in programs)} ({pin["sha256"]})')
+    return programs
 
 
 def bump(version, pin=PIN):
     old = pin.read_text()
     url = read(pin)['url'].replace(read(pin)['version'], version)
-    sums = download(url.rsplit('/', 1)[0] + '/SHA256SUMS').decode()
+    with tempfile.TemporaryDirectory() as work:
+        sums = signed_sums(url.rsplit('/', 1)[0], Path(work))
     sha = sums_digest(sums, Path(url).name)
     new = re.sub(r'^version\t.*$', f'version\t{version}', old, flags=re.M)
     pin.write_text(re.sub(r'^sha256\t.*$', f'sha256\t{sha}', new, flags=re.M))
-    print(f'pinned nxbuild {version}: {sha}')
+    print(f'pinned nxkit {version}: {sha}')
 
 
 if __name__ == '__main__':

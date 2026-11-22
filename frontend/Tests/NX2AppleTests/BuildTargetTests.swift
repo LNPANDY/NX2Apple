@@ -96,7 +96,7 @@ final class BuildTargetTests: IsolatedDefaultsTestCase {
             XCTAssertNotNil(L10n.de[key], key)
         }
         for key in ["library.olderIOS", "build.iosNote"] { XCTAssertNotNil(L10n.sv[key], key) }
-        XCTAssertEqual(L10n.string("build.ios", .en), "iPhone / iPad")
-        XCTAssertEqual(L10n.string("build.iosNote", .de), "Eine App auf deinem iPhone oder iPad für alle deine Spiele.")
+        XCTAssertEqual(L10n.string("build.ios", .en), "iOS")
+        XCTAssertEqual(L10n.string("build.iosNote", .de), "Eine iOS-App für alle deine Spiele.")
     }
 }

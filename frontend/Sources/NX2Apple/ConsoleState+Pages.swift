@@ -1,62 +1,40 @@
 import Foundation
+import AppKit
 import NXCore
 
-// The structure of LNPANDY/NX2Apple#816 (Koshindai's console mode concept) in console mode's own look: the home screen's rows, a
+// The structure of LNPANDY/NX2Apple#816 (Koshindai's console mode concept) in console mode's own look: the home screen's row, a
 // game's page and its tabs, all games with their filters and order, the search, the builds, the quick menu and the screen after a
 // crash. And the launcher's side of #952 (Haseenesss): a game paused in the background, and the question before it quits.
 
-/// The home screen's rows, in their order. A game is in one row only, so each tile is one focus target.
-enum ConsoleHomeRow: String, CaseIterable, Equatable {
-    /// Ready on this Mac and played before, the one played last first.
-    case continuePlaying
-    /// Ready on this Mac, never played, built with the engine's current tools.
-    case ready
-    /// Not playable as it is: not built, built for iPhone only, an incomplete app, no game data, or built with older tools.
-    case attention
-    var titleKey: String { "console.rows." + rawValue }
-}
-
-struct ConsoleHomeSection: Equatable, Identifiable {
-    var row: ConsoleHomeRow
-    var gameIDs: [String]
-    var id: String { row.rawValue }
-}
-
+/// The home screen's one row (#1458), as a PlayStation 5 home: every game in one line, the paused game first (#952), then the
+/// ones played most recently, then the rest by name, and All games as the last tile. What a game needs is its tile's chip
+/// (Not built, Needs game data), not a row of its own.
 enum ConsoleHome {
-    /// The rows with their games, an empty row left out. `games` keeps its order inside a row, except Continue playing, which goes by
-    /// when the game was last played (ties by its place in `games`). A paused game (#952) is played, so it leads Continue playing.
-    static func sections(_ games: [ConsoleGame], pausedGameID: String? = nil) -> [ConsoleHomeSection] {
-        var continuing: [(game: ConsoleGame, index: Int)] = []
-        var ready: [String] = [], attention: [String] = []
-        for (index, game) in games.enumerated() {
-            if game.status == .ready, game.lastPlayed != nil || game.id == pausedGameID { continuing.append((game, index)) }
-            else if game.status == .ready, !game.olderTools { ready.append(game.id) }
-            else { attention.append(game.id) }
-        }
-        continuing.sort { l, r in
-            if (l.game.id == pausedGameID) != (r.game.id == pausedGameID) { return l.game.id == pausedGameID }
-            let a = l.game.lastPlayed ?? .distantFuture, b = r.game.lastPlayed ?? .distantFuture
-            return a == b ? l.index < r.index : a > b
-        }
-        return [ConsoleHomeSection(row: .continuePlaying, gameIDs: continuing.map(\.game.id)),
-                ConsoleHomeSection(row: .ready, gameIDs: ready),
-                ConsoleHomeSection(row: .attention, gameIDs: attention)].filter { !$0.gameIDs.isEmpty }
+    /// The row's last tile, All games: its place in `move`, never a game.
+    static let allGamesID = "console.home.allGames"
+
+    /// The games' ids in the row's order. Ties keep their place in `games`.
+    static func order(_ games: [ConsoleGame], pausedGameID: String? = nil) -> [String] {
+        games.enumerated().sorted { l, r in
+            let lp = l.element.id == pausedGameID, rp = r.element.id == pausedGameID
+            if lp != rp { return lp }
+            switch (l.element.lastPlayed, r.element.lastPlayed) {
+            case let (a?, b?): return a == b ? l.offset < r.offset : a > b
+            case (.some, nil): return true
+            case (nil, .some): return false
+            case (nil, nil):
+                let order = l.element.title.localizedStandardCompare(r.element.title)
+                return order == .orderedSame ? l.offset < r.offset : order == .orderedAscending
+            }
+        }.map(\.element.id)
     }
 
-    /// Where a move from a game's tile goes: left and right inside its row (stopping at the ends), up and down to the row above or
-    /// below at the same place, or its last tile when that row is shorter. nil: up from the first row (the top bar), down from the
-    /// last, or a game that is in no row. The same game when left or right is at the end of the row.
-    static func move(from id: String, dx: Int, dy: Int, in sections: [ConsoleHomeSection]) -> String? {
-        guard let rowIndex = sections.firstIndex(where: { $0.gameIDs.contains(id) }),
-              let column = sections[rowIndex].gameIDs.firstIndex(of: id) else { return nil }
-        if dy != 0 {
-            let target = rowIndex + (dy < 0 ? -1 : 1)
-            guard sections.indices.contains(target) else { return nil }
-            let ids = sections[target].gameIDs
-            return ids[min(column, ids.count - 1)]
-        }
-        let ids = sections[rowIndex].gameIDs
-        return ids[min(max(column + dx, 0), ids.count - 1)]
+    /// Left and right through the row, stopping at its ends: All games is the tile after the last game. nil for an id that is not in
+    /// the row.
+    static func move(from id: String, by step: Int, in order: [String]) -> String? {
+        let row = order + [allGamesID]
+        guard let index = row.firstIndex(of: id) else { return nil }
+        return row[min(max(index + step, 0), row.count - 1)]
     }
 }
 
@@ -95,21 +73,58 @@ struct ConsoleBuilds: Equatable {
     struct StageRow: Equatable, Identifiable {
         var id: Int
         var name: String
+        var nameKey: String? = nil
+        var nameArgument: String? = nil
         var state: StepState
         /// The share of this stage, 0 to 1, when the stage reports one.
         var progress: Double?
     }
+    enum ArtworkOutcome: Equatable { case success, warning, failure }
     struct QueueRow: Equatable, Identifiable {
         var id: UUID
         var name: String
         /// queue.status.<status>
         var statusKey: String
+        var platformKey: String? = nil
+        var icon: NSImage? = nil
+        var outcome: ArtworkOutcome? = nil
+        var artwork: NSImage? = nil
+        var active = false
+        var progress: Double? = nil
+        var platformSymbol: String { platformKey == "library.chip.both" ? "laptopcomputer.and.iphone" : platformKey == "build.ios" ? "iphone" : "desktopcomputer" }
     }
     var running = false
     var stopping = false
     var title = ""
     var stages: [StageRow] = []
     var queue: [QueueRow] = []
+    /// A completed game settles visibly at 100% before the next snapshot is presented.
+    static func completionFrame(from old: Self, to next: Self) -> Self? {
+        guard let index = old.queue.firstIndex(where: \.active),
+              next.queue.first(where: \.active)?.id != old.queue[index].id,
+              next.queue.first(where: { $0.id == old.queue[index].id })?.outcome == .success else { return nil }
+        var frame = old
+        frame.queue[index].progress = 1
+        return frame
+    }
+    var completionOrder: [UUID] = []
+    mutating func retainCompletionOrder(from previous: Self) {
+        let completed = queue.filter { $0.outcome == .success }.map(\.id)
+        completionOrder = previous.completionOrder.filter { completed.contains($0) }
+        completionOrder += completed.filter { !completionOrder.contains($0) }
+    }
+    var indicatorRow: QueueRow? {
+        if let active = queue.first(where: \.active) { return active }
+        if running { return queue.first { $0.outcome == nil } }
+        return queue.last { $0.outcome == .failure || $0.outcome == .warning }
+            ?? orderedQueue.first { $0.outcome == .success }
+    }
+    var hasActivity: Bool { running || !queue.isEmpty }
+    var orderedQueue: [QueueRow] {
+        let completed = queue.filter { $0.outcome == .success }
+        let order = completionOrder.isEmpty ? completed.map(\.id) : completionOrder
+        return queue.filter { $0.outcome != .success } + order.reversed().compactMap { id in completed.first { $0.id == id } }
+    }
 }
 
 /// What happens once the paused game has quit: another game starts, console mode is left (for the desktop, with a game to select),
@@ -126,7 +141,8 @@ struct ConsoleStopped: Equatable {
 
 extension ConsoleState {
     var pausedGame: ConsoleGame? { games.first { $0.id == pausedGameID } }
-    var homeSections: [ConsoleHomeSection] { ConsoleHome.sections(games, pausedGameID: pausedGameID) }
+    /// The home screen's row: the games' ids in their order (ConsoleHome.order).
+    var homeOrder: [String] { ConsoleHome.order(games, pausedGameID: pausedGameID) }
 
     /// All games in the chosen order and filter. A game the order does not know yet (just added) goes at the end.
     var libraryGames: [ConsoleGame] {
@@ -262,11 +278,39 @@ extension ConsoleState {
 enum ConsoleSearchBack {
     static func deletes(_ state: ConsoleState) -> Bool {
         switch state.presentedSheet {
-        case .search?: return !state.searchText.isEmpty
+        case .search?: return false
         case .supportedGames?: return !state.supportedText.isEmpty
         default: return false
         }
     }
     /// The hint's words for B.
     static func labelKey(_ text: String) -> String { text.isEmpty ? "console.back" : "console.search.deleteLetter" }
+}
+
+extension ConsoleState {
+    /// A game panel keeps its context through nested settings and save pages.
+    var gameContextID: String? {
+        for sheet in sheets.reversed() {
+            switch sheet {
+            case let .options(id), let .gamePad(id), let .advanced(id), let .manage(id), let .gamePage(id): return id
+            case .mapping: if let mappingGameID { return mappingGameID }
+            default: break
+            }
+        }
+        return nil
+    }
+}
+
+
+extension ConsoleState {
+    /// Utility submenus retain the context they were opened from, including beneath a confirmation.
+    func titleParent(of sheet: ConsoleSheet) -> ConsoleSheet? {
+        switch sheet {
+        case .mapping, .language, .cloudSaves, .supportedGames, .advanced, .manage, .gamePad:
+            guard let index = sheets.lastIndex(of: sheet), index > 0 else { return nil }
+            let parent = sheets[index - 1]
+            return parent == .menu || parent == .quickMenu ? nil : parent
+        default: return nil
+        }
+    }
 }

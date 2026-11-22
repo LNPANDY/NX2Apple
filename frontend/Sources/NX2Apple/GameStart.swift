@@ -20,7 +20,8 @@ enum GameStart {
         let overrides = game.launchEnvironment(settings).merging(game.controllerLaunchOverrides) { _, manual in manual }
         let savingEnabled = game.controllerSavingEnabled(environment: overrides)
         let mappings = SavedChoices.appReadsControllerMappings(app: game.appPath) ? game.controllerPreferences() : nil
-        let mods = GameMod.list(in: GameMod.folder(for: game, library: library.folder), titleID: game.titleID)
+        // nxkit's host reads no DM_ROMFS_OVERLAY: an app it built starts without the mods
+        let mods = NxkitLaunch.isNxkit(app: game.appPath) ? [] : GameMod.list(in: GameMod.folder(for: game, library: library.folder), titleID: game.titleID)
         var environment = game.startEnvironment(controls: controls.environment, settings: settings, mods: mods,
                                                 store: SavedChoices(app: game.appPath, titleID: game.titleID),
                                                 appReadsStore: SavedChoices.appReadsStore(app: game.appPath),
@@ -32,22 +33,36 @@ enum GameStart {
         environment["DM_HOME_QUIT_TEXT"] = HomeButtonHint.promptText(gameName: game.displayName(lang), labels: labels, homeMenu: homeMenu)   // the game's Home button quit prompt in the launcher's language (#336)
         // Console mode's game: the Home menu's Back to console mode, which pauses it in the background (#952). The desktop's Play passes none.
         if homeMenu { environment.merge(HomeButtonHint.homeMenuEnvironment(launcherBundleID: launcherBundleID)) { $1 } }
-        if let sticks { environment.merge(sticks.environment) { _, own in own } }   // DM_STICK_DEADZONE_L / _R: off adds nothing
-        // The global setup and this game's own choices (SaveLocation.swift): a save folder and a cloud folder. A game with nothing set adds nothing.
+        if let sticks { environment.merge(sticks.environment) { _, own in own } }
+        // An app nxkit built reads nxkit's names only: full screen from console mode (the player's own choice is its NXKIT_FULLSCREEN
+        // row, a saved choice the host reads itself), the screen, the Home button's texts and the Controls page's maps. From console
+        // mode it opens over the console (overlay): the Starting screen is its loading screen and Quit fades it out with the console
+        // right under it. Its Home menu has Resume and Quit: no launcher is named, so it has no Back to console mode
+        if NxkitLaunch.isNxkit(app: game.appPath) {
+            let nxkit = NxkitLaunch.environment(fullscreen: fullscreen || environment["DM_FULLSCREEN"] == "1",
+                                                displayID: environment["DM_SCREEN"].flatMap(UInt32.init),
+                                                homeText: environment["DM_HOME_QUIT_TEXT"],
+                                                overlay: homeMenu)
+            environment.merge(nxkit) { $1 }
+            environment.merge(NxkitLaunch.controlMaps(environment)) { $1 }
+        }   // DM_STICK_DEADZONE_L / _R: off adds nothing
+        // The global setup and this game's own choices (SaveLocation.swift): a save folder and a cloud folder, under the names of
+        // the app's engine (SaveEngine.swift). A game with nothing set adds nothing.
+        let engine = SaveEngines.forApp(game.appPath)
         var base = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
         if let saves {
             let own = GameCloudSaves(titleID: game.titleID, appPath: game.appPath).setting
-            let save = SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: saves.global, game: saves.game)
+            let save = SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: saves.global, game: saves.game, engine: engine)
             let cloud = SaveLocations.effectiveCloud(global: saves.global, game: saves.game, own: own)
-            let saveEnv = SaveLocations.environment(save: save, cloud: cloud)
-            if let folder = saveEnv["DM_SAVE"] { try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
+            let saveEnv = SaveLocations.environment(save: save, cloud: cloud, engine: engine)
+            if let folder = saveEnv[engine.saveKey] { try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
             environment.merge(saveEnv) { $1 }
             base = save.path
         }
         // The player's own save folder (PlayerProfile.swift); the default player adds nothing, so their saves stay where they were
-        if let player, !player.isDefault {
-            let playerEnv = player.environment(base: base, existing: environment)
-            if let save = playerEnv["DM_SAVE"] { try? FileManager.default.createDirectory(atPath: save, withIntermediateDirectories: true) }
+        if let player {
+            let playerEnv = player.environment(base: base, existing: environment, engine: engine)
+            if let save = playerEnv[engine.saveKey] { try? FileManager.default.createDirectory(atPath: save, withIntermediateDirectories: true) }
             environment.merge(playerEnv) { $1 }
         }
         return environment

@@ -7,7 +7,8 @@ import NXCore
 /// choices, which a build that reads them (DMControllerMappings) uses instead of the launcher's.
 extension LiveConsoleDriver {
     func back() {
-        if cloudGate.isActive { cloudGate.cancel(); return }   // the cloud save's wait before a start (#957)
+        if cancelPendingLaunch() { return }
+        if cloudGate.isActive { cloudGate.cancel(); return }
         let wasGame = state.mappingGameID != nil
         state.back()
         if wasGame, state.mappingGameID == nil { refreshPadLayout() }   // the sheets below show the mapping of all games again

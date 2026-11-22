@@ -9,7 +9,9 @@ import Foundation
 
 package enum ShellHotInstall {
     package static let beaconRemotePath = "Documents/.shell-host.json"
-    package static let glueVersion = 1
+    /// Bumped when `DmShell.app` gains new host UI or launch capabilities (e.g. Home Screen shortcuts and expanded in-game menu)
+    /// so an older installed shell upgrades via one full `xcodebuild` install before resuming hot framework pushes.
+    package static let glueVersion = 2
     /// Fall back to full `xcodebuild` when fewer than 24 hours remain on a 7-day profile so the app's signature is renewed too.
     package static let minRemainingLifetime: Int64 = 24 * 3600
 
@@ -130,6 +132,10 @@ package enum ShellHotInstall {
         return args
     }
 
+    package static func removeFrameworkSignatureCommand(codesign: String = "/usr/bin/codesign", executable: String) -> [String] {
+        [codesign, "--remove-signature", executable]
+    }
+
     package static func copyFrameworkCommand(xcrun: String, device: String, bundleID: String,
                                              sourceFramework: String, stagingSubdir: String, frameworkName: String) -> [String] {
         [xcrun, "devicectl", "device", "copy", "to", "--device", device, "--source", sourceFramework,
@@ -223,7 +229,7 @@ extension ShellInstaller {
         let pickedByID = Dictionary(uniqueKeysWithValues: games.map { ($0.titleID.uppercased(), $0.pickedArtwork) })
         for game in library.games {
             let picked = pickedByID[game.titleID.uppercased()] ?? nil
-            _ = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked)
+            _ = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked, ensureCached: ensureBanner)
         }
 
         let stageDir = NSTemporaryDirectory() + "nspb-hot-fw-\(UUID().uuidString.prefix(8))"
@@ -295,7 +301,7 @@ extension ShellInstaller {
             return nil
         }
         for (_, previous) in replaced { ShellInstall.discard(previous) }
-        ShellLibrary.recordInstalled(root: root)
+        ShellLibrary.recordInstalled(root: root, device: device)
         end(Self.installStageID, installName, ok: true)
         let outcome = Outcome(ok: true, message: fmt("dev.installed", deviceName),
                               appPath: ShellInstall.appPath(root: root), bundleID: library.bundleID)

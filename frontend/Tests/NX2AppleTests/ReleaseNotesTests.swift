@@ -206,7 +206,7 @@ import NXModel
             }
             let width: CGFloat = 560, height: CGFloat = 640
             let sheet = UpdateSheet(updates: stores.appUpdates, build: stores.build)
-                .environmentObject(stores.localizer).frame(width: width, height: height)
+                .environmentObject(stores.localizer).environmentObject(PadFocus()).frame(width: width, height: height)
             let host = NSHostingView(rootView: sheet)
             let window = OffscreenWindow(size: NSSize(width: width, height: height))
             window.contentView = host
@@ -255,7 +255,7 @@ import NXModel
             mStores.appUpdates.update = AppUpdate.Release(tag: tag, url: "", digest: nil, notes: notes)
             mStores.appUpdates.downloadProgress = progress
             let width: CGFloat = 560, height: CGFloat = 640
-            let host = NSHostingView(rootView: UpdateSheet(updates: mStores.appUpdates, build: m).environmentObject(mStores.localizer).frame(width: width, height: height))
+            let host = NSHostingView(rootView: UpdateSheet(updates: mStores.appUpdates, build: m).environmentObject(mStores.localizer).environmentObject(PadFocus()).frame(width: width, height: height))
             let window = OffscreenWindow(size: NSSize(width: width, height: height))
             window.contentView = host
             window.appearance = NSAppearance(named: .darkAqua)

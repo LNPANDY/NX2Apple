@@ -31,7 +31,7 @@ class VerifyEnvSwitchesTests(unittest.TestCase):
     def test_ignores_a_prefix_and_a_documented_family(self):
         with tempfile.TemporaryDirectory() as d:
             f = Path(d, 'prefixes.md')
-            f.write_text('`DM_PROF_<key>` overrides, `DM_NVN_*` are graphics switches, `DM_MEMSTAT` is real.\n', encoding='utf-8')
+            f.write_text('`DM_TEST_<key>` overrides, `DM_NVN_*` are graphics switches, `DM_MEMSTAT` is real.\n', encoding='utf-8')
             r = subprocess.run([sys.executable, str(TOOL), str(f)], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 

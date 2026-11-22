@@ -99,11 +99,15 @@ extension ProcessRunner {
 /// Starts real processes.
 package struct SystemProcessRunner: ProcessRunner {
     private let xcodeApp: () -> String?
+    /// The longest a launch without a timeout of its own may run, nil for no limit (a build runs as long as it takes).
+    private let probeTimeout: TimeInterval?
 
-    package init(defaults: UserDefaults = .standard) { xcodeApp = { XcodeSelection.app(in: defaults) } }
+    package init(defaults: UserDefaults = .standard) { xcodeApp = { XcodeSelection.app(in: defaults) }; probeTimeout = nil }
 
-    /// A dependency scan probes one selection throughout, even if a new scan starts before it finishes.
-    init(xcodeApp: String?) { self.xcodeApp = { xcodeApp } }
+    /// A dependency scan probes one selection throughout, even if a new scan starts before it finishes. Its probes (xcrun,
+    /// python3 --version, dotnet) answer in seconds: `probeTimeout` ends one that does not, so a hung xcrun cannot hold the
+    /// scan's thread for good (#1474: on the macOS 27 CI runner they hung and starved the Swift concurrency pool).
+    init(xcodeApp: String?, probeTimeout: TimeInterval? = nil) { self.xcodeApp = { xcodeApp }; self.probeTimeout = probeTimeout }
 
     private func process(_ launch: ProcessLaunch) -> Process {
         let p = Process()
@@ -129,7 +133,7 @@ package struct SystemProcessRunner: ProcessRunner {
         p.standardOutput = out
         p.standardError = launch.mergesErrors ? out : err
         do { try p.run() } catch { return .failedToStart(error.localizedDescription) }
-        let deadline = launch.timeout.map { Deadline(p, after: $0) }
+        let deadline = (launch.timeout ?? probeTimeout).map { Deadline(p, after: $0) }
         // Start draining stdout and stderr before writing stdin asynchronously so >64 KB inputs cannot deadlock both ends.
         let outData = LockedData(), errData = LockedData()
         let drained = DispatchGroup()

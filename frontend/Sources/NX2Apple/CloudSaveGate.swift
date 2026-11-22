@@ -14,29 +14,49 @@ struct CloudSaveStart: Equatable {
     /// The engine reads `DM_SAVE_SYNC_CHOICE` (Info.plist `DMSaveSyncChoice`). An older build gets the download before its start,
     /// and no question it could not follow.
     var takesChoice: Bool
+    /// The engine's name for the choice (SaveEngine.choiceKey), and what it gets when the player is not asked.
+    var choiceKey = "DM_SAVE_SYNC_CHOICE"
+    var unaskedChoice: String?
+    /// The engine's own report (SaveEngine.reportCommand) and the environment it runs with, the game's. nil: the launcher compares.
+    var report: [String]?
+    var environment: [String: String] = [:]
 
     var backups: URL { URL(fileURLWithPath: save.path + "-backups") }
+    var unasked: [String: String] { unaskedChoice.map { [choiceKey: $0] } ?? [:] }
 
-    /// nil when the game starts without a check: cloud saves off, or no Mac app.
-    static func plan(for game: LibraryGame, saves: GameCloudSaves? = nil) -> CloudSaveStart? {
+    /// How long the engine's report waits for the cloud's file, which the gate has already brought down.
+    static let reportWait: TimeInterval = 10
+
+    /// nil when the game starts without a check: cloud saves off, or no Mac app. `environment` is the one the game starts with
+    /// (GameStart): an engine with a report of its own reads its save and cloud folder only there.
+    static func plan(for game: LibraryGame, environment: [String: String] = [:], saves: GameCloudSaves? = nil) -> CloudSaveStart? {
         guard !game.appPath.isEmpty, FileManager.default.fileExists(atPath: game.appPath) else { return nil }
-        let saves = saves ?? GameCloudSaves(titleID: game.titleID, appPath: game.appPath)
-        guard let folder = saves.setting.folder else { return nil }
+        let engine = SaveEngines.forApp(game.appPath)
         let mac = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath)
-        var scanned = mac.save
-        if let legacy = mac.legacy, CloudSaveCheck.localSave(save: mac.save)?.hash == nil, CloudSaveCheck.localSave(save: legacy)?.hash != nil { scanned = legacy }
-        return CloudSaveStart(titleID: game.titleID, gameName: game.name,
-                              cloudFile: URL(fileURLWithPath: CloudSaveSync.saveFile(folder: folder, titleID: game.titleID)),
-                              save: mac.save, scanned: scanned, takesChoice: takesChoice(app: game.appPath))
+        var start: CloudSaveStart
+        if let report = engine.reportCommand(app: game.appPath, wait: reportWait) {
+            guard let folder = CloudSaveSync.folder(for: environment[engine.syncKey]) else { return nil }
+            let save = environment[engine.saveKey].map { URL(fileURLWithPath: $0) } ?? mac.save
+            start = CloudSaveStart(titleID: game.titleID, gameName: game.name,
+                                   cloudFile: URL(fileURLWithPath: CloudSaveSync.saveFile(folder: folder, titleID: game.titleID)),
+                                   save: save, scanned: save, takesChoice: engine.takesChoice(app: game.appPath))
+            start.report = report
+            start.environment = ProcessInfo.processInfo.environment.merging(environment) { $1 }
+        } else {
+            let saves = saves ?? GameCloudSaves(titleID: game.titleID, appPath: game.appPath)
+            guard let folder = saves.setting.folder else { return nil }
+            var scanned = mac.save
+            if let legacy = mac.legacy, CloudSaveCheck.localSave(save: mac.save)?.hash == nil, CloudSaveCheck.localSave(save: legacy)?.hash != nil { scanned = legacy }
+            start = CloudSaveStart(titleID: game.titleID, gameName: game.name,
+                                   cloudFile: URL(fileURLWithPath: CloudSaveSync.saveFile(folder: folder, titleID: game.titleID)),
+                                   save: mac.save, scanned: scanned, takesChoice: engine.takesChoice(app: game.appPath))
+        }
+        start.choiceKey = engine.choiceKey
+        start.unaskedChoice = engine.unaskedChoice
+        return start
     }
 
-    static func takesChoice(app: String) -> Bool {
-        let plist = URL(fileURLWithPath: app).appendingPathComponent("Contents/Info.plist")
-        guard let data = try? Data(contentsOf: plist),
-              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let marker = info["DMSaveSyncChoice"] as? NSNumber else { return false }
-        return marker.intValue >= 1
-    }
+    static func takesChoice(app: String) -> Bool { SaveEngines.forApp(app).takesChoice(app: app) }
 }
 
 /// The question before the start: the two saves differ (both changed), or the cloud's could not be read.
@@ -72,18 +92,25 @@ enum CloudSaveStep: Equatable {
     private var cancelled: CancelFlag?
     private var cloudSave: CloudSaveCheck.Save?
 
+    /// The longest the engine's report may take: its own wait for the cloud's file and the reading of both saves.
+    nonisolated static let reportTimeout: TimeInterval = 60
+
     init(fetcher: CloudFileFetching = CoordinatedCloudFetch(), longWait: TimeInterval = 8) {
         self.fetcher = fetcher
         self.longWait = longWait
     }
 
     var isActive: Bool { step != nil }
+    /// The game being checked, for the sheet's icon. Visual QA sets it with `step`.
+    var titleID: String? { start?.titleID ?? qaTitleID }
+    var qaTitleID: String?
 
     /// Checks `game`, then calls `proceed` with what to add to its start environment. `ended` when the player cancelled.
-    /// A game without cloud saves proceeds at once, before this returns.
-    func begin(_ game: LibraryGame, plan: CloudSaveStart? = nil, proceed: @escaping ([String: String]) -> Void, ended: @escaping () -> Void = {}) {
+    /// A game without cloud saves proceeds at once, before this returns. `environment` is the one the game starts with.
+    func begin(_ game: LibraryGame, environment: [String: String] = [:], plan: CloudSaveStart? = nil,
+               proceed: @escaping ([String: String]) -> Void, ended: @escaping () -> Void = {}) {
         guard step == nil else { return }   // a check is running or asking: a second Play waits for its answer
-        guard let start = plan ?? CloudSaveStart.plan(for: game) else { proceed([:]); return }
+        guard let start = plan ?? CloudSaveStart.plan(for: game, environment: environment) else { proceed([:]); return }
         self.start = start; self.proceed = proceed; self.ended = ended
         run()
     }
@@ -110,8 +137,20 @@ enum CloudSaveStep: Equatable {
     }
 
     /// What the check found: the outcome, this Mac's save, the cloud's (nil: unreadable) and why it could not be read.
-    nonisolated static func compare(_ start: CloudSaveStart, fetched: CloudFetchResult)
+    /// An engine with a report of its own (`start.report`) answers for the three saves, after the cloud's file came down.
+    nonisolated static func compare(_ start: CloudSaveStart, fetched: CloudFetchResult, runner: any ProcessRunner = SystemProcessRunner())
         -> (outcome: CloudSaveCheck.Outcome, local: CloudSaveCheck.Save?, cloud: CloudSaveCheck.Save?, reason: String?)? {
+        if let command = start.report {
+            if case .cancelled = fetched { return nil }
+            var launch = ProcessLaunch(command, environment: start.environment)
+            launch.timeout = reportTimeout
+            let result = runner.capture(launch)
+            // A save the engine cannot read (exit 1) or no report: the game starts without a question, as for the launcher's own check
+            guard result.ok, let line = result.out.split(separator: "\n").last(where: { $0.contains("sync=") }),
+                  let report = CloudSaveCheck.report(String(line)) else { return (.same, nil, nil, nil) }
+            if case .failed(let why) = fetched { return (.unreadable, report.local, nil, why) }
+            return (report.outcome, report.local, report.cloud, report.reason)
+        }
         var cloud: CloudSaveCheck.Save?, reason: String?
         switch fetched {
         case .cancelled: return nil
@@ -130,7 +169,7 @@ enum CloudSaveStep: Equatable {
         guard let start else { return }
         guard let found else { cancel(); return }
         // This Mac's save cannot be read (the engine turns cloud saves off for the session), or an older engine that cannot follow a choice: start as before
-        guard found.outcome.asks, let local = found.local, start.takesChoice else { go([:]); return }
+        guard found.outcome.asks, let local = found.local, start.takesChoice else { go(start.unasked); return }
         cloudSave = found.cloud
         step = .asking(CloudSaveQuestion(gameName: start.gameName, outcome: found.outcome, local: local, cloud: found.cloud,
                                          reason: found.reason, backups: start.backups))
@@ -144,7 +183,7 @@ enum CloudSaveStep: Equatable {
         case let .asking(q): guard (q.outcome == .unreadable) == (choice == .offline) else { return }
         case nil: return
         }
-        go(CloudSaveCheck.environment(choice, cloud: cloudSave))
+        go(CloudSaveCheck.environment(choice, cloud: cloudSave, key: start?.choiceKey ?? "DM_SAVE_SYNC_CHOICE"))
     }
 
     func retry() {

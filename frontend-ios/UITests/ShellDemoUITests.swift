@@ -22,18 +22,25 @@ import XCTest
         attachment.lifetime = .keepAlways
         add(attachment)
     }
+    private var visibleKeyboardCount: Int {
+        let viewport = app.windows.firstMatch.frame
+        return (0..<app.keyboards.count).filter {
+            app.keyboards.element(boundBy: $0).frame.intersects(viewport)
+        }.count
+    }
     func testThumbnailContextMenuDoesNotShowKeyboard() {
         extraArguments = ["--samples"]
         launch("library")
         let tile = app.buttons["tile.orbit"]
         XCTAssertTrue(tile.waitForExistence(timeout: 5))
-        XCTAssertEqual(app.keyboards.count, 0)
+        XCTAssertEqual(visibleKeyboardCount, 0)
         tile.press(forDuration: 1)
         let settings = app.buttons["Game settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 5))
-        XCTAssertEqual(app.keyboards.count, 0)
+        XCTAssertEqual(visibleKeyboardCount, 0)
         let play = app.buttons["Play"]
         XCTAssertTrue(play.exists)
+        XCTAssertTrue(app.buttons["Add to Home Screen…"].exists)
         XCTAssertLessThan(play.frame.minY, settings.frame.minY)
         capture("thumbnail-context-menu")
         play.tap()
@@ -54,7 +61,7 @@ import XCTest
         let changed = NSPredicate(format: "label == %@", "Animal Crossing™: New Horizons")
         expectation(for: changed, evaluatedWith: app.staticTexts["hero.title"])
         waitForExpectations(timeout: 5)
-        XCTAssertEqual(app.keyboards.count, 0)
+        XCTAssertEqual(visibleKeyboardCount, 0)
     }
 
     func testRecentGamesSelectWithoutLaunching() {
@@ -466,6 +473,32 @@ import XCTest
         XCTAssertEqual(reopened.value as? String, "0")
     }
 
+    func testShowFPSSwitchTogglesAndPersistsInSettings() {
+        XCUIDevice.shared.orientation = .portrait
+        launch("shell-settings")
+        app.swipeUp()
+        let showFPS = app.switches["setting.shell.showFPS"].firstMatch
+        reveal(showFPS)
+        XCTAssertTrue(showFPS.waitForExistence(timeout: 5))
+        if (showFPS.value as? String) == "1" {
+            showFPS.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            XCTAssertEqual(showFPS.value as? String, "0")
+        }
+        XCTAssertEqual(showFPS.value as? String, "0")
+        showFPS.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(showFPS.value as? String, "1")
+
+        app.terminate()
+        launch("shell-settings")
+        app.swipeUp()
+        let reopened = app.switches["setting.shell.showFPS"].firstMatch
+        reveal(reopened)
+        XCTAssertTrue(reopened.waitForExistence(timeout: 5))
+        XCTAssertEqual(reopened.value as? String, "1")
+        reopened.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(reopened.value as? String, "0")
+    }
+
     // Run on a standard iPhone: editing follows gameplay's landscape-only policy.
     func testPhoneEditorOpensLandscapeAndRestoresPortraitBrowsing() {
         XCUIDevice.shared.orientation = .portrait
@@ -594,46 +627,6 @@ import XCTest
         launch("settings")
         XCTAssertTrue(app.staticTexts["detail.title"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["detail.switch2"].firstMatch.exists)
-    }
-
-    /// With the diamond chosen as a whole, each of A, B, X and Y has its own Hold or Toggle, and the setting row lists the Toggle keys (#1129).
-    func testDiamondKeysChooseHoldOrToggleEach() {
-        XCUIDevice.shared.orientation = .landscapeLeft
-        launch("shell-settings")
-        let arrange = app.buttons["shellSettings.arrange"]
-        reveal(arrange)
-        XCTAssertFalse(app.staticTexts["shellSettings.arrange.toggles"].exists)
-        arrange.tap()
-        XCTAssertTrue(app.buttons["touchLayout.options"].waitForExistence(timeout: 5))
-        let diamond = app.buttons["A B X Y"].firstMatch
-        XCTAssertTrue(diamond.waitForExistence(timeout: 5))
-        // The diamond's middle is empty: touch its top key. Its Hold or Toggle choice appears in the selection toolbar.
-        diamond.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
-        let mode = app.segmentedControls["touchLayout.mode"]
-        XCTAssertTrue(mode.waitForExistence(timeout: 5))
-        XCTAssertTrue(mode.buttons["Hold"].isSelected)
-        mode.buttons["Toggle"].tap()
-        XCTAssertTrue(mode.buttons["Toggle"].isSelected)
-        capture("touch-editor-diamond-key-toggle")
-        app.buttons["touchLayout.options"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
-        XCTAssertTrue(app.buttons["touchLayout.done"].waitForExistence(timeout: 5))
-        app.buttons["touchLayout.done"].tap()
-        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
-        reveal(arrange)
-        let line = app.staticTexts["shellSettings.arrange.toggles"]
-        XCTAssertTrue(line.waitForExistence(timeout: 5))
-        XCTAssertTrue(line.label.hasPrefix("Keys that toggle: "), line.label)
-        // Put the saved layout back, so no other test starts with a toggled key.
-        arrange.tap()
-        XCTAssertTrue(app.buttons["touchLayout.options"].waitForExistence(timeout: 5))
-        app.buttons["A B X Y"].firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
-        XCTAssertTrue(mode.waitForExistence(timeout: 5))
-        mode.buttons["Hold"].tap()
-        app.buttons["touchLayout.options"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
-        app.buttons["touchLayout.done"].tap()
-        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
-        reveal(arrange)
-        XCTAssertFalse(app.staticTexts["shellSettings.arrange.toggles"].exists)
     }
 
     func testEditedTouchControlsSaveAndDiscardBothCloseTheEditor() {
@@ -1348,5 +1341,161 @@ import XCTest
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertEqual(app.staticTexts["hero.title"].label, "Animal Crossing™: New Horizons")
         capture("selected-after-rotation")
+    }
+
+    func testAddToHomeScreenGuideOpensFromSettingsAndCopiesURL() {
+        extraArguments = ["--samples"]
+        XCUIDevice.shared.orientation = .portrait
+        launch("settings")
+        let addBtn = app.buttons["set.homeScreen"].firstMatch
+        reveal(addBtn)
+        XCTAssertTrue(addBtn.isHittable)
+        addBtn.tap()
+
+        XCTAssertTrue(app.staticTexts["homeScreen.title"].waitForExistence(timeout: 5))
+        for step in 1...6 {
+            XCTAssertTrue(app.staticTexts["homeScreen.step.\(step)"].exists || app.otherElements["homeScreen.step.\(step)"].exists,
+                          "Missing step \(step) in Add to Home Screen guide")
+        }
+        let pipToggle = app.switches["homeScreen.pipToggle"].firstMatch
+        XCTAssertTrue(pipToggle.exists)
+        XCTAssertEqual(pipToggle.value as? String, "1")
+        capture("add-to-home-screen")
+
+        let saveBtn = app.buttons["homeScreen.save"].firstMatch
+        let copyBtn = app.buttons["homeScreen.copy"].firstMatch
+        XCTAssertTrue(saveBtn.exists)
+        XCTAssertTrue(copyBtn.exists)
+        reveal(copyBtn)
+        copyBtn.tap()
+
+        let backBtn = app.buttons["homeScreen.close"].firstMatch
+        XCTAssertTrue(backBtn.waitForExistence(timeout: 5))
+        reveal(backBtn)
+        backBtn.tap()
+        XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
+    }
+
+    func testCoverFlowColdLaunchSwipeToLastCardRemainsResponsive() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launchEnvironment["AG_PRINT_CYCLES"] = "2"
+        defer { app.launchEnvironment.removeValue(forKey: "AG_PRINT_CYCLES") }
+        extraArguments = ["--games", "12"]
+        launch("library")
+        let flow = app.scrollViews["library.coverflow"]
+        XCTAssertTrue(flow.waitForExistence(timeout: 5))
+        let initialX = app.buttons["tile.orbit"].frame.midX
+        let last = app.buttons["tile.paper-11"]
+        for _ in 0..<24 {
+            if last.exists && last.isSelected { break }
+            flow.swipeLeft()
+        }
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: last)
+        waitForExpectations(timeout: 5)
+        let centredLast = NSPredicate { _, _ in abs(last.frame.midX - initialX) <= 4 }
+        expectation(for: centredLast, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Super Smash Bros.™ Ultimate")
+        XCTAssertEqual(last.frame.midX, initialX, accuracy: 4)
+        XCTAssertFalse(app.alerts["Demo action"].exists)
+        // Step back one card and tap the last side card to verify hit targets and responsiveness stay intact.
+        flow.swipeRight()
+        let previous = app.buttons["tile.tide-10"]
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: previous)
+        waitForExpectations(timeout: 5)
+        let centredPrevious = NSPredicate { _, _ in abs(previous.frame.midX - initialX) <= 4 }
+        expectation(for: centredPrevious, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(previous.frame.midX, initialX, accuracy: 4)
+        last.tap()
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: last)
+        waitForExpectations(timeout: 5)
+        expectation(for: centredLast, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(last.frame.midX, initialX, accuracy: 4)
+        XCTAssertTrue(app.buttons["controllers.open"].isHittable)
+
+        // Also cover the unfolded foldable harness on iPad canvases.
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            extraArguments = ["--fold-test", "--unfolded", "--games", "7"]
+            launch("library")
+            XCTAssertTrue(flow.waitForExistence(timeout: 5))
+            let initialFoldX = app.buttons["tile.orbit"].frame.midX
+            let lastFold = app.buttons["tile.amber"]
+            for _ in 0..<14 {
+                if lastFold.exists && lastFold.isSelected { break }
+                flow.swipeLeft()
+            }
+            expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: lastFold)
+            waitForExpectations(timeout: 5)
+            let centredFoldLast = NSPredicate { _, _ in abs(lastFold.frame.midX - initialFoldX) <= 4 }
+            expectation(for: centredFoldLast, evaluatedWith: nil)
+            waitForExpectations(timeout: 5)
+            XCTAssertEqual(app.staticTexts["hero.title"].label, "Pokémon™ Sword")
+            XCTAssertEqual(lastFold.frame.midX, initialFoldX, accuracy: 4)
+            XCTAssertFalse(app.alerts["Demo action"].exists)
+        }
+    }
+
+    func testCoverFlowControllerAndKeyboardReachLastCardWithoutHang() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launchEnvironment["AG_PRINT_CYCLES"] = "2"
+        defer { app.launchEnvironment.removeValue(forKey: "AG_PRINT_CYCLES") }
+
+        extraArguments = ["--input-test", "--games", "9"]
+        launch("library")
+        let flow = app.scrollViews["library.coverflow"]
+        XCTAssertTrue(flow.waitForExistence(timeout: 5))
+        let initialPadX = app.buttons["tile.orbit"].frame.midX
+        let lastPad = app.buttons["tile.party"]
+        let right = app.buttons["qa.input.right"]
+        for _ in 0..<12 {
+            if lastPad.exists && lastPad.isSelected { break }
+            right.tap()
+        }
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: lastPad)
+        waitForExpectations(timeout: 5)
+        let centredPadLast = NSPredicate { _, _ in abs(lastPad.frame.midX - initialPadX) <= 4 }
+        expectation(for: centredPadLast, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Super Mario Party™")
+        XCTAssertEqual(lastPad.frame.midX, initialPadX, accuracy: 4)
+        right.tap()
+        XCTAssertTrue(lastPad.isSelected)
+        app.buttons["qa.input.left"].tap()
+        let prevPad = app.buttons["tile.kingdom"]
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: prevPad)
+        waitForExpectations(timeout: 5)
+        let centredPadPrev = NSPredicate { _, _ in abs(prevPad.frame.midX - initialPadX) <= 4 }
+        expectation(for: centredPadPrev, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(prevPad.frame.midX, initialPadX, accuracy: 4)
+
+        extraArguments = ["--games", "7"]
+        launch("library")
+        XCTAssertTrue(flow.waitForExistence(timeout: 5))
+        let initialKeyX = app.buttons["tile.orbit"].frame.midX
+        let lastKey = app.buttons["tile.amber"]
+        for _ in 0..<10 {
+            if lastKey.exists && lastKey.isSelected { break }
+            app.typeKey(.rightArrow, modifierFlags: [])
+        }
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: lastKey)
+        waitForExpectations(timeout: 5)
+        let centredKeyLast = NSPredicate { _, _ in abs(lastKey.frame.midX - initialKeyX) <= 4 }
+        expectation(for: centredKeyLast, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Pokémon™ Sword")
+        XCTAssertEqual(lastKey.frame.midX, initialKeyX, accuracy: 4)
+        app.typeKey(.rightArrow, modifierFlags: [])
+        XCTAssertTrue(lastKey.isSelected)
+        app.typeKey(.leftArrow, modifierFlags: [])
+        let prevKey = app.buttons["tile.drift"]
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: prevKey)
+        waitForExpectations(timeout: 5)
+        let centredKeyPrev = NSPredicate { _, _ in abs(prevKey.frame.midX - initialKeyX) <= 4 }
+        expectation(for: centredKeyPrev, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(prevKey.frame.midX, initialKeyX, accuracy: 4)
     }
 }

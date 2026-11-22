@@ -16,6 +16,8 @@ package struct UpdateSheet: View {
     @ObservedObject var updates: AppUpdateStore
     /// The store of the running build: the open sheet follows it, so the button is back when the build ends.
     @ObservedObject private var build: BuildStore
+    @EnvironmentObject private var pad: PadFocus
+    @StateObject private var scroll = LauncherScrollPosition()
     @EnvironmentObject var loc: Localizer
     @Environment(\.dismiss) private var dismiss
 
@@ -34,13 +36,8 @@ package struct UpdateSheet: View {
 
     package var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(loc.t("update.title"))
-                    .font(.manrope(24, .heavy)).tracking(-0.5)
-                Text(String(format: loc.t("update.fromTo"), updates.version, update?.tag ?? ""))
-                    .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
-            }
-            .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 18)
+            DSSheetHeader(title: loc.t("update.title"), message: String(format: loc.t("update.fromTo"), updates.version, update?.tag ?? ""))
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
@@ -50,36 +47,38 @@ package struct UpdateSheet: View {
                             blockView(block, first: index == 0)
                         }
                     } else {
-                        Text(loc.t("update.noNotes")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                        Text(loc.t("update.noNotes")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     }
                 }
-                .padding(.horizontal, 28).padding(.bottom, 20)
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DSSheetInsets.gap)
+                .background(LauncherScrollProbe(scroll: scroll))
             }
             .frame(maxHeight: 340)
+            .focusable()
+            .padTarget("update.notes", scope: "update", radius: 0, vertical: scroll.move)
 
             if let blocked = Self.note(blocked: updates.blocked, buildRunning: build.running, waitForBuild: loc.t("app.waitForBuild")) {
-                Text(blocked).font(.manrope(12.5))
-                    .foregroundStyle(updates.blocked != nil ? LauncherPalette.building : LauncherPalette.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 28).padding(.bottom, 12)
+                Group {
+                    if updates.blocked != nil { DSInlineWarning(blocked) }
+                    else { Text(blocked).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true) }
+                }
+                .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DS.Space.xs)
             }
-            Divider().opacity(0.3)
-            HStack(spacing: 12) {
+            HStack(spacing: DS.Space.s) {
                 if let u = update {
                     Link(loc.t("update.openPage"), destination: URL(string: "https://github.com/LNPANDY/NX2Apple/releases/tag/\(u.tag)")!)
-                        .font(.manrope(12.5))
+                        .font(DS.Font.callout)
+                        .padTarget("update.page", scope: "update", radius: 0) {
+                            if let url = URL(string: "https://github.com/LNPANDY/NX2Apple/releases/tag/\(u.tag)") { NSWorkspace.shared.open(url) }
+                        }
                 }
-                Spacer(minLength: 8)
+                Spacer(minLength: DS.Space.xs)
                 Button(loc.t("update.later")) { dismiss() }
-                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .buttonStyle(DSSecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
+                    .padTarget("update.cancel", scope: "update") { dismiss() }
                 Button {
-                    guard !updates.busy, !build.running else { return }
-                    // Automatic mode has already downloaded and staged the release, so the action is
-                    // to swap it in now; otherwise this downloads, verifies and installs as before.
-                    // The sheet stays up while it downloads, so a refusal (a macOS too old for the release) is seen here.
-                    // The sheet closes only when the install went through, so a refusal stays visible here.
-                    if updates.staged != nil { if updates.install(relaunch: true) { dismiss() } } else { updates.performUpdate() }
+                    install()
                 } label: {
                     updateButtonLabel
                 }
@@ -88,13 +87,18 @@ package struct UpdateSheet: View {
                 .allowsHitTesting(!updates.busy && !build.running)
                 .accessibilityValue(updates.downloadProgress.map { "\(Int((min(max($0, 0), 1) * 100).rounded()))%" } ?? "")
                 .keyboardShortcut(.defaultAction)
+                .padTarget("update.install", scope: "update", focusColor: DS.Color.accentOn, enabled: !updates.busy && !build.running, activate: install)
             }
-            .padding(.horizontal, 28).padding(.vertical, 16)
+            .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.gap).padding(.bottom, DSSheetInsets.vertical)
         }
+        .padScope("update", pad)
         .frame(width: 560)
-        .background(LauncherPalette.background)
-        .launcherAppearance()
-        .tint(LauncherPalette.accent)
+        .dsSheetSurface()
+    }
+
+    private func install() {
+        guard !updates.busy, !build.running else { return }
+        if updates.staged != nil { if updates.install(relaunch: true) { dismiss() } } else { updates.performUpdate() }
     }
 
     @ViewBuilder private var updateButtonLabel: some View {
@@ -155,7 +159,7 @@ package struct UpdateSheet: View {
         case .bullet(let text):
             // A hanging indent: the bullet is its own column, so wrapped lines align with the text.
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\u{2022}").font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).frame(width: 10, alignment: .center)
+                Text("\u{2022}").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).frame(width: 10, alignment: .center)
                 Text(Self.styled(text, size: 13))
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)

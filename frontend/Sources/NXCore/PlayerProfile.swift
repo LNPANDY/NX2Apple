@@ -48,13 +48,16 @@ package struct PlayerProfile: Codable, Equatable, Identifiable, Sendable {
     /// - `DM_SAVE_SYNC=0`: cloud saves keep one save per game (dm/host/save_sync.c), which is the default player's. Another player
     ///   syncing to it would overwrite that save, the very thing players are for.
     /// A key already in `existing` (a launch option, an env file read by the launcher) is left to it, except `DM_SAVE`.
-    package func environment(base: URL, existing: [String: String] = [:]) -> [String: String] {
-        guard !isDefault else { return [:] }
-        var env = ["DM_SAVE": saveFolder(base: base).path]
-        if existing["DM_PSO_USER"] == nil {
-            env["DM_PSO_USER"] = base.deletingLastPathComponent().appendingPathComponent("pso_user.tsv").path
+    /// `engine` names the keys (SaveEngine): an app nxkit built gets `NXKIT_SAVE`, `NXKIT_SAVE_SYNC=0`, and plays as the game's
+    /// user 1 under the player's name (`NXKIT_USER`, `NXKIT_NICK`), the default player too once renamed.
+    package func environment(base: URL, existing: [String: String] = [:], engine: any SaveEngine = DmSaveEngine()) -> [String: String] {
+        var env = engine.playerEnvironment(name: name)
+        guard !isDefault else { return name.isEmpty ? [:] : env }
+        env[engine.saveKey] = saveFolder(base: base).path
+        if let key = engine.psoUserKey, existing[key] == nil {
+            env[key] = base.deletingLastPathComponent().appendingPathComponent("pso_user.tsv").path
         }
-        env["DM_SAVE_SYNC"] = "0"
+        env[engine.syncKey] = "0"
         return env
     }
 }

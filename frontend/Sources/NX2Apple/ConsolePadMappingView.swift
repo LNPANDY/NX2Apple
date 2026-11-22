@@ -17,6 +17,8 @@ import NXLauncher
     @ObservedObject var driver: Driver
     let lang: Lang
     let compact: Bool
+    var embedded = false
+    var showsDiagram = true
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The row whose choices were open last, so the focus goes back to it with the list.
@@ -28,7 +30,7 @@ import NXLauncher
 
     private var layout: ConsolePadLayout { driver.state.padLayout }
     private var isGame: Bool { layout.gameTitle != nil }
-    private var inset: CGFloat { compact ? 24 : 64 }
+    private var inset: CGFloat { embedded ? 40 : (compact ? 24 : 64) }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
     /// A button's name as the Controls page writes it ("A", "Left stick press", "None").
     private func name(_ button: String) -> String { button == "none" ? t("controls.none") : t("controls.fn." + button) }
@@ -37,17 +39,17 @@ import NXLauncher
     private var swapped: Bool { layout.output("A") == "B" && layout.output("B") == "A" }
     /// The button the drawing fills: the one whose choices are open, else the row the focus is on.
     private var highlighted: String? {
-        if let row = driver.state.mappingRow { return row }
-        guard let id = pad.focused, id.hasPrefix("console.map.row.") else { return nil }
-        return String(id.dropFirst("console.map.row.".count))
+        ConsolePadDiagram.mappingHighlight(row: driver.state.mappingRow, focused: pad.focused)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if !embedded {
             ConsolePageHeader(title: t(isGame ? "console.mapping.game" : "console.mapping"), subtitle: layout.gameTitle ?? t("console.mapping.allGames"),
                               compact: compact, closeLabel: t("console.close"), closeID: "console.map.close", scope: Self.scope) { driver.back() }
+            }
             if compact {
-                drawing.frame(maxHeight: 170).padding(.horizontal, inset).padding(.bottom, 12)
+                if showsDiagram { drawing.frame(maxHeight: 170).padding(.horizontal, inset).padding(.bottom, 12) }
                 panel
             } else {
                 HStack(alignment: .top, spacing: 56) {
@@ -285,7 +287,7 @@ import NXLauncher
                 Button(action: reset) { resetLabel(enabled: true) }
                     .buttonStyle(.plain)
                     .accessibilityLabel(resetTitle)
-                    .padTarget("console.map.reset", scope: Self.scope, radius: 24, activate: reset)
+                    .padTarget("console.map.reset", scope: Self.scope, activate: reset)
             }
         }
         .padding(.leading, compact ? inset : 0).padding(.trailing, inset).padding(.vertical, compact ? 14 : 18)

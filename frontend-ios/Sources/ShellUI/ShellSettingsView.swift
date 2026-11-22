@@ -5,6 +5,7 @@ import SwiftUI
 enum ShellSettingsRows {
     static let gameID = "shell"
     static let hud = "shell.hud"
+    static let showFPS = "shell.showFPS"
     static let audioMix = "shell.audioMix"
     static let touchSize = "shell.touchSize"
     static let touchStick = "shell.touchStick"
@@ -13,6 +14,11 @@ enum ShellSettingsRows {
     static func hudRow(_ store: ShellSettingsStore) -> SettingRow {
         SettingRow(id: hud, label: ShellStrings.text("Performance overlay"), note: ShellStrings.text("Used by games that have no choice of their own."),
                    kind: .toggle(on: "1", off: "0"), value: store.performanceHUD == true ? "1" : "0")
+    }
+
+    static func showFPSRow(_ store: ShellSettingsStore) -> SettingRow {
+        SettingRow(id: showFPS, label: ShellStrings.text("Frame-rate counter"), note: ShellStrings.text("Used by games that have no choice of their own."),
+                   kind: .toggle(on: "1", off: "0"), value: store.showFPS == true ? "1" : "0")
     }
 
     static func audioMixRow(_ store: ShellSettingsStore) -> SettingRow {
@@ -44,6 +50,7 @@ enum ShellSettingsRows {
     static func apply(_ id: String, value: String, to store: ShellSettingsStore) {
         switch id {
         case hud: store.storePerformanceHUD(value == "1")
+        case showFPS: store.storeShowFPS(value == "1")
         case audioMix: store.storeAudioMix(value == "1")
         case touchSize: store.storeTouchSize(value)
         case touchStick: store.storeTouchStick(value)
@@ -57,12 +64,21 @@ struct ShellSettingsView: View {
     @Environment(\.shellNativeBars) private var nativeBars
     var store: ShellSettingsStore = .current
     var actions: ShellActions
+    var sideloadCertificate: SideloadCertificateSummary? = nil
     var onOpenActivityLog: (() -> Void)? = nil
     var onClose: () -> Void
+    var onModalPresentedChange: ((Bool) -> Void)? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.shellFocus) private var focus
     /// Counts the changes in the defaults, so the rows read the store again.
     @State private var revision = 0
+    @State private var pendingCertFileName: String?
+    @State private var certPromptPresented = false
+    @State private var certPassword = ""
+    @State private var certPromptError: String?
+    @State private var certImportError: String?
+    @State private var certBusy = false
+    @FocusState private var certPasswordFocused: Bool
 
     var body: some View {
         let _ = revision
@@ -141,8 +157,11 @@ struct ShellSettingsView: View {
                 }
 
                 Section {
-                    TouchArrangeRow(arranged: !store.touchLayout.isEmpty || store.touchLayout.hasToggles,
-                                    toggled: TouchLayout.Control.allCases.filter { store.touchLayout.toggles($0) }.map(\.title))
+                    TouchArrangeRow(arranged: !store.touchLayout.isEmpty)
+                }
+
+                if actions.supportsSideloadCertificate || sideloadCertificate != nil {
+                    sideloadCertificateSection
                 }
 
                 Section {
@@ -176,6 +195,16 @@ struct ShellSettingsView: View {
                         store.storePerformanceHUD(store.performanceHUD != true)
                         revision += 1
                     }
+                    Toggle(isOn: Binding(get: { store.showFPS == true }, set: { store.storeShowFPS($0); revision += 1 })) {
+                        Label(ShellStrings.text("Frame-rate counter"), systemImage: "number")
+                            .labelStyle(SettingsRowLabelStyle())
+                    }
+                    .toggleStyle(NativeCreamToggleStyle())
+                    .accessibilityIdentifier("setting.shell.showFPS")
+                    .shellTarget("shs.row.\(ShellSettingsRows.showFPS)") {
+                        store.storeShowFPS(store.showFPS != true)
+                        revision += 1
+                    }
                 } header: {
                     Text(ShellStrings.text("Interface"))
                 } footer: {
@@ -196,6 +225,242 @@ struct ShellSettingsView: View {
         .tint(ShellPalette.cream)
         .preferredColorScheme(.dark)
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in revision += 1 }
+        .onChange(of: certPromptPresented || certImportError != nil) { _, presented in
+            onModalPresentedChange?(presented)
+        }
+        .onDisappear {
+            onModalPresentedChange?(false)
+        }
+        .sheet(isPresented: $certPromptPresented, onDismiss: handleCertificateSheetDismiss) {
+            certificatePasswordSheet
+        }
+        .alert(
+            Text(verbatim: ShellStrings.text("Certificate import failed")),
+            isPresented: Binding(
+                get: { certImportError != nil },
+                set: { if !$0 { certImportError = nil } }
+            )
+        ) {
+            Button(ShellStrings.text("Close")) { certImportError = nil }
+        } message: {
+            Text(verbatim: certImportError ?? "")
+        }
+    }
+
+    private var certificatePasswordSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    SecureField(ShellStrings.text("Certificate password"), text: $certPassword)
+                        .focused($certPasswordFocused)
+                        .submitLabel(.done)
+                        .onSubmit { confirmCertificatePassword() }
+                        .disabled(certBusy)
+                        .accessibilityIdentifier("shellSettings.sideloadCert.passwordField")
+                } header: {
+                    if let fileName = pendingCertFileName {
+                        Text(verbatim: ShellStrings.text("Enter the password for \(fileName). Leave it blank if the certificate has no password."))
+                            .textCase(nil)
+                    }
+                } footer: {
+                    if let certPromptError, !certPromptError.isEmpty {
+                        Text(verbatim: certPromptError)
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("shellSettings.sideloadCert.passwordError")
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .background(ShellPalette.background)
+            .navigationTitle(Text(verbatim: ShellStrings.text("Enter certificate password")))
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(ShellStrings.text("Cancel"), role: .cancel) {
+                        cancelCertificatePasswordPrompt()
+                    }
+                    .disabled(certBusy)
+                    .accessibilityIdentifier("shellSettings.sideloadCert.passwordCancel")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(ShellStrings.text("Import")) {
+                        confirmCertificatePassword()
+                    }
+                    .disabled(certBusy)
+                    .accessibilityIdentifier("shellSettings.sideloadCert.passwordConfirm")
+                }
+            }
+        }
+        .tint(ShellPalette.cream)
+        .preferredColorScheme(.dark)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(ShellPalette.background)
+        .interactiveDismissDisabled(certBusy)
+        .onAppear {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(150))
+                if certPromptPresented {
+                    certPasswordFocused = true
+                }
+                try? await Task.sleep(for: .milliseconds(250))
+                if certPromptPresented && !certPasswordFocused {
+                    certPasswordFocused = true
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sideloadCertificateSection: some View {
+        Section {
+            if let cert = sideloadCertificate {
+                LabeledContent {
+                    Text(cert.commonName.isEmpty ? cert.fingerprintHex.prefix(16).uppercased() : cert.commonName)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.trailing)
+                } label: {
+                    Label(ShellStrings.text("Certificate"), systemImage: "checkmark.seal")
+                        .labelStyle(SettingsRowLabelStyle())
+                }
+                .accessibilityIdentifier("shellSettings.sideloadCert.name")
+
+                if !cert.teamID.isEmpty {
+                    LabeledContent(ShellStrings.text("Signing team"), value: cert.teamID)
+                        .accessibilityIdentifier("shellSettings.sideloadCert.team")
+                }
+
+                if let expiresAt = cert.expiresAt {
+                    LabeledContent {
+                        HStack(spacing: 6) {
+                            Text(Self.formatCertificateDate(expiresAt))
+                                .foregroundStyle(cert.isExpired ? .red : .secondary)
+                            if cert.isExpired {
+                                Text(ShellStrings.text("Expired"))
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    } label: {
+                        Text(ShellStrings.text("Valid until"))
+                    }
+                    .accessibilityIdentifier("shellSettings.sideloadCert.expiry")
+                }
+
+                if actions.supportsSideloadCertificate {
+                    Button(action: startCertificateImport) {
+                        Label(ShellStrings.text("Replace certificate"), systemImage: "arrow.triangle.2.circlepath")
+                            .labelStyle(SettingsRowLabelStyle())
+                    }
+                    .disabled(certBusy)
+                    .accessibilityIdentifier("shellSettings.sideloadCert.replace")
+                    .shellTarget("shs.sideloadCert.replace", action: startCertificateImport)
+                }
+
+                if let onRemove = actions.onRemoveSideloadCertificate {
+                    Button(ShellStrings.text("Remove certificate"), role: .destructive, action: onRemove)
+                        .disabled(certBusy)
+                        .accessibilityIdentifier("shellSettings.sideloadCert.remove")
+                        .shellTarget("shs.sideloadCert.remove", action: onRemove)
+                }
+            } else {
+                LabeledContent {
+                    Text(ShellStrings.text("Not configured"))
+                        .foregroundStyle(.secondary)
+                } label: {
+                    Label(ShellStrings.text("Certificate status"), systemImage: "signature")
+                        .labelStyle(SettingsRowLabelStyle())
+                }
+                .accessibilityIdentifier("shellSettings.sideloadCert.status")
+
+                if actions.supportsSideloadCertificate {
+                    Button(action: startCertificateImport) {
+                        Label(ShellStrings.text("Import .p12 certificate"), systemImage: "doc.badge.plus")
+                            .labelStyle(SettingsRowLabelStyle())
+                    }
+                    .disabled(certBusy)
+                    .accessibilityIdentifier("shellSettings.sideloadCert.import")
+                    .shellTarget("shs.sideloadCert.import", action: startCertificateImport)
+                }
+            }
+        } header: {
+            Text(ShellStrings.text("Sideload signing certificate"))
+        } footer: {
+            Text(ShellStrings.text("When NX2Apple is installed through SideStore, AltStore, or another sideload tool, import the .p12 certificate exported by that tool here so unsigned game frameworks placed in Frameworks are signed automatically on launch. Installs directly from Xcode on a Mac do not need this."))
+        }
+    }
+
+    private func startCertificateImport() {
+        guard !certBusy, let pickFile = actions.onPickSideloadCertificateFile else { return }
+        certBusy = true
+        Task {
+            let outcome = await pickFile()
+            certBusy = false
+            switch outcome {
+            case .picked(let fileName):
+                certPassword = ""
+                certPromptError = nil
+                pendingCertFileName = fileName
+                certPromptPresented = true
+            case .cancelled:
+                break
+            case .failed(let message):
+                certImportError = message
+            }
+        }
+    }
+
+    private func confirmCertificatePassword() {
+        guard !certBusy, let confirm = actions.onConfirmSideloadCertificatePassword else {
+            cancelCertificatePasswordPrompt()
+            return
+        }
+        let password = certPassword
+        certPromptError = nil
+        certBusy = true
+        Task {
+            let failure = await confirm(password)
+            certBusy = false
+            if let failure, !failure.isEmpty {
+                certPromptError = failure
+                certPassword = ""
+                certPasswordFocused = true
+            } else {
+                certPassword = ""
+                pendingCertFileName = nil
+                certPromptError = nil
+                certPromptPresented = false
+            }
+        }
+    }
+
+    private func handleCertificateSheetDismiss() {
+        certPasswordFocused = false
+        if pendingCertFileName != nil {
+            cancelCertificatePasswordPrompt()
+        }
+    }
+
+    private func cancelCertificatePasswordPrompt() {
+        certPasswordFocused = false
+        certPassword = ""
+        certPromptError = nil
+        pendingCertFileName = nil
+        certPromptPresented = false
+        actions.onCancelSideloadCertificateImport?()
+    }
+
+    private static func formatCertificateDate(_ date: Date) -> String {
+        let locale: Locale
+        if let code = ShellStrings.captureBundle?.bundleURL.deletingPathExtension().lastPathComponent, !code.isEmpty {
+            locale = Locale(identifier: code)
+        } else {
+            locale = .autoupdatingCurrent
+        }
+        return date.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, locale: locale))
     }
 }
 

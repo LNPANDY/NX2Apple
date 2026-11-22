@@ -232,6 +232,37 @@ class TestBuildSeedCache(unittest.TestCase):
         self.assertEqual(info_b['chain'], '11223344')
         self.assertEqual(info_b['engine_chain'], '99887766')
 
+    def test_inspect_seed_gl_vulkan_path_a_and_self_heal(self):
+        seed_root = self.root / 'seeds_gl_vk'
+        engine_dir = self.root / 'engine_gl_vk'
+        chain_hdr = engine_dir / 'dm' / 'gfx' / 'nvn' / 'dmsh_chain.h'
+        chain_hdr.parent.mkdir(parents=True, exist_ok=True)
+        chain_hdr.write_text('#define DMSH_CHAIN "99887766"\n', encoding='utf-8')
+
+        # Proper GL seed stays on Path A even when engine NVN chain differs and chain is empty
+        gl_tid = '0100CD801CE5E000'
+        gl_dir = self._create_seed_tree(seed_root, gl_tid, chain='', gfx_api='gl')
+        (gl_dir / 'shader' / 'ios' / 'gl').mkdir(parents=True, exist_ok=True)
+        (gl_dir / 'shader' / 'ios' / 'gl' / 'gl_shaders.metallib').write_bytes(b'GLMETAL')
+        info_gl = build_seed_cache.inspect_seed(seed_root, gl_tid, engine_path=engine_dir)
+        self.assertTrue(info_gl['valid'])
+        self.assertEqual(info_gl['gfx_api'], 'gl')
+        self.assertEqual(info_gl['path_type'], 'A')
+        self.assertTrue(info_gl['chain_match'])
+
+        # Misclassified legacy seed (gfx_api="nvn" with missing tables + empty b-stub + real gl_shaders.metallib) heals to gl
+        bad_tid = '0100CD801CE5E002'
+        bad_dir = self._create_seed_tree(seed_root, bad_tid, chain='11223344', gfx_api='nvn')
+        shutil.rmtree(bad_dir / 'shader' / 'tables', ignore_errors=True)
+        (bad_dir / 'shader' / 'ios' / 'b-11223344.img').write_bytes(b'EMPTYSTUB')
+        (bad_dir / 'shader' / 'ios' / 'gl').mkdir(parents=True, exist_ok=True)
+        (bad_dir / 'shader' / 'ios' / 'gl' / 'gl_shaders.metallib').write_bytes(b'GLMETAL')
+        healed = build_seed_cache.inspect_seed(seed_root, bad_tid, engine_path=engine_dir)
+        self.assertTrue(healed['valid'])
+        self.assertEqual(healed['gfx_api'], 'gl')
+        self.assertEqual(healed['chain'], '')
+        self.assertEqual(healed['path_type'], 'A')
+
     def test_inspect_seed_structural_invalidation(self):
         seed_root = self.root / 'seeds'
         tid = '0100000000010000'
@@ -627,9 +658,102 @@ class TestModelFastRefreshAndTrailer(unittest.TestCase):
         self.assertIn('--seed-cache-dir', executed_cmd)
         self.assertIn(str(seed_root), executed_cmd)
         self.assertIn('--progress', executed_cmd)
-        self.assertIn('json', executed_cmd)
+        prog_idx = executed_cmd.index('--progress')
+        self.assertEqual(executed_cmd[prog_idx + 1], 'lines')
+        self.assertNotIn('json', executed_cmd)
         self.assertIn('--prefill-msl', executed_cmd)
         self.assertIn('/cand/b-old.img', executed_cmd)
+
+    def test_start_fast_refresh_lines_output_updates_stages_ipa_and_failure_summary(self):
+        m = self.m
+        tid = '0100000000010000'
+        seed_root = self.root / 'seeds'
+        seed_root.mkdir()
+        out_dir = self.root / 'out_lines'
+        out_dir.mkdir()
+        custom_ipa = out_dir / 'CustomGame.ipa'
+        custom_ipa.write_bytes(b'IPA')
+
+        m.target = 'ios'
+        m.ipa_kind = 'oneGame'
+
+        finished_events: list[tuple[bool, str]] = []
+        m.finished.connect(lambda ok, note: finished_events.append((ok, note)))
+
+        def inline_thread(*, target, daemon):
+            return mock.MagicMock(start=target)
+
+        def fake_popen_success(cmd, **kwargs):
+            prog = cmd[cmd.index('--progress') + 1] if '--progress' in cmd else ''
+            if prog == 'lines':
+                lines = [
+                    '[1/2] Translating shaders …\n',
+                    '[1/2] ✓ Translating shaders (0.2s): 4 shaders\n',
+                    '[2/2] Packaging IPA …\n',
+                    f'output IPA: {custom_ipa}\n',
+                    '[2/2] ✓ Packaging IPA (0.1s)\n',
+                ]
+            else:
+                lines = [
+                    '{"ev": "stage", "k": 1, "n": 2, "name": "Translating shaders"}\n',
+                    f'{{"ev": "say", "msg": "output IPA: {custom_ipa}"}}\n',
+                ]
+            proc = mock.MagicMock()
+            proc.stdout = iter(lines)
+            proc.returncode = 0
+            return proc
+
+        with mock.patch('nspb_qt.build_seed_cache.supports_build_seed', return_value=True), \
+                mock.patch('nspb_qt.build_seed_cache.default_seed_root', return_value=seed_root), \
+                mock.patch('nspb_qt.build_seed_cache.inspect_seed', return_value={'valid': True, 'path_type': 'A'}), \
+                mock.patch('subprocess.Popen', side_effect=fake_popen_success), \
+                mock.patch('threading.Thread', side_effect=inline_thread), \
+                mock.patch.object(m, 'supports_shell_framework', return_value=False), \
+                mock.patch.object(m, '_record_library_ios_completion'):
+            m.start_fast_refresh(tid, out_dir=str(out_dir))
+
+        self.assertEqual(len(m.stages), 2)
+        self.assertEqual([st.state for st in m.stages], ['done', 'done'])
+        self.assertEqual(m.ipa_path, str(custom_ipa))
+        self.assertEqual(len(finished_events), 1)
+        self.assertTrue(finished_events[0][0])
+        self.assertIn(str(custom_ipa), finished_events[0][1])
+
+        finished_events.clear()
+        m.running = False
+
+        def fake_popen_failure(cmd, **kwargs):
+            prog = cmd[cmd.index('--progress') + 1] if '--progress' in cmd else ''
+            if prog == 'lines':
+                lines = [
+                    '[1/2] Translating shaders …\n',
+                    'fatal error: missing metallib for shader 0x1\n',
+                ]
+            else:
+                lines = [
+                    '{"ev": "stage", "k": 1, "n": 2, "name": "Translating shaders"}\n',
+                    '{"ev": "error", "msg": "fatal error: missing metallib for shader 0x1"}\n',
+                ]
+            proc = mock.MagicMock()
+            proc.stdout = iter(lines)
+            proc.returncode = 1
+            return proc
+
+        with mock.patch('nspb_qt.build_seed_cache.supports_build_seed', return_value=True), \
+                mock.patch('nspb_qt.build_seed_cache.default_seed_root', return_value=seed_root), \
+                mock.patch('nspb_qt.build_seed_cache.inspect_seed', return_value={'valid': True, 'path_type': 'A'}), \
+                mock.patch('subprocess.Popen', side_effect=fake_popen_failure), \
+                mock.patch('threading.Thread', side_effect=inline_thread), \
+                mock.patch.object(m, 'supports_shell_framework', return_value=False):
+            m.start_fast_refresh(tid, out_dir=str(out_dir))
+
+        self.assertEqual(len(finished_events), 1)
+        ok_fail, fail_note = finished_events[0]
+        self.assertFalse(ok_fail)
+        self.assertIn('fatal error: missing metallib for shader 0x1', fail_note)
+        self.assertNotIn('{"ev":', fail_note)
+        self.assertEqual(len(m.stages), 1)
+        self.assertEqual(m.stages[-1].state, 'failed')
 
     def test_start_fast_refresh_adopt_legacy_uses_img_path(self):
         m = self.m
@@ -672,6 +796,116 @@ class TestModelFastRefreshAndTrailer(unittest.TestCase):
         self.assertIn(str(legacy_img), cmd)
         self.assertIn('env', kwargs)
         self.assertIn('PYTHONPATH', kwargs['env'])
+
+    def test_start_fast_refresh_adopt_legacy_uses_win_shim_on_windows(self):
+        m = self.m
+        tid = '0100000000010000'
+        seed_root = self.root / 'seeds'
+        seed_root.mkdir()
+        work_dir = Path(m.out_dir, f'{tid}_build')
+        work_dir.mkdir(parents=True)
+        adopt_tool = Path(m.engine_path, 'dm', 'tools', 'build_seed.py')
+        adopt_tool.touch()
+
+        legacy_img = Path(m.out_dir, 'games', tid, f'{tid}.img')
+        legacy_img.parent.mkdir(parents=True, exist_ok=True)
+        legacy_img.touch()
+
+        adopt_calls = []
+        shim_calls = []
+        fake_shim_dir = str(self.root / 'win_shim')
+        tools_dir = str(Path(m.engine_path, 'dm', 'tools'))
+
+        def fake_build_env(base=None, python_exe=None):
+            base_copy = dict(base or {})
+            shim_calls.append((base_copy, python_exe))
+            out = dict(base_copy)
+            existing = out.get('PYTHONPATH', '')
+            out['PYTHONPATH'] = os.pathsep.join(p for p in (fake_shim_dir, existing) if p)
+            out['NSPB_SHIM_INJECTED'] = '1'
+            return out
+
+        def fake_run(cmd, **kwargs):
+            adopt_calls.append((cmd, kwargs))
+            return mock.MagicMock(returncode=0, stderr='', stdout='')
+
+        def inline_thread(*, target, daemon):
+            return mock.MagicMock(start=target)
+
+        from nspb_qt.win import shim as wshim
+
+        with mock.patch.object(self.model_mod.pu, 'IS_WIN', True), \
+                mock.patch.object(self.model_mod.pu, 'no_window_kwargs', return_value={}), \
+                mock.patch.object(self.model_mod.pu, 'process_group_kwargs', return_value={}), \
+                mock.patch.object(wshim, 'build_env', side_effect=fake_build_env), \
+                mock.patch.object(wshim, 'clean_pkg_root', return_value=self.root), \
+                mock.patch.object(wshim, 'shim_dir', return_value=Path(fake_shim_dir)), \
+                mock.patch.object(wshim, 'verify_shim', return_value=(True, 'ok')), \
+                mock.patch('nspb_qt.build_seed_cache.supports_build_seed', return_value=True), \
+                mock.patch('nspb_qt.build_seed_cache.default_seed_root', return_value=seed_root), \
+                mock.patch('nspb_qt.build_seed_cache.inspect_seed', side_effect=[{'valid': False}, {'valid': True, 'path_type': 'A'}]), \
+                mock.patch('nspb_qt.build_seed_cache.prefill_candidates', return_value=[legacy_img]), \
+                mock.patch('subprocess.run', side_effect=fake_run), \
+                mock.patch('subprocess.Popen', return_value=mock.MagicMock(stdout=iter([]), returncode=0)), \
+                mock.patch('threading.Thread', side_effect=inline_thread):
+            m.start_fast_refresh(tid)
+
+        adopt_runs = [c for c in adopt_calls if any('adopt' in str(arg) for arg in c[0])]
+        self.assertEqual(len(adopt_runs), 1)
+        _cmd, kwargs = adopt_runs[0]
+        adopt_env = kwargs['env']
+        self.assertEqual(adopt_env.get('NSPB_SHIM_INJECTED'), '1')
+        self.assertEqual(adopt_env.get('NSPB_REPO'), m.engine_path)
+        py_parts = adopt_env.get('PYTHONPATH', '').split(os.pathsep)
+        self.assertEqual(py_parts[0], fake_shim_dir)
+        self.assertIn(tools_dir, py_parts)
+        self.assertGreaterEqual(len(shim_calls), 2)
+        self.assertIn(tools_dir, shim_calls[0][0].get('PYTHONPATH', '').split(os.pathsep))
+
+    def test_pack_loose_shader_dirs_uses_win_shim_on_windows(self):
+        from nspb_qt.win import shell_export as se
+        from nspb_qt.win import shim as wshim
+
+        repo = Path(self.m.engine_path)
+        (repo / 'dm' / 'tools' / 'shader_lib.py').touch()
+        fw = self.root / 'DmGame0100000000010000.framework'
+        b_dir = fw / 'msl' / 'b-1234567890ab'
+        b_dir.mkdir(parents=True)
+        (b_dir / '0001_b.metallib').write_bytes(b'MTL')
+        stage = self.root / 'stage'
+        fake_shim_dir = str(self.root / 'win_shim_pack')
+
+        run_calls = []
+
+        def fake_build_env(base=None, python_exe=None):
+            out = dict(base or {})
+            out['PYTHONPATH'] = fake_shim_dir
+            out['NSPB_SHIM_INJECTED'] = '1'
+            return out
+
+        def fake_run(cmd, **kwargs):
+            run_calls.append((cmd, kwargs))
+            Path(f'{cmd[-1]}.img').write_bytes(b'DMROMFS1')
+            return mock.MagicMock(returncode=0, stdout='', stderr='')
+
+        with mock.patch.object(se.pu, 'IS_WIN', True), \
+                mock.patch.object(se.pu, 'no_window_kwargs', return_value={}), \
+                mock.patch.object(wshim, 'build_env', side_effect=fake_build_env), \
+                mock.patch('subprocess.run', side_effect=fake_run):
+            out_fws = se._pack_loose_shader_dirs(
+                [fw],
+                stage_dir=stage,
+                repo_p=repo,
+                py_exe='C:\\venv\\python.exe',
+                log=lambda _s: None,
+            )
+
+        self.assertEqual(len(out_fws), 1)
+        self.assertEqual(len(run_calls), 1)
+        _cmd, kwargs = run_calls[0]
+        self.assertEqual(kwargs['env'].get('NSPB_SHIM_INJECTED'), '1')
+        self.assertEqual(kwargs['env'].get('NSPB_REPO'), str(repo))
+        self.assertEqual(kwargs['env'].get('PYTHONPATH'), fake_shim_dir)
 
     def test_fast_refresh_status_detects_legacy_markers_without_trailer_img(self):
         m = self.m

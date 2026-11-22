@@ -5,15 +5,33 @@ import Foundation
 package struct MacAppOutput {
     package let builderURL: URL
     package let workDirectoryURL: URL
+    package let stagingDirectoryURL: URL?
     private let directory: URL
     private let rebuilding: Bool
 
-    package init(workDir: URL, key: String, titleID: String?, preferred: String) {
+    package init(workDir: URL, key: String, titleID: String?, preferred: String, stagingDirectory: URL? = nil) {
         workDirectoryURL = workDir
         directory = workDir.deletingLastPathComponent()
         let prior = Self.existing(in: directory, titleID: titleID, preferred: preferred)
         rebuilding = prior != nil
-        builderURL = prior ?? workDir.appendingPathComponent(key + ".app")
+        if let prior {
+            stagingDirectoryURL = nil
+            builderURL = prior
+        } else if let stagingDirectory {
+            stagingDirectoryURL = stagingDirectory
+            builderURL = stagingDirectory.appendingPathComponent(key + ".app")
+        } else {
+            stagingDirectoryURL = nil
+            builderURL = workDir.appendingPathComponent(key + ".app")
+        }
+    }
+
+    /// Removes `stagingDirectoryURL` when it was created for a separate first-build output and is now empty.
+    package func cleanupEmptyStagingDirectory(fileManager fm: FileManager = .default) {
+        guard let stagingDirectoryURL else { return }
+        if ((try? fm.contentsOfDirectory(atPath: stagingDirectoryURL.path)) ?? ["-"]).isEmpty {
+            try? fm.removeItem(at: stagingDirectoryURL)
+        }
     }
 
     /// Only the chosen output folder counts. Never hand the packer a symlink to an app on another drive or in another library.
@@ -58,6 +76,7 @@ package struct MacAppOutput {
             }
             // Saves and logs follow this output folder when the library moves.
             try? Data().write(to: directory.appendingPathComponent(".nx2apple-library"))
+            cleanupEmptyStagingDirectory(fileManager: fm)
             return result
         } catch {
             guard fm.fileExists(atPath: packed.path) else { throw FinishError.missingApp }

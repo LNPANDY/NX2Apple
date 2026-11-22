@@ -4,7 +4,18 @@ import NXCore
 import NXModel
 import NXLauncher
 
-/// The hero's primary action, the built version beside it (#868, #849), and Mac / device launch lifecycle tracking.
+private struct HeroGlassButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .brightness(configuration.isPressed ? 0.08 : 0)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// The hero primary action and Mac / device launch lifecycle tracking.
 extension LauncherView {
     static func needsImmediateGatekeeperHint(for game: LibraryGame) -> Bool {
         game.isReady && game.lastPlayed == nil
@@ -14,7 +25,7 @@ extension LauncherView {
         launching && game.primary == .play && (launchingGameID == nil || launchingGameID == game.id)
     }
 
-    @ViewBuilder func heroPrimary(_ game: LibraryGame, compact: Bool) -> some View {
+    @ViewBuilder func heroPrimary(_ game: LibraryGame) -> some View {
         let macStarting = isLaunchingMacGame(game)
         let title = macStarting ? loc.t("library.launching")
             : (game.primary == .play ? loc.t("library.play")
@@ -24,27 +35,80 @@ extension LauncherView {
         let button = Button { primaryAction(game) } label: {
             LauncherHeroActionLabel(title: title, symbol: symbol, loading: macStarting)
         }
-        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil && !launching)
+        .buttonStyle(LauncherActionButtonStyle()).fixedSize(horizontal: false, vertical: true).launcherHover(enabled: artworkEditor == nil && !launching)
         .disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
-        .keyboardShortcut(.return, modifiers: [])
-        .padTarget("hero.play", scope: "main", radius: 30) { if !launching { primaryAction(game) } }
-        if let meta = heroMetaText(for: game) {
-            let label = Text(meta)
-                .font(.manrope(13)).foregroundStyle(.secondary).lineLimit(1)
-            if compact {
-                VStack(alignment: .leading, spacing: 6) {
-                    button
-                    label
-                }
-            } else {
+        .keyboardShortcut(keyboardCard == nil && libraryInputAvailable ? KeyboardShortcut(.return, modifiers: []) : nil)
+        .padTarget("hero.play", scope: "main", focusColor: LauncherPalette.onCream, enabled: !launching && (!m.running || game.isReady) && artworkEditor == nil) { if !launching && !profileHelpOpen && artworkEditor == nil && (!m.running || game.isReady) { primaryAction(game) } }
+        button.id(game.id)
+    }
+
+    func heroActions(_ game: LibraryGame, compact: Bool) -> some View {
+        let showsRefresh = !(m.running && activeBuildID == game.id) && gameNeedsRefresh(game)
+        return LauncherGlassGroup(spacing: 12) {   // the hero's glass buttons blend as one group
+            ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
-                    button
-                    label
+                    heroPrimary(game)
+                    if showsRefresh { heroSingleRefreshButton(game, compact: compact) }
+                    heroDeviceActions(game)
+                    heroManage(game)
+                }.fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) { heroPrimary(game); heroManage(game) }
+                    if showsRefresh { heroSingleRefreshButton(game, compact: compact) }
+                    heroDeviceActions(game)
                 }
             }
-        } else {
-            button
         }
+        .launcherGlassLayer()   // the hero's actions float over its artwork: glass (#1458)
+    }
+
+    private func heroManage(_ game: LibraryGame) -> some View {
+        heroUtilityButton("ellipsis", label: loc.t("library.manage"), id: "hero.manage") { manageOpenFor = game.id }
+            .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { $0 }
+    }
+
+    func heroUtilityButton(_ symbol: String, label: String, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(LauncherPalette.text)
+                .frame(width: LauncherHeroAction.height, height: LauncherHeroAction.height)
+                .contentShape(Circle())
+                .launcherGlass(in: DSPill())
+        }
+        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).accessibilityLabel(label)
+        .help(label).padTarget(id, scope: "main", activate: action)
+    }
+
+    @ViewBuilder private func heroDeviceActions(_ game: LibraryGame) -> some View {
+        if game.onDevice {
+            HStack(spacing: 12) {
+                if !game.isOlderIOSBuild {
+                    let isResigning = m.running && m.operation?.kind == .renewingSignature
+                    let expiry = signatureExpiry[game.id].map { AppSignature.describe($0, loc.t) } ?? loc.t("dev.expiryUnknown")
+                    heroSecondary(loc.t(isResigning ? "dev.resigning" : "dev.resign"), symbol: "checkmark.seal", id: "hero.resign",
+                                  enabled: !m.running, loading: isResigning,
+                                  help: expiry + "\n" + loc.t("dev.resignHelp")) { resign(game) }
+                }
+                if game.isReady {
+                    heroSecondary(loc.t("dev.openIOS"), symbol: "iphone", id: "hero.device", enabled: !launching,
+                                  help: devices.deviceName(game.installedDevice)) { openOnDevice(game) }
+                }
+            }
+        }
+    }
+
+    private func heroSecondary(_ title: String, symbol: String, id: String, enabled: Bool, loading: Bool = false, help: String,
+                               action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            LauncherHeroActionLabel(title: title, symbol: symbol, loading: loading)
+                .foregroundStyle(LauncherPalette.text)
+                .contentShape(Capsule())
+                .launcherGlass(in: DSPill())
+        }
+        .buttonStyle(HeroGlassButtonStyle()).fixedSize(horizontal: false, vertical: true).disabled(!enabled || artworkEditor != nil)
+        .opacity(loading ? 0.88 : (enabled && artworkEditor == nil ? 1 : 0.45))
+        .launcherHover(enabled: enabled && artworkEditor == nil).help(help)
+        .padTarget(id, scope: "main", enabled: enabled && artworkEditor == nil) { if enabled && artworkEditor == nil { action() } }
     }
 
     func openOnDevice(_ game: LibraryGame) {
@@ -55,6 +119,7 @@ extension LauncherView {
         m.openOnDevice(udid: game.installedDevice, app: game.iosAppPath) { error in
             endGameLaunch()
             if let error { launchError = error }
+            else { library.recordPlayed(game.id) }
         }
     }
 
@@ -95,9 +160,11 @@ extension LauncherView {
         do {
             _ = try MacGameBundle.read(URL(fileURLWithPath: game.appPath))
             beginMacLaunch(game)
+            let environment = macEnvironment(game)   // the cloud check of an engine with its own report runs with it (CloudSaveGate)
             cloudGate.begin(
                 game,
-                proceed: { startMacGame(game, cloudChoice: $0) },
+                environment: environment,
+                proceed: { startMacGame(game, environment: environment, cloudChoice: $0) },
                 ended: { endGameLaunch() }
             )
         } catch {
@@ -105,10 +172,9 @@ extension LauncherView {
         }
     }
 
-    private func startMacGame(_ game: LibraryGame, cloudChoice: [String: String]) {
+    private func macEnvironment(_ game: LibraryGame) -> [String: String] {
         let currentGame = library.games.first(where: { $0.id == game.id }) ?? game
-        let configuration = NSWorkspace.OpenConfiguration()
-        let environment = GameStart.environment(
+        return GameStart.environment(
             for: currentGame,
             library: library,
             controls: controls,
@@ -119,6 +185,11 @@ extension LauncherView {
             saves: (stores.saveSettings.global, stores.saveSettings.game(currentGame.titleID)),
             sticks: stores.sticks.settings
         )
+    }
+
+    private func startMacGame(_ game: LibraryGame, environment: [String: String], cloudChoice: [String: String]) {
+        let currentGame = library.games.first(where: { $0.id == game.id }) ?? game
+        let configuration = NSWorkspace.OpenConfiguration()
         let withRecording = environment
             .merging(FrameTimes.recordingEnvironment(for: currentGame, library: library.folder)) { $1 }
             .merging(cloudChoice) { $1 }
@@ -144,9 +215,12 @@ extension LauncherView {
                             library.recordPlayed(currentGame.id)
                             let startedTitleID = currentGame.titleID
                             playSessions.started(titleID: startedTitleID, title: currentGame.displayName(loc.lang))
-                            if let pid {
+                            if let pid {   // and the cloud's send an engine leaves to the launcher (SaveEngine)
                                 let sessionStore = playSessions
-                                GameReturnWatcher.shared.didStart(pid: pid) { sessionStore.ended(titleID: startedTitleID) }
+                                GameReturnWatcher.shared.didStart(pid: pid) {
+                                    sessionStore.ended(titleID: startedTitleID)
+                                    CloudSaveSend.afterExit(app: currentGame.appPath, environment: withRecording, engine: SaveEngines.forApp(currentGame.appPath))
+                                }
                             }
                             if let app, !app.isFinishedLaunching, !app.isTerminated {
                                 Task { @MainActor in
@@ -172,7 +246,7 @@ extension LauncherView {
             games: library.games,
             repo: stores.repo.path,
             libraryFolder: library.folder,
-            seedRoot: BuildSeedCache.defaultRoot(home: stores.build.home),
+            seedRoot: stores.build.seedCacheRoot,
             shellRoot: stores.build.shellCachePath
         )
     }

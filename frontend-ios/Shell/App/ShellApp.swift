@@ -72,29 +72,48 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
         activeModel?.endActiveSession()
     }
 
+    @MainActor private static var pendingOpenURL: URL?
+
     @MainActor @objc static func makeController() -> UIViewController {
+        makeController(initialURL: nil)
+    }
+
+    @MainActor @objc(makeControllerWithInitialURL:) static func makeController(initialURL: URL?) -> UIViewController {
         let info = Bundle.main.infoDictionary ?? [:]
         // The shader chain the host was compiled with (build_shell.sh writes DMChain): a framework built for another one needs an app update
         let chain = (info["DMChain"] as? String).map { "b-" + $0 }
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        let glueVer = Int(DM_SHELL_GLUE_VERSION)
         Task.detached(priority: .utility) {
-            ShellHostBeacon.write(to: documents, glueVersion: glueVer)
+            ShellHostBeacon.write(to: documents)
         }
         let frameworks = Bundle.main.privateFrameworksURL ?? Bundle.main.bundleURL.appendingPathComponent("Frameworks", isDirectory: true)
-        let config = ShellHostConfig(gamesRoot: frameworks, appDataRoot: ShellHostConfig.defaultAppDataRoot(),
-                                     hotFrameworksRoot: ShellHostConfig.defaultHotFrameworksRoot(),
-                                     environment: HostEnvironment(chain: chain),
-                                     updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"))
-        let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker())
+        let config = ShellHostConfig(
+            gamesRoot: frameworks,
+            appDataRoot: ShellHostConfig.defaultAppDataRoot(),
+            hotFrameworksRoot: ShellHostConfig.defaultHotFrameworksRoot(),
+            environment: HostEnvironment(chain: chain),
+            updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"),
+            activeRunningGameID: {
+                dm_shell_active_game_id().map { String(cString: $0) }
+            },
+            requestStopRunningGame: {
+                dm_shell_request_stop_game()
+            }
+        )
+        let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker(),
+                                   certificatePicker: DocumentCertificatePicker())
         activeModel = model
         model.startControllers()
         for entry in model.entries {
             fputs("shell: game \(entry.id) \(entry.title) at \(entry.frameworkURL?.lastPathComponent ?? "-")\(entry.problem.map { ", broken: \($0.reason), \($0.detail)" } ?? "")\n", stderr)
         }
-        // DM_SHELL_PLAY=<title ID> in the launch environment (devicectl process launch --environment-variables, the Mac launcher's
-        // Play on device) starts that game as Play in the library would, through the same launcher
-        if let id = ProcessInfo.processInfo.environment["DM_SHELL_PLAY"], !id.isEmpty {
+        let resolvedInitialURL = initialURL ?? pendingOpenURL
+        pendingOpenURL = nil
+        if let resolvedInitialURL {
+            _ = model.handleDeepLink(resolvedInitialURL)
+        } else if let id = ProcessInfo.processInfo.environment["DM_SHELL_PLAY"], !id.isEmpty {
+            // DM_SHELL_PLAY=<title ID> in the launch environment (devicectl process launch --environment-variables, the Mac launcher's
+            // Play on device) starts that game as Play in the library would, through the same launcher
             let state = model.details.first { $0.id == id }.map { "\($0.game.state)" } ?? "not in the library"
             fputs("shell: DM_SHELL_PLAY=\(id) (\(state))\n", stderr)
             DispatchQueue.main.async { model.play(id) }
@@ -102,5 +121,14 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
         let host = UIHostingController(rootView: ShellHostView(model: model))
         host.view.backgroundColor = .black
         return host
+    }
+
+    @MainActor @objc(handleOpenURL:) static func handleOpenURL(_ url: URL) -> Bool {
+        if let activeModel {
+            return activeModel.handleDeepLink(url)
+        }
+        guard DeepLinkRouter.isLaunchURL(url) else { return false }
+        pendingOpenURL = url
+        return true
     }
 }

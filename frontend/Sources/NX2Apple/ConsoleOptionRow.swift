@@ -2,10 +2,10 @@ import SwiftUI
 import NXCore
 import NXLauncher
 
-/// One of a game's options in console mode, drawn as the control it is, so a controller reads it at a glance: a switch for on and
-/// off, a slider for a range, segments for a short choice (a value between arrows when the segments do not fit). The whole row is
-/// one focus target: left and right change the value, A flips a switch or takes the next value. A slider is picked with A first
-/// (its knob shows then) and takes left and right until A or B lets it go. A mouse uses the control itself.
+/// One of a game's options in console mode, as one row of a grouped list, the same height for every kind: the title at the left and
+/// the value at the right, as a value stepper "‹ 100 % ›" (left and right change it, the chevrons dim at the ends) or a switch for on
+/// and off. A thin bar under the value only for a continuous range, filled to where the value sits in it (ConsoleValueBar). A takes
+/// the next value. No sliders or segments in the list. A choice with one value shows it without chevrons and takes no change.
 struct ConsoleOptionRow: View {
     let setting: LaunchSetting
     let value: String
@@ -14,132 +14,76 @@ struct ConsoleOptionRow: View {
     let compact: Bool
     let lang: Lang
     let scope: String
-    /// Whether this slider is picked (A), and picking or letting it go.
+    /// Kept for the callers: a range no longer needs to be picked with A first.
     let editing: Bool
     let edit: (Bool) -> Void
-    /// A step left (-1) or right (+1), and a value set directly (a segment clicked, the slider dragged).
+    /// A step left (-1) or right (+1), and a value set directly.
     let adjust: (Int) -> Void
     let set: (String) -> Void
 
+    var id: String { "console.option." + setting.env }
     private var isOn: Bool { value == setting.onValue }
-    private var isRange: Bool { setting.kind == "range" }
-    /// A on a slider picks it or lets it go, on anything else it takes the next value.
-    private func activate() { if isRange { edit(!editing) } else { adjust(1) } }
-    /// Left and right: a slider only while it is picked.
-    private func step(_ by: Int) { if !isRange || editing { adjust(by) } }
+
+    private var options: [String] { (setting.options ?? []).compactMap(\.first) }
+    /// Whether left (-1) or right (+1) changes the value: a choice stops at its ends, a range at its bounds.
+    func canStep(_ by: Int) -> Bool {
+        switch setting.kind {
+        case "choice":
+            guard options.count > 1 else { return false }
+            let index = options.firstIndex(of: value) ?? 0
+            return options.indices.contains(index + by)
+        case "range":
+            guard let next = ConsoleOption.stepped(setting, value: value, by: by) else { return false }
+            return Double(next) != Double(value) ?? Double(setting.def)
+        case "toggle": return true
+        default: return false
+        }
+    }
+    private var fixed: Bool { setting.kind == "choice" && options.count <= 1 }
+    private func step(_ by: Int) { if canStep(by) { adjust(by) } }
+    /// A: a switch flips, a choice takes the next value (round to the first), a range one step up.
+    private func activate() {
+        if setting.kind == "choice", !fixed, !canStep(1), let first = options.first { set(first) } else { step(1) }
+    }
+
+    /// The bar's fill for a continuous range, nil for everything else.
+    var fill: Double? {
+        guard setting.kind == "range", let lo = setting.min, let hi = setting.max,
+              ConsoleValueBar.isContinuous(lo: lo, hi: hi, step: setting.step ?? 0.05) else { return nil }
+        return ConsoleValueBar.fillFraction(value: Double(value) ?? Double(setting.def) ?? lo, lo: lo, hi: hi)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 10 : 12) {
-            HStack(alignment: .center, spacing: 16) {
-                Text(setting.label).font(.manrope(compact ? 17 : 20, .semibold)).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                switch setting.kind {
-                case "toggle": ConsoleSwitch(isOn: isOn, compact: compact).onTapGesture { adjust(1) }
-                case "range": Text(label).font(.manrope(compact ? 17 : 20, .semibold)).monospacedDigit().foregroundStyle(LauncherPalette.cream)
-                default: EmptyView()
+        ConsoleFocused(id: id) { focused in
+            HStack(spacing: DS.Console.Space.m) {
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text(setting.label).font(DS.Console.Font.body).foregroundStyle(DS.Color.textPrimary).lineLimit(1).minimumScaleFactor(0.8)
+                    if !setting.note.isEmpty {
+                        Text(setting.note).font(DS.Console.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1).truncationMode(.tail)
+                    }
+                }
+                Spacer(minLength: DS.Console.Space.s)
+                if setting.kind == "toggle" {
+                    ConsoleSwitch(isOn: isOn, compact: false).onTapGesture { adjust(1) }
+                } else {
+                    ConsoleValueStepper(label: label, canDecrease: canStep(-1), canIncrease: canStep(1), fixed: fixed, fill: fill, step: step)
                 }
             }
-            switch setting.kind {
-            case "range": ConsoleSlider(fraction: fraction, compact: compact, editing: editing) { edit(true); set(rangeValue(at: $0)) }
-            case "choice": choice
-            default: EmptyView()
-            }
-            if !setting.note.isEmpty {
-                Text(setting.note).font(.manrope(compact ? 13 : 15)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
-            }
+            .padding(.horizontal, DS.Console.Space.l)
+            .frame(maxWidth: .infinity, minHeight: DS.Console.Control.rowHeight, alignment: .leading)
+            .background(focused ? DS.Color.surfaceRaised : .clear, in: RoundedRectangle(cornerRadius: DS.Console.Radius.row))
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 20).padding(.vertical, compact ? 14 : 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-        .contentShape(RoundedRectangle(cornerRadius: 14))
-        .padTarget("console.option." + setting.env, scope: scope, radius: 14, activate: activate, adjust: step)
+        .consoleFocus(id, scope: scope, enabled: !fixed, activate: activate, adjust: step)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(setting.label).accessibilityValue(label)
         .accessibilityHint(L10n.string("console.adjustHint", lang))
-        .accessibilityAdjustableAction { direction in adjust(direction == .increment ? 1 : -1) }
-        .accessibilityAction { adjust(1) }
-    }
-
-    // MARK: Choice
-
-    private var options: [(value: String, label: String)] {
-        (setting.options ?? []).compactMap { o in o.first.map { ($0, o.count > 1 ? o[1] : $0) } }
-    }
-
-    /// Segments while they fit in one row (four at most), else the value between arrows with a dot per option under it.
-    @ViewBuilder private var choice: some View {
-        let options = options
-        if options.count <= 4 {
-            ViewThatFits(in: .horizontal) {
-                segments(options)
-                stepper(options)
-            }
-        } else {
-            stepper(options)
-        }
-    }
-
-    private func segments(_ options: [(value: String, label: String)]) -> some View {
-        HStack(spacing: 6) {
-            ForEach(options, id: \.value) { option in
-                let chosen = option.value == value
-                Text(option.label).font(.manrope(compact ? 14 : 16, chosen ? .bold : .medium)).lineLimit(1).fixedSize()
-                    .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: compact ? 38 : 42)
-                    .foregroundStyle(chosen ? LauncherPalette.background : .white.opacity(0.8))
-                    .background(chosen ? LauncherPalette.cream : .white.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
-                    .contentShape(RoundedRectangle(cornerRadius: 9))
-                    .onTapGesture { set(option.value) }
-            }
-        }
-        .padding(4)
-        .background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func stepper(_ options: [(value: String, label: String)]) -> some View {
-        let at = options.firstIndex { $0.value == value }
-        return VStack(spacing: 8) {
-            HStack {
-                Image(systemName: "chevron.left").font(.system(size: 13, weight: .bold)).frame(width: 36, height: 32).contentShape(Rectangle())
-                    .onTapGesture { adjust(-1) }
-                Text(label).font(.manrope(compact ? 17 : 20, .semibold)).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
-                Image(systemName: "chevron.right").font(.system(size: 13, weight: .bold)).frame(width: 36, height: 32).contentShape(Rectangle())
-                    .onTapGesture { adjust(1) }
-            }
-            .foregroundStyle(LauncherPalette.cream)
-            HStack(spacing: 6) {
-                ForEach(options.indices, id: \.self) { i in
-                    Capsule().fill(i == at ? LauncherPalette.cream : .white.opacity(0.18)).frame(width: i == at ? 16 : 6, height: 6)
-                }
-            }
-        }
-        .padding(.vertical, 6)
-        .background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    // MARK: Range
-
-    private var bounds: (lo: Double, hi: Double, step: Double)? {
-        guard let lo = setting.min, let hi = setting.max, hi > lo else { return nil }
-        let step = setting.step ?? 0.05
-        return (lo, hi, step > 0 && step.isFinite ? step : 0.05)
-    }
-
-    private var fraction: Double {
-        guard let b = bounds else { return 0 }
-        let v = Double(value) ?? Double(setting.def) ?? b.lo
-        return min(max((v - b.lo) / (b.hi - b.lo), 0), 1)
-    }
-
-    /// The value at a place on the slider, on the setting's own steps.
-    private func rangeValue(at fraction: Double) -> String {
-        guard let b = bounds else { return value }
-        let raw = b.lo + min(max(fraction, 0), 1) * (b.hi - b.lo)
-        let snapped = min(max(b.lo + ((raw - b.lo) / b.step).rounded() * b.step, b.lo), b.hi)
-        return String(format: "%.6g", snapped)
+        .accessibilityAdjustableAction { direction in step(direction == .increment ? 1 : -1) }
+        .accessibilityAction { activate() }
     }
 }
 
-/// A switch drawn at the console's size: cream with the knob at the right when on.
+/// A switch drawn at the console's size: the accent with the knob at the right when on.
 struct ConsoleSwitch: View {
     let isOn: Bool
     let compact: Bool
@@ -147,41 +91,11 @@ struct ConsoleSwitch: View {
         let width: CGFloat = compact ? 48 : 56, height: CGFloat = compact ? 28 : 32
         ZStack(alignment: isOn ? .trailing : .leading) {
             // Solid colours and no shadow: no dark rim around the knob or the track in either state.
-            Capsule().fill(isOn ? LauncherPalette.cream : Color(white: 0.30))
-            Circle().fill(isOn ? LauncherPalette.background : Color.white).padding(3)
+            Capsule().fill(isOn ? DS.Color.accent : DS.Color.textTertiary)
+            Circle().fill(isOn ? DS.Color.accentOn : DS.Color.textPrimary).padding(3)
         }
         .frame(width: width, height: height)
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isOn)
-        .accessibilityHidden(true)
-    }
-}
-
-/// A slider drawn at the console's size: the filled part cream, a round knob at the value. A click or a drag sets the place.
-/// The knob shows only while the slider is picked, growing in from nothing.
-struct ConsoleSlider: View {
-    let fraction: Double
-    let compact: Bool
-    var editing = true
-    let set: (Double) -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var body: some View {
-        let knob: CGFloat = compact ? 20 : 24
-        GeometryReader { g in
-            let usable = max(g.size.width - knob, 1)
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.14)).frame(height: 6)
-                Capsule().fill(LauncherPalette.cream).frame(width: knob / 2 + usable * fraction, height: 6)
-                Circle().fill(LauncherPalette.cream).frame(width: knob, height: knob)
-                    .scaleEffect(editing ? 1 : 0.2).opacity(editing ? 1 : 0)
-                    .offset(x: usable * fraction)
-                    .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.28, dampingFraction: 0.7), value: editing)
-            }
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { set(Double(($0.location.x - knob / 2) / usable)) })
-            .animation(.easeOut(duration: 0.12), value: fraction)
-        }
-        .frame(height: knob + 8)
         .accessibilityHidden(true)
     }
 }

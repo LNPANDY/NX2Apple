@@ -11,6 +11,8 @@ import NXCore
     var appPID: Int32?
     var hostPID: Int32?
     var bundleID: String?
+    /// The prefix of the game's pause notifications: org.nxnative for the dm engine, org.nxkit for an app nxkit built.
+    var notificationPrefix = "org.nxnative"
     /// The save folder the session used (DM_SAVE, else the app's own), for the newest save after a crash.
     var saveFolder: URL?
     var pausedSince: Date?
@@ -105,7 +107,8 @@ extension LiveConsoleDriver {
         tracking.appPID = pid
         tracking.hostPID = nil
         tracking.bundleID = Bundle(url: URL(fileURLWithPath: game.appPath))?.bundleIdentifier
-        tracking.saveFolder = environment["DM_SAVE"].map { URL(fileURLWithPath: $0) } ?? SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
+        tracking.notificationPrefix = NxkitLaunch.notificationPrefix(app: game.appPath)
+        tracking.saveFolder = environment[SaveEngines.forApp(game.appPath).saveKey].map { URL(fileURLWithPath: $0) } ?? SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
         tracking.pausedSince = nil
         tracking.pausedSeconds = 0
         sessions.started(titleID: game.titleID, title: game.displayName(lang()))
@@ -156,18 +159,39 @@ extension LiveConsoleDriver {
         }
     }
 
-    /// Listens for org.nxnative.paused.<pid> and org.nxnative.resumed.<pid> of a process of the game.
+    /// Listens for <prefix>.paused.<pid> and <prefix>.resumed.<pid> of a process of the game (org.nxnative, or org.nxkit).
     func observe(_ pid: Int32) {
         guard tracking.observedPIDs.insert(pid).inserted, tracking.observesSystem else { return }
         let center = DistributedNotificationCenter.default()
         tracking.observers += [
-            center.addObserver(forName: Notification.Name("org.nxnative.paused.\(pid)"), object: nil, queue: .main) { [weak self] _ in
+            center.addObserver(forName: Notification.Name("\(tracking.notificationPrefix).paused.\(pid)"), object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.gamePaused(hostPID: pid) }
             },
-            center.addObserver(forName: Notification.Name("org.nxnative.resumed.\(pid)"), object: nil, queue: .main) { [weak self] _ in
+            center.addObserver(forName: Notification.Name("\(tracking.notificationPrefix).resumed.\(pid)"), object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.gameResumed(hostPID: pid) }
             },
         ]
+        guard tracking.notificationPrefix == NxkitLaunch.notificationPrefix else { return }
+        // An app nxkit built opens over the console (NXKIT_OVERLAY): its start is this Starting screen, with the
+        // pipelines it prepares as the progress, and it ends when the game shows its first picture
+        tracking.observers += [
+            center.addObserver(forName: Notification.Name("org.nxkit.loading.\(pid)"), object: nil, queue: .main) { [weak self] note in
+                let done = (note.userInfo?["done"] as? NSNumber)?.intValue ?? 0, total = (note.userInfo?["total"] as? NSNumber)?.intValue ?? 0
+                MainActor.assumeIsolated { self?.gameLoading(done: done, total: total) }
+            },
+            center.addObserver(forName: Notification.Name("org.nxkit.shown.\(pid)"), object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.gameWindowAppeared() }
+            },
+        ]
+    }
+
+    /// The game prepares its pipelines before its first picture: the Starting screen shows how far, and waits for it
+    /// rather than for the usual timeout.
+    func gameLoading(done: Int, total: Int) {
+        guard state.startingGameID != nil, total > 0 else { return }
+        timeoutTask?.cancel()
+        // Once the pipelines are ready the game boots: "Loading game" until its picture shows (org.nxkit.shown)
+        state.starting = done >= total ? .opening : .compilingShaders(completed: done, total: total)
     }
 
     private func endObserving() {
@@ -201,7 +225,7 @@ extension LiveConsoleDriver {
     func resume(_ gameID: String) {
         guard state.pausedGameID == gameID, let pid = tracking.hostPID ?? tracking.appPID else { return }
         tracking.yieldFront(tracking.bundleID)
-        tracking.post("org.nxnative.resume.\(pid)")
+        tracking.post("\(tracking.notificationPrefix).resume.\(pid)")
     }
 
     /// The answer Quit to "Quit <game>?": the game quits as after ⌘Q (its exit handlers write the save), and what waited for it runs
@@ -209,7 +233,7 @@ extension LiveConsoleDriver {
     func quitPausedGame() {
         guard state.pausedGameID != nil, !state.quittingPaused, let pid = tracking.hostPID ?? tracking.appPID else { return }
         state.beginQuitPaused()
-        tracking.post("org.nxnative.quit.\(pid)")
+        tracking.post("\(tracking.notificationPrefix).quit.\(pid)")
         let name = state.pausedGame?.title ?? ""
         tracking.quitTimeout?.cancel()
         tracking.quitTimeout = Task { [weak self] in
@@ -226,7 +250,7 @@ extension LiveConsoleDriver {
     /// Returns whether the quit waits for that. Out of console mode the game is asked to quit with the launcher.
     func shouldDeferTermination(consoleShown: Bool) -> Bool {
         guard state.pausedGameID != nil, let pid = tracking.hostPID ?? tracking.appPID else { return false }
-        guard consoleShown else { tracking.post("org.nxnative.quit.\(pid)"); return false }
+        guard consoleShown else { tracking.post("\(tracking.notificationPrefix).quit.\(pid)"); return false }
         state.askQuitPaused(then: .terminate)
         return true
     }

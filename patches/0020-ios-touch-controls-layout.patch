@@ -22,7 +22,7 @@ Issue: LNPANDY/NX2Apple#347
  create mode 100644 dm/ios/tests/test_pad_geometry.py
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 92f5e6a..d36c4ce 100644
+index c3d5cd0..77dacdf 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -8,9 +8,12 @@
@@ -874,10 +874,10 @@ index 0000000..d2efd77
 +
 +NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 66ce5c4..1b5c586 100644
+index 506ad16..fecf29c 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -214,6 +214,11 @@ - (void)viewDidLayoutSubviews {
+@@ -219,6 +219,11 @@ - (void)viewDidLayoutSubviews {
      DmLayout layout = onTV ? dm_layout_pad_only(b) : dm_layout_picture(dm_layout(b, gameInsets, self.partiallyOpen, division, g_picture_aspect), b, self.fill, g_picture_aspect);
      if (!onTV) self.game.frame = layout.game;
      layout.topSafeOnly = duoPortrait;

@@ -24,6 +24,7 @@ struct MissingImgGuideSheet: View {
     let close: () -> Void
 
     @EnvironmentObject var loc: Localizer
+    @EnvironmentObject private var pad: PadFocus
     @State private var validatingImg = false
     @State private var imgValidationError: String?
     @State private var validationGeneration = 0
@@ -45,7 +46,7 @@ struct MissingImgGuideSheet: View {
         let dir = ToolsAge.resolvedOutputDirectory(for: game, libraryFolder: libraryFolder)
         if !dir.isEmpty { return dir }
         if !stores.build.outDir.isEmpty { return stores.build.outDir }
-        return (BuildSeedCache.defaultRoot(home: stores.build.home) as NSString).deletingLastPathComponent + "/refresh-builds"
+        return stores.build.refreshBuildsRoot
     }
 
     private var defaultGamesDirectory: String {
@@ -76,33 +77,46 @@ struct MissingImgGuideSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerSection
-                .padding(.horizontal, 30)
-                .padding(.top, 26)
-                .padding(.bottom, 18)
+                .padding(.horizontal, DSSheetInsets.horizontal)
+                .padding(.top, DSSheetInsets.vertical)
+                .padding(.bottom, DSSheetInsets.gap)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    optionOneCard
-                    optionTwoCard
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DSSheetInsets.gap) {
+                        optionOneCard
+                        optionTwoCard
+                    }
+                    .padding(.horizontal, DSSheetInsets.horizontal)
+                    .padding(.top, DS.Space.xxs)
+                    .padding(.bottom, DSSheetInsets.gap)
                 }
-                .padding(.horizontal, 30)
-                .padding(.bottom, 20)
+                .onChange(of: pad.focused) { id in
+                    if let id, ["imgGuide.choose", "imgGuide.folder", "imgGuide.pull"].contains(id) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
             }
 
-            Divider().opacity(0.3)
-
             footerSection
-                .padding(.horizontal, 30)
-                .padding(.vertical, 16)
+                .padding(.horizontal, DSSheetInsets.horizontal)
+                .padding(.top, DSSheetInsets.gap)
+                .padding(.bottom, DSSheetInsets.vertical)
         }
         .frame(width: 680)
         .frame(maxHeight: min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80))
-        .background(LauncherPalette.background)
-        .launcherAppearance()
-        .tint(LauncherPalette.accent)
+        .fixedSize(horizontal: false, vertical: true)
+        .dsSheetSurface()
+        .background(PadKeyboardInput(focus: pad, scope: "imgGuide", back: cancelGuide))
+        .environment(\.padRingStyle, .hug)
+        .padScope("imgGuide", pad)
         .onAppear {
             sheetClosed = false
+            pad.scope = "imgGuide"
             _ = devices.refresh()
+            if pad.visible {
+                DispatchQueue.main.async { pad.show(default: "imgGuide.choose") }
+            }
         }
         .onDisappear {
             cancelAsyncOperations(closing: true)
@@ -110,105 +124,59 @@ struct MissingImgGuideSheet: View {
     }
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "externaldrive.fill.badge.timemachine")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(LauncherPalette.ready)
-                    .frame(width: 38, height: 38)
-                    .background(LauncherPalette.ready.opacity(0.14), in: Circle())
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(loc.t("imgGuide.title"))
-                        .font(.manrope(22, .heavy))
-                        .tracking(-0.4)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(String(format: loc.t("imgGuide.subtitle"), gameDisplayName))
-                        .font(.manrope(13))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+        DSSheetHeader(title: loc.t("imgGuide.title"), message: String(format: loc.t("imgGuide.subtitle"), gameDisplayName))
+    }
+
+    /// A line under an option when its step failed: the error symbol and the reason.
+    private func failure(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
+            Image(systemName: "xmark.octagon.fill").font(.system(size: 12, weight: .semibold)).foregroundStyle(DS.Color.statusError).accessibilityHidden(true)
+            Text(text).font(DS.Font.callout).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// An option's card: its title, what it does and its buttons, no symbol tile of its own.
+    private func optionCard<Content: View>(_ title: String, note: String, @ViewBuilder _ content: () -> Content) -> some View {
+        DSCard {
+            VStack(alignment: .leading, spacing: DS.Space.s) {
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text(title).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
+                    Text(note).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
+                content()
             }
         }
     }
 
     private var optionOneCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "1.circle.fill")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(LauncherPalette.ready)
-                Text(loc.t("imgGuide.opt1Title"))
-                    .font(.manrope(14.5, .bold))
-                    .foregroundStyle(LauncherPalette.text)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Text(loc.t("imgGuide.opt1Note"))
-                .font(.manrope(12.5))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 12) {
-                Button {
-                    pickExistingImg()
-                } label: {
-                    HStack(spacing: 7) {
-                        if validatingImg {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(LauncherPalette.onCream)
-                        } else {
-                            Image(systemName: "doc.badge.gearshape")
-                        }
-                        Text(loc.t("imgGuide.chooseImgBtn"))
-                    }
-                    .font(.manrope(13.5, .semibold))
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 9)
+        optionCard(loc.t("imgGuide.opt1Title"), note: loc.t("imgGuide.opt1Note")) {
+            Button {
+                pickExistingImg()
+            } label: {
+                HStack(spacing: DS.Space.xs) {
+                    if validatingImg { ProgressView().controlSize(.small).tint(DS.Color.accentOn) }
+                    Text(loc.t("imgGuide.chooseImgBtn"))
                 }
-                .buttonStyle(LauncherActionButtonStyle())
-                .disabled(isBusy)
-                .opacity(isBusy ? 0.55 : 1)
+                .font(DS.Font.bodyStrong)
+                .padding(.horizontal, DS.Space.m)
             }
+            .buttonStyle(DSPrimaryButtonStyle())
+            .keyboardShortcut(.defaultAction)
+            .disabled(isBusy)
+            .padTarget("imgGuide.choose", scope: "imgGuide", focusColor: DS.Color.accentOn, enabled: !isBusy) { pickExistingImg() }
 
-            if let error = imgValidationError {
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(LauncherPalette.danger)
-                    Text(error)
-                        .font(.manrope(12.5))
-                        .foregroundStyle(LauncherPalette.danger)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            if let error = imgValidationError { failure(error) }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.selectedBorder.opacity(0.45)))
     }
 
     private var optionTwoCard: some View {
         let device = connectedDevice
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "2.circle.fill")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(LauncherPalette.accent)
-                Text(loc.t("imgGuide.opt2Title"))
-                    .font(.manrope(14.5, .bold))
-                    .foregroundStyle(LauncherPalette.text)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        return optionCard(loc.t("imgGuide.opt2Title"), note: loc.t("imgGuide.opt2Note")) {
+            optionTwoContent(device: device)
+        }
+    }
 
-            Text(String(format: loc.t("imgGuide.opt2Note"), defaultGamesDisplayPath))
-                .font(.mono(12))
-                .foregroundStyle(LauncherPalette.secondaryText)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(LauncherPalette.well, in: RoundedRectangle(cornerRadius: 8))
+    @ViewBuilder private func optionTwoContent(device: AppleDevice?) -> some View {
 
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) {
@@ -222,36 +190,21 @@ struct MissingImgGuideSheet: View {
             }
 
             if let pullingName = pullingDeviceName {
-                HStack(spacing: 8) {
+                HStack(spacing: DS.Space.xs) {
                     ProgressView().controlSize(.small)
                     Text(String(format: loc.t("imgGuide.pulling"), pullingName))
-                        .font(.manrope(12.5))
-                        .foregroundStyle(LauncherPalette.secondaryText)
+                        .font(DS.Font.callout)
+                        .foregroundStyle(DS.Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else if device == nil {
                 Text(loc.t("imgGuide.pullNoDevice"))
-                    .font(.manrope(12))
-                    .foregroundStyle(.secondary)
+                    .font(DS.Font.callout)
+                    .foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if let error = pullError {
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(LauncherPalette.danger)
-                    Text(error)
-                        .font(.manrope(12.5))
-                        .foregroundStyle(LauncherPalette.danger)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+            if let error = pullError { failure(error) }
     }
 
     private var openGamesFolderButton: some View {
@@ -260,7 +213,9 @@ struct MissingImgGuideSheet: View {
         } label: {
             Label(loc.t("imgGuide.openFolderBtn"), systemImage: "folder")
         }
-        .buttonStyle(LauncherSecondaryButtonStyle())
+        .buttonStyle(DSRowButtonStyle())
+        .help(defaultGamesDisplayPath)
+        .padTarget("imgGuide.folder", scope: "imgGuide", activate: openDefaultGamesFolder)
     }
 
     private func pullFromIPhoneButton(device: AppleDevice?) -> some View {
@@ -271,36 +226,35 @@ struct MissingImgGuideSheet: View {
         } label: {
             Label(loc.t("imgGuide.pullIPhoneBtn"), systemImage: "iphone.and.arrow.forward")
         }
-        .buttonStyle(LauncherSecondaryButtonStyle())
+        .buttonStyle(DSRowButtonStyle())
         .disabled(device == nil || isBusy)
+        .padTarget("imgGuide.pull", scope: "imgGuide", enabled: device != nil && !isBusy) {
+            if let device { startPullFromDevice(device) }
+        }
     }
 
     private var footerSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if assessment.missingOriginalPackage {
-                Text(loc.t("imgGuide.noNspHint"))
-                    .font(.manrope(12))
-                    .foregroundStyle(LauncherPalette.building)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: DS.Space.s) {
+            if assessment.missingOriginalPackage { DSInlineWarning(loc.t("imgGuide.noNspHint")) }
+            DSSheetButtonRow {
                 Button {
                     cancelAsyncOperations(closing: true)
                     onFallbackFullRebuild()
                 } label: {
                     Text(loc.t("imgGuide.fullNspBtn"))
                 }
-                .buttonStyle(LauncherSecondaryButtonStyle())
+                .buttonStyle(DSSecondaryButtonStyle())
                 .disabled(assessment.missingOriginalPackage || isBusy)
-
-                Spacer(minLength: 8)
-
-                Button(loc.t("batchRefresh.cancel")) {
+                .padTarget("imgGuide.full", scope: "imgGuide", enabled: !assessment.missingOriginalPackage && !isBusy) {
                     cancelAsyncOperations(closing: true)
-                    close()
+                    onFallbackFullRebuild()
                 }
-                .buttonStyle(LauncherSecondaryButtonStyle())
+
+            } buttons: {
+                Button(loc.t("batchRefresh.cancel"), action: cancelGuide)
+                .buttonStyle(DSSecondaryButtonStyle())
                 .keyboardShortcut(.cancelAction)
+                .padTarget("imgGuide.cancel", scope: "imgGuide", activate: cancelGuide)
             }
         }
     }
@@ -407,7 +361,7 @@ struct MissingImgGuideSheet: View {
                     onResolvedImg(pulledPath)
                 case .failure(let err):
                     if err == .cancelled { return }
-                    let reason = err.errorDescription ?? String(describing: err)
+                    let reason = err.localizedReason(loc.t)
                     pullError = String(format: loc.t("imgGuide.pullFailed"), reason)
                 }
             }
@@ -425,6 +379,11 @@ struct MissingImgGuideSheet: View {
         pullGeneration &+= 1
         pullingDeviceName = nil
     }
+
+    private func cancelGuide() {
+        cancelAsyncOperations(closing: true)
+        close()
+    }
 }
 
 extension View {
@@ -436,6 +395,9 @@ extension View {
         library: GameLibrary,
         toolsAge: ToolsAge,
         page: Binding<LauncherPage>,
+        buildEditorOpen: Binding<Bool>,
+        editingBuildResult: Binding<Bool>,
+        buildStep: Binding<Int>,
         pad: PadFocus,
         scope: @escaping () -> String
     ) -> some View {
@@ -448,13 +410,21 @@ extension View {
                     onConfirmed: {
                         batchOpen.wrappedValue = false
                         page.wrappedValue = .builds
+                        buildEditorOpen.wrappedValue = false
+                        editingBuildResult.wrappedValue = false
+                        buildStep.wrappedValue = 0
                         if !stores.build.running && stores.build.canStartBuildOrQueue {
                             stores.build.startBuildOrQueue()
                         }
                     },
-                    close: { batchOpen.wrappedValue = false }
+                    close: { batchOpen.wrappedValue = false },
+                    recoverImage: { context in
+                        batchOpen.wrappedValue = false
+                        DispatchQueue.main.async { imgGuide.wrappedValue = context }
+                    }
                 )
                 .environmentObject(stores.localizer)
+                .environmentObject(pad)
             }
             .sheet(item: imgGuide) { context in
                 MissingImgGuideSheet(
@@ -470,7 +440,10 @@ extension View {
                             forceFullIOSRebuild: false,
                             stores: stores,
                             libraryFolder: library.folder,
-                            page: page
+                            page: page,
+                            buildEditorOpen: buildEditorOpen,
+                            editingBuildResult: editingBuildResult,
+                            buildStep: buildStep
                         )
                     },
                     onFallbackFullRebuild: {
@@ -481,12 +454,16 @@ extension View {
                             forceFullIOSRebuild: true,
                             stores: stores,
                             libraryFolder: library.folder,
-                            page: page
+                            page: page,
+                            buildEditorOpen: buildEditorOpen,
+                            editingBuildResult: editingBuildResult,
+                            buildStep: buildStep
                         )
                     },
                     close: { imgGuide.wrappedValue = nil }
                 )
                 .environmentObject(stores.localizer)
+                .environmentObject(pad)
             }
             .onChange(of: batchOpen.wrappedValue) { open in
                 pad.scope = open ? "batchRefresh" : scope()
@@ -503,7 +480,10 @@ extension View {
     forceFullIOSRebuild: Bool,
     stores: LauncherStores,
     libraryFolder: String,
-    page: Binding<LauncherPage>
+    page: Binding<LauncherPage>,
+    buildEditorOpen: Binding<Bool>,
+    editingBuildResult: Binding<Bool>,
+    buildStep: Binding<Int>
 ) {
     let game = context.game
     let assessment = context.assessment
@@ -540,8 +520,15 @@ extension View {
 
     let ordered = RefreshQueueBuilder.orderedEntries(entries)
     guard !ordered.isEmpty else { return }
+    if !stores.build.running {
+        stores.build.clearUnstartedDraft()
+        stores.queue.prepareForRefreshBatch()
+    }
     stores.queue.enqueue(ordered)
     page.wrappedValue = .builds
+    buildEditorOpen.wrappedValue = false
+    editingBuildResult.wrappedValue = false
+    buildStep.wrappedValue = 0
     if !stores.build.running && stores.build.canStartBuildOrQueue {
         stores.build.startBuildOrQueue()
     }

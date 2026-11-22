@@ -29,7 +29,6 @@ Claude-Session: https://claude.ai/code/session_01JhC6PmqAEWZuUNEEEgBm91
 Upstream-Status: pending (a fix to patch 0017's input_preferences_mac.h, forwarded as seedds/nxnative#221: it belongs in that pull request)
 Reason: patch 0017's input_preferences_mac.h does not compile for a game of several programs (LUNAR Remastered Collection), where DM_GAME_ID is read at run time
 Issue: LNPANDY/NX2Apple#1224
-
 ---
  dm/host/input_preferences_mac.h | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)

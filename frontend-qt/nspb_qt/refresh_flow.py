@@ -53,41 +53,94 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# 1. Game Update Catalog (56 TitleIDs synced with CHANGELOG.md & Swift)
+# 1. Game Update Catalog (102 TitleIDs synced with CHANGELOG.md & Swift)
 # ---------------------------------------------------------------------------
 
 DEFAULT_CATALOG_VERSION = '1.2.0'
 
 GAME_UPDATED_VERSIONS: dict[str, str] = {
-    # 1.5.0 (27 games)
+    # 1.5.0 (80 games)
+    '0100000000010000': '1.5.0',
+    '010015100B514000': '1.5.0',
     '0100152000022000': '1.5.0',
     '01001B300B9BE000': '1.5.0',
+    '01001C8016B4E000': '1.5.0',
+    '01001F5010DFA000': '1.5.0',
+    '010026300BA4A000': '1.5.0',
+    '010027400CDC6000': '1.5.0',
+    '010029D00E740000': '1.5.0',
+    '01002D4007AE0000': '1.5.0',
+    '01003FC01670C000': '1.5.0',
+    '010042D00D900000': '1.5.0',
+    '010044500C182000': '1.5.0',
+    '0100453019AA8000': '1.5.0',
+    '01004680124E6000': '1.5.0',
     '010049900F546000': '1.5.0',
+    '01004B800AF5A000': '1.5.0',
+    '010050F00BC1A000': '1.5.0',
     '010051701FB46000': '1.5.0',
+    '010057A01E4D4000': '1.5.0',
     '01005CA01580E000': '1.5.0',
+    '01005FF002E2A000': '1.5.0',
+    '010064800F66A000': '1.5.0',
+    '010069401ADB8000': '1.5.0',
+    '01006A800016E000': '1.5.0',
     '01006F8002326000': '1.5.0',
     '0100726014352000': '1.5.0',
+    '0100777022394000': '1.5.0',
     '01007820196A6000': '1.5.0',
     '01007A2027548000': '1.5.0',
+    '01007EF00011E000': '1.5.0',
+    '0100801011C3E000': '1.5.0',
+    '0100830004FB6000': '1.5.0',
+    '010087701B092000': '1.5.0',
+    '01008D300C50C000': '1.5.0',
+    '01008F4014A74000': '1.5.0',
     '0100A00019DE0000': '1.5.0',
+    '0100A0800E9C4000': '1.5.0',
+    '0100A3D008C5C000': '1.5.0',
     '0100A5C00D162000': '1.5.0',
+    '0100A7C01B792000': '1.5.0',
+    '0100A8E016236000': '1.5.0',
+    '0100AA001415E000': '1.5.0',
+    '0100AA201415C000': '1.5.0',
+    '0100B7C00933A000': '1.5.0',
     '0100B99019412000': '1.5.0',
+    '0100BF00112C0000': '1.5.0',
+    '0100BF500207C000': '1.5.0',
+    '0100C1F0051B6000': '1.5.0',
+    '0100C3601518C000': '1.5.0',
     '0100C49025D3E000': '1.5.0',
     '0100C510166F0000': '1.5.0',
     '0100C9C00E25C000': '1.5.0',
+    '0100CAA026246000': '1.5.0',
+    '0100CD701434C000': '1.5.0',
+    '0100D440269E8000': '1.5.0',
+    '0100D4900E82C000': '1.5.0',
+    '0100D5501857E000': '1.5.0',
+    '0100D71004694000': '1.5.0',
+    '0100D800117F4000': '1.5.0',
+    '0100DBF01000A000': '1.5.0',
+    '0100EB100AB42000': '1.5.0',
+    '0100F28011892000': '1.5.0',
     '0100F2C0115B6000': '1.5.0',
+    '0100F43008C44000': '1.5.0',
+    '040015100B514001': '1.5.0',
     '040032B023CA4000': '1.5.0',
     '0400380020056000': '1.5.0',
     '040041E0212AE000': '1.5.0',
     '0400486024DEC000': '1.5.0',
     '0400569027BF4000': '1.5.0',
+    '040057C02159A000': '1.5.0',
     '040074A01BF12000': '1.5.0',
+    '040077201BE50000': '1.5.0',
+    '04007EF01F8AE000': '1.5.0',
     '04008E001F098000': '1.5.0',
     '0400921025B32000': '1.5.0',
     '0400C3F00006E000': '1.5.0',
     '0400C76024710000': '1.5.0',
     '0400D4201C6EA000': '1.5.0',
-    # 1.4.0 (18 games)
+    # 1.4.0 (16 games)
     '010012101468C000': '1.4.0',
     '010014C011146000': '1.4.0',
     '010019A01E2F2000': '1.4.0',
@@ -98,27 +151,19 @@ GAME_UPDATED_VERSIONS: dict[str, str] = {
     '010057D006492000': '1.4.0',
     '010061D00DB74000': '1.4.0',
     '01007300020FA000': '1.4.0',
-    '01007EF00011E000': '1.4.0',
     '01008DD013200000': '1.4.0',
     '01009BC00C38A000': '1.4.0',
     '0100A6301214E000': '1.4.0',
-    '0100A7C01B792000': '1.4.0',
     '0100B8E016F76000': '1.4.0',
     '0100CE4010AAC000': '1.4.0',
     '0100DA801624E000': '1.4.0',
-    # 1.3.0 (8 games)
+    # 1.3.0 (6 games)
     '0100276009872000': '1.3.0',
     '010035F022078000': '1.3.0',
-    '01006A800016E000': '1.3.0',
     '01008D9022462000': '1.3.0',
     '01008F701C074000': '1.3.0',
-    '0100B7C00933A000': '1.3.0',
     '0100ECD018EBE000': '1.3.0',
     '0100ED7012DB2000': '1.3.0',
-    # 1.2.2 (3 games)
-    '01001F5010DFA000': '1.2.2',
-    '040077201BE50000': '1.2.2',
-    '04007EF01F8AE000': '1.2.2',
 }
 
 
@@ -1309,7 +1354,7 @@ class RefreshQueueManager:
 
     def should_export_shared_shell_for_current(self, item: RefreshQueueItem, *, ipa_kind: str = 'shared') -> bool:
         """Return True only when `item` is an iOS shared-shell build with no later iOS items in the queue."""
-        if item.target != 'ios' or ipa_kind == 'oneGame':
+        if item.target != 'ios' or ipa_kind != 'shared':
             return False
         with self._lock:
             has_later_ios = any(later.target == 'ios' for later in self._items)
@@ -1324,7 +1369,7 @@ class RefreshQueueManager:
             nxt = self._items.pop(0)
             self._active_item = nxt
             has_later_ios = any(later.target == 'ios' for later in self._items)
-        export_now = (nxt.target == 'ios' and ipa_kind != 'oneGame' and not has_later_ios)
+        export_now = (nxt.target == 'ios' and ipa_kind == 'shared' and not has_later_ios)
         return nxt, export_now
 
     def start_if_idle(self) -> bool:
@@ -1376,7 +1421,7 @@ class RefreshQueueManager:
         if nxt.out_dir:
             m.out_dir = nxt.out_dir
         m.target = nxt.target
-        m._defer_shell_export = (nxt.target == 'ios' and ipa_kind != 'oneGame' and not export_now)
+        m._defer_shell_export = (nxt.target == 'ios' and ipa_kind == 'shared' and not export_now)
         m._queued_external_img_path = nxt.external_img_path or ''
         m.start_build(title_id=nxt.title_id)
         return True
@@ -1396,7 +1441,7 @@ class RefreshQueueManager:
 
         m = self._model
         ipa_kind = getattr(m, 'ipa_kind', 'shared') if m is not None else 'shared'
-        if finished_item.target == 'ios' and ipa_kind != 'oneGame':
+        if finished_item.target == 'ios' and ipa_kind == 'shared':
             with self._lock:
                 still_has_ios = any(it.target == 'ios' for it in self._items)
             if ok and still_has_ios:
@@ -1485,6 +1530,25 @@ def _locate_pulled_img_file(tmp_path: Path, remote_src: str) -> Path | None:
         if len(found) == 1:
             return found[0]
     return None
+
+
+def localize_pull_error(reason: str, t_func: Callable[..., str]) -> str:
+    """Translate raw `pull_img_from_ios_device` failure tokens into localized UI text."""
+    raw = (reason or '').strip()
+    if not raw or raw.startswith('exit ') or raw in ('devicectl copy failed', 'Device file transfer failed'):
+        return t_func('imgGuide.pullErrTransfer')
+    if raw == 'devicectl unavailable':
+        return t_func('imgGuide.pullErrUnavailable')
+    if raw in ('no device', 'missing device', 'No device selected'):
+        return t_func('imgGuide.pullErrNoDevice')
+    if raw.startswith('no .img found'):
+        return t_func('imgGuide.pullErrNotFound')
+    if raw in ('invalid DMROMFS1 file', 'identity mismatch'):
+        return t_func('imgGuide.pullErrInvalid')
+    lower = raw.lower()
+    if 'timed out' in lower or 'timeoutexpired' in lower:
+        return t_func('imgGuide.pullErrTimedOut')
+    return raw
 
 
 def pull_img_from_ios_device(
@@ -2238,7 +2302,9 @@ if HAS_QT:
                         self.accept()
                     elif info != 'cancelled':
                         _apply_text_color(self.pull_status_lbl, '#ff6161')
-                        self.pull_status_lbl.setText(self.m.t('imgGuide.pullFailed', info))
+                        self.pull_status_lbl.setText(
+                            self.m.t('imgGuide.pullFailed', localize_pull_error(info, self.m.t))
+                        )
 
                 self._bridge.safe_emit(apply)
 

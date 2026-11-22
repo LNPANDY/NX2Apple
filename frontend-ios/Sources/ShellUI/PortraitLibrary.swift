@@ -39,6 +39,9 @@ struct PortraitLibrary: View, Equatable {
     let openSettings: () -> Void
     let openControllers: () -> Void
     let openShellSettings: () -> Void
+    var openHomeScreen: ((String) -> Void)? = nil
+    var openCoverPicker: ((String) -> Void)? = nil
+    var resetCover: ((String) -> Void)? = nil
     @Binding var position: ScrollPosition
     @Namespace private var actionGlassNamespace
     @Namespace private var poseNamespace
@@ -367,6 +370,21 @@ struct PortraitLibrary: View, Equatable {
                     .disabled(detail.game.state != .playable)
                 Button(ShellStrings.text("Game settings"), systemImage: "slider.horizontal.3") {
                     select(detail.id); openSettings()
+                }
+                if let openHomeScreen {
+                    Button(ShellStrings.text("Add to Home Screen…"), systemImage: "plus.square") {
+                        openHomeScreen(detail.id)
+                    }
+                }
+                if let openCoverPicker {
+                    Button(ShellStrings.text("Change Cover…"), systemImage: "photo.on.rectangle.angled") {
+                        openCoverPicker(detail.id)
+                    }
+                }
+                if let resetCover, detail.game.hasCustomCover {
+                    Button(ShellStrings.text("Reset Cover"), systemImage: "arrow.uturn.backward") {
+                        resetCover(detail.id)
+                    }
                 }
             }
         }

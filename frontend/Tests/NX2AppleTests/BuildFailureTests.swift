@@ -40,7 +40,7 @@ import NXModel
     }
 
     /// The rows that no log line sets: the launcher's own state (a drive, a team) or the step that failed (the install).
-    static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer, .devicePairing, .shellDataIncomplete, .engineOffline, .engineSync]
+    static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer, .devicePairing, .shellDataIncomplete, .engineOffline, .engineSync, .nxkit]   // nxkit: its exit code, not a log line (#1460)
 
     /// A bump of the pin or a patch that rewords a message must fail here, not turn a hint into the raw last line.
     func testTheEnginesScriptsStillSayWhatThePatternsExpect() throws {
@@ -319,7 +319,7 @@ import NXModel
             m.doneNote = m.failureWhat(m.failure!)
             try capture(name, width: 760, height: kind == .noTitleID ? 380 : 250, ZStack(alignment: .top) {
                 LauncherPalette.background
-                BuildFailureCard(m: m).environmentObject(mStores.localizer).padding(24)
+                BuildFailureCard(m: m).environmentObject(mStores.localizer).environmentObject(PadFocus()).padding(24)
             })
         }
         let multiGame = try XCTUnwrap(fixtures().first { $0.id == "games.several" })
@@ -341,7 +341,7 @@ import NXModel
             stores.build.noteFailure()
             try capture("multi-game-\(lang.code)", width: 760, height: 250, ZStack(alignment: .top) {
                 LauncherPalette.background
-                BuildFailureCard(m: stores.build).environmentObject(stores.localizer).padding(24)
+                BuildFailureCard(m: stores.build).environmentObject(stores.localizer).environmentObject(PadFocus()).padding(24)
             })
         }
         // Replay the real low-space stop through the classifier, including the raw-note fallback before a hint exists.
@@ -357,7 +357,7 @@ import NXModel
                 VStack(alignment: .leading, spacing: 20) {
                     ActionCard(build: build, dependencies: stores.dependencies, repo: stores.repo)
                     BuildFailureCard(m: build)
-                }.environmentObject(stores.localizer).padding(24)
+                }.environmentObject(stores.localizer).environmentObject(PadFocus()).padding(24)
             })
         }
         let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
@@ -411,7 +411,7 @@ import NXModel
                 VStack(alignment: .leading, spacing: 20) {
                     ActionCard(build: build, dependencies: stores.dependencies, repo: stores.repo)
                     BuildFailureCard(m: build)
-                }.environmentObject(stores.localizer).padding(24)
+                }.environmentObject(stores.localizer).environmentObject(PadFocus()).padding(24)
             })
         }
     }

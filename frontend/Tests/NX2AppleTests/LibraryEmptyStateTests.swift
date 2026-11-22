@@ -1,0 +1,128 @@
+import SwiftUI
+import XCTest
+@testable import NX2Apple
+@testable import NXCore
+@testable import NXModel
+@testable import NXLauncher
+
+@MainActor final class LibraryEmptyStateTests: IsolatedDefaultsTestCase {
+    private func directory() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        return root
+    }
+
+    private func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+
+    private func host(_ games: [LibraryGame], scheme: ColorScheme = .dark, height: CGFloat = 974, search: String? = nil, allGames: Bool = false) throws -> (GameLibrary, PadFocus, LauncherStores, OffscreenWindow) {
+        let root = try directory(), file = root.appendingPathComponent("library.json")
+        try JSONEncoder().encode(games).write(to: file)
+        let library = GameLibrary(file: file), stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
+        let window = OffscreenWindow(size: NSSize(width: 1257, height: height))
+        window.appearance = NSAppearance(named: scheme == .light ? .aqua : .darkAqua)
+        window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library,
+            performStartupChecks: false, search: search, padFocus: pad, allGamesOpen: allGames).preferredColorScheme(scheme))
+        window.orderFront(nil)
+        addTeardownBlock { MainActor.assumeIsolated { window.orderOut(nil); window.contentView = nil; window.close() } }
+        settle()
+        return (library, pad, stores, window)
+    }
+
+    func testNoMatchSearchHasNoHiddenHeroActionAndKeepsSupportedGamesReachable() throws {
+        let game = LibraryGame(titleID: "0100000000000000", name: "Example", inputs: ["base": ["/tmp/game.nsp"]])
+        let (library, pad, stores, _) = try host([game], search: "no-such-game")
+        let view = LauncherView(stores: stores, library: library, performStartupChecks: false, search: "no-such-game")
+        XCTAssertTrue(view.showsAllGames, "a search shows its results as the All games grid (#1458)")
+        XCTAssertTrue(view.filteredGames.isEmpty)
+        XCTAssertFalse(pad.frames["main", default: []].contains { $0.id == "hero.play" || $0.id.hasPrefix("card.") })
+        XCTAssertNotNil(pad.frame(of: "library.supported"))
+    }
+
+    func testEmptyPlatformFiltersKeepHeroAndCarouselGeometryAndRecover() throws {
+        // the filter is saved to the stores' defaults (testDefaults), never to the shared ones
+        var game = LibraryGame(titleID: "0100000000000000", name: "Source-only game",
+                               inputs: ["base": ["/tmp/game.nsp"]], sourceFolder: "/tmp")
+        game.installedDevice = "previous-install-record"
+        let (_, pad, stores, window) = try host([game], height: 680, allGames: true)   // the filter is in the All games grid (#1458)
+        func frame(_ id: String) throws -> CGRect { try XCTUnwrap(pad.frames["main"]?.first { $0.id == id }?.frame, id) }
+        let filter = try frame("library.filter"), sort = try frame("library.sort")
+        for _ in 0..<2 {
+            pad.show(default: "library.filter"); pad.activate()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            let early = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+            _ = window.performKeyEquivalent(with: early)
+            XCTAssertTrue(stores.build.gameDir.isEmpty)
+            settle()
+            XCTAssertEqual(try frame("library.filter").minY, filter.minY, accuracy: 1)
+            XCTAssertEqual(try frame("library.sort"), sort)
+            XCTAssertFalse(pad.frames["main", default: []].contains { $0.id == "library.empty.primary" }, "The visible filter is the recovery control, not a duplicate hero action")
+            XCTAssertFalse(pad.frames["main", default: []].contains { $0.id.hasPrefix("card.") })
+            let key = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+            _ = window.performKeyEquivalent(with: key)
+            XCTAssertTrue(stores.build.gameDir.isEmpty, "An empty result must not activate the hidden game's shortcut")
+        }
+        pad.show(default: "library.filter"); pad.activate(); settle()
+        XCTAssertNotNil(testDefaults.string(forKey: "desktopLibraryFilter"), "the filter is saved to the stores' defaults")
+        XCTAssertNil(UserDefaults.standard.object(forKey: "desktopLibraryFilter"), "a test's window never writes the shared defaults")
+        XCTAssertEqual(try frame("library.filter").minY, filter.minY, accuracy: 1)
+        XCTAssertTrue(pad.frames["main", default: []].contains { $0.id == "card." + game.id.uuidString })
+    }
+
+    func testTrulyEmptyLibraryUsesTheSameHeroBoundaryInBothAppearances() throws {
+        for scheme in [ColorScheme.dark] {   // the launcher is dark only (#1458)
+            let (_, emptyPad, _, emptyWindow) = try host([], scheme: scheme)
+            let emptyFilter = try XCTUnwrap(emptyPad.frames["main"]?.first { $0.id == "library.supported" }?.frame)   // the row's header
+            let primary = try XCTUnwrap(emptyPad.frames["main"]?.first { $0.id == "library.empty.primary" }?.frame)
+            let folder = try XCTUnwrap(emptyPad.frames["main"]?.first { $0.id == "library.empty.folder" }?.frame)
+            XCTAssertEqual(folder.size, CGSize(width: 44, height: 44))
+            XCTAssertEqual(primary.midY, folder.midY, accuracy: 1)
+            let game = LibraryGame(titleID: "0100000000000000", name: "Example")
+            let (_, populatedPad, _, _) = try host([game], scheme: scheme)
+            let populatedFilter = try XCTUnwrap(populatedPad.frames["main"]?.first { $0.id == "library.supported" }?.frame)
+            XCTAssertEqual(emptyFilter.minY, populatedFilter.minY, accuracy: 1)
+            XCTAssertFalse(emptyPad.frames["main", default: []].contains { $0.id.hasPrefix("card.") })
+            if let path = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"], let view = emptyWindow.contentView {
+                let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                let directory = URL(fileURLWithPath: path)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let file = directory.appendingPathComponent(scheme == .light ? "library-first-use-light.png" : "library-first-use-dark.png")
+                try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: file)
+            }
+        }
+    }
+
+    /// The fallback backdrop is a calm gradient: no large NX mark behind the library (#1458), no hard edge.
+    func testFallbackBackdropHasNoMark() throws {
+        let host = NSHostingView(rootView: LibraryFallbackArtwork(size: CGSize(width: 1000, height: 400)).launcherAppearance())
+        let window = OffscreenWindow(size: NSSize(width: 1000, height: 400))
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = host; window.orderFront(nil); settle()
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let y = bitmap.pixelsHigh / 3
+        let values = (0..<bitmap.pixelsWide).compactMap { x -> Int? in
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return nil }
+            return Int((color.redComponent * 255).rounded())
+        }
+        XCTAssertLessThanOrEqual((values.max() ?? 0) - (values.min() ?? 0), 3, "one tone across a row (dithering aside): no mark")
+    }
+    func testPlaceholderMatchesRealCardFootprintAtCarouselWidths() {
+        let state = LibraryArtworkState(LibraryGame(titleID: "0100000000000000", name: "Example"))
+        for scheme in [ColorScheme.dark] {   // the launcher is dark only (#1458)
+            for available in [CGFloat(900), 1257, 1900] {
+                let width = LibraryCardLayout.width(in: available), localizer = Localizer(.en)
+                let card = NSHostingView(rootView: LibraryGameCard(title: "Example", image: nil, focus: .center,
+                    state: state, width: width, selected: false, select: {}).environmentObject(localizer).preferredColorScheme(scheme))
+                let placeholder = NSHostingView(rootView: LibraryCarouselPlaceholder(width: width)
+                    .environmentObject(localizer).preferredColorScheme(scheme))
+                XCTAssertEqual(card.fittingSize.width, placeholder.fittingSize.width, accuracy: 0.5)
+                XCTAssertEqual(card.fittingSize.height, placeholder.fittingSize.height, accuracy: 0.5)
+            }
+        }
+    }
+}

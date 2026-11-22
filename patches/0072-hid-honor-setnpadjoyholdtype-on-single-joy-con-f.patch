@@ -1,0 +1,208 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sun, 22 Nov 2026 01:49:33 +0800
+Subject: [PATCH] hid: honor SetNpadJoyHoldType on single Joy-Con fallback
+ reads
+
+Horizon OS keeps NpadJoyLeftState and NpadJoyRightState in physical upright orientation while games rotate single sideways layouts themselves. When a game does not support single Joy-Con styles (for example Handheld | JoyDual in a lobby), npad_resolve falls back to KIND_PAD, where original Joy-Cons hardcoded sideways rotation even in Vertical mode and Switch 2 Joy-Cons never rotated even in Horizontal mode.
+
+Make g_hold_type atomic and read dm_joy_set state directly in fill_pad_slot for joy_active players. Rotate single Joy-Con face buttons, rail shoulders, stick press and left stick axes sideways only when SetNpadJoyHoldType is Horizontal (1), keeping Vertical (0), paired controllers and native JoyLeft/JoyRight/JoyDual states unchanged.
+
+Add t_joy_hold_type regression assertions covering Vertical, Horizontal, mode transitions, paired fallback and native Joy-Con styles.
+
+Upstream-Status: pending
+Reason: Honor SetNpadJoyHoldType on single Joy-Con whole-controller fallback reads across Joy-Con 1 and 2
+Issue: none
+
+---
+ dm/host/hle_hid.c     | 56 ++++++++++++++++++++++++++----
+ dm/host/tests/t_hid.c | 81 +++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 130 insertions(+), 7 deletions(-)
+
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index b747547..d0c5a6b 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -613,6 +613,52 @@ static void fill_joy(NpadState *s, npad_ref r) {
+     s->buttons = (b & 0x0f00ffffull) | stick_dirs(a);
+     s->attributes = ATTR_CONNECTED | (left ? ATTR_LEFT_CONN : 0) | (right ? ATTR_RIGHT_CONN : 0);
+ }
++static _Atomic uint32_t g_hold_type;   // NpadJoyHoldType: 0 = Vertical (default), 1 = Horizontal
++// Sideways mapping for a single Joy-Con shown as a whole controller (KIND_PAD) when NpadJoyHoldType is Horizontal: match jc1_sideways_buttons / jc1_sideways_stick across Joy-Con 1 and 2
++static uint64_t joy_sideways_buttons(uint64_t b, int right) {
++    static const uint64_t from_l[4] = {DM_BTN_DOWN, DM_BTN_LEFT, DM_BTN_RIGHT, DM_BTN_UP};
++    static const uint64_t from_r[4] = {DM_BTN_X, DM_BTN_A, DM_BTN_Y, DM_BTN_B};
++    static const uint64_t to[4] = {DM_BTN_A, DM_BTN_B, DM_BTN_X, DM_BTN_Y};
++    const uint64_t *from = right ? from_r : from_l;
++    uint64_t m = b & (DM_BTN_L | DM_BTN_R | DM_BTN_ZL | DM_BTN_ZR | DM_BTN_PLUS | DM_BTN_MINUS | DM_BTN_SHAKE);
++    for (int i = 0; i < 4; i++) if (b & from[i]) m |= to[i];
++    if (b & (DM_BTN_LSL | DM_BTN_RSL)) m |= DM_BTN_L;
++    if (b & (DM_BTN_LSR | DM_BTN_RSR)) m |= DM_BTN_R;
++    if (b & (DM_BTN_LS | DM_BTN_RS)) m |= DM_BTN_LS;
++    return m;
++}
++static void fill_pad_slot(int p, uint64_t *b, int32_t a[4]) {
++    uint64_t pb = atomic_load(&g_pad_btn[p]) | atomic_exchange(&g_pad_latch[p], 0);
++    if (!joy_active(p)) {
++        *b |= pb;
++        uint64_t v = atomic_load(&g_pad_axes[p]); for (int i = 0; i < 4; i++) a[i] = pick(a[i], ax(v, i));
++        return;
++    }
++    *b |= pb & DM_BTN_SHAKE;
++    uint32_t sides = atomic_load(&g_joy_sides[p]);
++    if (sides == 3) {
++        for (int side = 0; side < 2; side++) {
++            *b |= atomic_load(&g_joy_btn[p][side]) | atomic_exchange(&g_joy_latch[p][side], 0);
++            uint64_t v = atomic_load(&g_joy_axes[p][side]);
++            a[2 * side] = pick(a[2 * side], ax(v, 0));
++            a[2 * side + 1] = pick(a[2 * side + 1], ax(v, 1));
++        }
++        return;
++    }
++    int side = sides == 2;
++    uint64_t jb = atomic_load(&g_joy_btn[p][side]) | atomic_exchange(&g_joy_latch[p][side], 0);
++    uint64_t v = atomic_load(&g_joy_axes[p][side]);
++    int32_t jx = ax(v, 0), jy = ax(v, 1);
++    if (atomic_load(&g_hold_type) == 1) {
++        *b |= joy_sideways_buttons(jb, side);
++        a[0] = pick(a[0], side ? jy : -jy);
++        a[1] = pick(a[1], side ? -jx : jx);
++    } else {
++        *b |= jb;
++        a[0] = pick(a[0], jx);
++        a[1] = pick(a[1], jy);
++    }
++}
+ static void fill(NpadState *s, uint32_t id, uint32_t style) {
+     memset(s, 0, sizeof *s);
+     s->sampling = atomic_fetch_add(&g_sampling, 1) + 1;
+@@ -628,10 +674,7 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
+         b = atomic_load(&g_btn) | atomic_exchange(&g_latch, 0);
+         uint64_t k = atomic_load(&g_axes); for (int i = 0; i < 4; i++) a[i] = ax(k, i);
+     }
+-    for (int p = 0; p < DM_PLAYERS; p++) if (src >> p & 1) {
+-        b |= atomic_load(&g_pad_btn[p]) | atomic_exchange(&g_pad_latch[p], 0);
+-        uint64_t v = atomic_load(&g_pad_axes[p]); for (int i = 0; i < 4; i++) a[i] = pick(a[i], ax(v, i));
+-    }
++    for (int p = 0; p < DM_PLAYERS; p++) if (src >> p & 1) fill_pad_slot(p, &b, a);
+     if (!pl) {   // the physical sources so far (DM_REC records them, DM_BTN_SHAKE only from player 1's own controller and the keyboard, as shake_note), then the scripted path
+         if (atomic_load_explicit(&g_rec_on, memory_order_relaxed)) rec_read((b & 0xffffull) | ((atomic_load(&g_btn) | atomic_load(&g_pad_btn[0])) & DM_BTN_SHAKE), a);
+         b |= atomic_load(&g_sc_btn) | atomic_exchange(&g_sc_latch, 0);
+@@ -712,8 +755,7 @@ HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyDualStateEiRKj", "dual Joy-Co
+ HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyLeftStateEiRKj", "left Joy-Con states (not connected on the host)", int, h_hid_StatesJoyLeft, NpadState *s, int n, const uint32_t *id) { return states(s, n, *id, STYLE_JOYLEFT); }
+ HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_17NpadJoyRightStateEiRKj", "right Joy-Con states (not connected on the host)", int, h_hid_StatesJoyRight, NpadState *s, int n, const uint32_t *id) { return states(s, n, *id, STYLE_JOYRIGHT); }
+ HLE_FORCE("_ZN2nn3hid14DisconnectNpadERKj", "disconnect a controller; ignored by the host", void, h_hid_Disconnect, const uint32_t *id) { (void)id; }
+-static uint32_t g_hold_type;
+-HLE_FORCE("_ZN2nn3hid18SetNpadJoyHoldTypeENS0_15NpadJoyHoldTypeE", "Joy-Con hold orientation; the host only records it", void, h_hid_HoldType, int t) { g_hold_type = (uint32_t)t; }
++HLE_FORCE("_ZN2nn3hid18SetNpadJoyHoldTypeENS0_15NpadJoyHoldTypeE", "Joy-Con hold orientation: recorded for fallback whole-controller reads", void, h_hid_HoldType, int t) { atomic_store(&g_hold_type, (uint32_t)t); }
+ // The game's choice of how the Joy-Cons of a pad are used (npad_resolve): single, left or right staying on the npad, or dual. NpadJoyDeviceType: Left 0, Right 1; NpadJoyAssignmentMode: Dual 0, Single 1
+ static void joy_assign(uint32_t id, int single, int keep) {
+     if (id >= DM_PLAYERS) return;
+@@ -1749,7 +1791,7 @@ HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyLeftStateERKj", "left Joy-Con
+ HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadJoyRightStateERKj", "right Joy-Con current state (not connected on the host)", void, h_hid_StateJoyRight, NpadState *s, const uint32_t *id) { fill(s, *id, STYLE_JOYRIGHT); }
+ 
+ static uint32_t g_comm_mode, g_hh_mode;
+-HLE_FORCE("_ZN2nn3hid18GetNpadJoyHoldTypeEv", "Joy-Con hold orientation: returns the value that was set", int, h_hid_GetHold, void) { return (int)g_hold_type; }
++HLE_FORCE("_ZN2nn3hid18GetNpadJoyHoldTypeEv", "Joy-Con hold orientation: returns the value that was set", int, h_hid_GetHold, void) { return (int)atomic_load(&g_hold_type); }
+ HLE_FORCE("_ZN2nn3hid24GetSupportedNpadStyleSetEv", "supported controller styles: all", uint32_t, h_hid_GetStyles, void) { return atomic_load(&g_styles_supported); }
+ HLE_FORCE("_ZN2nn3hid24GetNpadCommunicationModeEv", "wireless communication mode: returns the value that was set", int, h_hid_GetComm, void) { return (int)g_comm_mode; }
+ HLE_FORCE("_ZN2nn3hid24SetNpadCommunicationModeENS0_21NpadCommunicationModeE", "wireless communication mode; the host only records it", void, h_hid_SetComm, int m) { g_comm_mode = (uint32_t)m; }
+diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
+index 2d6527a..fd239cb 100644
+--- a/dm/host/tests/t_hid.c
++++ b/dm/host/tests/t_hid.c
+@@ -1903,6 +1903,86 @@ static void t_bind_gap(void) {
+     dm_pad_players(0x1); g_signals = 0; g_signalled = NULL;
+ }
+ 
++// SetNpadJoyHoldType (0 = Vertical, 1 = Horizontal): single Joy-Con whole-controller fallback (KIND_PAD) rotates sideways only when Horizontal, while native JoyLeft/JoyRight/JoyDual stay upright per Horizon OS
++static void t_joy_hold_type(void) {
++    g_mode = 1; ids((uint32_t[]){0, 1, 2, 3}, 4);
++    CHECK(h_hid_GetHold() == 0, "NpadJoyHoldType defaults to 0 (Vertical)");
++
++    // Fallback KIND_PAD (e.g. Sports Resort lobby: Handheld | JoyDual only, no JoyLeft/JoyRight): 2P single right Joy-Con + poisoned g_pad_btn
++    dm_pad_players(3); dm_joy_attach(1, 2);
++    dm_pad_set_player(1, DM_BTN_A, 1234, -1234, 0, 0);
++    h_hid_SetStyles(STYLE_HANDHELD | STYLE_JOYDUAL);
++    CHECK(h_hid_GetStyle(&(uint32_t){1}) == STYLE_JOYDUAL, "single right Joy-Con without JoyRight support falls back to KIND_PAD (JoyDual)");
++
++    dm_joy_set(1, 1, DM_BTN_X | DM_BTN_A | DM_BTN_R | DM_BTN_ZR | DM_BTN_PLUS | DM_BTN_RS | DM_BTN_RSR, 0, 20000);
++    NpadState st = npad_of(1, STYLE_JOYDUAL);
++    CHECK((st.buttons & 0xffffull) == (DM_BTN_X | DM_BTN_A | DM_BTN_R | DM_BTN_ZR | DM_BTN_PLUS | DM_BTN_RS),
++          "KIND_PAD Vertical right Joy-Con: keeps physical X/A (no sideways X->A swap) and suppresses rail");
++    CHECK(st.lx == 0 && st.ly == 20000 && st.rx == 0 && st.ry == 0 && (st.buttons & (1u << 17)) && !(st.buttons & (1u << 21)),
++          "KIND_PAD Vertical right Joy-Con: stick goes to lx/ly unrotated with StickLUp");
++
++    h_hid_HoldType(1); CHECK(h_hid_GetHold() == 1, "SetNpadJoyHoldType(1) sets Horizontal");
++    dm_joy_set(1, 1, DM_BTN_X | DM_BTN_R | DM_BTN_RSL, 0, 20000);
++    st = npad_of(1, STYLE_JOYDUAL);
++    CHECK((st.buttons & 0xffffull) == (DM_BTN_A | DM_BTN_R | DM_BTN_L) && !(st.buttons & DM_BTN_X),
++          "KIND_PAD Horizontal right Joy-Con: physical X maps to A, RSL maps to L");
++    CHECK(st.lx == 20000 && st.ly == 0 && st.rx == 0 && st.ry == 0 && (st.buttons & (1u << 18)),
++          "KIND_PAD Horizontal right Joy-Con: stick (0, 20000) rotates clockwise to (20000, 0) with StickLRight");
++
++    dm_joy_set(1, 1, DM_BTN_A | DM_BTN_Y | DM_BTN_B | DM_BTN_RS | DM_BTN_RSR, 20000, 0);
++    st = npad_of(1, STYLE_JOYDUAL);
++    CHECK((st.buttons & 0xffffull) == (DM_BTN_B | DM_BTN_X | DM_BTN_Y | DM_BTN_LS | DM_BTN_R),
++          "KIND_PAD Horizontal right Joy-Con: A->B, Y->X, B->Y, RS->LS, RSR->R");
++    CHECK(st.lx == 0 && st.ly == -20000 && (st.buttons & (1u << 19)),
++          "KIND_PAD Horizontal right Joy-Con: stick (20000, 0) rotates clockwise to (0, -20000) with StickLDown");
++
++    // Switching back to Vertical immediately restores upright mapping
++    h_hid_HoldType(0);
++    dm_joy_set(1, 1, DM_BTN_X | DM_BTN_A, 20000, 0);
++    st = npad_of(1, STYLE_JOYDUAL);
++    CHECK((st.buttons & 0xffffull) == (DM_BTN_X | DM_BTN_A) && st.lx == 20000 && st.ly == 0 && (st.buttons & (1u << 18)),
++          "KIND_PAD back to Vertical: physical X/A and stick orientation restored");
++    dm_pad_set_player(1, 0, 0, 0, 0, 0); dm_joy_attach(1, 0);
++
++    // Fallback KIND_PAD single left Joy-Con (player 1, STYLE_FULLKEY)
++    dm_pad_players(1); dm_joy_attach(0, 1); h_hid_SetStyles(STYLE_FULLKEY);
++    dm_joy_set(0, 0, DM_BTN_UP | DM_BTN_DOWN | DM_BTN_L | DM_BTN_ZL | DM_BTN_MINUS | DM_BTN_LS | DM_BTN_LSL, 0, 20000);
++    st = npad_of(0, STYLE_FULLKEY);
++    CHECK((st.buttons & 0xffffull) == (DM_BTN_UP | DM_BTN_DOWN | DM_BTN_L | DM_BTN_ZL | DM_BTN_MINUS | DM_BTN_LS),
++          "KIND_PAD Vertical left Joy-Con: keeps physical dpad and suppresses rail");
++    CHECK(st.lx == 0 && st.ly == 20000 && (st.buttons & (1u << 17)), "KIND_PAD Vertical left Joy-Con: unrotated stick");
++
++    h_hid_HoldType(1);
++    dm_joy_set(0, 0, DM_BTN_DOWN | DM_BTN_LEFT | DM_BTN_RIGHT | DM_BTN_UP | DM_BTN_LS | DM_BTN_LSL | DM_BTN_LSR, 0, 20000);
++    st = npad_of(0, STYLE_FULLKEY);
++    CHECK((st.buttons & 0xffffull) == (DM_BTN_A | DM_BTN_B | DM_BTN_X | DM_BTN_Y | DM_BTN_LS | DM_BTN_L | DM_BTN_R),
++          "KIND_PAD Horizontal left Joy-Con: Down->A, Left->B, Right->X, Up->Y, LSL->L, LSR->R");
++    CHECK(st.lx == -20000 && st.ly == 0 && (st.buttons & (1u << 16)),
++          "KIND_PAD Horizontal left Joy-Con: stick (0, 20000) rotates counterclockwise to (-20000, 0) with StickLLeft");
++
++    // Paired L+R fallback in KIND_PAD stays unaffected by Horizontal hold type
++    dm_joy_attach(0, 3);
++    dm_joy_set(0, 0, DM_BTN_UP | DM_BTN_LSL, -20000, 0); dm_joy_set(0, 1, DM_BTN_X | DM_BTN_RSR, 0, 20000);
++    st = npad_of(0, STYLE_FULLKEY);
++    CHECK((st.buttons & 0xffffull) == (DM_BTN_UP | DM_BTN_X) && st.lx == -20000 && st.ly == 0 && st.rx == 0 && st.ry == 20000,
++          "KIND_PAD paired L+R is unaffected by Horizontal hold type");
++
++    // Native JoyLeft / JoyRight / JoyDual stay upright under both Vertical and Horizontal per Horizon OS
++    h_hid_SetStyles(STYLE_FULLKEY | STYLE_JOYDUAL | STYLE_JOYLEFT | STYLE_JOYRIGHT);
++    st = npad_of(0, STYLE_JOYDUAL);
++    CHECK((st.buttons & (DM_BTN_UP | DM_BTN_X | DM_BTN_LSL | DM_BTN_RSR)) == (DM_BTN_UP | DM_BTN_X | DM_BTN_LSL | DM_BTN_RSR) && st.lx == -20000 && st.ry == 20000,
++          "native JoyDual ignores Horizontal hold type");
++    h_hid_JoySingle(&(uint32_t){0});
++    st = npad_of(0, STYLE_JOYLEFT);
++    CHECK((st.buttons & (DM_BTN_UP | DM_BTN_LSL)) == (DM_BTN_UP | DM_BTN_LSL) && !(st.buttons & DM_BTN_Y) && st.lx == -20000 && (st.buttons & (1u << 16)),
++          "native JoyLeft keeps physical dpad/rail/stick even when Horizontal");
++    st = npad_of(1, STYLE_JOYRIGHT);
++    CHECK((st.buttons & (DM_BTN_X | DM_BTN_RSR)) == (DM_BTN_X | DM_BTN_RSR) && !(st.buttons & DM_BTN_A) && st.ry == 20000 && (st.buttons & (1u << 21)) && st.lx == 0,
++          "native JoyRight keeps physical X/rail/rx,ry even when Horizontal");
++
++    h_hid_JoyDual(&(uint32_t){0}); h_hid_HoldType(0); dm_joy_attach(0, 0); dm_pad_players(1); h_hid_SetStyles(0xffffffffu);
++}
++
+ int main(void) {
+     CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");
+     setenv("DM_IMU_DELAY", "0", 1);   // the tests of the live history read it at the present; t_live_delay checks the playout delay
+@@ -2033,6 +2113,7 @@ int main(void) {
+     }
+     t_bind_gap();
+     t_applet_input();
++    t_joy_hold_type();
+     printf("hid players: %d checks, %d failed\n", checks, fails);
+     return fails != 0;
+ }

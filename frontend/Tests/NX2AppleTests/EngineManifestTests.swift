@@ -210,4 +210,16 @@ final class EngineManifestTests: IsolatedDefaultsTestCase {
         XCTAssertNil(EngineStore.identity(of: store.directory(for: id("c"))!))
         XCTAssertEqual(EngineStore.identity(of: store.directory(for: id("a"))!), id("b"), "the newline is not part of the id")
     }
+
+    func testUpstreamDateReadsValidUTCDateAndIgnoresMalformedOrMissing() throws {
+        let (store, _) = makeStore()
+        let dir = try XCTUnwrap(store.directory(for: id("a")))
+        try writeTree(dir, id: id("a"))
+        XCTAssertTrue(store.isUsable(id("a")), "older trees without .upstream-date remain usable")
+        XCTAssertNil(EngineStore.upstreamDate(of: dir))
+        try Data("2026-11-18T18:35:43Z\n".utf8).write(to: dir.appendingPathComponent(EngineStore.upstreamDateFile))
+        XCTAssertEqual(EngineStore.upstreamDate(of: dir), "2026-11-18T18:35:43Z")
+        try Data("yesterday\n".utf8).write(to: dir.appendingPathComponent(EngineStore.upstreamDateFile))
+        XCTAssertNil(EngineStore.upstreamDate(of: dir))
+    }
 }

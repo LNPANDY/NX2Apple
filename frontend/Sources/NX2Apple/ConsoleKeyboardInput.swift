@@ -5,10 +5,12 @@ import SwiftUI
 /// native button first-responder status; it never consumes another window's keys or global shortcuts.
 struct ConsoleKeyboardInput: NSViewRepresentable {
     var perform: (ConsoleInput) -> Void
+    var accepts: (ConsoleInput) -> Bool = { _ in true }
     /// The search is open: letters, digits and space type into it, Delete deletes (#816). The arrows, Return and Escape still move.
     var typing: () -> Bool = { false }
     final class KeyView: NSView {
         var perform: (ConsoleInput) -> Void = { _ in }
+        var accepts: (ConsoleInput) -> Bool = { _ in true }
         var typing: () -> Bool = { false }
         private var monitor: Any?
         override func viewDidMoveToWindow() {
@@ -18,7 +20,7 @@ struct ConsoleKeyboardInput: NSViewRepresentable {
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, let window = self.window, event.window === window, window.isKeyWindow,
                       NSApp.isActive, event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
-                      let input = Self.input(event, typing: self.typing()) else { return event }
+                      let input = Self.input(event, typing: self.typing()), self.accepts(input) else { return event }
                 self.perform(input)
                 return nil
             }
@@ -51,6 +53,6 @@ struct ConsoleKeyboardInput: NSViewRepresentable {
             }
         }
     }
-    func makeNSView(context: Context) -> KeyView { let view = KeyView(); view.perform = perform; view.typing = typing; return view }
-    func updateNSView(_ view: KeyView, context: Context) { view.perform = perform; view.typing = typing }
+    func makeNSView(context: Context) -> KeyView { let view = KeyView(); view.perform = perform; view.accepts = accepts; view.typing = typing; return view }
+    func updateNSView(_ view: KeyView, context: Context) { view.perform = perform; view.accepts = accepts; view.typing = typing }
 }

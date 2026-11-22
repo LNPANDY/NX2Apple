@@ -13,7 +13,6 @@
     {"prefix": "console.mapping.place.", "suffix": "", "why": "where each controller button sits, by its DM_PAD_MAP name, ConsolePadMappingView.swift"},
     {"prefix": "console.platform.", "suffix": "", "why": "the platforms of a game, ConsoleState.swift"},
     {"prefix": "console.pref.", "suffix": "", "why": "the launcher's switches on the console menu's pages and their notes, ConsoleExtras.swift"},
-    {"prefix": "console.rows.", "suffix": "", "why": "the rows of console mode's home screen, ConsoleState+Pages.swift"},
     {"prefix": "console.saves.status.", "suffix": "", "why": "the sync state of each game's save, ConsoleCloudSaves.swift"},
     {"prefix": "console.saves.updated.", "suffix": "", "why": "which time a save row shows, ConsoleCloudSaves.swift"},
     {"prefix": "console.tab.", "suffix": "", "why": "the tabs of a game's page in console mode, ConsoleState+Pages.swift"},
@@ -48,10 +47,11 @@
     {"prefix": "onboarding.background.", "suffix": "", "why": "the background tasks of the onboarding, OnboardingState.swift"},
     {"prefix": "onboarding.platform.", "suffix": "", "why": "the platform choices of the onboarding, OnboardingView.swift"},
     {"prefix": "onboarding.setup.", "suffix": "", "why": "the Xcode setup tasks of the onboarding, OnboardingState.swift"},
+    {"prefix": "onboarding.step.", "suffix": "", "why": "the name of each onboarding step in its top bar, OnboardingView.swift"},
     {"prefix": "stage.", "suffix": "", "why": "the name of each build stage, BuildProgress.swift"},
-    {"prefix": "appearance.", "suffix": "", "why": "the System, Light and Dark choices, LauncherAppearance.labelKey in LauncherPalette.swift"},
     {"prefix": "launch.cat.", "suffix": "", "why": "the four parts of the options sheet, LaunchCategory.labelKey in LaunchCategory.swift"},
     {"prefix": "settings.cat.", "suffix": "", "why": "the four parts of Settings, SettingsCategory.labelKey in SettingsCategory.swift"},
+    {"prefix": "settings.note.", "suffix": "", "why": "the subtitle of each part of Settings, SettingsPage.swift"},
     {"prefix": "sort.", "suffix": "", "why": "the library order choices, LibrarySort.labelKey in LauncherPage.swift"}
   ],
   "catalogKeys": [

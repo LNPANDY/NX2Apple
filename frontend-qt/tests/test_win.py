@@ -4542,10 +4542,15 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 if sname == 'settings.py':
                     Path(args[3]).write_text('{"schema":1,"settings":[]}', encoding='utf-8')
                     return 'launcher.json'
-                if sname == 'make_ext_font.py':
-                    Path(args[0]).write_bytes(b'ext')
-                    return 'ok'
                 return ''
+
+            font_calls: list[tuple[Path, Path, Path, Path]] = []
+
+            def fake_shared_fonts(repo_arg: Path, out_dir: Path, font_arg: Path, letter_arg: Path) -> None:
+                font_calls.append((repo_arg, out_dir, font_arg, letter_arg))
+                for fname in ('standard.ttf', 'chinese_simplified.ttf', 'chinese_simplified_ext.ttf',
+                              'chinese_traditional.ttf', 'korean.ttf', 'nintendo_ext.ttf'):
+                    (out_dir / fname).write_bytes(b'ttf')
 
             pack_calls: list[list[str]] = []
             identity_line = (b'DMROMFSID1 title=010015100B514000 version=1.0 '
@@ -4587,15 +4592,19 @@ class WindowsBuildFixesTest(unittest.TestCase):
                     mock.patch.object(tc, 'sdk_version', return_value=('26.0', '23A344')),
                     mock.patch.object(tc, 'std_font', return_value=std_font),
                     mock.patch.object(tc, 'letter_font', return_value=letter_font),
-                    mock.patch.object(build_app, 'py', side_effect=fake_py),
-                    mock.patch.object(build_app, 'romfs_has', return_value=True),
-                    mock.patch.object(build_app, 'shader_lib_has', return_value=True),
+                    mock.patch.multiple(
+                        build_app,
+                        py=fake_py,
+                        _build_shared_fonts=fake_shared_fonts,
+                        romfs_has=lambda *_a, **_kw: True,
+                        shader_lib_has=lambda *_a, **_kw: True,
+                        host_sources=lambda *_a, **_kw: ([], []),
+                        framework_list=lambda *_a, **_kw: ['Foundation'],
+                        compat_rt_needed=lambda *_a, **_kw: False,
+                        compile_all=lambda *_a, **_kw: [],
+                        link=lambda *_a, **_kw: None,
+                    ),
                     mock.patch.object(build_app, 'build_pso_archive', return_value=pso_dir) as spy_pso,
-                    mock.patch.object(build_app, 'host_sources', return_value=([], [])),
-                    mock.patch.object(build_app, 'framework_list', return_value=['Foundation']),
-                    mock.patch.object(build_app, 'compat_rt_needed', return_value=False),
-                    mock.patch.object(build_app, 'compile_all', return_value=[]),
-                    mock.patch.object(build_app, 'link', return_value=None),
                     mock.patch.object(build_app.fix_ipa_modes, 'fix', return_value='ok'),
                     mock.patch.object(build_app.subprocess, 'run', side_effect=fake_subproc_run),
                 ):
@@ -4616,6 +4625,41 @@ class WindowsBuildFixesTest(unittest.TestCase):
                     # iOS's romfs_id_parse stops at LF, so a trailing CR makes
                     # strtoull reject the index and reports ROMFS_ID_BAD (2).
                     self.assertEqual(identity_file.read_bytes(), identity_line + b'\n')
+                self.assertTrue(font_calls)
+                self.assertEqual(font_calls[-1][2], std_font)
+                self.assertEqual(font_calls[-1][3], letter_font)
+                font_calls.clear()
+
+    def test_build_shared_fonts_passes_explicit_std_and_letter_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tools = root / 'dm/tools'
+            tools.mkdir(parents=True)
+            calls: list[tuple[str, str, str]] = []
+            (tools / 'make_shared_fonts.py').write_text(
+                'def build(out_dir, src, letters):\n'
+                '    import os\n'
+                '    os.makedirs(out_dir, exist_ok=True)\n'
+                '    _RECORD.append((out_dir, src, letters))\n',
+                encoding='utf-8',
+            )
+            out_dir = root / 'out_fonts'
+            std_font = root / 'win_std.ttf'
+            letter_font = root / 'win_letter.ttf'
+            saved = sys.modules.pop('make_shared_fonts', None)
+            try:
+                import importlib
+                sys.path.insert(0, str(tools))
+                mod = importlib.import_module('make_shared_fonts')
+                mod._RECORD = calls
+                build_app._build_shared_fonts(root, out_dir, std_font, letter_font)
+                self.assertEqual(calls, [(str(out_dir), str(std_font), str(letter_font))])
+            finally:
+                sys.modules.pop('make_shared_fonts', None)
+                if saved is not None:
+                    sys.modules['make_shared_fonts'] = saved
+                if str(tools) in sys.path:
+                    sys.path.remove(str(tools))
 
 
 class UnrealInlineShadersWinTest(unittest.TestCase):
@@ -7811,6 +7855,768 @@ class RomfsTrailerAndManifestArgsTests(unittest.TestCase):
             self.assertEqual(msl_cache.get('gfx_api'), 'vulkan')
             self.assertEqual(Path(msl_cache.get('msl_root', '')), w / 'build' / 'ios' / 'dmsh_b')
             self.assertEqual(Path(msl_cache.get('lib_path', '')), w / 'build' / 'ios' / 'dmsh_b' / 'vk')
+
+
+class WindowsMissingPrereqAndStrippedDefenderTest(unittest.TestCase):
+    """Stripped-Windows Defender module fallback, VC++ Redistributable probe, NTSTATUS diagnostics, and shader failure attribution."""
+
+    def test_defender_scripts_handle_missing_module_and_stripped_windows(self) -> None:
+        from nspb_qt.win import defender
+
+        elev = defender.build_inner_elevation_script(r'C:\Temp\payload.json')
+        self.assertIn('Ensure-DefenderModule', elev)
+        self.assertIn(r'System32\WindowsPowerShell\v1.0\Modules\Defender', elev)
+        self.assertIn("if ($null -eq (Get-Command -Name 'Add-MpPreference'", elev)
+        self.assertIn("error_code = 'service_inactive'", elev)
+        self.assertIn('if ($null -eq $svc -and $null -eq $st)', elev)
+        self.assertIn('CommandNotFoundException', elev)
+
+        rem = defender.build_inner_removal_script(r'C:\Temp\payload.json')
+        self.assertIn('Ensure-DefenderModule', rem)
+        self.assertIn("if ($null -eq (Get-Command -Name 'Remove-MpPreference'", rem)
+        self.assertIn('Write-AtomicJson $resultPath @{ ok = $true', rem)
+
+    def test_model_apply_defender_service_inactive_dismisses_prompt(self) -> None:
+        import ast
+        import threading
+        from nspb_qt.i18n import Lang
+        from nspb_qt.l10n import t as l10n_t
+        from nspb_qt.win import defender
+
+        src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+        tree = ast.parse(src)
+        cls_node = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Model')
+        wanted = {
+            '_defender_failure_message',
+            'defender_info',
+            'should_prompt_defender_before_build',
+            'apply_defender_exclusions',
+            '_invoke_defender_done',
+        }
+        methods = [n for n in cls_node.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
+        mod_node = ast.fix_missing_locations(ast.Module(body=methods, type_ignores=[]))
+
+        pending_workers: list[object] = []
+
+        class _ImmediateThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+
+            def start(self):
+                if self._target:
+                    pending_workers.append(self._target)
+
+        class _Sig:
+            def emit(self, *a):
+                pass
+
+        class _DummyQThread:
+            @staticmethod
+            def currentThread():
+                return 'main'
+
+        ns: dict = {
+            'Callable': object,
+            'Slot': lambda *a, **k: (lambda fn: fn),
+            'Q_ARG': lambda *_a: None,
+            'QThread': _DummyQThread,
+            'QMetaObject': type('QM', (), {'invokeMethod': staticmethod(lambda obj, name, *_a: getattr(obj, name)())}),
+            'Qt': type('Qt', (), {'QueuedConnection': 1}),
+            'threading': type('T', (), {'Thread': _ImmediateThread}),
+            '__package__': 'nspb_qt',
+        }
+        exec(compile(mod_node, str(QT / 'nspb_qt' / 'model.py'), 'exec'), ns)
+
+        class _Harness:
+            apply_defender_exclusions = ns['apply_defender_exclusions']
+            _defender_failure_message = ns['_defender_failure_message']
+            _invoke_defender_done = ns['_invoke_defender_done']
+            should_prompt_defender_before_build = ns['should_prompt_defender_before_build']
+            defender_info = ns['defender_info']
+
+            def __init__(self):
+                self.show_defender_ui = True
+                self.defender_busy = False
+                self.defender_status_ok = False
+                self.defender_status_msg = ''
+                self.lang = Lang('zh')
+                self.repo_path = ''
+                self.repo_ok = False
+                self.out_dir = ''
+                self.shell_cache_path = ''
+                self.base_path = ''
+                self._defender_gen = 0
+                self._defender_lock = threading.RLock()
+                self._defender_callbacks = {}
+                self.repoChanged = _Sig()
+                self.depsChanged = _Sig()
+                self._settings: dict[str, bool] = {}
+
+            def _current_build_dirs(self, *, title_id=None):
+                return r'D:\games\botw', r'D:\build\01007EF00011E000_build'
+
+            def _emit_repo_changed(self):
+                pass
+
+            def _emit_deps_changed(self):
+                pass
+
+            def thread(self):
+                return 'main'
+
+            def log(self, _msg):
+                pass
+
+            def t(self, key: str, *args: object) -> str:
+                return l10n_t(key, self.lang, *args)
+
+            def settings_value(self, k: str, default=False):
+                return self._settings.get(k, default)
+
+            def settings_set(self, k: str, val: bool):
+                self._settings[k] = val
+
+        h = _Harness()
+        with tempfile.TemporaryDirectory() as td:
+            fake_tools = Path(td) / 'NS Port Builder' / 'tools'
+            fake_tools.mkdir(parents=True)
+            with mock.patch.object(tc, 'tools_dir', return_value=fake_tools):
+                self.assertTrue(h.should_prompt_defender_before_build())
+                h.apply_defender_exclusions()
+                w = pending_workers.pop(0)
+                with mock.patch.object(
+                    defender,
+                    'apply_exclusions',
+                    return_value=defender.DefenderResult(ok=False, error='no module', error_code='service_inactive'),
+                ):
+                    w()
+                self.assertEqual(h.defender_status_msg, h.t('defender.msg.inactive'))
+                self.assertTrue(h.settings_value('defenderPromptDismissed', False))
+                self.assertFalse(h.should_prompt_defender_before_build())
+
+    def test_vcredist_probe_and_ntstatus_exit_explanation(self) -> None:
+        if os.name != 'nt':
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop(tc.ENV_SYSTEM32, None)
+                self.assertIsNone(tc.probe_vcredist())
+
+        with tempfile.TemporaryDirectory() as td:
+            sys32 = Path(td)
+            (sys32 / 'VCRUNTIME140.dll').write_bytes(b'MZ')
+            with mock.patch.dict(os.environ, {tc.ENV_SYSTEM32: str(sys32)}, clear=False):
+                probe = tc.probe_vcredist()
+                self.assertIsNotNone(probe)
+                assert probe is not None
+                self.assertEqual(probe.state, 'missing')
+                self.assertIn('vcruntime140_1.dll, msvcp140.dll', probe.detail)
+                self.assertIn(tc.VCREDIST_URL, probe.hint)
+                all_ids = {p.id: p for p in tc.check_all(deep=False)}
+                self.assertIn('vcredist', all_ids)
+                self.assertEqual(all_ids['vcredist'].state, 'missing')
+
+                hint_135 = tc.explain_process_exit(-1073741515, Path('metal.exe'))
+                self.assertIn('0xC0000135', hint_135)
+                self.assertIn('vcruntime140_1.dll, msvcp140.dll', hint_135)
+
+                hint_07b = tc.explain_process_exit(0xC000007B, Path('metal.exe'))
+                self.assertIn('0xC000007B', hint_07b)
+                self.assertIn('32-bit/64-bit DLL mismatch', hint_07b)
+
+                (sys32 / 'vcruntime140_1.dll').write_bytes(b'MZ')
+                (sys32 / 'msvcp140.dll').write_bytes(b'MZ')
+                ok_probe = tc.probe_vcredist()
+                self.assertIsNotNone(ok_probe)
+                assert ok_probe is not None
+                self.assertEqual(ok_probe.state, 'ok')
+
+    def test_probe_metal_passes_relaxed_math_and_flags_old_metal_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            sdk = make_fake_sdk(root, '26.0')
+            seen_cmds: list[list[str]] = []
+
+            def fake_ok(cmd, *a, **kw):
+                seen_cmds.append([str(c) for c in cmd])
+                if '-o' in cmd:
+                    Path(cmd[cmd.index('-o') + 1]).write_bytes(b'MTLB')
+                return subprocess.CompletedProcess(cmd, 0, '', '')
+
+            with (
+                mock.patch.object(tc, 'metal_tool', side_effect=lambda name, *a: Path(f'C:/metal/{name}.exe')),
+                mock.patch.object(tc.subprocess, 'run', side_effect=fake_ok),
+            ):
+                ok, detail = tc.probe_metal(sdk)
+            self.assertTrue(ok, detail)
+            self.assertIn('-fmetal-math-mode=relaxed', seen_cmds[0])
+            self.assertIn('-fpreserve-invariance', seen_cmds[0])
+            self.assertIn('-fwrapv', seen_cmds[0])
+
+            def fake_old(cmd, *a, **kw):
+                return subprocess.CompletedProcess(cmd, 1, '', "metal.exe: error: unknown argument: '-fmetal-math-mode=relaxed'\n")
+
+            with (
+                mock.patch.object(tc, 'metal_tool', side_effect=lambda name, *a: Path(f'C:/metal/{name}.exe')),
+                mock.patch.object(tc.subprocess, 'run', side_effect=fake_old),
+            ):
+                ok, detail = tc.probe_metal(sdk)
+            self.assertFalse(ok)
+            self.assertIn('installed Metal Developer Tools for Windows is too old', detail)
+
+            def fake_135(cmd, *a, **kw):
+                return subprocess.CompletedProcess(cmd, -1073741515, '', '')
+
+            sys32 = root / 'sys32'
+            sys32.mkdir()
+            with (
+                mock.patch.dict(os.environ, {tc.ENV_SYSTEM32: str(sys32)}, clear=False),
+                mock.patch.object(tc, 'metal_tool', side_effect=lambda name, *a: Path(f'C:/metal/{name}.exe')),
+                mock.patch.object(tc.subprocess, 'run', side_effect=fake_135),
+            ):
+                ok, detail = tc.probe_metal(sdk)
+            self.assertFalse(ok)
+            self.assertIn('0xC0000135', detail)
+            self.assertIn('vcruntime140.dll', detail)
+
+    def test_driver_diagnoses_empty_ios_shader_log_and_missing_spirv_cross(self) -> None:
+        from types import SimpleNamespace
+        from nspb_qt.win import driver
+
+        with tempfile.TemporaryDirectory() as td:
+            sys32 = Path(td) / 'sys32'
+            sys32.mkdir()
+            (sys32 / 'vcruntime140.dll').write_bytes(b'MZ')
+            with mock.patch.dict(os.environ, {tc.ENV_SYSTEM32: str(sys32)}, clear=False):
+                msg_135 = driver.diagnose_empty_shader_log('metal.exe failed with exit code -1073741515 (0xc0000135)')
+                self.assertIn('0xC0000135', msg_135)
+                self.assertIn('vcruntime140_1.dll, msvcp140.dll', msg_135)
+
+            self.assertIn(
+                'Metal Developer Tools for Windows (metal.exe / metallib.exe) is missing',
+                driver.diagnose_empty_shader_log("no Windows tool for `xcrun -sdk iphoneos metal`"),
+            )
+            self.assertIn(
+                'installed Metal Developer Tools for Windows is too old',
+                driver.diagnose_empty_shader_log("metal.exe: error: unknown argument: '-fmetal-math-mode=relaxed'"),
+            )
+            self.assertIn(
+                'all 24 shader compiles failed: unexpected AIR opcode',
+                driver.diagnose_empty_shader_log('  [fail] unexpected AIR opcode\nshaders 24: ok 0, fail 24\n'),
+            )
+
+            # Verify driver.patch wraps build_shaders to surface dmsh_build.log root cause and missing spirv-cross
+            class FakeBuildError(Exception):
+                pass
+
+            logs = Path(td) / 'logs'
+            logs.mkdir()
+            (logs / 'dmsh_build.log').write_text(
+                "error: unknown argument: '-fmetal-math-mode=relaxed'\nshaders 12: ok 0, fail 12\n",
+                encoding='utf-8',
+            )
+            sh = Path(td) / 'shader'
+            sh.mkdir()
+            repo = Path(td) / 'repo'
+            repo.mkdir()
+            (repo / 'dm/gfx/tools/spirv_cross_bin').mkdir(parents=True)
+
+            def failing_build_shaders(py, repo_, sh_, xlate, env, logs_, g, *a, **kw):
+                raise FakeBuildError(rf'no iOS shader libraries in {sh_}\ios\b-0123456789ab')
+
+            mod = SimpleNamespace(
+                BuildError=FakeBuildError,
+                say=lambda *_a, **_k: None,
+                run=lambda *_a, **_k: 0,
+                PROG=SimpleNamespace(stage=lambda *a, **k: None, end=lambda *a, **k: None),
+                chain_of=lambda *_a: '0123456789ab',
+                build_shaders=failing_build_shaders,
+                glslc_done=lambda *_a: set(),
+                capture_wanted=lambda *_a: 0,
+            )
+            with mock.patch.object(tc, 'llvm_dir', return_value=None), \
+                 mock.patch.object(tc, 'find_exe', return_value=None), \
+                 mock.patch.object(tc, 'dotnet_dir', return_value=None):
+                driver.patch(mod, repo)
+
+            with (
+                mock.patch.object(tc, 'find_exe', return_value=None),
+                mock.patch.object(driver.shutil, 'which', return_value=None),
+            ):
+                with self.assertRaises(FakeBuildError) as ctx_sc:
+                    mod.build_shaders(sys.executable, repo, sh, repo / 'xlate', {}, logs, None)
+                self.assertIn('missing on this PC', str(ctx_sc.exception))
+                self.assertIn('spirv-cross', str(ctx_sc.exception))
+
+            fake_sc = Path(td) / 'spirv-cross.exe'
+            fake_sc.write_bytes(b'MZ')
+            with self.assertRaises(FakeBuildError) as ctx_log:
+                mod.build_shaders(sys.executable, repo, sh, repo / 'xlate', {'SPIRV_CROSS': str(fake_sc)}, logs, None)
+            self.assertIn('no iOS shader libraries in', str(ctx_log.exception))
+            self.assertIn('installed Metal Developer Tools for Windows is too old', str(ctx_log.exception))
+
+
+class WindowsIosPackagerParityTest(unittest.TestCase):
+    """Contract parity between `dm/ios/tools/build_ipa.sh` and `nspb_qt/win/build_app.py`."""
+
+    @staticmethod
+    def _setup_minimal_fixture(root: Path, *, tid: str = '0400A3A01EE4C000', gfx: str = 'nvn',
+                               with_manifest: bool = False) -> dict[str, Path]:
+        repo = root / 'engine'
+        gd = repo / 'dm' / 'games' / tid
+        gd.mkdir(parents=True)
+        (gd / 'game.tsv').write_text('modules\tmain\n', encoding='utf-8')
+        (gd / 'shader_map.tsv').write_text('# shader map\n', encoding='utf-8')
+        if gfx == 'nvn':
+            (gd / 'c1_full.tsv').write_text('# chain b-v0 inputs abcdef012345 1\n', encoding='utf-8')
+        if with_manifest:
+            (gd / 'pso_manifest.tsv').write_bytes(b'# recorded seed\nS\t1234\tvertex\n')
+        (repo / 'dm' / 'fork_patches.txt').write_text('patch-alpha\npatch-beta\n', encoding='utf-8')
+        (repo / 'dm' / 'gfx' / 'nvn').mkdir(parents=True)
+        (repo / 'dm' / 'gfx' / 'nvn' / 'dmsh_chain.h').write_text('#define DMSH_CHAIN "v0"\n', encoding='utf-8')
+        (repo / 'dm' / 'ios' / 'Sources').mkdir(parents=True)
+        (repo / 'dm' / 'ios' / 'framework').mkdir(parents=True)
+        (repo / 'dm' / 'ios' / 'tools').mkdir(parents=True)
+        (repo / 'dm' / 'host').mkdir(parents=True)
+        (repo / 'dm' / 'host' / 'main.c').write_text('int main(void){return 0;}\n', encoding='utf-8')
+        for rel in (
+            'dm/ios/framework/DmGameMarker.m',
+            'dm/ios/framework/ShellGlue.m',
+            'dm/ios/Sources/front_ios.m',
+            'dm/ios/Sources/DmGamepad.m',
+            'dm/ios/Sources/CloudSaves.m',
+            'dm/ios/Sources/SaveSync.m',
+            'dm/ios/Sources/DataBookmark.m',
+        ):
+            p = repo / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text('@interface StubObjcClass : NSObject\n@end\n@implementation StubObjcClass\n@end\n',
+                         encoding='utf-8')
+
+        w = root / '游戏,测试_work'
+        patched = w / 'build' / 'patched_v65536'
+        patched.mkdir(parents=True)
+        (patched / 'main.patched.bin').write_bytes(b'\x00' * 16)
+        (patched / 'main.fixups.tsv').write_text('', encoding='utf-8')
+        romfs = w / 'extract' / 'v65536' / 'RomFS'
+        romfs.mkdir(parents=True)
+        msl_ios = w / 'msl_ios'
+        if gfx == 'vulkan':
+            (msl_ios / 'vk').mkdir(parents=True)
+            (msl_ios / 'vk' / 'vk_shaders.metallib').write_bytes(b'MTLB')
+        elif gfx == 'gl':
+            (msl_ios / 'gl').mkdir(parents=True)
+            (msl_ios / 'gl' / 'gl_shaders.metallib').write_bytes(b'MTLB')
+        else:
+            (msl_ios / 'b-v0').mkdir(parents=True)
+
+        sdk = make_fake_sdk(root)
+        clang = root / 'clang.exe'
+        clang.write_bytes(b'MZ')
+        lld = root / 'lld' / 'ld64.lld.exe'
+        lld.parent.mkdir(parents=True, exist_ok=True)
+        lld.write_bytes(b'MZ')
+        std_font = root / 'std.ttf'
+        std_font.write_bytes(b'ttf')
+        letter_font = root / 'letter.ttf'
+        letter_font.write_bytes(b'ttf')
+        return {
+            'repo': repo, 'gd': gd, 'w': w, 'patched': patched, 'romfs': romfs,
+            'msl_ios': msl_ios, 'sdk': sdk, 'clang': clang, 'lld': lld,
+            'std_font': std_font, 'letter_font': letter_font,
+        }
+
+    @staticmethod
+    def _make_fake_game_module(gd: Path, pkg: str = 'v65536'):
+        import types
+        fake_gm = types.ModuleType('game')
+        fake_gm._nspb_patched = True
+
+        class _Prof:
+            dir = str(gd)
+
+            @staticmethod
+            def get(k: str, default: str = '') -> str:
+                return {
+                    'package': pkg,
+                    'modules': 'main',
+                    'romfs_marker': 'marker.bin',
+                    'ipa': 'out.ipa',
+                    'zip_store': '',
+                }.get(k, default)
+
+            @staticmethod
+            def modules_in(_p: Path) -> list[str]:
+                return ['main']
+
+        fake_gm.load = lambda _g: _Prof()
+        return fake_gm
+
+    def test_missing_pso_manifest_is_optional_across_all_apis_and_preserved_when_present(self) -> None:
+        from nspb_qt.win import build_app, toolchain as tc
+
+        for gfx in ('nvn', 'vulkan', 'gl'):
+            for with_manifest in (False, True):
+                with self.subTest(gfx=gfx, with_manifest=with_manifest), tempfile.TemporaryDirectory() as td:
+                    fx = self._setup_minimal_fixture(Path(td), gfx=gfx, with_manifest=with_manifest)
+                    fake_gm = self._make_fake_game_module(fx['gd'])
+                    fw_out = Path(td) / 'fw_out'
+
+                    def fake_py(script, *args, **_kw):
+                        sname = Path(script).name
+                        if sname == 'dmsh_chain.py':
+                            return 'abcdef012345'
+                        if sname == 'game.py' and args and args[0] in ('header', 'profile'):
+                            Path(args[2]).write_text('// stub\n', encoding='utf-8')
+                            return ''
+                        if sname == 'gen_embed.py':
+                            Path(args[-2]).write_text('.text\n', encoding='utf-8')
+                            return ''
+                        if sname == 'settings.py':
+                            Path(args[3]).write_text('{"schema":1,"settings":[]}', encoding='utf-8')
+                            return 'launcher.json'
+                        if sname == 'gen_manifest.py':
+                            Path(args[0]).write_text('{}\n', encoding='utf-8')
+                            return ''
+                        return ''
+
+                    env_cur = {
+                        'NSPB_REPO': str(fx['repo']),
+                        'GAME': '0400A3A01EE4C000',
+                        'W': str(fx['w']),
+                        'PATCHED': str(fx['patched']),
+                        'ROMFS': str(fx['romfs']),
+                        'MSL_IOS': str(fx['msl_ios']),
+                        'GFXAPI': gfx,
+                        'DM_DISPLAY_NAME': 'Pokemon Pokopia',
+                        'DM_FRAMEWORK_ONLY': str(fw_out),
+                    }
+                    with (
+                        mock.patch.dict(os.environ, env_cur, clear=False),
+                        mock.patch.dict(sys.modules, {'game': fake_gm}),
+                        mock.patch.object(tc, 'ios_sdk', return_value=fx['sdk']),
+                        mock.patch.object(tc, 'sdk_version', return_value=('26.0', '23A344')),
+                        mock.patch.object(tc, 'llvm_tool', return_value=fx['clang']),
+                        mock.patch.object(tc, 'ensure_ld64_lld', return_value=(fx['lld'], '')),
+                        mock.patch.multiple(
+                            build_app,
+                            py=fake_py,
+                            romfs_has=lambda *_a, **_kw: True,
+                            shader_lib_has=lambda *_a, **_kw: True,
+                            shader_lib_stamp_lines=lambda *_a, **_kw: ['game\t0400A3A01EE4C000', 'inputs\tabcdef012345'],
+                            host_sources=lambda *_a, **_kw: ([], []),
+                            compat_rt_needed=lambda *_a, **_kw: False,
+                            compile_all=lambda *_a, **_kw: [],
+                            build_pso_archive=lambda *_a, **_kw: None,
+                            link_framework=lambda *_a, **_kw: (fw_out / 'DmGame0400A3A01EE4C000.framework' / 'DmGame0400A3A01EE4C000').write_bytes(b'dylib'),
+                        ),
+                    ):
+                        rc = build_app.main([])
+                    self.assertEqual(rc, 0)
+                    dm_manifest = fw_out / 'DmGame0400A3A01EE4C000.framework' / 'dm' / 'pso_manifest.tsv'
+                    if with_manifest:
+                        self.assertEqual(dm_manifest.read_bytes(), b'# recorded seed\nS\t1234\tvertex\n')
+                    else:
+                        self.assertFalse(dm_manifest.exists())
+
+        # Missing required shader_map.tsv must still stop the build
+        with tempfile.TemporaryDirectory() as td:
+            fx = self._setup_minimal_fixture(Path(td), gfx='vulkan', with_manifest=False)
+            (fx['gd'] / 'shader_map.tsv').unlink()
+            fake_gm = self._make_fake_game_module(fx['gd'])
+            env_bad = {
+                'NSPB_REPO': str(fx['repo']),
+                'GAME': '0400A3A01EE4C000',
+                'W': str(fx['w']),
+                'PATCHED': str(fx['patched']),
+                'ROMFS': str(fx['romfs']),
+                'MSL_IOS': str(fx['msl_ios']),
+                'GFXAPI': 'vulkan',
+                'DM_DISPLAY_NAME': 'Pokemon Pokopia',
+                'DM_FRAMEWORK_ONLY': str(Path(td) / 'fw_bad'),
+            }
+            with (
+                mock.patch.dict(os.environ, env_bad, clear=False),
+                mock.patch.dict(sys.modules, {'game': fake_gm}),
+                mock.patch.object(tc, 'ios_sdk', return_value=fx['sdk']),
+                mock.patch.object(tc, 'sdk_version', return_value=('26.0', '23A344')),
+                mock.patch.object(tc, 'llvm_tool', return_value=fx['clang']),
+                mock.patch.object(tc, 'ensure_ld64_lld', return_value=(fx['lld'], '')),
+                mock.patch.multiple(
+                    build_app,
+                    py=lambda script, *args, **_kw: (
+                        Path(args[2]).write_text('// stub\n', encoding='utf-8') or ''
+                        if Path(script).name == 'game.py'
+                        else (Path(args[-2]).write_text('.text\n', encoding='utf-8') or '')
+                    ),
+                    romfs_has=lambda *_a, **_kw: True,
+                ),
+            ):
+                with self.assertRaises(SystemExit) as ctx:
+                    build_app.main([])
+                self.assertEqual(ctx.exception.code, 1)
+
+    def test_framework_only_generates_objc_namespace_and_passes_ascii_exported_symbol_flags(self) -> None:
+        from nspb_qt.win import build_app, toolchain as tc
+
+        repo_root = Path(__file__).resolve().parents[2]
+        real_ns_tool = repo_root / 'engine' / 'dm' / 'ios' / 'tools' / 'gen_objc_namespace.py'
+        real_boot_h = repo_root / 'engine' / 'dm' / 'ios' / 'Sources' / 'FrameworkBootstrap.h'
+        self.assertTrue(real_ns_tool.is_file(), f'missing synced engine tool: {real_ns_tool}')
+
+        with tempfile.TemporaryDirectory() as td:
+            fx = self._setup_minimal_fixture(Path(td), gfx='vulkan', with_manifest=False)
+            shutil.copy2(real_ns_tool, fx['repo'] / 'dm' / 'ios' / 'tools' / 'gen_objc_namespace.py')
+            if real_boot_h.is_file():
+                shutil.copy2(real_boot_h, fx['repo'] / 'dm' / 'ios' / 'Sources' / 'FrameworkBootstrap.h')
+            fake_gm = self._make_fake_game_module(fx['gd'])
+            fw_out = Path(td) / 'fw_ns_out'
+
+            real_py = build_app.py
+            real_subproc_run = subprocess.run
+            captured_compile: dict[str, object] = {}
+            captured_link_cmd: list[str] = []
+
+            def selective_py(script, *args, **kw):
+                if Path(script).name == 'gen_objc_namespace.py':
+                    return real_py(script, *args, **kw)
+                sname = Path(script).name
+                if sname == 'game.py' and args and args[0] in ('header', 'profile'):
+                    Path(args[2]).write_text('// stub\n', encoding='utf-8')
+                elif sname == 'gen_embed.py':
+                    Path(args[-2]).write_text('.text\n', encoding='utf-8')
+                elif sname == 'settings.py':
+                    Path(args[3]).write_text('{"schema":1,"settings":[]}', encoding='utf-8')
+                elif sname == 'gen_manifest.py':
+                    Path(args[0]).write_text('{}\n', encoding='utf-8')
+                return ''
+
+            def spy_compile_all(_clang, _sdk, files, incs, _obj_dir, _dep, extra=None):
+                captured_compile['files'] = list(files)
+                captured_compile['incs'] = list(incs)
+                captured_compile['extra'] = list(extra or [])
+                return []
+
+            def spy_subproc_run(cmd, *a, **kw):
+                cmd_strs = [str(c) for c in cmd]
+                if any('gen_objc_namespace.py' in c for c in cmd_strs):
+                    return real_subproc_run(cmd, *a, **kw)
+                if cmd_strs and cmd_strs[0] == str(fx['clang']) and '-dynamiclib' in cmd_strs:
+                    captured_link_cmd.extend(cmd_strs)
+                    out_idx = cmd_strs.index('-o') + 1
+                    Path(cmd_strs[out_idx]).write_bytes(b'dylib')
+                return subprocess.CompletedProcess(cmd_strs, 0, '', '')
+
+            env_cur = {
+                'NSPB_REPO': str(fx['repo']),
+                'GAME': '0400A3A01EE4C000',
+                'W': str(fx['w']),
+                'PATCHED': str(fx['patched']),
+                'ROMFS': str(fx['romfs']),
+                'MSL_IOS': str(fx['msl_ios']),
+                'GFXAPI': 'vulkan',
+                'DM_DISPLAY_NAME': 'Pokemon Pokopia',
+                'DM_FRAMEWORK_ONLY': str(fw_out),
+                'DM_CHAIN_INDEX': '2',
+            }
+            with (
+                mock.patch.dict(os.environ, env_cur, clear=False),
+                mock.patch.dict(sys.modules, {'game': fake_gm}),
+                mock.patch.object(tc, 'ios_sdk', return_value=fx['sdk']),
+                mock.patch.object(tc, 'sdk_version', return_value=('26.0', '23A344')),
+                mock.patch.object(tc, 'llvm_tool', return_value=fx['clang']),
+                mock.patch.object(tc, 'ensure_ld64_lld', return_value=(fx['lld'], '')),
+                mock.patch.multiple(
+                    build_app,
+                    py=selective_py,
+                    romfs_has=lambda *_a, **_kw: True,
+                    host_sources=lambda *_a, **_kw: ([], []),
+                    compat_rt_needed=lambda *_a, **_kw: False,
+                    compile_all=spy_compile_all,
+                    build_pso_archive=lambda *_a, **_kw: None,
+                    check_dylib=lambda *_a, **_kw: None,
+                ),
+                mock.patch.object(build_app.macho_sign, 'sign', return_value=64),
+                mock.patch.object(build_app.subprocess, 'run', side_effect=spy_subproc_run),
+            ):
+                rc = build_app.main([])
+
+            self.assertEqual(rc, 0)
+            self.assertTrue((fw_out / 'DmGame0400A3A01EE4C000_2.framework').is_dir())
+            ns_h = fx['w'] / 'build' / 'ios' / 'win' / 'Gen' / 'framework' / 'objc_namespace.h'
+            self.assertTrue(ns_h.is_file())
+            ns_text = ns_h.read_text(encoding='utf-8')
+            self.assertIn('#define StubObjcClass DmFw_0400A3A01EE4C000_2_c2_StubObjcClass', ns_text)
+            self.assertIn('#define NspbSetting DmFw_0400A3A01EE4C000_2_c2_NspbSetting', ns_text)
+            self.assertEqual(captured_compile['extra'], ['-DDM_SHELL_FRAMEWORK=1', '-include', 'objc_namespace.h'])
+            self.assertIn(ns_h.parent.resolve(), captured_compile['incs'])
+
+            # Linker receives ASCII -exported_symbol flags (immune to commas and non-ASCII work paths)
+            self.assertIn('-Wl,-exported_symbol', captured_link_cmd)
+            for req_sym in build_app.REQUIRED_DYLIB_SYMBOLS:
+                self.assertIn(f'-Wl,{req_sym}', captured_link_cmd)
+            self.assertNotIn('-Wl,_dm_main', captured_link_cmd)
+
+    def test_one_game_ipa_pulling_shaders_shader_files_nacp_and_metadata(self) -> None:
+        import plistlib
+        from nspb_qt import win as win_pkg
+        from nspb_qt.win import build_app, toolchain as tc
+
+        self.assertEqual(win_pkg.IOS_CPU, 'apple-m1')
+        self.assertEqual(
+            build_app.REQUIRED_DYLIB_SYMBOLS,
+            (
+                '_dmgame_image_marker',
+                '_dm_glue_version',
+                '_dm_glue_start_game',
+                '_dm_glue_present_game',
+                '_dm_glue_focus_event',
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            fx = self._setup_minimal_fixture(Path(td), gfx='nvn', with_manifest=False)
+            fake_gm = self._make_fake_game_module(fx['gd'])
+            v0_nacp = fx['w'] / 'data' / 'v0' / 'control.nacp'
+            v0_nacp.parent.mkdir(parents=True, exist_ok=True)
+            v0_nacp.write_bytes(b'BASE_NACP_BYTES')
+            upd_nacp = fx['romfs'].parent / 'control.nacp'
+            upd_nacp.write_bytes(b'UPDATE_NACP_BYTES')
+
+            settings_nacp_seen: list[Path] = []
+            pack_calls: list[list[str]] = []
+
+            def fake_py(script, *args, **_kw):
+                sname = Path(script).name
+                if sname == 'nacp.py':
+                    if args and str(args[0]) == '--version':
+                        self.assertEqual(Path(args[1]), upd_nacp)
+                        return '2.4.1'
+                    self.assertEqual(Path(args[0]), v0_nacp)
+                    return 'Pokopia Base Title'
+                if sname == 'dmsh_chain.py':
+                    return 'abcdef012345'
+                if sname == 'game.py' and args and args[0] == 'header':
+                    Path(args[2]).write_text('#define DM_GAME_PSO_MTL4 0\n', encoding='utf-8')
+                    return ''
+                if sname == 'gen_embed.py':
+                    Path(args[-2]).write_text('.text\n', encoding='utf-8')
+                    return ''
+                if sname == 'settings.py':
+                    settings_nacp_seen.append(Path(args[2]))
+                    Path(args[3]).write_text('{"schema":1,"settings":[]}', encoding='utf-8')
+                    return 'launcher.json'
+                return ''
+
+            def fake_subproc_run(cmd, *_a, **_kw):
+                cmd_list = [str(c) for c in cmd]
+                if any(c.endswith('pack_ipa.py') for c in cmd_list):
+                    pack_calls.append(cmd_list)
+                    Path(cmd_list[2]).write_bytes(b'ipa')
+                return subprocess.CompletedProcess(cmd_list, 0, '', '')
+
+            out_ipa = Path(td) / 'out.ipa'
+            base_env = {
+                'NSPB_REPO': str(fx['repo']),
+                'GAME': '0400A3A01EE4C000',
+                'W': str(fx['w']),
+                'PATCHED': str(fx['patched']),
+                'ROMFS': str(fx['romfs']),
+                'MSL_IOS': str(fx['msl_ios']),
+                'GFXAPI': 'nvn',
+                'DM_DISPLAY_NAME': '',
+                'DM_APP_VERSION': '',
+                'DM_FRAMEWORK_ONLY': '',
+                'CONTROL': '',
+                'PROGRAMS_TSV': '',
+            }
+
+            # Case 1: default IOS_PULL=1 keeps _bp.metallib even when DM_GAME_PSO_MTL4 is 0 and pso is None
+            with (
+                mock.patch.dict(os.environ, dict(base_env, IOS_PULL='', DM_SHADER_FILES='1'), clear=False),
+                mock.patch.dict(sys.modules, {'game': fake_gm}),
+                mock.patch.object(tc, 'ios_sdk', return_value=fx['sdk']),
+                mock.patch.object(tc, 'sdk_version', return_value=('26.0', '23A344')),
+                mock.patch.object(tc, 'llvm_tool', return_value=fx['clang']),
+                mock.patch.object(tc, 'ensure_ld64_lld', return_value=(fx['lld'], '')),
+                mock.patch.object(tc, 'std_font', return_value=fx['std_font']),
+                mock.patch.object(tc, 'letter_font', return_value=fx['letter_font']),
+                mock.patch.multiple(
+                    build_app,
+                    py=fake_py,
+                    _build_shared_fonts=lambda *_a, **_kw: None,
+                    romfs_has=lambda *_a, **_kw: True,
+                    shader_lib_has=lambda *_a, **_kw: True,
+                    shader_lib_stamp_lines=lambda *_a, **_kw: ['game\t0400A3A01EE4C000', 'inputs\tabcdef012345'],
+                    host_sources=lambda *_a, **_kw: ([], []),
+                    framework_list=lambda *_a, **_kw: ['Foundation'],
+                    compat_rt_needed=lambda *_a, **_kw: False,
+                    compile_all=lambda *_a, **_kw: [],
+                    link=lambda *_a, **_kw: None,
+                    build_pso_archive=lambda *_a, **_kw: None,
+                    _read_source_commit=lambda *_a, **_kw: '94a0944755da',
+                ),
+                mock.patch.object(build_app.fix_ipa_modes, 'fix', return_value='ok'),
+                mock.patch.object(build_app.subprocess, 'run', side_effect=fake_subproc_run),
+            ):
+                rc = build_app.main([str(out_ipa)])
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(settings_nacp_seen, [upd_nacp])
+            app_dir = fx['w'] / 'build' / 'ios' / 'win' / 'Payload' / 'DmIOS.app'
+            self.assertEqual((app_dir / 'dm' / 'control.nacp').read_bytes(), b'UPDATE_NACP_BYTES')
+            with open(app_dir / 'Info.plist', 'rb') as pf:
+                plist = plistlib.load(pf)
+            self.assertEqual(plist['CFBundleDisplayName'], 'Pokopia Base Title')
+            self.assertEqual(plist['CFBundleShortVersionString'], '2.4.1')
+            self.assertEqual(plist['DMForkPatches'], 'patch-alpha,patch-beta')
+            self.assertEqual(plist['DMCommit'], '94a0944755da')
+            self.assertEqual(plist['DMChain'], 'v0')
+            scene_cfgs = plist['UIApplicationSceneManifest']['UISceneConfigurations']
+            self.assertIn('UIWindowSceneSessionRoleExternalDisplayNonInteractive', scene_cfgs)
+            self.assertNotIn('_bp.metallib', pack_calls[-1])
+            self.assertIn('--shader-files', pack_calls[-1])
+
+            # Case 2: explicit IOS_PULL=0 without offline PSO omits _bp.metallib
+            pack_calls.clear()
+            with (
+                mock.patch.dict(os.environ, dict(base_env, IOS_PULL='0', DM_SHADER_FILES='0'), clear=False),
+                mock.patch.dict(sys.modules, {'game': fake_gm}),
+                mock.patch.object(tc, 'ios_sdk', return_value=fx['sdk']),
+                mock.patch.object(tc, 'sdk_version', return_value=('26.0', '23A344')),
+                mock.patch.object(tc, 'llvm_tool', return_value=fx['clang']),
+                mock.patch.object(tc, 'ensure_ld64_lld', return_value=(fx['lld'], '')),
+                mock.patch.object(tc, 'std_font', return_value=fx['std_font']),
+                mock.patch.object(tc, 'letter_font', return_value=fx['letter_font']),
+                mock.patch.multiple(
+                    build_app,
+                    py=fake_py,
+                    _build_shared_fonts=lambda *_a, **_kw: None,
+                    romfs_has=lambda *_a, **_kw: True,
+                    shader_lib_has=lambda *_a, **_kw: True,
+                    shader_lib_stamp_lines=lambda *_a, **_kw: ['game\t0400A3A01EE4C000', 'inputs\tabcdef012345'],
+                    host_sources=lambda *_a, **_kw: ([], []),
+                    framework_list=lambda *_a, **_kw: ['Foundation'],
+                    compat_rt_needed=lambda *_a, **_kw: False,
+                    compile_all=lambda *_a, **_kw: [],
+                    link=lambda *_a, **_kw: None,
+                    build_pso_archive=lambda *_a, **_kw: None,
+                ),
+                mock.patch.object(build_app.fix_ipa_modes, 'fix', return_value='ok'),
+                mock.patch.object(build_app.subprocess, 'run', side_effect=fake_subproc_run),
+            ):
+                rc2 = build_app.main([str(out_ipa)])
+            self.assertEqual(rc2, 0)
+            self.assertIn('--skip-suffix', pack_calls[-1])
+            self.assertIn('_bp.metallib', pack_calls[-1])
+            self.assertNotIn('--shader-files', pack_calls[-1])
+
+            # Case 3: non-empty PROGRAMS_TSV refuses explicitly instead of packing an incomplete p0-only app
+            with (
+                mock.patch.dict(os.environ, dict(base_env, PROGRAMS_TSV=str(Path(td) / 'progs.tsv')), clear=False),
+                mock.patch.dict(sys.modules, {'game': fake_gm}),
+            ):
+                with self.assertRaises(SystemExit) as ctx_mp:
+                    build_app.main([str(out_ipa)])
+                self.assertEqual(ctx_mp.exception.code, 1)
 
 
 if __name__ == '__main__':

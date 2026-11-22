@@ -204,6 +204,21 @@ extension GameFolderTests {
         XCTAssertFalse(none.hasTitleID, "left to the script, which reads it from the code")
     }
 
+    /// #1353, seedds/nxnative PR #2692: a Switch 2 Edition NUP holds the Switch 1 program and the Switch 2 one, whose index is
+    /// in the low 12 bits of its ID. pack_nup.py packs the highest by default, so that one is the game, with only its own updates.
+    func testASwitch2EditionNUPIsItsHighestProgram() throws {
+        write("XenobladeX.nup", syntheticNUP([(0, 0x0100453019AA8000, 0), (1, 0x0100453019AA8800, 131072), (0, 0x0400453019AA8001, 0), (2, 0x0100453019AA9001, 0)]))
+        let alone = try GameFolder.scan(root + "/XenobladeX.nup").get()
+        XCTAssertEqual(alone.titleIDHex, "0400453019AA8001", "not 0, and not the Switch 1 program's update with its low bits cleared")
+        XCTAssertEqual(alone.updates.map(\.version), [], "the Switch 1 program's update is not this program's")
+        XCTAssertEqual(alone.dlc.map(\.titleID), [0x0100453019AA9001])
+
+        write("Wonder.nup", syntheticNUP([(0, 0x040015100B514001, 0), (1, 0x040015100B514801, 65536), (0, 0x010015100B514000, 0), (1, 0x010015100B514800, 196608)]))
+        let wonder = try GameFolder.scan(root + "/Wonder.nup").get()
+        XCTAssertEqual(wonder.titleIDHex, "040015100B514001", "whatever order the table lists the programs in")
+        XCTAssertEqual(wonder.updates.map(\.version), [65536])
+    }
+
     func testABrokenNUPIsNamed() {
         write("Other.nup", Data("not a nup at all, just some bytes".utf8))
         XCTAssertEqual(GameFolder.scan(root + "/Other.nup").failureValue, .notNUP("Other.nup"))

@@ -219,6 +219,57 @@ class Rows(unittest.TestCase):
         self.assertEqual(m.failure_folder(bf.Failure(bf.NO_TITLE_ID, detail='/x/y')), '/x/y')
         self.assertIn('40 GB', m.failure_what(bf.Failure(bf.DISK_FULL, detail='40')))
 
+    def test_windows_missing_prereqs_and_no_ios_shaders_across_all_languages(self):
+        vc_log = (
+            "[RED] missing on this PC:\n"
+            "  Visual C++ Redistributable (x64): missing (missing vcruntime140_1.dll, msvcp140.dll in C:\\Windows\\System32 "
+            "— install Microsoft Visual C++ 2015-2022 Redistributable (x64): https://aka.ms/vs/17/release/vc_redist.x64.exe)"
+        )
+        f_vc = bf.classify(vc_log)
+        self.assertEqual(f_vc.kind, bf.WIN_PREREQ)
+        self.assertIn('vcruntime140_1.dll, msvcp140.dll', f_vc.detail or '')
+
+        f_old_metal = bf.classify(
+            "[RED] no iOS shader libraries in D:\\build\\b-0123 — installed Metal Developer Tools for Windows is too old"
+        )
+        self.assertEqual(f_old_metal.kind, bf.WIN_PREREQ)
+        self.assertIn('Metal Developer Tools', f_old_metal.detail or '')
+
+        f_07b = bf.classify('[RED] metal failed: metal.exe exited with 0xC000007B (32-bit/64-bit DLL mismatch)')
+        self.assertEqual(f_07b.kind, bf.WIN_PREREQ)
+        self.assertIn('0xC000007B', f_07b.detail or '')
+
+        f_bare_sh = bf.classify(r'[RED] no iOS shader libraries in D:\build\01006F8002326000_build\shader\ios\b-0123456789ab')
+        self.assertEqual(f_bare_sh.kind, bf.NO_IOS_SHADERS)
+        self.assertIsNone(f_bare_sh.detail)
+
+        f_reason_sh = bf.classify(
+            r'[RED] no iOS shader libraries in D:\build\01006F8002326000_build\shader\ios\b-0123456789ab — all 64 shader compiles failed: unexpected AIR syntax'
+        )
+        self.assertEqual(f_reason_sh.kind, bf.NO_IOS_SHADERS)
+        self.assertIn('all 64 shader compiles failed', f_reason_sh.detail or '')
+
+        for lang in Lang.all():
+            for key in (
+                'dep.vcredist',
+                'dep.vcredist.download',
+                'dep.vcredist.hint',
+                'fail.winPrereq.button',
+                'fail.winPrereq.what',
+                'fail.winPrereq.whatNamed',
+                'fail.winPrereq.next',
+                'fail.noIOSShaders.what',
+                'fail.noIOSShaders.whatDetail',
+                'fail.noIOSShaders.next',
+            ):
+                text = TABLE[key][lang.code]
+                self.assertTrue(text, f'{lang.code}:{key}')
+                self.assertNotIn(';', text, f'{lang.code}:{key}')
+                self.assertNotIn('；', text, f'{lang.code}:{key}')
+                self.assertNotIn('nx2apple', text.lower(), f'{lang.code}:{key}')
+            self.assertIn('%@', TABLE['fail.winPrereq.whatNamed'][lang.code])
+            self.assertIn('%@', TABLE['fail.noIOSShaders.whatDetail'][lang.code])
+
 
 class Override(unittest.TestCase):
     BASE = ['-m', 'x', '/in', '-k', '/k', '--progress', 'lines']
@@ -348,6 +399,19 @@ class Window(unittest.TestCase):
             build.assert_called_once()
             self.assertIn('untested', ask.call_args.args[2])
             self.assertEqual(m.override.take(), '--allow-damaged')
+
+    def test_win_prereq_card_shows_named_component_and_opens_settings(self):
+        m, w = self._window(
+            bf.Failure(bf.WIN_PREREQ, detail='Microsoft Visual C++ 2015-2022 Redistributable (x64) (vcruntime140_1.dll)')
+        )
+        self.assertFalse(w.failure_box.isHidden())
+        self.assertFalse(w.failure_fix_btn.isHidden())
+        self.assertEqual(w.failure_fix_btn.text(), m.t('fail.winPrereq.button'))
+        self.assertIn('vcruntime140_1.dll', w.failure_what.text())
+        self.assertTrue(w.failure_anyway_btn.isHidden())
+        with mock.patch.object(w, '_switch_page') as switch:
+            w._fix_failure()
+            switch.assert_called_once_with('settings')
 
 
 if __name__ == '__main__':

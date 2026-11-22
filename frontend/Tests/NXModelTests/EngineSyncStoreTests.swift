@@ -16,6 +16,24 @@ import XCTest
         var pythonPath = "/usr/bin/python3"
     }
 
+    private final class FakeTransport: EngineTransport {
+        var files: [String: Data] = [:]
+        var failing = false
+        var downloads: [String] = []
+        func data(from url: URL) -> EngineFetch<Data> {
+            if failing { return .failed }
+            return files[url.absoluteString].map { .ok($0) } ?? .missing
+        }
+        func download(from url: URL, to destination: URL) -> Bool {
+            downloads.append(url.absoluteString)
+            guard !failing, let data = files[url.absoluteString] else { return false }
+            return (try? data.write(to: destination)) != nil
+        }
+    }
+
+    private let stableBase = "https://github.com/LNPANDY/NX2Apple/releases/download/v"
+    private let experimentalBase = "https://github.com/LNPANDY/NX2Apple/releases/download/engine-experimental/"
+
     private var temporary: URL!
     private var defaults: UserDefaults!
     private let runner = FakeProcessRunner()
@@ -56,19 +74,57 @@ import XCTest
     }
 
     /// A complete engine tree in the store, so the store takes it for usable.
-    private func install(_ engineID: String, in store: EngineStore) throws {
+    private func install(_ engineID: String, in store: EngineStore, upstreamDate: String? = nil) throws {
         let dir = try XCTUnwrap(store.directory(for: engineID))
         for file in EngineStore.requiredFiles { try touch(file, in: dir) }
         try touch(EngineStore.idFile, in: dir, engineID)
+        if let upstreamDate { try touch(EngineStore.upstreamDateFile, in: dir, upstreamDate + "\n") }
     }
 
-    private func makeStore(bundle: URL? = nil, engines: EngineStore? = nil) -> EngineSyncStore {
+    private func makeBundled(_ engineID: String, upstreamDate: String? = nil) throws -> URL {
+        let dir = temporary.appendingPathComponent("bundled-" + UUID().uuidString)
+        for file in EngineStore.requiredFiles { try touch(file, in: dir) }
+        try touch(EngineStore.idFile, in: dir, engineID)
+        if let upstreamDate { try touch(EngineStore.upstreamDateFile, in: dir, upstreamDate + "\n") }
+        return dir
+    }
+
+    private func makeStore(bundle: URL? = nil, engines: EngineStore? = nil,
+                           transport: EngineTransport = URLSessionEngineTransport(),
+                           appVersion: String = "1.2.3",
+                           publicKey: String = EngineManifest.publicKey) -> EngineSyncStore {
         EngineSyncStore(localizer: localizer, runner: runner, repo: repo, python: python,
                         engineStore: engines ?? EngineStore(root: temporary.appendingPathComponent("engines")),
-                        bundle: bundle, defaults: defaults, appVersion: "1.2.3",
+                        transport: transport,
+                        bundle: bundle, defaults: defaults, appVersion: appVersion, publicKey: publicKey,
                         setRepoPath: { [unowned self] in repo.path = $0; movedTo.append($0) },
                         buildRunning: { [unowned self] in building }, autoUpdate: { [unowned self] in autoUpdate },
                         log: { [unowned self] in log.append($0) })
+    }
+
+    private func publish(_ t: FakeTransport, id: String, channel: EngineChannel, version: String,
+                         base: String, upstreamDate: String? = nil) throws {
+        let tree = try makeBundled(id, upstreamDate: upstreamDate)
+        let zipURL = temporary.appendingPathComponent(UUID().uuidString + ".zip")
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = ["-c", "-k", "--keepParent", tree.path, zipURL.path]
+        try ditto.run(); ditto.waitUntilExit()
+        XCTAssertEqual(ditto.terminationStatus, 0)
+        let archive = try Data(contentsOf: zipURL)
+        let digest = try XCTUnwrap(AppUpdate.sha256(of: zipURL))
+        let pin = String(id.prefix(40))
+        let dateField = upstreamDate.map { ",\"upstream_date\":\"\($0)\"" } ?? ""
+        t.files[base + "latest.json"] = Data("""
+        {"version":"\(version)","pin":"\(pin)","engine_id":"\(id)","channel":"\(channel.rawValue)"\(dateField),
+         "engine":{"asset":"NX2Apple-engine.zip","sha256":"\(digest)","size":\(archive.count)}}
+        """.utf8)
+        t.files[base + "NX2Apple-engine.zip"] = archive
+    }
+
+    private func publishExperimental(_ t: FakeTransport, id: String, version: String = "1.4.0-experimental",
+                                     upstreamDate: String? = nil) throws {
+        try publish(t, id: id, channel: .experimental, version: version, base: experimentalBase, upstreamDate: upstreamDate)
     }
 
     private func t(_ key: String) -> String { localizer.t(key) }
@@ -270,12 +326,104 @@ import XCTest
         XCTAssertFalse(store.busy)
     }
 
-    func testTheDetailNamesTheVersionAndThePin() {
+    /// The state in words, no pin or "upstream" (#1458): not set up, set up, up to date, or a newer engine to install.
+    func testTheDetailSaysTheEngineStateInWords() {
         let store = makeStore(bundle: temporary)
         XCTAssertEqual(store.detail, t("engine.none"))
         store.selection = EngineSelection(channel: .stable, engineID: id("c"), version: "", previousID: "")
-        XCTAssertEqual(store.detail, String(format: t("engine.detail"), "?", "cccccccc"))
+        XCTAssertEqual(store.detail, t("engine.state.set"))
         store.selection.version = "1.2.3"
-        XCTAssertEqual(store.detail, String(format: t("engine.detail"), "1.2.3", "cccccccc"))
+        XCTAssertEqual(store.detail, String(format: t("engine.state.current"), "1.2.3"))
+        XCTAssertFalse(store.detail.contains("cccccccc"))
+        store.applyOutcome(.available(EngineUpdate.Engine(id: id("d"), version: "1.2.4")), channel: .stable, quiet: true)
+        XCTAssertEqual(store.detail, String(format: t("engine.state.update"), "1.2.3", "1.2.4"))
+    }
+
+    func testPrepareEngineOnExperimentalDoesNotDowngradeNewerBundledEngine() async throws {
+        let engines = EngineStore(root: temporary.appendingPathComponent("engines"))
+        let oldID = id("a"), newID = id("b")
+        let bundled = try makeBundled(newID, upstreamDate: "2026-11-18T18:35:43Z")
+        let t = FakeTransport()
+        try publishExperimental(t, id: oldID, version: "1.4.0-experimental", upstreamDate: "2026-11-16T00:00:00Z")
+
+        // Case 1: old experimental tree was not cached locally (seed bundled -> checkForUpdate must not revert to oldID).
+        EngineSelection(channel: .experimental, engineID: oldID, version: "1.4.0-experimental", previousID: "").save(defaults)
+        autoUpdate = true
+        let store1 = makeStore(bundle: bundled, engines: engines, transport: t, appVersion: "1.5.0", publicKey: "")
+        await store1.prepareEngine().value
+        XCTAssertEqual(store1.selection.engineID, newID)
+        XCTAssertEqual(repo.path, engines.directory(for: newID)?.path)
+        XCTAssertTrue(t.downloads.isEmpty, "older experimental engine must not be downloaded")
+        XCTAssertEqual(store1.experimentalStanding, .notAhead)
+
+        // Case 2: old experimental tree without .upstream-date is still usable in the store (upgrade in place).
+        try install(oldID, in: engines)
+        EngineSelection(channel: .experimental, engineID: oldID, version: "1.4.0-experimental", previousID: "").save(defaults)
+        let store2 = makeStore(bundle: bundled, engines: engines, transport: t, appVersion: "1.5.0", publicKey: "")
+        await store2.prepareEngine().value
+        XCTAssertEqual(store2.selection.engineID, newID)
+        XCTAssertEqual(repo.path, engines.directory(for: newID)?.path)
+        XCTAssertTrue(t.downloads.isEmpty)
+        XCTAssertEqual(store2.experimentalStanding, .notAhead)
+    }
+
+    func testPrepareEngineUnderSameAppVersionMovesOntoNewerBundledEngine() async throws {
+        let engines = EngineStore(root: temporary.appendingPathComponent("engines"))
+        let oldRC = id("a"), newRC = id("b")
+        try install(oldRC, in: engines)
+        let bundled = try makeBundled(newRC, upstreamDate: "2026-11-18T18:35:43Z")
+        EngineSelection(channel: .stable, engineID: oldRC, version: "1.5.0", previousID: "").save(defaults)
+        autoUpdate = false
+        building = false
+        let t = FakeTransport()
+        let storeWithTransport = makeStore(bundle: bundled, engines: engines, transport: t, appVersion: "1.5.0", publicKey: "")
+        await storeWithTransport.prepareEngine().value
+        XCTAssertEqual(storeWithTransport.selection.engineID, newRC)
+        XCTAssertEqual(repo.path, engines.directory(for: newRC)?.path)
+
+        // Conversely, if the store tree under the same appVersion carries a strictly newer upstream date, keep it.
+        let newerInStore = id("c")
+        try install(newerInStore, in: engines, upstreamDate: "2026-11-20T00:00:00Z")
+        EngineSelection(channel: .stable, engineID: newerInStore, version: "1.5.0", previousID: "").save(defaults)
+        let storeKeepNewer = makeStore(bundle: bundled, engines: engines, transport: t, appVersion: "1.5.0", publicKey: "")
+        await storeKeepNewer.prepareEngine().value
+        XCTAssertEqual(storeKeepNewer.selection.engineID, newerInStore)
+        XCTAssertEqual(repo.path, engines.directory(for: newerInStore)?.path)
+    }
+
+    func testConfirmExperimentalDoesNotSwitchWhenExperimentalIsBehindBundled() async throws {
+        let engines = EngineStore(root: temporary.appendingPathComponent("engines"))
+        let oldID = id("a"), newID = id("b")
+        try install(newID, in: engines, upstreamDate: "2026-11-18T18:35:43Z")
+        let bundled = try makeBundled(newID, upstreamDate: "2026-11-18T18:35:43Z")
+        let t = FakeTransport()
+        try publishExperimental(t, id: oldID, version: "1.4.0-experimental", upstreamDate: "2026-11-16T00:00:00Z")
+        EngineSelection(channel: .stable, engineID: newID, version: "1.5.0", previousID: "").save(defaults)
+        let store = makeStore(bundle: bundled, engines: engines, transport: t, appVersion: "1.5.0", publicKey: "")
+        await store.confirmChannel(.experimental).value
+        XCTAssertEqual(store.selection.channel, .stable)
+        XCTAssertEqual(store.selection.engineID, newID)
+        XCTAssertTrue(t.downloads.isEmpty)
+        XCTAssertEqual(store.experimentalStanding, .notAhead)
+    }
+
+    func testConfirmExperimentalIsBlockedWithoutDownloadWhenExperimentalLagsRemoteStable() async throws {
+        let engines = EngineStore(root: temporary.appendingPathComponent("engines"))
+        let bundledID = id("a"), experimentalID = id("b"), stableID = id("c")
+        try install(bundledID, in: engines, upstreamDate: "2026-11-10T00:00:00Z")
+        let bundled = try makeBundled(bundledID, upstreamDate: "2026-11-10T00:00:00Z")
+        let t = FakeTransport()
+        try publish(t, id: experimentalID, channel: .experimental, version: "1.5.0-experimental",
+                    base: experimentalBase, upstreamDate: "2026-11-15T00:00:00Z")
+        try publish(t, id: stableID, channel: .stable, version: "1.5.0",
+                    base: stableBase + "1.5.0/", upstreamDate: "2026-11-20T00:00:00Z")
+        EngineSelection(channel: .stable, engineID: bundledID, version: "1.5.0", previousID: "").save(defaults)
+        let store = makeStore(bundle: bundled, engines: engines, transport: t, appVersion: "1.5.0", publicKey: "")
+        await store.confirmChannel(.experimental).value
+        XCTAssertEqual(store.selection.channel, .stable)
+        XCTAssertEqual(store.selection.engineID, bundledID)
+        XCTAssertTrue(t.downloads.isEmpty, "older-than-stable experimental archive must not be downloaded")
+        XCTAssertEqual(store.experimentalStanding, .notAhead)
+        XCTAssertEqual(store.status, self.t("engine.experimentalBehind"))
     }
 }

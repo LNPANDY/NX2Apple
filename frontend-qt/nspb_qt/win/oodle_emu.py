@@ -52,6 +52,13 @@ else:
 
 _CACHE_VERSION = b'nspb-oodle-cache-v3-json-bin'
 _REDIRECT_SIGNATURES = (b'LZ5_decompress_safe', b'OodleLZ_Decompress', b'oodlelzcompressors.cpp')
+_MAX_CALL_TIMEOUT_US = 300_000_000
+
+
+def _call_timeout_us(rl: int) -> int:
+    """Scale emulation timeout with output size so large blocks do not time out under load."""
+    extra_s = max(0, rl) >> 20
+    return min(_MAX_CALL_TIMEOUT_US, E.DEFAULT_CALL_TIMEOUT_US + extra_s * 1_000_000)
 
 
 def log(msg: str) -> None:
@@ -663,22 +670,42 @@ class Decoder:
         m = self.m
         m.heap_reset(self.mark)
         cl = len(comp)
-        c = self.in_buf if cl <= self.in_cap else m.malloc(cl or 1)
-        r = self.out_buf if (rl + 0x10000) <= self.out_cap else m.malloc(rl + 0x10000)
-        if comp:
-            m.write(c, comp)
+        timeout_us = _call_timeout_us(rl)
+        try:
+            c = self.in_buf if cl <= self.in_cap else m.malloc(cl or 1)
+            r = self.out_buf if (rl + 0x10000) <= self.out_cap else m.malloc(rl + 0x10000)
+            if comp:
+                m.write(c, comp)
 
-        if self.kind == 'LZ5_decompress_safe':
-            got = m.call_fast(self.fn, c, r, cl, rl) if cl < 2 ** 31 and rl < 2 ** 31 else -1
-            got = got - (1 << 64) if got >= 1 << 63 else got
-        elif self.kind == 'OodleLZ_Decompress':
-            got = m.call_fast(self.fn, c, cl, r, rl, 1, 0, 0, 0, self._oodle_stack)
-            got = got - (1 << 64) if got >= 1 << 63 else got
-        else:
-            got = self.lzd_run(c, comp, cl, r, rl)
-        return m.read(r, rl) if got == rl else None
+            if self.kind == 'LZ5_decompress_safe':
+                got = (
+                    m.call_fast(self.fn, c, r, cl, rl, timeout_us=timeout_us)
+                    if cl < 2 ** 31 and rl < 2 ** 31
+                    else -1
+                )
+                got = got - (1 << 64) if got >= 1 << 63 else got
+            elif self.kind == 'OodleLZ_Decompress':
+                got = m.call_fast(
+                    self.fn, c, cl, r, rl, 1, 0, 0, 0, self._oodle_stack, timeout_us=timeout_us
+                )
+                got = got - (1 << 64) if got >= 1 << 63 else got
+            else:
+                got = self.lzd_run(c, comp, cl, r, rl, timeout_us=timeout_us)
+            return m.read(r, rl) if got == rl else None
+        finally:
+            if m.heap_size > m.initial_heap_size:
+                m.heap_reset(self.mark)
 
-    def lzd_run(self, c: int, comp: bytes, cl: int, r: int, rl: int) -> int:
+    def lzd_run(
+        self,
+        c: int,
+        comp: bytes,
+        cl: int,
+        r: int,
+        rl: int,
+        *,
+        timeout_us: int = E.DEFAULT_CALL_TIMEOUT_US,
+    ) -> int:
         assert self.m is not None and self.lzd is not None
         size, create, destroy, some = self.lzd
         if cl < 2 or (comp[0] & 0x0F) != 0x0C:
@@ -711,6 +738,7 @@ class Decoder:
                     c + cpos,
                     cl - cpos,
                     stack_bytes=stack_some,
+                    timeout_us=timeout_us,
                 )
                 & 0xFFFFFFFF
             )

@@ -27,6 +27,32 @@ package enum DeviceImgPullError: LocalizedError, Equatable, Sendable {
             return "Cancelled"
         }
     }
+
+    /// Localized human-readable failure reason for UI presentation.
+    package func localizedReason(_ t: (String) -> String) -> String {
+        switch self {
+        case .missingDevice:
+            return t("imgGuide.pullErrNoDevice")
+        case .imageNotFoundOnDevice:
+            return t("imgGuide.pullErrNotFound")
+        case .invalidPulledImage:
+            return t("imgGuide.pullErrInvalid")
+        case .cancelled:
+            return t("batchRefresh.cancel")
+        case .transferFailed(let detail):
+            let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty
+                || trimmed == "devicectl copy failed"
+                || trimmed == "Device file transfer failed"
+                || trimmed == "Output directory is empty" {
+                return t("imgGuide.pullErrTransfer")
+            }
+            if trimmed.contains(DeviceControl.timedOut) || trimmed.lowercased().contains("timed out") {
+                return t("imgGuide.pullErrTimedOut")
+            }
+            return trimmed
+        }
+    }
 }
 
 /// Pulls a game's primary RomFS `.img` out of the shared shell container on a paired iOS device into `<outDir>/games/<FolderName>/`.

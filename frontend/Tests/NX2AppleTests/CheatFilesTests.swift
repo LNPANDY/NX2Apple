@@ -55,6 +55,21 @@ import NXModel
         XCTAssertNil(CheatFiles.buildID(appPath: temporary.appendingPathComponent("none.app").path, iosAppPath: ""))
     }
 
+    /// #1469: a shared-shell build leaves no app of its own, the file sits in the game framework.
+    func testTheBuildIDOfASharedShellGameComesFromItsFramework() throws {
+        let root = temporary.appendingPathComponent("shell")
+        let shellApp = root.appendingPathComponent("derived-data/Build/Products/Release-iphoneos/DmShell.app")
+        try fm.createDirectory(at: shellApp, withIntermediateDirectories: true)
+        let tid = "010015100B514000"
+        try write("# BUILD_ID\tcd57b23fa4bbad65803d9788c01821ee\n", "dm/main.fixups.tsv", under: root.appendingPathComponent("frameworks/DmGame\(tid).framework"))
+        XCTAssertNil(CheatFiles.buildID(appPath: "", iosAppPath: shellApp.path), "without the title ID nothing is looked for")
+        XCTAssertEqual(CheatFiles.buildID(appPath: "", iosAppPath: shellApp.path, titleID: tid.lowercased()), build, "the mirror of the shared app's root")
+        XCTAssertEqual(CheatFiles.buildID(appPath: "", iosAppPath: "", titleID: tid, shellRoot: root.path), build, "the shell root the launcher uses")
+        let inApp = temporary.appendingPathComponent("Old.app")
+        try write("# BUILD_ID\t1111111111111111aaaaaaaaaaaaaaaa\n", "Frameworks/DmGame\(tid).framework/dm/main.fixups.tsv", under: inApp)
+        XCTAssertEqual(CheatFiles.buildID(appPath: "", iosAppPath: inApp.path, titleID: tid), "1111111111111111", "the framework inside the app")
+    }
+
     func testTheHostsThreeFoldersAreScannedInItsOrderAndTheFirstFileOfABuildWins() throws {
         try write("[A]\n00000000\n", "\(build).txt")
         try write("[B]\n00000000\n", "atmosphere/contents/\(titleID)/cheats/\(build).txt")
@@ -457,7 +472,7 @@ import NXModel
     func testNoteIsTranslatedWithoutSemicolons() {
         for lang in [Lang.en, .zh, .sv, .de] {
             let text = L10n.string("cheats.iosNote", lang)
-            XCTAssertFalse(text.isEmpty); XCTAssertFalse(text.contains(";")); XCTAssertTrue(text.contains("iPhone"))
+            XCTAssertFalse(text.isEmpty); XCTAssertFalse(text.contains(";")); XCTAssertTrue(text.contains("iOS"))
             XCTAssertFalse(text.contains("#724"), "data cheats run on the iPhone now, only code cheats are refused there")
         }
         XCTAssertTrue(L10n.string("cheats.iosNote", .en).contains("Mac app"))

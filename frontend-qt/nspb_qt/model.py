@@ -18,16 +18,49 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings, Q_ARG, QMetaObject, QObject, Qt, QThread, Signal, Slot
 
+_REAL_QSETTINGS = QSettings
+
+
+class _IsolatedTestSettings:
+    """Per-instance in-memory settings used under unittest unless a test explicitly patches QSettings."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, object] = {}
+
+    def value(self, key: str, default: object = None, type: type | None = None) -> object:  # noqa: A002
+        val = self._store.get(key, default)
+        if type is not None and val is not None:
+            if type is bool and isinstance(val, str):
+                return val.lower() in ('1', 'true', 'yes')
+            try:
+                return type(val)
+            except (TypeError, ValueError):
+                return default
+        return val
+
+    def setValue(self, key: str, value: object) -> None:
+        self._store[key] = value
+
+    def remove(self, key: str) -> None:
+        self._store.pop(key, None)
+
+    def sync(self) -> None:
+        pass
+
 from . import app_update
 from . import build_failure as bf
 from . import build_notes
+from . import build_queue as bq
 from . import engine
 from . import input_staging
 from . import inputs
 from . import library as lib
+from . import nsz_setup
 from . import platform_util as pu
 from . import post_build_cleanup as pbc
 from . import romfs_languages
+from . import s2arm_builder
+from . import upstream_store
 from .i18n import Lang
 from .l10n import t
 
@@ -235,6 +268,9 @@ class Model(QObject):
     driveCopyStateChanged = Signal()
     driveCopyProgress = Signal(object, object)   # done_bytes, total_bytes
     driveCopyFinished = Signal(bool, bool, str)  # ok, cancelled, info
+    upstreamStateChanged = Signal()
+    queueChanged = Signal()
+    queueBatchCompleted = Signal(int, int, int)  # done, failed, skipped
 
     #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
     #: path, or '' when the user cancelled. `pick_dep_folder` calls it, so the model stays UI-free.
@@ -245,9 +281,12 @@ class Model(QObject):
     _metal_zip: Path | None = None
     _sdk_archive: Path | None = None
 
-    def __init__(self) -> None:
+    def __init__(self, *, queue_file: str | os.PathLike | None = None) -> None:
         super().__init__()
-        self.settings = QSettings('NS Port Builder', 'NSPortBuilder')
+        if 'unittest' in sys.modules and QSettings is _REAL_QSETTINGS:
+            self.settings = _IsolatedTestSettings()
+        else:
+            self.settings = QSettings('NS Port Builder', 'NSPortBuilder')
         self.lang = Lang.initial()
         self.repo_path = self._find_repo()
         self.python_path, self.python_ok, self.python_ver = pu.find_python()
@@ -281,15 +320,44 @@ class Model(QObject):
         self.update_path = ''
         self.dlc_paths: list[str] = []
         self.keys_path = ''
+        saved_upstream = self.settings.value('buildUpstream', 'nxnative', type=str)
+        self.s2arm_path = self.settings.value('s2armPath', '', type=str)
+        if not s2arm_builder.is_usable_tree(self.s2arm_path):
+            managed = upstream_store.usable_managed_path('s2arm')
+            if managed:
+                self.s2arm_path = managed
+        self.upstream_auto_switch_revision = 0
+        def _safe_emit_upstream() -> None:
+            try:
+                self.upstreamStateChanged.emit()
+            except RuntimeError:
+                pass
+
+        self._upstream_coordinator = upstream_store.UpstreamDownloadCoordinator(
+            is_running=lambda: self.running,
+            on_installed=self._on_upstream_installed,
+            on_changed=_safe_emit_upstream,
+        )
+        self._upstream_version_checker = upstream_store.UpstreamVersionChecker(
+            on_changed=_safe_emit_upstream,
+        )
+        self.upstream_states = self._upstream_coordinator.states
+        self._upstream_lock = self._upstream_coordinator._lock
+        if s2arm_builder.feature_enabled() and saved_upstream == 's2arm' and s2arm_builder.is_usable_tree(self.s2arm_path):
+            self.build_upstream = 's2arm'
+        else:
+            self.build_upstream = 'nxnative'
         self.game_folder: inputs.GameFolderContents | None = None   # a game chosen as a folder of files or a NUP (no keys needed)
         self.game_folder_problem = ''   # why a chosen game folder cannot be built, shown on the base row
         self.out_dir = ''
         self.ipa_path = ''
         self.archive_path = ''
         self.mac_app_path = ''
+        self.needs_replace_old_img_reminder = False
+        self.updated_img_path = ''
         self.target = 'ios'   # 'ios' (an IPA) or 'mac-app' (a double-clickable Mac app; macOS only)
         self.bc_on_cpu = False
-        self.ipa_kind = 'shared'   # 'shared' (shell.ipaShared) or 'oneGame' (shell.ipaOneGame)
+        self.ipa_kind = 'shared'   # 'shared' (shell.ipaShared), 'oneGame' (shell.ipaOneGame), or 'framework' (shell.ipaFramework)
         self.library = lib.GameLibrary()
         self.library.sync_ios_shell_state(self.shell_cache_path)
         self.artwork = lib.ArtworkStore(on_updated=lambda _tid: self._emit_library_changed())
@@ -342,6 +410,24 @@ class Model(QObject):
             self.log_path.write_text('', encoding='utf-8')
         except OSError:
             self.log_path = None
+
+        if queue_file is not None:
+            resolved_qfile: Path | None = Path(queue_file)
+        elif 'unittest' in sys.modules and not os.environ.get('NSPB_STATE_DIR'):
+            resolved_qfile = None
+        else:
+            resolved_qfile = bq.default_queue_file()
+        self.build_queue = bq.BuildQueueStore(
+            file_path=resolved_qfile,
+            busy=lambda: bool(self.running or self.engine_syncing),
+            start_entry=self.start_build_from_queue_entry,
+            cancel_running=self.cancel_build,
+            repack_shared_shell=self.start_repack_shell_ipa,
+            on_changed=self._emit_queue_changed,
+            on_batch_completed=self._emit_queue_batch_completed,
+            schedule_next=self._schedule_queue_next,
+        )
+        self.finished.connect(self._on_finished_for_queue)
 
     # ---- strings
 
@@ -474,6 +560,197 @@ class Model(QObject):
                 QMetaObject.invokeMethod(self, '_emit_repo_changed', Qt.QueuedConnection)
         except RuntimeError:
             pass
+
+    @Slot()
+    def _emit_queue_changed(self) -> None:
+        try:
+            if QThread.currentThread() is self.thread():
+                self.queueChanged.emit()
+            else:
+                QMetaObject.invokeMethod(self, '_emit_queue_changed', Qt.QueuedConnection)
+        except RuntimeError:
+            pass
+
+    @Slot(int, int, int)
+    def _emit_queue_batch_completed(self, done_c: int, fail_c: int, skip_c: int) -> None:
+        try:
+            if QThread.currentThread() is self.thread():
+                self.queueBatchCompleted.emit(done_c, fail_c, skip_c)
+            else:
+                QMetaObject.invokeMethod(
+                    self,
+                    '_emit_queue_batch_completed',
+                    Qt.QueuedConnection,
+                    Q_ARG(int, done_c),
+                    Q_ARG(int, fail_c),
+                    Q_ARG(int, skip_c),
+                )
+        except RuntimeError:
+            pass
+
+    def _schedule_queue_next(self, _fn: Callable[[], None]) -> None:
+        try:
+            QMetaObject.invokeMethod(self, '_run_queue_next', Qt.QueuedConnection)
+        except RuntimeError:
+            pass
+
+    @Slot()
+    def _run_queue_next(self) -> None:
+        self.build_queue.process_next()
+
+    @Slot(bool, str)
+    def _on_finished_for_queue(self, ok: bool, note: str) -> None:
+        self.build_queue.on_build_finished(
+            ok,
+            note,
+            stopped=bool(getattr(self, '_build_cancelled', False)),
+        )
+
+    def can_enqueue_current_game(self) -> bool:
+        if self.game_folder is not None:
+            return not bool(self.game_folder_problem)
+        return bool(self.base_path)
+
+    def snapshot_current_queue_entry(self) -> bq.QueueEntry | None:
+        """Take an immutable queue snapshot of the Builds form's current game selection."""
+        folder = self.game_folder
+        if folder is not None:
+            if self.game_folder_problem:
+                return None
+            tid = folder.title_id_hex if folder.has_title_id else inputs.build_key(folder.script_input, self.keys_path)
+            newest = folder.newest_update
+            name = bq._resolve_display_name(
+                tid,
+                folder.script_input,
+                engine_path=self.engine_path,
+                library=self.library,
+            )
+            return bq.QueueEntry(
+                title_id=tid,
+                name=name,
+                base_path=folder.base_path,
+                update_path=newest[1] if newest else '',
+                dlc_paths=[p for _, p in folder.dlc],
+                keys_path='',
+                game_dir=folder.script_input,
+                is_game_folder=True,
+                out_dir=self.out_dir,
+                target=self.target,
+                ipa_kind=self.ipa_kind,
+                upstream=self.build_upstream,
+                bc_on_cpu=self.bc_on_cpu,
+            )
+        if not self.base_path:
+            return None
+        tid = inputs.build_key(self.base_path, self.keys_path)
+        name = bq._resolve_display_name(
+            tid,
+            self.base_path,
+            engine_path=self.engine_path,
+            library=self.library,
+        )
+        return bq.QueueEntry(
+            title_id=tid,
+            name=name,
+            base_path=self.base_path,
+            update_path=self.update_path,
+            dlc_paths=list(self.dlc_paths),
+            keys_path=self.keys_path,
+            game_dir=self.game_dir or str(Path(self.base_path).parent),
+            is_game_folder=False,
+            out_dir=self.out_dir,
+            target=self.target,
+            ipa_kind=self.ipa_kind,
+            upstream=self.build_upstream,
+            bc_on_cpu=self.bc_on_cpu,
+        )
+
+    def enqueue_current_game(self, *, auto_start: bool = False) -> bool:
+        entry = self.snapshot_current_queue_entry()
+        if entry is None:
+            return False
+        return self.build_queue.enqueue([entry], auto_start=auto_start) > 0
+
+    def enqueue_discovered_games(self, games: list[bq.DiscoveredGame], *, auto_start: bool = False) -> int:
+        if not games:
+            return 0
+        import uuid as _uuid
+        batch_id = _uuid.uuid4().hex
+        entries = [
+            g.to_queue_entry(
+                out_dir=self.out_dir,
+                target=self.target,
+                ipa_kind=self.ipa_kind,
+                upstream=self.build_upstream,
+                bc_on_cpu=self.bc_on_cpu,
+                keys_path=self.keys_path,
+                batch_id=batch_id,
+            )
+            for g in games
+        ]
+        return self.build_queue.enqueue(entries, auto_start=auto_start)
+
+    def start_build_from_queue_entry(
+        self,
+        entry: bq.QueueEntry,
+        defer_shell_export: bool = False,
+    ) -> str | None:
+        """Apply a queued entry's snapshot and launch its build. Returns None on launch, or a failure reason."""
+        if self.running or self.engine_syncing:
+            return self.t('queue.cannotStart')
+        if self.deps_checked and not self.all_deps_ok:
+            return self.t('status.installFirst')
+        if entry.upstream == 's2arm':
+            if not s2arm_builder.feature_enabled() or not s2arm_builder.is_usable_tree(self.s2arm_path):
+                return self.t('upstream.s2armMissing')
+        elif not self.repo_ok:
+            return self.t('msg.repoInvalidEmpty')
+
+        self.build_upstream = entry.upstream
+        self.target = entry.target
+        self.ipa_kind = entry.ipa_kind
+        self.bc_on_cpu = entry.bc_on_cpu
+        self.out_dir = entry.out_dir
+
+        if entry.is_game_folder:
+            src = entry.game_dir or entry.base_path
+            if not src or os.path.islink(src) or not os.path.exists(src):
+                return self.t('queue.cannotStart')
+            self.take_game_folder(src)
+            if self.game_folder_problem:
+                return self.game_folder_problem
+            if self.game_folder is None:
+                return self.t('queue.cannotStart')
+        else:
+            if not entry.base_path or os.path.islink(entry.base_path) or not os.path.isfile(entry.base_path):
+                return self.t('status.needInputs')
+            eff_keys = entry.keys_path or self.keys_path
+            if not eff_keys or os.path.islink(eff_keys) or not os.path.isfile(eff_keys):
+                return self.t('status.needInputs')
+            if entry.update_path and os.path.islink(entry.update_path):
+                return self.t('queue.cannotStart')
+            if any(dp and os.path.islink(dp) for dp in entry.dlc_paths):
+                return self.t('queue.cannotStart')
+            self.leave_game_folder()
+            self.base_path = entry.base_path
+            self.update_path = entry.update_path
+            self.dlc_paths = list(entry.dlc_paths)
+            self.keys_path = eff_keys
+            self.game_dir = entry.game_dir or str(Path(entry.base_path).parent)
+            self._emit_repo_changed()
+
+        self._defer_shell_export = bool(defer_shell_export and entry.target == 'ios' and entry.ipa_kind == 'shared')
+        started_async = False
+        try:
+            self.start_build()
+            started_async = bool(self.running or self.engine_syncing)
+        finally:
+            if not started_async:
+                self._defer_shell_export = False
+        if not started_async and self.build_queue.running_entry is not None:
+            if self.build_queue.running_entry.id == entry.id:
+                return self.t('queue.cannotStart')
+        return None
 
     def load_game_from_library(self, game: lib.LibraryGame) -> None:
         base = (game.inputs.get('base') or [''])[0]
@@ -666,13 +943,29 @@ class Model(QObject):
         put a literal %@ on screen. A missing interpreter is its own state, and on Windows its
         fix is the in-app installer.
         """
+        is_s2arm = self.is_s2arm_selected
+        if py_ok and is_s2arm:
+            missing_s2a = s2arm_builder.missing_python_packages(py, tree=getattr(self, 's2arm_path', ''))
+            if missing_s2a:
+                return Dep(
+                    'python',
+                    'dep.python',
+                    'dep.python.hint',
+                    DepState.MISSING,
+                    'dep.python.s2armMissing:' + ', '.join(missing_s2a),
+                    install=[py, '-m', 'pip', 'install', *missing_s2a],
+                )
         if py_ok:
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.OK, py)
         if py_ver and pu._ver_tuple(py_ver) >= pu.MIN_PYTHON:
+            pkgs = ['lz4', 'capstone', 'unicorn', 'fonttools', 'zbic', 'backports.zstd', 'nsz']
+            if is_s2arm:
+                for p in s2arm_builder.PIP_PACKAGES:
+                    if p.lower() not in {x.lower() for x in pkgs}:
+                        pkgs.append(p)
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
                        f'dep.python.missing:{py} ({py_ver})',
-                       install=[py, '-m', 'pip', 'install', 'lz4', 'capstone', 'unicorn',
-                                'fonttools', 'zbic', 'backports.zstd', 'nsz'])
+                       install=[py, '-m', 'pip', 'install', *pkgs])
         if pu.IS_WIN:
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
                        f'dep.python.none:{py or "python3"}',
@@ -697,10 +990,27 @@ class Model(QObject):
         # ".NET SDK 10 never appears in the log", came from exactly that gap.
         dn = dn_ok = None
         if not pu.IS_WIN:
-            dn, dn_ok = pu.find_dotnet()
-            deps.append(Dep('dotnet', 'dep.dotnet', 'dep.dotnet.hint',
-                            DepState.OK if dn_ok else DepState.MISSING,
-                            dn if dn_ok else 'dep.dotnet.missing'))
+            if self.is_s2arm_selected:
+                dn, dn_ok, req_ver, old_ver = s2arm_builder.find_dotnet_for_s2arm(tree=getattr(self, 's2arm_path', ''))
+                if dn_ok:
+                    dn_detail = dn
+                    dn_state = DepState.OK
+                elif old_ver:
+                    dn_detail = 'dep.dotnet.s2armOld:' + old_ver + ':' + req_ver
+                    dn_state = DepState.OLD
+                else:
+                    dn_detail = 'dep.dotnet.s2armMissing:' + req_ver
+                    dn_state = DepState.MISSING
+                dn_install = [] if dn_ok else [
+                    '/bin/bash', '-c',
+                    'curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/di.sh && chmod +x /tmp/di.sh && /tmp/di.sh --channel 10.0 --install-dir $HOME/.dotnet',
+                ]
+                deps.append(Dep('dotnet', 'dep.dotnet', 'dep.dotnet.hint', dn_state, dn_detail, install=dn_install))
+            else:
+                dn, dn_ok = pu.find_dotnet()
+                deps.append(Dep('dotnet', 'dep.dotnet', 'dep.dotnet.hint',
+                                DepState.OK if dn_ok else DepState.MISSING,
+                                dn if dn_ok else 'dep.dotnet.missing'))
 
         # Xcode (macOS) or the cross toolchain (Windows)
         if pu.IS_WIN:
@@ -839,6 +1149,11 @@ class Model(QObject):
                 self.dotnet_path, self.dotnet_ok = str(Path(p.path) / 'dotnet.exe'), p.ok
             else:
                 self.dotnet_path, self.dotnet_ok = 'dotnet', False
+
+        p = by_id.get('vcredist')
+        if p:
+            out.append(Dep('vcredist', 'dep.vcredist', 'dep.vcredist.hint', state(p),
+                           (p.path or 'ok') if p.ok else (p.detail or '')))
 
         # LLVM (+ the Mach-O linker, which comes from the same folder)
         p = by_id.get('llvm')
@@ -1375,6 +1690,8 @@ class Model(QObject):
                     msg = self.t('defender.msg.cancelled')
                 else:
                     self.defender_status_ok = False
+                    if getattr(res, 'error_code', '') == 'service_inactive':
+                        self.settings_set('defenderPromptDismissed', True)
                     msg = self._defender_failure_message(res)
                 self.defender_status_msg = msg
             self.log(msg + '\n')
@@ -1592,6 +1909,15 @@ class Model(QObject):
         if detail.startswith('dep.python.none:'):
             found = detail.split(':', 1)[1]
             return self.t('dep.python.none', found)
+        if detail.startswith('dep.python.s2armMissing:'):
+            pkgs = detail.split(':', 1)[1]
+            return self.t('dep.python.s2armMissing', pkgs)
+        if detail.startswith('dep.dotnet.s2armOld:'):
+            _, got, need = detail.split(':', 2)
+            return self.t('dep.dotnet.s2armOld', got, need)
+        if detail.startswith('dep.dotnet.s2armMissing:'):
+            need = detail.split(':', 1)[1]
+            return self.t('dep.dotnet.s2armMissing', need)
         if detail.startswith('dep.metal.other:'):
             _, got, tested = detail.split(':', 2)
             return self.t('dep.metal.other', got, tested)
@@ -2056,6 +2382,14 @@ class Model(QObject):
                     self.log(f'could not move {vdir} aside: {e}\n')
                     return False
                 self.log(f'moved the old venv to {aside}\n')
+        def _cancelled() -> bool:
+            return bool(getattr(self, '_build_cancelled', False))
+
+        def _set_proc(proc: subprocess.Popen | None) -> None:
+            if hasattr(self, '_proc'):
+                self._proc = proc
+
+        created_vdir = False
         if not Path(vpy).is_file():
             # The panel's last resort is /usr/bin/python3 (3.9) or the venv path itself, and
             # neither can run `-m venv`: the row used to stay red however often Install ran.
@@ -2075,12 +2409,41 @@ class Model(QObject):
                     force=True,
                 )
             vdir = pu.venv_dir()
+            vdir_existed = vdir.exists()
             vdir.parent.mkdir(parents=True, exist_ok=True)
             self.log(f'$ {base} -m venv {vdir}\n')
-            if not pu._runs(base, ['-m', 'venv', str(vdir)]):
-                shutil.rmtree(vdir, ignore_errors=True)
-                self.log('venv creation failed\n')
-                return False
+            if pu._runs is not pu._ORIG_RUNS:
+                if not pu._runs(base, ['-m', 'venv', str(vdir)]):
+                    if not vdir_existed:
+                        shutil.rmtree(vdir, ignore_errors=True)
+                    self.log('venv creation failed\n')
+                    return False
+            else:
+                rc_venv, was_cancelled, venv_out = nsz_setup.stream_command(
+                    [base, '-m', 'venv', str(vdir)],
+                    env=pu.proxy_env(pu.child_env()),
+                    log=self.log,
+                    is_cancelled=_cancelled,
+                    on_proc=_set_proc,
+                    popen_cls=subprocess.Popen,
+                )
+                if was_cancelled or rc_venv != 0:
+                    if not vdir_existed:
+                        shutil.rmtree(vdir, ignore_errors=True)
+                    if was_cancelled:
+                        self.log('venv creation cancelled\n')
+                    else:
+                        kind = nsz_setup.classify_pip_error(venv_out)
+                        if kind == 'other':
+                            kind = 'venv'
+                        self.log(nsz_setup.format_failure_guidance(kind, base, venv_out))
+                    return False
+            created_vdir = not vdir_existed
+
+        def _cleanup_partial_venv() -> None:
+            if created_vdir:
+                shutil.rmtree(pu.venv_dir(), ignore_errors=True)
+
         ver_str = pu._python_version(vpy)
         ver = pu._ver_tuple(ver_str)
         pkgs = ['lz4', 'capstone', 'unicorn', 'fonttools', 'zbic', 'nsz']
@@ -2088,7 +2451,11 @@ class Model(QObject):
             pkgs.insert(5, 'backports.zstd')
         wheels_fn = getattr(self, 'bundled_wheels', Model.bundled_wheels)
         wheels = wheels_fn()
+        last_pip_out = ''
         for attempt_wheels in ([wheels, None] if wheels else [None]):
+            if _cancelled():
+                _cleanup_partial_venv()
+                return False
             args = self._pip_args(pkgs, attempt_wheels)
             self.log(f'$ {vpy} -m pip {" ".join(args)}'
                      + ('' if attempt_wheels else '  (from PyPI)') + '\n')
@@ -2101,15 +2468,26 @@ class Model(QObject):
                     item_overall_pct=60,
                     force=True,
                 )
+            p: subprocess.Popen | None = None
+            pip_lines: list[str] = []
             try:
-                pip_env = pu.child_env({'PIP_CONFIG_FILE': os.devnull} if attempt_wheels else None)
+                pip_env = pu.proxy_env(
+                    pu.child_env({'PIP_CONFIG_FILE': os.devnull} if attempt_wheels else None)
+                )
                 p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, text=True, encoding='utf-8',
-                                     errors='replace', env=pip_env, **pu.no_window_kwargs())
+                                     errors='replace', env=pip_env, **pu.process_group_kwargs())
+                _set_proc(p)
+                if _cancelled():
+                    pu.kill_process_tree(p)
                 assert p.stdout is not None
                 seen_pkgs: list[str] = []
                 for line in p.stdout:
+                    pip_lines.append(line)
                     self.log(line)
+                    if _cancelled():
+                        pu.kill_process_tree(p)
+                        break
                     if can_prog and dep is not None:
                         low = line.lower()
                         for pk in pkgs:
@@ -2128,6 +2506,10 @@ class Model(QObject):
                                     item_overall_pct=60 + pct * 40 // 100,
                                 )
                 p.wait()
+                last_pip_out = ''.join(pip_lines)
+                if _cancelled():
+                    _cleanup_partial_venv()
+                    return False
                 if p.returncode == 0:
                     if can_prog and dep is not None:
                         self._set_dep_progress(
@@ -2141,7 +2523,23 @@ class Model(QObject):
                     return True
             except OSError as e:
                 self.log(f'{e}\n')
+                _cleanup_partial_venv()
                 return False
+            finally:
+                _set_proc(None)
+                if p is not None:
+                    if _cancelled() or (callable(getattr(p, 'poll', None)) and p.poll() is None):
+                        pu.kill_process_tree(p)
+                    close_out = getattr(getattr(p, 'stdout', None), 'close', None)
+                    if callable(close_out):
+                        try:
+                            close_out()
+                        except OSError:
+                            pass
+        if last_pip_out:
+            kind = nsz_setup.classify_pip_error(last_pip_out)
+            self.log(nsz_setup.format_failure_guidance(kind, vpy, last_pip_out))
+        _cleanup_partial_venv()
         return False
 
     def install_all_missing(self) -> None:
@@ -2357,6 +2755,8 @@ class Model(QObject):
     def game_folder_engine_problem(self, found: 'inputs.GameFolderContents') -> str:
         """What the engine lacks for this game: the packer (an older engine) or a profile for the game. '' when nothing,
         and before the engine exists (the build asks again)."""
+        if self.is_s2arm_selected:
+            return ''
         eng = self.engine_path
         if not eng or not Path(eng, 'dm').is_dir():
             return ''
@@ -2465,22 +2865,163 @@ class Model(QObject):
 
         if total_in >= 0x400:
             factor = 3.5 if has_compressed else 2.2
-            needed = int(total_in * factor)
             probe_dir = self.out_dir or (
                 self.game_folder.folder if self.game_folder is not None else str(Path(self.base_path).parent)
             )
+            # A build again into the same folder keeps the game files it extracted before
+            reused = lib.BuildFolder.finished_extraction(str(Path(probe_dir, f'{self.build_key}_build')))
+            needed = max(0, int(total_in * factor) - reused)
             free = lib.DriveCopy.free_space(probe_dir)
             if free > 0 and free < needed:
                 return self.t('status.lowDiskSpace', lib.format_bytes(needed), lib.format_bytes(free))
         return ''
 
     @property
+    def is_s2arm_selected(self) -> bool:
+        return s2arm_builder.feature_enabled() and getattr(self, 'build_upstream', 'nxnative') == 's2arm'
+
+    @property
+    def uses_external_upstream_repo(self) -> bool:
+        return self.is_s2arm_selected and s2arm_builder.is_usable_tree(getattr(self, 's2arm_path', ''))
+
+    def is_upstream_installed(self, kind: str) -> bool:
+        if kind == 'nxnative':
+            return True
+        if kind == 's2arm':
+            return s2arm_builder.is_usable_tree(getattr(self, 's2arm_path', ''))
+        return False
+
+    def upstream_state(self, kind: str) -> tuple[str, float | None, str]:
+        return self._upstream_coordinator.state(kind, installed=self.is_upstream_installed(kind))
+
+    def select_upstream(self, kind: str) -> bool:
+        if self.running:
+            return False
+        prev = getattr(self, 'build_upstream', 'nxnative')
+        if kind == 'nxnative':
+            self.build_upstream = 'nxnative'
+            self.settings.setValue('buildUpstream', 'nxnative')
+            self.upstreamStateChanged.emit()
+            if prev != 'nxnative':
+                self.check_deps()
+            return True
+        if kind == 's2arm' and s2arm_builder.feature_enabled() and self.is_upstream_installed('s2arm'):
+            if self._upstream_coordinator.is_busy('s2arm'):
+                return False
+            self.build_upstream = 's2arm'
+            self.settings.setValue('buildUpstream', 's2arm')
+            self.upstreamStateChanged.emit()
+            if prev != 's2arm':
+                self.check_deps()
+            return True
+        return False
+
+    def upstream_local_receipt(self, kind: str) -> upstream_store.UpstreamVersionReceipt | None:
+        tree_path = getattr(self, 's2arm_path', '') if kind == 's2arm' else ''
+        local = upstream_store.read_local_receipt(kind, tree_path, repo_path=self.repo_path)
+        remote = self._upstream_version_checker.remote_info(kind)
+        if (
+            local is not None
+            and remote is not None
+            and local.commit
+            and upstream_store.normalized_commit(local.commit) == upstream_store.normalized_commit(remote.commit)
+            and remote.version
+            and local.version != remote.version
+        ):
+            upgraded = upstream_store.UpstreamVersionReceipt(
+                commit=local.commit,
+                version=remote.version,
+                installed_at=local.installed_at,
+            )
+            if tree_path:
+                try:
+                    upstream_store.write_version_receipt(tree_path, upgraded)
+                except OSError:
+                    pass
+            return upgraded
+        return local
+
+    def upstream_remote_info(self, kind: str) -> upstream_store.UpstreamRemoteInfo | None:
+        return self._upstream_version_checker.remote_info(kind)
+
+    def upstream_has_update(self, kind: str) -> bool:
+        if upstream_store.upstream_is_builtin(kind) or not self.is_upstream_installed(kind):
+            return False
+        if self._upstream_coordinator.is_busy(kind):
+            return False
+        return upstream_store.has_update(
+            self.upstream_local_receipt(kind),
+            self.upstream_remote_info(kind),
+        )
+
+    def upstream_version_badge(self, kind: str) -> str:
+        return upstream_store.compact_badge_text(
+            kind,
+            self.upstream_local_receipt(kind),
+            update_available=self.upstream_has_update(kind),
+            builtin_fallback=self.t('upstream.builtinBadge'),
+            installed_fallback=self.t('upstream.installedBadge'),
+        )
+
+    def upstream_update_tooltip(self, kind: str) -> str:
+        if not self.upstream_has_update(kind):
+            return ''
+        remote = self.upstream_remote_info(kind)
+        if remote is None:
+            return ''
+        return self.t('upstream.updateAvailableHelp', remote.tooltip_detail)
+
+    def check_upstream_updates(
+        self,
+        *,
+        kinds: tuple[str, ...] | list[str] | None = None,
+        force: bool = False,
+        fetch_text: Callable[[str], str | bytes | None] | None = None,
+    ) -> list[threading.Thread]:
+        allowed = set(upstream_store.available_upstreams())
+        raw_kinds = upstream_store.available_upstreams() if kinds is None else kinds
+        target_kinds = tuple(k for k in raw_kinds if k in allowed)
+        return self._upstream_version_checker.check_async(
+            target_kinds,
+            is_installed=self.is_upstream_installed,
+            is_busy=self._upstream_coordinator.is_busy,
+            force=force,
+            fetch_text=fetch_text,
+        )
+
+    def _on_upstream_installed(self, kind: str, installed_dir: Path) -> None:
+        if kind == 's2arm':
+            self.s2arm_path = str(installed_dir)
+            self.settings.setValue('s2armPath', self.s2arm_path)
+        receipt = upstream_store.read_version_receipt(installed_dir)
+        if receipt is not None and receipt.commit:
+            self._upstream_version_checker.clear_if_stale_after_install(kind, receipt.commit)
+        if not self.running:
+            self.upstream_auto_switch_revision += 1
+            self.select_upstream(kind)
+
+    def cancel_upstream_download(self, kind: str) -> bool:
+        return self._upstream_coordinator.cancel(kind)
+
+    def download_upstream(
+        self,
+        kind: str,
+        *,
+        downloader: Callable[..., None] | None = None,
+    ) -> threading.Thread | None:
+        if kind not in upstream_store.available_upstreams() or kind == 'nxnative':
+            return None
+        known_remote = self.upstream_remote_info(kind)
+        return self._upstream_coordinator.start_download(kind, remote_info=known_remote, downloader=downloader)
+
+    @property
     def can_build(self) -> bool:
+        upstream_repo_ok = self.uses_external_upstream_repo
         if getattr(self, '_is_fast_refresh', False):
-            return self.repo_ok and self.all_deps_ok and not self.running
+            return (self.repo_ok or upstream_repo_ok) and self.all_deps_ok and not self.running
         # a game folder needs no keys, a refused one cannot build
         inputs_ready = self.game_folder is not None or (bool(self.base_path) and bool(self.keys_path))
-        if not (self.repo_ok and inputs_ready and self.all_deps_ok and not self.running):
+        if not ((self.repo_ok or upstream_repo_ok) and inputs_ready and self.all_deps_ok and not self.running):
             return False
         return not bool(self.prebuild_block_reason())
 
@@ -2592,7 +3133,7 @@ class Model(QObject):
         dotnet_ok = self.dotnet_ok
         ipa_kind = self.ipa_kind
         mac_app = eff_target == 'mac-app'
-        use_shell_fw = not mac_app and ipa_kind == 'shared' and self.supports_shell_framework()
+        use_shell_fw = not mac_app and ipa_kind in ('shared', 'framework') and self.supports_shell_framework()
         drive_folder_snap = getattr(self, 'drive_folder', '')
         ext_img_clean = (external_img_path or '').strip()
 
@@ -2603,7 +3144,10 @@ class Model(QObject):
         self._fast_refresh_out_dir = out_d
         self._fast_refresh_game_name = resolved_game_name
         self._fast_refresh_external_img = ''
-        self._defer_shell_export = not export_shell_at_end
+        self._defer_shell_export = (not export_shell_at_end) if ipa_kind == 'shared' else False
+        if not self._defer_shell_export:
+            self.needs_replace_old_img_reminder = False
+            self.updated_img_path = ''
         self.mac_app_path = self.ipa_path = self.archive_path = ''
         self.effective_work_dir = work_dir
         self._build_cancelled = False
@@ -2668,12 +3212,20 @@ class Model(QObject):
                         return False, self.t('msg.stopped')
                     self.log(f'adopting legacy build into seed cache: {" ".join(adopt_cmd)}\n')
                     try:
+                        adopt_env = pu.child_env({'PYTHONPATH': str(Path(eng_path, 'dm', 'tools'))})
+                        if pu.IS_WIN:
+                            try:
+                                from .win import shim as wshim
+                                adopt_env = wshim.build_env(adopt_env, python_exe=py)
+                            except Exception as e:
+                                self.log(f'[shim] could not prepare the Windows shim: {e}\n')
+                            adopt_env['NSPB_REPO'] = eng_path
                         res = subprocess.run(
                             adopt_cmd,
                             capture_output=True,
                             text=True,
                             errors='replace',
-                            env=pu.child_env({'PYTHONPATH': str(Path(eng_path, 'dm', 'tools'))}),
+                            env=adopt_env,
                             **pu.no_window_kwargs(),
                         )
                         if _aborted():
@@ -2729,7 +3281,7 @@ class Model(QObject):
                 '--title-id', tid,
                 '--seed-cache-dir', str(seed_root),
                 '--work-dir', work_dir,
-                '--progress', 'json',
+                '--progress', 'lines',
             ]
 
             if mac_app:
@@ -2869,6 +3421,11 @@ class Model(QObject):
                         self.library.selected_id = tid
                         self.library.save()
                         self._emit_library_changed()
+                elif ipa_kind == 'framework':
+                    ok_pack, pack_note = self.pack_archive(tid, export_shell=False)
+                    if not ok_pack:
+                        return False, pack_note
+                    return self._export_standalone_framework(tid, out_dir=out_d, fallback_name=resolved_game_name)
                 elif ipa_kind != 'oneGame':
                     return self.pack_archive(tid, export_shell=use_shell_fw)
                 else:
@@ -2931,13 +3488,23 @@ class Model(QObject):
     def start_build(self, *, title_id: str | None = None) -> None:
         if self.running or (title_id is not None and title_id not in self.selectable_titles):
             return
+        self._build_cancelled = False
         self._fast_refresh_gen = getattr(self, '_fast_refresh_gen', 0) + 1
         queued_ext_img = (getattr(self, '_queued_external_img_path', '') or '').strip()
         self._queued_external_img_path = ''
         self._fast_refresh_external_img = ''
+        self.needs_replace_old_img_reminder = False
+        self.updated_img_path = ''
         self._last_error = ''
         self.failure = None
-        if not self.repo_ok:
+        if self.is_s2arm_selected:
+            if not self.s2arm_path:
+                self.finished.emit(False, self.t('upstream.s2armMissing'))
+                return
+            if not s2arm_builder.is_usable_tree(self.s2arm_path):
+                self.finished.emit(False, self.t('upstream.s2armInvalid', self.s2arm_path))
+                return
+        elif not self.repo_ok:
             self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
             return
         if self.game_folder is None and not self.base_path:
@@ -2946,7 +3513,7 @@ class Model(QObject):
         if block:
             self.finished.emit(False, block)
             return
-        if engine.needs_sync_before_build(self.repo_path):
+        if not self.is_s2arm_selected and engine.needs_sync_before_build(self.repo_path):
             # engine/ is the only engine and is stale or missing: make it, then build (a failed sync names its fix in the log)
             def _on_synced(ok: bool) -> None:
                 if ok and queued_ext_img:
@@ -3029,13 +3596,276 @@ class Model(QObject):
             if unpicked:
                 self.log(self.t('msg.stagedFromSharedFolder', Path(self.base_path).name) + '\n')
 
-        compressed = any(Path(f).suffix.lower() in ('.nsz', '.xcz')
-                         for f in staged if f)
-        if compressed and not pu._runs(py, ['-c', 'import nsz']):
-            self.log(self.t('msg.installingNsz') + '\n')
-            if not pu._runs(py, ['-m', 'pip', 'install', 'nsz']):
-                self.finished.emit(False, self.t('msg.nszFailed', py))
+        if self.is_s2arm_selected:
+            Path(work_dir).mkdir(parents=True, exist_ok=True)
+            events_file = str(Path(work_dir, 's2a-events.jsonl'))
+            is_unencrypted = (
+                folder is not None
+                or Path(input_dir).suffix.lower() == '.nup'
+                or Path(self.base_path).suffix.lower() == '.nup'
+            )
+            resolved_dir, _used_staging = s2arm_builder.resolve_source_input(
+                input_dir,
+                work_dir=work_dir,
+                hard_links=not pu.IS_WIN,
+            )
+            if not resolved_dir:
+                self.finished.emit(False, self.t('msg.stagingFailed'))
                 return
+            input_dir = resolved_dir
+            self._build_cancelled = False
+            self.running = True
+            self.runningChanged.emit(True)
+            with self._ensure_pso_lock():
+                self.stages = []
+            self.log_tail = ''
+            self.stagesChanged.emit()
+
+            s2arm_tree = self.s2arm_path
+            keys_path = self.keys_path
+            target = self.target
+
+            def run_s2arm() -> tuple[bool, str]:
+                from . import s2arm_bootstrap
+
+                def _cancelled() -> bool:
+                    return bool(getattr(self, '_build_cancelled', False))
+
+                def _log_line(line: str) -> None:
+                    self._on_line(line)
+
+                env = s2arm_bootstrap.env_with_git_proxy_safety(pu.child_env())
+
+                # 1. Single-commit local git repo for extracted ZIP snapshots
+                s2arm_bootstrap.ensure_git_repo(s2arm_tree)
+                if _cancelled():
+                    return False, self.t('msg.stopped')
+
+                # 2. Dedicated `<s2arm>/.venv` matching exact requirements*.txt pins + cmake/ninja/(meson)
+                venv_ok, _venv_skipped, s2a_py, venv_log = s2arm_bootstrap.ensure_s2arm_venv(
+                    s2arm_tree,
+                    py,
+                    env=env,
+                    on_line=_log_line,
+                )
+                if _cancelled():
+                    return False, self.t('msg.stopped')
+                if not venv_ok:
+                    if venv_log and not self.log_tail:
+                        self.log(venv_log + '\n')
+                    missing = s2arm_builder.missing_python_packages(s2a_py, tree=s2arm_tree)
+                    missing_tools = s2arm_bootstrap.missing_venv_build_tools(s2a_py)
+                    detail = ', '.join(missing + missing_tools) or ', '.join(s2arm_bootstrap.FALLBACK_PYTHON_SPECS)
+                    return False, self.t('dep.python.s2armMissing', detail)
+
+                # 3. Official .NET 10 SDK (skips Homebrew dotnet on POSIX, auto-installs if missing)
+                dn_path, dn_ok, dn_err = s2arm_bootstrap.ensure_dotnet_for_s2arm(
+                    s2arm_tree,
+                    env=env,
+                    on_line=_log_line,
+                )
+                if _cancelled():
+                    return False, self.t('msg.stopped')
+                if not dn_ok:
+                    req_ver, _ = s2arm_builder.sdk_requirement(s2arm_tree)
+                    if dn_err:
+                        self.log(dn_err + '\n')
+                    return False, self.t('dep.dotnet.s2armMissing', req_ver)
+
+                extra_path_bins: list[str] = [str(Path(s2a_py).parent)]
+                if dn_path and Path(dn_path).is_file():
+                    dn_dir = str(Path(dn_path).parent)
+                    extra_path_bins.append(dn_dir)
+                    env['DOTNET_ROOT'] = dn_dir
+                    if not pu.IS_WIN:
+                        env['DOTNET_ROOT_ARM64'] = dn_dir
+
+                def _prepend_path(dirs: list[str]) -> None:
+                    existing = [d for d in env.get('PATH', '').split(os.pathsep) if d]
+                    merged: list[str] = []
+                    seen: set[str] = set()
+                    for d in dirs + existing:
+                        if d and d not in seen:
+                            seen.add(d)
+                            merged.append(d)
+                    env['PATH'] = os.pathsep.join(merged)
+
+                _prepend_path(extra_path_bins)
+
+                # 4. Prepare `<s2arm>/build/rewriter-deps` and export `S2A_REWRITER_DEPS`
+                deps_ok, _deps_skipped, deps_dir, deps_log = s2arm_bootstrap.ensure_rewriter_deps(
+                    s2arm_tree,
+                    s2a_py,
+                    env=env,
+                    on_line=_log_line,
+                )
+                if _cancelled():
+                    return False, self.t('msg.stopped')
+                if not deps_ok:
+                    if deps_log:
+                        self.log(deps_log + '\n')
+                    return False, self.t('msg.buildFailedReason', 'S2Arm rewriter-deps')
+                if deps_dir:
+                    env['S2A_REWRITER_DEPS'] = deps_dir
+
+                bash_exe = '/bin/bash'
+                if pu.IS_WIN:
+                    # 5W. Windows: S2A_ENGINE, Git Bash (S2A_BASH + PATH), and 7 open shared fonts (S2A_FONTS)
+                    env['S2A_ENGINE'] = s2arm_tree
+                    git_bash = s2arm_bootstrap.find_git_bash_windows()
+                    if git_bash:
+                        env['S2A_BASH'] = git_bash
+                        _prepend_path([str(Path(git_bash).parent)])
+                    if not str(env.get('S2A_FONTS') or '').strip():
+                        fonts_dir = lib.default_state_dir() / 's2arm-openfonts'
+                        f_ok, _f_skip, resolved_fonts, f_log = s2arm_bootstrap.ensure_open_fonts_windows(
+                            s2arm_tree,
+                            s2a_py,
+                            fonts_dir,
+                            env=env,
+                            on_line=_log_line,
+                        )
+                        if _cancelled():
+                            return False, self.t('msg.stopped')
+                        if not f_ok:
+                            if f_log:
+                                self.log(f_log + '\n')
+                            return False, self.t('msg.buildFailedReason', 'S2Arm open fonts')
+                        if resolved_fonts:
+                            env['S2A_FONTS'] = resolved_fonts
+                else:
+                    # 5P. POSIX: modern Bash >= 4 (+ shim) and macOS SPIRV / pinned zstd 1.5.7 tools
+                    modern_bash = s2arm_bootstrap.ensure_modern_bash(env=env, on_line=_log_line)
+                    if _cancelled():
+                        return False, self.t('msg.stopped')
+                    if not modern_bash:
+                        return False, self.t('msg.buildFailedReason', 'Bash 5')
+                    bash_exe = modern_bash
+                    env['SHELL'] = modern_bash
+                    shim_dir = s2arm_bootstrap.link_bash_shim(modern_bash, s2arm_tree)
+                    if shim_dir:
+                        _prepend_path([shim_dir])
+                    rt_ok, _rt_skip, rt_bin, zstd_lib, rt_log = s2arm_bootstrap.ensure_runtime_tools(
+                        s2arm_tree,
+                        s2a_py,
+                        env=env,
+                        on_line=_log_line,
+                    )
+                    if _cancelled():
+                        return False, self.t('msg.stopped')
+                    if not rt_ok:
+                        if rt_log:
+                            self.log(rt_log + '\n')
+                        return False, self.t('msg.buildFailedReason', 'SPIRV / zstd tools')
+                    if rt_bin:
+                        _prepend_path(([shim_dir] if shim_dir else []) + [rt_bin])
+                    if zstd_lib:
+                        env['S2A_ZSTD_LIB'] = zstd_lib
+
+                cmd_argv, cwd, extra_env = s2arm_builder.build_command(
+                    s2arm_tree,
+                    python_exe=s2a_py,
+                    source_input=input_dir,
+                    keys_path=keys_path,
+                    is_unencrypted=is_unencrypted,
+                    work_dir=work_dir,
+                    target=target,
+                    title_id=tid_hex,
+                    events_file=events_file,
+                    bash_exe=bash_exe,
+                )
+                env.update(extra_env)
+                env = s2arm_builder.apply_concurrency_defaults(env)
+                self.log(self.t('msg.running', ' '.join(cmd_argv)) + '\n')
+
+                ok = False
+                rc = -1
+                proc: subprocess.Popen | None = None
+                try:
+                    proc = subprocess.Popen(
+                        cmd_argv,
+                        cwd=cwd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding='utf-8',
+                        errors='replace',
+                        bufsize=1,
+                        env=env,
+                        **pu.process_group_kwargs(),
+                    )
+                    self._proc = proc
+                    if _cancelled():
+                        pu.kill_process_tree(proc)
+                    assert proc.stdout is not None
+                    for line in proc.stdout:
+                        self._on_line(line.rstrip('\n'))
+                    rc = proc.wait()
+                    ok = rc == 0 and not _cancelled()
+                except OSError as e:
+                    self.log(f'{e}\n')
+                finally:
+                    poll_fn = getattr(proc, 'poll', None)
+                    still_running = (poll_fn() is None) if callable(poll_fn) else False
+                    if proc is not None and (not ok or still_running):
+                        pu.kill_process_tree(proc)
+                    self._proc = None
+                self._flush_lines()
+                events_text = ''
+                if Path(events_file).is_file():
+                    try:
+                        events_text = Path(events_file).read_text(encoding='utf-8', errors='replace')
+                    except OSError:
+                        pass
+                summary = s2arm_builder.parse_events(events_text) if events_text else None
+                if ok:
+                    for st in self.stages:
+                        if st.state == 'running':
+                            st.state = 'done'
+                    self.stagesChanged.emit()
+                    ipa = summary.get('ipa') if summary else None
+                    root = summary.get('root') if summary else None
+                    if ipa and Path(ipa).exists():
+                        self.ipa_path = ipa
+                        note = self.t('msg.ipaAt', ipa)
+                    elif root and Path(root).exists():
+                        note = self.t('upstream.s2armMacDone', root)
+                    else:
+                        note = self.t('upstream.s2armDone')
+                else:
+                    if self.stages:
+                        self.stages[-1].state = 'failed'
+                        self.stagesChanged.emit()
+                    err = s2arm_builder.last_error(self.log_tail, events_text=events_text)
+                    note = self.t('msg.buildFailedReason', err) if err else self.t('msg.buildFailed', rc)
+                return ok, note
+
+            def work_s2arm() -> None:
+                try:
+                    ok, note = run_s2arm()
+                except Exception as e:
+                    self.log(f'{e}\n')
+                    if self.stages:
+                        self.stages[-1].state = 'failed'
+                        self.stagesChanged.emit()
+                    ok, note = False, self.t('msg.buildFailedReason', str(e))
+                finally:
+                    self.running = False
+                    try:
+                        self.runningChanged.emit(False)
+                    except RuntimeError:
+                        pass
+                try:
+                    self.finished.emit(ok, note)
+                except RuntimeError:
+                    pass
+
+            self._thread = threading.Thread(target=work_s2arm, daemon=True)
+            self._thread.start()
+            return
+
+        needs_nsz = any(Path(f).suffix.lower() in ('.nsz', '.xcz')
+                        for f in staged if f)
 
         # On Windows the upstream script is started through the driver, which loads it as a
         # module and replaces the steps that assume a Mac (see nspb_qt/win/driver.py). The
@@ -3072,18 +3902,19 @@ class Model(QObject):
         self.ipa_path = self.archive_path = self.mac_app_path = ''
         mac_app = self.target == 'mac-app'
         self.effective_work_dir = work_dir if has_work_dir else str(Path(base_dir if folder is not None else input_dir, f'{tid_hex}_build'))
-        use_shell_fw = not mac_app and self.ipa_kind == 'shared' and self.supports_shell_framework()
+        use_shell_fw = not mac_app and self.ipa_kind in ('shared', 'framework') and self.supports_shell_framework()
         if mac_app:
             args += ['--platform', 'mac-app']
             self.mac_app_path = str(Path(self.out_dir or base_dir, f'{tid_hex}.app'))
             args += ['-o', self.mac_app_path]
         elif use_shell_fw:
-            from .win import shell_export as se
-            tpl = se.find_shell_template(self.engine_path, root=self.shell_cache_path, log=self.log)
-            if tpl is None or not (tpl / se.SCHEME).is_file():
-                self._fast_refresh_external_img = ''
-                self.finished.emit(False, self.t('shell.exportFailed', f'missing {se.APP_NAME} template'))
-                return
+            if self.ipa_kind == 'shared':
+                from .win import shell_export as se
+                tpl = se.find_shell_template(self.engine_path, root=self.shell_cache_path, log=self.log)
+                if tpl is None or not (tpl / se.SCHEME).is_file():
+                    self._fast_refresh_external_img = ''
+                    self.finished.emit(False, self.t('shell.exportFailed', f'missing {se.APP_NAME} template'))
+                    return
             sf_dir = Path(self.effective_work_dir, 'shell-framework')
             if sf_dir.is_dir():
                 for old_fw in sf_dir.glob('DmGame*.framework'):
@@ -3132,32 +3963,64 @@ class Model(QObject):
             self.log(self.t('fail.override.note', flag) + '\n')
         if has_valid_queued_ext:
             self.log(self.t('imgGuide.driveReused', os.path.basename(queued_ext_img)) + '\n')
-        self.log(self.t('msg.running', py + ' ' + ' '.join(args)) + '\n')
-
-        env = pu.child_env()
-        if self.ipa_kind == 'oneGame' and not mac_app:
-            env['DM_FULL_ROMFS'] = '1'
-        droot = pu.dotnet_root(self.dotnet_path) if self.dotnet_ok else None
-        if droot:
-            env['DOTNET_ROOT'] = droot
-            env['DOTNET_ROOT_ARM64'] = droot
-        if pu.IS_WIN:
-            # The shim folder goes first on PATH/PYTHONPATH so the tools the pipeline spawns by
-            # name (xcrun, xcodebuild, which, dmsh_xlate, python3) resolve to the Windows
-            # stand-ins, and the child interpreters load sitecustomize. Failing here stops the
-            # build before it wastes time instead of twenty minutes in.
-            try:
-                from .win import shim as wshim
-                env = wshim.build_env(env, python_exe=py)
-                cwd = str(wshim.clean_pkg_root(wshim.shim_dir()))
-                ok_shim, why = wshim.verify_shim(env)
-                if not ok_shim:
-                    self.log(f'[shim] {why}\n')
-            except Exception as e:      # a broken shim must be visible, not fatal
-                self.log(f'[shim] could not prepare the Windows shim: {e}\n')
-            env['NSPB_REPO'] = self.engine_path
 
         def run_build() -> tuple[bool, str]:
+            active_py = py
+            build_cwd = cwd
+            if needs_nsz:
+                def _nsz_log(text: str) -> None:
+                    self.log(text)
+                    self.log_tail = (self.log_tail + text)[-12000:]
+                    stripped = text.strip()
+                    if stripped:
+                        self._last_error = stripped[:200]
+
+                nsz_res = nsz_setup.ensure_nsz_for_build(
+                    py=active_py,
+                    log=_nsz_log,
+                    make_venv=lambda base: self._make_venv(base),
+                    bundled_wheels=getattr(self, 'bundled_wheels', Model.bundled_wheels),
+                    installing_notice=self.t('msg.installingNsz'),
+                    is_cancelled=lambda: bool(getattr(self, '_build_cancelled', False)),
+                    on_proc=lambda proc: setattr(self, '_proc', proc),
+                    popen_cls=subprocess.Popen,
+                )
+                if nsz_res.cancelled or getattr(self, '_build_cancelled', False):
+                    return False, self.t('msg.stopped')
+                if not nsz_res.ok:
+                    msg_key, msg_args = nsz_setup.failure_message_spec(nsz_res, active_py)
+                    return False, self.t(msg_key, *msg_args)
+                if nsz_res.python_path:
+                    active_py = nsz_res.python_path
+                if nsz_res.switched_venv:
+                    self.python_path = active_py
+                    self.python_ok = True
+
+            self.log(self.t('msg.running', active_py + ' ' + ' '.join(args)) + '\n')
+
+            env = pu.child_env()
+            if self.ipa_kind == 'oneGame' and not mac_app:
+                env['DM_FULL_ROMFS'] = '1'
+            droot = pu.dotnet_root(self.dotnet_path) if self.dotnet_ok else None
+            if droot:
+                env['DOTNET_ROOT'] = droot
+                env['DOTNET_ROOT_ARM64'] = droot
+            if pu.IS_WIN:
+                # The shim folder goes first on PATH/PYTHONPATH so the tools the pipeline spawns by
+                # name (xcrun, xcodebuild, which, dmsh_xlate, python3) resolve to the Windows
+                # stand-ins, and the child interpreters load sitecustomize. Failing here stops the
+                # build before it wastes time instead of twenty minutes in.
+                try:
+                    from .win import shim as wshim
+                    env = wshim.build_env(env, python_exe=active_py)
+                    build_cwd = str(wshim.clean_pkg_root(wshim.shim_dir()))
+                    ok_shim, why = wshim.verify_shim(env)
+                    if not ok_shim:
+                        self.log(f'[shim] {why}\n')
+                except Exception as e:      # a broken shim must be visible, not fatal
+                    self.log(f'[shim] could not prepare the Windows shim: {e}\n')
+                env['NSPB_REPO'] = self.engine_path
+
             ok = False
             proc: subprocess.Popen | None = None
             spool_dir: str | None = None
@@ -3166,7 +4029,7 @@ class Model(QObject):
                 if pu.IS_WIN:
                     spool_dir = tempfile.mkdtemp(prefix='nspb-spool-')
                     run_env = {**env, 'NSPB_SPOOL_DIR': spool_dir}
-                proc = subprocess.Popen([py] + args, cwd=cwd,
+                proc = subprocess.Popen([active_py] + args, cwd=build_cwd,
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                         text=True, encoding='utf-8', errors='replace',
                                         bufsize=1, env=run_env,
@@ -3213,6 +4076,11 @@ class Model(QObject):
                 self.stagesChanged.emit()
                 if self.ipa_kind == 'oneGame' and not self.ipa_path:
                     self.ipa_path = self._resolve_one_game_ipa_path(base_dir, input_dir, tid_hex)
+                if self.ipa_kind == 'framework':
+                    ok_pack, pack_note = self.pack_archive(title_id, export_shell=False)
+                    if not ok_pack:
+                        return False, pack_note
+                    return self._export_standalone_framework(title_id)
                 if self.ipa_kind != 'oneGame':
                     return self.pack_archive(title_id, export_shell=use_shell_fw)
                 if not self.ipa_path:
@@ -3265,6 +4133,10 @@ class Model(QObject):
             return self.t('fail.psoDiskFull.whatNeeds', f.detail)
         if f.kind == bf.APP_ID_LIMIT and f.detail:
             return self.t('fail.appIDLimit.whatUntil', f.detail)
+        if f.kind == bf.WIN_PREREQ and f.detail:
+            return self.t('fail.winPrereq.whatNamed', f.detail)
+        if f.kind == bf.NO_IOS_SHADERS and f.detail:
+            return self.t('fail.noIOSShaders.whatDetail', f.detail)
         return self.t(f.what_key)
 
     def _keys_readable(self) -> bool | None:
@@ -3982,7 +4854,7 @@ class Model(QObject):
         return (
             not self.running
             and self.target == 'ios'
-            and self.ipa_kind != 'oneGame'
+            and self.ipa_kind == 'shared'
             and bool(self.repo_ok)
             and bool(self.built_shell_games())
         )
@@ -4029,6 +4901,7 @@ class Model(QObject):
         """Repack the shared IPA on a background thread and report via `runningChanged` / `finished`."""
         if not self.can_export_built_games():
             return False
+        self._build_cancelled = False
         self._last_error = ''
         self.failure = None
         self.stages = []
@@ -4548,6 +5421,18 @@ class Model(QObject):
                     self.log(line)
         return False
 
+    def _with_replace_old_img_reminder(self, note: str) -> str:
+        if not getattr(self, 'needs_replace_old_img_reminder', False):
+            return note
+        if getattr(self, '_defer_shell_export', False):
+            return note
+        img_p = getattr(self, 'updated_img_path', '') or ''
+        img_name = os.path.basename(img_p) if img_p else 'romfs.img'
+        reminder = self.t('imgGuide.replaceOldImgBody', img_name)
+        if reminder in (note or ''):
+            return note
+        return f'{note}\n{reminder}' if note else reminder
+
     def pack_archive(self, title_id: str | None = None, *, export_shell: bool = False) -> tuple[bool, str]:
         """Run the final shared-build step on the build worker."""
         work = getattr(self, 'effective_work_dir', '')
@@ -4605,14 +5490,19 @@ class Model(QObject):
                 ok_ext = self._inject_msl_trailer(Path(ext_img), msl_info)
                 if self.stages:
                     self.stages[-1].state = 'done' if ok_ext else 'failed'
+                    if ok_ext:
+                        self.stages[-1].detail = self.t('prog.externalImgUpdated', os.path.basename(ext_img))
                 self.stagesChanged.emit()
                 pbc.clean_work_dir(work, remove_extracted_romfs=False, remove_shell_framework=False)
                 if not ok_ext:
                     return False, self.t('msg.archiveFailed')
+                self.log(self.t('imgGuide.externalUpdatedLog', ext_img) + '\n')
+                self.needs_replace_old_img_reminder = True
+                self.updated_img_path = str(ext_img)
                 if export_shell:
                     return self._export_shell_after_archive(True, '')
                 self._record_library_ios_completion(tid if (title_id or tid_is_hex) else None)
-                return True, ''
+                return True, self._with_replace_old_img_reminder('')
             pbc.clean_work_dir(work, remove_extracted_romfs=False, remove_shell_framework=False)
             if export_shell:
                 return self._export_shell_after_archive(True, self.t('msg.archiveSkipped', str(extract)))
@@ -4673,6 +5563,9 @@ class Model(QObject):
 
             if ok and out_img.is_file() and msl_info is not None:
                 ok = self._inject_msl_trailer(out_img, msl_info)
+                if ok and (getattr(self, '_is_fast_refresh', False) or bool(ext_img) or not versions):
+                    self.needs_replace_old_img_reminder = True
+                    self.updated_img_path = str(out_img)
             if (
                 ok
                 and ext_img
@@ -4681,7 +5574,9 @@ class Model(QObject):
                 and msl_info is not None
                 and (not out_img.exists() or not pbc._same_location(Path(ext_img), out_img))
             ):
-                self._inject_msl_trailer(Path(ext_img), msl_info)
+                if self._inject_msl_trailer(Path(ext_img), msl_info):
+                    self.needs_replace_old_img_reminder = True
+                    self.updated_img_path = str(ext_img)
 
             aoc_dst = Path(dest, 'aoc')
             aoc_src = Path(work, 'aoc') if work else Path('')
@@ -4707,7 +5602,7 @@ class Model(QObject):
             return self._export_shell_after_archive(True, '')
         if ok:
             self._record_library_ios_completion(tid if (title_id or tid_is_hex) else None)
-        return ok, '' if ok else self.t('msg.archiveFailed')
+        return ok, self._with_replace_old_img_reminder('') if ok else self.t('msg.archiveFailed')
 
     def _export_shell_after_archive(self, archive_ok: bool, archive_note: str) -> tuple[bool, str]:
         if not archive_ok:
@@ -4796,7 +5691,80 @@ class Model(QObject):
             exported_ids = {g.title_id.upper() for g in se.ShellLibrary.load(self.shell_cache_path).games}
             if tid.upper() in exported_ids:
                 pbc.clean_built_framework_container(fw)
+            msg = self._with_replace_old_img_reminder(msg)
         return ok, msg
+
+    def _export_standalone_framework(
+        self,
+        title_id: str | None = None,
+        *,
+        out_dir: str = '',
+        fallback_name: str = '',
+    ) -> tuple[bool, str]:
+        """Atomically export `DmGame<TID>.framework` to the output folder without building a shell IPA."""
+        import uuid
+        from .win import shell_export as se
+
+        work = getattr(self, 'effective_work_dir', '')
+        fw = se.built_framework(work)
+        tid = self._verified_title_id(work, (se.title_id_of_framework(fw) if fw else '') or (title_id or ''))
+        if fw is None:
+            fw = Path(work, 'shell-framework', f'DmGame{tid}.framework')
+        if not fw.is_dir():
+            folder = fw.parent.name or 'shell-framework'
+            game_name = fallback_name or tid
+            return False, self.t('shell.noFramework', game_name, folder)
+
+        tid_up = tid.strip().upper() if re.fullmatch(r'[0-9A-Fa-f]{16}', tid.strip()) else tid.strip()
+        target_out = out_dir or self.out_dir or (
+            self.game_folder.folder
+            if self.game_folder is not None
+            else (str(Path(self.base_path).parent) if self.base_path else '')
+        )
+        if not target_out:
+            target_out = str(Path(work).parent)
+        dest = Path(lib.game_framework_path(target_out, tid_up))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        suffix = uuid.uuid4().hex[:8]
+        tmp_dest = dest.parent / f'.{dest.name}.tmp-{suffix}'
+        old_dest = dest.parent / f'.{dest.name}.old-{suffix}'
+
+        def _remove_path(path: Path) -> None:
+            if os.path.islink(path) or os.path.isfile(path):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            elif os.path.lexists(path):
+                shutil.rmtree(path, ignore_errors=True)
+
+        replaced = False
+        try:
+            shutil.copytree(fw, tmp_dest, symlinks=True)
+            picked = self.artwork.custom_paths.get(tid_up)
+            se.place_banner(tid_up, str(tmp_dest), banners_dir=self.artwork.banners_dir, picked=picked)
+            if os.path.lexists(dest):
+                os.replace(dest, old_dest)
+            os.replace(tmp_dest, dest)
+            replaced = True
+        except (OSError, RuntimeError, ValueError) as e:
+            if os.path.lexists(old_dest):
+                _remove_path(dest)
+                try:
+                    os.replace(old_dest, dest)
+                except OSError:
+                    pass
+            return False, self.t('shell.exportFailed', str(e))
+        finally:
+            _remove_path(tmp_dest)
+            if replaced:
+                _remove_path(old_dest)
+
+        self.ipa_path = str(dest)
+        self._record_library_ios_completion(tid_up, name=fallback_name)
+        pbc.clean_work_dir(work, remove_extracted_romfs=False, remove_shell_framework=False)
+        pbc.clean_built_framework_container(fw)
+        return True, self._with_replace_old_img_reminder(self.t('shell.frameworkExportDone', str(dest)))
 
     def _record_library_ios_completion(self, title_id: str | None = None, name: str = '') -> None:
         inputs_map: dict[str, list[str]] = {}

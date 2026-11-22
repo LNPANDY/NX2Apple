@@ -53,15 +53,56 @@ package enum CloudSaveCheck {
         case offline      // the cloud could not be read: play with this Mac's, send nothing until compared
     }
 
-    /// `DM_SAVE_SYNC_CHOICE` for the engine (save_sync.c, read_choice): the choice names the cloud save it was made on, so a cloud save
-    /// that changes between this check and the game's first save mount is not replaced.
-    package static func environment(_ choice: Choice, cloud: Save?) -> [String: String] {
-        let key = "DM_SAVE_SYNC_CHOICE"
+    /// `DM_SAVE_SYNC_CHOICE` for the engine (save_sync.c, read_choice), or the engine's own `key` for it: the choice names the cloud
+    /// save it was made on, so a cloud save that changes between this check and the game's first save mount is not replaced.
+    package static func environment(_ choice: Choice, cloud: Save?, key: String = "DM_SAVE_SYNC_CHOICE") -> [String: String] {
         switch choice {
         case .offline: return [key: "offline"]
         case .cloud: return cloud?.hash.map { [key: "cloud:" + $0] } ?? [:]
         case .local: return [key: "local:" + (cloud?.hash ?? "none")]
         }
+    }
+
+    // MARK: - The engine's report
+
+    /// What the check found, from the line an engine's `save_sync_report` prints (dm/host/save_sync.c, nxkit-host
+    /// `--save-sync-report`): `sync=<0|1> cloud=<1|0|-1> local=<hash|-> saved=<secs> … chash=<hash|-> csaved=<secs> …
+    /// cdevice=<model|-> sametitle=<0|1> conflict=<0|1> pull=<0|1>`. nil for a line without `sync=`. `local` is nil when
+    /// sync is off, as for a save that cannot be read: the game then starts without a question.
+    package struct Report: Equatable {
+        package var outcome: Outcome
+        package var local: Save?
+        package var cloud: Save?
+        /// Why the cloud's save could not be used.
+        package var reason: String?
+    }
+
+    package static func report(_ line: String) -> Report? {
+        var f: [String: String] = [:]
+        for pair in line.split(whereSeparator: \.isWhitespace) {
+            guard let eq = pair.firstIndex(of: "=") else { continue }
+            f[String(pair[..<eq])] = String(pair[pair.index(after: eq)...])
+        }
+        guard let sync = f["sync"] else { return nil }
+        func hash(_ key: String) -> String? { f[key].flatMap { $0 == "-" || $0.isEmpty ? nil : $0 } }
+        func date(_ key: String) -> Date? { f[key].flatMap(Int64.init).flatMap { $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil } }
+        let local = Save(hash: hash("local"), saved: date("saved"))
+        let cloud = Save(hash: hash("chash"), saved: date("csaved"), device: hash("cdevice"))
+        guard sync == "1" else { return Report(outcome: .same, local: nil, cloud: nil, reason: nil) }
+        switch f["cloud"] {
+        case "-1": return Report(outcome: .unreadable, local: local, cloud: nil, reason: "The file in the cloud did not come in time.")
+        case "1" where f["sametitle"] == "0":
+            return Report(outcome: .unreadable, local: local, cloud: nil, reason: "The file in the cloud is another game’s save.")
+        case "1": break
+        default: return Report(outcome: local.hash == nil ? .same : .noCloudSave, local: local, cloud: .empty, reason: nil)
+        }
+        let outcome: Outcome
+        if f["conflict"] == "1" { outcome = .bothChanged }
+        else if cloud.hash == nil { outcome = local.hash == nil ? .same : .noCloudSave }
+        else if cloud.hash == local.hash { outcome = .same }
+        else if f["pull"] == "1" { outcome = .onlyCloudChanged }
+        else { outcome = .onlyLocalChanged }
+        return Report(outcome: outcome, local: local, cloud: cloud, reason: nil)
     }
 
     // MARK: - Reading the three saves

@@ -91,15 +91,16 @@ final class GameUpdateCatalogTests: XCTestCase {
     }
 
     func testCatalogVersionCountsDefaultsAndReleaseBaseStripping() {
-        XCTAssertEqual(GameUpdateCatalog.updatedVersions.count, 56)
+        XCTAssertEqual(GameUpdateCatalog.updatedVersions.count, 102)
         let grouped = Dictionary(grouping: GameUpdateCatalog.updatedVersions.values, by: { $0 }).mapValues(\.count)
-        XCTAssertEqual(grouped["1.5.0"], 27)
-        XCTAssertEqual(grouped["1.4.0"], 18)
-        XCTAssertEqual(grouped["1.3.0"], 8)
-        XCTAssertEqual(grouped["1.2.2"], 3)
+        XCTAssertEqual(grouped["1.5.0"], 80)
+        XCTAssertEqual(grouped["1.4.0"], 16)
+        XCTAssertEqual(grouped["1.3.0"], 6)
+        XCTAssertNil(grouped["1.2.2"])
 
         XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "01007A2027548000"), "1.5.0")
         XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "0400C76024710000"), "1.5.0")
+        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "01001C8016B4E000"), "1.5.0")
         XCTAssertNil(GameUpdateCatalog.catalogVersion(for: tidUnlisted))
 
         XCTAssertEqual(GameUpdateCatalog.releaseBaseVersion(" v1.5.0-local "), "1.5.0")

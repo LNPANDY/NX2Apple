@@ -1,11 +1,11 @@
 import Foundation
 
-/// The words of the iOS in-game menu (engine patch 0124, GameMenu.swift) in the launcher's language: its title, Controller layout,
-/// Keys that toggle and None, in that order. A game's own app has no launcher to pass them at start, so the build bakes them into the
+/// The words of the iOS in-game menu (engine patch 0124, GameMenu.swift) in the launcher's language: its title and Controller layout,
+/// in that order. A game's own app has no launcher to pass them at start, so the build bakes them into the
 /// app's `dm/env.txt` (the build's `--env-file`), one line, the texts joined by a backslash and n (#1129).
 package enum GameMenuText {
     /// The launcher's keys, in the engine's order.
-    package static let keys = ["ingame.moreSettings", "ingame.controllerLayout", "ingame.keysThatToggle", "controls.none"]
+    package static let keys = ["ingame.moreSettings", "ingame.controllerLayout"]
 
     /// `DM_GAME_MENU_TEXT=…` for an env file: no line breaks inside a text, so the file keeps one variable per line.
     package static func envLine(_ t: (String) -> String) -> String {

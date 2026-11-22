@@ -87,7 +87,7 @@ struct GameDeletion: Equatable {
 
         let mac = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath, support: support)
         var saves = [mac.save, mac.legacy ?? SaveTransfer.legacyMacSave(titleID: game.titleID, support: support)].flatMap { save in
-            [save.path, save.path + "_device", save.path + "-backups"]
+            [save.path, save.path + "_device", save.path + "-backups"] + SaveUsers.userPaths(save: save)
         }
         if let build { saves.append(build + "/run") }
         saves = Array(Set(saves)).sorted().filter(exists)

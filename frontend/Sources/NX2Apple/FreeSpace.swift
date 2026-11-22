@@ -237,6 +237,8 @@ struct FreeSpaceView: View {
     @ObservedObject var m: BuildStore
     @EnvironmentObject var loc: Localizer
     let game: LibraryGame
+    /// Off only for the gallery's "measuring" state, which keeps the spinner.
+    private let measures: Bool
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var focus: PadFocus
     @State private var survey: BuildFolderSurvey?
@@ -245,7 +247,10 @@ struct FreeSpaceView: View {
     @State private var working = false
     @State private var outcome: String?
 
-    init(m: BuildStore, game: LibraryGame, survey: BuildFolderSurvey? = nil, chosen: Set<BuildFolderPart> = []) {
+    init(m: BuildStore, game: LibraryGame, survey: BuildFolderSurvey? = nil, chosen: Set<BuildFolderPart> = [], measures: Bool = true,
+         outcome: String? = nil) {
+        _outcome = State(initialValue: outcome)   // the state gallery: what the last removal said
+        self.measures = measures
         self.m = m
         self.game = game
         _survey = State(initialValue: survey)   // visual QA: a measured folder without one on disk
@@ -257,112 +262,79 @@ struct FreeSpaceView: View {
     private var chain: String? { BuildFolder.currentChain(repo: m.repo.path) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(loc.t("free.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText)
-            }
-            .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 14)
-            Text(loc.t("free.note")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 30).padding(.bottom, 18)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let survey {
-                        if survey.parts.isEmpty {
-                            Text(loc.t("free.empty")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText)
-                        } else {
-                            card {
-                                ForEach(survey.parts) { part in
-                                    row(part, bytes: survey.sizes[part] ?? 0)
-                                    Divider().opacity(0.25).padding(.leading, 18)
-                                }
-                                HStack(spacing: 16) {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(loc.t("free.kept")).font(.manrope(14, .medium)).foregroundStyle(LauncherPalette.secondaryText)
-                                        Text(loc.t("free.keptNote")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                    Spacer(minLength: 12)
-                                    sizeText(survey.kept).foregroundStyle(LauncherPalette.secondaryText)
-                                }
-                                .padding(.horizontal, 18).padding(.vertical, 13)
-                            }
+        DSScrollingSheet(width: 560, height: 690, title: loc.t("free.title"), message: game.displayName(loc.lang)) {
+            Text(loc.t("free.note")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
+            if let survey {
+                if survey.parts.isEmpty {
+                    Text(loc.t("free.empty")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                } else {
+                    DSSection("") {
+                        ForEach(survey.parts) { part in
+                            row(part, bytes: survey.sizes[part] ?? 0)
+                            DSRowDivider()
                         }
-                        if game.isReady {   // pack_app.py clones the game files and shaders into the app on the same APFS volume
-                            Text(loc.t("free.clones")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
-                                .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 2)
+                        DSRow(loc.t("free.kept"), detail: loc.t("free.keptNote")) {
+                            sizeText(survey.kept).foregroundStyle(DS.Color.textSecondary)
                         }
-                        Text(survey.folder).font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
-                            .lineLimit(1).truncationMode(.middle).textSelection(.enabled).padding(.horizontal, 2)
-                    } else {
-                        HStack(spacing: 10) { ProgressView().controlSize(.small); Text(loc.t("free.measuring")).foregroundStyle(LauncherPalette.secondaryText) }
                     }
                 }
-                .padding(.horizontal, 30).padding(.bottom, 20)
-            }
-            Divider().opacity(0.3)
-            HStack(spacing: 14) {
-                Text(outcome ?? (m.running ? loc.t("free.running") : String(format: loc.t("free.selected"), Self.bytes(chosenBytes))))
-                    .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
-                Spacer(minLength: 8)
-                Button(loc.t("free.remove")) { confirming = true }
-                    .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.building))
-                    .disabled(chosen.isEmpty || m.running || working)
-                    .padTarget("free.remove", scope: "free") { if !chosen.isEmpty && !m.running && !working { confirming = true } }
-                Button { dismiss() } label: {
-                    Text(loc.t("free.done")).font(.manrope(13.5, .bold))
-                        .padding(.horizontal, 22).padding(.vertical, 9)
+                if game.isReady {   // pack_app.py clones the game files and shaders into the app on the same APFS volume
+                    Text(loc.t("free.clones")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
-                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(.defaultAction)
-                .padTarget("free.done", scope: "free", radius: 20) { dismiss() }
+                if !survey.folder.isEmpty { DSPathText(survey.folder).textSelection(.enabled) }
+            } else {
+                HStack(spacing: DS.Space.s) {
+                    ProgressView().controlSize(.small)
+                    Text(loc.t("free.measuring")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                }
             }
-            .padding(.horizontal, 30).padding(.vertical, 16)
+        } leading: {
+            Text(outcome ?? (m.running ? loc.t("free.running") : String(format: loc.t("free.selected"), Self.bytes(chosenBytes))))
+                .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
+        } buttons: {
+            Button(loc.t("free.remove")) { confirming = true }
+                .buttonStyle(DSSecondaryButtonStyle())
+                .disabled(chosen.isEmpty || m.running || working)
+                .padTarget("free.remove", scope: "free", enabled: !chosen.isEmpty && !m.running && !working) { if !chosen.isEmpty && !m.running && !working { confirming = true } }
+            DSSheetPrimaryButton(loc.t("free.done")) { dismiss() }
+                .padTarget("free.done", scope: "free", focusColor: DS.Color.accentOn) { dismiss() }
         }
         .padScope("free", focus)
-        .frame(width: 560, height: 690)
-        .background(LauncherPalette.background)
-        .font(.manrope(13))
-        .launcherAppearance()
-        .tint(LauncherPalette.accent)
-        .onAppear { if survey == nil { measure() } }
-        .confirmationDialog(String(format: loc.t("free.confirm"), Self.bytes(chosenBytes)), isPresented: $confirming, titleVisibility: .visible) {
-            Button(loc.t("free.confirmButton"), role: .destructive) { removeChosen() }
-        } message: {
-            Text(([loc.t("free.confirmNote")] + BuildFolderPart.allCases.filter { chosen.contains($0) && !($0 == .oldShaders && chosen.contains(.shaders)) }.map { loc.t("free.cost." + $0.rawValue) }).joined(separator: "\n"))
+        .onAppear { if survey == nil && measures { measure() } }
+        .sheet(isPresented: $confirming) {
+            LauncherConfirmSheet(title: String(format: loc.t("free.confirm"), Self.bytes(chosenBytes)), subtitle: game.displayName(loc.lang),
+                note: ([loc.t("free.confirmNote")] + BuildFolderPart.allCases.filter { chosen.contains($0) && !($0 == .oldShaders && chosen.contains(.shaders)) }.map { loc.t("free.cost." + $0.rawValue) }).joined(separator: "\n"),
+                cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("free.confirmButton"), destructive: true, scope: "freeconfirm",
+                cancel: { confirming = false }, confirm: { confirming = false; removeChosen() })
+                .environmentObject(focus)
         }
+        .onChange(of: confirming) { open in focus.scope = open ? "freeconfirm" : "free" }
     }
 
     private func row(_ part: BuildFolderPart, bytes: Int64) -> some View {
         let on = Binding(get: { chosen.contains(part) }, set: { if $0 { chosen.insert(part) } else { chosen.remove(part) } })
-        return HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(loc.t("free.part." + part.rawValue)).font(.manrope(14, .medium))
-                Text(loc.t("free.cost." + part.rawValue)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
+        return HStack(spacing: DS.Space.s) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                Text(loc.t("free.part." + part.rawValue)).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+                Text(loc.t("free.cost." + part.rawValue)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if part == .oldShaders, let versions = survey?.oldShaders {   // which versions, each with its size
                     Text(versions.map { "\($0.name)  \(Self.bytes($0.bytes))" }.joined(separator: "\n"))
-                        .font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary).textSelection(.enabled)
+                        .font(DS.Font.mono).foregroundStyle(DS.Color.textTertiary).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer(minLength: 12)
+            Spacer(minLength: DS.Space.s)
             sizeText(bytes)
             Toggle(loc.t("free.part." + part.rawValue), isOn: on).labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(working)
         }
-        .padding(.horizontal, 18).padding(.vertical, 13).frame(minHeight: 52)
-        .padTarget("free." + part.rawValue, scope: "free", radius: 10,
+        .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.s).frame(minHeight: 52)
+        .padTarget("free." + part.rawValue, scope: "free", radius: DS.Radius.card, enabled: !working,
                    activate: { on.wrappedValue.toggle() }, adjust: { _ in on.wrappedValue.toggle() })
     }
 
     private func sizeText(_ bytes: Int64) -> some View {
-        Text(Self.bytes(bytes)).font(.manrope(13, .semibold)).monospacedDigit().frame(minWidth: 70, alignment: .trailing)
-    }
-
-    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(spacing: 0, content: content)
-            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+        Text(Self.bytes(bytes)).font(DS.Font.bodyStrong).monospacedDigit().fixedSize()
     }
 
     nonisolated static func bytes(_ n: Int64) -> String { ByteCountFormatter.string(fromByteCount: n, countStyle: .file) }

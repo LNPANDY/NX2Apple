@@ -1,3 +1,4 @@
+import CoreText
 import SwiftUI
 import NXCore
 import NXModel
@@ -18,7 +19,10 @@ package struct ExportSteps: View {
     @State private var detailsOpen = false
     @State private var selectSheetMode: SendSelectedSheet.Mode?
 
-    package init(build: BuildStore, devices: DeviceStore) {
+    let resultOnly: Bool
+
+    package init(build: BuildStore, devices: DeviceStore, resultOnly: Bool = false) {
+        self.resultOnly = resultOnly
         self.build = build
         self.devices = devices
     }
@@ -29,57 +33,73 @@ package struct ExportSteps: View {
     }
     private var copying: Bool { if case .copying = build.send { return true } else { return false } }
     /// Step 3 waits for step 1: until the IPA exists its controls are shown, but all of them quieter and inert.
-    private var inert: Bool { !exported && !sentDone }
+    private var inert: Bool { !exported && !sentDone && !(resultOnly && build.completionStatus == .needsData) }
     private var toDrive: Bool { devices.sendWhere == SendWhere.drive }
     private var gameName: String { build.gameName }
-    private var oneGame: Bool { devices.exportOneGame }
+    private var oneGame: Bool { resultOnly ? build.completedOneGameIPA : devices.exportOneGame }
+
+    private var frameworkOnly: Bool { resultOnly ? build.completedFramework : !oneGame && devices.exportFramework }
 
     package var body: some View {
-        let canExportBuilt = !oneGame && !build.running && build.exportsShell && !build.exportsOneGame
-        let exportBuiltCount = canExportBuilt ? build.builtShellGames().count : 0
-        VStack(spacing: 0) {
-            step(1, exported ? .done : .current, title: loc.t("shell.step1Title"),
-                 sub: exported ? String(format: loc.t(oneGame ? "shell.oneGameDone" : "shell.step1Done"), build.exportedIPAText)
-                               : loc.t(oneGame ? "shell.oneGameSub" : "shell.step1Sub")) {
-                if exported {
-                    HStack(spacing: ExportGrid.gap) {
-                        if exportBuiltCount > 0 {
-                            action(String(format: loc.t("shell.exportBuilt"), exportBuiltCount), enabled: true) { build.exportBuiltGames() }
-                                .help(loc.t("shell.exportBuiltNote"))
+        let exportBuiltCount = !oneGame && !frameworkOnly && !build.running && build.exportsShell && !build.exportsOneGame && !build.exportsFramework ? build.builtShellGames().count : 0
+        let step1Title = frameworkOnly ? "shell.frameworkStep1Title" : "shell.step1Title"
+        let step1Done = oneGame ? "shell.oneGameDone" : frameworkOnly ? "shell.frameworkStep1Done" : "shell.step1Done"
+        let step1Sub = oneGame ? "shell.oneGameSub" : frameworkOnly ? "shell.frameworkStep1Sub" : "shell.step1Sub"
+        let step2Title = frameworkOnly ? "shell.frameworkStep2Title" : "shell.step2Title"
+        let step2Sub = oneGame ? "shell.oneGameStep2Sub" : frameworkOnly ? "shell.frameworkStep2Sub" : "shell.step2Sub"
+        return VStack(spacing: 0) {
+            if !resultOnly {
+                step(1, exported ? .done : .current, title: loc.t(step1Title),
+                     sub: exported ? String(format: loc.t(step1Done), build.exportedIPAText)
+                                   : loc.t(step1Sub)) {
+                    if exported {
+                        HStack(spacing: ExportGrid.gap) {
+                            if exportBuiltCount > 0 {
+                                action(String(format: loc.t("shell.exportBuilt"), exportBuiltCount), id: "existing", enabled: true) { build.exportBuiltGames() }
+                                    .help(loc.t("shell.exportBuiltNote"))
+                            }
+                            action(loc.t("shell.showInFinder"), id: "reveal") { revealInFinder(build.exportedIPAPath) }
                         }
-                        action(loc.t("shell.showInFinder")) { revealInFinder(build.exportedIPAPath) }
-                    }
-                } else {
-                    HStack(spacing: ExportGrid.gap) {
-                        if exportBuiltCount > 0 {   // #994: the IPA of the frameworks already built, no game is built again
-                            action(String(format: loc.t("shell.exportBuilt"), exportBuiltCount), enabled: true) { build.exportBuiltGames() }
-                                .help(loc.t("shell.exportBuiltNote"))
+                    } else {
+                        HStack(spacing: ExportGrid.gap) {
+                            if exportBuiltCount > 0 {   // #994: the IPA of the frameworks already built, no game is built again
+                                action(String(format: loc.t("shell.exportBuilt"), exportBuiltCount), id: "existing", enabled: true) { build.exportBuiltGames() }
+                                    .help(loc.t("shell.exportBuiltNote"))
+                            }
+                            action(loc.t("shell.step1Button"), id: "build", enabled: build.canStartBuildOrQueue && !build.running) { build.startBuildOrQueue() }
                         }
-                        action(loc.t("shell.step1Button"), enabled: build.canStartBuildOrQueue && !build.running) { build.startBuildOrQueue() }
                     }
                 }
+                CardDivider()
             }
-            CardDivider()
-            step(2, sentDone ? .done : exported ? .current : .upcoming, title: loc.t("shell.step2Title"),
-                 sub: loc.t(oneGame ? "shell.oneGameStep2Sub" : "shell.step2Sub")) { EmptyView() }
-            if !oneGame { CardDivider(); sendStep }
+            if !resultOnly || exported {
+                step(resultOnly ? 1 : 2, sentDone ? .done : exported ? .current : .upcoming, title: loc.t(step2Title),
+                     sub: loc.t(step2Sub)) { EmptyView() }
+            }
+            if !oneGame { if !resultOnly || exported { CardDivider() }; sendStep }
         }
         .sheet(item: $selectSheetMode) { mode in
-            SendSelectedSheet(mode: mode, build: build) { selectSheetMode = nil }
-                .environmentObject(loc)
+            SendSelectedSheet(mode: mode, build: build) { selectSheetMode = nil }.environmentObject(loc)
         }
     }
 
     /// Step 3, the game data to the device or a drive: only for the shared app, whose IPA leaves the data out.
     private var sendStep: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            step(3, sentDone ? .done : exported ? .current : .upcoming, title: loc.t("shell.step3Title"), sub: loc.t("shell.step3Sub")) {
-                LauncherSegmented(options: [(SendWhere.device, loc.t("shell.whereDevice")), (SendWhere.drive, loc.t("shell.whereDrive"))],
+        let whereLabels = [loc.t("shell.whereDevice"), loc.t("shell.whereDrive")]
+        return VStack(alignment: .leading, spacing: 0) {
+            step(resultOnly ? (exported ? 2 : 1) : 3, sentDone ? .done : exported || !inert ? .current : .upcoming, title: loc.t("shell.step3Title"), sub: loc.t("shell.step3Sub")) {
+                LauncherSegmented(options: [(SendWhere.device, whereLabels[0]), (SendWhere.drive, whereLabels[1])],
                                   selection: devices.sendWhere) { devices.sendWhere = $0; build.refreshDrive() }
-                    .frame(width: ExportGrid.switchWidth)
+                    .frame(width: ExportGrid.segmentedWidth(for: whereLabels))
                     .opacity(inert ? ExportGrid.quiet : 1)
+                    .disabled(build.running)
+                    .padTarget("set.build.export.where", scope: "main", enabled: !inert && !build.running, activate: { changeDestination() }, adjust: { _ in changeDestination() })
             }
             VStack(alignment: .leading, spacing: ExportGrid.noteGap) {
+                if build.needsReplaceOldImgReminder && !sentDone {
+                    let imgName = build.updatedImgPath.isEmpty ? "romfs.img" : (build.updatedImgPath as NSString).lastPathComponent
+                    note(.warning, String(format: loc.t("imgGuide.replaceOldImgBody"), imgName))
+                }
                 if toDrive { driveRow; driveStatus } else { deviceRow; deviceStatus }
             }
             .padding(.leading, ExportGrid.axis).padding(.trailing, ExportGrid.inset).padding(.bottom, ExportGrid.inset)
@@ -87,6 +107,18 @@ package struct ExportSteps: View {
             .animation(.easeInOut(duration: 0.18), value: statusKind)
         }
         .disabled(inert)
+    }
+
+    private func changeDestination() {
+        guard !build.running else { return }
+        devices.sendWhere = toDrive ? SendWhere.device : SendWhere.drive
+        build.refreshDrive()
+    }
+
+    private func stepDevice(_ by: Int) {
+        guard !build.running, !deviceOptions.isEmpty else { return }
+        let index = deviceOptions.firstIndex { $0.value == devices.installDevice } ?? 0
+        devices.installDevice = deviceOptions[(index + by + deviceOptions.count) % deviceOptions.count].value
     }
 
     // MARK: A step
@@ -103,9 +135,9 @@ package struct ExportSteps: View {
             .frame(width: ExportGrid.badge, height: ExportGrid.badge)
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.manrope(14, .semibold)).foregroundStyle(phase == .upcoming ? .secondary : .primary)
+                Text(title).font(DS.Font.bodyStrong).foregroundStyle(phase == .upcoming ? .secondary : .primary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(sub).font(.manrope(12.5)).foregroundStyle(phase == .upcoming ? .tertiary : .secondary)
+                Text(sub).font(DS.Font.callout).foregroundStyle(phase == .upcoming ? .tertiary : .secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: ExportGrid.gap)
@@ -116,11 +148,17 @@ package struct ExportSteps: View {
     }
 
     /// The one action of a step, in the card's right column: as wide and as high as every row button of the launcher.
-    private func action(_ title: String, accent: Color? = nil, enabled: Bool = true, _ perform: @escaping () -> Void) -> some View {
-        Button(title, action: perform)
-            .buttonStyle(LauncherSecondaryButtonStyle(accent: accent))
+    @ViewBuilder private func action(_ title: String, id: String, accent: Color? = nil, enabled: Bool = true, _ perform: @escaping () -> Void) -> some View {
+        let button = Button(title, action: perform)
+        if resultOnly && build.completionStatus == .needsData && (id == "send" || id == "copy") {
+            Button(action: perform) { Text(title).font(DS.Font.bodyStrong).padding(.horizontal, 18).frame(height: LauncherControl.height) }.buttonStyle(LauncherActionButtonStyle()).disabled(!enabled).launcherRowControls()
+                .padTarget("set.build.export." + id, scope: "main", focusColor: LauncherPalette.onCream, enabled: enabled) { if enabled { perform() } }
+        } else {
+        button.buttonStyle(LauncherSecondaryButtonStyle(accent: accent))
             .disabled(!enabled)
             .launcherRowControls()
+            .padTarget("set.build.export." + id, scope: "main", enabled: enabled) { if enabled { perform() } }
+        }
     }
 
     // MARK: To the device
@@ -134,15 +172,20 @@ package struct ExportSteps: View {
     }
 
     private var deviceRow: some View {
-        HStack(spacing: ExportGrid.gap) {
+        VStack(alignment: .leading, spacing: ExportGrid.tight) {
             HStack(spacing: ExportGrid.tight) {
                 LauncherDropdown(options: deviceOptions, selection: devices.installDevice, label: loc.t("dev.target"),
                                  style: .button, fill: true, leading: true) { devices.installDevice = $0 }
+                    .disabled(build.running)
+                    .padTarget("set.build.export.device", scope: "main", enabled: !inert && !build.running, activate: { stepDevice(1) }, adjust: stepDevice)
                 RefreshDevicesButton(devices: devices)
             }
-            action(loc.t("shell.sendButton"), enabled: build.canSendToDevice) { build.sendGameData() }
-            action(loc.t("shell.selectGamesButton"), enabled: build.canSendAllGameData) { selectSheetMode = .device }
-                .help(loc.t("shell.sendAllNote"))
+            HStack(spacing: ExportGrid.gap) {
+                Spacer(minLength: 0)
+                action(loc.t("shell.sendButton"), id: "send", enabled: build.canSendToDevice) { build.sendGameData() }
+                action(loc.t("shell.selectGamesButton"), id: "sendAll", enabled: build.canSendAllGameData) { selectSheetMode = .device }
+                    .help(loc.t("shell.sendAllNote"))
+            }
         }
     }
 
@@ -160,6 +203,8 @@ package struct ExportSteps: View {
                 ForEach(apps, id: \.bundle) { app in
                     Button(app.name.isEmpty ? app.bundle : app.name + " · " + app.bundle) { build.sendGameData(bundle: app.bundle) }
                         .buttonStyle(LauncherSecondaryButtonStyle())
+                        .disabled(build.running)
+                    .padTarget("set.build.export.app." + app.bundle, scope: "main", enabled: !build.running) { if !build.running { build.sendGameData(bundle: app.bundle) } }
                 }
             }
         case .refused(let detail):
@@ -178,6 +223,8 @@ package struct ExportSteps: View {
         HStack(spacing: 16) {
             Button(loc.t("shell.sendFinder")) { withAnimation(.easeInOut(duration: 0.18)) { build.copyWithFinder(oneGame: oneGame) } }
                 .buttonStyle(LauncherSecondaryButtonStyle())
+                .disabled(build.running)
+                    .padTarget("set.build.export.finder", scope: "main", enabled: !build.running) { if !build.running { build.copyWithFinder(oneGame: oneGame) } }
             if words != nil {
                 Button { withAnimation(.easeInOut(duration: 0.18)) { detailsOpen.toggle() } } label: {
                     HStack(spacing: 6) {
@@ -187,6 +234,7 @@ package struct ExportSteps: View {
                     .foregroundStyle(LauncherPalette.secondaryText).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).accessibilityAddTraits(detailsOpen ? .isSelected : [])
+                .padTarget("set.build.export.details", scope: "main") { detailsOpen.toggle() }
             }
         }
         if build.finderShown { FinderCopySteps(archive: build.archivePath) }
@@ -202,7 +250,7 @@ package struct ExportSteps: View {
     // MARK: To a drive or folder
 
     private var driveRow: some View {
-        HStack(spacing: ExportGrid.gap) {
+        VStack(alignment: .leading, spacing: ExportGrid.tight) {
             HStack(spacing: ExportGrid.tight) {
                 // The folder, drawn as a field: the same height and text inset as the device's dropdown in the other mode.
                 let none = devices.driveFolder.isEmpty
@@ -210,20 +258,25 @@ package struct ExportSteps: View {
                     .font(none ? .manrope(13) : .mono(12)).foregroundStyle(none ? .tertiary : .primary)
                     .lineLimit(1).truncationMode(.middle)
                     .padding(.horizontal, 15)
-                    .frame(maxWidth: .infinity, minHeight: LauncherControl.height, maxHeight: LauncherControl.height, alignment: .leading)
+                    .frame(minWidth: 200, maxWidth: .infinity, minHeight: LauncherControl.height, maxHeight: LauncherControl.height, alignment: .leading)
                     .background(ExportGrid.well, in: RoundedRectangle(cornerRadius: 9))
                     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(LauncherPalette.ink(0.08)))
                     .opacity(inert ? ExportGrid.quiet : 1)
                     .help(devices.driveFolder)
                 Button(loc.t("shell.driveChoose")) { build.chooseDriveFolder() }.buttonStyle(LauncherSecondaryButtonStyle()).fixedSize()
+                    .disabled(build.running)
+                    .padTarget("set.build.export.folder", scope: "main", enabled: !inert && !build.running) { if !build.running { build.chooseDriveFolder() } }
             }
-            if copying {
-                action(loc.t("btn.stop"), accent: LauncherPalette.building) { build.stopDriveCopy() }
-            } else {
-                action(loc.t("shell.driveCopy"), enabled: build.canCopyToDrive) { build.copyToDrive() }
-                if !build.sharedAppDataSources().isEmpty {
-                    action(loc.t("shell.selectGamesButton"), enabled: build.canSelectGamesForDrive) { selectSheetMode = .drive }
-                        .help(loc.t("shell.selectGamesDriveNote"))
+            HStack(spacing: ExportGrid.gap) {
+                Spacer(minLength: 0)
+                if copying {
+                    action(loc.t("btn.stop"), id: "stop", accent: LauncherPalette.building) { build.stopDriveCopy() }
+                } else {
+                    action(loc.t("shell.driveCopy"), id: "copy", enabled: build.canCopyToDrive) { build.copyToDrive() }
+                    if !build.sharedAppDataSources().isEmpty {
+                        action(loc.t("shell.selectGamesButton"), id: "selectDrive", enabled: build.canSelectGamesForDrive) { selectSheetMode = .drive }
+                            .help(loc.t("shell.selectGamesDriveNote"))
+                    }
                 }
             }
         }
@@ -233,8 +286,7 @@ package struct ExportSteps: View {
 
     @ViewBuilder private var driveStatus: some View {
         if case .copying(let done, let total) = build.send {
-            let label = build.driveBatchLabel.isEmpty ? gameName : build.driveBatchLabel
-            progress(String(format: loc.t("shell.driveProgress"), label, ShellInstall.sizeText(done), ShellInstall.sizeText(total)), done: done, total: total)
+            progress(String(format: loc.t("shell.driveProgress"), build.driveBatchLabel.isEmpty ? gameName : build.driveBatchLabel, ShellInstall.sizeText(done), ShellInstall.sizeText(total)), done: done, total: total)
         } else if case .copied(let folder) = build.send {
             note(.done, String(format: loc.t("shell.driveDone"), build.shortPath((folder as NSString).deletingLastPathComponent), gameDataRow))
         } else if case .failed(let text) = build.send {
@@ -289,7 +341,7 @@ package struct ExportSteps: View {
         return HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(color).frame(width: 13)
             VStack(alignment: .leading, spacing: 8) {
-                Text(text).font(.manrope(12.5)).foregroundStyle(kind == .done || kind == .info ? Color.secondary : color)
+                Text(text).font(DS.Font.callout).foregroundStyle(kind == .done || kind == .info ? Color.secondary : color)
                     .fixedSize(horizontal: false, vertical: true)
                 more()
             }
@@ -301,7 +353,7 @@ package struct ExportSteps: View {
         VStack(alignment: .leading, spacing: 8) {
             LauncherProgressBar(value: total > 0 ? Double(done) / Double(total) : 0, height: 6)
                 .frame(height: 6).accessibilityLabel(text)
-            Text(text).font(.manrope(12.5)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(text).font(DS.Font.callout).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 4)
     }
@@ -324,6 +376,7 @@ struct RefreshDevicesButton: View {
         .buttonStyle(LauncherSecondaryButtonStyle())
         .environment(\.launcherControlWidth, nil)
         .help(loc.t("dev.refresh")).accessibilityLabel(loc.t("dev.refresh"))
+        .padTarget("set.build.devices.refresh", scope: "main", enabled: devices.checked) { _ = devices.refresh() }
     }
 }
 
@@ -336,9 +389,26 @@ enum ExportGrid {
     static let gap: CGFloat = 12        // a control group to the action
     static let tight: CGFloat = 8       // a control to its own small button
     static let noteGap: CGFloat = 12    // the controls to the notes under them
-    static let switchWidth: CGFloat = 330   // the two switches of the card are equally wide and end on one edge
+    static let switchWidth: CGFloat = 330   // fallback default
     static let quiet: Double = 0.45     // step 3 before there is an IPA, as a switched-off launcher switch
     static let well = LauncherPalette.well   // a field's inside: the folder, devicectl's own text
+
+    /// Adaptive equal-share width for two-option export switches so long translations (French/German) fit on one line.
+    static func segmentedWidth(for labels: [String], minWidth: CGFloat = 260, maxWidth: CGFloat = 440) -> CGFloat {
+        guard !labels.isEmpty else { return minWidth }
+        let maxLabel: CGFloat
+        if let ct = Typography.manropeFont(size: 12.5, weight: .bold) {
+            maxLabel = labels.map { label in
+                let attr = NSAttributedString(string: label, attributes: [kCTFontAttributeName as NSAttributedString.Key: ct])
+                return ceil(CTLineGetBoundsWithOptions(CTLineCreateWithAttributedString(attr), []).width) + 2
+            }.max() ?? 0
+        } else {
+            maxLabel = CGFloat(labels.map(\.count).max() ?? 0) * 8.2
+        }
+        let count = CGFloat(labels.count)
+        let needed = ceil((maxLabel + 24) * count + 6 + 2 * max(0, count - 1))
+        return min(max(minWidth, needed), maxWidth)
+    }
 }
 
 /// Shared manual-transfer instructions for the export and automatic-install failure cards.
@@ -358,7 +428,7 @@ struct FinderCopySteps: View {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("\(index + 1)").font(.manrope(11, .semibold)).monospacedDigit().foregroundStyle(.secondary)
                         .frame(width: 18, height: 18).background(Circle().fill(LauncherPalette.ink(0.08)))
-                    Text(line).font(.manrope(12.5)).foregroundStyle(.primary.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+                    Text(line).font(DS.Font.callout).foregroundStyle(.primary.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }

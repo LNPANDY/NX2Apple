@@ -37,14 +37,16 @@ struct SettingsPage: View {
 
     var body: some View {
         LauncherStickyPageScroll(memoryKey: "settings." + category.rawValue, scrollRequest: $pendingScrollID) {
-            CardPageHeading(loc.t("settings.heading"), note: loc.t("settings.note"))
+            CardPageHeading(loc.t("settings.heading"), note: loc.t("settings.note." + category.rawValue))   // each part says what it holds
         } bar: {
             LauncherSegmented(options: SettingsCategory.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: category.rawValue) {
                 category = SettingsCategory(rawValue: $0) ?? .general
             }
             .accessibilityElement(children: .contain).accessibilityLabel(loc.t("settings.heading"))
-            .padTarget("set.category", scope: "main", radius: 17, activate: { move(1) }, adjust: { move($0) })
+            .padTarget("set.category", scope: "main", activate: { move(1) }, adjust: { move($0) })
         } content: {
+            // the page's notice slot: under the title and the tabs, in the column, scrolling with it (#1458)
+            EngineSyncBanner(engine: engine, m: build, inContent: true)
             switch category {
             case .general: general
             case .library: libraryCategory
@@ -52,6 +54,8 @@ struct SettingsPage: View {
             case .tools: tools
             }
         }
+        .environment(\.launcherSettingsLayout, true)
+        .environment(\.launcherSectionTitleFont, DS.Font.headline)
     }
 
     private func move(_ by: Int) {
@@ -95,7 +99,11 @@ struct SettingsPage: View {
     @ViewBuilder private var tools: some View {
         KeysCard(build: build)
         ToolsCard(repo: repo, engine: engine, dependencies: dependencies, buildRunning: build.running,
-                  shellCache: { ShellCacheRow(build: build) }, builder: { if ExperimentalBuilder.featureEnabled { ExperimentalBuilderRow(build: build) } }) {
+                  shellCache: { ShellCacheRow(build: build); BuildCacheRows(build: build) }, builder: {
+            // rows of the build tools group, under its last row. Each brings the divider above it.
+            if MacNativeGamesBuilder.featureEnabled || S2ArmBuilder.featureEnabled { UpstreamBuilderRow(build: build) }
+        }, upstream: UpstreamBuilderRow.offersPicker(build, loc) ? { UpstreamPicker(build: build) } : nil,
+           engineRow: UpstreamBuilderRow.engineRow(build, loc)) {
             DiagnosticsButton(report: diagnostics, game: library.selected)
         }
         .id("set.deps")
@@ -148,14 +156,17 @@ struct LibraryFoldersCard: View {
                 let name = (root as NSString).lastPathComponent
                 // The path in the middle-truncating mono line, then the state in words
                 CardRow(name.isEmpty ? root : name, detail: stateText(state), detail2: RepoLayout.shortPath(root), dot: dot(state), help: root) {
-                    if library.scanning { ProgressView().controlSize(.small) }
+                    if library.scanning { DSSpinner() }
+                    // the second action of the row: a round icon button before the column, so the column keeps one width
+                    Button { library.removeFolder(root) } label: { Image(systemName: "minus") }
+                        .buttonStyle(LauncherIconButtonStyle())
+                        .help(loc.t("library.removeFolder"))
+                        .accessibilityLabel(String(format: loc.t("library.removeFolderNamed"), name))
+                        .padTarget("set.removeFolder.\(index)", scope: "main") { library.removeFolder(root) }
                     Button(loc.t("library.rescan")) { library.rescan() }
                         .disabled(library.scanning || state != .connected)
                         .accessibilityLabel(String(format: loc.t("library.rescanFolder"), name))
-                        .padTarget("set.rescan.\(index)", scope: "main") { if !library.scanning, state == .connected { library.rescan() } }
-                    Button(loc.t("library.removeFolder")) { library.removeFolder(root) }
-                        .accessibilityLabel(String(format: loc.t("library.removeFolderNamed"), name))
-                        .padTarget("set.removeFolder.\(index)", scope: "main") { library.removeFolder(root) }
+                        .padTarget("set.rescan.\(index)", scope: "main", enabled: !library.scanning && state == .connected) { if !library.scanning, state == .connected { library.rescan() } }
                 }
                 CardDivider()
             }

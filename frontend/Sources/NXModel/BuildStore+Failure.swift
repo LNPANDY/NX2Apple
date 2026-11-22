@@ -14,6 +14,17 @@ extension BuildStore {
         doneNote = failureWhat(f)
     }
 
+    /// Another game is chosen while a stopped build's failure shows: the failure, its note and its stages belong to the game that
+    /// failed, so they go. The same game chosen again (its files read once more) keeps them. Nothing changes while a build runs
+    /// or while no game is chosen.
+    func dropFailureOfOtherGame() {
+        guard !running, failure != nil, let key = failureGameKey, !basePath.isEmpty || gameFolder != nil, buildKey != key else { return }
+        failure = nil
+        done = false
+        doneNote = ""
+        stages = []
+    }
+
     /// The Save to folder, picked in the app's folder panel (`chooseFolder`). Clears the cloud-folder stop, since the next build looks at the new folder.
     package func chooseBuildFolder() {
         guard let path = chooseFolder() else { return }
@@ -48,12 +59,13 @@ extension BuildStore {
         if f.kind == .diskFull, let gb = f.detail { return String(format: t("fail.diskFull.whatNeeds"), gb) }
         if f.kind == .psoDiskFull, let gb = f.detail { return String(format: t("fail.psoDiskFull.whatNeeds"), gb) }
         if f.kind == .updateMismatch, let versions = f.detail { return String(format: t("macFail.updateMismatch.whatVersions"), versions) }
+        if f.kind == .nxkit, let code = f.detail { return String(format: t("fail.nxkit.whatCode"), code) }
         if f.kind == .appIDLimit, let date = f.detail, !date.isEmpty { return String(format: t("fail.appIDLimit.whatUntil"), date) }
         return t(f.kind.whatKey)
     }
 
     package func buildTitle(_ titleID: String) {
-        guard canBuild, !experimentalBuilder, failure?.titleIDs.contains(titleID) == true else { return }
+        guard canBuild, failure?.titleIDs.contains(titleID) == true else { return }
         selectedTitleID = titleID
         runBuild()
     }
@@ -100,6 +112,10 @@ extension BuildStore {
             if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
         case .updateMismatch:
             pickFiles(kind: .update)
+        case .mngSharedFonts:
+            selectUpstream(.nxnative)
+            failure = nil
+            doneNote = ""
         case .severalGames, .noTitleID, .diskFull, .staleProfile:
             showFailureFolder()
         case .cloudFolder, .volumeFormat:

@@ -12,7 +12,6 @@
 0011-ios-apply-controller-button-mappings-to-physical.patch
 0012-ios-quit-a-game-from-the-in-game-menu-or-by-hold.patch
 0013-nsp-script-hand-the-extraction-and-the-shader-sp.patch
-0014-mac-split-a-joy-con-pair-into-two-sideways-contr.patch
 0015-host-read-embedded-sections-from-the-image-that.patch
 0016-keep-the-selected-python-when-generating-the-mac.patch
 0017-support-steam-controller-and-shared-mac-control.patch
@@ -21,9 +20,6 @@
 0020-ios-touch-controls-layout.patch
 0021-ios-hide-the-settings-gear-during-tv-play-with-a.patch
 0022-keep-the-mac-game-in-focus-while-its-window-is-u.patch
-0023-host-serve-nsd-services.patch
-0024-shader-split-zstd-in-process.patch
-0025-allow-ios-packaging-without-a-recorded-prewarm-s.patch
 0026-ios-fade-out-the-settings-gear-after-3-idle-seco.patch
 0027-hid-report-vibration-device-info-for-startup-han.patch
 0028-mac-app-exit-at-once-with-dm-preflight.patch
@@ -38,9 +34,8 @@
 0037-mac-controller-followups.patch
 0038-bc-cpu-decode.patch
 0039-ios-game-framework.patch
-0040-ios-touch-settings-and-toggle.patch
+0040-ios-support-standalone-touch-settings-and.patch
 0041-ios-host-teardown.patch
-0044-host-haptics-drive-joycon-l-and-joycon-r-on-sepa.patch
 0046-ios-audio-add-dm-audio-mix-audio-session-mixing.patch
 0047-ios-scripts-append-developer-team-id-to-default.patch
 0048-host-guard-async-callbacks-across-shell-teardown.patch
@@ -51,3 +46,16 @@
 0053-build-add-persistent-build-seeds-and-fast-refres.patch
 0054-mac-host-join-the-default-preferences-domain-at.patch
 0055-gfx-adaptive-ios-memory-pressure-convergence-for.patch
+0056-tools-shader-lib-a-failed-write-removes-its-part.patch
+0058-test-native-controller-motion-primes-the-adapter.patch
+0061-build-seed-infer-and-self-heal-gl-and-vulkan-gfx.patch
+0062-mac-launcher-bring-the-last-played-save-along-al.patch
+0063-nvn-decode-cpu-bc-buffer-to-texture-copies-and-r.patch
+0064-older-devices-decode-bc-textures-across-the-cpu.patch
+0067-ios-a-game-framework-s-copies-are-clones-of-the.patch
+0068-game-resplit-nintendo-switch-sports-resort-shade.patch
+0069-build-seed-fix-zero-inode-loop-detection-and-sta.patch
+0070-packing-nsp-derive-shader-map-when-only-main-dup.patch
+0071-packing-shaders-refresh-stardew-valley-animal-cr.patch
+0072-hid-honor-setnpadjoyholdtype-on-single-joy-con-f.patch
+0073-games-0400a3a01ee4c000-add-5-pokopia-pokedex-and.patch

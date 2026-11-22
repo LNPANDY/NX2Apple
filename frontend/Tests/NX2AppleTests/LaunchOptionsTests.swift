@@ -66,7 +66,7 @@ final class LaunchOptionsTests: IsolatedDefaultsTestCase {
         let langs = re.matches(in: nacp, range: NSRange(nacp.startIndex..., in: nacp)).map { m in
             (String(nacp[Range(m.range(at: 1), in: nacp)!]), String(nacp[Range(m.range(at: 2), in: nacp)!]))
         }
-        XCTAssertEqual(langs.count, 16)
+        XCTAssertEqual(langs.count, 18)
         for (code, name) in langs { XCTAssertEqual(L10n.string("launch.opt.DM_LANG." + code, .en), name, code) }
     }
 

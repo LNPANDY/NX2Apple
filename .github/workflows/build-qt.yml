@@ -49,6 +49,10 @@ jobs:
     needs: shell-template
     runs-on: windows-latest
     steps:
+      - name: Disable Git CRLF conversion
+        shell: bash
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download the DmShell.app template
@@ -89,7 +93,7 @@ jobs:
           python tools/engine.py tree --out engine-tree
           du -sh engine-tree
 
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: '10.0.x'
 

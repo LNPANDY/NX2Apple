@@ -76,6 +76,20 @@ import XCTest
         XCTAssertEqual(frameRate.value as? String, "1")
     }
 
+    func testGameSettingsShowsChangeCoverButtonWithoutResetWhenDefault() {
+        launch(select: "0100000000010000")
+        let settings = app.buttons["settings.open"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        settings.tap()
+        let scroll = app.descendants(matching: .any)["settings.scroll"].firstMatch
+        let changeCover = app.buttons["set.cover"]
+        for _ in 0..<8 where !changeCover.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(changeCover.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["set.cover.reset"].exists)
+    }
+
     func testStrippedFrameworkWithoutShadersShowsUpdateDataAction() {
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["--host", "--select", "0100000000010000", "--omit-msl", "0100000000010000"]
@@ -86,5 +100,62 @@ import XCTest
         XCTAssertTrue(action.waitForExistence(timeout: 5))
         XCTAssertTrue(action.label.hasPrefix("Update game data"))
         XCTAssertFalse(app.buttons["settings.open"].exists)
+    }
+
+    func testGameDataErrorAlertAppearsAboveGameSettingsSheet() {
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["--host", "--select", "0100000000010000", "--screen", "settings", "--mock-bad-folder"]
+        app.launch()
+        let scroll = app.descendants(matching: .any)["settings.scroll"].firstMatch
+        XCTAssertTrue(scroll.waitForExistence(timeout: 10))
+        let chooseData = app.buttons["Choose game data…"]
+        for _ in 0..<8 where !chooseData.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(chooseData.waitForExistence(timeout: 5))
+        chooseData.tap()
+        // Notice must appear above the open game settings sheet, not underneath it.
+        let alert = app.alerts["NX2Apple"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.buttons["OK"].isHittable)
+        alert.buttons["OK"].tap()
+        // Dismissing the notice keeps the player on the game settings sheet.
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+    }
+
+    func testCertificateImportPasswordSheetAllowsTypingAndShowsInlineError() {
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["--host", "--select", "0100000000010000", "--mock-cert-picker"]
+        app.launch()
+        XCTAssertTrue(app.buttons["tile.0100000000010000"].waitForExistence(timeout: 10))
+        let shellSettingsButton = app.buttons["shellSettings.open"].firstMatch
+        XCTAssertTrue(shellSettingsButton.waitForExistence(timeout: 5))
+        shellSettingsButton.tap()
+        let importButton = app.buttons["shellSettings.sideloadCert.import"]
+        for _ in 0..<6 where !importButton.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5))
+        importButton.tap()
+
+        let passwordField = app.secureTextFields["shellSettings.sideloadCert.passwordField"]
+        XCTAssertTrue(passwordField.waitForExistence(timeout: 5))
+        XCTAssertTrue(passwordField.isHittable)
+        passwordField.tap()
+        passwordField.typeText("wrong-pass")
+
+        let confirmButton = app.buttons["shellSettings.sideloadCert.passwordConfirm"]
+        XCTAssertTrue(confirmButton.waitForExistence(timeout: 5))
+        confirmButton.tap()
+
+        // Invalid password/PKCS12 reports inline inside the password sheet without dismissing or hiding behind another modal.
+        let errorText = app.staticTexts["shellSettings.sideloadCert.passwordError"]
+        XCTAssertTrue(errorText.waitForExistence(timeout: 5))
+        XCTAssertTrue(passwordField.exists)
+
+        let cancelButton = app.buttons["shellSettings.sideloadCert.passwordCancel"]
+        XCTAssertTrue(cancelButton.exists)
+        cancelButton.tap()
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5))
     }
 }

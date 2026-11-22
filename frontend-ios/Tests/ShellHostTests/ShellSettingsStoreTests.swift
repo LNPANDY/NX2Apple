@@ -146,4 +146,16 @@ import ShellUI
         #expect(store.defaults.object(forKey: ShellSettingsStore.audioMixKey) == nil)
         #expect(store.gameDefaults["DM_AUDIO_MIX"] == nil)
     }
+
+    @Test func legacyTouchToggleDefaultsAreIgnoredWhileTouchSizeAndStickRemain() {
+        let store = shell()
+        store.defaults.set("b,zr", forKey: "touchToggle")
+        store.storeTouchSize("large")
+        store.storeTouchStick("inward")
+
+        #expect(store.touchLayout.isEmpty)
+        #expect(store.gameDefaults["DM_TOUCH_TOGGLE"] == nil)
+        #expect(store.gameDefaults["DM_TOUCH_SIZE"] == "large")
+        #expect(store.gameDefaults["DM_TOUCH_STICK"] == "inward")
+    }
 }

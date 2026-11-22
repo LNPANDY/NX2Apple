@@ -72,10 +72,10 @@ index 3d84931..6558530 100644
  
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 373e732..7cb99ac 100755
+index 64a92e8..5d0d468 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -250,6 +250,9 @@ if [ -n "${PROGRAMS_TSV:-}" ]; then   # each program's shader libraries, RomFS,
+@@ -270,6 +270,9 @@ if [ -n "${PROGRAMS_TSV:-}" ]; then   # each program's shader libraries, RomFS,
    done < <(prog_rows); prog_back
  else
  MAPS=()
@@ -85,7 +85,7 @@ index 373e732..7cb99ac 100755
  if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
    t "no game files in the IPA (DM_COPY_ROMFS=NO): the app takes Documents/romfs.img (scripts/push_romfs.sh)"
    # The image's identity (dm/host/romfs_identity.h) goes into the app as romfs.id: main.m then uses only a Documents/romfs.img with the same size and index hash, and says so when it is another version or missing.
-@@ -259,7 +262,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
+@@ -279,7 +282,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
      MAPS=("$P/romfs.id=$O/romfs.id"); t "game files identity: $(cat "$O/romfs.id")"
    fi
  elif [ -f "$ROMFS" ]; then MAPS=("$P/romfs.img=$ROMFS"); else MAPS=("$P/romfs=$ROMFS"); fi

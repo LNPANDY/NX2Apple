@@ -78,6 +78,15 @@ class EngineLayoutTests(unittest.TestCase):
     def test_the_sync_command_runs_the_checkouts_tool(self):
         self.assertEqual(engine.sync_command('/c', 'py'), ['py', str(Path('/c/tools/engine.py')), 'sync'])
 
+    def test_stamp_key_ignores_crlf_line_endings(self):
+        self.new_layout()
+        self.touch('patches/fork_env_switches.tsv', 'name\tclass\tmeaning\nDM_X\tdebug\tx\n')
+        lf_key = engine.stamp_key(self.r)
+        for rel in ('.upstream-ref', 'patches/series', 'patches/0001-a.patch', 'patches/fork_env_switches.tsv'):
+            p = self.r / rel
+            p.write_bytes(p.read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n'))
+        self.assertEqual(engine.stamp_key(self.r), lf_key)
+
 
 class BundledEngine(unittest.TestCase):
     """The Windows zip carries the engine tree inside the app folder: a player needs no git, repo or sync."""
@@ -255,6 +264,47 @@ class OnlineSync(unittest.TestCase):
         ok, kind = engine.run_sync([str(self.r / 'no-such-python')], str(self.r), lines.append)
         self.assertEqual((ok, kind), (False, engine.ENGINE_SYNC))
         self.assertTrue(lines)
+
+
+class MultiUpstreamDetectionTests(unittest.TestCase):
+    def setUp(self):
+        self.r = Path(tempfile.mkdtemp(prefix='qt-upstream-'))
+        self.addCleanup(shutil.rmtree, self.r, True)
+
+    def touch(self, rel: str | Path, text: str = 'x') -> None:
+        f = self.r / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+
+    def test_detection_for_empty_and_unknown_directories(self):
+        self.assertIsNone(engine.detect_upstream(''))
+        self.assertIsNone(engine.detect_upstream(str(self.r)))
+        self.assertFalse(engine.is_upstream_tree('', 'nxnative'))
+        self.assertFalse(engine.is_upstream_tree(str(self.r), 'nxnative'))
+        self.assertFalse(engine.is_upstream_tree(str(self.r), 's2arm'))
+        self.assertFalse(engine.is_upstream_tree(str(self.r), 'macnativegames'))
+
+    def test_detection_for_nxnative(self):
+        self.touch(MARKER)
+        self.assertTrue(engine.is_upstream_tree(str(self.r), 'nxnative'))
+        self.assertEqual(engine.detect_upstream(str(self.r)), 'nxnative')
+        self.assertTrue(engine.is_checkout(str(self.r)))
+
+    def test_detection_for_s2arm(self):
+        self.touch('pack/jobs/main.py')
+        self.touch('runtime/rewriter/rewriter.c')
+        self.assertTrue(engine.is_upstream_tree(str(self.r), 's2arm'))
+        self.assertFalse(engine.is_upstream_tree(str(self.r), 'nxnative'))
+        self.assertEqual(engine.detect_upstream(str(self.r)), 's2arm')
+        self.assertFalse(engine.is_checkout(str(self.r)))
+
+    def test_detection_for_macnativegames(self):
+        self.touch('build_app.py')
+        self.touch('games/totk/README.md')
+        self.assertTrue(engine.is_upstream_tree(str(self.r), 'macnativegames'))
+        self.assertFalse(engine.is_upstream_tree(str(self.r), 'nxnative'))
+        self.assertEqual(engine.detect_upstream(str(self.r)), 'macnativegames')
+        self.assertFalse(engine.is_checkout(str(self.r)))
 
 
 if __name__ == '__main__':

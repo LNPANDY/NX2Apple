@@ -30,11 +30,11 @@ import NXModel
         let mac = BuildNotice.text(.finished, game: "Metroid Dread", target: "mac-app", device: nil, en)
         XCTAssertEqual(mac.title, "Metroid Dread is built")
         XCTAssertEqual(mac.body, "For this Mac, in your library")
-        XCTAssertEqual(BuildNotice.text(.finished, game: "Hades", target: "ios", device: nil, en).body, "For iPhone / iPad")
+        XCTAssertEqual(BuildNotice.text(.finished, game: "Hades", target: "ios", device: nil, en).body, "For iOS")
         XCTAssertEqual(BuildNotice.text(.finished, game: "Hades", target: "ios", device: "Jo’s iPhone", en).body, "Installed on Jo’s iPhone")
         let failed = BuildNotice.text(.failed(reason: "Extract · exit code 3"), game: "Hades", target: "ios", device: nil, en)
         XCTAssertEqual(failed.title, "Hades couldn’t be built")
-        XCTAssertEqual(failed.body, "For iPhone / iPad\nExtract · exit code 3")
+        XCTAssertEqual(failed.body, "For iOS\nExtract · exit code 3")
         let zh = BuildNotice.text(.failed(reason: ""), game: "Hades", target: "mac-app", device: nil) { L10n.string($0, .zh) }
         XCTAssertTrue(zh.title.contains("Hades") && !zh.title.contains("notify.") && !zh.body.contains("notify."), zh.title)
     }
@@ -64,6 +64,10 @@ import NXModel
         XCTAssertEqual(BuildNotice.failureReason(note: "", stages: [Stage(id: 1, name: "Survey", state: .done), stage]), "Extract · exit code 3")
         XCTAssertEqual(BuildNotice.failureReason(note: "Build failed: no Program NCA", stages: [stage]), "Build failed: no Program NCA")
         XCTAssertEqual(BuildNotice.failureReason(note: "", stages: []), "")
+        // A script stage keeps its English name; the notice names it in the launcher's language (#1115)
+        var check = Stage(id: 4, name: "check v655360 files")
+        check.state = .failed
+        XCTAssertEqual(BuildNotice.failureReason(note: "", stages: [check]) { L10n.string($0, .zh) }, "检查 v655360 文件")
     }
 
     // MARK: Visual QA (matched by --filter testRenderLauncherForVisualQA)

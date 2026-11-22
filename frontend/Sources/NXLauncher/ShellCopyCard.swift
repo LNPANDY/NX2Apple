@@ -15,30 +15,35 @@ package struct ShellCopyCard: View {
     package var body: some View {
         if let plan = devices.shellCopy {
             card {
-                Text(loc.t("shell.copyTitle")).font(.manrope(14, .semibold))
+                Text(loc.t("shell.copyTitle")).font(DS.Font.bodyStrong)
                 if let note = plan.versionNote {
-                    Text(note).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
+                    Text(note).font(DS.Font.body).fixedSize(horizontal: false, vertical: true)
                 }
-                Text(plan.sizeText).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
-                Text(plan.connectionText).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
-                Text(loc.t("shell.copyExternalNote")).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
+                Text(plan.sizeText).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                Text(plan.connectionText).font(DS.Font.body).fixedSize(horizontal: false, vertical: true)
+                Text(loc.t("shell.copyExternalNote")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 1)
                 HStack(spacing: 10) {
                     Button(loc.t("shell.copyStart")) { devices.answerCopy(.copy) }
                         .keyboardShortcut(plan.versionNote == nil ? nil : .defaultAction)
-                    if plan.canWaitForCable { Button(loc.t("shell.copyWaitCable")) { devices.answerCopy(.waitForCable) } }
+                        .padTarget("set.build.copy.start", scope: "main") { devices.answerCopy(.copy) }
+                    if plan.canWaitForCable { Button(loc.t("shell.copyWaitCable")) { devices.answerCopy(.waitForCable) }
+                        .padTarget("set.build.copy.wait", scope: "main") { devices.answerCopy(.waitForCable) } }
                     Button(loc.t("shell.copySkip")) { devices.answerCopy(.skip) }
+                        .padTarget("set.build.copy.skip", scope: "main") { devices.answerCopy(.skip) }
                 }
                 .buttonStyle(LauncherSecondaryButtonStyle()).padding(.top, 2)
+                    .padTarget("set.build.copy.stopWaiting", scope: "main") { devices.cancelWait() }
             }
         } else if devices.shellWaiting {
             card {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(String(format: loc.t("shell.copyWaiting"), devices.deviceName(devices.installDevice))).font(.manrope(13))
+                    Text(String(format: loc.t("shell.copyWaiting"), devices.deviceName(devices.installDevice))).font(DS.Font.body)
                 }
                 Button(loc.t("shell.copyStopWaiting")) { devices.cancelWait() }
                     .buttonStyle(LauncherSecondaryButtonStyle()).padding(.top, 2)
+                    .padTarget("set.build.copy.stopWaiting", scope: "main") { devices.cancelWait() }
             }
         }
     }

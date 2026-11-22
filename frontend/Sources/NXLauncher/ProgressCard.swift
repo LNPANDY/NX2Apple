@@ -33,7 +33,7 @@ private struct ProgressStagePartMeasure: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if measures {
             content.background(GeometryReader { box in
-                Text(text).font(.manrope(12)).monospacedDigit().fixedSize().hidden()
+                Text(text).font(DS.Font.callout).monospacedDigit().fixedSize().hidden()
                     .background(GeometryReader { ideal in
                         Color.clear.preference(
                             key: ProgressStageSamples.self,
@@ -68,8 +68,8 @@ package struct ProgressCard: View {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "info.circle").foregroundStyle(LauncherPalette.secondaryText)
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(loc.t("msg.shadersStale.title")).font(.manrope(14, .semibold))
-                            Text(loc.t(message)).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+                            Text(loc.t("msg.shadersStale.title")).font(DS.Font.bodyStrong)
+                            Text(loc.t(message)).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -81,10 +81,10 @@ package struct ProgressCard: View {
                     HStack(spacing: 12) {
                         Text(String(format: loc.t("prog.stageBadge"), pos.current, pos.total))
                             .font(.manrope(12, .bold)).monospacedDigit()
-                            .foregroundStyle(build.done && build.failure == nil ? LauncherPalette.ready : LauncherPalette.cream)
+                            .foregroundStyle(build.done && build.failure == nil ? DS.Color.statusSuccess : DS.Color.textPrimary)
                             .padding(.horizontal, 10).padding(.vertical, 4)
                             .background(LauncherPalette.ink(0.08), in: Capsule())
-                            .overlay(Capsule().strokeBorder(LauncherPalette.ink(0.14)))
+                            .overlay(DSPill().strokeBorder(LauncherPalette.ink(0.14)))
                         Text(loc.t("prog.overallTitle"))
                             .font(.manrope(13.5, .semibold))
                             .foregroundStyle(LauncherPalette.secondaryText)
@@ -93,8 +93,8 @@ package struct ProgressCard: View {
                         if let overall = displayedOverall {
                             LauncherProgressBar(value: overall, height: 7).frame(width: 200)
                             Text("\(Int((overall * 100).rounded(.down)))%")
-                                .font(.manrope(13, .semibold)).monospacedDigit()
-                                .foregroundStyle(build.done && build.failure == nil ? LauncherPalette.ready : LauncherPalette.cream)
+                                .font(DS.Font.bodyStrong).monospacedDigit()
+                                .foregroundStyle(build.done && build.failure == nil ? DS.Color.statusSuccess : DS.Color.textPrimary)
                                 .frame(width: 42, alignment: .trailing)
                         }
                     }
@@ -108,7 +108,7 @@ package struct ProgressCard: View {
                     HStack(spacing: 12) {
                         if s.state == .running { ProgressView().controlSize(.small).frame(width: 14) }
                         else { Circle().fill(s.state.color).frame(width: 7, height: 7).frame(width: 14) }
-                        Text(s.name).font(.manrope(14)).lineLimit(1).layoutPriority(2)
+                        Text(s.displayName(loc.t)).font(.manrope(14)).lineLimit(1).layoutPriority(2)
                         Spacer(minLength: 12)
                         if s.state == .running {
                             TimelineView(.periodic(from: Date(), by: 1)) { context in
@@ -125,21 +125,21 @@ package struct ProgressCard: View {
                                                 .modifier(ProgressStagePartMeasure(stageID: s.id, part: .clock, text: clockText))
                                         }
                                     }
-                                    .font(.manrope(12)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText)
+                                    .font(DS.Font.callout).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText)
                                     .accessibilityElement(children: .combine)
                                 }
                             }
-                        } else if !s.detail.isEmpty { Text(s.detail).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1) }
+                        } else if !s.detail.isEmpty { Text(s.detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1) }
                         if s.state == .running {
                             LauncherProgressBar(value: s.percent.map { $0 / 100 }, height: 6).frame(width: 92)
-                            Text(s.percent.map { "\(Int($0))%" } ?? "").font(.manrope(13, .semibold)).monospacedDigit()
+                            Text(s.percent.map { "\(Int($0))%" } ?? "").font(DS.Font.bodyStrong).monospacedDigit()
                                 .foregroundStyle(LauncherPalette.secondaryText).frame(width: 40, alignment: .trailing)
                         }
                     }
                     .padding(.horizontal, 18).padding(.vertical, 12)
                     if s.state == .running && s.isScanningLastShaderFiles {
-                        Text(loc.t("prog.lastShaderFiles")).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 18).padding(.bottom, 12)
+                        Text(loc.t("prog.lastShaderFiles")).font(DS.Font.body).fixedSize(horizontal: false, vertical: true)
+                            .padding(.leading, DSRowInset.title).padding(.trailing, DS.Space.m).padding(.bottom, DS.Space.s)
                     }
                 }
                 if build.stages.isEmpty && build.running {

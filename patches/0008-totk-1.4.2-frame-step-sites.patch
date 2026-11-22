@@ -38,10 +38,10 @@ Issue: LNPANDY/NX2Apple#303
  3 files changed, 23 insertions(+), 7 deletions(-)
 
 diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index 0fc150c..1482b0a 100644
+index a6941d9..12ff865 100644
 --- a/dm/games/0100F2C0115B6000/README.md
 +++ b/dm/games/0100F2C0115B6000/README.md
-@@ -26,6 +26,13 @@ Render conditions, which the host evaluates for every game ([Conditional renderi
+@@ -25,6 +25,13 @@ Render conditions, which the host evaluates for every game ([Conditional renderi
  - **Resolved:** the yield back-off used to start after 200 µs, which caught the main thread waiting for its workers on the frame's critical path: frames ran past 33 ms and the game dropped itself to 20 fps (9 times in 300 s on the Mac; on the iPhone the threads also stayed on efficiency cores). From 2 ms on it never backs off ([development.md, Power](../../../docs/development.md#power)).
  - The spin-wait rewrite finds 843 loops in `main`; 701 of them are one inlined atomic decrement (a compare-and-swap retried after another thread changed the count), which yields only on a second retry in a row.
  
@@ -70,13 +70,13 @@ index 81c54eb..742aba2 100644
  shader_versions	v720896
  
 diff --git a/dm/games/0100F2C0115B6000/patches.py b/dm/games/0100F2C0115B6000/patches.py
-index 520da73..53cc1fe 100644
+index fa3897d..a858b0a 100644
 --- a/dm/games/0100F2C0115B6000/patches.py
 +++ b/dm/games/0100F2C0115B6000/patches.py
 @@ -8,9 +8,11 @@ from nso_asm import ADRP, B, NOP, STP_PRE
  # sites) the same, which the consumers read. Until the host has decided a step (the first frames) the step is the measured frame time (timing frame +0xd8, 19.2 MHz
  # ticks), clamped to [1 / cap, 1 / 15 s]; game time that ran ahead after a short frame (the "lead", at most 0.25 s; totk-mobile) is paid back by later frames. Prerendered movies hold 30 (the host's movie flag, state +4, hle_movie.c
- # dm_movie_playing), the D-pad menu fade starts at full rate (FPSLocker's fix at main+0x1fbc80) and the swapchain argument at main+0xbe14a8 becomes 1 as in FPSLocker
+ # dm_movie_hz), the D-pad menu fade starts at full rate (FPSLocker's fix at main+0x1fbc80) and the swapchain argument at main+0xbe14a8 becomes 1 as in FPSLocker
 -def stub(ctx, step, read1, read2, fade, swap, view):
 +def stub(ctx, step, read1, read2, fade, swap, view, fade_regs=(24, 10)):
      """The frame step at the frame-step function (step), the two readers of the integer fps (read1, read2), the D-pad menu fade (fade), the swapchain argument (swap) and

@@ -10,6 +10,11 @@ enum Entry {
         if CommandLine.arguments.contains("--install-shell") {
             exit(ShellCLI.run(Array(CommandLine.arguments.dropFirst())))
         }
+        // The state gallery (#1459) is its own app: no launcher window, session, migration, sync or update check is made.
+        if GalleryMode.requested {
+            GalleryApp.main()
+            return
+        }
         // A shared app's folder that an older version made inside the output folder moves to Application Support once (#427).
         // Here and not in the stores: a test that builds the stores must never move a folder in the real home.
         ShellRootMigration.migrateSavedRoot()

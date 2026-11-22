@@ -26,11 +26,11 @@
 
 #### 🆕 Senaste nyheterna
 
-- **Windows-launcher (`NX2Apple-windows-x64.zip`)**: Bygg iPhone- och iPad-IPA:er i Windows med samma 1.2-gränssnitt, ett medföljande motorträd (inget git behövs), guidad förstagångskonfiguration, flerkärnig NSO-omskrivning och inbyggd självuppdatering (`NX2Apple.exe`).
-- **Switch 2-spel**: Välj en Switch 2-spelmapp eller en `.nup`-fil i Mac- eller Windows-launchern, helt utan `prod.keys`, och spela på Mac, iPhone eller iPad.
-- **Anpassade pekkontroller, delade Joy-Con och Steam Controller (2026)**: Ändra storlek på knappar, flytta vänster spak eller placera varje knapp i den visuella layoutredigeraren på iPhone och iPad. Fysiska handkontroller stöder knappmappning per spel eller globalt, uppdelning av ett Bluetooth-anslutet Joy-Con-par i två horisontella handkontroller på Mac samt Steam Controller (2026).
-- **En app för iPhone och iPad**: Alla dina spel samlas i en enda skal-app (eller som en osignerad IPA för AltStore och SideStore), där varje spel bär sitt eget värdramverk så att motoruppdateringar aldrig tvingar fram ett ombygge, med Cover Flow i liggande läge, inställningar och moddar per spel, radering av spel med sparfilerna kvar och 6 språk.
-- **Konsolläge**: Anslut en handkontroll och tryck på Select, eller starta direkt i konsolläge. Biblioteket går till helskärm som på en Switch, och att hålla in Home i 2 sekunder avslutar ett spel.
+- **Arbetsyta med flera byggmotorer och Dark Glass-gränssnitt**: Växla med ett klick mellan `nxnative`, `nxkit (Beta)` (med Ed25519-signerad självuppdatering och inbäddad överlagring i konsolläge) samt `MacNativeGames` för fem underhållna förstapartstitlar, förenade i ett enhetligt Dark Liquid Glass-gränssnitt med omarbetat tvåspaltigt konsolläge för handkontroll.
+- **Lägg till iOS-spel utan ominstallation och slank delad skal-app**: Alla spel delar en skal-app på bara några tiotals MB (`DMMSLTR1`-shadrar flyttade till `.img`, med automatisk `.nxpart`-sammanslagning i förgrunden). Lägg till spel via snabböverföring eller genom att placera `DmGame.framework` direkt i `Documents/Frameworks` (med import av `.p12`-sidladdningscertifikat på enheten för automatisk lokal signering) utan att installera om skal-IPA:n. Stöd för **10 språk**.
+- **Beständiga byggfrön och snabb batchuppdatering**: Med sparade `build-seeds` uppdateras de flesta uppgraderingar i batch på några minuter utan att originalets spelfiler eller `_build`-mappen behöver sparas, med versionsbricka för uppdateringar (t.ex. `1.5`) och återställning av saknade `.img`-filer. Windows-launchern (`NX2Apple-windows-x64.zip`) lägger till batchbyggkö (`BuildQueue`), dynamisk simuleringsheap upp till 2 GiB och självuppdatering.
+- **Genvägar med bild-i-bild-guide, bakgrundsmixning av ljud och handkontroller**: Inbyggd 6-stegsguide för hemskärmsgenvägar (med flytande bild-i-bild-fönster) och autostart när en handkontroll ansluts, uppspelning samtidigt som annat ljud (`DM_AUDIO_MIX`), beskärning av omslag i `16:9`, anpassade pekkontrollayouter, uppdelning av ett Bluetooth-anslutet Joy-Con-par med riktningsmappning för enskilda sidledes Joy-Cons samt Steam Controller (2026).
+- **208 spelprofiler, varav 19 Switch 2-spel**: Välj en Switch 2-spelmapp eller en `.nup`-fil direkt i Mac- eller Windows-launchern, helt utan `prod.keys`.
 
 Alla versioner finns i [ändringsloggen](CHANGELOG.md).
 
@@ -56,15 +56,14 @@ launchern och en kort lista med patchar och följer nxnative varje dag.
 - **En Mac med Apple silicon.** Launchern startar på **macOS 13 eller senare**. För att bygga behövs Xcode
   med iOS SDK, och NVN-spel kräver [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.2) 27.2 (macOS 26.6
   eller senare) om du inte bygger med `--allow-other-metal`. Ta 27.2 från Apples nedladdningssida, inte det
-  nyare Xcode från App Store. Om du också har ett nyare Xcode installerat, döp om 27.2 till `Xcode-27.2.app` och välj det:
-  `sudo xcode-select -s /Applications/Xcode-27.2.app`.
+  nyare Xcode från App Store. Om båda är installerade, ge 27.2 ett tydligt namn som `Xcode-27.2.app`. Under **Inställningar → Verktyg → Välj Xcode …** väljer du den kopia som ska användas med NX2Apple, inklusive en på en extern disk. Under förstagångskonfigurationen klickar du på **Ställ in senare** för att komma åt Inställningar och sedan på **Kör inställningen igen** när du har valt Xcode. **Använd system-Xcode** följer Mac-datorns kommandoradsval (till exempel `sudo xcode-select -s /Applications/Xcode-27.2.app`).
 - **Dina egna spelavbilder** (NSP eller XCI) och **din egen `prod.keys`** från din egen konsol. Inget
   medföljer, laddas ned eller slås upp åt dig. Samma `prod.keys` öppnar alla dina Switch-spel. En aktuell
   avbild täcker alla titlar i handeln. Switch 2-spel (en spelmapp eller en `.nup`-fil) behöver ingen `prod.keys`.
 - För en iPhone eller iPad: iOS eller iPadOS 26 eller senare och en ny enhet. Äldre enheter är otestade.
 
-Appen har egna byggverktyg och en egen Python, så du behöver varken Homebrew eller någon Python-installation.
-.NET SDK 10 är det enda verktyget som appen fortfarande installerar åt dig. Launcherns sida för beroenden
+För `nxnative` har appen egna byggverktyg och en egen Python, så du behöver varken Homebrew eller någon Python-installation,
+och .NET SDK 10 är det enda verktyget som appen fortfarande installerar åt dig. `nxkit` kräver varken Python eller .NET. Launcherns sida för beroenden
 kontrollerar varje krav och installerar det den kan med ett klick.
 
 ## Installation
@@ -84,6 +83,13 @@ kontrollerar varje krav och installerar det den kan med ett klick.
 
 Att bygga för hand från en terminal beskrivs i [BUILDING.md](BUILDING.md).
 
+**Uppdatera spel du redan har byggt (snabb uppdatering och ombygge).** Tack vare beständiga byggfrön
+(**Uppdatera Mac** / **Batchuppdatera**) tar de flesta motor- eller skaluppdateringar bara några minuter
+utan att du behöver behålla originalets spelfiler eller mappen `_build`. För en uppdaterings-NSP väljer du
+spelet i biblioteket, klickar på **Bygg om**, behåller basspelet valt och väljer den nya NSP-filen under
+**Uppdateringar och tilläggsinnehåll** för **Den här Mac-datorn** i samma utdatamapp. Dina sparfiler ligger
+utanför `.app` efter titel-ID och bevaras när du bygger om i samma bibliotek.
+
 ## Appen för iPhone och iPad
 
 Målet **iPhone/iPad** bygger en skal-app som rymmer alla dina spel, på samma sätt som Mac-launchern. Dess
@@ -94,19 +100,19 @@ sidan är det en Cover Flow. En iPad visar ett rutnät.
 
 <img src="frontend/screenshots/ios-cover-flow-en.webp" width="100%" alt="iPhone-appen på sidan: Cover Flow med omslagen till Breath of the Wild, Hades och Tears of the Kingdom">
 
-- **Lägg till spel från Mac-datorn.** Bygg ett spel med målet **iPhone/iPad** så kopierar launchern in det
-  i appen. Att signera om och installera om appen behåller din speldata och dina sparfiler.
+- **Lägg till spel från Mac-datorn eller ladda ramverk direkt.** Bygg ett spel med målet **iPhone/iPad** så kopierar launchern in det i appen. Alternativt kan du lägga `DmGame.framework` direkt i `Documents/Frameworks` och importera ett `.p12`-certifikat i appen för automatisk lokal signering på enheten, helt utan att installera om skal-IPA:n. Att signera om och installera om appen behåller din speldata och dina sparfiler.
 - **Spela.** Välj ett spel och tryck på **Spela**. Saknar ett spel sin data, eller behöver det en nyare app,
   står det på spelets kort, som också erbjuder lösningen.
 - **Inställningar för varje spel.** Inställningsknappen (eller X på en handkontroll) öppnar spelets
-  startalternativ. **Återställ** sätter varje val tillbaka till standardvärdet.
+  startalternativ, inklusive beskärning av omslag i `16:9` och **Spela upp med annat ljud** (`DM_AUDIO_MIX`) för bakgrundsmixning av ljud. **Återställ** sätter varje val tillbaka till standardvärdet.
+- **Genvägar på hemskärmen.** En inbyggd 6-stegsguide med bild-i-bild-instruktioner hjälper dig att skapa spelgenvägar och stöder autostart när en handkontroll ansluts.
 - **Handkontroll eller tangentbord.** Hela appen går att styra med en handkontroll: styrkorset och spaken
   flyttar, A väljer, B går tillbaka, X öppnar inställningarna och Y listar handkontrollerna. Ett
   hårdvarutangentbord fungerar på samma sätt.
 - **Mapp för speldata.** Varje spel kan läsa sin data från en mapp som du väljer i appen Filer, till
   exempel på en extern enhet, eller från appens egen mapp.
 - **Molnsparfiler.** Välj en mapp i iCloud Drive så hålls ett spels sparfiler i takt med Mac-datorn.
-- **Språk.** Appen följer systemspråket, engelska eller förenklad kinesiska.
+- **Språk.** Appen följer systemspråket och stöder alla 10 språk: engelska, förenklad kinesiska, svenska, tyska, franska, italienska, spanska, japanska, koreanska och brasiliansk portugisiska.
 
 Appen kräver iOS eller iPadOS 26 eller senare. Omslagen är de eShop-banners som Mac-launchern cachar för
 dina egna spel.
@@ -116,12 +122,12 @@ dina egna spel.
 **På Mac** visas ett färdigt spel i biblioteket med sin key art. **Spela** startar det.
 **Startalternativ** (per spel, behålls vid ombyggen) styr bildfrekvens, konsolläge (dockad eller handhållen),
 renderskala och uppskalning, spelspråk, kontroller med mera. Vad varje alternativ gör står i
-[docs/settings.md](https://github.com/seedds/nxnative/blob/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/settings.md). En handkontroll styr launchern lika väl som spelen.
+[docs/settings.md](https://github.com/seedds/nxnative/blob/99224562186a8fdb7e97afb872319a21941ec317/docs/settings.md). En handkontroll styr launchern lika väl som spelen.
 
 **På iPhone** visar appen samma inställningar innan spelet startar. Tryck på **Spela**. Pekkontrollerna
 finns i en 2D- och en 3D-layout (tryck på knappen överst i mitten), och en ansluten handkontroll (Xbox,
 PlayStation, Switch Pro, MFi) ersätter dem.
-[docs/playing.md](https://github.com/seedds/nxnative/blob/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/playing.md) tar upp touch, vibration och rörelse. Korta hack första gången en scen visas är
+[docs/playing.md](https://github.com/seedds/nxnative/blob/99224562186a8fdb7e97afb872319a21941ec317/docs/playing.md) tar upp touch, vibration och rörelse. Korta hack första gången en scen visas är
 normala: Appen kompilerar grafiken för den en gång och kommer ihåg den. Spelets data (`romfs.img`) kan ligga
 på en extern enhet som appen Filer väljer.
 
@@ -144,34 +150,47 @@ inställningar, spelets `env.txt`, spelets mapp `mods/`, den delade `Documents/e
 `~/Library/Logs/nxnative/<title ID>.log`. På iPhone ligger de i appen Filer under appens namn: `save/` och
 `log.txt` (föregående körning är `log.prev.txt`).
 
-**Rapportera ett fel.** Använd [formulären för ärenden](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
-(spelproblem, byggproblem, launcherproblem). Varje formulär frågar efter spelet och dess title ID, dina
-versioner och din enhet, **Inställningar > Kopiera diagnostik** och spelets logg.
-[CONTRIBUTING.md](CONTRIBUTING.md) förklarar varför. En rapport med hela `log.txt` tittar vi på först.
+**Rapportera ett fel.** Ett launcher- eller byggproblem hör hemma i [formulären för ärenden](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
+(byggproblem, launcherproblem). Varje formulär frågar efter dina versioner och din dator,
+**Inställningar > Kopiera diagnostik** och, för en build, byggloggen.
+[CONTRIBUTING.md](CONTRIBUTING.md) förklarar varför. Ett spel som kraschar, hänger sig, går långsamt eller ser fel ut
+hör hemma hos [seedds/nxnative](https://github.com/seedds/nxnative/issues).
 Bifoga aldrig nycklar, spelfiler eller något som extraherats ur ett spel.
 
 ## Spel
 
-147 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
+208 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
 profil som ännu inte har prövats på en telefon. Några av dem:
 
 | | Spel | Var det körs | Status |
 |---|---|---|---|
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac och iPhone | **Verifierat här**: 304 243 filer, bytekontrollerade, ca 17 GB |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac och iPhone | **Verifierat här** |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verifierat här**: går smidigt |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Rapporterat som spelbart uppströms |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Rapporterat som spelbart uppströms, 60 fps med 1.9.0 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Rapporterat som spelbart uppströms |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac och iPhone | **Verifierat här**: 304 243 filer, bytekontrollerade, ca 17 GB |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac och iPhone | **Verifierat här** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verifierat här**: går smidigt |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Rapporterat som spelbart uppströms |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Rapporterat som spelbart uppströms, 60 fps med 1.9.0 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/99224562186a8fdb7e97afb872319a21941ec317/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Rapporterat som spelbart uppströms |
 
 **[GAMES.md](GAMES.md)** har skärmbildsgalleriet med varje spels installationsstorlek och den fullständiga
 tabellen med den uppdateringsversion som varje spel behöver: Uppdaterings-NSP:ns visade version måste
 stämma med profilens, annars säger bygget ifrån.
 
+**Switch 2-spel** är nya i motorn. 19 titlar har redan en profil: Donkey Kong Bananza,
+Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia, Hyrule Warriors: Age of Imprisonment,
+Mario Kart World, Mario Tennis Fever, Star Fox, Yoshi and the Mysterious Book,
+The Legend of Zelda: Ocarina of Time, Kirby Air Riders,
+Super Mario Bros. Wonder – Nintendo Switch 2 Edition + Meetup in Bellabel Park, Orbitals, Fast Fusion,
+Resident Evil 4, Nintendo Switch 2 Welcome Tour, Nintendo Switch Sports Resort,
+Sonic Frontiers Definitive Edition och PRAGMATA. Välj spelets mapp (`base/`, `updates/`, `dlc/`) eller dess
+`.nup`-fil på byggsidan, helt utan `prod.keys`. Biblioteket märker dem **Switch 2**. Donkey Kong Bananza
+har verifierats via launchern på Mac, iPhone och iPad (inga problem på Mac och iPhone och nästan inga på iPad),
+The Legend of Zelda: Ocarina of Time (Switch 2-versionen) har spelats igenom och verifierats på Mac, och
+Fire Emblem Fortune's Weave har verifierats i 60 fps på iPhone. Detaljerna finns i [GAMES.md](GAMES.md#switch-2-games).
+
 ## Begränsningar
 
 - **Bara spelen med en profil.** En titel utanför listan kräver eget bring-up-arbete. Börja med
-  [docs/agents](https://github.com/seedds/nxnative/blob/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/agents/README.md), uppströmsprojektets guide för en annan Switch-titel.
+  [docs/agents](https://github.com/seedds/nxnative/blob/99224562186a8fdb7e97afb872319a21941ec317/docs/agents/README.md), uppströmsprojektets guide för en annan Switch-titel.
 - **Stora spel slår i en minnesgräns på iPhone.** Utan behörigheten Increased Memory Limit ger iOS appen
   cirka 3,4 GB, vilket inte räcker för Tears of the Kingdom. Appen begär den, och AltStore Classic 2.2+,
   Impactor och Xcode med ett Personal Team behåller den. SideStore med ett gratis Apple-ID behöver en
@@ -194,7 +213,7 @@ stämma med profilens, annars säger bygget ifrån.
   [patches/README.md](patches/README.md) förklarar det, och `python3 tools/engine.py status` listar vad som
   bärs. Ett dagligt jobb flyttar fästpunkten och öppnar en pull request, eller ett ärende som namnger patchen
   som inte längre passar. Länkarna till motorns dokument i den här README:n pekar på nxnative vid den fastlåsta committen.
-- **Ett annat Switch-spel:** [docs/agents](https://github.com/seedds/nxnative/blob/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/agents/README.md) (extrahering, binärgenomgång, bring-up).
+- **Ett annat Switch-spel:** [docs/agents](https://github.com/seedds/nxnative/blob/99224562186a8fdb7e97afb872319a21941ec317/docs/agents/README.md) (extrahering, binärgenomgång, bring-up).
 - **Versionshistorik:** [CHANGELOG.md](CHANGELOG.md).
 
 ## Tack
@@ -222,7 +241,7 @@ Allt motorarbete är andras. Det här förrådet lägger launchern och patchkön
 - **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)**: SPIR-V till Metal Shading Language.
 - **yuzu**, **deko3d**, **libvpx**, **stb_vorbis**, **libdeflate**: uppströmsprojektets tackslista säger vad var och en bidrar med.
 
-`dm/third_party` innehåller andra projekt med deras licenser ([lista](https://github.com/seedds/nxnative/blob/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/dm/third_party/README.md)).
+`dm/third_party` innehåller andra projekt med deras licenser ([lista](https://github.com/seedds/nxnative/blob/99224562186a8fdb7e97afb872319a21941ec317/dm/third_party/README.md)).
 
 ## Juridik
 

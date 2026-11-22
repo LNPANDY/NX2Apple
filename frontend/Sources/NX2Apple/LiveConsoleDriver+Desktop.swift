@@ -53,6 +53,7 @@ extension LiveConsoleDriver {
     /// Its mods, its cheats, whether its options differ from the defaults and its cloud save: read when its options open.
     func loadDetails(_ gameID: String) {
         guard let game = libraryGame(gameID), let i = state.games.firstIndex(where: { $0.id == gameID }) else { return }
+        state.games[i].icon = GameLibrary.appIcon(for: game, banners: library.artworkDirectory)
         let mods = GameMod.list(in: GameMod.folder(for: game, library: library.folder), titleID: game.titleID)
         state.games[i].mods = mods.map { ConsoleMod(name: $0.name, usable: $0.usable, on: $0.usable && game.mods.contains($0.name)) }
         state.games[i].cheats = cheats(game)
@@ -66,7 +67,7 @@ extension LiveConsoleDriver {
     func cheats(_ game: LibraryGame) -> ConsoleCheats {
         let files = CheatFiles(titleID: game.titleID)
         var result = ConsoleCheats(masterOn: files.masterOn)
-        guard let buildID = CheatFiles.buildID(appPath: game.appPath, iosAppPath: game.iosAppPath) else { result.note = t("console.cheats.noBuild"); return result }
+        guard let buildID = CheatFiles.buildID(appPath: game.appPath, iosAppPath: game.iosAppPath, titleID: game.titleID, shellRoot: shellRoot()) else { result.note = t("console.cheats.noBuild"); return result }
         guard let file = files.found().first(where: { $0.buildID == buildID }), let all = files.cheats(of: file) else {
             result.note = t("console.cheats.noFile"); return result
         }
@@ -97,6 +98,9 @@ extension LiveConsoleDriver {
 
     func openOptions(_ gameID: String) {
         loadDetails(gameID)
+        if let game = libraryGame(gameID), let i = state.games.firstIndex(where: { $0.id == gameID }) {
+            state.games[i].lastSave = game.isReady ? SaveTransfer.newest(in: SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save) : nil
+        }
         state.openOptions(gameID)
     }
 
@@ -113,7 +117,7 @@ extension LiveConsoleDriver {
     }
 
     func setCheat(gameID: String, key: String, on value: Bool) {
-        guard let game = libraryGame(gameID), let buildID = CheatFiles.buildID(appPath: game.appPath, iosAppPath: game.iosAppPath) else { return }
+        guard let game = libraryGame(gameID), let buildID = CheatFiles.buildID(appPath: game.appPath, iosAppPath: game.iosAppPath, titleID: game.titleID, shellRoot: shellRoot()) else { return }
         let files = CheatFiles(titleID: game.titleID)
         guard let file = files.found().first(where: { $0.buildID == buildID }), let all = files.cheats(of: file),
               all.contains(where: { $0.key == key && $0.switchable }) else { return }

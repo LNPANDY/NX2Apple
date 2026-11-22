@@ -274,6 +274,51 @@ import XCTest
         XCTAssertEqual(store.effectiveOutputFolder, expectedFallback)
     }
 
+    /// Seeds the player moved (Settings, Tools): the script reads them there, a refresh without an output folder builds in the
+    /// moved refresh-builds beside them, and the engine gets DM_SEED_CACHE_DIR for its own lookups.
+    func testAMovedSeedRootIsWhereTheRefreshReadsAndBuilds() throws {
+        let runner = StartRecordingRunner()
+        let store = makeStore(runner: runner)
+        store.launcherEnvironment = [:]
+        let repoDir = temporary.appendingPathComponent("repo").path
+        try setupMockRepo(in: repoDir)
+        self.repo.path = repoDir
+        let seeds = temporary.appendingPathComponent("Drive/NX2Apple-build-seeds/build-seeds").path
+        defaults.set(seeds, forKey: BuildCacheRoots.seedKey)
+        store.outDir = ""
+        store.leaveGameFolder()
+        store.updateSlot("base") { $0.paths = [] }
+        let tid = "0100555500005555"
+
+        store.startFastRefresh(titleID: tid, target: 0)
+
+        let moved = temporary.appendingPathComponent("Drive/NX2Apple-build-seeds/refresh-builds").path
+        XCTAssertEqual(store.effectiveOutputFolder, moved)
+        let launch = try XCTUnwrap(runner.launches.first { $0.arguments.contains("--from-seed") })
+        XCTAssertEqual(launch.arguments[launch.arguments.firstIndex(of: "--seed-cache-dir")! + 1], seeds)
+        XCTAssertTrue(launch.arguments.contains(moved + "/" + tid + "_build"))
+        XCTAssertEqual(launch.environment?["DM_SEED_CACHE_DIR"], seeds)
+    }
+
+    func testARefreshStopsWhenTheDriveWithTheSeedsIsNotConnected() throws {
+        let runner = StartRecordingRunner()
+        let store = makeStore(runner: runner)
+        store.launcherEnvironment = [:]
+        let repoDir = temporary.appendingPathComponent("repo").path
+        try setupMockRepo(in: repoDir)
+        self.repo.path = repoDir
+        let drive = "/Volumes/NX2Apple-test-missing-" + UUID().uuidString
+        defaults.set(drive + "/NX2Apple-build-seeds/build-seeds", forKey: BuildCacheRoots.seedKey)
+        store.outDir = temporary.appendingPathComponent("out").path
+
+        store.startFastRefresh(titleID: "0100555500005555", target: 0)
+
+        XCTAssertTrue(runner.launches.isEmpty, "the script does not start")
+        XCTAssertEqual(store.doneNote, String(format: localizer.t("seedCache.driveMissing"), store.shortPath(drive + "/NX2Apple-build-seeds/build-seeds")))
+        XCTAssertFalse(store.running)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: drive))
+    }
+
     func testHomeDirectoryIsolation() throws {
         let runner = StartRecordingRunner()
         let store = makeStore(runner: runner)
@@ -511,5 +556,170 @@ import XCTest
         XCTAssertEqual(returnedDestB, "")
         XCTAssertEqual(store.archivePath, "")
         XCTAssertFalse(fm.fileExists(atPath: destB))
+    }
+
+    func testExternalImgFastRefreshUpdatesStageDetailAndAppendsReplaceReminder() throws {
+        let runner = FakeProcessRunner()
+        runner.answer = { launch in
+            if launch.arguments.contains("--inspect-msl") {
+                return ProcessResult(status: 0, out: "{\"has_trailer\": false}")
+            }
+            return ProcessResult(status: 0, out: "appended DMMSLTR1")
+        }
+        let store = makeStore(runner: runner)
+        let repoDir = temporary.appendingPathComponent("repo-ext").path
+        try setupMockRepo(in: repoDir)
+        self.repo.path = repoDir
+
+        let out = temporary.appendingPathComponent("out-ext").path
+        let work = temporary.appendingPathComponent("work-ext").path
+        let tid = "0100555500005555"
+        try fm.createDirectory(atPath: out, withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: work + "/extract", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: work + "/shader/ios/b-a5e7fb6e4fa4", withIntermediateDirectories: true)
+        try Data("msl-payload".utf8).write(to: URL(fileURLWithPath: work + "/shader/ios/b-a5e7fb6e4fa4/shaders.metallib"))
+
+        let extImg = temporary.appendingPathComponent("PulledMario.img").path
+        try Data("existing-romfs".utf8).write(to: URL(fileURLWithPath: extImg))
+
+        store.outDir = out
+        store.selectedTitleID = tid
+        store.fastRefreshExternalImgPath = extImg
+
+        let exp = expectation(description: "packArchive external img in-place update")
+        var returnedDest = "unset"
+        store.packArchive(workDir: work, titleID: tid, isFastRefresh: true) { path in
+            returnedDest = path
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 5.0)
+
+        XCTAssertEqual(returnedDest, "")
+        let stage = try XCTUnwrap(store.stages.first(where: { $0.id == 1000 }))
+        XCTAssertEqual(stage.state, .done)
+        XCTAssertNotEqual(stage.detail, store.t("prog.noRomfs"))
+        XCTAssertEqual(stage.detail, String(format: store.t("prog.externalImgUpdated"), "PulledMario.img"))
+        XCTAssertTrue(store.needsReplaceOldImgReminder)
+        XCTAssertEqual(store.updatedImgPath, extImg)
+
+        store.finishInstall(nil, note: "Installed on iPhone")
+        XCTAssertTrue(store.done)
+        let expectedReminder = String(format: store.t("imgGuide.replaceOldImgBody"), "PulledMario.img")
+        XCTAssertTrue(store.doneNote.contains(expectedReminder), store.doneNote)
+    }
+
+    func testLocalTargetImgFastRefreshSetsReplaceReminderAndFrameworkExportShowsRealSize() throws {
+        let runner = FakeProcessRunner()
+        runner.answer = { launch in
+            if launch.arguments.contains("--inspect-msl") {
+                return ProcessResult(status: 0, out: "{\"has_trailer\": false}")
+            }
+            return ProcessResult(status: 0, out: "appended DMMSLTR1")
+        }
+        let store = makeStore(runner: runner)
+        let repoDir = temporary.appendingPathComponent("repo-local").path
+        try setupMockRepo(in: repoDir)
+        self.repo.path = repoDir
+
+        let out = temporary.appendingPathComponent("out-local").path
+        let work = temporary.appendingPathComponent("work-local").path
+        let tid = "0100666600006666"
+        let dest = out + "/games/Mario"
+        let targetImg = dest + "/Mario.img"
+        try fm.createDirectory(atPath: dest, withIntermediateDirectories: true)
+        try Data("local-romfs".utf8).write(to: URL(fileURLWithPath: targetImg))
+        try fm.createDirectory(atPath: work + "/extract", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: work + "/shader/ios/b-a5e7fb6e4fa4", withIntermediateDirectories: true)
+        try Data("msl-payload".utf8).write(to: URL(fileURLWithPath: work + "/shader/ios/b-a5e7fb6e4fa4/shaders.metallib"))
+
+        store.outDir = out
+        store.selectedTitleID = tid
+        store.fastRefreshGameName = "Mario"
+
+        let exp = expectation(description: "packArchive local targetImg fast refresh")
+        store.packArchive(workDir: work, titleID: tid, isFastRefresh: true) { _ in
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 5.0)
+
+        XCTAssertTrue(store.needsReplaceOldImgReminder)
+        XCTAssertEqual(store.updatedImgPath, targetImg)
+
+        let fwDir = out + "/DmGame\(tid).framework"
+        try fm.createDirectory(atPath: fwDir, withIntermediateDirectories: true)
+        try Data(repeating: 0x42, count: 3_145_728).write(to: URL(fileURLWithPath: fwDir + "/DmGame\(tid)"))
+        store.exportedIPAPath = fwDir
+
+        XCTAssertTrue(store.exportedIPAText.contains("3 MB"), store.exportedIPAText)
+        XCTAssertFalse(store.exportedIPAText.contains("1 KB"), store.exportedIPAText)
+    }
+
+    func testArchiveReusableAndRomfsImageSetReplaceReminderWhenIOSAndShaderSource() throws {
+        let runner = FakeProcessRunner()
+        runner.answer = { launch in
+            if launch.arguments.contains("--inspect-msl") {
+                return ProcessResult(status: 0, out: "{\"has_trailer\": false}")
+            }
+            return ProcessResult(status: 0, out: "appended DMMSLTR1")
+        }
+        let repoDir = temporary.appendingPathComponent("repo-archive-paths").path
+        try setupMockRepo(in: repoDir)
+        self.repo.path = repoDir
+
+        let tid = "0100777700007777"
+        let version = "v0"
+
+        // 1. archiveReusable path (extract/<v>/RomFS + matching .packstamp + existing targetImg)
+        let outReuse = temporary.appendingPathComponent("out-reuse").path
+        let workReuse = temporary.appendingPathComponent("work-reuse").path
+        let romfsReuse = workReuse + "/extract/" + version + "/RomFS"
+        let destReuse = outReuse + "/games/Mario"
+        let targetImgReuse = destReuse + "/Mario.img"
+        try fm.createDirectory(atPath: romfsReuse, withIntermediateDirectories: true)
+        try Data("asset".utf8).write(to: URL(fileURLWithPath: romfsReuse + "/data.bin"))
+        try fm.createDirectory(atPath: destReuse, withIntermediateDirectories: true)
+        try Data("existing-img".utf8).write(to: URL(fileURLWithPath: targetImgReuse))
+        try fm.createDirectory(atPath: workReuse + "/shader/ios/b-a5e7fb6e4fa4", withIntermediateDirectories: true)
+        try Data("msl-payload".utf8).write(to: URL(fileURLWithPath: workReuse + "/shader/ios/b-a5e7fb6e4fa4/shaders.metallib"))
+        RomFSArchive.writeStamp(source: romfsReuse, version: version, to: destReuse + "/.packstamp")
+
+        let storeReuse = makeStore(runner: runner)
+        storeReuse.outDir = outReuse
+        storeReuse.selectedTitleID = tid
+        storeReuse.runningTarget = BuildTarget.ios
+        storeReuse.fastRefreshGameName = "Mario"
+
+        let expReuse = expectation(description: "packArchive archiveReusable sets replace reminder")
+        storeReuse.packArchive(workDir: workReuse, titleID: tid, isFastRefresh: false) { _ in
+            expReuse.fulfill()
+        }
+        wait(for: [expReuse], timeout: 5.0)
+        XCTAssertTrue(storeReuse.needsReplaceOldImgReminder)
+        XCTAssertEqual(storeReuse.updatedImgPath, targetImgReuse)
+
+        // 2. romfsImage path (extract/<v>/RomFS.img without .packstamp)
+        let outImg = temporary.appendingPathComponent("out-romfsimg").path
+        let workImg = temporary.appendingPathComponent("work-romfsimg").path
+        let extractVImg = workImg + "/extract/" + version
+        let destImg = outImg + "/games/Mario"
+        let targetImg = destImg + "/Mario.img"
+        try fm.createDirectory(atPath: extractVImg, withIntermediateDirectories: true)
+        try Data("romfs-image-bytes".utf8).write(to: URL(fileURLWithPath: extractVImg + "/RomFS.img"))
+        try fm.createDirectory(atPath: workImg + "/shader/ios/b-a5e7fb6e4fa4", withIntermediateDirectories: true)
+        try Data("msl-payload".utf8).write(to: URL(fileURLWithPath: workImg + "/shader/ios/b-a5e7fb6e4fa4/shaders.metallib"))
+
+        let storeImg = makeStore(runner: runner)
+        storeImg.outDir = outImg
+        storeImg.selectedTitleID = tid
+        storeImg.runningTarget = BuildTarget.ios
+        storeImg.fastRefreshGameName = "Mario"
+
+        let expImg = expectation(description: "packArchive romfsImage sets replace reminder")
+        storeImg.packArchive(workDir: workImg, titleID: tid, isFastRefresh: false) { _ in
+            expImg.fulfill()
+        }
+        wait(for: [expImg], timeout: 5.0)
+        XCTAssertTrue(storeImg.needsReplaceOldImgReminder)
+        XCTAssertEqual(storeImg.updatedImgPath, targetImg)
     }
 }

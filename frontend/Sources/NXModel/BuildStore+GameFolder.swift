@@ -17,6 +17,11 @@ extension BuildStore {
         case .failure(let problem):
             refuseGameFolder(gameFolderProblemText(problem))
         case .success(let contents):
+            if !running,
+               isMacNativeGamesSelected,
+               (!contents.hasTitleID || !MacNativeGamesBuilder.supportsTitleID(contents.titleIDHex)) {
+                buildUpstream = .nxnative
+            }
             if let why = gameFolderEngineProblem(contents) { refuseGameFolder(why); return }
             gameFolder = contents
             updateSlot("base") { $0.paths = [contents.basePath] }
@@ -42,6 +47,18 @@ extension BuildStore {
     /// profile, a newer one builds a game with no profile from a provisional one. nil without an engine yet: the build asks again
     /// before it starts.
     package func gameFolderEngineProblem(_ contents: GameFolder.Contents) -> String? {
+        if isMacNativeGamesSelected {
+            guard target == BuildTarget.mac else { return t("upstream.mngMacOnly") }
+            guard MacNativeGamesBuilder.isUsableTree(macNativeGamesPath) else { return nil }
+            if !contents.hasTitleID || MacNativeGamesBuilder.route(forTitleID: contents.titleIDHex, in: macNativeGamesPath) == nil {
+                let label = contents.hasTitleID ? contents.titleIDHex : (contents.scriptInput as NSString).lastPathComponent
+                return String(format: t("upstream.mngUnsupportedGame"), label)
+            }
+            return nil
+        }
+        if isS2ArmSelected || isNxkitSelected {
+            return nil   // nxkit says what it lacks itself (nxkitProblem)
+        }
         let engine = EngineLayout.root(repo.path)
         guard !engine.isEmpty, FileManager.default.fileExists(atPath: engine + "/dm") else { return nil }
         if contents.nup != nil ? !GameFolder.engineBuildsNUPs(engine) : !GameFolder.engineBuildsFolders(engine) {
@@ -105,8 +122,8 @@ extension BuildStore {
     package var gameTitleID: String? {
         if fastRefreshActive, let fastRefreshTitleID, !fastRefreshTitleID.isEmpty { return fastRefreshTitleID }
         if let selectedTitleID { return selectedTitleID }
-        if let f = gameFolder { return f.hasTitleID ? f.titleIDHex : nil }
-        return TitleID.parse(basePath).map { String(format: "%016llX", $0) }
+        if let f = gameFolder { return f.hasTitleID ? f.titleIDHex : effectiveHintedTitleID }
+        return TitleID.parse(basePath).map { String(format: "%016llX", $0) } ?? effectiveHintedTitleID
     }
 
     /// The chosen game is a Switch 2 game by its engine profile (GameFolder.profileIsSwitch2): the Builds page says how far the engine's support goes.
@@ -125,9 +142,13 @@ extension BuildStore {
             return GameFolder.profileName(tid, engineRoot: EngineLayout.root(repo.path)) ?? selectedTitleID
         }
         if let f = gameFolder {
-            let fallback = f.nup.map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension } ?? (f.folder as NSString).lastPathComponent
-            return f.hasTitleID ? GameFolder.profileName(f.titleID, engineRoot: EngineLayout.root(repo.path)) ?? fallback : fallback
+            let rawFallback = f.nup.map { ($0 as NSString).lastPathComponent } ?? (f.folder as NSString).lastPathComponent
+            let fallback = RomFSArchive.cleanPackageGameName(rawFallback)
+            let resolvedFallback = fallback.isEmpty ? ((rawFallback as NSString).deletingPathExtension) : fallback
+            return f.hasTitleID ? GameFolder.profileName(f.titleID, engineRoot: EngineLayout.root(repo.path)) ?? resolvedFallback : resolvedFallback
         }
-        return ((basePath as NSString).lastPathComponent as NSString).deletingPathExtension
+        let rawBase = (basePath as NSString).lastPathComponent
+        let cleanedBase = RomFSArchive.cleanPackageGameName(rawBase)
+        return cleanedBase.isEmpty ? (rawBase as NSString).deletingPathExtension : cleanedBase
     }
 }

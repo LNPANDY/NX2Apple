@@ -10,6 +10,7 @@ the README cannot disagree.
 """
 import html
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -33,10 +34,10 @@ TEXT = {
         'lead': 'Not an emulator. No terminal.<br>A Mac or Windows app does the whole build in a few clicks.',
         'stats': ['game profiles', 'files → 1 img'],
         'cards': [
-            ('One-click build', 'Pick your files, press Build. No terminal.'),
-            ('RomFS archive', '300k files in one image: a 16 GB game installs.'),
-            ('Resumable builds', 'A stopped build continues where it left off.'),
-            ('Self-installing', 'Fetches the build tools and updates itself.'),
+            ('Multi-engine build', 'Pick your files, switch upstream cores, build in clicks.'),
+            ('Hot-load on iOS', 'Add new games over AirDrop or USB without reinstalling.'),
+            ('Fast seed refresh', 'Reuse cached shaders and build seeds in seconds.'),
+            ('Native Metal speed', 'No emulator overhead. Switch code runs natively.'),
         ],
     },
     'zh': {
@@ -45,10 +46,10 @@ TEXT = {
         'lead': '不是模拟器 · 不用命令行<br>一个 macOS 或 Windows App 点几下就完成构建',
         'stats': ['款游戏 profile', '文件 → 1 个镜像'],
         'cards': [
-            ('一键构建', '选好文件按构建，全程无命令行'),
-            ('RomFS 归档', '30 万文件压成 1 个镜像，16 GB 也能装'),
-            ('断点续传', '中断接着跑，没变的部分直接复用'),
-            ('自助安装', '自动下载仓库，App 自己也能更新'),
+            ('多引擎一键构建', '选好文件按构建，自由切换多上游引擎'),
+            ('免重装秒加游戏', 'iPhone 端支持热加载，新游戏无需重装即可开玩'),
+            ('种子缓存快刷', '复刻构建种子与着色器缓存，改配置秒级刷新'),
+            ('原生 Metal 满帧', '无模拟器开销，Switch 代码原生运行于 Apple 芯片'),
         ],
     },
 }
@@ -113,11 +114,20 @@ body { display: flex; align-items: center; justify-content: center; }
 def render(page: str, out: Path, w: int, h: int) -> None:
     with tempfile.NamedTemporaryFile('w', suffix='.html', delete=False, encoding='utf-8') as f:
         f.write(page)
-    subprocess.run([CHROME, '--headless=new', '--hide-scrollbars', '--force-device-scale-factor=2',
-                    '--default-background-color=00000000', f'--window-size={w},{h}',
-                    f'--screenshot={out}', f'file://{f.name}'],
-                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    Path(f.name).unlink()
+    profile_dir = tempfile.mkdtemp(prefix='nx2apple-chrome-')
+    out.unlink(missing_ok=True)
+    try:
+        res = subprocess.run([CHROME, '--headless=new', '--disable-gpu', '--hide-scrollbars',
+                              '--force-device-scale-factor=2', f'--user-data-dir={profile_dir}',
+                              '--no-first-run', '--no-default-browser-check',
+                              '--default-background-color=00000000', f'--window-size={w},{h}',
+                              f'--screenshot={out}', f'file://{f.name}'],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode != 0 and not (out.exists() and out.stat().st_size > 0):
+            raise subprocess.CalledProcessError(res.returncode, res.args)
+    finally:
+        Path(f.name).unlink(missing_ok=True)
+        shutil.rmtree(profile_dir, ignore_errors=True)
     print('saved', out.relative_to(REPO))
 
 

@@ -38,7 +38,8 @@ package enum InputStaging {
         for name in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] {
             let path = dir + "/" + name
             let isLink = (try? fm.destinationOfSymbolicLink(atPath: path)) != nil
-            guard isLink || gameExtensions.contains((name as NSString).pathExtension.lowercased()) else { continue }
+            let ext = (name as NSString).pathExtension.lowercased()
+            guard isLink || gameExtensions.contains(ext) || ext == "nup" else { continue }
             if let src = wanted[name], isLink, (try? fm.destinationOfSymbolicLink(atPath: path)) == src { continue }
             try? fm.removeItem(atPath: path)
         }

@@ -148,16 +148,20 @@ package enum ShellInstall {
     }
 
     /// Copies the game's banner into its framework as banner.<ext>, the picture the shell's library shows: the player's own pick,
-    /// else the eShop banner the launcher caches per title ID (ArtworkStore). The cache is only read. Without either, an older
-    /// banner is removed and the library shows the framework's icon.png. Returns the picture used.
-    @discardableResult static func placeBanner(titleID: String, framework: String, banners: URL, picked: String?,
-                                               fm: FileManager = .default) -> String? {
-        let source = [picked, BannerCache.cached(titleID, in: banners)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
+    /// else the cached banner (optionally fetched on demand via `ensureCached`). When the framework has no `icon.png`, generates
+    /// a 512×512 square PNG fallback from the placed banner. Returns the picture used.
+    @discardableResult package static func placeBanner(titleID: String, framework: String, banners: URL, picked: String?,
+                                                       fm: FileManager = .default,
+                                                       ensureCached: ((String, URL) -> URL?)? = nil) -> String? {
+        let existing = [picked, BannerCache.cached(titleID, in: banners, fm: fm)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
+        let source = existing ?? ensureCached?(titleID, banners)?.path
         for ext in ["png", "jpg", "jpeg", "heic", "webp"] { try? fm.removeItem(atPath: framework + "/banner." + ext) }
-        guard let source else { return nil }
+        guard let source, !source.isEmpty, fm.fileExists(atPath: source) else { return nil }
         let ext = (source as NSString).pathExtension.lowercased()
         let dest = framework + "/banner." + (["png", "jpg", "jpeg", "heic", "webp"].contains(ext) ? ext : "jpg")
-        return (try? fm.copyItem(atPath: source, toPath: dest)) != nil ? source : nil
+        guard (try? fm.copyItem(atPath: source, toPath: dest)) != nil else { return nil }
+        _ = BannerCache.ensureFallbackSquareIcon(inFramework: framework, fromBanner: dest, fm: fm)
+        return source
     }
 
     /// devicectl's recursive listing of the game's folder in the app's container, written as JSON to `json`.
@@ -312,6 +316,8 @@ package struct ShellInstaller {
     package var runner: ProcessRunner = SystemProcessRunner()
     /// Asked once, only when something must be copied, with the size and the connection. The terminal answers `.copy`.
     package var decideCopy: (ShellCopyPlan) -> ShellCopyDecision = { _ in .copy }
+    /// Physical USB link speed lookup for a device UDID (bps); defaults to live IOKit registry inspection.
+    package var usbSpeedLookup: @Sendable (String) -> Int64? = { USBLinkSpeed.linkSpeedBps(forUDID: $0) }
     /// While waiting for a cable: told true when the wait starts and false when it ends, and asked between polls whether the
     /// player cancelled.
     package var waiting: (Bool) -> Void = { _ in }
@@ -320,8 +326,10 @@ package struct ShellInstaller {
     package var copyProgress: (Int64, Int64) -> Void = { _, _ in }
     /// Seconds between two looks at `devicectl list devices` while waiting for a cable.
     package var pollInterval: TimeInterval = 4
-    /// Where the eShop banners are cached (ArtworkStore), read only: the game's goes into its framework for the shell's library.
+    /// Where the eShop banners are cached (ArtworkStore): the game's goes into its framework for the shell's library.
     package var banners: URL = BannerCache.directory
+    /// On-demand single-banner backfill when `pickedArtwork` and the local cache both lack the game's banner.
+    package var ensureBanner: (String, URL) -> URL? = { BannerCache.ensureCachedBanner(titleID: $0, banners: $1) }
     /// A picture the player chose for the game in the library, which wins over the cached banner (nil: none).
     package var pickedArtwork: String? = nil
     /// The size of one part of a file sent in parts, and the largest file sent whole to an app that may not join parts
@@ -516,7 +524,7 @@ package struct ShellInstaller {
             end(Self.installStageID, installName, ok: false, detail: why)
             return (Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install), [])
         }
-        ShellLibrary.recordInstalled(root: root)
+        ShellLibrary.recordInstalled(root: root, device: device)
         end(Self.installStageID, installName, ok: true)
 
         var outcome = Outcome(ok: true, message: fmt("dev.installed", deviceName), appPath: app, bundleID: bundleID)
@@ -640,8 +648,9 @@ package struct ShellInstaller {
             }
         }
         // The size and the connection first: a cable needs the device unlocked, Wi-Fi takes long enough that a cable may be worth it
-        var link = connection()
-        var plan = copyPlan(files: Set(missing.map(\.file)).count, bytes: needed, connection: link)
+        let link = connection()
+        let profile = linkProfile(for: link)
+        var plan = copyPlan(files: Set(missing.map(\.file)).count, bytes: needed, connection: link, linkProfile: profile)
         if let identity, let previous, identity != previous {
             let note = t("shell.dataChanged")
             plan.versionNote = note
@@ -652,15 +661,7 @@ package struct ShellInstaller {
         if parts > 0 { log(fmt("shell.dataParts", parts) + "\n") }
         var decision = decideCopy(plan)
         if decision == .waitForCable {
-            log(fmt("shell.copyWaiting", deviceName) + "\n")
-            waiting(true)
-            while !waitCancelled() {
-                Thread.sleep(forTimeInterval: pollInterval)
-                link = connection()
-                if link == .wired { break }
-            }
-            waiting(false)
-            decision = link == .wired && !waitCancelled() ? .copy : .skip
+            decision = waitForCable(initialProfile: profile)
         }
         guard decision == .copy else {
             outcome.copySkipped = true
@@ -737,21 +738,6 @@ package struct ShellInstaller {
         copyProgress(needed, needed)
         end(Self.copyStageID, copyName, ok: true)
         return outcome
-    }
-
-    func copyPlan(files: Int, bytes: Int64, connection: ShellInstall.Connection) -> ShellCopyPlan {
-        let connectionText: String
-        switch connection {
-        case .network:
-            let e = ShellInstall.wifiEstimate(bytes: bytes)
-            let size = ShellInstall.sizeText(bytes)
-            connectionText = e.high == 1 ? fmt("shell.copyWifiMinute", size)
-                : e.low == e.high ? fmt("shell.copyWifiOne", size, e.low) : fmt("shell.copyWifi", size, e.low, e.high)
-        case .notConnected, .notPaired: connectionText = fmt("shell.copyNotConnected", deviceName)
-        case .wired, .other: connectionText = fmt("shell.copyWired", deviceName)
-        }
-        return ShellCopyPlan(files: files, bytes: bytes, connection: connection, deviceName: deviceName,
-                             sizeText: fmt("shell.copySize", ShellInstall.sizeText(bytes), files), connectionText: connectionText)
     }
 
     func begin(_ id: Int, _ name: String) { stage(ShellStage(id: id, name: name, state: .running)) }

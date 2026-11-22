@@ -1,60 +1,28 @@
-import CoreText
 import SwiftUI
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
 @testable import NXLauncher
 
-/// The hero's cream button has one size (LauncherHeroAction) whatever the game's state and the language.
 final class LauncherHeroActionTests: IsolatedDefaultsTestCase {
-    private let languages = Lang.all
-
-    private func width(_ text: String) throws -> CGFloat {
-        let font = try XCTUnwrap(Typography.manropeFont(size: 18, weight: .bold))
-        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
-        return CTLineGetTypographicBounds(line, nil, nil, nil)
-    }
-
-    func testPlayAndBuildFitOnOneLineInEveryLanguage() throws {
-        for key in ["library.play", "library.setUpBuild"] {
-            for lang in languages {
-                let text = L10n.string(key, lang)
-                XCTAssertNotEqual(text, key)
-                if key == "library.setUpBuild" {
-                    XCTAssertNotEqual(text, L10n.string("library.newBuild", lang))
-                }
-                XCTAssertLessThanOrEqual(try width(text), LauncherHeroAction.labelWidth, "\(lang) \(key): \(text)")
+    @MainActor func testLocalizedHeroActionsKeepTheirHeightAndSizeToContent() {
+        for lang in Lang.all {
+            for key in ["library.play", "library.setUpBuild", "dev.open", "console.build"] {
+                let title = String(format: L10n.string(key, lang), "iPhone 17 Pro Max")
+                let host = NSHostingView(rootView: LauncherHeroActionLabel(title: title, symbol: "play.fill"))
+                XCTAssertEqual(host.fittingSize.height, 44, "\(lang) \(key)")
+                XCTAssertGreaterThanOrEqual(host.fittingSize.width, 120, "\(lang) \(key)")
             }
         }
+        let short = NSHostingView(rootView: LauncherHeroActionLabel(title: "Play", symbol: "play.fill"))
+        let long = NSHostingView(rootView: LauncherHeroActionLabel(title: "Open on my iPhone 17 Pro Max", symbol: "iphone"))
+        XCTAssertLessThan(short.fittingSize.width, long.fittingSize.width)
+        XCTAssertLessThan(short.fittingSize.width, 200)
     }
 
-    func testConsoleBuildFitsOnOneLineInEveryLanguage() throws {
-        for lang in languages {
-            let text = L10n.string("console.build", lang)
-            XCTAssertNotEqual(text, "console.build")
-            XCTAssertLessThanOrEqual(try width(text), LauncherHeroAction.labelWidth, "\(lang): \(text)")
-        }
-    }
-
-    func testOpenOnDeviceFitsAfterShrinkingForADeviceName() throws {
-        for lang in languages {
-            let text = String(format: L10n.string("dev.open", lang), "iPhone")
-            XCTAssertLessThanOrEqual(try width(text) * LauncherHeroAction.minimumScale, LauncherHeroAction.labelWidth, "\(lang): \(text)")
-        }
-    }
-
-    @MainActor func testEveryStateHasTheSameSize() throws {
-        let states: [(String, String)] = [("play.fill", "library.play"), ("hammer.fill", "library.setUpBuild"), ("iphone", "dev.open")]
-        for lang in languages {
-            var sizes = Set<String>()
-            for (symbol, key) in states {
-                let title = String(format: L10n.string(key, lang), "iPhone 17 Pro Max of a very long name")
-                let size = NSHostingView(rootView: LauncherHeroActionLabel(title: title, symbol: symbol)).fittingSize
-                XCTAssertEqual(size.width, LauncherHeroAction.width, "\(lang) \(key)")
-                XCTAssertEqual(size.height, LauncherHeroAction.height, "\(lang) \(key)")
-                sizes.insert("\(size.width)x\(size.height)")
-            }
-            XCTAssertEqual(sizes.count, 1, "\(lang): \(sizes)")
-        }
+    @MainActor func testLoadingDoesNotChangeHeroActionGeometry() {
+        let idle = NSHostingView(rootView: LauncherHeroActionLabel(title: "Play", symbol: "play.fill"))
+        let busy = NSHostingView(rootView: LauncherHeroActionLabel(title: "Play", symbol: "play.fill", loading: true))
+        XCTAssertEqual(idle.fittingSize, busy.fittingSize)
     }
 }

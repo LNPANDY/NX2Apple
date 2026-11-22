@@ -253,6 +253,28 @@ public actor ShaderResources {
         }
     }
 
+    /// Ranks candidate `.img` files when a folder holds both a legacy `romfs.img` and a newer `<Game>.img`:
+    /// `2` = valid `DMMSLTR1` trailer matching `expectedChain` / `expectedAPI`, `1` = plain base image without trailer,
+    /// `0` = stale `DMMSLTR1` trailer built for another chain or graphics API.
+    static func embeddedTrailerPreference(at imageURL: URL, expectedChain: String, explicitGfxAPI: String?) -> Int {
+        guard let trailer = RomfsTrailer.inspect(at: imageURL) else { return 1 }
+        guard let trailerAPI = gfxAPIName(for: trailer.gfxAPI) else { return 0 }
+        let normalizedExplicit = explicitGfxAPI.flatMap { $0.isEmpty ? nil : $0 }
+        let expectedAPI: String?
+        if let normalizedExplicit {
+            expectedAPI = normalizedExplicit
+        } else if expectedChain.hasPrefix("b-") {
+            expectedAPI = "nvn"
+        } else {
+            expectedAPI = nil
+        }
+        return trailerMatches(trailerChain: trailer.chain, trailerAPI: trailerAPI, expectedChain: expectedChain, expectedAPI: expectedAPI) ? 2 : 0
+    }
+
+    static func embeddedTrailerPreference(at imageURL: URL, manifest: GameManifest) -> Int {
+        embeddedTrailerPreference(at: imageURL, expectedChain: manifest.chain, explicitGfxAPI: manifest.gfxAPI)
+    }
+
     private static func resolveRomfsImage(entry: CatalogueEntry, dataURL: URL?, romfsURL: URL?, fileManager fm: FileManager) -> URL? {
         if let romfsURL {
             return isRegularImageFile(romfsURL, fileManager: fm) ? romfsURL : nil

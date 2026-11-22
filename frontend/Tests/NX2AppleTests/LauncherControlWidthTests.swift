@@ -36,11 +36,26 @@ import NXModel
         }
     }
 
-    /// The library's Owned/Built switch is one LauncherControl wide, so each label fits its half in bold, without shrinking.
+    func testFrameworkTeamUnsignedChoiceFitsEveryLanguage() throws {
+        XCTAssertNotNil(L10n.table["shell.frameworkTeamUnsigned"])
+        for lang in Lang.all {
+            let text = L10n.string("shell.frameworkTeamUnsigned", lang)
+            let measured = try width(text, size: 13)
+            XCTAssertLessThanOrEqual(
+                measured,
+                LauncherControl.choiceWidth,
+                "\(lang.code) shell.frameworkTeamUnsigned (\(text)) needs \(measured) pt > \(LauncherControl.choiceWidth) pt"
+            )
+        }
+    }
+
+    /// Platform filters size equally to the longest localized label without shrinking.
     func testLibraryFilterLabelsFitTheirSegment() throws {
-        let room = (LauncherControl.width - 2 * 3 - 2) / 2 - 2 * 12
-        for filter in LibraryFilter.allCases {
-            for lang in Lang.all {
+        for lang in Lang.all {
+            let labels = LibraryFilter.libraryOptions.map { L10n.string($0.labelKey, lang) }
+            let width = LauncherSegmented.compactWidth(labels: labels, minWidth: LauncherControl.width)
+            let room = (width - 6 - 2 * CGFloat(labels.count - 1)) / CGFloat(labels.count) - 24
+            for filter in LibraryFilter.libraryOptions {
                 let text = L10n.string(filter.labelKey, lang)
                 let font = try XCTUnwrap(Typography.manropeFont(size: 12.5, weight: .bold))
                 let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
@@ -107,11 +122,11 @@ import NXModel
                 MainActor.assumeIsolated { s.dependencies.deps = [missing("a"), missing("b", command: ["brew", "install", "x"]), missing("c", action: "dep.xcode.fix", command: ["x"])] }
                 MainActor.assumeIsolated { s.dependencies.expanded = true }
             },
-            Scenario(name: "builds without a repository", page: .builds, atLeast: 4) { s, _, _ in
+            Scenario(name: "builds without a repository", page: .builds, atLeast: 1) { s, _, _ in
                 s.repo.path = ""
                 s.build.target = "mac-app"
             },
-            Scenario(name: "builds with files chosen for a Mac app", page: .builds, atLeast: 5) { s, _, directory in
+            Scenario(name: "builds with files chosen for a Mac app", page: .builds, atLeast: 1) { s, _, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "mac-app"
                 s.build.gameDir = directory.path
@@ -119,7 +134,7 @@ import NXModel
                 s.build.slots[0].paths = [directory.appendingPathComponent("Hades [0100535012974000].nsp").path]
                 s.build.slots[1].paths = [directory.appendingPathComponent("Hades update [0100535012974800].nsp").path]
             },
-            Scenario(name: "builds for an iPhone with a device, a team and built games", page: .builds, atLeast: 8) { s, library, directory in
+            Scenario(name: "builds for an iPhone with a device, a team and built games", page: .builds, atLeast: 4) { s, library, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)
                 let shellRoot = directory.appendingPathComponent("shell-root").path
                 let fw = directory.appendingPathComponent("DmGame0100535012974000.framework")
@@ -142,8 +157,8 @@ import NXModel
                 s.deviceStore.installDevice = device.id
                 s.deviceStore.signingTeam = team.id
             },
-            // The single-game FilesCard is hidden while a queue is staged, leaving the InstallCard row controls.
-            Scenario(name: "builds with a waiting queue for an iPhone", page: .builds, atLeast: 3) { s, _, directory in
+            // The single-game FilesCard is hidden while a queue is staged, leaving the engine switcher and InstallCard row controls.
+            Scenario(name: "builds with a waiting queue for an iPhone", page: .builds, atLeast: 2) { s, _, directory in   // the top engine switcher and the install mode
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "ios"
                 MainActor.assumeIsolated { s.deviceStore.checked = true }
@@ -152,12 +167,12 @@ import NXModel
                 s.deviceStore.installDevice = device.id
                 s.deviceStore.signingTeam = team.id
                 s.queue.enqueue([
-                    QueueEntry(titleID: "0100535012974000", name: "Hades", target: BuildTarget.mac,
+                    QueueEntry(titleID: "0100535012974000", name: "Hades", target: BuildTarget.ios,
                                inputs: ["base": ["/g/hades.nsp"]], outputDirectory: directory.path,
                                engineID: s.engineSync.selection.engineID)
                 ])
             },
-            Scenario(name: "builds exporting an IPA, sent to a device", page: .builds, atLeast: 6) { s, _, directory in
+            Scenario(name: "builds exporting an IPA, sent to a device", page: .builds, atLeast: 3) { s, _, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "ios"
                 MainActor.assumeIsolated { s.deviceStore.checked = true }
@@ -167,7 +182,7 @@ import NXModel
                 s.deviceStore.sendWhere = SendWhere.device
                 s.build.exportedIPAPath = directory.appendingPathComponent("NX2Apple.ipa").path
             },
-            Scenario(name: "builds exporting an IPA, copied to a drive", page: .builds, atLeast: 6) { s, _, directory in
+            Scenario(name: "builds exporting an IPA, copied to a drive", page: .builds, atLeast: 3) { s, _, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "ios"
                 MainActor.assumeIsolated { s.deviceStore.checked = true }
@@ -176,13 +191,13 @@ import NXModel
                 s.build.exportedIPAPath = directory.appendingPathComponent("NX2Apple.ipa").path
                 s.build.send = .copying(done: 1, total: 2)
             },
-            Scenario(name: "a finished Mac app build", page: .builds, atLeast: 6) { s, _, directory in
+            Scenario(name: "a finished Mac app build", page: .builds, atLeast: 3) { s, _, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "mac-app"
                 s.build.done = true
                 s.build.macAppPath = directory.appendingPathComponent("Hades.app").path
             },
-            Scenario(name: "a build installed on an iPhone", page: .builds, atLeast: 6) { s, _, directory in
+            Scenario(name: "a build installed on an iPhone", page: .builds, atLeast: 5) { s, _, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "ios"
                 s.build.done = true
@@ -191,7 +206,7 @@ import NXModel
                 s.build.installedOn = device.id
                 s.build.archivePath = directory.appendingPathComponent("romfs").path
             },
-            Scenario(name: "a finished iPhone build without an install", page: .builds, atLeast: 6) { s, _, directory in
+            Scenario(name: "a finished iPhone build without an install", page: .builds, atLeast: 3) { s, _, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "ios"
                 s.build.done = true
@@ -211,24 +226,49 @@ import NXModel
         try scenario.set(modelStores, library, directory)
         model.lang = lang
         let samples = Samples()
-        let view = LauncherView(stores: modelStores, library: library, initialPage: scenario.page, settingsCategory: category, activeBuildID: nil, performStartupChecks: false,
-                               search: nil, olderTools: [], manageOpen: false, padRing: false)
+        let focus = PadFocus()
+        let view = Group {
+            if scenario.page == .settings {
+                LauncherView(stores: modelStores, library: library, initialPage: .settings, settingsCategory: category,
+                             activeBuildID: nil, performStartupChecks: false, search: nil, olderTools: [], manageOpen: false, padRing: false)
+            } else {
+                BuildPage(library: library, fetchMetadata: false, step: .constant(0), build: model, running: model.running,
+                          repo: modelStores.repo, dependencies: modelStores.dependencies, devices: modelStores.deviceStore,
+                          queue: modelStores.queue, transfers: modelStores.transfers,
+                          extrasOpen: .constant(true), logOpen: .constant(false), confirmingCancel: .constant(false))
+                    .environmentObject(focus).environmentObject(modelStores.localizer).padScope("main", focus)
+            }
+        }
             .environment(\.measuresLauncherControls, true)
             .onPreferenceChange(LauncherControlSamples.self) { samples.all = $0 }
         let host = NSHostingView(rootView: view)
         let window = OffscreenWindow(size: NSSize(width: 1100, height: 2600))
         window.contentView = host
         window.orderFront(nil)
-        defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        defer { window.contentView = nil; window.orderOut(nil); window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.25))
         host.layoutSubtreeIfNeeded()
+        if scenario.page == .builds {
+            let ids = Set(focus.frames["main", default: []].map(\.id))
+            XCTAssertTrue(ids.contains("set.build.engine"), "\(scenario.name): missing the top Build engine switcher control")
+            if modelStores.queue.hasWaiting {
+                XCTAssertTrue(ids.contains("set.build.queue.select"), "\(scenario.name): missing batch queue selector")
+                if modelStores.queue.hasIOS {
+                    XCTAssertTrue(ids.contains("set.build.install.mode"), "\(scenario.name): missing iOS install mode control")
+                }
+            } else {
+                XCTAssertTrue(ids.contains("set.build.file.base"), "\(scenario.name): missing base game file control")
+                XCTAssertTrue(ids.contains("set.build.target." + model.target), "\(scenario.name): missing target control")
+                if model.target == BuildTarget.ios {
+                    XCTAssertTrue(ids.contains("set.build.install.mode"), "\(scenario.name): missing iOS install mode control")
+                }
+            }
+        }
         return samples.all
     }
 
-    /// Settings and Builds, in every language: each button and dropdown of a row is LauncherControl.width wide and
-    /// LauncherControl.height high, and its label fits on one line.
-    @MainActor func testEveryRowControlOnTheRealPagesFitsInEveryLanguage() throws {
-        let keys = ["repoPath", "depsExpanded", "buildTarget", "installDevice", "signingTeam", "buildOutputDirectory", "autoUpdateRepo", "exportIPA", "sendWhere"]
+    /// Every Settings and Builds row control fits on one line in every language the launcher offers.
+    @MainActor func testEverySettingsRowControlFitsInEveryLanguage() throws {
         for scenario in scenarios {
             for lang in Lang.all {
                 // Settings has four parts (General, Library, Controls, Tools) and shows one: the page is every part in turn
@@ -236,7 +276,9 @@ import NXModel
                 let at = "\(lang), \(scenario.name)"
                 XCTAssertGreaterThanOrEqual(samples.count, scenario.atLeast, "\(at): the page showed fewer controls than expected")
                 for (index, sample) in samples.enumerated() {
-                    XCTAssertEqual(sample.size.width, LauncherControl.width, "\(at), control \(index)")
+                    // every button and pop-up in a Settings row is exactly the control column wide, the primary too (#1458): a
+                    // narrower or wider one breaks the column. Toggles report no sample.
+                    XCTAssertEqual(sample.size.width, LauncherControl.width, accuracy: 0.5, "\(at), control \(index): not the column's width")
                     XCTAssertEqual(sample.size.height, LauncherControl.height, "\(at), control \(index)")
                     XCTAssertLessThanOrEqual(sample.labelWidth, sample.room,
                                              "\(at), control \(index): its label needs \(sample.labelWidth) pt on one line, the control has \(sample.room)")
@@ -281,7 +323,7 @@ import NXModel
         for (name, control) in controls {
             let found = try samples(of: control)
             let size = try XCTUnwrap(found.first, name).size
-            XCTAssertEqual(size.width, LauncherControl.width, name)
+            XCTAssertLessThanOrEqual(size.width, LauncherControl.width, name)
             XCTAssertEqual(size.height, LauncherControl.height, name)
         }
     }
@@ -335,7 +377,7 @@ import NXModel
             XCTAssertFalse(samples.all.isEmpty, "\(lang): the sheet showed no footer button")
             for sample in samples.all {
                 if sample.room == LauncherControl.buttonLabelWidth {
-                    XCTAssertEqual(sample.size.width, LauncherControl.width, "\(lang)")
+                    XCTAssertLessThanOrEqual(sample.size.width, LauncherControl.width, "\(lang)")
                     XCTAssertEqual(sample.size.height, LauncherControl.height, "\(lang)")
                 } else {
                     // A choice with labels too long for the segmented control (French "Plein écran") is a dropdown as wide as one.

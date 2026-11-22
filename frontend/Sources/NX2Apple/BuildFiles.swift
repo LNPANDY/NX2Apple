@@ -264,8 +264,7 @@ private struct BuildFilesWiring: ViewModifier {
             .onReceive(recorded) { refresh() }
             .sheet(item: Binding(get: { store.confirmingEntry }, set: { if $0 == nil { store.confirming = nil } })) { entry in
                 BuildFilesRemoveSheet(
-                    entry: entry,
-                    cancel: { store.confirming = nil },
+                    entry: entry, cancel: { store.confirming = nil },
                     confirm: { store.remove(entry.id, building: entry.id == buildingID) }
                 )
                 .environmentObject(pad).environmentObject(loc)

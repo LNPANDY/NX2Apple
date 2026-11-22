@@ -63,6 +63,44 @@ final class CloudSaveCheckTests: XCTestCase {
         XCTAssertEqual(CloudSaveCheck.environment(.cloud, cloud: .empty), [:], "no cloud save to bring in: no choice")
     }
 
+    // ---- an engine's own report (nxkit-host --save-sync-report) ----
+
+    private let l = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", c = "cccccccccccccccccccccccccccccccc"
+    private func line(cloud: String = "1", local: String? = nil, chash: String? = nil, sametitle: String = "1", conflict: String = "0", pull: String = "0") -> String {
+        "sync=1 cloud=\(cloud) local=\(local ?? l) saved=1700000000 files=2 size=10 chash=\(chash ?? c) csaved=1700000100 cfiles=2 csize=10 cdevice=iPhone17,1 sametitle=\(sametitle) conflict=\(conflict) pull=\(pull)"
+    }
+
+    func testTheReportsConflictAsksWithBothSaves() throws {
+        let report = try XCTUnwrap(CloudSaveCheck.report(line(conflict: "1")))
+        XCTAssertEqual(report.outcome, .bothChanged)
+        XCTAssertEqual(report.local, CloudSaveCheck.Save(hash: l, saved: Date(timeIntervalSince1970: 1_700_000_000)))
+        XCTAssertEqual(report.cloud, CloudSaveCheck.Save(hash: c, saved: Date(timeIntervalSince1970: 1_700_000_100), device: "iPhone17,1"))
+    }
+
+    func testTheReportWithoutAConflictStartsTheGame() throws {
+        XCTAssertEqual(CloudSaveCheck.report(line(pull: "1"))?.outcome, .onlyCloudChanged)
+        XCTAssertEqual(CloudSaveCheck.report(line())?.outcome, .onlyLocalChanged)
+        XCTAssertEqual(CloudSaveCheck.report(line(chash: l))?.outcome, .same)
+        XCTAssertEqual(CloudSaveCheck.report(line(chash: "-"))?.outcome, .noCloudSave)
+        XCTAssertEqual(CloudSaveCheck.report(line(cloud: "0", chash: "-"))?.outcome, .noCloudSave)
+        XCTAssertEqual(CloudSaveCheck.report(line(cloud: "0", local: "-", chash: "-"))?.outcome, .same)
+        XCTAssertFalse(try XCTUnwrap(CloudSaveCheck.report(line(pull: "1"))).outcome.asks)
+    }
+
+    func testTheReportsUnreadableCloudOffersOffline() throws {
+        let late = try XCTUnwrap(CloudSaveCheck.report(line(cloud: "-1", chash: "-")))
+        XCTAssertEqual(late.outcome, .unreadable)
+        XCTAssertNil(late.cloud)
+        XCTAssertEqual(late.local?.hash, l)
+        XCTAssertEqual(CloudSaveCheck.report(line(sametitle: "0"))?.outcome, .unreadable, "another game's save is never brought in")
+    }
+
+    func testAReportWithSyncOffOrNoLineHasNoQuestion() {
+        XCTAssertEqual(CloudSaveCheck.report("sync=0 cloud=0 local=- saved=0 files=0 size=0 chash=- csaved=0 cfiles=0 csize=0 cdevice=- sametitle=1 conflict=0 pull=0"),
+                       CloudSaveCheck.Report(outcome: .same, local: nil, cloud: nil, reason: nil))
+        XCTAssertNil(CloudSaveCheck.report("nxkit-host: usage"))
+    }
+
     // ---- reading the three saves ----
 
     func testTheBaseIsTheLastValidLine() throws {

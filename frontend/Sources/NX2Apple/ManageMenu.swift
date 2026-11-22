@@ -133,7 +133,7 @@ struct ManageButtonLabel: View {
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: "ellipsis.circle").font(.system(size: 27, weight: .ultraLight))
-            Text(title).font(.manrope(13))
+            Text(title).font(DS.Font.body)
         }
         .foregroundStyle(LauncherPalette.textStrong).contentShape(Rectangle())
     }
@@ -176,12 +176,12 @@ struct ManageMenuPanel: View {
         .onDisappear(perform: stopKeys)
     }
 
-    private func row(_ item: ManageItem, index: Int) -> some View {
+    @ViewBuilder private func row(_ item: ManageItem, index: Int) -> some View {
         let tint = item.destructive ? LauncherPalette.danger : LauncherPalette.text
-        return Button { activate(item) } label: {
+        let button = Button { activate(item) } label: {
             HStack(spacing: 11) {
                 Image(systemName: item.symbol).font(.system(size: 13, weight: .medium)).frame(width: 18)
-                Text(item.title).font(.manrope(13, .medium)).lineLimit(1)
+                Text(item.title).font(DS.Font.body).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(tint).opacity(item.enabled ? 1 : 0.4)
@@ -194,7 +194,8 @@ struct ManageMenuPanel: View {
         .help(item.hint ?? "")
         .onHover { inside in if inside && item.enabled { highlighted = index } else if !inside && highlighted == index { highlighted = nil } }
         .accessibilityLabel(item.title)
-        .padTarget(item.padID, scope: "manage", radius: 8) { activate(item) }
+        if item.enabled { button.padTarget(item.padID, scope: "manage", radius: 8) { activate(item) } }
+        else { button }
     }
 
     private func activate(_ item: ManageItem) {
@@ -216,11 +217,14 @@ struct ManageMenuPanel: View {
     private func startKeys() {
         stopKeys()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.modifierFlags.contains(.command) { close(); return event }
             switch event.keyCode {
+            case 123, 124: break
             case 125: step(1)
             case 126: step(-1)
-            case 36, 76: if let i = highlighted, items.indices.contains(i) { activate(items[i]) }
+            case 36, 76, 49: if let i = highlighted, items.indices.contains(i) { activate(items[i]) }
             case 53: close()
+            case 48: close(); return event
             default: return event
             }
             return nil

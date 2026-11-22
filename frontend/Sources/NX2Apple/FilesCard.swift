@@ -9,7 +9,12 @@ import NXModel
 /// CommonCrypto) on the chosen files.
 struct FilesCard: View {
     @ObservedObject var build: BuildStore
+    var library: GameLibrary? = nil
+    var artworkStore: ArtworkStore = .shared
+    var fetchMetadata = true
+    @State private var artwork: NSImage?
     @EnvironmentObject var loc: Localizer
+    @Environment(\.launcherSectionTitleFont) private var titleFont
     @Binding var extrasOpen: Bool   // the optional input rows, kept by the page so they stay as they were when it is left and back
     @State private var keyCheck: KeyCheck.DetailedOutcome?   // prod.keys against the chosen files (KeyCheck.swift)
 
@@ -18,39 +23,85 @@ struct FilesCard: View {
     }
 
     var body: some View {
-        // The report's own mistake, and a reasonable one: the output folder silently decides where
-        // the build cache lives, so changing it threw away a finished build. Say it under Save to, all the time.
-        CardGroup(loc.t("section.files"), footnote: loc.t("msg.workdirHint")) {
-            Button(action: pickFolder) {
-                CardRow(loc.t(build.gameDir.isEmpty ? "build.folderCTA" : "build.folderSelected"),
-                    detail: build.gameDir.isEmpty ? loc.t("build.folderNote") : build.shortPath(build.gameDir), help: build.gameDir) {
-                    Text(loc.t(build.gameDir.isEmpty ? "data.choose" : "data.change"))
-                        .font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.onCream)
-                        .launcherRowControlFrame()
-                        .background(LauncherPalette.cream, in: Capsule())
+        VStack(alignment: .leading, spacing: DS.Space.l) {
+            // One section of uniform rows (#1458): the folder first with the step's one primary button, then each input with
+            // "Not selected" or its file and a trailing Choose…. A dot in the leading slot once chosen, the base game's cover there.
+            CardGroup(loc.t("files.title")) {
+                VStack(spacing: 0) {
+                    fileRow(loc.t("files.folder"), subtitle: build.gameDir.isEmpty ? loc.t("files.folderNote") : URL(fileURLWithPath: build.gameDir).lastPathComponent,
+                            help: build.gameDir, chosen: !build.gameDir.isEmpty) {
+                        // One primary per screen: the folder is the way forward only while the footer's Continue is disabled
+                        // (nothing chosen yet). Then it is a row button and Continue is the primary (frontend/README.md).
+                        if folderIsTheWayForward {
+                            Button(action: pickFolder) { Text(loc.t("files.chooseFolder")).font(DS.Font.bodyStrong) }
+                                .buttonStyle(DSPrimaryButtonStyle())
+                                .padTarget("set.build.folder", scope: "main", focusColor: LauncherPalette.onCream, enabled: !build.running, activate: pickFolder)
+                        } else {
+                            Button(loc.t(build.gameDir.isEmpty ? "data.choose" : "data.change"), action: pickFolder)
+                                .padTarget("set.build.folder", scope: "main", enabled: !build.running, activate: pickFolder)
+                        }
+                    }
+                    FileRowDivider()
+                    fileRow(loc.t("data.base"), subtitle: baseText, help: build.gameFolderRowText("base") ?? build.slot("base").summary(loc.t),
+                            chosen: build.slot("base").ok || build.gameFolder != nil, thumbnail: artwork) {
+                        if build.gameFolderRowText("base") == nil || build.gameFolder == nil {
+                            Button(loc.t(build.basePath.isEmpty ? "data.choose" : "data.change")) { build.pickFiles(kind: .base) }
+                                .padTarget("set.build.file.base", scope: "main", activate: { build.pickFiles(kind: .base) })
+                        }
+                    }
+                    ForEach(build.slots.filter(\.optional), id: \.id) { slot in
+                        FileRowDivider()
+                        let folderText = build.gameFolderRowText(slot.id)
+                        fileRow(loc.t(slot.id == "dlc" ? "data.dlc" : slot.title),
+                                subtitle: folderText ?? (slot.paths.isEmpty ? loc.t("files.optional") : slot.summary(loc.t)),
+                                help: slot.paths.joined(separator: "\n"), chosen: !slot.paths.isEmpty || (folderText != nil && build.gameFolder != nil)) {
+                            if folderText == nil {
+                                HStack(spacing: DS.Space.xs) {
+                                    if !slot.paths.isEmpty {
+                                        Button { build.clear(slot.id) } label: { Image(systemName: "xmark") }
+                                            .buttonStyle(DSIconButtonStyle(size: 28)).accessibilityLabel(loc.t("data.clear"))
+                                            .padTarget("set.build.clear." + slot.id, scope: "main", activate: { build.clear(slot.id) })
+                                    }
+                                    Button(loc.t(slot.paths.isEmpty ? "data.choose" : "data.change")) { build.pickFiles(kind: slot.kind) }
+                                        .padTarget("set.build.file." + slot.id, scope: "main", activate: { build.pickFiles(kind: slot.kind) })
+                                }
+                            }
+                        }
+                    }
+                    FileRowDivider()
+                    fileRow(loc.t("files.keys"), subtitle: build.keysPath.isEmpty ? loc.t("data.notSelected") : URL(fileURLWithPath: build.keysPath).lastPathComponent,
+                            help: (build.keysFromSettings ? loc.t("keys.fromSettings") + "\n" : "") + build.keysPath,
+                            chosen: build.keysReady && !keyCheckNeedsAttention, problem: build.keysReady && keyCheckNeedsAttention,
+                            message: keyCheck.map { KeyCheckMessage.row($0, t: loc.t) }) {
+                        Button(loc.t(build.keysPath.isEmpty ? "data.choose" : "data.change")) { build.pickFiles(kind: .keys) }
+                            .padTarget("set.build.file.keys", scope: "main", activate: { build.pickFiles(kind: .keys) })
+                    }
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            ForEach(build.slots.filter { !$0.optional }, id: \.id) { s in
-                CardDivider()
-                slotRow(s)
-                if s.id == "keys", build.gameFolder == nil, let keyCheck {
-                    KeyCheckLine(outcome: keyCheck.outcome, detailed: keyCheck, t: loc.t)
+            // The section names the place, the row the action: no "Save to" twice. The row's help is its info button beside the
+            // title (as DSRow's `info`), not one beside the section header.
+            CardGroup(loc.t("build.destination")) {
+                fileRow(loc.t("build.saveTo"), subtitle: build.outDir.isEmpty && build.inputFolder.isEmpty ? loc.t("build.saveDefault") : destination.path,
+                        help: destination.path, chosen: nil, info: ("set.build.output.help", loc.t("msg.workdirHint"))) {
+                    HStack(spacing: DS.Space.xs) {
+                        if !(build.outDir.isEmpty && build.inputFolder.isEmpty) {
+                            Button { NSWorkspace.shared.open(destination) } label: { Image(systemName: "folder") }
+                                .buttonStyle(DSIconButtonStyle(size: 28)).accessibilityLabel(loc.t("shell.showInFinder"))
+                                .padTarget("set.build.output.reveal", scope: "main", activate: { NSWorkspace.shared.open(destination) })
+                        }
+                        Button(loc.t("data.change")) { build.chooseBuildFolder() }
+                            .padTarget("set.build.output", scope: "main", activate: { build.chooseBuildFolder() })
+                    }
                 }
             }
-            CardDivider()
-            CardDisclosure(loc.t("build.options"), isOpen: extrasOpen) { extrasOpen.toggle() }
-            if extrasOpen {
-                ForEach(build.slots.filter(\.optional), id: \.id) { s in
-                    CardDivider()
-                    slotRow(s)
-                }
-            }
-            CardDivider()
-            CardRow(loc.t("build.saveTo"), detail: build.outDir.isEmpty ? loc.t("build.saveDefault") : build.shortPath(build.outDir), help: build.outDir) {
-                Button(loc.t("data.change")) { build.chooseBuildFolder() }
-            }
+        }
+        .buttonStyle(DSRowButtonStyle())
+        .task(id: (build.gameTitleID ?? "") + loc.lang.code) {
+            artwork = nil
+            guard fetchMetadata, let id = build.gameTitleID else { return }
+            let url = await artworkStore.fetchIcon(id, language: loc.lang.code)
+            guard !Task.isCancelled, build.gameTitleID == id else { return }
+            if let url { artwork = ArtworkImages.shared.image(at: url, maxPixel: 160) }
         }
         .task(id: currentKeyInputs) {
             let inputs = currentKeyInputs
@@ -80,30 +131,106 @@ struct FilesCard: View {
         .disabled(build.running)
     }
 
-    private func slotRow(_ s: Slot) -> some View {
-        // A game folder (a Switch 2 game) fills the rows from its folders: they say what it holds, the keys row that none are
-        // needed, and only the base row can be cleared (which clears the folder). An empty prod.keys row says where the file comes from.
-        // An empty keys row, or one whose file is gone, shows the keys saved in Settings, which the build takes (#996).
-        let folderText = build.gameFolderRowText(s.id)
-        let saved = s.id == "keys" && build.keysFromSettings
-        let ready = folderText != nil ? (s.id == "keys" || s.ok) : s.ok || saved
-        let detail = folderText ?? (saved ? (build.savedKeys as NSString).lastPathComponent + "\n" + loc.t("keys.fromSettings")
-            : s.id == "keys" && s.paths.isEmpty ? loc.t("build.keyHint") : s.summary(loc.t))
-        return CardRow(loc.t(s.title), detail: detail,
-            dot: ready ? LauncherPalette.ready : LauncherPalette.unbuilt, help: saved ? build.savedKeys : s.paths.joined(separator: "\n")) {
-            if !s.paths.isEmpty && (folderText == nil || s.id == "base") {
-                Button(loc.t("data.clear")) { build.clear(s.id) }.buttonStyle(.plain)
-                    .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
-            }
-            if folderText == nil {
-                Button(s.paths.isEmpty ? loc.t("data.choose") : loc.t("data.change")) { build.pickFiles(kind: s.kind) }
-            }
-        }
+    private var game: LibraryGame? { library?.games.first { $0.titleID == build.gameTitleID } }
+    private var destination: URL {
+        URL(fileURLWithPath: build.outDir.isEmpty ? (build.inputFolder.isEmpty ? NSHomeDirectory() : build.inputFolder) : build.outDir, isDirectory: true)
+    }
+    private var keyCheckNeedsAttention: Bool {
+        guard let keyCheck else { return false }
+        switch keyCheck.outcome { case .fits, .cannotCheck: return false; default: return true }
+    }
+    /// The step's Continue is disabled (no base game and no scanned folder) and no folder is chosen: then Choose folder is the
+    /// step's one primary. BuildPage's footer enables Continue on the same condition.
+    private var folderIsTheWayForward: Bool {
+        build.gameDir.isEmpty && !build.slot("base").ok && build.gameFolder == nil
     }
 
-    private func pickFolder() {
+    private var baseText: String {
+        if let text = build.gameFolderRowText("base") { return text }
+        if build.basePath.isEmpty { return loc.t("data.notSelected") }
+        return game?.displayName(loc.lang) ?? (build.gameName.isEmpty ? build.slot("base").summary(loc.t) : build.gameName)
+    }
+
+    /// One row of the list (FileRow): a thumbnail-sized leading slot (the cover, a dot once chosen, empty otherwise), the title,
+    /// one secondary line and the trailing control column. `chosen` nil leaves the slot out (the Save to row).
+    private func fileRow<Trailing: View>(_ title: String, subtitle: String, help: String, chosen: Bool?, problem: Bool = false, thumbnail: NSImage? = nil,
+                                         message: DSRowMessage? = nil, info: (id: String, text: String)? = nil,
+                                         @ViewBuilder trailing: () -> Trailing) -> some View {
+        FileRow(title: title, subtitle: subtitle, help: help, chosen: chosen, problem: problem, thumbnail: thumbnail, message: message, info: info,
+                trailing: trailing())
+    }
+    private func pickFolder() { Self.pickFolder(build) }
+
+    static func pickFolder(_ build: BuildStore) {
+        guard !build.running else { return }
         let d = NSOpenPanel()
         d.canChooseDirectories = true; d.canChooseFiles = false
         if d.runModal() == .OK, let u = d.url { build.scan(folder: u.path) }
+    }
+}
+
+/// A row of the game files list. The list reserves the 40 pt leading slot only while a row shows something in it (a dot, the
+/// cover), as every group does (DSRowLeadingSlotKey, #1458): with nothing chosen yet the titles start at the card's inset. Slot
+/// content and control are centred on the title and subtitle.
+private struct FileRow<Trailing: View>: View {
+    let title: String
+    let subtitle: String
+    let help: String
+    let chosen: Bool?
+    let problem: Bool
+    let thumbnail: NSImage?
+    let message: DSRowMessage?
+    let info: (id: String, text: String)?
+    let trailing: Trailing
+    @Environment(\.dsRowReservesSlot) private var reservesSlot
+
+    /// Something is drawn in the slot.
+    private var uses: Bool { chosen == true || problem }
+    private var slot: Bool { chosen != nil && (reservesSlot || uses) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            HStack(spacing: DS.Space.s) {
+                if slot, let chosen {
+                    ZStack {
+                        if let thumbnail, chosen {
+                            Image(nsImage: thumbnail).resizable().scaledToFill()
+                                .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail).clipShape(RoundedRectangle(cornerRadius: DS.Radius.chip))
+                        } else if chosen || problem {
+                            Circle().fill(problem ? DS.Color.statusWarning : DS.Color.statusSuccess).frame(width: 8, height: 8)
+                        }
+                    }
+                    .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail)
+                    .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: DS.Space.xs) {
+                        Text(title).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+                        if let info { LauncherInfoHelp(id: info.id, label: title, text: info.text) }
+                    }
+                    Text(subtitle).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).truncationMode(.middle).help(help)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // the control column: every row button is exactly its width (launcherRowControls), never wider
+                trailing.frame(minWidth: DS.Control.columnWidth, alignment: .trailing).launcherRowControls()
+            }
+            // the row's message under the title and subtitle, its symbol at their leading edge: the control stays centred on them
+            if let message {
+                DSRowMessageView(message).padding(.leading, slot ? DS.Control.thumbnail + DS.Space.s : 0)
+                    .padding(.trailing, DS.Control.columnWidth + DS.Space.s)
+            }
+        }
+        .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.s)
+        .frame(minHeight: 60)
+        .accessibilityElement(children: .contain)
+        .preference(key: DSRowLeadingSlotKey.self, value: uses)
+    }
+}
+
+/// The divider between file rows, under their titles: past the thumbnail slot while the list reserves it.
+private struct FileRowDivider: View {
+    @Environment(\.dsRowReservesSlot) private var reservesSlot
+    var body: some View {
+        DS.Color.separator.frame(height: 1).padding(.leading, reservesSlot ? DS.Space.m + DS.Control.thumbnail + DS.Space.s : DS.Space.m)
     }
 }

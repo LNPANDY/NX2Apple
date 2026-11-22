@@ -435,9 +435,20 @@ class Tree(Fixture):
         self.assertEqual(h('one.zip'), h('two.zip'))
         with zipfile.ZipFile(self.tmp / 'one.zip') as z:
             names = z.namelist()
-            self.assertEqual(names, sorted(names)); self.assertIn('.engine-id', names); self.assertIn('dm/a.c', names)
+            self.assertEqual(names, sorted(names)); self.assertIn('.engine-id', names); self.assertIn('.upstream-date', names); self.assertIn('dm/a.c', names)
             self.assertEqual({i.date_time for i in z.infolist()}, {E.ZIP_TIME})
             self.assertEqual(z.read('.engine-id').decode(), (out / '.engine-id').read_text())
+            self.assertEqual(z.read('.upstream-date').decode(), (out / '.upstream-date').read_text())
+
+    def test_the_tree_records_the_pins_utc_commit_date(self):
+        import datetime
+        self.tool('sync')
+        out, _ = self.make()
+        ts = int(git(self.eng, 'log', '-1', '--format=%ct', self.up1))
+        expected = datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        text = (out / '.upstream-date').read_text(encoding='utf-8').strip()
+        self.assertRegex(text, r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
+        self.assertEqual(text, expected)
 
     def test_executable_bits_and_symlinks_survive(self):
         import stat, zipfile
@@ -485,6 +496,40 @@ class StampKey(Fixture):
         self.assertFalse(qt_engine.is_stale(str(self.r)))
         self.add_patch('0002-b.patch', 'dm/b.c', 'b1\nb2 fork\n', 'Change b2', header=HEADER.replace('#1', '#2'))
         self.assertTrue(qt_engine.is_stale(str(self.r)))
+
+    def test_crlf_patch_and_switches_produce_same_stamp_key_and_engine_id(self):
+        sys.path.insert(0, str(REPO / 'frontend-qt'))
+        qt_engine = importlib.import_module('nspb_qt.engine')
+        sw = self.r / 'patches/fork_env_switches.tsv'
+        sw.write_bytes(b'name\tclass\tmeaning\nDM_TEST_SW\tdebug\ttest\n')
+
+        lf_key = E.stamp_key(self.r)
+        lf_eid = E.engine_id(self.r)
+        self.assertEqual(qt_engine.stamp_key(self.r), lf_key)
+
+        for rel in ('.upstream-ref', 'patches/series', 'patches/0001-line-2.patch', 'patches/fork_env_switches.tsv'):
+            p = self.r / rel
+            raw = p.read_bytes().replace(b'\r\n', b'\n')
+            p.write_bytes(raw.replace(b'\n', b'\r\n'))
+            self.assertIn(b'\r\n', p.read_bytes())
+
+        self.assertEqual(E.stamp_key(self.r), lf_key)
+        self.assertEqual(E.engine_id(self.r), lf_eid)
+        self.assertEqual(qt_engine.stamp_key(self.r), lf_key)
+
+        self.tool('sync')
+        self.assertFalse(qt_engine.is_stale(str(self.r)))
+        out = self.tmp / 'tree-crlf'
+        self.tool('tree', '--out', str(out))
+        self.assertEqual((out / '.engine-id').read_bytes(), (lf_eid + '\n').encode('utf-8'))
+
+    def test_build_qt_workflow_disables_autocrlf_before_checkout(self):
+        wf = (REPO / '.github' / 'workflows' / 'build-qt.yml').read_text(encoding='utf-8')
+        win_part = wf.split('runs-on: windows-latest', 1)[1]
+        cfg_pos = win_part.find('core.autocrlf false')
+        co_pos = win_part.find('actions/checkout@')
+        self.assertGreater(cfg_pos, -1, 'build-qt.yml Windows job must disable core.autocrlf')
+        self.assertGreater(co_pos, cfg_pos, 'core.autocrlf false must run before actions/checkout')
 
 
 if __name__ == '__main__':

@@ -41,6 +41,47 @@ final class ArtworkStoreMediaTests: XCTestCase {
         ArtworkStore(directory: temporary.appendingPathComponent("artwork"), titleList: list, allowsFileURLs: true)
     }
 
+    func testMissingAppIconDoesNotAttemptRepeatedDecodes() throws {
+        #if DEBUG
+        let game = LibraryGame(titleID: titleID, name: "Example", appPath: temporary.appendingPathComponent("Missing.app").path)
+        let before = LauncherWork.counts[.artworkDecode, default: 0]
+        for _ in 0..<5 { XCTAssertNil(GameLibrary.appIcon(for: game, banners: temporary)) }
+        XCTAssertEqual(LauncherWork.counts[.artworkDecode, default: 0], before)
+        #else
+        throw XCTSkip("LauncherWork counts only in debug builds")
+        #endif
+    }
+
+    func testSquareMetadataIconWithoutScreenshotsIsCachedAndUsedByHero() async throws {
+        let icon = try jpeg("square.jpg", width: 128, height: 128)
+        let list = temporary.appendingPathComponent("icons.json")
+        let object: [String: Any] = ["1": ["id": titleID, "name": "Example title", "iconUrl": icon.absoluteString, "screenshots": []]]
+        try JSONSerialization.data(withJSONObject: object).write(to: list)
+        let artwork = store(list)
+        let fetched = await artwork.fetchIcon(titleID, language: "en")
+        let file = try XCTUnwrap(fetched)
+        let name = await artwork.cachedName(titleID)
+        XCTAssertEqual(name, "Example title")
+        let otherLanguage = await artwork.cachedName(titleID, language: "de")
+        XCTAssertNil(otherLanguage)
+        XCTAssertEqual(file.lastPathComponent, "icon.jpg")
+        XCTAssertEqual(GameLibrary.appIcon(for: LibraryGame(titleID: titleID, name: "Example"),
+                                         banners: temporary.appendingPathComponent("artwork"))?.size, NSSize(width: 128, height: 128))
+        try FileManager.default.removeItem(at: list)
+        let cached = await artwork.fetchIcon(titleID, language: "en")
+        XCTAssertEqual(cached, file)
+    }
+
+    func testMetadataIconRefusesUntrustedHostAndBannerIsNotAnIconFallback() async throws {
+        let list = temporary.appendingPathComponent("icons.json")
+        let object: [String: Any] = ["1": ["id": titleID, "iconUrl": "https://example.com/icon.jpg", "screenshots": []]]
+        try JSONSerialization.data(withJSONObject: object).write(to: list)
+        let fetched = await store(list).fetchIcon(titleID, language: "en")
+        XCTAssertNil(fetched)
+        let game = LibraryGame(titleID: titleID, name: "Example")
+        XCTAssertNil(GameLibrary.appIcon(for: game, banners: temporary))
+    }
+
     func testScreenshotsAreIndexedUpToSix() async throws {
         let store = store(try writeList())
         guard case .loaded(let media) = await store.media(for: titleID) else { return XCTFail("no media") }

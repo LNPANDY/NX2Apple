@@ -29,6 +29,13 @@ import NXCore
     @Published package var update: AppUpdate.Release?
     /// A check or a download is running.
     @Published package private(set) var busy = false
+    package enum Phase { case idle, checking, downloading, preparing }
+    @Published package private(set) var phase: Phase = .idle
+    /// The state gallery: the card in `phase`, nothing runs (DesignGallery).
+    package func setPhaseForGallery(_ phase: Phase, progress: Double? = nil) { self.phase = phase; busy = phase != .idle; downloadProgress = progress }
+    @Published package private(set) var retryAvailable = false
+    private var retryChecksRelease = false
+    private var lastStageAutomatic = false
     /// Fraction of the update archive downloaded (`0...1`) while `stage` runs, nil otherwise.
     @Published package var downloadProgress: Double?
     /// Whether the "a new version is out" sheet is up: opened by the launch check and by Check for updates, so a user learns
@@ -121,7 +128,7 @@ import NXCore
     @discardableResult
     package func checkForUpdate(silent: Bool = false) -> Task<Void, Never> {
         guard !busy else { return Task {} }
-        busy = true
+        busy = true; phase = .checking; retryAvailable = false; retryChecksRelease = true
         if !silent { status = t("app.checking") }
         return Task {
             let data = await releases.latestRelease()
@@ -130,7 +137,7 @@ import NXCore
     }
 
     private func finishCheck(_ outcome: AppUpdate.Check, silent: Bool) {
-        busy = false
+        busy = false; phase = .idle
         switch outcome {
         case .found(let f):
             update = f
@@ -147,6 +154,7 @@ import NXCore
                 showUpdateSheet = true
             }
         case .unreachable:
+            if !silent { retryAvailable = true }
             if !silent { status = t("app.netFail") }
         case .noAsset(let tag):
             // The release exists; this app just cannot find its own asset name in it.
@@ -164,7 +172,8 @@ import NXCore
     @discardableResult
     package func stage(_ release: AppUpdate.Release, automatic: Bool, then: ((AppUpdate.Staged) -> Void)? = nil) -> Task<Void, Never> {
         guard !busy, installability == .ok, let url = URL(string: release.url) else { return Task {} }
-        busy = true
+        busy = true; phase = .downloading; retryAvailable = false
+        retryChecksRelease = false; lastStageAutomatic = automatic
         downloadProgress = 0
         blocked = nil
         status = String(format: t(automatic ? "app.staging" : "app.downloading"), release.tag)
@@ -188,6 +197,7 @@ import NXCore
                 }
             }
             if downloaded {
+                phase = .preparing
                 result = await Task.detached {
                     AppUpdate.stage(zip: zip, release: release, in: root, expectedID: expectedID, requireDigest: automatic,
                                     runningOS: runningOS, runner: runner)
@@ -201,7 +211,7 @@ import NXCore
 
     private func finishStaging(_ result: Result<AppUpdate.Staged, AppUpdate.StageFailure>, release: AppUpdate.Release,
                                then: ((AppUpdate.Staged) -> Void)?) {
-        busy = false
+        busy = false; phase = .idle
         downloadProgress = nil
         switch result {
         case .success(let s):
@@ -209,6 +219,7 @@ import NXCore
             status = String(format: t("app.ready"), release.tag)
             then?(s)
         case .failure(let why):
+            retryAvailable = [.network, .mismatch, .unpack].contains(why)
             if case .needsNewerMacOS(let min) = why {
                 // Nothing was installed: the running version stays, and says why
                 status = String(format: t(why.key), release.tag, min, AppUpdate.describe(runningOS))
@@ -273,6 +284,15 @@ import NXCore
             self.status = self.t("app.installing")
             self.install(relaunch: true)
         }
+    }
+
+    /// Retry the failed operation without turning a background download into an immediate manual install.
+    package func retryUpdate() {
+        guard retryAvailable else { return }
+        if retryChecksRelease { checkForUpdate(); return }
+        guard let update else { return }
+        if lastStageAutomatic { stage(update, automatic: true) }
+        else { performUpdate() }
     }
 
     /// The app is quitting (AppKit's notification, forwarded by the app). The staged update goes in, so the next launch is the

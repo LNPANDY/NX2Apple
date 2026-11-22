@@ -82,7 +82,7 @@ extension ShellInstaller {
         for game in games.dropLast() {
             library.add(.init(titleID: game.titleID, name: game.name, framework: game.framework))
             if let picked = game.pickedArtwork {
-                _ = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked)
+                _ = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked, ensureCached: ensureBanner)
             }
         }
         do {
@@ -104,7 +104,7 @@ extension ShellInstaller {
         for game in games.dropLast() {
             if let picked = game.pickedArtwork,
                let entry = mirrored.games.first(where: { $0.titleID.caseInsensitiveCompare(game.titleID) == .orderedSame }) {
-                _ = ShellInstall.placeBanner(titleID: entry.titleID, framework: entry.framework, banners: banners, picked: picked)
+                _ = ShellInstall.placeBanner(titleID: entry.titleID, framework: entry.framework, banners: banners, picked: picked, ensureCached: ensureBanner)
             }
         }
 
@@ -181,8 +181,9 @@ extension ShellInstaller {
             }
         }
 
-        var link = connection()
-        var plan = copyPlan(files: totalFiles, bytes: totalNeeded, connection: link)
+        let link = connection()
+        let profile = linkProfile(for: link)
+        var plan = copyPlan(files: totalFiles, bytes: totalNeeded, connection: link, linkProfile: profile)
         if anyVersionChanged {
             let note = t("shell.dataChanged")
             plan.versionNote = note
@@ -193,15 +194,7 @@ extension ShellInstaller {
         if parts > 0 { log(fmt("shell.dataParts", parts) + "\n") }
         var decision = decideCopy(plan)
         if decision == .waitForCable {
-            log(fmt("shell.copyWaiting", deviceName) + "\n")
-            waiting(true)
-            while !waitCancelled() {
-                Thread.sleep(forTimeInterval: pollInterval)
-                link = connection()
-                if link == .wired { break }
-            }
-            waiting(false)
-            decision = link == .wired && !waitCancelled() ? .copy : .skip
+            decision = waitForCable(initialProfile: profile)
         }
         guard decision == .copy else {
             outcome.copySkipped = true

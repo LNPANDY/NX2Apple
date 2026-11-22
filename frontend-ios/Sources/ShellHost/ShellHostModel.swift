@@ -17,35 +17,91 @@ public struct ShellHostConfig: Sendable {
     public var hotFrameworksRoot: URL?
     /// The app's `Documents/games/`: `<title ID>/` holds a game's data, save, temp and log.txt (patch 0003's layout).
     public var appDataRoot: URL
+    /// Writable `Documents/Banners/` directory storing per-game `custom.jpg` and backfilled `auto.jpg` covers.
+    public var bannersRoot: URL
     public var environment: HostEnvironment
     /// Opened by "Update app". Nil: the shell says no address is configured.
     public var updateURL: URL?
     public var defaults: @Sendable (String) -> UserDefaults
     public var openURL: @MainActor @Sendable (URL) -> Void
+    public var copyToPasteboard: @MainActor @Sendable (String) -> Void
+    public var saveImageToPhotos: @MainActor @Sendable (Data) async -> Bool
+    /// Fetches official 16:9 banner bytes for games missing bundled banners. Injectable for offline tests.
+    public var fetchBannerData: @Sendable (URL) async -> Data?
+    /// Status-aware fetcher used by the default network path so 5xx/timeouts never poison the negative cache.
+    public var fetchBannerOutcome: (@Sendable (URL) async -> GameBannerStore.DirectImageOutcome)?
+    /// Fetches Nintendo store pages/images for `ec.nintendo.com` fallback. Nil uses the built-in bounded transport.
+    public var fetchStoreResponse: GameBannerStore.StoreHTTPFetcher?
+    public var prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)?
+    public var cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)?
+    public var startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)?
+    public var stopFloatingGuide: (@MainActor @Sendable () -> Void)?
+    public var activeRunningGameID: @MainActor @Sendable () -> String?
+    public var requestStopRunningGame: @MainActor @Sendable () -> Void
     /// The clock, for the last-played date and its wording.
     public var now: @Sendable () -> Date
     /// Expiration date of `embedded.mobileprovision`, or nil when absent or unreadable.
     public var provisioningExpiration: @Sendable () -> Date?
+    /// Secure storage backing for the imported sideload `.p12` certificate (Keychain in production; in-memory in tests).
+    public var sideloadCertBacking: any SideloadCertBacking
+    /// Host app bundle identifier stamped into locally re-signed external framework CodeDirectories.
+    public var hostBundleID: @Sendable () -> String
     /// Split-part byte size used by startup `DataParts.joinAll` (defaults to 512 MiB).
     public var joinPartSize: Int64
     var onJoinProgress: (@Sendable (DataParts.Progress) -> Void)?
+    var directoryWatchDebounceInterval: TimeInterval = 0.6
+    var directoryWatchPartStableWindow: TimeInterval = 1.0
 
     public init(gamesRoot: URL, appDataRoot: URL, hotFrameworksRoot: URL? = nil,
+                bannersRoot: URL? = nil,
                 environment: HostEnvironment = HostEnvironment(), updateURL: URL? = nil,
                 defaults: @escaping @Sendable (String) -> UserDefaults = GameDefaults.suite(for:),
                 openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen,
+                copyToPasteboard: @escaping @MainActor @Sendable (String) -> Void = ShellHostConfig.systemCopyToPasteboard,
+                saveImageToPhotos: @escaping @MainActor @Sendable (Data) async -> Bool = ShellHostConfig.systemSaveImageToPhotos,
+                fetchBannerData: (@Sendable (URL) async -> Data?)? = nil,
+                fetchBannerOutcome: (@Sendable (URL) async -> GameBannerStore.DirectImageOutcome)? = nil,
+                fetchStoreResponse: GameBannerStore.StoreHTTPFetcher? = nil,
+                prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)? = nil,
+                cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)? = nil,
+                startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)? = nil,
+                stopFloatingGuide: (@MainActor @Sendable () -> Void)? = nil,
+                activeRunningGameID: @escaping @MainActor @Sendable () -> String? = { nil },
+                requestStopRunningGame: @escaping @MainActor @Sendable () -> Void = {},
                 now: @escaping @Sendable () -> Date = { Date() },
                 provisioningExpiration: @escaping @Sendable () -> Date? = { ProvisioningProfile.bundledExpiration() },
+                sideloadCertBacking: any SideloadCertBacking = KeychainCertBacking(),
+                hostBundleID: @escaping @Sendable () -> String = { Bundle.main.bundleIdentifier ?? "" },
                 joinPartSize: Int64 = DataParts.partSize) {
         self.gamesRoot = gamesRoot
         self.hotFrameworksRoot = hotFrameworksRoot
         self.appDataRoot = appDataRoot
+        self.bannersRoot = bannersRoot ?? appDataRoot.deletingLastPathComponent().appendingPathComponent("Banners", isDirectory: true)
         self.environment = environment
         self.updateURL = updateURL
         self.defaults = defaults
         self.openURL = openURL
+        self.copyToPasteboard = copyToPasteboard
+        self.saveImageToPhotos = saveImageToPhotos
+        self.fetchBannerData = fetchBannerData ?? GameBannerStore.fetchRemoteBanner
+        if let fetchBannerOutcome {
+            self.fetchBannerOutcome = fetchBannerOutcome
+        } else if fetchBannerData == nil {
+            self.fetchBannerOutcome = { url in await GameBannerStore.fetchRemoteBannerOutcome(from: url) }
+        } else {
+            self.fetchBannerOutcome = nil
+        }
+        self.fetchStoreResponse = fetchStoreResponse
+        self.prepareFloatingGuide = prepareFloatingGuide
+        self.cancelPreparedFloatingGuide = cancelPreparedFloatingGuide
+        self.startFloatingGuide = startFloatingGuide
+        self.stopFloatingGuide = stopFloatingGuide
+        self.activeRunningGameID = activeRunningGameID
+        self.requestStopRunningGame = requestStopRunningGame
         self.now = now
         self.provisioningExpiration = provisioningExpiration
+        self.sideloadCertBacking = sideloadCertBacking
+        self.hostBundleID = hostBundleID
         self.joinPartSize = joinPartSize
         self.onJoinProgress = nil
     }
@@ -53,6 +109,20 @@ public struct ShellHostConfig: Sendable {
     @MainActor public static func systemOpen(_ url: URL) {
         #if canImport(UIKit)
         UIApplication.shared.open(url)
+        #endif
+    }
+
+    @MainActor public static func systemCopyToPasteboard(_ text: String) {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = text
+        #endif
+    }
+
+    @MainActor public static func systemSaveImageToPhotos(_ pngData: Data) async -> Bool {
+        #if os(iOS)
+        return await PhotoLibraryImageSaver.saveToSystemPhotoLibrary(pngData)
+        #else
+        return false
         #endif
     }
 
@@ -67,11 +137,18 @@ public struct ShellHostConfig: Sendable {
         (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("Frameworks", isDirectory: true)
     }
+
+    /// The app's writable `Documents/Banners/` directory for custom and backfilled covers.
+    public static func defaultBannersRoot() -> URL {
+        (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("Banners", isDirectory: true)
+    }
 }
 
 /// The host behind the views: turns the catalogue, the saved settings, the picked folders and the controllers into
 /// `GameDetail` values, and acts on `ShellActions`. `ShellUI` stays view-only, every file is read here.
 @MainActor @Observable public final class ShellHostModel {
+    public static let didReturnToLibraryNotification = Notification.Name("DMShellDidReturnToLibrary")
     public private(set) var details: [GameDetail] = []
     public private(set) var entries: [CatalogueEntry] = []
     public internal(set) var activityLog: ActivityLogSnapshot = .empty
@@ -82,11 +159,19 @@ public struct ShellHostConfig: Sendable {
     /// The log the host view shows in a read-only sheet.
     public var log: LogPresentation?
     /// Play is preparing the game's resources or handing over to the engine.
-    public private(set) var launchingGame = false
+    public private(set) var launchingGame = false {
+        didSet { handleBusyStateChanged() }
+    }
+    /// Pure-black transition overlay active while resolving/switching/launching a deep link.
+    public private(set) var isDeepLinkLaunching = false {
+        didSet { handleBusyStateChanged() }
+    }
     /// Cloud save conflict or unreadable-archive prompt awaiting the player's decision before launch.
     public var cloudConflict: CloudSavePrompt?
     /// Mild heads-up when the app's provisioning profile expires within 48 hours.
     public private(set) var signingWarning: SigningWarning?
+    /// Summary of the imported sideload `.p12` certificate stored in Keychain, if any.
+    public private(set) var sideloadCertificate: SideloadCertificateSummary?
 
     public private(set) var globalPadMap = PadMap()
     public private(set) var padMerge = false
@@ -102,7 +187,13 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored let config: ShellHostConfig
     @ObservationIgnored private let launcher: any GameLauncher
     @ObservationIgnored private let picker: any FolderPicker
+    @ObservationIgnored private let certificatePicker: any SideloadCertificatePicker
+    @ObservationIgnored private let sideloadCertificateStore: SideloadCertificateStore
+    @ObservationIgnored private var pendingPKCS12Data: Data?
+    @ObservationIgnored private var certificateGeneration: UInt64 = 0
+    @ObservationIgnored private var certificateLoadTask: Task<Void, Never>?
     @ObservationIgnored private let adapter = GamepadAdapter()
+    @ObservationIgnored private let homeScreenGuidePiP = HomeScreenGuidePiPController()
     @ObservationIgnored private var dataStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var cloudStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var artwork: [URL: Artwork] = [:]
@@ -119,28 +210,45 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var shellMatches: [String: URL] = [:]
     @ObservationIgnored private var shellScan: Task<Void, Never>?
     @ObservationIgnored private var romfsChecks: [URL: RomfsCheck] = [:]
-    @ObservationIgnored private var startupJoinTask: Task<Void, Never>?
+    @ObservationIgnored private var joinAndClaimTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingJoinAndClaim = false
+    @ObservationIgnored private var pendingReloadAfterClaim = false
+    @ObservationIgnored private var pendingExcludedPartPaths: Set<String> = []
     @ObservationIgnored private var joinGeneration: UInt64 = 0
     @ObservationIgnored private var joiningProgress: [String: DataParts.Progress] = [:]
-    @ObservationIgnored private var looseClaimTask: Task<Void, Never>?
-    @ObservationIgnored private var looseClaimGeneration: UInt64 = 0
+    @ObservationIgnored nonisolated(unsafe) private var directoryWatcher: GameDirectoryWatcher?
     @ObservationIgnored private var pickGeneration: [String: UInt64] = [:]
+    @ObservationIgnored private var shellDataPickGeneration: UInt64 = 0
     @ObservationIgnored private var pickedDataNotes: [String: String] = [:]
     @ObservationIgnored private var cloudCheckGeneration: UInt64 = 0
     @ObservationIgnored private var pendingCloudLaunch: PendingCloudLaunch?
     @ObservationIgnored private var backupScanGeneration: UInt64 = 0
     @ObservationIgnored private var backupScanTask: Task<Void, Never>?
     @ObservationIgnored private var latestBackups: [String: String] = [:]
+    @ObservationIgnored private var bannerFetchGeneration: UInt64 = 0
+    @ObservationIgnored private var bannerFetchTask: Task<Void, Never>?
+    @ObservationIgnored private var attemptedBannerFetches: Set<String> = []
     @ObservationIgnored private var signingCheckTask: Task<Void, Never>?
     @ObservationIgnored private var signingWarningDismissed = false
+    @ObservationIgnored private var deepLinkGeneration: UInt64 = 0
+    @ObservationIgnored private var pendingDeepLinkSuccessURL: URL?
+    @ObservationIgnored private var pendingDeepLinkErrorURL: URL?
+    @ObservationIgnored private var queuedDeepLinkRequest: DeepLinkRequest?
+    @ObservationIgnored private var stoppingRunningGame = false
+    @ObservationIgnored private var activeDeepLinkTask: Task<Void, Never>?
+    @ObservationIgnored private var deepLinkCloudPending = false
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
     @ObservationIgnored nonisolated(unsafe) private var foregroundObserver: (any NSObjectProtocol)?
+    @ObservationIgnored nonisolated(unsafe) private var returnObserver: (any NSObjectProtocol)?
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
+                certificatePicker: any SideloadCertificatePicker = NoSideloadCertificatePicker(),
                 shellSettings: ShellSettingsStore = .current, playHistory: PlayHistoryStore? = nil) {
         self.config = config
         self.launcher = launcher
         self.picker = picker
+        self.certificatePicker = certificatePicker
+        self.sideloadCertificateStore = SideloadCertificateStore(backing: config.sideloadCertBacking, now: config.now)
         self.shellSettings = shellSettings
         self.playHistory = playHistory ?? PlayHistoryStore(fileURL: PlayHistoryStore.defaultFileURL(appDataRoot: config.appDataRoot))
         self.playHistory.recoverStaleSessionIfNeeded()
@@ -149,33 +257,24 @@ public struct ShellHostConfig: Sendable {
         shellChoices = Self.choices(of: shellSettings)
         globalPadMap = shellSettings.padMap
         padMerge = shellSettings.padMerge
+        reload(afterClaim: true)
         // Off the main actor, it lists folders and may write GB: a file the Mac launcher sent in parts is joined first (#899), then
         // the game files are kept out of the iCloud backup (#618), also what an earlier version put there. A joined file can make a
         // game playable, so the library is read again.
-        let dataRoot = config.appDataRoot
-        let joinGen = joinGeneration
-        let partSize = config.joinPartSize
-        let progressHook = config.onJoinProgress
-        let reportProgress: @Sendable (DataParts.Progress) -> Void = { [weak self] progress in
-            Task { @MainActor in
-                self?.applyJoinProgress(progress, generation: joinGen)
+        scheduleJoinAndClaim(isStartup: true)
+        let watcher = GameDirectoryWatcher(
+            appDataRoot: config.appDataRoot,
+            hotFrameworksRoot: config.hotFrameworksRoot,
+            debounceInterval: config.directoryWatchDebounceInterval,
+            partStableWindow: config.directoryWatchPartStableWindow
+        ) { [weak self] hint in
+            Task { @MainActor [weak self] in
+                self?.handleDirectoryChange(hint)
             }
-            progressHook?(progress)
         }
-        let gamesRoot = config.gamesRoot
-        let hotRoot = config.hotFrameworksRoot
-        startupJoinTask = Task { [weak self] in
-            let joined = await Task.detached(priority: .utility) { () -> Bool in
-                let documents = dataRoot.deletingLastPathComponent()
-                DataParts.writeFeatures(documents: documents)
-                let joined = DataParts.joinAll(appDataRoot: dataRoot, partSize: partSize, onProgress: reportProgress)
-                let allEntries = GameCatalogue.scan(root: gamesRoot, hotRoot: hotRoot, gameDataRoot: dataRoot)
-                let claimed = LooseRomfsClaimer.claimAll(documents: documents, appDataRoot: dataRoot, entries: allEntries)
-                BackupExclusion.apply(appDataRoot: dataRoot)
-                return !joined.isEmpty || !claimed.isEmpty
-            }.value
-            self?.finishJoinRun(joined: joined, generation: joinGen)
-        }
+        directoryWatcher = watcher
+        watcher.setPaused(isBusyWithGame)
+        watcher.start()
         let expirationReader = config.provisioningExpiration
         let clock = config.now
         signingCheckTask = Task { [weak self] in
@@ -183,23 +282,36 @@ public struct ShellHostConfig: Sendable {
             guard let self, !self.signingWarningDismissed else { return }
             self.signingWarning = ProvisioningProfile.warning(expiration: expiration, now: clock())
         }
-        reload(afterClaim: true)
+        let certStore = sideloadCertificateStore
+        let certGen = certificateGeneration
+        certificateLoadTask = Task { [weak self] in
+            let summary = await Task.detached(priority: .utility) { certStore.loadSummary() }.value
+            guard let self, self.certificateGeneration == certGen else { return }
+            self.sideloadCertificate = summary
+        }
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
         }
         #if canImport(UIKit)
         foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, !self.launchingGame else { return }
+                guard let self else { return }
+                self.stopHomeScreenFloatingGuide()
+                guard !self.isBusyWithGame else { return }
                 self.reload()
             }
         }
         #endif
+        returnObserver = NotificationCenter.default.addObserver(forName: Self.didReturnToLibraryNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handleReturnToLibrary() }
+        }
     }
 
     deinit {
+        directoryWatcher?.stop()
         defaultsObserver.map(NotificationCenter.default.removeObserver)
         foregroundObserver.map(NotificationCenter.default.removeObserver)
+        returnObserver.map(NotificationCenter.default.removeObserver)
     }
 
     /// Shell choices that change the displayed game defaults.
@@ -227,31 +339,171 @@ public struct ShellHostConfig: Sendable {
         signingWarning = nil
     }
 
+    private var isBusyWithGame: Bool {
+        if launchingGame || isDeepLinkLaunching { return true }
+        if let runningID = config.activeRunningGameID(), !runningID.isEmpty { return true }
+        return false
+    }
+
+    private func handleBusyStateChanged() {
+        let busy = isBusyWithGame
+        directoryWatcher?.setPaused(busy)
+        drainDeferredWorkIfIdle()
+    }
+
+    private func drainDeferredWorkIfIdle() {
+        guard !isBusyWithGame else { return }
+        if pendingReloadAfterClaim {
+            pendingReloadAfterClaim = false
+            reload(afterClaim: true)
+        }
+        if pendingJoinAndClaim {
+            let excluded = pendingExcludedPartPaths
+            pendingExcludedPartPaths.removeAll()
+            scheduleJoinAndClaim(excludedPartPaths: excluded)
+        }
+    }
+
+    private func handleDirectoryChange(_ hint: GameDirectoryWatcher.ChangeHint) {
+        if isBusyWithGame {
+            pendingJoinAndClaim = true
+            pendingExcludedPartPaths = hint.unstablePartPaths
+            return
+        }
+        scheduleJoinAndClaim(excludedPartPaths: hint.unstablePartPaths)
+    }
+
     func waitForStartupTasks() async {
-        await startupJoinTask?.value
-        await looseClaimTask?.value
+        await directoryWatcher?.waitUntilReady()
+        while let task = joinAndClaimTask {
+            await task.value
+        }
         await signingCheckTask?.value
+        await certificateLoadTask?.value
         await backupScanTask?.value
+        await bannerFetchTask?.value
         for task in romfsChecks.values.compactMap(\.task) {
             await task.value
         }
     }
 
     private func applyJoinProgress(_ progress: DataParts.Progress, generation: UInt64) {
-        guard joinGeneration == generation, entries.contains(where: { $0.id == progress.titleID }) else { return }
+        guard joinGeneration == generation, !isBusyWithGame, entries.contains(where: { $0.id == progress.titleID }) else { return }
         joiningProgress[progress.titleID] = progress
         refresh(progress.titleID)
     }
 
-    private func finishJoinRun(joined: Bool, generation: UInt64) {
-        guard joinGeneration == generation else { return }
-        // Advance the generation so any queued progress update from this finished run is ignored.
+    private struct JoinPassInputs: Sendable {
+        var generation: UInt64
+        var isStartup: Bool
+        var dataRoot: URL
+        var gamesRoot: URL
+        var hotRoot: URL?
+        var bannersRoot: URL
+        var partSize: Int64
+        var excludedPartPaths: Set<String>
+        var progressHook: (@Sendable (DataParts.Progress) -> Void)?
+    }
+
+    private func makeJoinPassInputs(isStartup: Bool, excludedPartPaths: Set<String>) -> JoinPassInputs {
+        joinGeneration &+= 1
+        return JoinPassInputs(
+            generation: joinGeneration,
+            isStartup: isStartup,
+            dataRoot: config.appDataRoot,
+            gamesRoot: config.gamesRoot,
+            hotRoot: config.hotFrameworksRoot,
+            bannersRoot: config.bannersRoot,
+            partSize: config.joinPartSize,
+            excludedPartPaths: excludedPartPaths,
+            progressHook: config.onJoinProgress
+        )
+    }
+
+    private func scheduleJoinAndClaim(isStartup: Bool = false, excludedPartPaths: Set<String> = []) {
+        if !isStartup && isBusyWithGame {
+            pendingJoinAndClaim = true
+            pendingExcludedPartPaths = excludedPartPaths
+            return
+        }
+        if joinAndClaimTask != nil {
+            pendingJoinAndClaim = true
+            pendingExcludedPartPaths = excludedPartPaths
+            return
+        }
+        pendingJoinAndClaim = false
+        pendingExcludedPartPaths.removeAll()
+        let initialInputs = makeJoinPassInputs(isStartup: isStartup, excludedPartPaths: excludedPartPaths)
+        joinAndClaimTask = Task { [weak self] in
+            var currentInputs: JoinPassInputs? = initialInputs
+            while let inputs = currentInputs {
+                let runGeneration = inputs.generation
+                let progressHook = inputs.progressHook
+                let reportProgress: @Sendable (DataParts.Progress) -> Void = { [weak self] progress in
+                    Task { @MainActor in
+                        self?.applyJoinProgress(progress, generation: runGeneration)
+                    }
+                    progressHook?(progress)
+                }
+
+                let didChange = await Task.detached(priority: .utility) { () -> Bool in
+                    let documents = inputs.dataRoot.deletingLastPathComponent()
+                    DataParts.writeFeatures(documents: documents)
+                    let hadReadyHot = inputs.hotRoot.map { GameCatalogue.hasReadyStagedFramework(in: $0) } ?? false
+                    let allEntries = GameCatalogue.scan(root: inputs.gamesRoot, hotRoot: inputs.hotRoot, gameDataRoot: inputs.dataRoot)
+                    var minRomfsSizes: [String: Int64] = [:]
+                    for entry in allEntries {
+                        if let manifest = entry.manifest, let expected = DataLocator.expectedImageSize(manifest), expected > 0 {
+                            minRomfsSizes[entry.id.uppercased()] = expected
+                        }
+                    }
+                    let joined = DataParts.joinAll(
+                        appDataRoot: inputs.dataRoot,
+                        partSize: inputs.partSize,
+                        minimumRomfsSizes: minRomfsSizes,
+                        excludedPartPaths: inputs.excludedPartPaths,
+                        onProgress: reportProgress
+                    )
+                    let claimed = LooseRomfsClaimer.claimAll(documents: documents, appDataRoot: inputs.dataRoot, entries: allEntries)
+                    if inputs.isStartup || !joined.isEmpty || !claimed.isEmpty {
+                        BackupExclusion.apply(appDataRoot: inputs.dataRoot)
+                        if FileManager.default.fileExists(atPath: inputs.bannersRoot.path) {
+                            BackupExclusion.exclude(inputs.bannersRoot)
+                        }
+                    }
+                    return !joined.isEmpty || !claimed.isEmpty || hadReadyHot
+                }.value
+
+                guard let self else { return }
+                self.finishJoinPass(changed: didChange, generation: runGeneration)
+
+                guard self.pendingJoinAndClaim else { break }
+                if self.isBusyWithGame {
+                    break
+                }
+                self.pendingJoinAndClaim = false
+                let nextExcluded = self.pendingExcludedPartPaths
+                self.pendingExcludedPartPaths.removeAll()
+                currentInputs = self.makeJoinPassInputs(isStartup: false, excludedPartPaths: nextExcluded)
+            }
+            self?.joinAndClaimTask = nil
+        }
+    }
+
+    private func finishJoinPass(changed: Bool, generation: UInt64) {
+        let invalidated = (joinGeneration != generation)
+        // Advance the generation so any queued progress update from this finished pass is ignored.
         joinGeneration &+= 1
         let affected = Array(joiningProgress.keys)
         joiningProgress.removeAll()
-        if joined {
-            reload(afterClaim: true)
-        } else {
+        if changed {
+            if isBusyWithGame {
+                pendingReloadAfterClaim = true
+            } else {
+                pendingReloadAfterClaim = false
+                reload(afterClaim: true)
+            }
+        } else if !invalidated || !affected.isEmpty {
             for id in affected { refresh(id) }
         }
     }
@@ -295,8 +547,9 @@ public struct ShellHostConfig: Sendable {
         shellScan = nil
         scannedShellFolder = folder.path
         shellMatches = [:]
-        let wanted = entries.compactMap { e in
-            e.problem == nil ? e.manifest.flatMap { m in RomfsIdentity.parse(m.romfsIdentity).map { (m.titleID, $0) } } : nil
+        let wanted: [(titleID: String, identity: RomfsIdentity, chain: String, gfxAPI: String?)] = entries.compactMap { e in
+            guard e.problem == nil, let m = e.manifest, let ident = RomfsIdentity.parse(m.romfsIdentity) else { return nil }
+            return (m.titleID, ident, m.chain, m.gfxAPI)
         }
         guard !wanted.isEmpty else { return }
         // `shellData.resolve()` above opened the bookmark's security scope and `BookmarkStore` keeps it open while this folder is
@@ -305,8 +558,10 @@ public struct ShellHostConfig: Sendable {
             let found = await Task.detached(priority: .utility) { () -> [String: URL] in
                 let index = ShellDataIndex(folder: folder)
                 var matches: [String: URL] = [:]
-                for (titleID, identity) in wanted where !Task.isCancelled {
-                    if let url = index.imageURL(matching: identity) { matches[titleID] = url }
+                for item in wanted where !Task.isCancelled {
+                    if let url = index.imageURL(matching: item.identity, preferredChain: item.chain, explicitGfxAPI: item.gfxAPI) {
+                        matches[item.titleID] = url
+                    }
                 }
                 return matches
             }.value
@@ -322,16 +577,61 @@ public struct ShellHostConfig: Sendable {
 
     /// For tests: returns when the shell scan and the pending RomFS identity checks are done.
     func waitForDataChecks() async {
-        await startupJoinTask?.value
-        await looseClaimTask?.value
+        await directoryWatcher?.waitUntilReady()
+        while let task = joinAndClaimTask {
+            await task.value
+        }
         await shellScan?.value
         await signingCheckTask?.value
+        await certificateLoadTask?.value
         await backupScanTask?.value
+        await bannerFetchTask?.value
         for entry in entries { _ = await verifiedData(for: entry) }
     }
 
     private func defaultsDidChange() {
         if Self.choices(of: shellSettings) != shellChoices { refreshAll() }
+    }
+
+    private func gameEnvURL(for id: String) -> URL {
+        appFolder(for: id).appendingPathComponent("env.txt")
+    }
+
+    private func gameEnvOverrides(for id: String) -> [String: String] {
+        GameEnvFileSync.readOverrides(at: gameEnvURL(for: id))
+    }
+
+    private func makeSettingsStore(for id: String, profile: LauncherProfile) -> GameSettingsStore {
+        GameSettingsStore(
+            profile: profile,
+            defaults: config.defaults(id),
+            shell: shellSettings.gameDefaults,
+            envFile: gameEnvOverrides(for: id)
+        )
+    }
+
+    private func reconcileInGameChangesWithEnvFile(for id: String, profile: LauncherProfile) {
+        let envURL = gameEnvURL(for: id)
+        let overrides = GameEnvFileSync.readOverrides(at: envURL)
+        guard !overrides.isEmpty else { return }
+        let store = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults, envFile: overrides)
+        for setting in profile.settings where overrides[setting.env] != nil && store.hasExplicitChoice(setting) {
+            let explicit = store.value(of: setting)
+            _ = store.set(setting.env, to: explicit)
+            GameEnvFileSync.syncKey(setting.env, value: store.savedValue(for: setting.env), in: envURL)
+        }
+    }
+
+    private func refreshSettingsAfterGameReturn() {
+        shellChoices = Self.choices(of: shellSettings)
+        for entry in entries {
+            if let profile = cachedOrResolvedProfile(for: entry.id) {
+                reconcileInGameChangesWithEnvFile(for: entry.id, profile: profile)
+                refreshSettings(entry.id, profile: profile)
+            } else {
+                refresh(entry.id)
+            }
+        }
     }
 
     // MARK: Catalogue
@@ -358,35 +658,10 @@ public struct ShellHostConfig: Sendable {
         rebuildActivityLog()
         startShellScan(force: true)
         startBackupScan()
-        if !afterClaim && !launchingGame {
-            startLooseRomfsClaim()
-        }
-    }
-
-    private func startLooseRomfsClaim() {
-        looseClaimTask?.cancel()
-        looseClaimGeneration &+= 1
-        let generation = looseClaimGeneration
-        let gamesRoot = config.gamesRoot
-        let hotRoot = config.hotFrameworksRoot
-        let dataRoot = config.appDataRoot
-        let joinTask = startupJoinTask
-        looseClaimTask = Task { [weak self] in
-            await joinTask?.value
-            guard !Task.isCancelled else { return }
-            let didClaim = await Task.detached(priority: .utility) { () -> Bool in
-                let entries = GameCatalogue.scan(root: gamesRoot, hotRoot: hotRoot, gameDataRoot: dataRoot)
-                let claimed = LooseRomfsClaimer.claimAll(
-                    documents: dataRoot.deletingLastPathComponent(),
-                    appDataRoot: dataRoot,
-                    entries: entries
-                )
-                return !claimed.isEmpty
-            }.value
-            guard let self, !Task.isCancelled, self.looseClaimGeneration == generation, !self.launchingGame else { return }
-            if didClaim {
-                self.reload(afterClaim: true)
-            }
+        startMissingBannerFetch()
+        directoryWatcher?.refreshTargets()
+        if !afterClaim && !isBusyWithGame {
+            scheduleJoinAndClaim()
         }
     }
 
@@ -404,7 +679,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     private func settingsSnapshot(for id: String, profile: LauncherProfile) -> (sections: [SettingSection], hasModifiedSettings: Bool) {
-        let store = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults)
+        let store = makeSettingsStore(for: id, profile: profile)
         let fromShell = Set(profile.settings.filter(store.isFromShell).map(\.env))
         let pad = GamePadMapStore(defaults: config.defaults(id))
         let sections = SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell)
@@ -586,10 +861,13 @@ public struct ShellHostConfig: Sendable {
             let durationText = playTime ?? ShellFormat.underOneMinute()
             return ShellFormat.playSummary(duration: durationText, sessions: historyRecord.sessions)
         }()
+        let bannerResolution = GameBannerStore.resolve(for: entry, bannersRoot: config.bannersRoot)
+        let resolvedBanner = bannerResolution.candidates.lazy.compactMap { self.image($0) }.first
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
-                            banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
+                            banner: resolvedBanner, icon: image(entry.iconURL), state: state,
                             recentlyPlayed: recentlyPlayedLabel, version: entry.manifest?.displayVersion ?? "",
-                            isSwitch2: entry.manifest?.console == "switch2")
+                            isSwitch2: entry.manifest?.console == "switch2",
+                            hasCustomCover: bannerResolution.hasCustomCover)
         guard let profile = profile(for: entry, data: data) else {
             resolvedProfiles.removeValue(forKey: entry.id)
             return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false, readiness: readiness),
@@ -636,6 +914,12 @@ public struct ShellHostConfig: Sendable {
             case .ready:
                 return ""
             case .staleTrailer(let imgChain, let expChain):
+                if let progress = joiningProgress[id], progress.totalBytes > 0 {
+                    let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
+                    let doneSize = Self.formatByteSize(clampedDone)
+                    let totalSize = Self.formatByteSize(progress.totalBytes)
+                    return hostText("Joining .nxpart split files in this app's folder (\(doneSize) of \(totalSize)).")
+                }
                 if !imgChain.isEmpty && !expChain.isEmpty {
                     return hostText("Shader files in this game data (\(imgChain)) do not match this app's version (\(expChain)). Send or copy updated game data from NX2Apple.")
                 } else {
@@ -717,7 +1001,189 @@ public struct ShellHostConfig: Sendable {
             onPadMergeChange: { [weak self] on in self?.setPadMerge(on) },
             onRestoreSaveBackup: { [weak self] id in self?.restoreLatestSaveBackup(id) },
             onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) },
-            onOpenHomeButtonSettings: { [weak self] in self?.openHomeButtonSettings() })
+            onOpenHomeButtonSettings: { [weak self] in self?.openHomeButtonSettings() },
+            onCopyShortcutURL: { [weak self] id in self?.copyShortcutURL(for: id) },
+            onAddToHomeScreen: { [weak self] id in
+                guard let self else { return false }
+                return await self.saveIconAndOpenShortcuts(for: id, showFloatingGuide: true)
+            },
+            onAddToHomeScreenWithGuide: { [weak self] id, showFloatingGuide in
+                guard let self else { return false }
+                return await self.saveIconAndOpenShortcuts(for: id, showFloatingGuide: showFloatingGuide)
+            },
+            onPrepareHomeScreenGuide: { [weak self] id in
+                self?.prepareHomeScreenFloatingGuide(for: id)
+            },
+            onCancelPreparedHomeScreenGuide: { [weak self] in
+                self?.cancelPreparedHomeScreenFloatingGuide()
+            },
+            onSaveCustomCover: { [weak self] id, jpegData in
+                self?.saveCustomCover(for: id, jpegData: jpegData)
+            },
+            onResetCustomCover: { [weak self] id in
+                self?.resetCustomCover(for: id)
+            },
+            onPickSideloadCertificateFile: { [weak self] in
+                guard let self else { return .cancelled }
+                return await self.pickSideloadCertificateFileNow()
+            },
+            onConfirmSideloadCertificatePassword: { [weak self] password in
+                guard let self else { return nil }
+                return await self.confirmSideloadCertificatePasswordNow(password)
+            },
+            onCancelSideloadCertificateImport: { [weak self] in
+                self?.cancelSideloadCertificateImport()
+            },
+            onRemoveSideloadCertificate: { [weak self] in
+                self?.removeSideloadCertificate()
+            })
+    }
+
+    // MARK: Sideload .p12 certificate management
+
+    public func pickSideloadCertificateFileNow() async -> SideloadCertificatePickResult {
+        switch await certificatePicker.pickCertificateOutcome() {
+        case .picked(let data, let fileName):
+            guard !data.isEmpty else {
+                return .failed(SideloadCertificateError.emptyFile.localizedDescription)
+            }
+            guard data.count <= SideloadCertificateStore.maxFileBytes else {
+                return .failed(SideloadCertificateError.fileTooLarge.localizedDescription)
+            }
+            pendingPKCS12Data = data
+            return .picked(fileName: fileName)
+        case .cancelled:
+            return .cancelled
+        case .unavailable:
+            return .failed(hostText("The file picker could not open here. Open the app on its own and try again."))
+        case .unreadable:
+            return .failed(hostText("The selected certificate file could not be read."))
+        }
+    }
+
+    public func confirmSideloadCertificatePasswordNow(_ password: String) async -> String? {
+        guard let data = pendingPKCS12Data else {
+            return SideloadCertificateError.emptyFile.localizedDescription
+        }
+        pendingPKCS12Data = nil
+        certificateGeneration &+= 1
+        let generation = certificateGeneration
+        let store = sideloadCertificateStore
+        let outcome: Result<SideloadCertificateSummary, Error> = await Task.detached(priority: .userInitiated) {
+            Result { try store.importPKCS12(data: data, password: password) }
+        }.value
+        guard certificateGeneration == generation else { return nil }
+        switch outcome {
+        case .success(let summary):
+            sideloadCertificate = summary
+            return nil
+        case .failure(let error):
+            // Keep the staged .p12 bytes while the password sheet stays open for retry; cancelSideloadCertificateImport clears them.
+            pendingPKCS12Data = data
+            return error.localizedDescription
+        }
+    }
+
+    public func cancelSideloadCertificateImport() {
+        pendingPKCS12Data = nil
+    }
+
+    public func removeSideloadCertificate() {
+        Task { await removeSideloadCertificateNow() }
+    }
+
+    public func removeSideloadCertificateNow() async {
+        pendingPKCS12Data = nil
+        certificateGeneration &+= 1
+        let generation = certificateGeneration
+        let store = sideloadCertificateStore
+        let result: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
+            Result { try store.remove() }
+        }.value
+        guard certificateGeneration == generation else { return }
+        switch result {
+        case .success:
+            sideloadCertificate = nil
+        case .failure(let error):
+            notice = error.localizedDescription
+        }
+    }
+
+    // MARK: Custom and backfilled covers
+
+    /// Atomically saves a user-cropped 16:9 JPEG cover and immediately refreshes the game's artwork.
+    public func saveCustomCover(for id: String, jpegData: Data) {
+        guard entry(id) != nil else { return }
+        do {
+            let url = try GameBannerStore.saveCustomBanner(jpegData, for: id, bannersRoot: config.bannersRoot)
+            artwork.removeValue(forKey: url)
+            refresh(id)
+        } catch {
+            notice = hostText("The custom cover could not be saved.")
+        }
+    }
+
+    /// Removes the user's custom cover and immediately restores the default banner/icon.
+    public func resetCustomCover(for id: String) {
+        guard entry(id) != nil else { return }
+        if let removed = GameBannerStore.removeCustomBanner(for: id, bannersRoot: config.bannersRoot) {
+            artwork.removeValue(forKey: removed)
+        }
+        refresh(id)
+        startMissingBannerFetch()
+    }
+
+    /// Low-priority background backfill of official 16:9 banners for installed games lacking bundled/custom/auto banners.
+    /// Tries built-in `KnownGameBanners` first, then `ec.nintendo.com` (US -> HK) and `api.nlib.cc` according to title type.
+    /// Only definitive `.saved` / `.notFound` outcomes are recorded in `attemptedBannerFetches`; cancellation, transient
+    /// errors, and budget cutoffs leave remaining titles eligible for automatic retry on subsequent reloads.
+    private func startMissingBannerFetch() {
+        let bannersRoot = config.bannersRoot
+        let candidates: [CatalogueEntry] = entries.filter { entry in
+            let key = entry.id.uppercased()
+            guard !attemptedBannerFetches.contains(key) else { return false }
+            return GameBannerStore.needsBackfill(for: entry, bannersRoot: bannersRoot)
+        }
+        guard !candidates.isEmpty else { return }
+
+        bannerFetchTask?.cancel()
+        bannerFetchGeneration &+= 1
+        let generation = bannerFetchGeneration
+        let fetcher = config.fetchBannerData
+        let outcomeFetcher = config.fetchBannerOutcome
+        let storeTransport = config.fetchStoreResponse
+        let clock = config.now
+
+        bannerFetchTask = Task { [weak self] in
+            var errorBudgetElapsed: TimeInterval = 0
+            for entry in candidates {
+                guard !Task.isCancelled else { return }
+                if errorBudgetElapsed >= GameBannerStore.batchErrorBudget { return }
+                let started = clock()
+                let outcome: GameBannerStore.BackfillOutcome = await Task.detached(priority: .utility) {
+                    await GameBannerStore.fetchAndSaveAutoBanner(
+                        for: entry,
+                        bannersRoot: bannersRoot,
+                        fetchBannerData: fetcher,
+                        fetchBannerOutcome: outcomeFetcher,
+                        storeTransport: storeTransport
+                    )
+                }.value
+                guard let self, !Task.isCancelled, self.bannerFetchGeneration == generation else { return }
+                switch outcome {
+                case .saved(let savedURL):
+                    self.attemptedBannerFetches.insert(entry.id.uppercased())
+                    if self.entry(entry.id) != nil {
+                        self.artwork.removeValue(forKey: savedURL)
+                        self.refresh(entry.id)
+                    }
+                case .notFound:
+                    self.attemptedBannerFetches.insert(entry.id.uppercased())
+                case .transientFailure:
+                    errorBudgetElapsed += max(0, clock().timeIntervalSince(started))
+                }
+            }
+        }
     }
 
     public func change(_ id: String, setting: String, value: String) {
@@ -725,7 +1191,10 @@ public struct ShellHostConfig: Sendable {
         if setting.hasPrefix("pad.") {
             GamePadMapStore(defaults: config.defaults(id)).change(setting, value: value)
         } else {
-            GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).set(setting, to: value)
+            let store = makeSettingsStore(for: id, profile: profile)
+            if store.set(setting, to: value) {
+                GameEnvFileSync.syncKey(setting, value: store.savedValue(for: setting), in: gameEnvURL(for: id))
+            }
         }
         refreshSettings(id, profile: profile)
     }
@@ -733,6 +1202,7 @@ public struct ShellHostConfig: Sendable {
     public func resetDefaults(_ id: String) {
         guard let profile = cachedOrResolvedProfile(for: id) else { return }
         GameSettingsStore(profile: profile, defaults: config.defaults(id)).reset()
+        GameEnvFileSync.clearKeys(Set(profile.settings.map(\.env)), in: gameEnvURL(for: id))
         GamePadMapStore(defaults: config.defaults(id)).reset()
         refreshSettings(id, profile: profile)
     }
@@ -756,37 +1226,69 @@ public struct ShellHostConfig: Sendable {
         guard let url = await pickedFolder() else { return }
         let generation = (pickGeneration[id] ?? 0) &+ 1
         pickGeneration[id] = generation
+        guard let currentEntry = entry(id) else { return }
+
+        if let manifest = currentEntry.manifest, currentEntry.problem == nil {
+            let folderMatchesGame = await Task.detached(priority: .userInitiated) {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard FileManager.default.fileExists(atPath: url.path) else { return false }
+                let appFallback = FileManager.default.temporaryDirectory.appendingPathComponent("nx-unused-\(UUID().uuidString)", isDirectory: true)
+                let check = DataLocator.locate(manifest: manifest, picked: .url(url), appFolder: appFallback)
+                return check.source == .picked
+            }.value
+            guard pickGeneration[id] == generation, let latestEntry = entry(id) else { return }
+            if !folderMatchesGame {
+                // Keep any previously working folder bookmark intact when the newly picked folder has no data for this game.
+                let knownTitles = Dictionary(uniqueKeysWithValues: entries.map { ($0.id.uppercased(), $0.title) })
+                var identityOwners: [RomfsIdentity: String] = [:]
+                var ambiguousIdentities = Set<RomfsIdentity>()
+                for other in entries where other.id.caseInsensitiveCompare(id) != .orderedSame {
+                    guard let raw = other.manifest?.romfsIdentity,
+                          let parsed = RomfsIdentity.parse(raw),
+                          !ambiguousIdentities.contains(parsed) else { continue }
+                    if let prev = identityOwners[parsed], prev != other.title {
+                        identityOwners.removeValue(forKey: parsed)
+                        ambiguousIdentities.insert(parsed)
+                    } else {
+                        identityOwners[parsed] = other.title
+                    }
+                }
+                let knownIdentities = identityOwners
+                let finding = await Task.detached(priority: .userInitiated) {
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    return DataFolderDiagnostics.diagnose(folder: url, manifest: manifest, knownTitles: knownTitles, knownIdentities: knownIdentities)
+                }.value
+                guard pickGeneration[id] == generation, let refreshedEntry = entry(id) else { return }
+                let message = DataFolderDiagnostics.message(
+                    for: finding,
+                    gameTitle: refreshedEntry.title,
+                    gameID: id,
+                    folderName: url.lastPathComponent
+                )
+                if !data(for: refreshedEntry).found {
+                    pickedDataNotes[id] = message
+                    refresh(id)
+                }
+                notice = message
+                return
+            }
+        }
+
         pickedDataNotes.removeValue(forKey: id)
         guard dataStore(id).store(url) else {
             notice = hostText("That location could not be remembered. Try a different one.")
             return
         }
         forgetCheckedRomfsImages()
-        guard let currentEntry = entry(id) else { return }
-        let resolved = await verifiedData(for: currentEntry)
+        guard let latestEntry = entry(id) else { return }
+        let resolved = await verifiedData(for: latestEntry)
         guard pickGeneration[id] == generation else { return }
         refresh(id)
-        if resolved.source != .picked {
-            if let manifest = currentEntry.manifest, currentEntry.problem == nil {
-                let knownTitles = Dictionary(uniqueKeysWithValues: entries.map { ($0.id.uppercased(), $0.title) })
-                let finding = await Task.detached(priority: .userInitiated) {
-                    DataFolderDiagnostics.diagnose(folder: url, manifest: manifest, knownTitles: knownTitles)
-                }.value
-                guard pickGeneration[id] == generation, let latestEntry = entry(id) else { return }
-                let message = DataFolderDiagnostics.message(
-                    for: finding,
-                    gameTitle: latestEntry.title,
-                    gameID: id,
-                    folderName: url.lastPathComponent
-                )
-                if !data(for: latestEntry).found {
-                    pickedDataNotes[id] = message
-                    refresh(id)
-                }
-                notice = message
-            } else if let game = details.first(where: { $0.id == id })?.game, Self.isMissingOrNeedsUpdate(game.state) {
-                notice = hostText("No game data for \(game.title) was found in that folder.")
-            }
+        if resolved.source != .picked,
+           let game = details.first(where: { $0.id == id })?.game, Self.isMissingOrNeedsUpdate(game.state) {
+            notice = hostText("No game data for \(game.title) was found in that folder.")
         }
     }
 
@@ -811,8 +1313,62 @@ public struct ShellHostConfig: Sendable {
         refresh(id)
     }
 
+    private enum ShellDataFolderCheck: Sendable {
+        case unreadable
+        case noGameData
+        case matched
+    }
+
     func pickShellDataNow() async {
         guard let url = await pickedFolder() else { return }
+        shellDataPickGeneration &+= 1
+        let generation = shellDataPickGeneration
+        let manifests = entries.compactMap { entry in
+            entry.problem == nil ? entry.manifest : nil
+        }
+        let check = await Task.detached(priority: .userInitiated) { () -> ShellDataFolderCheck in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
+                return .unreadable
+            }
+            let index = ShellDataIndex(folder: url)
+            if manifests.isEmpty {
+                return index.hasAnyImage ? .matched : .noGameData
+            }
+            let appFallback = FileManager.default.temporaryDirectory.appendingPathComponent("nx-unused-\(UUID().uuidString)", isDirectory: true)
+            for manifest in manifests {
+                let shellMatch: URL?
+                if let ident = RomfsIdentity.parse(manifest.romfsIdentity) {
+                    shellMatch = index.imageURL(matching: ident, preferredChain: manifest.chain, explicitGfxAPI: manifest.gfxAPI)
+                } else {
+                    shellMatch = nil
+                }
+                let resolved = DataLocator.locate(
+                    manifest: manifest,
+                    picked: .none,
+                    appFolder: appFallback,
+                    global: .url(url),
+                    shellMatch: shellMatch
+                )
+                if resolved.source == .shell {
+                    return .matched
+                }
+            }
+            return .noGameData
+        }.value
+        guard shellDataPickGeneration == generation else { return }
+        switch check {
+        case .unreadable:
+            notice = hostText("That folder could not be remembered. Try a different one.")
+            return
+        case .noGameData:
+            notice = hostText("No game data for your installed games was found in “\(url.lastPathComponent)”. Choose a folder containing a game's romfs.img.")
+            return
+        case .matched:
+            break
+        }
         guard shellData.store(url) else { notice = hostText("That folder could not be remembered. Try a different one."); return }
         forgetCheckedRomfsImages()
         shellSettings.storeDataFolderName(url.lastPathComponent)
@@ -841,6 +1397,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     func clearShellData() {
+        shellDataPickGeneration &+= 1
         shellData.clear()
         shellSettings.clearDataFolderName()
         refreshAll()
@@ -876,6 +1433,12 @@ public struct ShellHostConfig: Sendable {
         pickedDataNotes.removeValue(forKey: id)
         latestBackups.removeValue(forKey: id)
         resolvedProfiles.removeValue(forKey: id)
+        if let customURL = GameBannerStore.customBannerURL(for: id, bannersRoot: config.bannersRoot) {
+            artwork.removeValue(forKey: customURL)
+        }
+        if let autoURL = GameBannerStore.autoBannerURL(for: id, bannersRoot: config.bannersRoot) {
+            artwork.removeValue(forKey: autoURL)
+        }
         if pendingCloudLaunch?.game.titleID == id {
             cancelCloudConflict()
         }
@@ -883,11 +1446,13 @@ public struct ShellHostConfig: Sendable {
         if let hotRoot = config.hotFrameworksRoot {
             let entryParent = entry.directory.deletingLastPathComponent().standardizedFileURL
             if entryParent == hotRoot.standardizedFileURL {
+                MachOLocalSigner.removeReceipt(for: entry.directory)
                 if !GameCatalogue.discardFolder(entry.directory, in: hotRoot) {
                     failed.append(entry.directory)
                 }
             }
             let canonicalHot = hotRoot.appendingPathComponent("DmGame\(id.uppercased()).framework", isDirectory: true)
+            MachOLocalSigner.removeReceipt(for: canonicalHot)
             if FileManager.default.fileExists(atPath: canonicalHot.path),
                !GameCatalogue.discardFolder(canonicalHot, in: hotRoot) {
                 failed.append(canonicalHot)
@@ -921,14 +1486,290 @@ public struct ShellHostConfig: Sendable {
         config.openURL(url)
     }
 
+    private enum LaunchOutcome {
+        case launched
+        case promptedCloudConflict
+        case failed(String?)
+    }
+
+    public func copyShortcutURL(for id: String) {
+        guard let entry = entry(id) else { return }
+        config.copyToPasteboard(DeepLinkRouter.shortcutURLString(for: entry))
+    }
+
+    public func prepareHomeScreenFloatingGuide(for id: String) {
+        guard let currentEntry = entry(id) else { return }
+        let iconPNG = HomeScreenShortcutSupport.renderSquareIconPNG(for: currentEntry, size: 512)
+        let request = HomeScreenGuideRequest(
+            gameTitle: currentEntry.title,
+            iconPNG: iconPNG,
+            steps: HomeScreenGuideSteps.shortcutsSteps(),
+            hintText: HomeScreenGuideSteps.pipControlsHint()
+        )
+        if let customPrepare = config.prepareFloatingGuide {
+            customPrepare(request)
+        } else {
+            homeScreenGuidePiP.prepare(request)
+        }
+    }
+
+    public func cancelPreparedHomeScreenFloatingGuide() {
+        homeScreenGuidePiP.cancelPrepared()
+        config.cancelPreparedFloatingGuide?()
+    }
+
+    public func stopHomeScreenFloatingGuide() {
+        homeScreenGuidePiP.stop()
+        config.stopFloatingGuide?()
+    }
+
+    @discardableResult
+    public func saveIconAndOpenShortcuts(for id: String, showFloatingGuide: Bool = true) async -> Bool {
+        guard let initialEntry = entry(id),
+              let pngData = HomeScreenShortcutSupport.renderSquareIconPNG(for: initialEntry, size: 512) else {
+            return false
+        }
+        let saved = await config.saveImageToPhotos(pngData)
+        guard let currentEntry = entry(id) else { return false }
+        config.copyToPasteboard(currentEntry.title)
+        guard saved else { return false }
+        if showFloatingGuide {
+            let request = HomeScreenGuideRequest(
+                gameTitle: currentEntry.title,
+                iconPNG: pngData,
+                steps: HomeScreenGuideSteps.shortcutsSteps(),
+                hintText: HomeScreenGuideSteps.pipControlsHint()
+            )
+            if let customStart = config.startFloatingGuide {
+                _ = await customStart(request)
+            } else {
+                _ = await homeScreenGuidePiP.start(request)
+            }
+        } else {
+            stopHomeScreenFloatingGuide()
+        }
+        config.openURL(HomeScreenShortcutSupport.createShortcutURL)
+        return true
+    }
+
+    @discardableResult
+    public func handleDeepLink(_ url: URL) -> Bool {
+        guard DeepLinkRouter.isLaunchURL(url) else { return false }
+        guard let request = DeepLinkRouter.parse(url) else {
+            let message = hostText("No game was specified in the shortcut link.")
+            if let errorURL = DeepLinkRouter.extractErrorCallback(from: url) {
+                config.openURL(DeepLinkRouter.errorCallbackURL(base: errorURL, message: message))
+            } else {
+                notice = message
+            }
+            return true
+        }
+
+        deepLinkGeneration &+= 1
+        let generation = deepLinkGeneration
+        activeDeepLinkTask?.cancel()
+        deepLinkCloudPending = false
+
+        if !stoppingRunningGame,
+           let runningID = config.activeRunningGameID(), !runningID.isEmpty,
+           let matched = DeepLinkRouter.matchEntry(target: request.target, in: entries),
+           matched.id.caseInsensitiveCompare(runningID) == .orderedSame {
+            queuedDeepLinkRequest = nil
+            pendingDeepLinkSuccessURL = request.successURL
+            pendingDeepLinkErrorURL = request.errorURL
+            isDeepLinkLaunching = false
+            return true
+        }
+
+        isDeepLinkLaunching = true
+        activeDeepLinkTask = Task { [weak self] in
+            await self?.processDeepLinkRequest(request, generation: generation)
+        }
+        return true
+    }
+
+    @discardableResult
+    func handleDeepLinkNow(_ url: URL) async -> Bool {
+        let accepted = handleDeepLink(url)
+        if accepted {
+            await activeDeepLinkTask?.value
+        }
+        return accepted
+    }
+
+    func waitForDeepLinkTask() async {
+        await activeDeepLinkTask?.value
+    }
+
+    private func processDeepLinkRequest(_ request: DeepLinkRequest, generation: UInt64) async {
+        while let task = joinAndClaimTask {
+            await task.value
+        }
+        guard deepLinkGeneration == generation, !Task.isCancelled else { return }
+
+        let preserveRunningSession = stoppingRunningGame || !(config.activeRunningGameID() ?? "").isEmpty
+
+        var resolvedEntry = DeepLinkRouter.matchEntry(target: request.target, in: entries)
+        if resolvedEntry == nil {
+            reload()
+            resolvedEntry = DeepLinkRouter.matchEntry(target: request.target, in: entries)
+        }
+        guard let matched = resolvedEntry else {
+            failDeepLink(request, message: hostText("Game \"\(request.target)\" was not found."), preserveRunningSession: preserveRunningSession)
+            return
+        }
+
+        if let runningID = config.activeRunningGameID(), !runningID.isEmpty {
+            if !stoppingRunningGame, matched.id.caseInsensitiveCompare(runningID) == .orderedSame {
+                queuedDeepLinkRequest = nil
+                pendingDeepLinkSuccessURL = request.successURL
+                pendingDeepLinkErrorURL = request.errorURL
+                isDeepLinkLaunching = false
+                return
+            }
+            pendingDeepLinkSuccessURL = nil
+            pendingDeepLinkErrorURL = nil
+            queuedDeepLinkRequest = request
+            isDeepLinkLaunching = true
+            if !stoppingRunningGame {
+                stoppingRunningGame = true
+                config.requestStopRunningGame()
+            }
+            return
+        }
+
+        if cloudConflict != nil {
+            cancelCloudConflict(notifyDeepLink: false)
+        }
+
+        if matched.problem == nil {
+            _ = await verifiedData(for: matched)
+            guard deepLinkGeneration == generation, !Task.isCancelled else { return }
+            refresh(matched.id)
+        }
+
+        guard let latestEntry = entry(matched.id),
+              let detail = details.first(where: { $0.id == latestEntry.id }) else {
+            failDeepLink(request, message: hostText("Game \"\(request.target)\" was not found."), preserveRunningSession: preserveRunningSession)
+            return
+        }
+
+        guard detail.game.state == .playable else {
+            failDeepLink(request, message: unplayableDeepLinkMessage(for: detail.game.state, title: latestEntry.title), preserveRunningSession: preserveRunningSession)
+            return
+        }
+
+        pendingDeepLinkSuccessURL = request.successURL
+        pendingDeepLinkErrorURL = request.errorURL
+
+        let outcome = await playInternal(latestEntry.id, suppressErrorNotice: request.errorURL != nil)
+        guard deepLinkGeneration == generation else { return }
+
+        switch outcome {
+        case .launched:
+            isDeepLinkLaunching = false
+        case .promptedCloudConflict:
+            deepLinkCloudPending = true
+            isDeepLinkLaunching = false
+        case .failed(let message):
+            let fallback = hostText("\(latestEntry.title) could not be launched.")
+            failDeepLink(request, message: message ?? fallback)
+        }
+    }
+
+    @MainActor
+    func handleReturnToLibrary() {
+        stoppingRunningGame = false
+        refreshSettingsAfterGameReturn()
+        if let queued = queuedDeepLinkRequest {
+            queuedDeepLinkRequest = nil
+            pendingDeepLinkSuccessURL = nil
+            pendingDeepLinkErrorURL = nil
+            deepLinkCloudPending = false
+            isDeepLinkLaunching = true
+            deepLinkGeneration &+= 1
+            let generation = deepLinkGeneration
+            activeDeepLinkTask?.cancel()
+            activeDeepLinkTask = Task { [weak self] in
+                await self?.processDeepLinkRequest(queued, generation: generation)
+            }
+            return
+        }
+        let successURL = pendingDeepLinkSuccessURL
+        pendingDeepLinkSuccessURL = nil
+        pendingDeepLinkErrorURL = nil
+        deepLinkCloudPending = false
+        isDeepLinkLaunching = false
+        if let successURL {
+            config.openURL(successURL)
+        }
+        directoryWatcher?.setPaused(isBusyWithGame)
+        if !isBusyWithGame {
+            if pendingReloadAfterClaim {
+                pendingReloadAfterClaim = false
+                reload(afterClaim: true)
+            }
+            let excluded = pendingExcludedPartPaths
+            pendingExcludedPartPaths.removeAll()
+            scheduleJoinAndClaim(excludedPartPaths: excluded)
+        }
+    }
+
+    private func failDeepLink(_ request: DeepLinkRequest, message: String, preserveRunningSession: Bool = false) {
+        if !preserveRunningSession {
+            queuedDeepLinkRequest = nil
+            pendingDeepLinkSuccessURL = nil
+            pendingDeepLinkErrorURL = nil
+            deepLinkCloudPending = false
+            isDeepLinkLaunching = false
+        } else {
+            isDeepLinkLaunching = queuedDeepLinkRequest != nil
+        }
+        if let errorURL = request.errorURL {
+            config.openURL(DeepLinkRouter.errorCallbackURL(base: errorURL, message: message))
+        } else {
+            notice = message
+        }
+    }
+
+    private func unplayableDeepLinkMessage(for state: GameState, title: String) -> String {
+        switch state {
+        case .broken(let reason, let detail, _):
+            return detail.isEmpty ? reason : detail
+        default:
+            return hostText("\(title) is not ready to launch.")
+        }
+    }
+
+    private func clearDeepLinkStateForManualPlay() {
+        deepLinkGeneration &+= 1
+        activeDeepLinkTask?.cancel()
+        activeDeepLinkTask = nil
+        pendingDeepLinkSuccessURL = nil
+        pendingDeepLinkErrorURL = nil
+        queuedDeepLinkRequest = nil
+        stoppingRunningGame = false
+        deepLinkCloudPending = false
+        isDeepLinkLaunching = false
+    }
+
     public func play(_ id: String) {
+        clearDeepLinkStateForManualPlay()
         Task { await playNow(id) }
     }
 
     func playNow(_ id: String) async {
+        clearDeepLinkStateForManualPlay()
+        _ = await playInternal(id, suppressErrorNotice: false)
+    }
+
+    private func playInternal(_ id: String, suppressErrorNotice: Bool) async -> LaunchOutcome {
         guard !launchingGame, cloudConflict == nil,
               let entry = entry(id), let manifest = entry.manifest, let framework = entry.frameworkURL,
-              details.first(where: { $0.id == id })?.game.state == .playable else { return }
+              details.first(where: { $0.id == id })?.game.state == .playable else {
+            return .failed(nil)
+        }
+        stopHomeScreenFloatingGuide()
         cloudCheckGeneration &+= 1
         let checkGeneration = cloudCheckGeneration
         pendingCloudLaunch = nil
@@ -940,13 +1781,15 @@ public struct ShellHostConfig: Sendable {
         guard cloudCheckGeneration == checkGeneration,
               let latestEntry = self.entry(id), latestEntry.manifest == manifest, let dataURL = resolved.url else {
             refresh(id)
-            return
+            let updatedState = details.first(where: { $0.id == id })?.game.state
+            return .failed(updatedState.map { unplayableDeepLinkMessage(for: $0, title: entry.title) })
         }
         let readiness = ShaderResources.readiness(entry: latestEntry, appFolder: gameAppFolder, dataURL: dataURL, romfsURL: resolved.romfsURL)
         guard case .ready(let shaderSource) = readiness,
               let profile = profile(for: latestEntry, data: resolved) else {
             refresh(id)
-            return
+            let updatedState = details.first(where: { $0.id == id })?.game.state
+            return .failed(updatedState.map { unplayableDeepLinkMessage(for: $0, title: latestEntry.title) })
         }
         var cloud: URL?
         switch cloudSaves(id) {
@@ -958,6 +1801,7 @@ public struct ShellHostConfig: Sendable {
             romfsURL: resolved.romfsURL, appFolder: gameAppFolder, environment: launchEnvironment(profile: profile, id: id),
             cloudSavesURL: cloud, shellEnvironment: shellSettings.gameDefaults,
             shellFallbackKeys: launchShellFallbackKeys(profile: profile, id: id),
+            builtInDefaultKeys: launchBuiltInDefaultKeys(profile: profile, id: id),
             fallbackBundledFrameworkURL: latestEntry.fallbackBundledFrameworkURL)
         if case .trailer = shaderSource {
             game.usesEmbeddedShaderTrailer = true
@@ -967,7 +1811,7 @@ public struct ShellHostConfig: Sendable {
             let report = await Task.detached(priority: .userInitiated) {
                 CloudSaveSyncCheck.inspect(cloudFolder: cloudFolder, titleID: id, appFolder: gameAppFolder)
             }.value
-            guard cloudCheckGeneration == checkGeneration, self.entry(id)?.manifest == manifest else { return }
+            guard cloudCheckGeneration == checkGeneration, self.entry(id)?.manifest == manifest else { return .failed(nil) }
             if report.outcome.requiresPrompt {
                 let rawDevice = (report.cloud?.device ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 let shownDevice = (rawDevice.isEmpty || rawDevice == "unknown") ? hostText("Another device") : rawDevice
@@ -981,14 +1825,21 @@ public struct ShellHostConfig: Sendable {
                     cloudSaved: Self.formatSaveDate(report.cloud?.saved),
                     localSaved: Self.formatSaveDate(report.local.saved)
                 )
-                return
+                return .promptedCloudConflict
             }
             for (k, v) in CloudSaveSyncCheck.nonInteractiveEnvironment() {
                 game.environment[k] = v
             }
         }
 
-        await finishLaunch(game)
+        switch await finishLaunch(game, expectedGeneration: checkGeneration, suppressNotice: suppressErrorNotice) {
+        case .launched:
+            return .launched
+        case .cancelled:
+            return .failed(nil)
+        case .failed(let failure):
+            return .failed(failure)
+        }
     }
 
     public func resolveCloudConflict(_ decision: CloudSaveDecision) {
@@ -996,9 +1847,23 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func cancelCloudConflict() {
+        cancelCloudConflict(notifyDeepLink: true)
+    }
+
+    private func cancelCloudConflict(notifyDeepLink: Bool) {
         cloudCheckGeneration &+= 1
         pendingCloudLaunch = nil
         cloudConflict = nil
+        if deepLinkCloudPending {
+            let errorURL = pendingDeepLinkErrorURL
+            pendingDeepLinkSuccessURL = nil
+            pendingDeepLinkErrorURL = nil
+            deepLinkCloudPending = false
+            isDeepLinkLaunching = false
+            if notifyDeepLink, let errorURL {
+                config.openURL(DeepLinkRouter.errorCallbackURL(base: errorURL, message: hostText("Launch cancelled.")))
+            }
+        }
     }
 
     public func cancelCloudConflictIfPending() {
@@ -1044,7 +1909,19 @@ public struct ShellHostConfig: Sendable {
 
         switch choiceResult {
         case .failure(let error):
-            notice = error.localizedDescription
+            if deepLinkCloudPending {
+                let errorURL = pendingDeepLinkErrorURL
+                pendingDeepLinkSuccessURL = nil
+                pendingDeepLinkErrorURL = nil
+                deepLinkCloudPending = false
+                if let errorURL {
+                    config.openURL(DeepLinkRouter.errorCallbackURL(base: errorURL, message: error.localizedDescription))
+                } else {
+                    notice = error.localizedDescription
+                }
+            } else {
+                notice = error.localizedDescription
+            }
         case .success(let env):
             var game = pending.game
             for (k, v) in env {
@@ -1052,7 +1929,16 @@ public struct ShellHostConfig: Sendable {
             }
             startBackupScan()
             await backupScanTask?.value
-            await finishLaunch(game)
+            let wasDeepLink = deepLinkCloudPending
+            let errorURL = pendingDeepLinkErrorURL
+            deepLinkCloudPending = false
+            if case .failed(let failure) = await finishLaunch(game, expectedGeneration: pending.generation, suppressNotice: wasDeepLink && errorURL != nil), wasDeepLink {
+                pendingDeepLinkSuccessURL = nil
+                pendingDeepLinkErrorURL = nil
+                if let errorURL {
+                    config.openURL(DeepLinkRouter.errorCallbackURL(base: errorURL, message: failure))
+                }
+            }
         }
     }
 
@@ -1080,17 +1966,106 @@ public struct ShellHostConfig: Sendable {
         notice = hostText("Restored the save backup from \(restored.label). Your previous save was backed up first.")
     }
 
-    private func finishLaunch(_ baseGame: LaunchableGame) async {
+    private enum FinishLaunchOutcome {
+        case launched
+        case cancelled
+        case failed(String)
+    }
+
+    private func isLaunchStillValid(_ game: LaunchableGame, expectedGeneration: UInt64) -> Bool {
+        cloudCheckGeneration == expectedGeneration
+            && !stoppingRunningGame
+            && entry(game.titleID)?.manifest == game.manifest
+    }
+
+    private func finishLaunch(_ baseGame: LaunchableGame, expectedGeneration: UInt64, suppressNotice: Bool = false) async -> FinishLaunchOutcome {
         var game = baseGame
         // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
         LastPlayedStore(defaults: config.defaults(game.titleID)).record(config.now())
         refresh(game.titleID)
         do {
+            let hotRoot = config.hotFrameworksRoot
+            let isHotExternal = hotRoot.map { MachOLocalSigner.isInsideAllowedRoot(game.frameworkURL, allowedRoot: $0) } ?? false
+            var usedCachedReceipt = false
+
+            if let hotRoot, isHotExternal {
+                let fwURL = game.frameworkURL
+                let hostID = config.hostBundleID()
+                let store = sideloadCertificateStore
+                let clock = config.now
+                usedCachedReceipt = try await Task.detached(priority: .userInitiated) { () throws -> Bool in
+                    guard store.hasCertificate else { return false }
+                    let didSign = try MachOLocalSigner.ensureSignedIfNeeded(
+                        frameworkURL: fwURL,
+                        allowedRoot: hotRoot,
+                        hostBundleID: hostID,
+                        store: store,
+                        now: clock()
+                    )
+                    return !didSign
+                }.value
+                guard isLaunchStillValid(game, expectedGeneration: expectedGeneration) else {
+                    return .cancelled
+                }
+            }
+
             game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
-            try await launcher.launch(game)
-            recordSessionDidStart(for: game)
+            guard isLaunchStillValid(game, expectedGeneration: expectedGeneration) else {
+                return .cancelled
+            }
+
+            do {
+                try await launcher.launch(game)
+                recordSessionDidStart(for: game)
+                return .launched
+            } catch let launchError {
+                // If an external framework skipped signing via a cached `.nx-local-sign.json` receipt and then failed
+                // to launch (e.g. modified bundle resources or iOS `sigRefused`), clear the stale receipt, force a
+                // fresh-inode re-sign once, and retry launch so the player is never stuck in a receipt deadlock.
+                guard usedCachedReceipt, let hotRoot, isHotExternal else {
+                    throw launchError
+                }
+                let fwURL = game.frameworkURL
+                let hostID = config.hostBundleID()
+                let store = sideloadCertificateStore
+                let clock = config.now
+                let didForceSign = try await Task.detached(priority: .userInitiated) { () throws -> Bool in
+                    MachOLocalSigner.removeReceipt(for: fwURL)
+                    guard store.hasCertificate else { return false }
+                    let identity = try store.loadIdentity()
+                    _ = try MachOLocalSigner.signFramework(
+                        at: fwURL,
+                        allowedRoot: hotRoot,
+                        identity: identity,
+                        hostBundleID: hostID,
+                        now: clock()
+                    )
+                    return true
+                }.value
+                guard isLaunchStillValid(game, expectedGeneration: expectedGeneration) else {
+                    return .cancelled
+                }
+                guard didForceSign else {
+                    throw launchError
+                }
+                do {
+                    try await launcher.launch(game)
+                    recordSessionDidStart(for: game)
+                    return .launched
+                } catch {
+                    // Keep the receipt cleared after a failed retry so the next attempt can recover cleanly.
+                    MachOLocalSigner.removeReceipt(for: fwURL)
+                    throw error
+                }
+            }
         } catch {
-            notice = error.localizedDescription
+            guard isLaunchStillValid(game, expectedGeneration: expectedGeneration) else {
+                return .cancelled
+            }
+            if !suppressNotice {
+                notice = error.localizedDescription
+            }
+            return .failed(error.localizedDescription)
         }
     }
 
@@ -1128,16 +2103,17 @@ public struct ShellHostConfig: Sendable {
     }
 
     /// DM_GAME_MENU_TEXT: the in-game menu's own words in the player's language, one per line in the engine's order (patch 0124, GameMenu.swift):
-    /// its title, Controller layout, Keys that toggle and None (#1129).
+    /// its title and Controller layout (#1129).
     static var gameMenuText: String {
-        [hostText("More settings on the start screen"), hostText("Controller layout"), hostText("Keys that toggle"), hostText("None")]
+        [hostText("More settings on the start screen"), hostText("Controller layout")]
             .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
     }
 
     /// A game's values for the engine: its own choices, then the shell's defaults. A game whose settings list has no
     /// performance overlay row still gets the shell's choice.
     func launchEnvironment(profile: LauncherProfile, id: String) -> [String: String] {
-        var env = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).values()
+        let envOverrides = gameEnvOverrides(for: id)
+        var env = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults, envFile: envOverrides).values()
         for (key, value) in shellSettings.gameDefaults where env[key] == nil { env[key] = value }
         // The words the engine shows once per launch where the 3D layout's undrawn right stick is (patch 0067), in the player's language.
         env["DM_TOUCH_HINT"] = Self.touchHint
@@ -1147,6 +2123,9 @@ public struct ShellHostConfig: Sendable {
         env["DM_HOME_QUIT_TEXT"] = Self.quitPromptText(gameName: entry(id)?.title ?? id)
         // The in-game menu's own words (patch 0124), as the Mac's build bakes them into a game's own app.
         env["DM_GAME_MENU_TEXT"] = Self.gameMenuText
+        if let shellMenu = ShellInGameMenu.encode(profile: profile, titleID: id, shellDefaults: shellSettings.gameDefaults, envFileOverrides: envOverrides) {
+            env["DM_SHELL_MENU"] = shellMenu
+        }
         // A launcher.json DM_PAD_MAP row is authoritative, including an empty value.
         if !profile.settings.contains(where: { $0.env == "DM_PAD_MAP" }) {
             env["DM_PAD_MAP"] = PadMap.merged(global: shellSettings.padMap,
@@ -1156,13 +2135,18 @@ public struct ShellHostConfig: Sendable {
     }
 
     func launchShellFallbackKeys(profile: LauncherProfile, id: String) -> Set<String> {
-        let store = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults)
+        let store = makeSettingsStore(for: id, profile: profile)
         var keys = Set(profile.settings.filter { store.isFromShell($0) }.map(\.env))
         let profileEnvs = Set(profile.settings.map(\.env))
         for key in shellSettings.gameDefaults.keys where !profileEnvs.contains(key) {
             keys.insert(key)
         }
         return keys
+    }
+
+    func launchBuiltInDefaultKeys(profile: LauncherProfile, id: String) -> Set<String> {
+        let store = makeSettingsStore(for: id, profile: profile)
+        return Set(profile.settings.filter { !store.hasExplicitChoice($0) && !store.isFromShell($0) }.map(\.env))
     }
 
     // MARK: Controllers

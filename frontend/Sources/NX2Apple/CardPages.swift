@@ -9,6 +9,12 @@ import NXModel
 // A game file dropped on the Builds page goes to the build store (DropFiles.swift).
 
 struct CardPages: View {
+    var artworkStore: ArtworkStore = .shared
+    var fetchMetadata = true
+    @Binding var buildStep: Int
+    var confirmingBuildCancel: Binding<Bool> = .constant(false)
+    var buildLogOpen: Binding<Bool> = .constant(false)
+    var allBuildStepsOpen: Binding<Bool> = .constant(false)
     let settings: Bool
     @ObservedObject var build: BuildStore   // for the drop target (off while a build runs) and the two cards that need to know
     let updates: AppUpdateStore
@@ -24,7 +30,12 @@ struct CardPages: View {
     var players: PlayerProfileStore? = nil   // Settings > Library > Players (PlayersCard)
     @ObservedObject var library: GameLibrary
     var diagnostics: (LibraryGame?, @escaping (String) -> Void) -> Void = { _, _ in }   // the report of Copy diagnostics (LauncherStores)
+    var onCancelBuild: () -> Void = {}
     var onViewGame: () -> Void = {}
+    var onPlayGame: (() -> Void)? = nil
+    var onPlayQueuedGame: (String) -> Void = { _ in }
+    var queuePlayEnabled = true
+    var editingBuildResult: Binding<Bool> = .constant(false)
     var onOpenSettings: () -> Void = {}
     var onChooseLibraryFolder: () -> Void = {}
     var onOpenControls: () -> Void = {}
@@ -37,7 +48,6 @@ struct CardPages: View {
     var onBuildFileDetails: (UUID) -> Void = { _ in }   // the game's Free space sheet
     @Binding var settingsCategory: SettingsCategory   // the part of Settings shown (kept by the launcher, so a test opens any of them)
     @State private var extrasOpen = false
-    @State private var logOpen = false
     @EnvironmentObject var loc: Localizer
 
     var body: some View {
@@ -47,9 +57,9 @@ struct CardPages: View {
                              diagnostics: diagnostics, onChooseLibraryFolder: onChooseLibraryFolder, onOpenControls: onOpenControls,
                              onOpenControllers: onOpenControllers, onRunSetup: onRunSetup, controlChanges: controlChanges, padMerge: padMerge, buildFiles: buildFiles, buildingID: buildingID, onBuildFileDetails: onBuildFileDetails, category: $settingsCategory)
             } else {
-                LauncherPageScroll(memoryKey: "builds") {
-                    BuildPage(build: build, running: build.running, repo: repo, dependencies: dependencies, devices: devices, queue: queue, transfers: transfers, onSelectGames: onSelectGames, extrasOpen: $extrasOpen, logOpen: $logOpen,
-                              onViewGame: onViewGame, onOpenSettings: onOpenSettings)
+                Group {
+                    BuildPage(library: library, artworkStore: artworkStore, fetchMetadata: fetchMetadata, step: $buildStep, build: build, running: build.running, repo: repo, dependencies: dependencies, devices: devices, queue: queue, transfers: transfers, onSelectGames: onSelectGames, extrasOpen: $extrasOpen, logOpen: buildLogOpen, allStepsOpen: allBuildStepsOpen,
+                              confirmingCancel: confirmingBuildCancel, onCancelBuild: onCancelBuild, onViewGame: onViewGame, onPlayGame: onPlayGame, onPlayQueuedGame: onPlayQueuedGame, queuePlayEnabled: queuePlayEnabled, editingResult: editingBuildResult, onOpenSettings: onOpenSettings)
                 }
             }
         }

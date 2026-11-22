@@ -102,7 +102,21 @@ final class StageNameTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(Stage.localizedName("pack DLC", zh), "打包 DLC", "the DLC stage is its own row, not pack of \"DLC\"")
         XCTAssertEqual(Stage.localizedName("unpack v196608", zh), "解包 v196608")
         for lang in Lang.all {
-            for key in ["stage.pack", "stage.pack_dlc", "stage.unpack"] { XCTAssertNotEqual(L10n.string(key, lang), key, "\(key) in \(lang)") }
+            for key in ["stage.pack", "stage.pack_dlc", "stage.unpack", "stage.check"] { XCTAssertNotEqual(L10n.string(key, lang), key, "\(key) in \(lang)") }
         }
+    }
+
+    func testCheckFilesAndExistingStagesFollowTheCurrentLanguage() {
+        let japanese = { (key: String) in L10n.string(key, Lang("ja")) }
+        let chinese = { (key: String) in L10n.string(key, .zh) }
+        let check = Stage(id: 1, name: "check v655360 files")
+        XCTAssertEqual(check.displayName(japanese), "v655360 のファイルを確認")
+        XCTAssertEqual(check.displayName(chinese), "检查 v655360 文件")
+        let extract = Stage(id: 2, name: "extract v655360")
+        XCTAssertEqual(extract.displayName(japanese), "v655360 の抽出")
+        XCTAssertEqual(extract.displayName(chinese), "提取 v655360")
+        let install = Stage(id: 3, name: "Install on iPhone", nameKey: "dev.installStage", nameArgument: "iPhone")
+        XCTAssertEqual(install.displayName(japanese), String(format: japanese("dev.installStage"), "iPhone"))
+        XCTAssertEqual(install.displayName(chinese), String(format: chinese("dev.installStage"), "iPhone"))
     }
 }

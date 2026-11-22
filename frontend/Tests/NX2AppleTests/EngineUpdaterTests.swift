@@ -65,7 +65,7 @@ final class EngineUpdaterTests: IsolatedDefaultsTestCase {
     private func id(_ c: Character) -> String { String(repeating: c, count: 40) + "-0123456789ab" }
 
     /// A tree as the release publishes it: the files the launcher runs by path and its .engine-id, at the archive's root.
-    private func makeTree(_ name: String = "tree", id: String? = nil, chain: String? = nil) throws -> URL {
+    private func makeTree(_ name: String = "tree", id: String? = nil, chain: String? = nil, upstreamDate: String? = nil) throws -> URL {
         let fm = FileManager.default
         let dir = root.appendingPathComponent(name, isDirectory: true)
         try fm.createDirectory(at: dir.appendingPathComponent("scripts"), withIntermediateDirectories: true)
@@ -74,6 +74,9 @@ final class EngineUpdaterTests: IsolatedDefaultsTestCase {
         try Data([0]).write(to: dir.appendingPathComponent("dm/tools/romfs_image.py"))
         try Data("ee6648cb".utf8).write(to: dir.appendingPathComponent(".upstream-ref"))
         try Data(((id ?? self.id("a")) + "\n").utf8).write(to: dir.appendingPathComponent(".engine-id"))
+        if let upstreamDate {
+            try Data((upstreamDate + "\n").utf8).write(to: dir.appendingPathComponent(".upstream-date"))
+        }
         if let chain {
             try fm.createDirectory(at: dir.appendingPathComponent("dm/gfx/nvn"), withIntermediateDirectories: true)
             try Data("#pragma once\n#define DMSH_CHAIN \"\(chain)\"\n".utf8).write(to: dir.appendingPathComponent("dm/gfx/nvn/dmsh_chain.h"))
@@ -220,22 +223,24 @@ final class EngineUpdaterTests: IsolatedDefaultsTestCase {
     private let experimentalBase = "https://github.com/LNPANDY/NX2Apple/releases/download/engine-experimental/"
 
     private func manifest(id: String, channel: String = "stable", version: String = "0.7.3", digest: String,
-                          size: Int? = nil, sources: [String] = []) -> Data {
+                          size: Int? = nil, sources: [String] = [], upstreamDate: String? = nil) -> Data {
         let pin = String(id.prefix(40))
         let sizeField = size.map { ",\"size\":\($0)" } ?? ""
+        let dateField = upstreamDate.map { ",\"upstream_date\":\"\($0)\"" } ?? ""
         let list = "[" + sources.map { "\"\($0)\"" }.joined(separator: ",") + "]"
         return Data("""
-        {"version":"\(version)","pin":"\(pin)","engine_id":"\(id)","channel":"\(channel)",
+        {"version":"\(version)","pin":"\(pin)","engine_id":"\(id)","channel":"\(channel)"\(dateField),
          "engine":{"asset":"NX2Apple-engine.zip","sha256":"\(digest)"\(sizeField)},"sources":\(list)}
         """.utf8)
     }
 
     /// A release with an engine archive of `id`: the manifest and the zip at `base`.
-    private func publish(_ t: FakeTransport, id: String, channel: String = "stable", base: String, sources: [String] = []) throws -> Data {
-        let archive = try Data(contentsOf: zip(makeTree("pub-" + UUID().uuidString, id: id)))
+    private func publish(_ t: FakeTransport, id: String, channel: String = "stable", base: String,
+                         sources: [String] = [], upstreamDate: String? = nil) throws -> Data {
+        let archive = try Data(contentsOf: zip(makeTree("pub-" + UUID().uuidString, id: id, upstreamDate: upstreamDate)))
         let digest = AppUpdate.sha256(of: try write(archive))!
         let m = manifest(id: id, channel: channel, version: channel == "stable" ? "0.7.3" : "0.7.3-experimental",
-                         digest: digest, size: archive.count, sources: sources)
+                         digest: digest, size: archive.count, sources: sources, upstreamDate: upstreamDate)
         t.files[base + "latest.json"] = m
         for b in (sources.isEmpty ? [base] : sources) { t.files[b + "NX2Apple-engine.zip"] = archive }
         return m
@@ -444,6 +449,68 @@ final class EngineUpdaterTests: IsolatedDefaultsTestCase {
         serve(t, "b", date: "2026-11-05T00:00:00Z", channel: "stable", base: stableBase)
         let key = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation.base64EncodedString()
         XCTAssertEqual(EngineUpdate.standing(appVersion: "0.7.3", publicKey: key, transport: t), .unknown, "a key is built in and nothing is signed")
+    }
+
+    func testExperimentalNeverDowngradesToAnOlderUpstreamDateThanBundled() throws {
+        let resources = root.appendingPathComponent("Resources", isDirectory: true)
+        _ = try makeTree("Resources/engine", id: id("b"), upstreamDate: "2026-11-18T18:35:43Z")
+        let bundled = try XCTUnwrap(EngineBundle.tree(in: resources))
+        let t = FakeTransport()
+        _ = try publish(t, id: id("a"), channel: "experimental", base: experimentalBase, upstreamDate: "2026-11-16T00:00:00Z")
+        XCTAssertEqual(run(t, channel: .experimental, current: id("b"), bundled: bundled),
+                       .installed(.init(id: id("b"), version: "0.7.3"), .bundle))
+        XCTAssertTrue(t.downloads.isEmpty, "older experimental archive must not be downloaded")
+        XCTAssertFalse(store.isUsable(id("a")))
+        XCTAssertTrue(store.isUsable(id("b")))
+        XCTAssertEqual(run(t, channel: .experimental, current: id("b"), bundled: bundled),
+                       .current(.init(id: id("b"), version: "0.7.3")))
+    }
+
+    func testExperimentalNeverDownloadsTheSameEngineAsBundled() throws {
+        let resources = root.appendingPathComponent("Resources", isDirectory: true)
+        _ = try makeTree("Resources/engine", id: id("b"))
+        let bundled = try XCTUnwrap(EngineBundle.tree(in: resources))
+        let t = FakeTransport()
+        _ = try publish(t, id: id("b"), channel: "experimental", base: experimentalBase)
+        XCTAssertEqual(run(t, channel: .experimental, current: id("a"), bundled: bundled),
+                       .installed(.init(id: id("b"), version: "0.7.3"), .bundle))
+        XCTAssertTrue(t.downloads.isEmpty)
+    }
+
+    func testExperimentalNeverDowngradesBelowCurrentInstalledTree() throws {
+        try EngineInstaller.seed(from: try makeTree("cur", id: id("c"), upstreamDate: "2026-11-19T00:00:00Z"),
+                                 engineID: id("c"), store: store)
+        let t = FakeTransport()
+        _ = try publish(t, id: id("a"), channel: "experimental", base: experimentalBase, upstreamDate: "2026-11-16T00:00:00Z")
+        XCTAssertEqual(run(t, channel: .experimental, current: id("c")),
+                       .current(.init(id: id("c"), version: "0.7.3")))
+        XCTAssertTrue(t.downloads.isEmpty)
+    }
+
+    func testExperimentalKeepsNewerCurrentTreeOverOlderBundledAndExperimental() throws {
+        let resources = root.appendingPathComponent("Resources", isDirectory: true)
+        _ = try makeTree("Resources/engine", id: id("b"), upstreamDate: "2026-11-18T00:00:00Z")
+        let bundled = try XCTUnwrap(EngineBundle.tree(in: resources))
+        try EngineInstaller.seed(from: try makeTree("cur", id: id("c"), upstreamDate: "2026-11-20T00:00:00Z"),
+                                 engineID: id("c"), store: store)
+        let t = FakeTransport()
+        _ = try publish(t, id: id("a"), channel: "experimental", base: experimentalBase, upstreamDate: "2026-11-16T00:00:00Z")
+        XCTAssertEqual(run(t, channel: .experimental, current: id("c"), bundled: bundled),
+                       .current(.init(id: id("c"), version: "0.7.3")))
+        XCTAssertTrue(t.downloads.isEmpty)
+    }
+
+    func testStandingFallsBackToBundledWhenStableManifestIsMissing() throws {
+        let resources = root.appendingPathComponent("Resources", isDirectory: true)
+        _ = try makeTree("Resources/engine", id: id("b"), upstreamDate: "2026-11-18T18:35:43Z")
+        let bundled = try XCTUnwrap(EngineBundle.tree(in: resources))
+        let t = FakeTransport()
+        serve(t, "a", date: "2026-11-16T00:00:00Z", channel: "experimental", base: experimentalBase)
+        XCTAssertEqual(EngineUpdate.standing(appVersion: "0.7.3", bundled: bundled, publicKey: "", transport: t), .notAhead)
+        serve(t, "c", date: "2026-11-20T00:00:00Z", channel: "experimental", base: experimentalBase)
+        XCTAssertEqual(EngineUpdate.standing(appVersion: "0.7.3", bundled: bundled, publicKey: "", transport: t), .ahead)
+        t.failing = true
+        XCTAssertEqual(EngineUpdate.standing(appVersion: "0.7.3", bundled: bundled, publicKey: "", transport: t), .unknown)
     }
 
     // MARK: The engine update row

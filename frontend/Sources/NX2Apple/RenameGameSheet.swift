@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NXCore
 import NXModel
@@ -22,53 +23,34 @@ struct RenameGameSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(loc.t("rename.title")).font(.manrope(22, .heavy)).tracking(-0.4)
-                Text(loc.t("rename.note")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+        DSSheet(title: loc.t("rename.title"), message: loc.t("rename.note")) {
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                TextField(game.ownName(loc.lang), text: $text)
+                    .textFieldStyle(.plain).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
+                    .padding(.horizontal, DS.Space.s).frame(height: DS.Control.height)
+                    .background(DS.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.chip))
+                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.chip).strokeBorder(fieldFocused ? DS.Color.accent : DS.Color.separator))
+                    .focused($fieldFocused)
+                    .onSubmit(commit)
+                    .accessibilityLabel(loc.t("rename.title"))
+                Text(String(format: "%@: %@", loc.t("rename.placeholder"), game.ownName(loc.lang)))
+                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(1).truncationMode(.middle)
             }
-            .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 16)
-            TextField(game.ownName(loc.lang), text: $text)
-                .textFieldStyle(.plain).font(.manrope(16, .medium))
-                .padding(.horizontal, 14).padding(.vertical, 11)
-                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(LauncherPalette.ink(fieldFocused ? 0.25 : 0.08)))
-                .focused($fieldFocused)
-                .onSubmit(commit)
-                .accessibilityLabel(loc.t("rename.title"))
-                .padding(.horizontal, 28).padding(.bottom, 8)
-            Text(String(format: "%@: %@", loc.t("rename.placeholder"), game.ownName(loc.lang)))
-                .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.middle)
-                .padding(.horizontal, 30).padding(.bottom, 20)
-            Divider().opacity(0.3)
-            HStack(spacing: 12) {
-                if !game.customName.isEmpty {
-                    Button(loc.t("rename.reset")) { save(""); dismiss() }
-                        .buttonStyle(LauncherSecondaryButtonStyle())
-                        .padTarget("rename.reset", scope: "rename") { save(""); dismiss() }
-                }
-                Spacer(minLength: 8)
-                Button(loc.t("saves.cancel")) { dismiss() }
-                    .buttonStyle(LauncherSecondaryButtonStyle())
-                    .keyboardShortcut(.cancelAction)
-                    .padTarget("rename.cancel", scope: "rename") { dismiss() }
-                Button(action: commit) {
-                    Text(loc.t("rename.save")).font(.manrope(13.5, .bold))
-                        .padding(.horizontal, 20).padding(.vertical, 9)
-                }
-                .buttonStyle(LauncherActionButtonStyle())
-                .keyboardShortcut(.defaultAction)
-                .padTarget("rename.save", scope: "rename", radius: 20) { commit() }
+        } leading: {
+            if !game.customName.isEmpty {
+                Button(loc.t("rename.reset")) { save(""); dismiss() }
+                    .buttonStyle(DSSecondaryButtonStyle())
+                    .padTarget("rename.reset", scope: "rename") { save(""); dismiss() }
             }
-            .padding(.horizontal, 28).padding(.vertical, 16)
+        } buttons: {
+            Button(loc.t("saves.cancel")) { dismiss() }
+                .buttonStyle(DSSecondaryButtonStyle())
+                .keyboardShortcut(.cancelAction)
+                .padTarget("rename.cancel", scope: "rename") { dismiss() }
+            DSSheetPrimaryButton(loc.t("rename.save"), action: commit)
+                .padTarget("rename.save", scope: "rename", focusColor: DS.Color.accentOn) { commit() }
         }
         .padScope("rename", focus)
-        .frame(width: 520)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(LauncherPalette.background)
-        .font(.manrope(13))
-        .launcherAppearance()
-        .tint(LauncherPalette.accent)
         .onAppear { fieldFocused = true }
     }
 

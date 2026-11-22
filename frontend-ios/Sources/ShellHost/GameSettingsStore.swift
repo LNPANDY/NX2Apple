@@ -26,11 +26,13 @@ public struct GameSettingsStore {
     public let profile: LauncherProfile
     private let defaults: UserDefaults
     private let shell: [String: String]
+    private let envFile: [String: String]
 
-    public init(profile: LauncherProfile, defaults: UserDefaults, shell: [String: String] = [:]) {
+    public init(profile: LauncherProfile, defaults: UserDefaults, shell: [String: String] = [:], envFile: [String: String] = [:]) {
         self.profile = profile
         self.defaults = defaults
         self.shell = shell
+        self.envFile = envFile
     }
 
     /// The saved value as a string, as launcher.c reads it (not `string(forKey:)`, which turns a number into one).
@@ -38,16 +40,37 @@ public struct GameSettingsStore {
         (defaults.object(forKey: setting.defaultsKey) as? String).flatMap { setting.accepts($0) ? $0 : nil }
     }
 
-    /// What the game does without a saved choice: the shell's default when the game offers it, else its own.
+    /// Accepted override from per-game `Documents/games/<title ID>/env.txt`.
+    private func envFileValue(_ setting: LauncherSetting) -> String? {
+        envFile[setting.env].flatMap { setting.accepts($0) ? $0 : nil }
+    }
+
+    /// What the game does without a saved choice or per-game `env.txt` override: the shell's default when offered, else built-in.
     private func fallback(_ setting: LauncherSetting) -> String {
         shell[setting.env].flatMap { setting.accepts($0) ? $0 : nil } ?? setting.def
     }
 
-    public func value(of setting: LauncherSetting) -> String { saved(setting) ?? fallback(setting) }
+    public func hasExplicitChoice(_ setting: LauncherSetting) -> Bool { saved(setting) != nil }
 
-    /// True when the row shows the shell's choice: the game has none saved and the shell asks for a value the game offers.
+    public func savedValue(for env: String) -> String? {
+        guard let setting = profile.settings.first(where: { $0.env == env }) else { return nil }
+        return saved(setting)
+    }
+
+    public func isFromEnvFile(_ setting: LauncherSetting) -> Bool {
+        saved(setting) == nil && envFileValue(setting) != nil
+    }
+
+    public func value(of setting: LauncherSetting) -> String { saved(setting) ?? envFileValue(setting) ?? fallback(setting) }
+
+    /// True when the row shows the shell's choice: neither explicit UI nor per-game `env.txt` sets it and the shell offers a valid value.
     public func isFromShell(_ setting: LauncherSetting) -> Bool {
-        saved(setting) == nil && shell[setting.env].map(setting.accepts) == true
+        saved(setting) == nil && envFileValue(setting) == nil && shell[setting.env].map(setting.accepts) == true
+    }
+
+    /// True when the row only reflects the profile's untouched built-in default (no explicit UI choice, no per-game `env.txt`, no shell default).
+    public func isBuiltInDefault(_ setting: LauncherSetting) -> Bool {
+        saved(setting) == nil && envFileValue(setting) == nil && !isFromShell(setting)
     }
 
     public func values() -> [String: String] {
@@ -69,9 +92,13 @@ public struct GameSettingsStore {
         for setting in profile.settings { defaults.removeObject(forKey: setting.defaultsKey) }
     }
 
-    /// Any saved choice can be forgotten by the reset, also one that keeps the game's default against the shell's.
+    /// Any saved choice or per-game `env.txt` override differing from fallback can be reset.
     public var hasModifiedSettings: Bool {
-        profile.settings.contains { saved($0) != nil }
+        profile.settings.contains { setting in
+            if saved(setting) != nil { return true }
+            if let override = envFileValue(setting) { return override != fallback(setting) }
+            return false
+        }
     }
 }
 

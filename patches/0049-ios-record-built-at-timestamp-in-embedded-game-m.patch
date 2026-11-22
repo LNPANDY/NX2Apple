@@ -46,10 +46,10 @@ index f1c8992..448a233 100644
  class ProjectTemplateTests(unittest.TestCase):
      """build_ipa.sh --prepare-xcode copies the template the build asks for in as project.yml."""
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 896320f..8562179 100755
+index f8ec71c..d93e083 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -236,7 +236,8 @@ if [ "$FRAMEWORK" = 1 ]; then
+@@ -252,7 +252,8 @@ if [ "$FRAMEWORK" = 1 ]; then
    FW_LOADER=FR; [ -z "$FRAMEWORK_ONLY" ] || FW_LOADER=FH
    python3 tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
      --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \

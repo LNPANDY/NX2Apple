@@ -12,12 +12,12 @@ Upstream-Status: pending
 Reason: Support page-aligned DMMSLTR1 shader trailers in romfs.img and record built_at and gfx_api in iOS manifests
 Issue: LNPANDY/NX2Apple
 ---
- dm/gfx/gl/hle_gl.m                   |  97 +++--
+ dm/gfx/gl/hle_gl.m                   |  95 +++--
  dm/gfx/msl_mount.h                   |  28 ++
  dm/gfx/nvn/msl_mount.c               | 260 ++++++++++++
  dm/gfx/nvn/nvn_mtl.m                 |  46 ++-
  dm/gfx/tests/t_shmap_warm.m          |  78 ++++
- dm/gfx/vk/hle_vk.m                   |  83 +++-
+ dm/gfx/vk/hle_vk.m                   |  92 +++--
  dm/host/hle_lifecycle.c              |   2 +
  dm/host/romfs_identity.h             |  10 +-
  dm/host/romfs_image.h                | 119 +++++-
@@ -29,17 +29,17 @@ Issue: LNPANDY/NX2Apple
  dm/tools/romfs.py                    |  69 +++-
  dm/tools/romfs_image.py              | 577 ++++++++++++++++++++++++++-
  dm/tools/tests/test_msl_trailer.py   | 491 +++++++++++++++++++++++
- 17 files changed, 1904 insertions(+), 101 deletions(-)
+ 17 files changed, 1903 insertions(+), 109 deletions(-)
  create mode 100644 dm/gfx/msl_mount.h
  create mode 100644 dm/gfx/nvn/msl_mount.c
  create mode 100644 dm/tools/tests/test_msl_trailer.py
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index b1767b4..fe0c43b 100644
+index 67a9b3c..b38b575 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
-@@ -24,9 +24,13 @@
- #include <CommonCrypto/CommonDigest.h>
+@@ -27,8 +27,11 @@
+ #include <TargetConditionals.h>
  #include <mach/mach.h>
  #include "../../host/host_image.h"
 +#include "../msl_mount.h"
@@ -48,99 +48,117 @@ index b1767b4..fe0c43b 100644
  #include <stdatomic.h>
 +#include <sys/mman.h>
  #include <time.h>
+ #if TARGET_OS_OSX
+ #include <crt_externs.h>
+@@ -36,6 +39,7 @@
+ #include <spawn.h>
+ #include <sys/wait.h>
+ #endif
 +#include <unistd.h>
  
  int mtl_fps_target(void);
  int mtl_link_active(void); int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns);   // nvn_mtl.m
-@@ -158,39 +162,73 @@
- typedef struct { char key[17]; int frag, ub_slot, ub_size, na, nu, nt; shattr *a; shuni *u; shsamp *t; } shinfo;
+@@ -174,14 +178,12 @@
+ typedef struct { char key[17]; int frag, ub_slot, ub_size, arg_slot, nargs, na, nu, nt, nb; shattr *a; shuni *u; shsamp *t; shblk *b; } shinfo;
  static shinfo *g_sh; static int g_nsh;
  static int sh_cmp(const void *a, const void *b) { int c = memcmp(((const shinfo *)a)->key, ((const shinfo *)b)->key, 16); return c ? c : ((const shinfo *)a)->frag - ((const shinfo *)b)->frag; }
-+static void sh_parse_line(char *line, int *cap) {
-+    if (line[0] == '#' || line[0] == '\n' || line[0] == '\r' || !line[0]) return;
+-static int sh_read_abi(FILE *f) {
+-    const char abi[] = "# GL shader ABI 2\n";
+-    char line[sizeof abi];
+-    return fgets(line, sizeof line, f) && !strcmp(line, abi);
+-}
++static const char GL_SHADER_ABI[] = "# GL shader ABI 2";   // the table's first line (dm/gfx/tools/gl_shaders.py)
++static int sh_abi_line(const char *line) { size_t n = strlen(GL_SHADER_ABI); return !strncmp(line, GL_SHADER_ABI, n) && (line[n] == '\n' || line[n] == '\r' || !line[n]); }
++static int sh_read_abi(FILE *f) { char line[64]; return fgets(line, sizeof line, f) && sh_abi_line(line); }
+ static void sh_free(shinfo *s) { free(s->a); free(s->u); free(s->t); free(s->b); }
+ static int sh_read_row(char *line, shinfo *s) {
+-    char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\n");
 +    char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\r\n");
-+    if (!key || !stage || strlen(key) != 16) return;
+     if (!key || !stage || strlen(key) != 16 || (strcmp(stage, "vert") && strcmp(stage, "frag"))) return 0;
+     *s = (shinfo){.frag = !strcmp(stage, "frag"), .ub_slot = -1, .arg_slot = -1, .nargs = -1};
+     memcpy(s->key, key, 16);
+@@ -191,10 +193,10 @@ static int sh_read_row(char *line, shinfo *s) {
+     }
+     int na = 0, nu = 0, nt = 0, nb = 0;
+     for (const char *c = res; *c; c++) if (c == res || c[-1] == ' ') { na += *c == 'a'; nu += *c == 'u'; nt += *c == 't'; nb += *c == 'n'; }
+-    s->a = zalloc((na + 1) * sizeof *s->a); s->u = zalloc((nu + 1) * sizeof *s->u); s->t = zalloc((nt + 1) * sizeof *s->t); s->b = zalloc((nb + 1) * sizeof *s->b);
++    s->a = zalloc((size_t)(na + 1) * sizeof *s->a); s->u = zalloc((size_t)(nu + 1) * sizeof *s->u); s->t = zalloc((size_t)(nt + 1) * sizeof *s->t); s->b = zalloc((size_t)(nb + 1) * sizeof *s->b);
+     int bad = 0;
+     char *save;
+-    for (char *t = strtok_r(res, " ", &save); t; t = strtok_r(NULL, " ", &save)) {
++    for (char *t = strtok_r(res, " \r", &save); t; t = strtok_r(NULL, " \r", &save)) {
+         char nm[64], ty[32]; unsigned a1, a2, a3; int sa;
+         if (t[0] == 'a' && (unsigned)s->na < (unsigned)na && sscanf(t, "a:%63[^=]=%u:%31s", nm, &a1, ty) == 3 && a1 < 16) {
+             shattr *x = &s->a[s->na++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty);
+@@ -222,29 +224,67 @@ static int sh_read_row(char *line, shinfo *s) {
+ static id<MTLFunction> sh_function(id<MTLLibrary> lib, const shinfo *s) {
+     return [lib newFunctionWithName:[NSString stringWithFormat:@"gl_%s_%c", s->key, s->frag ? 'f' : 'v']];
+ }
++static void sh_append_line(char *line, int *cap) {
++    if (line[0] == '#' || line[0] == '\n' || line[0] == '\r' || !line[0]) return;
++    shinfo s; if (!sh_read_row(line, &s)) return;
 +    if (g_nsh == *cap) { *cap = *cap ? *cap * 2 : 1024; g_sh = realloc(g_sh, (size_t)*cap * sizeof *g_sh); }
-+    shinfo *s = &g_sh[g_nsh++]; memset(s, 0, sizeof *s);
-+    memcpy(s->key, key, 16); s->frag = !strcmp(stage, "frag"); s->ub_slot = -1;
-+    int na = 0, nu = 0, nt = 0;
-+    for (char *c = res; c && *c; c++) if (c == res || c[-1] == ' ') { na += *c == 'a'; nu += *c == 'u'; nt += *c == 't'; }
-+    s->a = zalloc((size_t)(na + 1) * sizeof *s->a); s->u = zalloc((size_t)(nu + 1) * sizeof *s->u); s->t = zalloc((size_t)(nt + 1) * sizeof *s->t);
-+    for (char *t = res ? strtok(res, " ") : NULL; t; t = strtok(NULL, " ")) {
-+        char nm[64], ty[32]; unsigned a1, a2, a3;
-+        if (t[0] == 'a' && sscanf(t, "a:%63[^=]=%u:%31s", nm, &a1, ty) == 3 && a1 < 16) { shattr *x = &s->a[s->na++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty); }
-+        else if (t[0] == 'u' && sscanf(t, "u:%63[^=]=%u:%31[^:]:%u:%u", nm, &a1, ty, &a2, &a3) == 5) {
-+            shuni *x = &s->u[s->nu++]; strlcpy(x->name, nm, sizeof x->name); x->off = a1; x->type = tcode(ty); x->count = a2; x->stride = a3;
-+        } else if (t[0] == 't' && sscanf(t, "t:%63[^=]=%u:%31s", nm, &a1, ty) == 3) { shsamp *x = &s->t[s->nt++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty); }
-+        else if (t[0] == 'b' && sscanf(t, "b:%u:%u", &a1, &a2) == 2) { s->ub_slot = a1; s->ub_size = a2; }
-+    }
-+    if (s->ub_slot >= 15) GLOG("[RED] shader %s: uniform block at buffer slot %d meets the vertex buffer slots", s->key, s->ub_slot);
++    g_sh[g_nsh++] = s;
 +}
  static void sh_load(void) {
      const char *d = getenv("DM_MSL_DIR"); char p[1024];
 -    if (!d) { GLOG("[RED] DM_MSL_DIR not set: the GL shader library cannot be found"); return; }
 -    snprintf(p, sizeof p, "%s/gl/gl_shaders.tsv", d);
 -    FILE *f = fopen(p, "r");
--    if (!f) { GLOG("[RED] cannot open %s (run dm/gfx/tools/gl_shaders.py first)", p); return; }
--    static char line[65536]; int cap = 0;
--    while (fgets(line, sizeof line, f)) {
--        if (line[0] == '#' || line[0] == '\n') continue;
--        char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\n");
--        if (!key || !stage || strlen(key) != 16) continue;
--        if (g_nsh == cap) { cap = cap ? cap * 2 : 1024; g_sh = realloc(g_sh, cap * sizeof *g_sh); }
--        shinfo *s = &g_sh[g_nsh++]; memset(s, 0, sizeof *s);
--        memcpy(s->key, key, 16); s->frag = !strcmp(stage, "frag"); s->ub_slot = -1;
--        int na = 0, nu = 0, nt = 0;
--        for (char *c = res; c && *c; c++) if (c == res || c[-1] == ' ') { na += *c == 'a'; nu += *c == 'u'; nt += *c == 't'; }
--        s->a = zalloc((na + 1) * sizeof *s->a); s->u = zalloc((nu + 1) * sizeof *s->u); s->t = zalloc((nt + 1) * sizeof *s->t);
--        for (char *t = res ? strtok(res, " ") : NULL; t; t = strtok(NULL, " ")) {
--            char nm[64], ty[32]; unsigned a1, a2, a3;
--            if (t[0] == 'a' && sscanf(t, "a:%63[^=]=%u:%31s", nm, &a1, ty) == 3 && a1 < 16) { shattr *x = &s->a[s->na++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty); }
--            else if (t[0] == 'u' && sscanf(t, "u:%63[^=]=%u:%31[^:]:%u:%u", nm, &a1, ty, &a2, &a3) == 5) {
--                shuni *x = &s->u[s->nu++]; strlcpy(x->name, nm, sizeof x->name); x->off = a1; x->type = tcode(ty); x->count = a2; x->stride = a3;
--            } else if (t[0] == 't' && sscanf(t, "t:%63[^=]=%u:%31s", nm, &a1, ty) == 3) { shsamp *x = &s->t[s->nt++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty); }
--            else if (t[0] == 'b' && sscanf(t, "b:%u:%u", &a1, &a2) == 2) { s->ub_slot = a1; s->ub_size = a2; }
+-    if (!f) {
+-        if (!g_capture_compiler || errno != ENOENT) GLOG("[RED] cannot open %s (run dm/gfx/tools/gl_shaders.py first)", p);
+-        return;
 +    FILE *f = NULL;
 +    if (d && *d) {
 +        snprintf(p, sizeof p, "%s/gl/gl_shaders.tsv", d);
 +        f = fopen(p, "r");
-+    }
+     }
+-    static char line[65536]; int cap = 0;
+-    if (!sh_read_abi(f)) {
+-        GLOG("[RED] GL shader table has an incompatible ABI; rebuild with dm/gfx/tools/gl_shaders.py"); fclose(f); return;
 +    int cap = 0;
 +    if (f) {
 +        static char line[65536];
-+        while (fgets(line, sizeof line, f)) sh_parse_line(line, &cap);
++        if (!fgets(line, sizeof line, f) || !sh_abi_line(line)) {
++            GLOG("[RED] GL shader table has an incompatible ABI; rebuild with dm/gfx/tools/gl_shaders.py"); fclose(f); return;
++        }
++        while (fgets(line, sizeof line, f)) sh_append_line(line, &cap);
 +        fclose(f);
 +    } else {
 +        void *tbuf = NULL; size_t tlen = 0;
 +        if (!dm_msl_trailer_read("gl/gl_shaders.tsv", &tbuf, &tlen)) {
-+            if (d && *d) GLOG("[RED] cannot open %s (run dm/gfx/tools/gl_shaders.py first)", p);
-+            else GLOG("[RED] DM_MSL_DIR not set and DM_ROMFS has no gl/gl_shaders.tsv trailer");
++            if (d && *d) {
++                if (!g_capture_compiler || errno != ENOENT) GLOG("[RED] cannot open %s (run dm/gfx/tools/gl_shaders.py first)", p);
++            } else {
++                GLOG("[RED] DM_MSL_DIR not set and DM_ROMFS has no gl/gl_shaders.tsv trailer");
++            }
 +            return;
-         }
--        if (s->ub_slot >= 15) GLOG("[RED] shader %s: uniform block at buffer slot %d meets the vertex buffer slots", s->key, s->ub_slot);
++        }
 +        char *cur = (char *)tbuf;
++        if (!cur || !sh_abi_line(cur)) { GLOG("[RED] GL shader table has an incompatible ABI; rebuild with dm/gfx/tools/gl_shaders.py"); free(tbuf); return; }
++        char *nl0 = strchr(cur, '\n');
++        cur = nl0 ? nl0 + 1 : NULL;
 +        while (cur && *cur) {
 +            char *nl = strchr(cur, '\n');
 +            if (nl) *nl = '\0';
-+            sh_parse_line(cur, &cap);
++            sh_append_line(cur, &cap);
 +            cur = nl ? nl + 1 : NULL;
 +        }
 +        free(tbuf);
      }
--    fclose(f);
--    qsort(g_sh, g_nsh, sizeof *g_sh, sh_cmp);
--    snprintf(p, sizeof p, "%s/gl/gl_shaders.metallib", d);
+-    while (fgets(line, sizeof line, f)) {
+-        if (line[0] == '#' || line[0] == '\n') continue;
+-        shinfo s; if (!sh_read_row(line, &s)) continue;
+-        if (g_nsh == cap) { cap = cap ? cap * 2 : 1024; g_sh = realloc(g_sh, cap * sizeof *g_sh); }
+-        g_sh[g_nsh++] = s;
 +    qsort(g_sh, (size_t)g_nsh, sizeof *g_sh, sh_cmp);
-     NSError *err = nil;
--    g_lib = [g_dev newLibraryWithURL:[NSURL fileURLWithPath:@(p)] error:&err];
--    if (!g_lib) GLOG("[RED] shader library failed to load %s: %s", p, err.localizedDescription.UTF8String);
 +    if (d && *d) snprintf(p, sizeof p, "%s/gl/gl_shaders.metallib", d);
 +    if (d && *d && !access(p, F_OK)) {
-+        g_lib = [g_dev newLibraryWithURL:[NSURL fileURLWithPath:@(p)] error:&err];
-+        if (!g_lib) GLOG("[RED] shader library failed to load %s: %s", p, err.localizedDescription.UTF8String);
++        g_lib = sh_library(p);
 +    } else {
 +        msl_map m;
 +        if (dm_msl_trailer_map("gl/gl_shaders.metallib", &m)) {
++            NSError *err = nil;
 +            void *base = m.base; size_t base_len = m.base_len;
 +            dispatch_data_t dd = dispatch_data_create(m.data, m.size, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ munmap(base, base_len); });
 +            g_lib = [g_dev newLibraryWithData:dd error:&err];
@@ -150,11 +168,15 @@ index b1767b4..fe0c43b 100644
 +        } else {
 +            GLOG("[RED] DM_MSL_DIR not set and DM_ROMFS has no gl/gl_shaders.metallib trailer");
 +        }
-+    }
+     }
+-    fclose(f);
+-    qsort(g_sh, g_nsh, sizeof *g_sh, sh_cmp);
+-    snprintf(p, sizeof p, "%s/gl/gl_shaders.metallib", d);
+-    g_lib = sh_library(p);
  }
  static const shinfo *sh_find(const char *key, int frag) { shinfo k; memcpy(k.key, key, 16); k.frag = frag; return g_nsh ? bsearch(&k, g_sh, g_nsh, sizeof *g_sh, sh_cmp) : NULL; }
  
-@@ -2231,7 +2269,7 @@ static void note_miss(const char *name) {
+@@ -3398,7 +3438,7 @@ static void note_miss(const char *name) {
  }
  
  void dm_gl_teardown(void) { @autoreleasepool {
@@ -163,7 +185,7 @@ index b1767b4..fe0c43b 100644
      dm_gl_drain();
      pass_end();
      g_cb = nil;
-@@ -2285,6 +2323,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
+@@ -3472,6 +3512,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
      g_frames = 0;
  
      g_lib = nil; g_util = nil;
@@ -472,18 +494,18 @@ index 0000000..4167f1c
 +    pthread_mutex_unlock(&g_msl_tr_mu);
 +}
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index b4ba610..e07ce05 100644
+index a4846ad..155f0cc 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -37,6 +37,7 @@
- #include "nvn_link_drain.h"
+@@ -41,6 +41,7 @@
+ #include "nvn_link_latch.h"
  #include "nvn_timestamp.h"
  #include "msl_image.h"
 +#include "../msl_mount.h"
  #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
  #include "game_profile.h"   // game profile constants (profile id, the profile's switches)
  // Texture slot table per stage: 0-127 the combined handles (nvnCommandBufferBindTexture), 128-255 the separate texture binds (NVN_SEPTEX_SLOT0, nvn_obj.h)
-@@ -6122,13 +6123,25 @@ static int clear_rect_zero(int i) {
+@@ -6638,13 +6639,25 @@ static int clear_rect_zero(int i) {
      *img = m;
      return m ? msl_image_find(m, path.lastPathComponent.UTF8String) : NULL;
  }
@@ -512,7 +534,7 @@ index b4ba610..e07ce05 100644
  }
  static NSString *exe_rel(const char *rel) {
      char buf[4096]; uint32_t n = sizeof buf;
-@@ -6164,10 +6177,13 @@ static void shmap_read(void) {
+@@ -6680,10 +6693,13 @@ static void shmap_read(void) {
      g_shmap_path = path;
      const char *m = getenv("DM_MSL_DIR");
      // Library directory = <DM_MSL_DIR or default cache>/b-<translation chain version>: the version comes from dm/gfx/nvn/dmsh_chain.h (tools/dmsh_chain.py), one for every game; a host built from an old source tree only accepts libraries of the old version
@@ -527,7 +549,7 @@ index b4ba610..e07ce05 100644
          else MLOG("[RED] shader library %s (a folder or a .img file) does not exist: translation chain version %s of this source tree has not been built yet (dm/gfx/tools/dmsh_build.py)", g_msl_dir.UTF8String, DMSH_CHAIN);
      }
      // The library's stamp (inputs.tsv, written by a full dmsh_build.py run): the game and the digest of the profile inputs it was built from. The chain version is the same for every
-@@ -6358,14 +6374,20 @@ static void pso_user_record(const char *fmt, ...) {
+@@ -6881,14 +6897,20 @@ static void pso_user_record(const char *fmt, ...) {
  // The library is tagged with its digest (lib_tag), from the mapped bytes
  static id<MTLLibrary> lib_from_file(NSString *path, NSError **err) {
      int fd = open(path.fileSystemRepresentation, O_RDONLY); struct stat st;
@@ -550,7 +572,7 @@ index b4ba610..e07ce05 100644
      }
      if (fd < 0 || fstat(fd, &st) || st.st_size <= 0) { if (fd >= 0) close(fd); if (err) *err = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"cannot open %@", path]}]; return nil; }
      size_t len = (size_t)st.st_size; void *m = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0); close(fd);
-@@ -10072,8 +10094,13 @@ void mtl_pso_line(char *o, size_t n) {
+@@ -11242,8 +11264,13 @@ static int pre_later_take(PreLater *l, int wait) {
  // their bases cannot be made yet, so the stamp names one such file (pre_device_stamp) and a later start builds them once it is there. g_pre_nolib_file: the first one seen in this
  // run, a name in the library, under g_pre_fail_lock
  static _Atomic int g_pre_nolib; static NSString *g_pre_nolib_file;
@@ -566,7 +588,7 @@ index b4ba610..e07ce05 100644
  // 1 (and the file noted) when the library lacks <key><suffix>
  static int pre_lib_absent(NSString *key, NSString *suffix) {
      NSString *name = [key stringByAppendingString:suffix];
-@@ -18643,10 +18670,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -20106,10 +20133,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
  
      romfs_img *mimg = atomic_exchange(&g_msl_img, NULL);
      if (mimg) romfs_image_close(mimg);
@@ -669,10 +691,10 @@ index 5caa8ab..3935568 100644
      printf("%d checks, %d failed\n", g_checks, g_failed);
      return g_failed != 0;
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 7fc2312..5f1ad47 100644
+index 7477a08..79ffa9a 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
-@@ -22,9 +22,13 @@
+@@ -25,9 +25,13 @@
  #include <CommonCrypto/CommonDigest.h>
  #include <CoreFoundation/CoreFoundation.h>
  #include "../../host/host_image.h"
@@ -686,71 +708,82 @@ index 7fc2312..5f1ad47 100644
  
  int mtl_fps_target(void);   // nvn_mtl.m: 60, or 30 when the frame rate is halved
  int mtl_link_active(void); int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns);   // nvn_mtl.m: whether the display link presents, and the wait for its ticks
-@@ -137,32 +141,66 @@
- static shinfo *g_sh; static int g_nsh;
- static id<MTLLibrary> g_lib;
- static int sh_cmp(const void *a, const void *b) { return memcmp(((const shinfo *)a)->key, ((const shinfo *)b)->key, 16); }
-+static void sh_parse_line(char *line, int *cap) {
+@@ -231,44 +235,67 @@ static int sh_read_resources(shinfo *s, char *res) {
+     }
+     s->res = entries; return 1;
+ }
++static void sh_parse_row(char *line, int *cap) {
 +    if (line[0] == '#' || line[0] == '\n' || line[0] == '\r' || !line[0]) return;
 +    char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\r\n");   // strsep keeps the empty resource field of a shader without resources
-+    if (!key || !stage || strlen(key) != 16) return;
-+    if (g_nsh == *cap) { *cap = *cap ? *cap * 2 : 128; g_sh = realloc(g_sh, (size_t)*cap * sizeof *g_sh); }
-+    shinfo *s = &g_sh[g_nsh++]; memset(s, 0, sizeof *s);
-+    memcpy(s->key, key, 16); s->frag = !strcmp(stage, "frag");
-+    for (char *t = res ? strtok(res, " ") : NULL; t; t = strtok(NULL, " ")) {
-+        char k; unsigned st, b, sl, n = 1;
-+        if (sscanf(t, "%c:%u.%u=%u*%u", &k, &st, &b, &sl, &n) < 4 || !n || sl + n > 31 || s->nres == 24) { LOG("[vk] [RED] cannot parse a resource entry of shader table %s: %s", s->key, t); continue; }
-+        s->res[s->nres++] = (shres){k, (uint8_t)st, (uint8_t)sl, (uint8_t)n, (uint16_t)b};
-+    }
++    if (!key || !stage || !res || strlen(key) != 16) { LOG("[vk] [RED] malformed shader table row; shader refused"); return; }
++    shinfo s = {0}; memcpy(s.key, key, 16); s.frag = !strcmp(stage, "frag");
++    if (!strncmp(stage, "comp:", 5)) {
++        const char *p = stage + 5; unsigned x, y, z;
++        if (!sh_number(&p, &x) || *p++ != ',' || !sh_number(&p, &y) || *p++ != ',' || !sh_number(&p, &z) || *p || !x || !y || !z) goto invalid_stage;
++        s.comp = 1; s.wg[0] = (uint16_t)x; s.wg[1] = (uint16_t)y; s.wg[2] = (uint16_t)z;
++    } else if (!strncmp(stage, "geomvp:", 7)) {
++        const char *p = stage + 7; unsigned loc;
++        if (!sh_number(&p, &loc) || *p || loc >= 32) goto invalid_stage;
++        s.geom_vp = (int)loc + 1;
++    } else if (strcmp(stage, "vert") && !s.frag) goto invalid_stage;
++    if (!sh_read_resources(&s, res)) return;
++    if (g_nsh == *cap) { *cap = *cap ? *cap * 2 : 128; shinfo *q = realloc(g_sh, (size_t)*cap * sizeof *g_sh); if (!q) die("[vk] out of memory for the shader table"); g_sh = q; }
++    g_sh[g_nsh++] = s;
++    return;
++invalid_stage:
++    LOG("[vk] [RED] shader table %s: invalid stage %s; shader refused", key, stage);
 +}
+ static void sh_read_table(FILE *f) {
+-    char *line = NULL; size_t length = 0; int cap = 0;
+-    while (getline(&line, &length, f) >= 0) {
+-        if (line[0] == '#' || line[0] == '\n') continue;
+-        char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\n");   // strsep keeps the empty resource field of a shader without resources
+-        if (!key || !stage || !res || strlen(key) != 16) { LOG("[vk] [RED] malformed shader table row; shader refused"); continue; }
+-        shinfo s = {0}; memcpy(s.key, key, 16); s.frag = !strcmp(stage, "frag");
+-        if (!strncmp(stage, "comp:", 5)) {
+-            const char *p = stage + 5; unsigned x, y, z;
+-            if (!sh_number(&p, &x) || *p++ != ',' || !sh_number(&p, &y) || *p++ != ',' || !sh_number(&p, &z) || *p || !x || !y || !z) goto invalid_stage;
+-            s.comp = 1; s.wg[0] = (uint16_t)x; s.wg[1] = (uint16_t)y; s.wg[2] = (uint16_t)z;
+-        } else if (!strncmp(stage, "geomvp:", 7)) {
+-            const char *p = stage + 7; unsigned loc;
+-            if (!sh_number(&p, &loc) || *p || loc >= 32) goto invalid_stage;
+-            s.geom_vp = (int)loc + 1;
+-        } else if (strcmp(stage, "vert") && !s.frag) goto invalid_stage;
+-        if (!sh_read_resources(&s, res)) continue;
+-        if (g_nsh == cap) { cap = cap ? cap * 2 : 128; shinfo *q = realloc(g_sh, cap * sizeof *g_sh); if (!q) die("[vk] out of memory for the shader table"); g_sh = q; }
+-        g_sh[g_nsh++] = s;
+-        continue;
+-    invalid_stage:
+-        LOG("[vk] [RED] shader table %s: invalid stage %s; shader refused", key, stage);
+-    }
++    char *line = NULL; size_t length = 0; int cap = g_nsh;
++    while (getline(&line, &length, f) >= 0) sh_parse_row(line, &cap);
+     free(line);
+     if (ferror(f)) die("[vk] cannot read the shader table");
+-    qsort(g_sh, g_nsh, sizeof *g_sh, sh_cmp);   // looked up by key (Super Mario Galaxy creates over 3,000 modules at boot)
++    qsort(g_sh, (size_t)g_nsh, sizeof *g_sh, sh_cmp);   // looked up by key (Super Mario Galaxy creates over 3,000 modules at boot)
+ }
  static void sh_load(void) {
      const char *d = getenv("DM_MSL_DIR"); char p[1024];
 -    if (!d) { LOG("[vk] [RED] DM_MSL_DIR not set: the Vulkan shader library cannot be found"); return; }
 -    snprintf(p, sizeof p, "%s/vk/vk_shaders.tsv", d);
 -    FILE *f = fopen(p, "r");
 -    if (!f) { LOG("[vk] [RED] cannot open %s (run dm/gfx/tools/vk_shaders.py first)", p); return; }
--    char line[4096]; int cap = 0;
--    while (fgets(line, sizeof line, f)) {
--        if (line[0] == '#' || line[0] == '\n') continue;
--        char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\n");   // strsep keeps the empty resource field of a shader without resources
--        if (!key || !stage || strlen(key) != 16) continue;
--        if (g_nsh == cap) { cap = cap ? cap * 2 : 128; g_sh = realloc(g_sh, cap * sizeof *g_sh); }
--        shinfo *s = &g_sh[g_nsh++]; memset(s, 0, sizeof *s);
--        memcpy(s->key, key, 16); s->frag = !strcmp(stage, "frag");
--        for (char *t = res ? strtok(res, " ") : NULL; t; t = strtok(NULL, " ")) {
--            char k; unsigned st, b, sl, n = 1;
--            if (sscanf(t, "%c:%u.%u=%u*%u", &k, &st, &b, &sl, &n) < 4 || !n || sl + n > 31 || s->nres == 24) { LOG("[vk] [RED] cannot parse a resource entry of shader table %s: %s", s->key, t); continue; }
--            s->res[s->nres++] = (shres){k, (uint8_t)st, (uint8_t)sl, (uint8_t)n, (uint16_t)b};
+-    sh_read_table(f); fclose(f);
+-    snprintf(p, sizeof p, "%s/vk/vk_shaders.metallib", d);
 +    FILE *f = NULL;
 +    if (d && *d) {
 +        snprintf(p, sizeof p, "%s/vk/vk_shaders.tsv", d);
 +        f = fopen(p, "r");
-+    }
-+    int cap = 0;
-+    if (f) {
-+        char line[4096];
-+        while (fgets(line, sizeof line, f)) sh_parse_line(line, &cap);
-+        fclose(f);
++        if (!f) { LOG("[vk] [RED] cannot open %s (run dm/gfx/tools/vk_shaders.py first)", p); return; }
++        sh_read_table(f); fclose(f);
 +    } else {
-+        void *tbuf = NULL; size_t tlen = 0;
-+        if (!dm_msl_trailer_read("vk/vk_shaders.tsv", &tbuf, &tlen)) {
-+            if (d && *d) LOG("[vk] [RED] cannot open %s (run dm/gfx/tools/vk_shaders.py first)", p);
-+            else LOG("[vk] [RED] DM_MSL_DIR not set and DM_ROMFS has no vk/vk_shaders.tsv trailer");
-+            return;
-         }
-+        char *cur = (char *)tbuf;
-+        while (cur && *cur) {
-+            char *nl = strchr(cur, '\n');
-+            if (nl) *nl = '\0';
-+            sh_parse_line(cur, &cap);
-+            cur = nl ? nl + 1 : NULL;
-+        }
++        void *tbuf = NULL; size_t tlen = 0;   // no DM_MSL_DIR: the shader table of the RomFS image's DMMSLTR1 trailer
++        if (!dm_msl_trailer_read("vk/vk_shaders.tsv", &tbuf, &tlen)) { LOG("[vk] [RED] DM_MSL_DIR not set and DM_ROMFS has no vk/vk_shaders.tsv trailer"); return; }
++        f = fmemopen(tbuf, tlen, "r");
++        if (f) { sh_read_table(f); fclose(f); } else LOG("[vk] [RED] cannot read the shader table of the RomFS trailer");
 +        free(tbuf);
-     }
--    fclose(f);
--    qsort(g_sh, g_nsh, sizeof *g_sh, sh_cmp);   // looked up by key (Super Mario Galaxy creates over 3,000 modules at boot)
--    snprintf(p, sizeof p, "%s/vk/vk_shaders.metallib", d);
-+    qsort(g_sh, (size_t)g_nsh, sizeof *g_sh, sh_cmp);   // looked up by key (Super Mario Galaxy creates over 3,000 modules at boot)
++    }
      NSError *err = nil;
 -    g_lib = [g_dev newLibraryWithURL:[NSURL fileURLWithPath:@(p)] error:&err];
 -    if (!g_lib) LOG("[vk] [RED] shader library failed to load %s: %s", p, err.localizedDescription.UTF8String);
@@ -774,7 +807,7 @@ index 7fc2312..5f1ad47 100644
  }
  static const shinfo *sh_find(const char *key) { shinfo k; memcpy(k.key, key, 16); return g_nsh ? bsearch(&k, g_sh, g_nsh, sizeof *g_sh, sh_cmp) : NULL; }
  
-@@ -1842,7 +1880,7 @@ static void vk_set_free_cb(const void *value, void *context) {
+@@ -3004,7 +3031,7 @@ static void vk_set_free_cb(const void *value, void *context) {
  }
  
  void dm_vk_teardown(void) { @autoreleasepool {
@@ -783,30 +816,30 @@ index 7fc2312..5f1ad47 100644
      dm_vk_drain();
  
      pthread_mutex_lock(&g_sets_mu);
-@@ -1868,6 +1906,7 @@ void dm_vk_teardown(void) { @autoreleasepool {
- 
-     free(g_sh); g_sh = NULL; g_nsh = 0;
+@@ -3043,6 +3070,7 @@ void dm_vk_teardown(void) { @autoreleasepool {
+     atomic_store(&g_n_resume, 0);
+     g_fan_ps = nil; g_fan_failed = 0;
      g_lib = nil;
 +    dm_msl_trailer_teardown();
      g_dss_off = nil;
      g_ev = nil;
      g_q = nil;
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index 8ea7451..80bdd7c 100644
+index 902d2b9..097687c 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
-@@ -78,6 +78,7 @@ __attribute__((weak)) void dm_codec_video_stop_all(void) {}
- __attribute__((weak)) void dm_codec_video_teardown_post(void) {}
+@@ -98,6 +98,7 @@ __attribute__((weak)) void dm_codec_video_teardown_post(void) {}
  __attribute__((weak)) void dm_cheats_teardown(void) {}
+ __attribute__((weak)) void dm_gfx_quit_begin(void) {}
  __attribute__((weak)) void dm_gfx_teardown(void) {}
 +__attribute__((weak, visibility("hidden"))) void dm_msl_trailer_teardown(void) {}
  __attribute__((weak)) void dm_fs_teardown(void) {}
  __attribute__((weak)) void dm_ue_malloc_teardown(void) {}
  __attribute__((weak)) void dm_guest_clock_wake_teardown(void) {}
-@@ -103,6 +104,7 @@ void dm_host_teardown_for_shell(void) {
-     dm_codec_video_teardown_post();
-     dm_cheats_teardown();
-     dm_gfx_teardown();
+@@ -138,6 +139,7 @@ void dm_host_teardown_for_shell(void) {
+     dm_sdk16_teardown();
+     dm_hid_touch_teardown();
+     dm_fpslock_teardown();
 +    dm_msl_trailer_teardown();
      dm_fs_teardown();
      dm_guest_memory_release(1);
@@ -1012,10 +1045,10 @@ index 687b41c..8c9853e 100644
      }
  }
 diff --git a/dm/host/tests/t_fs.c b/dm/host/tests/t_fs.c
-index 8a7711e..fa67084 100644
+index a654738..94b7692 100644
 --- a/dm/host/tests/t_fs.c
 +++ b/dm/host/tests/t_fs.c
-@@ -288,6 +288,82 @@ int main(void) {
+@@ -297,6 +297,82 @@ int main(void) {
          }
          f = fopen(ip, "wb"); fwrite(img, 1, 39 + 50, f); fclose(f);   // cut off inside the index, as a copy stopped partway
          CHECK(!img_open(ip), "a cut-off image is refused");
@@ -1182,10 +1215,10 @@ index 4792b5e..54671a3 100644
          """Slim builds carry no add-on content: games/<id>/aoc (the layout hle_fs.c aoc_dir reads) must reach DM_AOC_DIR, before aoc_locate takes Documents/aoc or <App>/aoc, and never over an explicit value."""
          main = (REPO / 'dm/ios/Sources/main.m').read_text()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 8562179..970f063 100755
+index d93e083..4c06244 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -234,10 +234,11 @@ if [ "$FRAMEWORK" = 1 ]; then
+@@ -250,10 +250,11 @@ if [ "$FRAMEWORK" = 1 ]; then
    fi
    NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
    FW_LOADER=FR; [ -z "$FRAMEWORK_ONLY" ] || FW_LOADER=FH

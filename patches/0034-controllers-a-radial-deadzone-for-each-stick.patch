@@ -28,7 +28,7 @@ Issue: LNPANDY/NX2Apple#1025
  create mode 100644 dm/host/tests/t_stick_deadzone.c
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index ec38a40..2918263 100644
+index d676e71..70b6bfa 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -8,6 +8,7 @@
@@ -90,10 +90,10 @@ index 0000000..36fa9e7
 +    *y = (int32_t)lrintf(fmaxf(-1, fminf(1, fy * scale)) * DM_STICK_MAX);
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index d4d7c4c..79335e5 100644
+index a4d9b36..99f0e9c 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -442,7 +442,9 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
+@@ -518,7 +518,9 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
  profile-runtime: $(B)/t_profile_runtime
  	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
  

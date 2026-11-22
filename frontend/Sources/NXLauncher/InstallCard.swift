@@ -9,18 +9,23 @@ package struct InstallCard: View {
     @ObservedObject var devices: DeviceStore
     @ObservedObject var build: BuildStore
     @EnvironmentObject var loc: Localizer
-    @State private var selectDeviceGamesOpen = false
+    @Environment(\.launcherSectionTitleFont) private var titleFont
 
+    @State private var selectDeviceGamesOpen = false
+    @State private var signingHelpOpen = false
+    @State private var recentDevice: String?
+    let forQueue: Bool
     let showLocked: Bool
 
-    package init(devices: DeviceStore, build: BuildStore, showLocked: Bool = true) {
+    package init(devices: DeviceStore, build: BuildStore, showLocked: Bool = true, forQueue: Bool = false) {
         self.showLocked = showLocked
+        self.forQueue = forQueue
         self.devices = devices
         self.build = build
     }
 
     package var body: some View {
-        if build.target != BuildTarget.mac, !build.running || sending || showLocked { card.disabled(build.running && !sending) }
+        if build.target != BuildTarget.mac || forQueue, !build.running || sending || showLocked { card.disabled(build.running && !sending) }
     }
 
     /// The copy of the game data runs on the build store's `running` flag too, and its own buttons must stay usable (Stop).
@@ -29,81 +34,344 @@ package struct InstallCard: View {
     }
 
     private var card: some View {
-        let options = [(value: "", label: loc.t("dev.none"))] + devices.devices.map { d in
-            (value: d.id, label: d.name + (d.reachable ? "" : " (" + loc.t("dev.notConnected") + ")"))
-        }
         let teams = devices.teams.map { (value: $0.id, label: $0.label(personalTeam: loc.t("dev.personalTeam"))) }
         let needsCertificate = devices.teams.first { $0.id == devices.signingTeam }.map { !$0.hasCertificate } ?? false
         let footnote = devices.exportIPA ? ""
             : devices.installDevice.isEmpty ? "" : (needsCertificate ? loc.t("dev.teamNoCert") + " " : "") + loc.t("dev.note")
-        return CardGroup(loc.t("dev.section"), footnote: footnote) {
+        let modeLabels = [loc.t("shell.modeInstall"), loc.t("shell.modeExport")]
+        let modeSwitch = LauncherSegmented(options: [("install", modeLabels[0]), ("export", modeLabels[1])],
+                                           selection: devices.exportIPA ? "export" : "install") { devices.exportIPA = $0 == "export" }
+            .frame(width: ExportGrid.segmentedWidth(for: modeLabels))
+            .disabled(build.running)
+            .padTarget("set.build.install.mode", scope: "main", enabled: !build.running, activate: { if !build.running { devices.exportIPA.toggle() } }, adjust: { _ in if !build.running { devices.exportIPA.toggle() } })
+        return VStack(alignment: .leading, spacing: 10) {
             // The two ways, a switch of their own: exporting is never chosen for the player (#416)
-            CardRow(loc.t("shell.modeTitle")) {
-                LauncherSegmented(options: [("install", loc.t("shell.modeInstall")), ("export", loc.t("shell.modeExport"))],
-                                  selection: devices.exportIPA ? "export" : "install") { devices.exportIPA = $0 == "export" }
-                    .frame(width: ExportGrid.switchWidth)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    Text(loc.t(forQueue ? "queue.iosOptions" : "dev.section")).font(titleFont)
+                        .foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 8)
+                    modeSwitch
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(loc.t(forQueue ? "queue.iosOptions" : "dev.section")).font(titleFont)
+                        .foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
+                    modeSwitch
+                }
             }
-            CardDivider()
-            if devices.exportIPA {
-                // What the IPA holds: the shared app by default, one game with its data inside as the other choice (#540)
-                CardRow(loc.t("shell.ipaKind"), detail: devices.exportOneGame ? loc.t("shell.ipaOneGameNote") : loc.t("shell.ipaSharedNote")) {
-                    LauncherSegmented(options: [("shared", loc.t("shell.ipaShared")), ("one", loc.t("shell.ipaOneGame"))],
-                                      selection: devices.exportOneGame ? "one" : "shared") { pickKind($0 == "one") }
-                        .frame(width: ExportGrid.switchWidth)
-                }
-                CardDivider()
-                ExportSteps(build: build, devices: devices)
-            } else {
-                CardRow(loc.t("dev.target"), detail: devices.checked && devices.devices.isEmpty ? loc.t("dev.noDevices") : "") {
-                    RefreshDevicesButton(devices: devices)
-                    LauncherDropdown(options: options, selection: devices.installDevice, label: loc.t("dev.target")) { devices.installDevice = $0 }
-                }
-                if !devices.installDevice.isEmpty {
-                    CardDivider()
-                    if teams.isEmpty {
-                        CardRow(loc.t("dev.team"), detail: loc.t("dev.noTeam"), dot: LauncherPalette.building) { EmptyView() }
-                    } else {
-                        CardRow(loc.t("dev.team")) {
-                            LauncherDropdown(options: teams, selection: devices.signingTeam, label: loc.t("dev.team")) { devices.signingTeam = $0 }
+            CardGroup("") {
+                if devices.exportIPA {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 14) {
+                            appKindCard("shared").frame(minWidth: 210)
+                            appKindCard("one").frame(minWidth: 210)
+                            appKindCard("framework").frame(minWidth: 210)
+                        }.fixedSize(horizontal: false, vertical: true)
+                        VStack(spacing: 12) {
+                            appKindCard("shared")
+                            appKindCard("one")
+                            appKindCard("framework")
                         }
-                    }
-                }
-                let builtCount = build.builtShellGames().count
-                if builtCount > 0 {
-                    CardDivider()
-                    CardRow(loc.t("shell.builtTitle"), detail: loc.t("shell.installBuiltNote")) {
-                        Button(String(format: loc.t("shell.installBuilt"), builtCount)) { build.installBuiltGames() }
-                            .buttonStyle(LauncherSecondaryButtonStyle())
-                            .disabled(build.running || !build.installsDirectly || devices.exportIPA)
-                            .help(loc.t("shell.installBuiltNote"))
-                    }
-                    if !build.sharedAppDataSources().isEmpty {
+                    }.padding(18)
+                    if !devices.exportOneGame && devices.exportFramework {
                         CardDivider()
-                        CardRow(loc.t("shell.step3Title"), detail: loc.t("shell.sendAllNote")) {
-                            Button(loc.t("shell.selectGamesButton")) { selectDeviceGamesOpen = true }
-                                .buttonStyle(LauncherSecondaryButtonStyle())
-                                .disabled(!build.canSendAllGameData)
-                                .help(loc.t("shell.selectGamesDeviceNote"))
-                            Button(loc.t("shell.sendAllButton")) { build.sendAllGameData() }
-                                .buttonStyle(LauncherSecondaryButtonStyle())
-                                .disabled(!build.canSendAllGameData)
-                                .help(loc.t("shell.sendAllNote"))
+                        let selectedFrameworkTeam = devices.effectiveFrameworkSigningTeam
+                        let frameworkTeamOptions: [(value: String, label: String)] = {
+                            var opts = [(value: "", label: loc.t("shell.frameworkTeamUnsigned"))] + teams
+                            if !selectedFrameworkTeam.isEmpty && !opts.contains(where: { $0.value == selectedFrameworkTeam }) {
+                                opts.append((value: selectedFrameworkTeam, label: selectedFrameworkTeam))
+                            }
+                            return opts
+                        }()
+                        let selectedNeedsCert = !selectedFrameworkTeam.isEmpty
+                            && (devices.teams.first { $0.id == selectedFrameworkTeam }.map { !$0.hasCertificate } ?? false)
+                        let teamDetail = selectedFrameworkTeam.isEmpty
+                            ? loc.t("shell.frameworkUnsignedNote")
+                            : loc.t(selectedNeedsCert ? "shell.frameworkTeamNoCert" : "shell.frameworkTeamNote")
+                        CardRow(loc.t("dev.team"), detail: teamDetail, dot: selectedNeedsCert ? LauncherPalette.building : nil) {
+                            LauncherDropdown(options: frameworkTeamOptions, selection: selectedFrameworkTeam, label: loc.t("dev.team")) { picked in
+                                if picked.isEmpty {
+                                    devices.exportFrameworkUnsigned = true
+                                } else {
+                                    devices.exportFrameworkUnsigned = false
+                                    devices.signingTeam = picked
+                                }
+                            }
+                            .disabled(build.running)
+                            .padTarget("set.build.install.team", scope: "main", enabled: !build.running,
+                                       activate: { stepFrameworkTeam(1, options: frameworkTeamOptions, current: selectedFrameworkTeam) },
+                                       adjust: { stepFrameworkTeam($0, options: frameworkTeamOptions, current: selectedFrameworkTeam) })
                         }
+                    }
+                    if !forQueue {
+                        CardDivider()
+                        ExportSteps(build: build, devices: devices)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            Text(loc.t("flow.chooseDevice")).font(.manrope(16, .semibold))
+                            Spacer()
+                            RefreshDevicesButton(devices: devices)
+                        }
+                        if devices.checked && devices.devices.isEmpty {
+                            VStack(spacing: 12) {
+                                Image(systemName: "iphone.and.ipad").font(.system(size: 28)).accessibilityHidden(true)
+                                Text(loc.t("flow.pairDevice")).font(DS.Font.body)
+                                Button(loc.t("flow.openXcode")) { openXcode() }
+                                    .padTarget("set.build.install.xcode", scope: "main", activate: { openXcode() })
+                            }.frame(maxWidth: .infinity).padding(20).accessibilityHint(loc.t("dev.noDevices"))
+                        } else {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
+                                ForEach(devices.devices) { device in
+                                    Button { devices.installDevice = device.id } label: {
+                                        VStack(alignment: .leading, spacing: 10) {
+                                            HStack {
+                                                if recentDevice == device.id {
+                                                    Text(loc.t("flow.recent")).font(.manrope(10, .semibold)).padding(.horizontal, 7).padding(.vertical, 3)
+                                                        .background(LauncherPalette.surface, in: Capsule())
+                                                        .overlay(DSPill().strokeBorder(LauncherPalette.cardBorder, lineWidth: 1))
+                                                }
+                                                Spacer()
+                                                Image(systemName: device.model.lowercased().contains("ipad") ? "ipad" : "iphone").font(.system(size: 24))
+                                            }
+                                            Spacer(minLength: 0)
+                                            Text(device.name).font(DS.Font.bodyStrong).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                                            deviceConnectionSubtitle(for: device)
+                                        }.padding(16).frame(height: 136, alignment: .topLeading)
+                                            .background(devices.installDevice == device.id ? LauncherPalette.selectedFill : LauncherPalette.selectableFill, in: RoundedRectangle(cornerRadius: 14))
+                                            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(devices.installDevice == device.id ? LauncherPalette.selectedBorder : LauncherPalette.selectableBorder, lineWidth: devices.installDevice == device.id ? 1.5 : 1))
+                                            .contentShape(RoundedRectangle(cornerRadius: 14))
+                                    }.buttonStyle(.plain).disabled(build.running)
+                                        .accessibilityAddTraits(devices.installDevice == device.id ? .isSelected : [])
+                                        .padTarget("set.build.install.device." + device.id, scope: "main", radius: 14, enabled: !build.running, activate: { if !build.running { devices.installDevice = device.id } })
+                                }
+                            }
+                        }
+                    }.padding(18)
+                    if !devices.installDevice.isEmpty {
+                        CardDivider()
+                        if teams.isEmpty {
+                            CardRow(loc.t("dev.team"), detail: loc.t("flow.signingRequired"), dot: LauncherPalette.building) { EmptyView() }
+                        } else {
+                            CardRow(loc.t("dev.team")) {
+                                LauncherDropdown(options: teams, selection: devices.signingTeam, label: loc.t("dev.team")) { devices.signingTeam = $0 }
+                                    .disabled(build.running)
+                                    .padTarget("set.build.install.team", scope: "main", enabled: !build.running, activate: { stepTeam(1, options: teams) }, adjust: { stepTeam($0, options: teams) })
+                            }
+                        }
+                        CardDivider()
+                        let linkProfile = devices.selectedDeviceLinkProfile
+                        let transferOptions = PostBuildTransferMode.allCases.map {
+                            (value: $0.rawValue, label: transferModeLabel(for: $0))
+                        }
+                        CardRow(loc.t("dev.transferMode"), detail: linkStatusDetail(for: linkProfile), dot: linkStatusDot(for: linkProfile)) {
+                            LauncherDropdown(options: transferOptions, selection: devices.postBuildTransferMode.rawValue, label: loc.t("dev.transferMode")) {
+                                devices.postBuildTransferMode = PostBuildTransferMode.fromStored($0)
+                            }
+                            .disabled(build.running)
+                            .padTarget("set.build.install.transferMode", scope: "main", enabled: !build.running,
+                                       activate: { stepTransferMode(1) }, adjust: { stepTransferMode($0) })
+                        }
+                    }
+                    if !devices.installDevice.isEmpty {
+                        CardDivider()
+                        CardDisclosure(loc.t("flow.signingHelp"), isOpen: signingHelpOpen) { signingHelpOpen.toggle() }
+                            .padTarget("set.build.install.help", scope: "main", enabled: !build.running, activate: { signingHelpOpen.toggle() })
+                        if signingHelpOpen {
+                            VStack(alignment: .leading, spacing: 12) {
+                                if teams.isEmpty { Text(loc.t("dev.noTeam")) }
+                                if !footnote.isEmpty { Text(footnote) }
+                            }.font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(18)
+                        }
+                    }
+                    if !forQueue && !build.builtShellGames().isEmpty {
+                        CardDivider()
+                        CardRow(loc.t("shell.builtTitle"), detail: loc.t("shell.installBuiltNote")) {
+                            Button(String(format: loc.t("shell.installBuilt"), build.builtShellGames().count)) { build.installBuiltGames() }
+                                .buttonStyle(LauncherSecondaryButtonStyle())
+                                .disabled(!build.canInstallBuiltGames)
+                                .help(loc.t("shell.installBuiltNote"))
+                                .padTarget("set.build.install.built", scope: "main", enabled: build.canInstallBuiltGames) { if build.canInstallBuiltGames { build.installBuiltGames() } }
+                        }
+                        if !build.sharedAppDataSources().isEmpty {
+                            CardDivider()
+                            CardRow(loc.t("shell.step3Title"), detail: loc.t("shell.sendAllNote")) {
+                                Button(loc.t("shell.selectGamesButton")) { selectDeviceGamesOpen = true }
+                                    .buttonStyle(LauncherSecondaryButtonStyle()).disabled(!build.canSendAllGameData)
+                                    .help(loc.t("shell.selectGamesDeviceNote"))
+                                    .padTarget("set.build.install.selectGames", scope: "main", enabled: build.canSendAllGameData) { if build.canSendAllGameData { selectDeviceGamesOpen = true } }
+                                Button(loc.t("shell.sendAllButton")) { build.sendAllGameData() }
+                                    .buttonStyle(LauncherSecondaryButtonStyle())
+                                    .disabled(!build.canSendAllGameData)
+                                    .help(loc.t("shell.sendAllNote"))
+                                    .padTarget("set.build.install.sendAll", scope: "main", enabled: build.canSendAllGameData) { if build.canSendAllGameData { build.sendAllGameData() } }
+                            }
+                        }
+                    }
+                }
+                if forQueue {
+                    CardDivider()
+                    CardRow(loc.t("opt.bc"), detail: loc.t("opt.bc.note")) {
+                        Toggle(loc.t("opt.bc"), isOn: $build.bcOnCPU).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(build.running)
+                            .padTarget("set.build.bc", scope: "main", enabled: !build.running,
+                                       activate: { if !build.running { build.bcOnCPU.toggle() } },
+                                       adjust: { _ in if !build.running { build.bcOnCPU.toggle() } })
                     }
                 }
             }
         }
-        .onAppear { if !devices.checked { _ = devices.refresh() } }
+        .onAppear {
+            if recentDevice == nil { recentDevice = devices.installDevice }
+            if !devices.checked { _ = devices.refresh() }
+        }
         .sheet(isPresented: $selectDeviceGamesOpen) {
-            SendSelectedSheet(mode: .device, build: build) { selectDeviceGamesOpen = false }
-                .environmentObject(loc)
+            SendSelectedSheet(mode: .device, build: build) { selectDeviceGamesOpen = false }.environmentObject(loc)
+        }
+    }
+
+    private func appKindCard(_ kind: String) -> some View {
+        let oneGame = kind == "one", framework = kind == "framework"
+        let selected = kind == (devices.exportOneGame ? "one" : devices.exportFramework ? "framework" : "shared")
+        return Button { pickKind(kind) } label: {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Spacer()
+                    if oneGame || framework {
+                        Image(systemName: framework ? "shippingbox.fill" : "app.fill").font(.system(size: 26, weight: .light))
+                            .foregroundStyle(selected ? LauncherPalette.accent : .secondary)
+                    } else { LauncherBrandMark(tint: selected ? LauncherPalette.accent : .secondary).accessibilityHidden(true) }
+                }.frame(height: 26)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(loc.t(framework ? "shell.ipaFramework" : oneGame ? "shell.choiceSingle" : "shell.choiceLauncher")).font(.manrope(16, .semibold))
+                    Text(loc.t(framework ? "shell.ipaFrameworkNote" : oneGame ? "shell.choiceSingleNote" : "shell.choiceLauncherNote"))
+                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(20).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(selected ? LauncherPalette.selectedFill : LauncherPalette.selectableFill, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.selectedBorder : LauncherPalette.selectableBorder, lineWidth: selected ? 1.5 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: 14))
+        }.buttonStyle(.plain).disabled(build.running)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .padTarget("set.build.install.kind." + kind, scope: "main", radius: 14, enabled: !build.running,
+                       activate: { if !build.running { pickKind(kind) } })
+    }
+
+    private func openXcode() {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.dt.Xcode") { NSWorkspace.shared.open(url) }
+    }
+
+    private func stepTeam(_ by: Int, options: [(value: String, label: String)]) {
+        guard !build.running, !options.isEmpty else { return }
+        let index = options.firstIndex { $0.value == devices.signingTeam } ?? 0
+        devices.signingTeam = options[(index + by + options.count) % options.count].value
+    }
+
+    private func stepFrameworkTeam(_ by: Int, options: [(value: String, label: String)], current: String) {
+        guard !build.running, !options.isEmpty else { return }
+        let index = options.firstIndex { $0.value == current } ?? 0
+        let picked = options[(index + by + options.count) % options.count].value
+        if picked.isEmpty {
+            devices.exportFrameworkUnsigned = true
+        } else {
+            devices.exportFrameworkUnsigned = false
+            devices.signingTeam = picked
+        }
+    }
+
+    private func transferModeLabel(for mode: PostBuildTransferMode) -> String {
+        switch mode {
+        case .ask: return loc.t("dev.transferMode.ask")
+        case .auto: return loc.t("dev.transferMode.auto")
+        case .skip: return loc.t("dev.transferMode.skip")
+        }
+    }
+
+    private func stepTransferMode(_ by: Int) {
+        guard !build.running else { return }
+        let all = PostBuildTransferMode.allCases
+        let index = all.firstIndex(of: devices.postBuildTransferMode) ?? 0
+        devices.postBuildTransferMode = all[(index + by + all.count) % all.count]
+    }
+
+    @ViewBuilder private func deviceConnectionSubtitle(for device: AppleDevice) -> some View {
+        let profile = devices.linkProfile(for: device.id)
+        switch profile {
+        case .highSpeedUSB(let bps):
+            HStack(spacing: 5) {
+                Circle().fill(DS.Color.statusReady).frame(width: 6, height: 6)
+                Text(String(format: loc.t("shell.copyBadgeHighSpeed"), USBLinkSpeed.formatRate(bps)))
+                    .font(DS.Font.footnote)
+                    .foregroundStyle(DS.Color.statusReady)
+                    .lineLimit(1)
+            }
+        case .usb2(let bps):
+            HStack(spacing: 5) {
+                Circle().fill(DS.Color.statusWarning).frame(width: 6, height: 6)
+                Text(String(format: loc.t("shell.copyBadgeUSB2"), USBLinkSpeed.formatRate(bps)))
+                    .font(DS.Font.footnote)
+                    .foregroundStyle(DS.Color.statusWarning)
+                    .lineLimit(1)
+            }
+        case .wifi:
+            HStack(spacing: 5) {
+                Circle().fill(DS.Color.statusInfo).frame(width: 6, height: 6)
+                Text(loc.t("shell.copyBadgeWifi"))
+                    .font(DS.Font.footnote)
+                    .foregroundStyle(DS.Color.textSecondary)
+                    .lineLimit(1)
+            }
+        case .wiredUnknown:
+            if device.wired {
+                HStack(spacing: 5) {
+                    Circle().fill(DS.Color.statusReady).frame(width: 6, height: 6)
+                    Text(loc.t("shell.copyBadgeWired"))
+                        .font(DS.Font.footnote)
+                        .foregroundStyle(DS.Color.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+        case .disconnected:
+            if !device.reachable {
+                Text(loc.t("dev.notConnected")).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary)
+            }
+        }
+    }
+
+    private func linkStatusDot(for profile: DeviceLinkProfile) -> Color {
+        switch profile {
+        case .highSpeedUSB, .wiredUnknown: return DS.Color.statusReady
+        case .usb2: return DS.Color.statusWarning
+        case .wifi: return DS.Color.statusInfo
+        case .disconnected: return LauncherPalette.unbuilt
+        }
+    }
+
+    private func linkStatusDetail(for profile: DeviceLinkProfile) -> String {
+        switch profile {
+        case .highSpeedUSB(let bps):
+            return String(format: loc.t("dev.linkHighSpeed"), USBLinkSpeed.formatRate(bps))
+        case .usb2(let bps):
+            return String(format: loc.t("dev.linkUSB2"), USBLinkSpeed.formatRate(bps))
+        case .wifi:
+            return loc.t("dev.linkWifi")
+        case .wiredUnknown:
+            return loc.t("dev.linkWired")
+        case .disconnected:
+            return loc.t("dev.linkDisconnected")
         }
     }
 
     /// The other kind of IPA: the IPA of the last export is not the one this choice makes, so step 1 starts again.
-    private func pickKind(_ oneGame: Bool) {
-        guard oneGame != devices.exportOneGame else { return }
+    private func pickKind(_ kind: String) {
+        let oneGame = kind == "one", framework = kind == "framework"
+        guard oneGame != devices.exportOneGame || framework != devices.exportFramework else { return }
         devices.exportOneGame = oneGame
+        devices.exportFramework = framework
         build.exportedIPAPath = ""
         build.send = .idle
     }

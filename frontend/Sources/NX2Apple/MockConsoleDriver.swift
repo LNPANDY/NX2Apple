@@ -34,8 +34,9 @@ import NXLauncher
             LaunchSetting(env: "DM_AUDIO_LATENCY", kind: "range", label: t("console.demoLatency"), note: "", def: "40", section: nil,
                           options: nil, min: 10, max: 120, step: 10, on: nil, off: nil)
         ]
-        // Library-style titles. Covers come from the launcher's own artwork lookup in the repo copy (nothing is bundled or downloaded).
-        let titles = ["Hollow Knight: Silksong", "Celeste", "Hades", "Sea of Stars", "Portal", "Balatro", "Animal Well", "Cuphead", "Stardew Valley", "Return of the Obra Dinn", "Blasphemous", "Hades II"]
+        // The state gallery's fictional games (GalleryFixtures.games), so no real title is shown. The gallery swaps in its own covers
+        // and names (GalleryConsoleFixtures.swift), the demos look covers up in the repo copy (nothing is bundled or downloaded).
+        let titles = GalleryFixtures.games.prefix(12).map(\.name)
         let noBanners = FileManager.default.temporaryDirectory.appendingPathComponent("console-demo-no-banners")   // the demo ids are invented: no eShop banner to find
         let games = ConsoleGame.readyFirst(titles.enumerated().map { index, title in
             ConsoleGame(id: "demo.\(index)", title: title, version: "1.0.\(index % 3)", platforms: index % 3 == 1 ? [.mac] : [.mac, .iphone],
@@ -90,13 +91,17 @@ import NXLauncher
     }
     private func animateStarting(_ gameID: String) {
         startingTask?.cancel()
+        state.launchCancellable = true
         startingTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_750_000_000)
+            guard !Task.isCancelled, let self, self.state.startingGameID == gameID else { return }
+            self.state.launchCancellable = false
             for count in stride(from: 0, through: 48, by: 4) {
                 try? await Task.sleep(nanoseconds: 180_000_000)
-                guard !Task.isCancelled, let self, self.state.startingGameID == gameID else { return }
+                guard !Task.isCancelled, self.state.startingGameID == gameID else { return }
                 self.state.starting = .compilingShaders(completed: count, total: 48)
             }
-            self?.state.starting = .opening
+            self.state.starting = .opening
         }
     }
 
@@ -172,7 +177,9 @@ import NXLauncher
         state.assigningPlayer = player
     }
     func assignPlayer(controllerID: String, player: Int) { state.assignPlayer(controller: controllerID, player: player) }
+    func cancelAssignment() { state.assigningPlayer = nil; state.assigningControllerID = nil }
     func back() {
+        if state.startingGameID != nil { startingTask?.cancel(); state.returnFromGame(); return }
         let wasGame = state.mappingGameID != nil
         state.back()
         if wasGame, state.mappingGameID == nil { state.padLayout = globalLayout }

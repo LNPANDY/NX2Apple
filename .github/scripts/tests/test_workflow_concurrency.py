@@ -249,6 +249,40 @@ class WorkflowConcurrencyTests(unittest.TestCase):
         self.assertIn('tags', push_cfg)
         self.assertIn('workflow_dispatch', wf['on'])
 
+    def test_sync_upstream_triggers_publish_experimental_after_tests_succeed_on_main(self):
+        text = (WORKFLOWS_DIR / 'sync-upstream.yml').read_text(encoding='utf-8')
+        if yaml is not None:
+            data = yaml.safe_load(text)
+            triggers = data.get('on') if 'on' in data else data.get(True, {})
+            wrun = triggers.get('workflow_run', {})
+            self.assertEqual(wrun.get('workflows'), ['tests'])
+            self.assertEqual(wrun.get('types'), ['completed'])
+            self.assertEqual(wrun.get('branches'), ['main'])
+            jobs = data.get('jobs', {})
+            self.assertIn("github.event_name != 'workflow_run'", jobs['sync']['if'])
+            pub_if = jobs['publish-experimental']['if']
+            self.assertIn('!cancelled()', pub_if)
+            self.assertIn("github.event.workflow_run.event == 'push'", pub_if)
+            self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", pub_if)
+            self.assertIn("github.event.workflow_run.conclusion == 'success'", pub_if)
+            steps = jobs['publish-experimental']['steps']
+            guard_step = next((s for s in steps if s.get('id') == 'current_main'), None)
+            self.assertIsNotNone(guard_step)
+            self.assertIn("github.event_name == 'workflow_run'", guard_step['if'])
+            self.assertIn('superseded=yes', guard_step['run'])
+            self.assertIn("steps.current_main.outputs.superseded != 'yes'", steps[-1]['if'])
+        else:
+            self.assertIn('workflow_run:', text)
+            self.assertIn('workflows: ["tests"]', text)
+            self.assertIn("github.event_name != 'workflow_run'", text)
+            self.assertIn('!cancelled()', text)
+            self.assertIn("github.event.workflow_run.event == 'push'", text)
+            self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", text)
+            self.assertIn("github.event.workflow_run.conclusion == 'success'", text)
+            self.assertIn('id: current_main', text)
+            self.assertIn('superseded=yes', text)
+            self.assertIn("steps.current_main.outputs.superseded != 'yes'", text)
+
 
 if __name__ == '__main__':
     unittest.main()

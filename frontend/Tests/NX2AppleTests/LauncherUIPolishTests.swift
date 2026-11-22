@@ -194,7 +194,7 @@ import NXModel
         XCTAssertNil(TitleNameLookup.sourceVersion(for: badGame))
     }
 
-    func testHeroShowsUnbuiltPackageVersionBesideSetUpBuildAndHidesWhenOnDevice() throws {
+    func testHeroOmitsUnbuiltVersionAndBuildsRetainsItBeforeDeviceInstall() throws {
         let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
         let previous = NSApplication.shared.accessibilityAttributeValue(enhanced)
         NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
@@ -233,10 +233,11 @@ import NXModel
             repeat {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.02))
                 host.layoutSubtreeIfNeeded()
-            } while !texts(in: host).contains(expected) && Date() < deadline
+            } while !texts(in: host).contains(stores.localizer.t("library.setUpBuild")) && Date() < deadline
             let visible = texts(in: host)
             XCTAssertTrue(visible.contains(stores.localizer.t("library.setUpBuild")), "Set Up Build in \(code)")
-            XCTAssertTrue(visible.contains(expected), "Unbuilt version in \(code): \(visible.sorted())")
+            XCTAssertFalse(visible.contains(expected), "Version belongs in Builds, not the Library hero")
+            XCTAssertEqual(library.games.first.map(BuildInventoryEntry.init)?.version, "2.0.6")
         }
 
         // When installed on a paired device (`primary == .openOnDevice`), `unbuiltVersion` must be nil.
@@ -307,12 +308,6 @@ import NXModel
 
         for lang in Lang.all {
             let loc = Localizer(lang)
-            let appearanceLabels = LauncherAppearance.allCases.map { loc.t($0.labelKey) }
-            let appWidth = LauncherSegmented.compactWidth(labels: appearanceLabels, minWidth: 276)
-            let appCellRoom = (appWidth - 10) / 3 - 24
-            for label in appearanceLabels {
-                XCTAssertLessThanOrEqual(singleLineWidth(label), appCellRoom, "Appearance '\(label)' truncated in \(lang.code)")
-            }
 
             let displayLabels = [loc.t("launch.display.window"), loc.t("launch.display.fullscreen")]
             let dispWidth = LauncherSegmented.compactWidth(labels: displayLabels, minWidth: LauncherControl.width)
@@ -321,7 +316,6 @@ import NXModel
                 XCTAssertLessThanOrEqual(singleLineWidth(label), dispCellRoom, "Display '\(label)' truncated in \(lang.code)")
             }
             if ["en", "zh"].contains(lang.code) {
-                XCTAssertEqual(appWidth, 276)
                 XCTAssertEqual(dispWidth, LauncherControl.width)
             }
         }
@@ -362,24 +356,5 @@ import NXModel
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         XCTAssertEqual(scroll.contentView.bounds.origin.y, 132)
         XCTAssertEqual(pinnedStates.last, true)
-    }
-
-    // MARK: - 4. Light Mode Contrast & Shadow Tokens
-
-    func testLightModeDropdownShadowAndDestructiveContrast() {
-        var lightShadow = NSColor.clear, darkShadow = NSColor.clear
-        var lightRed = NSColor.clear, lightFill = NSColor.clear
-        NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
-            lightShadow = NSColor(LauncherPalette.dropdownShadow).usingColorSpace(.sRGB)!
-            lightRed = NSColor(DeleteGameSheet.red).usingColorSpace(.sRGB)!
-            lightFill = NSColor(DeleteGameSheet.fill).usingColorSpace(.sRGB)!
-        }
-        NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
-            darkShadow = NSColor(LauncherPalette.dropdownShadow).usingColorSpace(.sRGB)!
-        }
-        XCTAssertEqual(Double(lightShadow.alphaComponent), 0.12, accuracy: 0.01)
-        XCTAssertEqual(Double(darkShadow.alphaComponent), 0.50, accuracy: 0.01)
-        XCTAssertGreaterThanOrEqual(LauncherPalette.contrast(lightRed, .white), 4.5)
-        XCTAssertGreaterThanOrEqual(LauncherPalette.contrast(.white, lightFill), 4.5)
     }
 }

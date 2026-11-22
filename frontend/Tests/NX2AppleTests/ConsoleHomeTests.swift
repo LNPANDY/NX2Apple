@@ -1,9 +1,10 @@
 import XCTest
 import AppKit
+import SwiftUI
 @testable import NX2Apple
 @testable import NXCore
 
-/// #816 in console mode: the home screen's rows and the moves between them, all games' filters and tabs, the search's matching, and
+/// #816 in console mode: the home screen's row and the moves through it, all games' filters and tabs, the search's matching, and
 /// the state of #952's paused game with its question before another game starts. Pure state, no view.
 @MainActor final class ConsoleHomeTests: IsolatedDefaultsTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -15,89 +16,119 @@ import AppKit
         return game
     }
 
-    // MARK: Rows
+    // MARK: The row
 
-    func testRowsGroupTheGamesAndLeaveEmptyRowsOut() {
-        let games = [game("a"), game("b", played: 3600), game("c", .needsBuild), game("d", played: 60), game("e", older: true),
-                     game("f", .needsData), game("g", .iphoneOnly), game("h", .broken("x")), game("i", .needsBuild, played: 10)]
-        let sections = ConsoleHome.sections(games)
-        XCTAssertEqual(sections.map(\.row), [.continuePlaying, .ready, .attention])
-        XCTAssertEqual(sections[0].gameIDs, ["d", "b"], "played games ready on this Mac, the one played last first")
-        XCTAssertEqual(sections[1].gameIDs, ["a"], "ready, never played, current tools")
-        XCTAssertEqual(sections[2].gameIDs, ["c", "e", "f", "g", "h", "i"], "not built, older tools, no game data, iPhone only, incomplete: in the library's order")
-        XCTAssertEqual(Set(sections.flatMap(\.gameIDs)).count, games.count, "every game is in exactly one row")
-
-        XCTAssertEqual(ConsoleHome.sections([game("a"), game("b")]).map(\.row), [.ready], "no game played and none needs anything: one row")
-        XCTAssertEqual(ConsoleHome.sections([game("a", .needsData)]).map(\.row), [.attention])
-        XCTAssertEqual(ConsoleHome.sections([]), [])
-        XCTAssertEqual(ConsoleHomeRow.allCases.map(\.titleKey).filter { L10n.table[$0] == nil }, [], "each row has its title")
+    /// One row as a PlayStation 5 home (#1458): the paused game, then the ones played last, then the rest by name. Every game is in it,
+    /// whatever it needs: that is its tile's chip.
+    func testTheRowOrdersEveryGameByLastPlayedThenByName() {
+        let games = [game("d"), game("b", played: 3600), game("c", .needsBuild), game("a", played: 60), game("e", older: true),
+                     game("f", .needsData), game("g", .iphoneOnly)]
+        XCTAssertEqual(ConsoleHome.order(games), ["a", "b", "c", "d", "e", "f", "g"], "played last first, then by name")
+        XCTAssertEqual(ConsoleHome.order(games, pausedGameID: "f"), ["f", "a", "b", "c", "d", "e", "g"], "the paused game leads")
+        XCTAssertEqual(Set(ConsoleHome.order(games)).count, games.count, "every game is in the row")
+        XCTAssertEqual(ConsoleHome.order([]), [])
     }
 
-    func testAPausedGameLeadsContinuePlaying() {
-        let sections = ConsoleHome.sections([game("a"), game("b", played: 60), game("c", played: 9000)], pausedGameID: "c")
-        XCTAssertEqual(sections.first?.gameIDs, ["c", "b"], "the paused game is the one being played")
-        XCTAssertEqual(ConsoleHome.sections([game("a"), game("b")], pausedGameID: "b").first?.gameIDs, ["b"], "even without a history yet")
+    func testMovesWalkTheRowAndEndOnAllGames() {
+        let order = ["a", "b", "c"]
+        XCTAssertEqual(ConsoleHome.move(from: "a", by: 1, in: order), "b")
+        XCTAssertEqual(ConsoleHome.move(from: "a", by: -1, in: order), "a", "the start of the row stops")
+        XCTAssertEqual(ConsoleHome.move(from: "c", by: 1, in: order), ConsoleHome.allGamesID, "All games is the last tile")
+        XCTAssertEqual(ConsoleHome.move(from: ConsoleHome.allGamesID, by: 1, in: order), ConsoleHome.allGamesID, "and the row ends there")
+        XCTAssertEqual(ConsoleHome.move(from: ConsoleHome.allGamesID, by: -1, in: order), "c")
+        XCTAssertNil(ConsoleHome.move(from: "gone", by: 1, in: order))
+        XCTAssertNotNil(L10n.table["console.allGames"])
     }
 
-    func testMovesStayInTheRowAndKeepTheirPlaceBetweenRows() {
-        let sections = [ConsoleHomeSection(row: .continuePlaying, gameIDs: ["p1", "p2"]),
-                        ConsoleHomeSection(row: .ready, gameIDs: ["r1", "r2", "r3", "r4"]),
-                        ConsoleHomeSection(row: .attention, gameIDs: ["n1"])]
-        XCTAssertEqual(ConsoleHome.move(from: "r2", dx: 1, dy: 0, in: sections), "r3")
-        XCTAssertEqual(ConsoleHome.move(from: "r4", dx: 1, dy: 0, in: sections), "r4", "the end of a row does not wrap or jump to another row")
-        XCTAssertEqual(ConsoleHome.move(from: "r1", dx: -1, dy: 0, in: sections), "r1")
-        XCTAssertEqual(ConsoleHome.move(from: "r2", dx: 0, dy: -1, in: sections), "p2", "up keeps the place")
-        XCTAssertEqual(ConsoleHome.move(from: "r4", dx: 0, dy: -1, in: sections), "p2", "or the last tile of a shorter row")
-        XCTAssertEqual(ConsoleHome.move(from: "r3", dx: 0, dy: 1, in: sections), "n1")
-        XCTAssertNil(ConsoleHome.move(from: "p1", dx: 0, dy: -1, in: sections), "up from the first row leaves the rows (the top bar)")
-        XCTAssertNil(ConsoleHome.move(from: "n1", dx: 0, dy: 1, in: sections), "down from the last row leaves them (the hints)")
-        XCTAssertNil(ConsoleHome.move(from: "gone", dx: 1, dy: 0, in: sections))
-    }
-
-    func testPointerSelectsBeforeOpeningAndControllerActivationStillOpens() {
+    func testPointerFocusesAndOpensEveryTileInOneActivation() {
         var focused = "a", opened: [String] = []
         func tap(_ id: String) {
             ConsoleHomePointerInput.tapTile(id, focused: focused, focus: { focused = id }, open: { opened.append(id) })
         }
         tap("b")
         XCTAssertEqual(focused, "b")
-        XCTAssertTrue(opened.isEmpty)
-        tap("b")
         XCTAssertEqual(opened, ["b"])
+        tap("b")
+        XCTAssertEqual(opened, ["b", "b"])
         tap("c")
         XCTAssertEqual(focused, "c")
-        XCTAssertEqual(opened, ["b"])
+        XCTAssertEqual(opened, ["b", "b", "c"])
     }
 
-    func testWheelAndDragMoveOneHomeRowAtATime() {
-        let sections = [ConsoleHomeSection(row: .continuePlaying, gameIDs: ["a"]),
-                        ConsoleHomeSection(row: .ready, gameIDs: ["b"]),
-                        ConsoleHomeSection(row: .attention, gameIDs: ["c"])]
+    func testWheelAndDragStepThroughTheRowOneTileAtATime() {
+        let order = ["a", "b", "c"]
         var focused = "a", wheel = ConsoleHomePointerInput()
         func move(_ step: Int?) {
-            if let step, let next = ConsoleHome.move(from: focused, dx: 0, dy: step, in: sections) { focused = next }
+            if let step, let next = ConsoleHome.move(from: focused, by: step, in: order) { focused = next }
         }
         move(wheel.wheel(deltaY: -1, phase: .began))
         XCTAssertEqual(focused, "a", "small trackpad deltas accumulate")
         move(wheel.wheel(deltaY: -19, phase: .changed))
         XCTAssertEqual(focused, "b")
         move(wheel.wheel(deltaY: -100, phase: .changed))
-        XCTAssertEqual(focused, "b", "one trackpad gesture changes one row")
+        XCTAssertEqual(focused, "b", "one trackpad gesture is one step")
         move(wheel.wheel(deltaY: -50, phase: .ended))
         move(wheel.wheel(deltaY: -80, momentum: true))
-        XCTAssertEqual(focused, "b", "momentum does not move another row")
+        XCTAssertEqual(focused, "b", "momentum does not step again")
         move(wheel.wheel(deltaY: -1))
-        XCTAssertEqual(focused, "c", "one wheel notch changes one row")
-        move(wheel.wheel(deltaY: -1))
-        XCTAssertEqual(focused, "c", "the last row stops")
-        move(ConsoleHomePointerInput.drag(CGSize(width: 2, height: 60)))
-        XCTAssertEqual(focused, "b")
+        XCTAssertEqual(focused, "c", "one wheel notch is one step")
+        move(wheel.wheel(deltaY: 0, deltaX: 3))
+        XCTAssertEqual(focused, "b", "a sideways wheel steps too")
+        move(ConsoleHomePointerInput.drag(CGSize(width: -60, height: 5)))
+        XCTAssertEqual(focused, "c", "a swipe to the left goes on")
         move(ConsoleHomePointerInput.drag(CGSize(width: 0, height: 60)))
-        XCTAssertEqual(focused, "a")
-        XCTAssertNil(ConsoleHomePointerInput.drag(CGSize(width: 60, height: 5)), "horizontal row scrolling stays horizontal")
+        XCTAssertEqual(focused, "b")
         XCTAssertNil(ConsoleHomePointerInput.drag(CGSize(width: 1, height: 10)))
-        move(wheel.wheel(deltaY: -40, deltaX: 50))
-        XCTAssertEqual(focused, "a", "horizontal wheel input stays in the tile row")
+    }
+
+    // MARK: Switching games
+
+    /// Another game on the home row switches plainly, as a console's home scrolls its covers: the row moves under the fixed focus in
+    /// 0.14 s and the focused cover's ring and scale finish with it, the title changes at once, the art cross-fades in 0.2 s. No spring.
+    /// Under Reduce Motion everything is instant. The redesign's Library timing (#1458) and the lighter fades after it looked strange.
+    func testTheHomeSwitchesGamesPlainly() {
+        XCTAssertEqual(ConsoleHomeMotion.row(reduceMotion: false), .easeOut(duration: 0.14))
+        XCTAssertEqual(ConsoleHomeMotion.tileFocus(homeRow: true, reduceMotion: false), ConsoleHomeMotion.row(reduceMotion: false),
+                       "the focus ring and scale finish with the row")
+        XCTAssertNil(ConsoleHomeMotion.title, "the title changes at once")
+        XCTAssertEqual(ConsoleHomeMotion.artwork(reduceMotion: false), .easeOut(duration: 0.2))
+        XCTAssertEqual(ConsoleHomeMotion.heroArrival(reduceMotion: false), .easeOut(duration: 0.2))
+        XCTAssertEqual(ConsoleHomeMotion.tileFocus(homeRow: false, reduceMotion: false), .easeOut(duration: 0.22), "a grid's focus ring")
+        for animation in [ConsoleHomeMotion.row(reduceMotion: true), ConsoleHomeMotion.artwork(reduceMotion: true),
+                          ConsoleHomeMotion.heroArrival(reduceMotion: true), ConsoleHomeMotion.tileFocus(homeRow: true, reduceMotion: true),
+                          ConsoleHomeMotion.tileFocus(homeRow: false, reduceMotion: true)] {
+            XCTAssertNil(animation, "Reduce Motion switches at once")
+        }
+    }
+
+    /// The home's views take every animation of a game switch from ConsoleHomeMotion: no Library timing (#1458), no fan or tilt of the
+    /// covers, no spring, and only the art fades in and out by its id (two titles overlapping as ghosts looked odd).
+    func testTheHomeViewsAnimateTheSwitchOnlyWithConsoleHomeMotion() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/NX2Apple")
+        let keyed = try NSRegularExpression(pattern: #"\.(?:ds)?[aA]nimation\((.*), value: (?:game\??\.id|index|selected)\)"#)
+        let transition = try NSRegularExpression(pattern: #"\.id\(game\.id\)\.transition\((.*)\)"#)
+        var checked = 0, transitions = 0
+        for name in ["ConsoleHomeView.swift", "ConsoleBackdrop.swift", "ConsoleTiles.swift"] {
+            let text = try String(contentsOf: sources.appendingPathComponent(name), encoding: .utf8)
+            XCTAssertFalse(text.contains("LibraryHeroTransition"), "\(name) uses the Library's timing on the console home")
+            for effect in ["rotation3DEffect", "rearOffset", "tilt:", ".spring", ".interpolatingSpring"] {
+                XCTAssertFalse(text.contains(effect), "\(name) fans, tilts or springs the home's covers (\(effect))")
+            }
+            for (number, line) in text.components(separatedBy: "\n").enumerated() {
+                let range = NSRange(line.startIndex..., in: line)
+                if let match = keyed.firstMatch(in: line, range: range), let animation = Range(match.range(at: 1), in: line) {
+                    checked += 1
+                    XCTAssertTrue(line[animation].hasPrefix("ConsoleHomeMotion."), "\(name):\(number + 1) animates the switch with its own timing")
+                }
+                if let match = transition.firstMatch(in: line, range: range), let value = Range(match.range(at: 1), in: line) {
+                    transitions += 1
+                    XCTAssertTrue(line[value].hasPrefix("ConsoleHomeMotion."), "\(name):\(number + 1) fades a game's view with its own transition")
+                }
+            }
+        }
+        XCTAssertGreaterThanOrEqual(checked, 5, "the title, the artwork, the row and the tiles are found")
+        XCTAssertEqual(transitions, 1, "only the artwork fades by its id")
     }
 
     // MARK: All games and a game's page

@@ -111,16 +111,26 @@ package enum Toolchain {
         return dir.isEmpty ? NSHomeDirectory() + "/.asdf" : dir
     }()
 
-    package static func importsOK(_ py: String, runner: ProcessRunner = SystemProcessRunner()) -> Bool {
-        runOK(py, ["-c", importProbe], env: ProcessInfo.processInfo.environment.merging(BundledTools.environment(for: py)) { $1 }, runner: runner)
+    package static let s2armExtraImportProbe = "\nimport numpy, PIL, pathops\n"
+
+    package static func importsOK(_ py: String, includeS2Arm: Bool = false, runner: ProcessRunner = SystemProcessRunner()) -> Bool {
+        let script = includeS2Arm ? (importProbe + s2armExtraImportProbe) : importProbe
+        return runOK(py, ["-c", script], env: ProcessInfo.processInfo.environment.merging(BundledTools.environment(for: py)) { $1 }, runner: runner)
     }
 
     /// backports.zstd declares Python < 3.14, so it is only installed where it is needed.
     /// nsz is always installed: NSZ / XCZ dumps are accepted by the pipeline now, and a player who
     /// downloads one should not have to run pip by hand (it is a few hundred KB).
-    package static func pipPackages(_ version: (Int, Int)) -> [String] {
-        version < (3, 14) ? ["lz4", "capstone", "fonttools", "zbic", "backports.zstd", "nsz"]
-                          : ["lz4", "capstone", "fonttools", "zbic", "nsz"]
+    package static func pipPackages(_ version: (Int, Int), includeS2Arm: Bool = false) -> [String] {
+        var base = version < (3, 14)
+            ? ["lz4", "capstone", "fonttools", "zbic", "backports.zstd", "nsz"]
+            : ["lz4", "capstone", "fonttools", "zbic", "nsz"]
+        if includeS2Arm {
+            for pkg in S2ArmBuilder.pipPackages where !base.contains(where: { $0.caseInsensitiveCompare(pkg) == .orderedSame }) {
+                base.append(pkg)
+            }
+        }
+        return base
     }
 
     /// Parses a percentage token such as "45.3%" from a progress line as a 0...1 fraction.
@@ -179,13 +189,15 @@ package enum Toolchain {
     /// to a pipe nobody read, and `externally-managed-environment` never reached the user.
     package static func makeVenv(
         base: String,
+        includeS2Arm: Bool = false,
         runner: ProcessRunner = SystemProcessRunner(),
         onProgress: (@Sendable (Double?, String) -> Void)? = nil
     ) -> (ok: Bool, log: String) {
         var log = ""
         func makeEnv() -> [String: String] {
-            ["PATH": BundledTools.path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: base), "HOME": NSHomeDirectory()]
+            let baseEnv = ["PATH": BundledTools.path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: base), "HOME": NSHomeDirectory()]
                 .merging(BundledTools.environment(for: base)) { $1 }
+            return ProxyEnvironment.merged(into: baseEnv)
         }
         func runCapturedOrStreamed(_ exe: String, _ args: [String], lineHandler: ((String) -> Void)? = nil) -> Bool {
             let env = makeEnv()
@@ -238,7 +250,7 @@ package enum Toolchain {
             try? FileManager.default.createDirectory(atPath: (venvDir as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
             guard runCapturedOrStreamed(interp, ["-m", "venv", venvDir]) else { return (false, log + "venv creation failed\n") }
         }
-        let packageList = pipPackages(pythonVersion(vpy, runner: runner) ?? minPython)
+        let packageList = pipPackages(pythonVersion(vpy, runner: runner) ?? minPython, includeS2Arm: includeS2Arm)
         let pkgs = packageList.joined(separator: " ")
         log += "$ \(vpy) -m pip install \(pkgs)\n"
         onProgress?(0.1, "pip install")
@@ -263,7 +275,7 @@ package enum Toolchain {
                 onProgress?(update.0, update.1)
             }
         }
-        let ready = ok && importsOK(vpy, runner: runner)
+        let ready = ok && importsOK(vpy, includeS2Arm: includeS2Arm, runner: runner)
         if ready { onProgress?(1.0, "Installed") }
         return (ready, log)
     }
@@ -358,19 +370,22 @@ package enum Toolchain {
 
     /// Every python3 on this Mac, newest-looking first, each tried for a usable version and the
     /// packages. Returns the one to build with, plus why the others were rejected for the message.
-    package static func findPython(resources: URL? = BundledTools.resources) -> (path: String, ok: Bool) {
+    package static func findPython(resources: URL? = BundledTools.resources, includeS2Arm: Bool = false) -> (path: String, ok: Bool) {
         // The release app's own Python (BundledTools.swift) has every package and is the one the build is tested with: it wins over
         // any Python on this Mac and needs no venv. One that does not run (a damaged copy) falls through to the search below
         // (uv's Pythons, the other candidates, then the venv).
-        if let bundled = BundledTools.python(in: resources), pythonVersion(bundled).map({ $0 >= minPython }) == true, importsOK(bundled) {
+        if let bundled = BundledTools.python(in: resources),
+           pythonVersion(bundled).map({ $0 >= minPython }) == true,
+           importsOK(bundled, includeS2Arm: includeS2Arm) {
             return (bundled, true)
         }
         var seen = Set<String>()
         var fallback: (String, (Int, Int))? = nil   // newest with an acceptable version but no packages
         for c in pythonCandidates() where !c.isEmpty && seen.insert(c).inserted {
+            if MacNativeGamesBuilder.isManagedUVPython(c) { continue }
             guard FileManager.default.isExecutableFile(atPath: c), let v = pythonVersion(c) else { continue }
             guard v >= minPython else { continue }
-            if importsOK(c) { return (c, true) }
+            if importsOK(c, includeS2Arm: includeS2Arm) { return (c, true) }
             if fallback == nil || v > fallback!.1 { fallback = (c, v) }
         }
         // No system interpreter has the packages: the venv (existing, or created by 安装) is next.
@@ -379,7 +394,7 @@ package enum Toolchain {
         // version made it from Apple's 3.9, and the build script refuses that (issue #75). It
         // falls through to the candidates above, or to the row saying the Python is too old.
         if FileManager.default.isExecutableFile(atPath: vpy), let v = pythonVersion(vpy), v >= minPython {
-            if importsOK(vpy) { return (vpy, true) }
+            if importsOK(vpy, includeS2Arm: includeS2Arm) { return (vpy, true) }
             return (vpy, false)   // exists but incomplete: 安装 finishes it
         }
         return (fallback?.0 ?? vpy, false)

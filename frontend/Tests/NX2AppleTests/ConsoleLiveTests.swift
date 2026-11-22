@@ -37,12 +37,12 @@ import NXModel
 
     private struct Launch { var game: LibraryGame; var environment: [String: String] }
 
-    private func makeDriver(controls: ControlLayout? = nil, pads: [ConsolePadSnapshot] = [], launched: @escaping (Launch) -> Void = { _ in }) throws
+    private func makeDriver(grace: TimeInterval = 0, controls: ControlLayout? = nil, pads: [ConsolePadSnapshot] = [], launched: @escaping (Launch) -> Void = { _ in }) throws
         -> (LiveConsoleDriver, GameLibrary, ControlLayout) {
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
         _ = try library.addApp(try makeApp())
         let layout = controls ?? ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests"))
-        let driver = LiveConsoleDriver(library: library, controls: layout, repo: { "" }, lang: { .en }, labels: { L10n.string($0, .en) },
+        let driver = LiveConsoleDriver(launchGracePeriod: grace, library: library, controls: layout, repo: { "" }, lang: { .en }, labels: { L10n.string($0, .en) },
                                        pads: { pads }, launch: { game, env, done in launched(Launch(game: game, environment: env)); done(4242, nil) },
                                        artwork: { _, _ in nil }, startingTimeout: 0.2, observeSystem: false)
         return (driver, library, layout)
@@ -86,6 +86,10 @@ import NXModel
         let queue = BuildQueueStore(file: nil, engineID: { "test-engine" }, busy: { false }, start: { _ in nil })
         driver.bindBuilds(stores.build, queue: queue)
         driver.buildEngineID = { "test-engine" }
+        driver.openOptions(game.id.uuidString)
+        let optionGame = try XCTUnwrap(driver.state.games.first { $0.id == game.id.uuidString })
+        XCTAssertEqual(driver.state.presentedSheet, .options(game.id.uuidString))
+        XCTAssertEqual(ConsoleGameOptionsList<LiveConsoleDriver>.firstTarget(optionGame), "console.options.build")
 
         driver.buildGame(game.id.uuidString, queueOnly: true)
         XCTAssertTrue(queue.entries.isEmpty)
@@ -135,6 +139,47 @@ import NXModel
         XCTAssertEqual(launches.first?.game.titleID, titleID)
         let expected = launches.first.map { GameStart.environment(for: $0.game, library: GameLibrary(file: temporary.appendingPathComponent("other.json")), controls: layout, repo: "", labels: { L10n.string($0, .en) }, fullscreen: true, homeMenu: true) }
         XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses, with the console's fullscreen and Home menu")
+    }
+
+    func testBackDuringLaunchGracePreventsLaunchAndRetryLaunchesOnce() async throws {
+        var launches: [Launch] = []
+        let (driver, _, _) = try makeDriver(grace: 0.08) { launches.append($0) }
+        let id = try XCTUnwrap(driver.state.games.first?.id)
+        driver.play(id)
+        XCTAssertTrue(driver.state.launchCancellable)
+        XCTAssertTrue(launches.isEmpty)
+        driver.back()
+        XCTAssertNil(driver.state.startingGameID)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertTrue(launches.isEmpty)
+        driver.play(id); driver.play(id)
+        for _ in 0..<50 where driver.state.starting != .opening { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(launches.count, 1)
+        XCTAssertFalse(driver.state.launchCancellable)
+        driver.back()
+        XCTAssertNil(driver.state.startingGameID)
+        XCTAssertEqual(driver.tracking.gameID, id, "The real process stays tracked after dismissing loading")
+    }
+
+    func testCancelledPreparationCannotLaunchAfterRetryingSameGame() throws {
+        var launches: [Launch] = []
+        let (driver, _, _) = try makeDriver { launches.append($0) }
+        var releases: [() -> Void] = []
+        var ended = 0
+        driver.prepareLaunch = { releases.append($0) }
+        driver.gameEnded = { ended += 1 }
+        let id = try XCTUnwrap(driver.state.games.first?.id)
+        driver.play(id)
+        driver.back()
+        XCTAssertNil(driver.state.startingGameID)
+        driver.play(id)
+        XCTAssertEqual(releases.count, 2)
+        releases[0]()
+        XCTAssertTrue(launches.isEmpty)
+        XCTAssertEqual(ended, 1)
+        releases[1]()
+        XCTAssertEqual(launches.count, 1)
+        XCTAssertEqual(driver.state.startingGameID, id)
     }
 
     func testAGameStartsWithThePointerHiddenWhenTheConsoleHadItHidden() throws {
@@ -636,7 +681,7 @@ import NXModel
     func testConnectNotificationPublishesTheNewControllerAtOnce() async throws {
         var current = [ConsolePadSnapshot(id: "first", name: "First", category: "DualShock 4", playerIndex: nil)]
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
-        let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
+        let driver = LiveConsoleDriver(launchGracePeriod: 0, library: library, controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { current }, artwork: { _, _ in nil }, observeSystem: true)
         XCTAssertEqual(driver.state.controllers.map(\.id), ["first"])
         XCTAssertEqual(driver.state.controllers.map(\.player), [1])
@@ -687,7 +732,7 @@ import NXModel
         layout.padMerge = merge
         let pads = [ConsolePadSnapshot(id: "xbox", name: "Xbox Wireless Controller", category: "Xbox One", playerIndex: nil),
                     ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4", category: "DualShock 4", playerIndex: nil)]
-        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")), controls: layout, repo: { "" }, lang: { .en },
+        let driver = LiveConsoleDriver(launchGracePeriod: 0, library: GameLibrary(file: temporary.appendingPathComponent("library.json")), controls: layout, repo: { "" }, lang: { .en },
                                        labels: { $0 }, pads: { pads }, artwork: { _, _ in nil }, observeSystem: false)
         driver.captureSeconds = 0.2
         driver.openControllers()
@@ -738,7 +783,7 @@ import NXModel
     // MARK: Hardware placeholders and reconnects
 
     private func liveDriver(pads: @escaping () -> [ConsolePadSnapshot]) -> LiveConsoleDriver {
-        LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
+        LiveConsoleDriver(launchGracePeriod: 0, library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
                           controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                           repo: { "" }, lang: { .en }, labels: { $0 }, pads: pads, artwork: { _, _ in nil }, observeSystem: false)
     }
@@ -780,7 +825,7 @@ import NXModel
     func testTwoControllersTogetherAndOneReconnects() {
         var list = [ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: nil),
                     ConsolePadSnapshot(id: "xbox", name: "Xbox Wireless Controller", category: "Xbox One", playerIndex: nil, battery: 0.8)]
-        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
+        let driver = LiveConsoleDriver(launchGracePeriod: 0, library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
                                        controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false)
         XCTAssertEqual(driver.state.controllers.map(\.id), ["ds4", "xbox"], "both appear together")
@@ -859,7 +904,7 @@ import NXModel
     func testPlayerOutputOnConnectMakesTheBatteryAppear() async throws {
         var wroteOutput = false
         var sent: [(String, Int)] = []
-        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
+        let driver = LiveConsoleDriver(launchGracePeriod: 0, library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
                                        controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 },
                                        pads: { [ConsolePadSnapshot(id: "g7", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: wroteOutput ? 0.72 : nil)] },
@@ -880,7 +925,7 @@ import NXModel
     func testRepeatedConnectAndDisconnectNotificationsAreIdempotent() {
         var list: [ConsolePadSnapshot] = []
         var writes: [(String, Int)] = []
-        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
+        let driver = LiveConsoleDriver(launchGracePeriod: 0, library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
                                        controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false,
                                        playerOutput: { writes.append(($0, $1)) })

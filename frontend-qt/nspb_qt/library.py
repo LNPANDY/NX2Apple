@@ -15,6 +15,7 @@ import struct
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 import zipfile
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import inputs as _inputs
+from . import known_banners as _kb
 from . import platform_util as pu
 from . import post_build_cleanup as pbc
 
@@ -319,6 +321,13 @@ def one_game_ipa_path(out_dir: str, build_key: str) -> str:
     return os.path.join(out_dir, f'{build_key}.ipa')
 
 
+def game_framework_path(out_dir: str, title_id: str) -> str:
+    """Where `ipa_kind == 'framework'` writes its bundle: `<out dir>/DmGame<title ID>.framework`."""
+    if not out_dir or not title_id:
+        return ''
+    return os.path.join(out_dir, f'DmGame{title_id.upper()}.framework')
+
+
 @lru_cache(maxsize=128)
 def _ipa_kind(path: str, signature: tuple[int, ...]) -> str:
     """Read only the ZIP directory, cached until the file's stat signature changes.
@@ -336,6 +345,38 @@ def _ipa_kind(path: str, signature: tuple[int, ...]) -> str:
     return kinds[0] if len(kinds) == 1 else ''
 
 
+def is_framework_path(path: str) -> bool:
+    """True when `path` is a `.framework` bundle directory on disk."""
+    return bool(path) and path.rstrip('/\\').lower().endswith('.framework') and os.path.isdir(path)
+
+
+def _is_valid_ios_output(path: str) -> bool:
+    """True for either an `.ipa` file or a standalone `.framework` directory."""
+    return bool(path) and (os.path.isfile(path) or is_framework_path(path))
+
+
+def _framework_matches_key(resolved_dir: str, build_key: str) -> bool:
+    """Verify `resolved_dir` belongs to `build_key` when `build_key` is known, so stale last_ipa never crosses games."""
+    key = (build_key or '').strip().upper()
+    if not key:
+        return True
+    plist_path = os.path.join(resolved_dir, 'Info.plist')
+    if os.path.isfile(plist_path):
+        try:
+            import plistlib
+            with open(plist_path, 'rb') as pf:
+                data = plistlib.load(pf)
+            dm_tid = str(data.get('DMTitleID') or '').strip().upper()
+            if dm_tid:
+                return dm_tid == key
+        except Exception:
+            pass
+    base = os.path.basename(resolved_dir.rstrip('/\\')).upper()
+    if base.startswith('DMGAME') and base.endswith('.FRAMEWORK'):
+        return base[6:-10] == key
+    return False
+
+
 def reveal_ipa_path(*, ipa_kind: str, shell_cache: str, out_dir: str, build_key: str,
                     last_ipa: str = '', library_ipa: str = '') -> str:
     """The IPA that the selected kind produced, for "Show in folder".
@@ -346,7 +387,27 @@ def reveal_ipa_path(*, ipa_kind: str, shell_cache: str, out_dir: str, build_key:
     record. Check the app bundle in every candidate so profile-named one-game outputs and moved
     files still work without mistaking a remembered shared IPA for a one-game output.
     """
-    if ipa_kind not in ('shared', 'oneGame'):
+    if ipa_kind not in ('shared', 'oneGame', 'framework'):
+        return ''
+    if ipa_kind == 'framework':
+        want = game_framework_path(out_dir, build_key)
+        for candidate in (want, last_ipa, library_ipa):
+            if not candidate or not candidate.rstrip('/\\').lower().endswith('.framework'):
+                continue
+            try:
+                path = os.path.realpath(candidate)
+                info = os.stat(path)
+            except OSError:
+                continue
+            if (
+                stat.S_ISDIR(info.st_mode)
+                and _framework_matches_key(path, build_key)
+                and (
+                    os.path.isfile(os.path.join(path, 'Info.plist'))
+                    or os.path.isfile(os.path.join(path, 'game.manifest.json'))
+                )
+            ):
+                return candidate
         return ''
     shared = shell_ipa_path(shell_cache) if shell_cache else ''
     want = shared if ipa_kind == 'shared' else one_game_ipa_path(out_dir, build_key)
@@ -533,30 +594,14 @@ class GameFolder:
         except OSError:
             return GameFolderProblem('notNUP', name)
 
-        base = 0
-        update_title = 0
-        updates: list[tuple[int, str]] = []
-        addons: list[int] = []
-        for i in range(count):
-            o = 0x30 + i * 0x40
-            tid = struct.unpack_from('<Q', table, o)[0]
-            ver = struct.unpack_from('<I', table, o + 20)[0]
-            kind = table[o + 24]
-            if kind == 0:
-                base = tid
-            elif kind == 1:
-                updates.append((ver, path))
-                if update_title == 0:
-                    update_title = tid & ~0xFFF
-            elif kind == 2:
-                addons.append(tid)
-        app = base if (base != 0 and (base & 0xFFF) == 0) else update_title
-        updates.sort(key=lambda x: x[0])
-        addons.sort()
+        packages = [(table[o + 24], struct.unpack_from('<Q', table, o)[0], struct.unpack_from('<I', table, o + 20)[0])
+                    for o in (0x30 + i * 0x40 for i in range(count))]
+        app, versions = _inputs.nup_game(packages)   # several programs: the highest (a Switch 2 Edition, #1353)
+        addons = sorted(tid for kind, tid, _ in packages if kind == 2)
         return GameFolderContents(
             folder=os.path.dirname(path),
             title_id=app,
-            updates=updates,
+            updates=[(v, path) for v in versions],
             dlc=[(t, path) for t in addons],
             nup=path,
         )
@@ -725,7 +770,7 @@ class LibraryGame:
 
     @property
     def has_ipa(self) -> bool:
-        return bool(self.ipa_path and os.path.isfile(self.ipa_path))
+        return _is_valid_ios_output(self.ipa_path)
 
     @property
     def has_ios_app(self) -> bool:
@@ -1145,14 +1190,18 @@ class GameLibrary:
 
         resolved_name = name.strip() or GameFolder.profile_name(tid, repo_path)
         if not resolved_name:
-            if ipa_path and os.path.basename(ipa_path).lower() != 'nx2apple.ipa':
+            if (
+                ipa_path
+                and os.path.basename(ipa_path).lower() != 'nx2apple.ipa'
+                and not ipa_path.rstrip('/\\').lower().endswith('.framework')
+            ):
                 resolved_name = clean_game_name(ipa_path)
             elif base_path:
                 resolved_name = clean_game_name(base_path)
             else:
                 resolved_name = tid
 
-        resolved_ipa = ipa_path if (ipa_path and os.path.isfile(ipa_path)) else ''
+        resolved_ipa = ipa_path if _is_valid_ios_output(ipa_path) else ''
         resolved_ios_app = ''
         resolved_installed = ''
         s_root = shell_root or str(self.state_dir / 'shell')
@@ -1354,18 +1403,18 @@ class GameLibrary:
 
 class ArtworkStore:
     TITLEDB_URL = 'https://raw.githubusercontent.com/blawar/titledb/master/US.en.json'
-    FALLBACK_BANNERS: dict[str, str] = {
-        '0400245021D2C000': 'https://cdn2.steamgriddb.com/grid/4019460f699df3ca57bb36a6cc8b1ce5.png',  # Yoshi and the Mysterious Book
-        '0400380020056000': 'https://cdn2.steamgriddb.com/grid/220a08c045f283231e519ed83cd21466.png',  # Splatoon Raiders
-        '04003F40232DE000': 'https://cdn2.steamgriddb.com/grid/30430599d3640690ebddef63609c5f31.png',  # Hyrule Warriors: Age of Imprisonment
-        '0400486024DEC000': 'https://cdn2.steamgriddb.com/grid/925526bdfb5910517494acb4db2537d5.png',  # The Legend of Zelda: Ocarina of Time
-        '04007EF01F8AE000': 'https://cdn2.steamgriddb.com/grid/f73cc1e0813d90b30a22ca9af2e9c8b0.png',  # Fire Emblem: Fortune's Weave
-        '0400A3A01EE4C000': 'https://cdn2.steamgriddb.com/grid/00b97e285bef52b2826cfbeecd4d30f7.png',  # Pokémon Pokopia
-        '0400D4201C6EA000': 'https://cdn2.steamgriddb.com/grid/eb3353d1afeb0b6b1c6507bb5d39c757.png',  # Mario Tennis Fever
-        '0400E88025B1A000': 'https://cdn2.steamgriddb.com/grid/a82908cc940793dc1d63acfc0218b2f9.jpg',  # Star Fox
-    }
+    FALLBACK_BANNERS: dict[str, str] = dict(_kb.SWITCH2_FALLBACK_BANNERS)
+    KNOWN_BANNERS: dict[str, str] = _kb.KNOWN_BANNERS
+    DIRECT_PROBE_ERROR_BUDGET = 24.0
+    DIRECT_PROBE_COOLDOWN = 60.0
 
-    def __init__(self, state_dir: Path | None = None, on_updated: Callable[[str], None] | None = None) -> None:
+    def __init__(
+        self,
+        state_dir: Path | None = None,
+        on_updated: Callable[[str], None] | None = None,
+        *,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         self.state_dir = state_dir or default_state_dir()
         self.banners_dir = self.state_dir / 'banners'
         self.custom_file = self.state_dir / 'custom_artwork.json'
@@ -1375,6 +1424,9 @@ class ArtworkStore:
         self._titledb_cache: dict[str, str] | None = None
         self._lock = threading.Lock()
         self._index_lock = threading.Lock()
+        self._clock = clock or time.monotonic
+        self._probe_error_elapsed = 0.0
+        self._probe_paused_at: float | None = None
         self._load_custom()
 
     def _load_custom(self) -> None:
@@ -1417,12 +1469,9 @@ class ArtworkStore:
         custom = self.custom_paths.get(tid, '')
         if custom and os.path.isfile(custom):
             return custom
-        cached = self.banners_dir / f'{tid}.jpg'
-        if cached.is_file():
+        cached = _kb.cached_banner_path(tid, self.banners_dir)
+        if cached is not None:
             return str(cached)
-        cached_png = self.banners_dir / f'{tid}.png'
-        if cached_png.is_file():
-            return str(cached_png)
         if repo_path:
             gal = self._gallery_map(repo_path)
             if tid in gal:
@@ -1460,7 +1509,7 @@ class ArtworkStore:
         if os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
             return
         tid = title_id.upper()
-        if self.has_custom(tid) or (self.banners_dir / f'{tid}.jpg').is_file() or (self.banners_dir / f'{tid}.png').is_file():
+        if self.has_custom(tid) or _kb.cached_banner_path(tid, self.banners_dir) is not None:
             return
         with self._lock:
             if tid in self._fetching:
@@ -1476,9 +1525,26 @@ class ArtworkStore:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _load_disk_index(self) -> dict[str, str]:
+        with self._index_lock:
+            if self._titledb_cache:
+                return self._titledb_cache
+            index_file = self.banners_dir / 'banners_index.json'
+            if index_file.is_file():
+                try:
+                    loaded = json.loads(index_file.read_text(encoding='utf-8'))
+                    if isinstance(loaded, dict):
+                        mapping = {str(k).upper(): str(v) for k, v in loaded.items() if k and v}
+                        if mapping:
+                            self._titledb_cache = mapping
+                            return mapping
+                except Exception:
+                    pass
+            return {}
+
     def _load_or_fetch_index(self) -> dict[str, str]:
         with self._index_lock:
-            if self._titledb_cache is not None:
+            if self._titledb_cache:
                 return self._titledb_cache
             index_file = self.banners_dir / 'banners_index.json'
             mapping: dict[str, str] = {}
@@ -1493,9 +1559,10 @@ class ArtworkStore:
                 self._titledb_cache = mapping
                 return mapping
             try:
-                req = urllib.request.Request(self.TITLEDB_URL, headers={'User-Agent': 'NX2Apple/1.1'})
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    raw = json.loads(resp.read().decode('utf-8', errors='replace'))
+                req = urllib.request.Request(self.TITLEDB_URL, headers={'User-Agent': 'NX2Apple/1.5'})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    body = _kb.read_response_chunked(resp, chunk_size=262144)
+                raw = json.loads(body.decode('utf-8', errors='replace'))
                 if isinstance(raw, dict):
                     for entry in raw.values():
                         if isinstance(entry, dict):
@@ -1503,39 +1570,139 @@ class ArtworkStore:
                             burl = str(entry.get('bannerUrl') or '')
                             if len(etid) == 16 and burl.startswith('http'):
                                 mapping[etid] = burl
-                    _atomic_write_text(index_file, json.dumps(mapping))
-                    self._titledb_cache = mapping
+                    if mapping:
+                        _atomic_write_text(index_file, json.dumps(mapping))
+                        self._titledb_cache = mapping
             except Exception:
                 pass
             return mapping
 
-    def _fetch_one(self, tid: str) -> None:
-        mapping = self._load_or_fetch_index()
-        url = mapping.get(tid) or self.FALLBACK_BANNERS.get(tid)
-        if not url:
-            return
+    def _save_banner_bytes(self, tid: str, data: bytes) -> bool:
+        if not data or len(data) <= 64:
+            return False
+        normalized = _kb.normalize_banner_bytes(data)
+        if normalized is None:
+            return False
+        out_bytes, ext = normalized
+        self.banners_dir.mkdir(parents=True, exist_ok=True)
+        dest = self.banners_dir / f'{tid}.{ext}'
+        tmp_dest = self.banners_dir / f'.{tid}.{uuid.uuid4().hex}.{ext}.tmp'
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'NX2Apple/1.1'})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = resp.read()
-            if len(data) > 1024:
-                self.banners_dir.mkdir(parents=True, exist_ok=True)
-                ext = 'png' if data[:8] == b'\x89PNG\r\n\x1a\n' else 'jpg'
-                dest = self.banners_dir / f'{tid}.{ext}'
-                tmp_dest = self.banners_dir / f'.{tid}.{uuid.uuid4().hex}.{ext}.tmp'
+            tmp_dest.write_bytes(out_bytes)
+            os.replace(tmp_dest, dest)
+        finally:
+            if tmp_dest.exists():
                 try:
-                    tmp_dest.write_bytes(data)
-                    os.replace(tmp_dest, dest)
-                finally:
-                    if tmp_dest.exists():
-                        try:
-                            tmp_dest.unlink()
-                        except OSError:
-                            pass
-                if self.on_updated:
-                    self.on_updated(tid)
+                    tmp_dest.unlink()
+                except OSError:
+                    pass
+        if self.on_updated:
+            self.on_updated(tid)
+        return True
+
+    def _download_banner_url(self, tid: str, url: str, *, timeout: float = 30.0) -> bool:
+        if not _kb.is_allowed_banner_url(url):
+            return False
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'NX2Apple/1.5'})
+            with _kb.open_allowed_url(req, timeout=timeout, validator=_kb.is_allowed_banner_url) as resp:
+                status = getattr(resp, 'status', 200)
+                if status not in (None, 200):
+                    return False
+                final_url = _kb._response_final_url(resp, url)
+                if not _kb.is_allowed_banner_url(final_url):
+                    return False
+                data = _kb.read_response_chunked(resp, chunk_size=65536, max_bytes=_kb.MAX_BANNER_BYTES)
+            return self._save_banner_bytes(tid, data)
         except Exception:
-            pass
+            return False
+
+    def _probe_budget_exhausted(self) -> bool:
+        with self._lock:
+            if self._probe_paused_at is None:
+                return False
+            if self._clock() - self._probe_paused_at >= self.DIRECT_PROBE_COOLDOWN:
+                self._probe_paused_at = None
+                self._probe_error_elapsed = 0.0
+                return False
+            return True
+
+    def _record_probe_transient_error(self, elapsed: float) -> None:
+        with self._lock:
+            self._probe_error_elapsed += max(0.0, elapsed)
+            if self._probe_error_elapsed >= self.DIRECT_PROBE_ERROR_BUDGET:
+                self._probe_paused_at = self._clock()
+
+    def _reset_probe_budget(self) -> None:
+        with self._lock:
+            self._probe_error_elapsed = 0.0
+            self._probe_paused_at = None
+
+    def _try_store_banner(self, tid: str) -> bool:
+        if self._probe_budget_exhausted():
+            return False
+        started = self._clock()
+        state, img_bytes = _kb.fetch_nintendo_store_banner(tid, timeout=_kb.STORE_REQUEST_TIMEOUT)
+        if state == 'ok' and img_bytes:
+            self._reset_probe_budget()
+            return self._save_banner_bytes(tid, img_bytes)
+        if state == 'transient':
+            self._record_probe_transient_error(self._clock() - started)
+        return False
+
+    def _try_nlib_banner(self, tid: str) -> bool:
+        if self._probe_budget_exhausted():
+            return False
+        direct_url = _kb.nlib_banner_url(tid)
+        if not direct_url:
+            return False
+        started = self._clock()
+        try:
+            req = urllib.request.Request(direct_url, headers={'User-Agent': 'NX2Apple/1.5'})
+            with _kb.open_allowed_url(req, timeout=8.0, validator=_kb.is_allowed_banner_url) as resp:
+                status = getattr(resp, 'status', 200)
+                if status is not None and status >= 500:
+                    self._record_probe_transient_error(self._clock() - started)
+                    return False
+                if status not in (None, 200):
+                    return False
+                final_url = _kb._response_final_url(resp, direct_url)
+                if not _kb.is_allowed_banner_url(final_url):
+                    return False
+                data = _kb.read_response_chunked(resp, chunk_size=65536, max_bytes=_kb.MAX_BANNER_BYTES)
+            if self._save_banner_bytes(tid, data):
+                self._reset_probe_budget()
+                return True
+        except urllib.error.HTTPError as exc:
+            if exc.code >= 500:
+                self._record_probe_transient_error(self._clock() - started)
+        except ValueError:
+            return False
+        except Exception:
+            self._record_probe_transient_error(self._clock() - started)
+        return False
+
+    def _fetch_one(self, tid: str) -> None:
+        tid = tid.upper()
+        # Tier 1: already-cached local index, known shipped banners, or Switch 2 fallbacks.
+        disk_mapping = self._load_disk_index()
+        url = disk_mapping.get(tid) or self.KNOWN_BANNERS.get(tid) or self.FALLBACK_BANNERS.get(tid)
+        if url:
+            if self._download_banner_url(tid, url, timeout=30.0):
+                return
+        else:
+            # Tier 2: single-title probes (Switch 2: ec.nintendo.com -> nlib.cc; Switch 1: nlib.cc -> ec.nintendo.com).
+            if _kb.is_switch2_title_id(tid):
+                if self._try_store_banner(tid) or self._try_nlib_banner(tid):
+                    return
+            else:
+                if self._try_nlib_banner(tid) or self._try_store_banner(tid):
+                    return
+        # Tier 3: streaming regional title database fallback (30s per-chunk socket timeout).
+        mapping = self._load_or_fetch_index()
+        fallback_url = mapping.get(tid) or self.FALLBACK_BANNERS.get(tid)
+        if fallback_url and fallback_url != url:
+            self._download_banner_url(tid, fallback_url, timeout=30.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1564,6 +1731,22 @@ class BuildFolderReport:
 class BuildFolder:
     PART_ORDER = ['extracted', 'shaders', 'oldShaders', 'xcode', 'caches']
     _CHAIN_VER_RE = re.compile(r'^(?:mac-)?(b-[0-9a-f]{12})(?:\.key|\.img(?:\.part)?)?$')
+
+    @staticmethod
+    def finished_extraction(work_dir: str) -> int:
+        """Bytes of the finished extractions in <work_dir>/extract (each v<version> with its extract.key, ExeFS/main and
+        RomFS.img). A new build in the same folder reuses or replaces them, so they need no new space (#1243)."""
+        extract = Path(work_dir, 'extract')
+        try:
+            versions = list(extract.iterdir())
+        except OSError:
+            return 0
+        total = 0
+        for v in versions:
+            if (v.name[:1] == 'v' and v.name[1:].isascii() and v.name[1:].isdigit()
+                    and all((v / part).is_file() for part in ('extract.key', 'ExeFS/main', 'RomFS.img'))):
+                total += BuildFolder.size(str(v))
+        return total
 
     @staticmethod
     def size(path: str, seen_inodes: set[tuple[int, int]] | None = None) -> int:
@@ -1764,6 +1947,12 @@ class BuildFolder:
 # GameDeletion (mirrors GameDeletion.swift)
 # ---------------------------------------------------------------------------
 
+def _move_to_trash(path: str) -> bool:
+    from PySide6.QtCore import QFile
+
+    return QFile.moveToTrash(path)
+
+
 @dataclass
 class GameDeletionItem:
     kind: str  # 'macApp', 'ipa', 'iosApp', 'archive', 'shellFramework', 'buildFolder', 'log', 'saves'
@@ -1838,7 +2027,7 @@ class GameDeletionPlan:
 
         return GameDeletionPlan(title_id=game.title_id, items=items, saves=saves_item, shell_root=shared_root)
 
-    def run(self, delete_saves: bool = False) -> list[str]:
+    def run(self, delete_saves: bool = False, trash: Callable[[str], bool] = _move_to_trash) -> list[str]:
         failed: list[str] = []
         all_items = list(self.items)
         if delete_saves and self.saves:
@@ -1848,12 +2037,17 @@ class GameDeletionPlan:
                 if not os.path.exists(p):
                     continue
                 try:
-                    if os.path.isdir(p) and not os.path.islink(p):
-                        shutil.rmtree(p)
-                    else:
-                        os.remove(p)
-                except OSError:
+                    if not trash(p):
+                        failed.append(p)
+                except Exception:
                     failed.append(p)
+        build_paths = next((it.paths for it in self.items if it.kind == 'buildFolder'), [])
+        if build_paths:
+            folder = os.path.dirname(build_paths[0])
+            try:
+                os.rmdir(folder)
+            except OSError:
+                pass
         if self.shell_root:
             from .win.shell_export import ShellLibrary
             shell = ShellLibrary.load(self.shell_root)

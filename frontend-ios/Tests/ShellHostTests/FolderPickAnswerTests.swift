@@ -23,4 +23,11 @@ import Testing
         #expect(calls == 1)
         #expect(last == nil)
     }
+
+    @Test func dismissStrategyWaitsUntilPickerTransitionFinishes() {
+        #expect(DocumentPickerDismissStrategy.resolve(hasPresentingViewController: false, isBeingDismissed: false, hasTransitionCoordinator: false) == .finishImmediately)
+        #expect(DocumentPickerDismissStrategy.resolve(hasPresentingViewController: true, isBeingDismissed: true, hasTransitionCoordinator: true) == .waitForTransitionCoordinator)
+        #expect(DocumentPickerDismissStrategy.resolve(hasPresentingViewController: true, isBeingDismissed: true, hasTransitionCoordinator: false) == .waitForDismissCompletion)
+        #expect(DocumentPickerDismissStrategy.resolve(hasPresentingViewController: true, isBeingDismissed: false, hasTransitionCoordinator: false) == .dismissExplicitly)
+    }
 }

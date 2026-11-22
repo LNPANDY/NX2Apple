@@ -227,6 +227,16 @@ def pin_date(pin):
     return text if parse_utc(text) else None
 
 
+def zip_upstream_date(zip_path):
+    """The `.upstream-date` written into the engine zip by `tools/engine.py tree`, or None when absent/malformed."""
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            text = z.read('.upstream-date').decode('utf-8').strip()
+    except (KeyError, zipfile.BadZipFile, UnicodeDecodeError, OSError):
+        return None
+    return text if parse_utc(text) else None
+
+
 def manifest_json(path):
     try: m = json.loads(Path(path).read_bytes())
     except (OSError, ValueError): return None
@@ -268,7 +278,7 @@ def cmd_publish(a):
     zsrc = Path(a.engine_zip)
     udate = a.upstream_date
     if udate == 'auto':
-        udate = pin_date(engine_identity(zsrc)[0])
+        udate = pin_date(engine_identity(zsrc)[0]) or zip_upstream_date(zsrc)
         if udate is None: warn_plain('could not read the commit date of the upstream pin from the GitHub API: latest.json has no upstream_date')
     data = build_manifest(zsrc, a.version, a.channel, a.tag, a.app_zip, a.repo, a.built, a.source or (), udate)
     files = [out / zsrc.name, out / MANIFEST]
@@ -301,7 +311,7 @@ def cmd_guard(a):
     if published is None:
         say('nothing is published yet: publishing')
         return 0
-    new = a.new_date or pin_date(pin)
+    new = a.new_date or pin_date(pin) or zip_upstream_date(a.engine_zip)
     old = a.published_date or published.get('upstream_date') or pin_date(published.get('pin', ''))
     ok, why = publish_decision(new, old)
     say(f'new pin {pin[:12]} ({new or "date unknown"}), published pin {str(published.get("pin", ""))[:12]} ({old or "date unknown"}): {why}')

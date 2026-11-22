@@ -23,6 +23,11 @@ from pathlib import Path
 from typing import Callable
 
 MARKER = ('dm', 'tools', 'nx_extract', 'Program.cs')   # the file that tells an engine tree (as BuildModel.is_repo always did)
+UPSTREAM_MARKERS: dict[str, tuple[tuple[str, ...], ...]] = {
+    'nxnative': (('dm', 'tools', 'nx_extract', 'Program.cs'),),
+    's2arm': (('pack', 'jobs', 'main.py'), ('runtime', 'rewriter', 'rewriter.c')),
+    'macnativegames': (('build_app.py',), ('games', 'totk')),
+}
 STAMP = Path('.git', 'nx2apple-stamp')
 
 
@@ -40,11 +45,11 @@ def stamp_key(root: str | Path) -> str:
     h = hashlib.sha256()
     h.update(b'pin ' + (root / '.upstream-ref').read_text(encoding='utf-8').strip().encode() + b'\n')
     for name in _series(root):
-        data = (root / 'patches' / name).read_bytes()
+        data = (root / 'patches' / name).read_bytes().replace(b'\r\n', b'\n')
         h.update(b'patch ' + name.encode() + b'\n' + hashlib.sha256(data).hexdigest().encode() + b'\n')
     sw = root / 'patches' / 'fork_env_switches.tsv'
     if sw.is_file():
-        h.update(b'switches ' + hashlib.sha256(sw.read_bytes()).hexdigest().encode() + b'\n')
+        h.update(b'switches ' + hashlib.sha256(sw.read_bytes().replace(b'\r\n', b'\n')).hexdigest().encode() + b'\n')
     return h.hexdigest()
 
 
@@ -130,6 +135,28 @@ def engine_root(repo: str) -> str:
 def is_checkout(d: str) -> bool:
     """A folder the launcher can build from: a checkout with tools/engine.py to make engine/, a synced engine/, an engine tree, or a bundled engine beside the app."""
     return bool(bundled_engine()) or (bool(d) and (Path(d, *MARKER).is_file() or Path(d, 'engine', *MARKER).is_file() or has_engine_tool(d)))
+
+
+def is_upstream_tree(d: str, kind: str) -> bool:
+    if not d:
+        return False
+    markers = UPSTREAM_MARKERS.get(kind)
+    if not markers:
+        return False
+    p = Path(d)
+    return all(p.joinpath(*parts).exists() for parts in markers)
+
+
+def detect_upstream(d: str) -> str | None:
+    if not d:
+        return None
+    if has_engine_tool(d) or is_upstream_tree(d, 'nxnative') or is_upstream_tree(str(Path(d, 'engine')), 'nxnative'):
+        return 'nxnative'
+    if is_upstream_tree(d, 's2arm'):
+        return 's2arm'
+    if is_upstream_tree(d, 'macnativegames'):
+        return 'macnativegames'
+    return None
 
 
 def needs_sync_before_build(repo: str) -> bool:

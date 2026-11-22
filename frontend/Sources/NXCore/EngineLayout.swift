@@ -42,6 +42,14 @@ package enum EngineLayout {
         return !dir.isEmpty && (fm.fileExists(atPath: dir + "/" + marker) || fm.fileExists(atPath: dir + "/engine/" + marker) || hasEngineTool(dir))
     }
 
+    package static func detectedUpstream(_ dir: String) -> EngineUpstreamKind? {
+        EngineUpstream.detect(in: dir)
+    }
+
+    package static func isUpstreamTree(_ dir: String, kind: EngineUpstreamKind) -> Bool {
+        EngineUpstream.isTree(dir, kind: kind)
+    }
+
     package static func series(_ repo: String) -> [String]? {
         guard let text = try? String(contentsOfFile: repo + "/patches/series", encoding: .utf8) else { return nil }
         return text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { line in

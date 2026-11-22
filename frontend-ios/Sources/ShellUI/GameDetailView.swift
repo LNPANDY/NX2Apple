@@ -13,8 +13,20 @@ public struct GameDetailView: View {
     public var nativeSections: Bool
     @Environment(\.shellAskDelete) private var askDelete
     @Environment(\.shellAskRestoreBackup) private var askRestoreBackup
+    @Environment(\.shellAskHomeScreen) private var askHomeScreen
+    @Environment(\.shellAskChangeCover) private var askChangeCover
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var localRestoreBackup = false
+    private enum LocalSheet: Identifiable {
+        case restoreBackup
+        case homeScreen
+        var id: String {
+            switch self {
+            case .restoreBackup: "restoreBackup"
+            case .homeScreen: "homeScreen"
+            }
+        }
+    }
+    @State private var localSheet: LocalSheet?
     public init(detail: GameDetail, actions: ShellActions = ShellActions(), showsPrimaryAction: Bool = true, showsHeader: Bool = true, nativeSections: Bool = false) {
         self.detail = detail
         self.actions = actions
@@ -33,15 +45,37 @@ public struct GameDetailView: View {
         }
         .foregroundStyle(.white)
         .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: sectionRowIDs)
-        .sheet(isPresented: $localRestoreBackup) {
-            if let backup = detail.latestSaveBackup {
-                RestoreSaveBackupView(game: detail.game, backup: backup, restore: {
-                    localRestoreBackup = false
-                    actions.onRestoreSaveBackup(detail.id)
-                }, cancel: {
-                    localRestoreBackup = false
-                })
-                .presentationDetents([.medium])
+        .sheet(item: $localSheet) { sheet in
+            switch sheet {
+            case .restoreBackup:
+                if let backup = detail.latestSaveBackup {
+                    RestoreSaveBackupView(game: detail.game, backup: backup, restore: {
+                        localSheet = nil
+                        actions.onRestoreSaveBackup(detail.id)
+                    }, cancel: {
+                        localSheet = nil
+                    })
+                    .presentationDetents([.medium])
+                    .presentationBackground(ShellPalette.background)
+                }
+            case .homeScreen:
+                ScrollView {
+                    AddToHomeScreenView(
+                        game: detail.game,
+                        supportsFloatingGuide: actions.onAddToHomeScreenWithGuide != nil,
+                        prepareFloatingGuide: { actions.onPrepareHomeScreenGuide?(detail.id) },
+                        cancelPreparedFloatingGuide: { actions.onCancelPreparedHomeScreenGuide?() },
+                        saveAndOpen: { floatingGuide in
+                            if let withGuide = actions.onAddToHomeScreenWithGuide {
+                                return await withGuide(detail.id, floatingGuide)
+                            }
+                            return await actions.onAddToHomeScreen?(detail.id) ?? false
+                        },
+                        copyURL: { actions.onCopyShortcutURL?(detail.id) },
+                        close: { localSheet = nil }
+                    )
+                }
+                .presentationDetents([.medium, .large])
                 .presentationBackground(ShellPalette.background)
             }
         }
@@ -119,6 +153,24 @@ public struct GameDetailView: View {
                 if let summary = detail.playSummary, !summary.isEmpty { playHistoryRow(summary) }
             }
         }
+        if askHomeScreen != nil || actions.supportsHomeScreen {
+            if nativeSections {
+                Section { homeScreenButton }
+            } else {
+                homeScreenButton
+            }
+        }
+        if askChangeCover != nil || actions.supportsCustomCover {
+            if nativeSections {
+                Section {
+                    coverButtons
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                }
+            } else {
+                coverButtons
+            }
+        }
         VStack(alignment: .leading, spacing: 10) {
             GameSettingsGlassButton(title: ShellStrings.text("Reset to tested defaults")) { actions.onResetDefaults(detail.id) }
                 .accessibilityIdentifier("set.reset")
@@ -147,6 +199,51 @@ public struct GameDetailView: View {
     private func playHistoryRow(_ summary: String) -> some View {
         LabeledContent(ShellStrings.text("Play history"), value: summary)
             .accessibilityIdentifier("detail.playHistory")
+    }
+
+    private func requestHomeScreen() {
+        if let askHomeScreen {
+            askHomeScreen(detail.game)
+        } else {
+            localSheet = .homeScreen
+        }
+    }
+
+    private var homeScreenButton: some View {
+        Button(action: requestHomeScreen) {
+            Label(ShellStrings.text("Add to Home Screen…"), systemImage: "plus.square")
+        }
+        .accessibilityIdentifier("set.homeScreen")
+        .shellTarget("set.homeScreen", action: requestHomeScreen)
+    }
+
+    private func requestChangeCover() {
+        askChangeCover?(detail.game)
+    }
+
+    private var coverButtons: some View {
+        GlassEffectContainer(spacing: 10) {
+            ViewThatFits(in: .horizontal) {
+                EqualRow(spacing: 10) { coverActionButtons }
+                VStack(spacing: 10) { coverActionButtons }
+            }
+        }
+    }
+
+    @ViewBuilder private var coverActionButtons: some View {
+        GameSettingsGlassButton(title: ShellStrings.text("Change Cover…")) {
+            requestChangeCover()
+        }
+        .accessibilityIdentifier("set.cover")
+        .shellTarget("set.cover", action: requestChangeCover)
+
+        if detail.game.hasCustomCover, let resetCover = actions.onResetCustomCover {
+            GameSettingsGlassButton(title: ShellStrings.text("Reset Cover")) {
+                resetCover(detail.id)
+            }
+            .accessibilityIdentifier("set.cover.reset")
+            .shellTarget("set.cover.reset") { resetCover(detail.id) }
+        }
     }
 
     private var header: some View {
@@ -192,7 +289,7 @@ public struct GameDetailView: View {
         if let askRestoreBackup {
             askRestoreBackup(detail.game, backup)
         } else {
-            localRestoreBackup = true
+            localSheet = .restoreBackup
         }
     }
 }

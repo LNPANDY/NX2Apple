@@ -4,6 +4,7 @@ BuildFolder (FreeSpace), GameDeletion, DriveCopy, Diagnostics, and the 3-page UI
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 import struct
 import sys
@@ -432,11 +433,15 @@ class SharedShellParityTests(unittest.TestCase):
 
             def checked_se_run(cmd, *a, **kw):
                 cmd_list = [str(c) for c in cmd]
-                if any(c.endswith('make_ext_font.py') for c in cmd_list):
+                if any('make_shared_fonts' in c for c in cmd_list):
                     ext_font_calls.append(cmd_list)
-                    if len(cmd_list) < 4 or Path(cmd_list[3]) != letter_font:
-                        return subprocess.CompletedProcess(cmd_list, 1, '', f'bad letter font: {cmd_list}')
-                    Path(cmd_list[2]).write_bytes(b'EXT_TTF_BYTES')
+                    if len(cmd_list) < 7 or Path(cmd_list[5]) != std_font or Path(cmd_list[6]) != letter_font:
+                        return subprocess.CompletedProcess(cmd_list, 1, '', f'bad font args: {cmd_list}')
+                    out_dir = Path(cmd_list[4])
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    for fname in ('standard.ttf', 'chinese_simplified.ttf', 'chinese_simplified_ext.ttf',
+                                  'chinese_traditional.ttf', 'korean.ttf', 'nintendo_ext.ttf'):
+                        (out_dir / fname).write_bytes(b'FONT_TTF_BYTES')
                     return subprocess.CompletedProcess(cmd_list, 0, 'ok\n', '')
                 return real_se_run(cmd, *a, **kw)
 
@@ -491,8 +496,8 @@ class SharedShellParityTests(unittest.TestCase):
                 _wait_outcomes()
                 self.assertTrue(outcomes and outcomes[-1][0], f'Game 2 build failed: {outcomes}')
 
-            self.assertTrue(ext_font_calls, '_prepare_fonts must invoke make_ext_font.py')
-            self.assertEqual(Path(ext_font_calls[0][3]), letter_font)
+            self.assertTrue(ext_font_calls, '_prepare_fonts must invoke make_shared_fonts')
+            self.assertEqual(Path(ext_font_calls[0][6]), letter_font)
 
             # Verify both games' archives exist side-by-side under <shared_out>/games/<SafeName> without overwriting each other
             arch1 = shared_out / 'games' / 'Super Mario Bros. Wonder'
@@ -545,8 +550,9 @@ class SharedShellParityTests(unittest.TestCase):
                 self.assertIn('Payload/DmShell.app/DmShell', names)
                 self.assertIn(f'Payload/DmShell.app/Frameworks/DmGame{tid1}.framework/DmGame{tid1}', names)
                 self.assertIn(f'Payload/DmShell.app/Frameworks/DmGame{tid2}.framework/DmGame{tid2}', names)
-                self.assertEqual(zf.read('Payload/DmShell.app/dm/font/standard.ttf'), b'WIN_ARIAL_TTF_BYTES')
-                self.assertEqual(zf.read('Payload/DmShell.app/dm/font/nintendo_ext.ttf'), b'EXT_TTF_BYTES')
+                for fname in ('standard.ttf', 'chinese_simplified.ttf', 'chinese_simplified_ext.ttf',
+                              'chinese_traditional.ttf', 'korean.ttf', 'nintendo_ext.ttf'):
+                    self.assertEqual(zf.read(f'Payload/DmShell.app/dm/font/{fname}'), b'FONT_TTF_BYTES')
                 for exec_entry in (
                     'Payload/DmShell.app/DmShell',
                     f'Payload/DmShell.app/Frameworks/DmGame{tid1}.framework/DmGame{tid1}',
@@ -1107,6 +1113,8 @@ class LibraryAndSpaceTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_delete_game_removes_only_its_shared_framework_and_shell_entry(self) -> None:
+        import shutil
+
         from nspb_qt.win.shell_export import ShellGame, ShellLibrary
 
         title_id = '010082A0205AE000'
@@ -1133,7 +1141,15 @@ class LibraryAndSpaceTests(unittest.TestCase):
         plan = lib.GameDeletionPlan.plan(game, shell_root=str(shell_root))
         self.assertEqual([(item.kind, item.paths) for item in plan.items],
                          [('shellFramework', [str(game_framework)])])
-        self.assertEqual(plan.run(), [])
+        trashed: list[str] = []
+
+        def trash(path: str) -> bool:   # the system's Trash stays out of the test
+            trashed.append(path)
+            shutil.rmtree(path)
+            return True
+
+        self.assertEqual(plan.run(trash=trash), [])
+        self.assertEqual(trashed, [str(game_framework)])
         self.assertFalse(game_framework.exists())
         self.assertTrue(other_framework.is_dir())
         self.assertEqual([item.title_id for item in ShellLibrary.load(shell_root).games], [other_id])
@@ -1182,6 +1198,68 @@ class LibraryAndSpaceTests(unittest.TestCase):
         self.assertEqual(freed, 4096)
         self.assertEqual(failed, [])
         self.assertTrue((bf / 'run' / 'save.dat').is_file())
+
+    def test_game_deletion_trashes_selected_paths_and_removes_empty_build_folder(self) -> None:
+        import shutil
+
+        build = self.dir / 'game_build'
+        build.mkdir()
+        cache = build / 'cache'
+        cache.mkdir()
+        (cache / 'data').write_bytes(b'cache')
+        saves = build / 'run'
+        saves.mkdir()
+        (saves / 'save').write_bytes(b'save')
+        archive = self.dir / 'game.nsp'
+        archive.write_bytes(b'archive')
+        plan = lib.GameDeletionPlan('game', [
+            lib.GameDeletionItem('archive', [str(archive)]),
+            lib.GameDeletionItem('buildFolder', [str(cache)]),
+        ], lib.GameDeletionItem('saves', [str(saves)]))
+        trashed: list[str] = []
+
+        def trash(path: str) -> bool:
+            trashed.append(path)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+            return True
+
+        self.assertEqual(plan.run(trash=trash), [])
+        self.assertEqual(trashed, [str(archive), str(cache)])
+        self.assertTrue((saves / 'save').exists())
+        self.assertTrue(build.exists())
+        self.assertEqual(plan.run(delete_saves=True, trash=trash), [])
+        self.assertEqual(trashed[-1], str(saves))
+        self.assertFalse(build.exists())
+
+    def test_game_deletion_reports_trash_failure_without_removing_path(self) -> None:
+        build = self.dir / 'game_build'
+        build.mkdir()
+        failed_path = build / 'cache'
+        failed_path.write_bytes(b'keep')
+        plan = lib.GameDeletionPlan('game', [lib.GameDeletionItem('buildFolder', [str(failed_path)])])
+
+        def unavailable(path: str) -> bool:
+            raise OSError(path)
+
+        self.assertEqual(plan.run(trash=lambda path: False), [str(failed_path)])
+        self.assertEqual(plan.run(trash=unavailable), [str(failed_path)])
+        self.assertTrue(failed_path.exists())
+        self.assertTrue(build.exists())
+
+    @unittest.skipUnless(importlib.util.find_spec('PySide6'), 'PySide6 is not installed')
+    def test_game_deletion_uses_the_system_trash_by_default(self) -> None:
+        from unittest import mock
+
+        kept = self.dir / 'kept.nsp'
+        kept.write_bytes(b'keep')
+        plan = lib.GameDeletionPlan('game', [lib.GameDeletionItem('archive', [str(kept)])])
+        with mock.patch('PySide6.QtCore.QFile.moveToTrash', return_value=False) as move:
+            self.assertEqual(plan.run(), [str(kept)])
+        move.assert_called_once_with(str(kept))
+        self.assertTrue(kept.exists())
 
     def test_switch2_fallback_banners(self) -> None:
         import json
@@ -1670,9 +1748,10 @@ class ParityWindowTests(unittest.TestCase):
 
             # 5 & 7. Segmented control non-overlapping segments with gap >= 5px
             rects = w.ipa_kind_seg._segment_rects()
-            self.assertEqual(len(rects), 2)
-            r0, r1 = rects[0][2], rects[1][2]
+            self.assertEqual(len(rects), 3)
+            r0, r1, r2 = rects[0][2], rects[1][2], rects[2][2]
             self.assertGreaterEqual(r1.left() - r0.right(), 5.0)
+            self.assertGreaterEqual(r2.left() - r1.right(), 5.0)
 
             # 6. Step 1 & Step 3 reveal buttons + Copy game data button enabled when archive exists,
             # while redundant buttons on the Start Build row stay hidden
@@ -1939,12 +2018,16 @@ class ParityWindowTests(unittest.TestCase):
 
             def checked_se_run(cmd, *a, **kw):
                 cmd_list = [str(c) for c in cmd]
-                if any(c.endswith('make_ext_font.py') for c in cmd_list):
+                if any('make_shared_fonts' in c for c in cmd_list):
                     ext_font_calls.append(cmd_list)
-                    # make_ext_font.py must receive both the output path and the letter font path
-                    if len(cmd_list) < 4 or cmd_list[3] != str(letter_font):
-                        return subprocess.CompletedProcess(cmd_list, 1, '', 'missing letter font argument')
-                    Path(cmd_list[2]).write_bytes(b'EXT_TTF_BYTES')
+                    # make_shared_fonts.build must receive out_dir, std_font, and letter_font
+                    if len(cmd_list) < 7 or cmd_list[5] != str(std_font) or cmd_list[6] != str(letter_font):
+                        return subprocess.CompletedProcess(cmd_list, 1, '', 'missing font argument')
+                    out_dir = Path(cmd_list[4])
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    for fname in ('standard.ttf', 'chinese_simplified.ttf', 'chinese_simplified_ext.ttf',
+                                  'chinese_traditional.ttf', 'korean.ttf', 'nintendo_ext.ttf'):
+                        (out_dir / fname).write_bytes(b'FONT_TTF_BYTES')
                     return subprocess.CompletedProcess(cmd_list, 0, 'ok\n', '')
                 return real_se_run(cmd, *a, **kw)
 
@@ -1965,8 +2048,8 @@ class ParityWindowTests(unittest.TestCase):
                         break
                     time.sleep(0.05)
 
-            self.assertTrue(ext_font_calls, '_prepare_fonts must invoke make_ext_font.py')
-            self.assertEqual(ext_font_calls[0][3], str(letter_font))
+            self.assertTrue(ext_font_calls, '_prepare_fonts must invoke make_shared_fonts')
+            self.assertEqual(ext_font_calls[0][6], str(letter_font))
 
             build_cmds = [(c, e) for c, e in seen_cmds if '--progress' in c]
             self.assertEqual(len(build_cmds), 1)
@@ -2034,10 +2117,10 @@ class ParityWindowTests(unittest.TestCase):
                 self.assertIn('Payload/DmShell.app/DmShell', names)
                 self.assertIn(f'Payload/DmShell.app/Frameworks/DmGame{tid1}.framework/DmGame{tid1}', names)
                 self.assertIn(f'Payload/DmShell.app/Frameworks/DmGame{tid2}.framework/DmGame{tid2}', names)
-                self.assertIn('Payload/DmShell.app/dm/font/standard.ttf', names)
-                self.assertIn('Payload/DmShell.app/dm/font/nintendo_ext.ttf', names)
-                self.assertEqual(zf.read('Payload/DmShell.app/dm/font/standard.ttf'), b'STD_TTF_BYTES')
-                self.assertEqual(zf.read('Payload/DmShell.app/dm/font/nintendo_ext.ttf'), b'EXT_TTF_BYTES')
+                for fname in ('standard.ttf', 'chinese_simplified.ttf', 'chinese_simplified_ext.ttf',
+                              'chinese_traditional.ttf', 'korean.ttf', 'nintendo_ext.ttf'):
+                    self.assertIn(f'Payload/DmShell.app/dm/font/{fname}', names)
+                    self.assertEqual(zf.read(f'Payload/DmShell.app/dm/font/{fname}'), b'FONT_TTF_BYTES')
                 # Verify Unix executable permission bits (0755) on DmShell and both framework binaries
                 for exec_entry in (
                     'Payload/DmShell.app/DmShell',

@@ -102,6 +102,7 @@ public enum ProvisioningProfile {
 public struct ShellHostBeacon: Codable, Equatable, Sendable {
     public static let fileName = ".shell-host.json"
     public static let currentSchema = 1
+    public static let currentGlueVersion = 2
 
     public var schema: Int
     public var glueVersion: Int
@@ -111,7 +112,7 @@ public struct ShellHostBeacon: Codable, Equatable, Sendable {
     public var version: String
     public var expiresAtEpoch: Int64?
 
-    public init(schema: Int = Self.currentSchema, glueVersion: Int = 1, bundleID: String, teamID: String,
+    public init(schema: Int = Self.currentSchema, glueVersion: Int = Self.currentGlueVersion, bundleID: String, teamID: String,
                 chain: String, version: String, expiresAtEpoch: Int64? = nil) {
         self.schema = schema
         self.glueVersion = glueVersion
@@ -122,7 +123,7 @@ public struct ShellHostBeacon: Codable, Equatable, Sendable {
         self.expiresAtEpoch = expiresAtEpoch
     }
 
-    public static func write(to documents: URL, bundle: Bundle = .main, glueVersion: Int = 1, fileManager fm: FileManager = .default) {
+    public static func write(to documents: URL, bundle: Bundle = .main, glueVersion: Int = Self.currentGlueVersion, fileManager fm: FileManager = .default) {
         let info = bundle.infoDictionary ?? [:]
         let bundleID = (info["CFBundleIdentifier"] as? String) ?? bundle.bundleIdentifier ?? ""
         let rawChain = (info["DMChain"] as? String) ?? ""
@@ -299,12 +300,12 @@ public enum FrameworkSignature {
             return hostText("The game's framework executable could not be read. Install the game again from NX2Apple.")
         }
         guard info.hasCodeSignature else {
-            return hostText("This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple.")
+            return hostText("This game's framework in Documents/Frameworks is unsigned. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device.")
         }
         if let requiredTeam = hostTeamID, !requiredTeam.isEmpty {
             guard info.teamID == requiredTeam else {
                 let actual = info.teamID ?? "ad-hoc"
-                return hostText("This game's framework is signed for \(actual), while this app is signed for team \(requiredTeam). Install the game again from NX2Apple.")
+                return hostText("This game's framework is signed for \(actual), while this app is signed for team \(requiredTeam). Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device.")
             }
         }
         return nil

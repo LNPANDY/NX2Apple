@@ -1,0 +1,791 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Fri, 20 Nov 2026 16:44:24 +0800
+Subject: [PATCH] game: resplit Nintendo Switch Sports Resort shader map
+
+Packing v65536 stops at the shader split table check after PR #2943 made the BAHS split filter candidates outside validated binary record slots.
+
+This updates dm/games/04008E001F098000/shader_map.tsv from a fresh split of v65536. It drops two stray BAHS candidates in agl_technique_pfx.sharcb (16d1e80284e796bd at 0x1c78d4 and 1c90215ef8a46302 at 0x23a21c), shifts the remaining 116 vs_agl.bin rows after them, and updates 22 main BNSH #var source ordering entries. The other 11,057 shaders keep the same keys, shader_facts.tsv, shader_pairs.tsv, and pso_pairs.tsv are unchanged, and no profile table references the two removed keys.
+
+Upstream-Status: forwarded seedds/nxnative#3081
+Reason: Resplit 04008E001F098000 shader_map.tsv for current shader_split.py BAHS bounds filter
+Issue: none
+---
+ dm/games/04008E001F098000/README.md      |   3 +-
+ dm/games/04008E001F098000/shader_map.tsv | 308 +++++++++++------------
+ 2 files changed, 155 insertions(+), 156 deletions(-)
+
+diff --git a/dm/games/04008E001F098000/README.md b/dm/games/04008E001F098000/README.md
+index 644fa7c..e231b0f 100644
+--- a/dm/games/04008E001F098000/README.md
++++ b/dm/games/04008E001F098000/README.md
+@@ -24,7 +24,7 @@ There is no game-specific patch and no rewriter cut. Everything else it needed i
+ 
+ ## Shaders
+ 
+-- 11,059 shaders (`Nin_Ounce_NVN2` BNSH) in [`shader_map.tsv`](shader_map.tsv); a full Mac build takes about 9 minutes on the M6, 4:46 for a second one.
++- 11,057 shaders (`Nin_Ounce_NVN2` BNSH) in [`shader_map.tsv`](shader_map.tsv); a full Mac build takes about 9 minutes on the M6, 4:46 for a second one.
+ - 6 are refused (4 task, 2 mesh shaders of the sea, agl `AnnaSea`): their task payloads (21-28 KB) are past Metal's 16 KB ([issue #1753](https://github.com/seedds/nxnative/issues/1753); FifteenPen's [PR #2264](https://github.com/seedds/nxnative/pull/2264) passes them through a device buffer). No draw has been seen to use them.
+ - 612 pixel shaders read the fragment's shading-rate size; until it read 1 x 1 the sea and the avatars' hair and clothes were black ([The fragment's shading-rate size reads 1 x 1](../../../docs/reference/shaders.md#the-fragments-shading-rate-size-reads-1-x-1)).
+ - [`pso_manifest.tsv`](pso_manifest.tsv) is this Mac's own list (3,474 shaders, 1,868 render, 41 compute and 22 task / mesh pipelines): a first start, the menus and a doubles match. The pull requests' lists were recorded by an older host: none of their render or mesh pipeline keys matches the current one's.
+@@ -93,3 +93,4 @@ Raw-pointer discovery validation (2026-11-17, Apple M6, macOS 27.2): main `2925d
+ - [Tests of one uniform word folded into switches](../../../docs/reference/shaders.md#tests-of-one-uniform-word-folded-into-switches) and [Specialized second functions in the offline pipeline archive](../../../docs/reference/shaders.md#specialized-second-functions-in-the-offline-pipeline-archive)
+ - [A console's own Mii database and system data](../../../docs/reference/services.md#a-consoles-own-mii-database-and-system-data): its Mii heads come from the Switch 2's own archive, `0400000000000849`.
+ - [An original Joy-Con's sensors are read by the host](../../../docs/reference/services.md#an-original-joy-cons-sensors-are-read-by-the-host)
++- [A control section's words read as a BAHS entry](../../../docs/reference/shaders.md#a-control-sections-words-read-as-a-bahs-entry): the record-based BAHS split of [PR #2943](https://github.com/seedds/nxnative/pull/2943) drops two stray candidates in `agl_technique_pfx.sharcb` (`16d1e80284e796bd` at `0x1c78d4` and `1c90215ef8a46302` at `0x23a21c`) and reorders 22 `main` BNSH `#var` sources in [`shader_map.tsv`](shader_map.tsv), while `shader_facts.tsv`, `shader_pairs.tsv`, and `pso_pairs.tsv` stay unchanged.
+diff --git a/dm/games/04008E001F098000/shader_map.tsv b/dm/games/04008E001F098000/shader_map.tsv
+index 441e3b7..e813f26 100644
+--- a/dm/games/04008E001F098000/shader_map.tsv
++++ b/dm/games/04008E001F098000/shader_map.tsv
+@@ -1,5 +1,5 @@
+ # kind: evidence  Nintendo Switch Sports Resort shaders (BNSH / BAHS in RomFS + main) → control section + code area keys (dm/gfx/tools/shader_split.py)
+-# column 5 records where each key first appears; no PC shader pairing supplied
++# column 5 records where each key first appears, a copy in the game before one in an add-on; no PC shader pairing supplied
+ package	index	stage	dm_ctl_sha16	source
+ ps_agl.bin	0	pixel	28116b979d69297f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_common.sharcb#BAHS@0x10020
+ ps_agl.bin	1	pixel	4cb1fb8a680725fd	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_common.sharcb#BAHS@0x10158
+@@ -2774,7 +2774,6 @@ ps_agl.bin	2227	pixel	f1194868dc574984	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	2228	pixel	31108b49ec080cea	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x1c7508
+ ps_agl.bin	2229	pixel	649aa2e763567e39	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x1c76e0
+ ps_agl.bin	2230	pixel	9bde39e3d86be665	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x1c7868
+-vs_agl.bin	380	vertex	16d1e80284e796bd	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x1c78d4
+ ps_agl.bin	2231	pixel	c63b2e8acdb666b6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x1c79f0
+ ps_agl.bin	2232	pixel	c2e5a4922fc1bb86	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x1c7bb0
+ ps_agl.bin	2233	pixel	ba725464e863e6ea	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x1c7d78
+@@ -3354,12 +3353,12 @@ ps_agl.bin	2806	pixel	39a4293bbb5a5b4a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	2807	pixel	c489713850ad752b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x20f58
+ ps_agl.bin	2808	pixel	7353cc92c5a303b4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x210f8
+ ps_agl.bin	2809	pixel	951416a7570f1464	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x212c8
+-vs_agl.bin	381	vertex	ae7961959475a45b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x21d910
++vs_agl.bin	380	vertex	ae7961959475a45b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x21d910
+ ps_agl.bin	2810	pixel	2b833c277f54b3e4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x21d9f8
+ ps_agl.bin	2811	pixel	485d0c6a1a5a2523	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x21dbc8
+ ps_agl.bin	2812	pixel	27a334e2bd053935	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x21dd90
+ ps_agl.bin	2813	pixel	087964c948d39dcd	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x21df60
+-vs_agl.bin	382	vertex	8457c5bdc56fbf12	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x21e040
++vs_agl.bin	381	vertex	8457c5bdc56fbf12	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x21e040
+ ps_agl.bin	2814	pixel	a331e544983ad650	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x21e158
+ ps_agl.bin	2815	pixel	2afa7ef245bd94dc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x21e340
+ ps_agl.bin	2816	pixel	1330414373c764d8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x21e520
+@@ -3380,21 +3379,21 @@ ps_agl.bin	2830	pixel	4b2c0a1725e1151b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	2831	pixel	885a52614205ffe1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x220358
+ ps_agl.bin	2832	pixel	a27c508c0bb775e6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x220608
+ ps_agl.bin	2833	pixel	32349cbd7aa31064	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2208c8
+-vs_agl.bin	383	vertex	40ad099d2943ed76	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x221870
++vs_agl.bin	382	vertex	40ad099d2943ed76	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x221870
+ ps_agl.bin	2834	pixel	0d3c322d57866759	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x221958
+ ps_agl.bin	2835	pixel	a88a9319f06755c0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x221b98
+ ps_agl.bin	2836	pixel	1daf1689f339abde	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x221f38
+ ps_agl.bin	2837	pixel	eef5fddfa1219c26	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2220b8
+ ps_agl.bin	2838	pixel	c51a0392add5b845	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x222238
+ ps_agl.bin	2839	pixel	d8e2489c7704e29f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x222388
+-vs_agl.bin	384	vertex	e63f2dbbbc757765	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2227f0
++vs_agl.bin	383	vertex	e63f2dbbbc757765	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2227f0
+ ps_agl.bin	2840	pixel	c39d9c1dac3d7ab2	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2229a0
+ ps_agl.bin	2841	pixel	c99e088e9a57f7c1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x222c18
+-vs_agl.bin	385	vertex	62c7bba1c1e1a0d0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x222dc0
++vs_agl.bin	384	vertex	62c7bba1c1e1a0d0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x222dc0
+ ps_agl.bin	2842	pixel	df97b2add8b45d71	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x222f80
+-vs_agl.bin	386	vertex	ef6026fa56ee6009	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2230e8
++vs_agl.bin	385	vertex	ef6026fa56ee6009	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2230e8
+ ps_agl.bin	2843	pixel	cfe72a1674c3dcb9	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2232a8
+-vs_agl.bin	387	vertex	66d03f1734071583	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x223410
++vs_agl.bin	386	vertex	66d03f1734071583	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x223410
+ ps_agl.bin	2844	pixel	e8348d8a567ed528	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2234b0
+ ps_agl.bin	2845	pixel	36ebe61b1ba3a2d0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2236f8
+ ps_agl.bin	2846	pixel	2e3cf8c6770b9ea9	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x223948
+@@ -3402,19 +3401,19 @@ ps_agl.bin	2847	pixel	b481c52e74cddcc1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	2848	pixel	2acab51fb14a378a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x223de0
+ ps_agl.bin	2849	pixel	a0f5d4119840ce41	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x224030
+ ps_agl.bin	2850	pixel	b05221ebf4b8fdbe	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x224268
+-vs_agl.bin	388	vertex	e6614b3ee32f70c1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x224410
++vs_agl.bin	387	vertex	e6614b3ee32f70c1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x224410
+ ps_agl.bin	2851	pixel	e55f45d0df50c572	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2244a0
+ ps_agl.bin	2852	pixel	0f643fea208c1275	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x224698
+ ps_agl.bin	2853	pixel	121e0b805e2b9ce4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x224a50
+ ps_agl.bin	2854	pixel	eca598c1d340c647	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x224bb8
+-vs_agl.bin	389	vertex	f68d8cd15230badc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x224d38
++vs_agl.bin	388	vertex	f68d8cd15230badc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x224d38
+ ps_agl.bin	2855	pixel	24f8f1dd7bf85bdb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x224e08
+ ps_agl.bin	2856	pixel	f1a98e65898ba90d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x225080
+ ps_agl.bin	2857	pixel	675bc9569da7ccd8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2252f8
+ ps_agl.bin	2858	pixel	5925dcacfd7f39c3	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x225490
+-vs_agl.bin	390	vertex	e5a0a22757a18371	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x225638
++vs_agl.bin	389	vertex	e5a0a22757a18371	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x225638
+ ps_agl.bin	2859	pixel	ede5ce36e57c934c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2257f8
+-vs_agl.bin	391	vertex	3cc55c54c5c53fb2	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x225990
++vs_agl.bin	390	vertex	3cc55c54c5c53fb2	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x225990
+ ps_agl.bin	2860	pixel	f47b852c2fb06302	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x225a58
+ ps_agl.bin	2861	pixel	6ed89fd9c3f6bfcf	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x225cb8
+ ps_agl.bin	2862	pixel	efccd8ceadc67e72	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x225f20
+@@ -3427,9 +3426,9 @@ ps_agl.bin	2868	pixel	a4372b9e2fc7f0bb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	2869	pixel	0738e88c1f5b3aa4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x226f78
+ ps_agl.bin	2870	pixel	69b2d09aefbf176f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x227118
+ ps_agl.bin	2871	pixel	bfffbb7f731d8530	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2272b8
+-vs_agl.bin	392	vertex	9e446afbd3d57084	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x227468
++vs_agl.bin	391	vertex	9e446afbd3d57084	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x227468
+ ps_agl.bin	2872	pixel	08474bfaf47b370d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x227548
+-vs_agl.bin	393	vertex	3ea648a227d1d53a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x227610
++vs_agl.bin	392	vertex	3ea648a227d1d53a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x227610
+ ps_agl.bin	2873	pixel	717d5c9a7d96d774	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2276d8
+ ps_agl.bin	2874	pixel	20019c5288e3d2c0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x227948
+ ps_agl.bin	2875	pixel	d4979310c2b26f67	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x227bc0
+@@ -3438,17 +3437,17 @@ ps_agl.bin	2877	pixel	2e60de9069bd9a94	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	2878	pixel	e1408354937c4388	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2280d0
+ ps_agl.bin	2879	pixel	ffde2808fcebbafc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x228500
+ ps_agl.bin	2880	pixel	6f48b76a72b83564	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x228778
+-vs_agl.bin	394	vertex	87c1b0e55d39a8e5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x228928
++vs_agl.bin	393	vertex	87c1b0e55d39a8e5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x228928
+ ps_agl.bin	2881	pixel	504f2da7af27e2a0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x228ad8
+ ps_agl.bin	2882	pixel	19cbb65aaa44d6a3	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x228c40
+-vs_agl.bin	395	vertex	1d3895e8fd39fd64	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x228ce0
++vs_agl.bin	394	vertex	1d3895e8fd39fd64	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x228ce0
+ ps_agl.bin	2883	pixel	0e3715f369ba7293	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x228eb8
+ ps_agl.bin	2884	pixel	b9d0529264f8e7ca	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x229178
+ ps_agl.bin	2885	pixel	08856ac18c6d1336	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x229438
+ ps_agl.bin	2886	pixel	fe4fac427b866665	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2296f8
+-vs_agl.bin	396	vertex	7a2d9fb9a1432e44	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2298c0
++vs_agl.bin	395	vertex	7a2d9fb9a1432e44	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2298c0
+ ps_agl.bin	2887	pixel	ede83bd4496ace43	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x229aa0
+-vs_agl.bin	397	vertex	a5c9d4f9eb4c7a18	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x229c60
++vs_agl.bin	396	vertex	a5c9d4f9eb4c7a18	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x229c60
+ ps_agl.bin	2888	pixel	e88fa0adc8acd705	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x229e28
+ ps_agl.bin	2889	pixel	8416b66586cda4ad	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22a0d0
+ ps_agl.bin	2890	pixel	0d023d2adc3d019d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22a388
+@@ -3457,14 +3456,14 @@ ps_agl.bin	2892	pixel	bfe52aed35afa0cf	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	2893	pixel	c98155ae66e623a8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22aa38
+ ps_agl.bin	2894	pixel	b1a14f9734f32420	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22aed8
+ ps_agl.bin	2895	pixel	088a9aaccb348482	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22b188
+-vs_agl.bin	398	vertex	7a724499b723d122	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22b350
++vs_agl.bin	397	vertex	7a724499b723d122	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22b350
+ ps_agl.bin	2896	pixel	2715c26fd3d3d78a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22b450
+ ps_agl.bin	2897	pixel	ce7324ad73387304	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22b648
+ ps_agl.bin	2898	pixel	bdcc40a48b6c8269	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22b840
+ ps_agl.bin	2899	pixel	37bafaca9c7cc473	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22ba38
+-vs_agl.bin	399	vertex	9c368986a5629485	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22bc10
++vs_agl.bin	398	vertex	9c368986a5629485	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22bc10
+ ps_agl.bin	2900	pixel	84d5edaa049d76ea	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22bd20
+-vs_agl.bin	400	vertex	83c37f2a8c252dfb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22bee8
++vs_agl.bin	399	vertex	83c37f2a8c252dfb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22bee8
+ ps_agl.bin	2901	pixel	69972adc260de047	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22c0c0
+ ps_agl.bin	2902	pixel	4b89610532c0a697	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22c2a0
+ ps_agl.bin	2903	pixel	ea2b9a3949a781eb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22c488
+@@ -3477,9 +3476,9 @@ ps_agl.bin	2909	pixel	c4e6967ff874594a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	2910	pixel	b2529288937d7a02	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22d7c8
+ ps_agl.bin	2911	pixel	fbce54df0fd62baf	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22da98
+ ps_agl.bin	2912	pixel	3cda571a1e4a23ae	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22dd68
+-vs_agl.bin	401	vertex	04984c09f5c29b8e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22de60
++vs_agl.bin	400	vertex	04984c09f5c29b8e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22de60
+ ps_agl.bin	2913	pixel	db3552ed0011e555	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22e040
+-vs_agl.bin	402	vertex	458778959d9fad18	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22e208
++vs_agl.bin	401	vertex	458778959d9fad18	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22e208
+ ps_agl.bin	2914	pixel	6d68f29adc319e41	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22e2f0
+ ps_agl.bin	2915	pixel	47e6daafd8f56aeb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22e5a0
+ ps_agl.bin	2916	pixel	47ee667bc68723dd	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22e8
+@@ -3493,9 +3492,9 @@ ps_agl.bin	2923	pixel	e5fd751beb850c13	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	2924	pixel	7ab31345a2830b80	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22fa90
+ ps_agl.bin	2925	pixel	4ca106f444256131	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22fc90
+ ps_agl.bin	2926	pixel	08e323933cbe2e66	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x22ff70
+-vs_agl.bin	403	vertex	6e2af0a25cd28d92	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x230070
++vs_agl.bin	402	vertex	6e2af0a25cd28d92	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x230070
+ ps_agl.bin	2927	pixel	db8d89eacb6c18d2	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x230180
+-vs_agl.bin	404	vertex	605282245ca5b0cd	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x230278
++vs_agl.bin	403	vertex	605282245ca5b0cd	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x230278
+ ps_agl.bin	2928	pixel	587eab1adcfb1a17	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x230370
+ ps_agl.bin	2929	pixel	341dbb9a520fe2b4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x230560
+ ps_agl.bin	2930	pixel	deee06e719b17646	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x230758
+@@ -3525,12 +3524,12 @@ ps_agl.bin	2953	pixel	4f9e582fda1efe01	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	2954	pixel	1b319141ae5d4c77	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x234948
+ ps_agl.bin	2955	pixel	7c55889dc4da2770	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x234b00
+ ps_agl.bin	2956	pixel	096a224d5fb81908	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x234c78
+-vs_agl.bin	405	vertex	9d5236c57791dd66	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x234d08
++vs_agl.bin	404	vertex	9d5236c57791dd66	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x234d08
+ ps_agl.bin	2957	pixel	769b42844208560f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x234da8
+ ps_agl.bin	2958	pixel	e91c026eda25dcf1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x234ee8
+ ps_agl.bin	2959	pixel	ecc0f01b116d0972	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x235108
+ ps_agl.bin	2960	pixel	f38d101600f5a454	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x235328
+-vs_agl.bin	406	vertex	1eb588d257f245d7	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2354a8
++vs_agl.bin	405	vertex	1eb588d257f245d7	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2354a8
+ ps_agl.bin	2961	pixel	fcc7e4897b0726d5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x235578
+ ps_agl.bin	2962	pixel	507121dabe86f23a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2357f0
+ ps_agl.bin	2963	pixel	c216c7c8483abe6e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x235a68
+@@ -3563,16 +3562,16 @@ cs_agl.bin	178	compute	8eb06dfea85748db	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rel
+ cs_agl.bin	179	compute	e24cd5bc0cb13974	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238168
+ cs_agl.bin	180	compute	c209792a45150966	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238260
+ cs_agl.bin	181	compute	b83b42f42e2aa87e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238408
+-vs_agl.bin	407	vertex	b229534c0743a270	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238580
++vs_agl.bin	406	vertex	b229534c0743a270	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238580
+ ps_agl.bin	2973	pixel	b1a181afd6d22c66	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238620
+-vs_agl.bin	408	vertex	42ff4b8fb82cf3fe	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2387b0
++vs_agl.bin	407	vertex	42ff4b8fb82cf3fe	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2387b0
+ ps_agl.bin	2974	pixel	48f53596533c8eef	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238960
+-vs_agl.bin	409	vertex	e48056b7965f22f5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2389d8
++vs_agl.bin	408	vertex	e48056b7965f22f5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2389d8
+ ps_agl.bin	2975	pixel	34547c426d623dbd	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238ba8
+ ps_agl.bin	2976	pixel	4d54c534703f97a0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238d8
+ ps_agl.bin	2977	pixel	8b862b32f21ad681	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238de0
+ ps_agl.bin	2978	pixel	735ca92d8beef62e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238f30
+-vs_agl.bin	410	vertex	3afd46a218741216	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238fe8
++vs_agl.bin	409	vertex	3afd46a218741216	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x238fe8
+ ps_agl.bin	2979	pixel	caa14084fdbfde07	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x239190
+ cs_agl.bin	182	compute	18464a37bcbe7397	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x239208
+ cs_agl.bin	183	compute	2931f56608980ca4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x239370
+@@ -3583,52 +3582,51 @@ cs_agl.bin	187	compute	a2d772c5d647dc62	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rel
+ cs_agl.bin	188	compute	6b2fde1af4bef561	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x239ce8
+ cs_agl.bin	189	compute	5ceba177994214f7	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x239ec8
+ cs_agl.bin	190	compute	f452bb839d801325	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23a0b0
+-vs_agl.bin	411	vertex	1c90215ef8a46302	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23a21c
+ cs_agl.bin	191	compute	0eb2d7a3bfe3b555	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23a298
+ cs_agl.bin	192	compute	1f78730053feb036	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23a490
+ ps_agl.bin	2980	pixel	139a8e1064036505	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23a58
+ cs_agl.bin	193	compute	e172bd7ec218ab8e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23a698
+-vs_agl.bin	412	vertex	9abb096be0319f51	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23a8b0
++vs_agl.bin	410	vertex	9abb096be0319f51	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23a8b0
+ ps_agl.bin	2981	pixel	2df8c6ce7b295133	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23a978
+-vs_agl.bin	413	vertex	4253f72fdc2fc793	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23aa10
++vs_agl.bin	411	vertex	4253f72fdc2fc793	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23aa10
+ ps_agl.bin	2982	pixel	50811f68f359fb08	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23aac8
+-vs_agl.bin	414	vertex	6cc863d3ae902c8b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23ac40
++vs_agl.bin	412	vertex	6cc863d3ae902c8b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23ac40
+ ps_agl.bin	2983	pixel	98d3c4587c127448	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23acd0
+-vs_agl.bin	415	vertex	e4d8dbcb5283bcc3	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23ae50
++vs_agl.bin	413	vertex	e4d8dbcb5283bcc3	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23ae50
+ ps_agl.bin	2984	pixel	b6e813d8ebf12139	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b010
+-vs_agl.bin	416	vertex	24482a389a35fd4b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b200
++vs_agl.bin	414	vertex	24482a389a35fd4b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b200
+ ps_agl.bin	2985	pixel	bbfc0b330a9213c6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b2b0
+-vs_agl.bin	417	vertex	9e93f53566187da7	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b350
++vs_agl.bin	415	vertex	9e93f53566187da7	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b350
+ ps_agl.bin	2986	pixel	705c888ed0505974	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b550
+-vs_agl.bin	418	vertex	10e02a351e42904d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b760
++vs_agl.bin	416	vertex	10e02a351e42904d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b760
+ ps_agl.bin	2987	pixel	6bd589200cc2f983	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b810
+-vs_agl.bin	419	vertex	ad02d9b272d69805	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b990
++vs_agl.bin	417	vertex	ad02d9b272d69805	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23b990
+ ps_agl.bin	2988	pixel	df0a07f0c696b27f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23bb90
+-vs_agl.bin	420	vertex	81f8b3cff0997922	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23bda0
++vs_agl.bin	418	vertex	81f8b3cff0997922	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23bda0
+ ps_agl.bin	2989	pixel	85600e7973aa9e98	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23be68
+-vs_agl.bin	421	vertex	760516ec041c471c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23bf08
++vs_agl.bin	419	vertex	760516ec041c471c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23bf08
+ ps_agl.bin	2990	pixel	9427b60f51961049	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23c08
+ ps_agl.bin	2991	pixel	ad27fb935f023bfc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23c138
+-vs_agl.bin	422	vertex	903c58415c93f4a8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23c840
++vs_agl.bin	420	vertex	903c58415c93f4a8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23c840
+ ps_agl.bin	2992	pixel	e36b37d2dfba58f5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23c8f0
+-vs_agl.bin	423	vertex	bb3714e78b8d4493	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23c990
++vs_agl.bin	421	vertex	bb3714e78b8d4493	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23c990
+ ps_agl.bin	2993	pixel	5d4b14577c55ddfc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23cb90
+-vs_agl.bin	424	vertex	7ca1cc4a19f15a67	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23cda0
++vs_agl.bin	422	vertex	7ca1cc4a19f15a67	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23cda0
+ ps_agl.bin	2994	pixel	8cde7e69a26e9a73	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23ce50
+-vs_agl.bin	425	vertex	ede40ec6312a3d11	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23cef0
++vs_agl.bin	423	vertex	ede40ec6312a3d11	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23cef0
+ ps_agl.bin	2995	pixel	29d816c85584542b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23d0f0
+-vs_agl.bin	426	vertex	b9a60e866058c078	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23d300
+-vs_agl.bin	427	vertex	1799b8d508139c8a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23d468
++vs_agl.bin	424	vertex	b9a60e866058c078	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23d300
++vs_agl.bin	425	vertex	1799b8d508139c8a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23d468
+ ps_agl.bin	2996	pixel	35b09762c2043326	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23d88
+ ps_agl.bin	2997	pixel	4b7a08da9c02bf7d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23d950
+-vs_agl.bin	428	vertex	c8648571bd52ee5d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23dab8
++vs_agl.bin	426	vertex	c8648571bd52ee5d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23dab8
+ ps_agl.bin	2998	pixel	adcc21f62adb53c1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23db40
+-vs_agl.bin	429	vertex	d01b7348d2db0202	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23dcb8
++vs_agl.bin	427	vertex	d01b7348d2db0202	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23dcb8
+ ps_agl.bin	2999	pixel	d789ff4af30ea232	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23de60
+-vs_agl.bin	430	vertex	9c8bfcd64553f73a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23e158
++vs_agl.bin	428	vertex	9c8bfcd64553f73a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23e158
+ ps_agl.bin	3000	pixel	49889cbf337824cb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23e220
+ ps_agl.bin	3001	pixel	bff6c72d5dbd929a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23e3a0
+-vs_agl.bin	431	vertex	794c6b2b4a939f57	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23e468
++vs_agl.bin	429	vertex	794c6b2b4a939f57	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23e468
+ ps_agl.bin	3002	pixel	849f34e69e522f36	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23e530
+ ps_agl.bin	3003	pixel	3f3e95930b8c96a4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23e778
+ ps_agl.bin	3004	pixel	254dfb78b497d23f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x23e8f0
+@@ -3664,31 +3662,31 @@ ps_agl.bin	3033	pixel	2d4bb91404071b17	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3034	pixel	8205bdb2c0a880fc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x242080
+ ps_agl.bin	3035	pixel	74cf3bfd8077bc7d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2422e0
+ ps_agl.bin	3036	pixel	e5abaafafca3778e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x242668
+-vs_agl.bin	432	vertex	d36d47147838feeb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x242718
++vs_agl.bin	430	vertex	d36d47147838feeb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x242718
+ ps_agl.bin	3037	pixel	5491cd7bfc48db3b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x242b0
+ ps_agl.bin	3038	pixel	4ef742920089c121	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x242b98
+-vs_agl.bin	433	vertex	4cc925ccc8e6997d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x243968
++vs_agl.bin	431	vertex	4cc925ccc8e6997d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x243968
+ ps_agl.bin	3039	pixel	c4be289b7fa68b2f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x243b78
+-vs_agl.bin	434	vertex	9f2dcbbf1393c049	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x243c28
++vs_agl.bin	432	vertex	9f2dcbbf1393c049	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x243c28
+ ps_agl.bin	3040	pixel	9f7e379502c05248	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x244108
+-vs_agl.bin	435	vertex	7cee980dfe8cb8cc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x244498
++vs_agl.bin	433	vertex	7cee980dfe8cb8cc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x244498
+ ps_agl.bin	3041	pixel	1eb883d8c25935df	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2446a8
+-vs_agl.bin	436	vertex	8b76621482b9caec	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x244758
++vs_agl.bin	434	vertex	8b76621482b9caec	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x244758
+ ps_agl.bin	3042	pixel	b7bcd8cd9958446a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x244c38
+-vs_agl.bin	437	vertex	8be382ba47770819	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x244fc8
++vs_agl.bin	435	vertex	8be382ba47770819	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x244fc8
+ ps_agl.bin	3043	pixel	3ed484ebbd09e435	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2452b8
+-vs_agl.bin	438	vertex	fc7ab7cdf7c918e6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x245368
++vs_agl.bin	436	vertex	fc7ab7cdf7c918e6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x245368
+ ps_agl.bin	3044	pixel	2e0d2100a2bdba01	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x245848
+-vs_agl.bin	439	vertex	2248aa4ff3f9e86c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x245bd8
++vs_agl.bin	437	vertex	2248aa4ff3f9e86c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x245bd8
+ ps_agl.bin	3045	pixel	d7769b875f05e719	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x245de8
+-vs_agl.bin	440	vertex	5c24cacdef1b262b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x245e98
++vs_agl.bin	438	vertex	5c24cacdef1b262b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x245e98
+ ps_agl.bin	3046	pixel	598f2a99ebc9b28d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x246378
+-vs_agl.bin	441	vertex	8094453ec0a25b44	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x246708
++vs_agl.bin	439	vertex	8094453ec0a25b44	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x246708
+ ps_agl.bin	3047	pixel	2ab5838a7dee3ecf	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x246948
+-vs_agl.bin	442	vertex	92a4c41056d86774	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2469f8
++vs_agl.bin	440	vertex	92a4c41056d86774	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2469f8
+ ps_agl.bin	3048	pixel	0350bfbb36c8c794	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x246f38
+-vs_agl.bin	443	vertex	ef00caa3f98c722c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2472f8
+-vs_agl.bin	444	vertex	48f5105463308a54	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2475e8
++vs_agl.bin	441	vertex	ef00caa3f98c722c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2472f8
++vs_agl.bin	442	vertex	48f5105463308a54	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2475e8
+ ps_agl.bin	3049	pixel	afe775e984bcd589	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x247f70
+ ps_agl.bin	3050	pixel	0763bd8b14b81167	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2481c8
+ ps_agl.bin	3051	pixel	0bc178a0f43c4eac	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x248308
+@@ -3697,40 +3695,40 @@ ps_agl.bin	3053	pixel	6cac727d75a1884e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3054	pixel	7e6c99e8edd59616	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x248978
+ ps_agl.bin	3055	pixel	19b93b23e1304a70	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x248be8
+ ps_agl.bin	3056	pixel	b9eddf661377f6e0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x248ea8
+-vs_agl.bin	445	vertex	fa98cecabda7ad70	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2490d8
++vs_agl.bin	443	vertex	fa98cecabda7ad70	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2490d8
+ ps_agl.bin	3057	pixel	f267db142630b642	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2492a8
+ ps_agl.bin	3058	pixel	c18d61f7d5bd6d25	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x249428
+ ps_agl.bin	3059	pixel	c06c281188851a29	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2495a0
+-vs_agl.bin	446	vertex	0df57171fd34bf84	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x249640
++vs_agl.bin	444	vertex	0df57171fd34bf84	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x249640
+ ps_agl.bin	3060	pixel	b3254ec57e90472c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x249748
+ ps_agl.bin	3061	pixel	c4dffe0b5c8a890b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x249aa0
+ ps_agl.bin	3062	pixel	737c97e8d13e3a57	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x249df8
+ ps_agl.bin	3063	pixel	7f9331c268da06e7	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24a070
+ ps_agl.bin	3064	pixel	ff5435fb6f30d73c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24a2a8
+-vs_agl.bin	447	vertex	52639a9e96259ce2	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24a370
++vs_agl.bin	445	vertex	52639a9e96259ce2	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24a370
+ ps_agl.bin	3065	pixel	950f0b22a3dc248a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24a448
+-vs_agl.bin	448	vertex	7386d44e546d2274	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24a520
++vs_agl.bin	446	vertex	7386d44e546d2274	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24a520
+ ps_agl.bin	3066	pixel	899464dcbfc9334a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24a6e0
+ ps_agl.bin	3067	pixel	fc33900d7e9b1f70	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24a898
+-vs_agl.bin	449	vertex	d12728514ca7079c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24a978
++vs_agl.bin	447	vertex	d12728514ca7079c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24a978
+ ps_agl.bin	3068	pixel	ee79f4773550213f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24ab50
+ ps_agl.bin	3069	pixel	dc52dcf8beba10fa	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24ad38
+-vs_agl.bin	450	vertex	6097e7ef080addac	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24ae30
++vs_agl.bin	448	vertex	6097e7ef080addac	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24ae30
+ ps_agl.bin	3070	pixel	51e152a4b5e7de37	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24b020
+ ps_agl.bin	3071	pixel	fa5b03482b620b00	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24b328
+-vs_agl.bin	451	vertex	a36d3e266e6a2376	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24b448
++vs_agl.bin	449	vertex	a36d3e266e6a2376	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24b448
+ ps_agl.bin	3072	pixel	a18a6074aefc3b52	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24b650
+ ps_agl.bin	3073	pixel	b63397d761e28e1c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24b8a8
+-vs_agl.bin	452	vertex	15595b87c8815930	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24b9e0
++vs_agl.bin	450	vertex	15595b87c8815930	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24b9e0
+ ps_agl.bin	3074	pixel	c66386456b38a62f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24bad8
+ ps_agl.bin	3075	pixel	d1a8928404e9a0fd	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24bcc0
+-vs_agl.bin	453	vertex	e4b6173ac70a6c35	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24be98
++vs_agl.bin	451	vertex	e4b6173ac70a6c35	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24be98
+ ps_agl.bin	3076	pixel	ceffec52b1454bc3	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24c088
+ ps_agl.bin	3077	pixel	655439e6dadf99e5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24c2a0
+-vs_agl.bin	454	vertex	b7016825ab1b692b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24c3b0
++vs_agl.bin	452	vertex	b7016825ab1b692b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24c3b0
+ ps_agl.bin	3078	pixel	3c377470680b61fa	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24c4d8
+ ps_agl.bin	3079	pixel	618525ef20423791	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24c730
+-vs_agl.bin	455	vertex	0da07d9ba1c3fce1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24c868
++vs_agl.bin	453	vertex	0da07d9ba1c3fce1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24c868
+ ps_agl.bin	3080	pixel	bb14011228a2d09e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24ca88
+ ps_agl.bin	3081	pixel	8c703377d1e5c43c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24cd10
+ ps_agl.bin	3082	pixel	943d8c0ece545cc8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24cf40
+@@ -3750,7 +3748,7 @@ ps_agl.bin	3095	pixel	cd3318e637eca4d7	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3096	pixel	1b249ddfcb84b078	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24ee88
+ ps_agl.bin	3097	pixel	89d61802b126965c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24f0
+ ps_agl.bin	3098	pixel	bd1bc342537cea7e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24f1f0
+-vs_agl.bin	456	vertex	904874659f729952	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24f340
++vs_agl.bin	454	vertex	904874659f729952	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24f340
+ ps_agl.bin	3099	pixel	5d90f806b5adc2dc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24f460
+ ps_agl.bin	3100	pixel	3acbbf73d186a25a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24f678
+ ps_agl.bin	3101	pixel	8741d27ce6fbdfb8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x24f980
+@@ -3803,7 +3801,7 @@ cs_agl.bin	210	compute	99e7a7877c51b2d3	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rel
+ cs_agl.bin	211	compute	cf5c0ab6811c4b48	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2559c0
+ cs_agl.bin	212	compute	a9fb67dd4275fbda	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x255b50
+ cs_agl.bin	213	compute	83182f5146c335a5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x255dd0
+-vs_agl.bin	457	vertex	4e70779541d148e1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x255f70
++vs_agl.bin	455	vertex	4e70779541d148e1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x255f70
+ ps_agl.bin	3131	pixel	ee28f862201d01fa	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x256040
+ ps_agl.bin	3132	pixel	ab02b01b03f6ecb6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2561c8
+ ps_agl.bin	3133	pixel	555c4f14b87d82a0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x256378
+@@ -3876,7 +3874,7 @@ ps_agl.bin	3199	pixel	eb6e661375375ae8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3200	pixel	3dee6fcae08f24e6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x263308
+ ps_agl.bin	3201	pixel	a948380d68bb5b3d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2635c8
+ ps_agl.bin	3202	pixel	00e8ad37374bcc48	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x2638c0
+-vs_agl.bin	458	vertex	255245d30146928a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x263b50
++vs_agl.bin	456	vertex	255245d30146928a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x263b50
+ ps_agl.bin	3203	pixel	b690bba0476e3620	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x263c08
+ ps_agl.bin	3204	pixel	ec9e8080e42bf75b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x263ec8
+ cs_agl.bin	214	compute	4f21fd9e5886fe22	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x263ff8
+@@ -3994,7 +3992,7 @@ ps_agl.bin	3310	pixel	cbb4da3dee346999	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3311	pixel	61ae49efb0d102f4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x33568
+ ps_agl.bin	3312	pixel	f0af585653ee335c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x33730
+ ps_agl.bin	3313	pixel	dde76a0ab13e5497	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x338c8
+-vs_agl.bin	459	vertex	ef41a307887d26b4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x33a8
++vs_agl.bin	457	vertex	ef41a307887d26b4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x33a8
+ ps_agl.bin	3314	pixel	85ddbd847d7c1a4f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x33a80
+ ps_agl.bin	3315	pixel	3e095a4f96bac343	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x33c08
+ ps_agl.bin	3316	pixel	f2339bb0adcc757f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x33dc0
+@@ -4030,7 +4028,7 @@ ps_agl.bin	3345	pixel	2e8d4f57f586546d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3346	pixel	3d734667b7973133	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x37d68
+ ps_agl.bin	3347	pixel	4cbe860fab6f0dd7	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x37f08
+ ps_agl.bin	3348	pixel	4fb59cebef6b50bb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x38078
+-vs_agl.bin	460	vertex	94ab133310b81a7f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3808
++vs_agl.bin	458	vertex	94ab133310b81a7f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3808
+ ps_agl.bin	3349	pixel	a0bc28f2e6f379cd	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x38218
+ ps_agl.bin	3350	pixel	6811945d18a5ac51	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x38388
+ ps_agl.bin	3351	pixel	2343279a3beb60a8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x38540
+@@ -4053,15 +4051,15 @@ ps_agl.bin	3367	pixel	7ab1b79726bd0bdd	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3368	pixel	91a8b09b24f38533	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3acf8
+ ps_agl.bin	3369	pixel	15d1b8a122cf5f5a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3ae98
+ ps_agl.bin	3370	pixel	b3231e3bbff3f5ef	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3b068
+-vs_agl.bin	461	vertex	3312c6710ecbd0dc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3b168
++vs_agl.bin	459	vertex	3312c6710ecbd0dc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3b168
+ ps_agl.bin	3371	pixel	be57fb1560d90635	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3b310
+-vs_agl.bin	462	vertex	4067b02ef34292b6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3b478
++vs_agl.bin	460	vertex	4067b02ef34292b6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3b478
+ ps_agl.bin	3372	pixel	4dd9070fac0919a1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3b540
+-vs_agl.bin	463	vertex	f5a252aaf00d9524	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3b5c8
++vs_agl.bin	461	vertex	f5a252aaf00d9524	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3b5c8
+ ps_agl.bin	3373	pixel	84bd08d09dbc0c40	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3b778
+ ps_agl.bin	3374	pixel	687d3dca0e6de22d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3ba28
+ ps_agl.bin	3375	pixel	376130bece876ac1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3bc30
+-vs_agl.bin	464	vertex	d527b9ce9454d866	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3bed8
++vs_agl.bin	462	vertex	d527b9ce9454d866	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3bed8
+ ps_agl.bin	3376	pixel	c3bb8b3a369ccf2f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3bfc0
+ ps_agl.bin	3377	pixel	90eb4dffa7463401	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3c130
+ ps_agl.bin	3378	pixel	6edcc0f691dd4f1a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x3c28
+@@ -4090,7 +4088,7 @@ ps_agl.bin	3400	pixel	7f1ec2d2b0d2636b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3401	pixel	0794f9c74d4241c3	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x41600
+ ps_agl.bin	3402	pixel	ebba38a9b70408d0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x41788
+ ps_agl.bin	3403	pixel	a1afe30bd22b0a9f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x419f0
+-vs_agl.bin	465	vertex	2497138aa6e09976	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x41a8
++vs_agl.bin	463	vertex	2497138aa6e09976	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x41a8
+ ps_agl.bin	3404	pixel	3fa8ce4ebaa82255	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x41cf8
+ ps_agl.bin	3405	pixel	98abbaef133be2a5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x4230
+ ps_agl.bin	3406	pixel	3a5a705e3420e738	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x42680
+@@ -4103,7 +4101,7 @@ ps_agl.bin	3412	pixel	c4ba7905647dbbff	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3413	pixel	e17c4c5ef0b6c88e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x439b8
+ ps_agl.bin	3414	pixel	cd8d15249444041e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x43be0
+ ps_agl.bin	3415	pixel	5a7303bee9aeac38	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x43d68
+-vs_agl.bin	466	vertex	825b008873edd1d0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x43e8
++vs_agl.bin	464	vertex	825b008873edd1d0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x43e8
+ ps_agl.bin	3416	pixel	f379499abffd53dc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x43ef0
+ ps_agl.bin	3417	pixel	e3b4283575561347	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x44118
+ ps_agl.bin	3418	pixel	f62e9d86064a451e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x44340
+@@ -4136,7 +4134,7 @@ ps_agl.bin	3444	pixel	f0cfc59caf3c1f87	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3445	pixel	58940e31b06ff6a3	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x48890
+ ps_agl.bin	3446	pixel	ecbd3bd6a08dab74	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x48a00
+ ps_agl.bin	3447	pixel	22a33c62dd2bd445	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x48c10
+-vs_agl.bin	467	vertex	e3db3f1503c9232e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x4918
++vs_agl.bin	465	vertex	e3db3f1503c9232e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x4918
+ ps_agl.bin	3448	pixel	53cd053e5101dc67	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x49600
+ ps_agl.bin	3449	pixel	631f5f7a7f3b387b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x49868
+ ps_agl.bin	3450	pixel	139704e625bb9bb8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x49ad0
+@@ -4232,7 +4230,7 @@ ps_agl.bin	3539	pixel	60b29b88f7ca3eac	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3540	pixel	acdff90ca1ffd8a0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x58448
+ ps_agl.bin	3541	pixel	3716ace778c85da7	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x586b0
+ ps_agl.bin	3542	pixel	e47da4c6f785fb6b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x588d8
+-vs_agl.bin	468	vertex	fdefb3179164e977	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x58f8
++vs_agl.bin	466	vertex	fdefb3179164e977	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x58f8
+ ps_agl.bin	3543	pixel	bbb545f1783f9a79	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x59340
+ ps_agl.bin	3544	pixel	ba331df3d092ecd1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x594c8
+ ps_agl.bin	3545	pixel	e462d777dfca5aaa	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x59650
+@@ -4388,7 +4386,7 @@ ps_agl.bin	3694	pixel	773a56748ec2b13c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	3695	pixel	f6142fb6c6265613	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x740f8
+ ps_agl.bin	3696	pixel	cf63e224a72f7dcb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x74a80
+ ps_agl.bin	3697	pixel	a15df620a5673ed9	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x74bf0
+-vs_agl.bin	469	vertex	b9026553a8f68bc6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x74c8
++vs_agl.bin	467	vertex	b9026553a8f68bc6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x74c8
+ ps_agl.bin	3698	pixel	417037b34f58e2b8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x74d60
+ ps_agl.bin	3699	pixel	d88c041864ec8f51	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x74f70
+ ps_agl.bin	3700	pixel	b82e087fd1567b84	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_pfx.sharcb#BAHS@0x75880
+@@ -5233,7 +5231,7 @@ cs_agl.bin	231	compute	ca863d2286464b46	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rel
+ cs_agl.bin	232	compute	5b6d8ba5b3511d61	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x144d0
+ cs_agl.bin	233	compute	a0bf1cec48e1b1ab	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x14640
+ cs_agl.bin	234	compute	07623ffcf79ef30b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x147b0
+-vs_agl.bin	470	vertex	faf18a774da1b472	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x1488
++vs_agl.bin	468	vertex	faf18a774da1b472	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x1488
+ ps_agl.bin	4527	pixel	4170c988dda1f62b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x1618
+ ps_agl.bin	4528	pixel	0278e6c3bc86827a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x1858
+ ps_agl.bin	4529	pixel	88f8d9dfa7f4efeb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x1aa8
+@@ -5285,32 +5283,32 @@ ps_agl.bin	4574	pixel	41449f6f2df0e933	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	4575	pixel	7c303e8788e0e0ae	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x82f8
+ ps_agl.bin	4576	pixel	f8b979f846130afc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x8458
+ ps_agl.bin	4577	pixel	0b5c3a837d177223	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x86a0
+-vs_agl.bin	471	vertex	eaf95319a88572e4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x8848
++vs_agl.bin	469	vertex	eaf95319a88572e4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x8848
+ ps_agl.bin	4578	pixel	064035d1102628e8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x89b8
+-vs_agl.bin	472	vertex	2c20087b3ffa9579	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x8b30
++vs_agl.bin	470	vertex	2c20087b3ffa9579	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x8b30
+ ps_agl.bin	4579	pixel	883dd1ae7559b875	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x8cb0
+ ps_agl.bin	4580	pixel	c5096a501ceb0e84	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x8ed0
+-vs_agl.bin	473	vertex	ae23f4bc6c533673	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9060
++vs_agl.bin	471	vertex	ae23f4bc6c533673	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9060
+ ps_agl.bin	4581	pixel	635628d47be82b1c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9100
+-vs_agl.bin	474	vertex	6d8fff6cf00d4817	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9280
++vs_agl.bin	472	vertex	6d8fff6cf00d4817	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9280
+ ps_agl.bin	4582	pixel	a38fabe6fb5675e0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9320
+ ps_agl.bin	4583	pixel	3ab2556c9c2aa5b2	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9460
+-vs_agl.bin	475	vertex	c56494db81e00f45	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x95e0
++vs_agl.bin	473	vertex	c56494db81e00f45	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x95e0
+ ps_agl.bin	4584	pixel	12d7f1eec834c420	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9768
+-vs_agl.bin	476	vertex	1423c398ef75ed49	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x98e0
++vs_agl.bin	474	vertex	1423c398ef75ed49	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x98e0
+ ps_agl.bin	4585	pixel	1857e725911a5bf1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9ae8
+-vs_agl.bin	477	vertex	c50b700c29a7bac4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9d18
++vs_agl.bin	475	vertex	c50b700c29a7bac4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9d18
+ ps_agl.bin	4586	pixel	88605234b82a1a3b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0x9f30
+ ps_agl.bin	4587	pixel	c6bd6a7e7b7f50c8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xa288
+ ps_agl.bin	4588	pixel	b3816c8c84a574ae	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xa518
+-vs_agl.bin	478	vertex	8519df5ff07b6824	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xa750
++vs_agl.bin	476	vertex	8519df5ff07b6824	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xa750
+ ps_agl.bin	4589	pixel	6c090ed1a6b9fdf8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xa940
+-vs_agl.bin	479	vertex	db9e200534ced355	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xab58
++vs_agl.bin	477	vertex	db9e200534ced355	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xab58
+ ps_agl.bin	4590	pixel	0a25ae031562428a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xad58
+ ps_agl.bin	4591	pixel	02d5685dfc58de93	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xb090
+ ps_agl.bin	4592	pixel	f89b10527d58c38f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xb3d0
+-vs_agl.bin	480	vertex	681d475de4971fae	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xb5f0
+-vs_agl.bin	481	vertex	de21c8bc297f1a28	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xb860
++vs_agl.bin	478	vertex	681d475de4971fae	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xb5f0
++vs_agl.bin	479	vertex	de21c8bc297f1a28	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xb860
+ ps_agl.bin	4593	pixel	e481e4ab75f8bddb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xc0f8
+ ps_agl.bin	4594	pixel	a0c3c186047c1577	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xc398
+ ps_agl.bin	4595	pixel	39bfc3035b41b6a6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_proc.sharcb#BAHS@0xc708
+@@ -5346,7 +5344,7 @@ cs_agl.bin	236	compute	ab06ab9b8362a701	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rel
+ ps_agl.bin	4623	pixel	8d5f9f104b2b1c9d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x13200
+ ps_agl.bin	4624	pixel	f656d38298c7aecb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x13510
+ ps_agl.bin	4625	pixel	eaaa3885ec1b41db	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x13918
+-vs_agl.bin	482	vertex	bce8067ffce02833	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x13a8
++vs_agl.bin	480	vertex	bce8067ffce02833	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x13a8
+ ps_agl.bin	4626	pixel	7b782faf545e0c45	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x13d10
+ ps_agl.bin	4627	pixel	5f9e7679418c038e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x14120
+ ps_agl.bin	4628	pixel	01a205c722d7e304	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x14448
+@@ -5360,7 +5358,7 @@ ps_agl.bin	4635	pixel	782377d4575571ff	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	4636	pixel	c06ee7f7762f029a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x16168
+ ps_agl.bin	4637	pixel	ef138aa337674f90	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x16570
+ ps_agl.bin	4638	pixel	6e9f173be7a1ecb9	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x16888
+-vs_agl.bin	483	vertex	598a7c8cc11f98b8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x16b0
++vs_agl.bin	481	vertex	598a7c8cc11f98b8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x16b0
+ ps_agl.bin	4639	pixel	f12d2358123f0c9b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x16c98
+ ps_agl.bin	4640	pixel	e993e7e30e54d8ef	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x16fc0
+ ps_agl.bin	4641	pixel	77dc611563a25800	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x173e8
+@@ -5371,7 +5369,7 @@ ps_agl.bin	4645	pixel	dccbcc860d07013c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	4646	pixel	9777fdfbbc60e806	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x18488
+ ps_agl.bin	4647	pixel	7ed3279061fcc210	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x18880
+ ps_agl.bin	4648	pixel	84684f2a0ba16828	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x18bb0
+-vs_agl.bin	484	vertex	42f30c87a9c409c3	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x18e8
++vs_agl.bin	482	vertex	42f30c87a9c409c3	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x18e8
+ ps_agl.bin	4649	pixel	644398e8b6878f35	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x18fd0
+ ps_agl.bin	4650	pixel	89beb864ce8a214a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x193e0
+ ps_agl.bin	4651	pixel	77b985b9416ed95a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x19808
+@@ -5768,7 +5766,7 @@ ps_agl.bin	5041	pixel	d934d82f79f21c29	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5042	pixel	660ae86ce0296b39	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x6eae0
+ ps_agl.bin	5043	pixel	6eb80e4bacc7179e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x6eec8
+ ps_agl.bin	5044	pixel	c2f6772d0ec2ff3c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x6f2d0
+-vs_agl.bin	485	vertex	ef1f168f8e4afeed	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x6f38
++vs_agl.bin	483	vertex	ef1f168f8e4afeed	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x6f38
+ ps_agl.bin	5045	pixel	ef9170e3b61818bc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x6f6f0
+ ps_agl.bin	5046	pixel	77bcba7f5f4f423d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x6fb00
+ ps_agl.bin	5047	pixel	b5e8c926503b1123	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x6ff28
+@@ -5782,7 +5780,7 @@ ps_agl.bin	5054	pixel	769777bdc375c9e5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5055	pixel	aa995ba46bf8cb04	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x71ae0
+ ps_agl.bin	5056	pixel	f51e09d9d9873bd1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x71ed8
+ ps_agl.bin	5057	pixel	cc95e40319b9c8ec	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x722e8
+-vs_agl.bin	486	vertex	25d75991cda1cc1d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x7248
++vs_agl.bin	484	vertex	25d75991cda1cc1d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x7248
+ ps_agl.bin	5058	pixel	ceff4c2fa13de0a4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x72708
+ ps_agl.bin	5059	pixel	e5b07956efb81538	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x72b18
+ ps_agl.bin	5060	pixel	2c4fc73aac522b25	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x72f40
+@@ -5796,14 +5794,14 @@ ps_agl.bin	5067	pixel	435776c588ba024c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5068	pixel	e89819e8198cb82a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x74b58
+ ps_agl.bin	5069	pixel	7efc5cf0ac1482c0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x74f68
+ ps_agl.bin	5070	pixel	f5b78afe9764727d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x75390
+-vs_agl.bin	487	vertex	faeef5565cd5ccfc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x7578
++vs_agl.bin	485	vertex	faeef5565cd5ccfc	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x7578
+ ps_agl.bin	5071	pixel	203f3e32d0be2f47	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x757c8
+ ps_agl.bin	5072	pixel	bde1433fff4f04c8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x75bf0
+ ps_agl.bin	5073	pixel	7e86129a7e61db14	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x76030
+ ps_agl.bin	5074	pixel	c230c2a7928423b8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x7640
+ ps_agl.bin	5075	pixel	260940b2f0e103b5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x76468
+ ps_agl.bin	5076	pixel	856f5905e5a4bdad	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x768c0
+-vs_agl.bin	488	vertex	805d083da423b847	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x76c8
++vs_agl.bin	486	vertex	805d083da423b847	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x76c8
+ ps_agl.bin	5077	pixel	4a147958fc6d110f	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x76ce8
+ ps_agl.bin	5078	pixel	eb2b2731268b4b67	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x770d0
+ ps_agl.bin	5079	pixel	ac11085160dc7404	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x774b0
+@@ -5812,7 +5810,7 @@ ps_agl.bin	5081	pixel	d6747c6bc66c1d09	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5082	pixel	99c00e63e11bcf70	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x77aa0
+ ps_agl.bin	5083	pixel	a2614c30a80f4ae7	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x77eb0
+ ps_agl.bin	5084	pixel	bf124dd97437e011	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x782d8
+-vs_agl.bin	489	vertex	1f459749d9a5b314	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x7838
++vs_agl.bin	487	vertex	1f459749d9a5b314	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x7838
+ ps_agl.bin	5085	pixel	a137fcc832eb505d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x78710
+ ps_agl.bin	5086	pixel	d0b11952ff3e5cfe	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x78b38
+ ps_agl.bin	5087	pixel	167f4ea3780c472e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x78e80
+@@ -5877,7 +5875,7 @@ ps_agl.bin	5145	pixel	f5a524a246443b5a	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5146	pixel	665494b63d699e95	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x86880
+ ps_agl.bin	5147	pixel	9f8e1a8321222667	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x86cf0
+ ps_agl.bin	5148	pixel	f24fbc400a81df72	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x87058
+-vs_agl.bin	490	vertex	9219f6c2d55575d6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x8720
++vs_agl.bin	488	vertex	9219f6c2d55575d6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x8720
+ ps_agl.bin	5149	pixel	a72f9aa3a291c6e1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x874e0
+ ps_agl.bin	5150	pixel	d9735a38f988e030	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x87980
+ ps_agl.bin	5151	pixel	3fe62b022428a73e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x87e30
+@@ -5913,7 +5911,7 @@ ps_agl.bin	5180	pixel	0fcdc706a5ec0bcd	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5181	pixel	8e84624d9d97cf74	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x8f210
+ ps_agl.bin	5182	pixel	4c29ab3b783f5267	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x8f650
+ ps_agl.bin	5183	pixel	1ad19b0585c9db44	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x8f958
+-vs_agl.bin	491	vertex	3d096146c190818d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x8f98
++vs_agl.bin	489	vertex	3d096146c190818d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x8f98
+ ps_agl.bin	5184	pixel	7554e03db4cb7c5b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x8fc58
+ ps_agl.bin	5185	pixel	70e4f2fac18ab25e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x8ff70
+ ps_agl.bin	5186	pixel	592397a5b3eada8d	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x90278
+@@ -5926,7 +5924,7 @@ ps_agl.bin	5192	pixel	3bb9f52def91d6cb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5193	pixel	562f7f615658d691	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x91930
+ ps_agl.bin	5194	pixel	203bd4f0e194c716	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x91ca8
+ ps_agl.bin	5195	pixel	b50b99d94c2cea90	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x920e8
+-vs_agl.bin	492	vertex	82df16cf9c96ce58	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x9238
++vs_agl.bin	490	vertex	82df16cf9c96ce58	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x9238
+ ps_agl.bin	5196	pixel	0495a09125b3add4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x923f0
+ ps_agl.bin	5197	pixel	dc4d6d7c9af79225	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x926f0
+ ps_agl.bin	5198	pixel	3bb56481bcb10996	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x92b00
+@@ -5979,7 +5977,7 @@ ps_agl.bin	5244	pixel	4a0f09cd2e201c40	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5245	pixel	5025b9152e6313f9	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x9d468
+ ps_agl.bin	5246	pixel	5eee737fa8d4b691	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x9d7b0
+ ps_agl.bin	5247	pixel	9c69a245a0ccf195	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x9dbc0
+-vs_agl.bin	493	vertex	51e9ae07b06973e5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x9dc8
++vs_agl.bin	491	vertex	51e9ae07b06973e5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x9dc8
+ ps_agl.bin	5248	pixel	2dbffd237a3f25d6	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x9df88
+ ps_agl.bin	5249	pixel	5f4030bd06e72526	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x9e340
+ ps_agl.bin	5250	pixel	9bcf56b133d21053	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0x9e618
+@@ -6069,7 +6067,7 @@ ps_agl.bin	5333	pixel	3cd246eebc2010e5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5334	pixel	886927fefbbb28d5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xb2190
+ ps_agl.bin	5335	pixel	83e9e2f147aeb3e2	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xb2548
+ ps_agl.bin	5336	pixel	d43f94cb88fd0f5e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xb2a18
+-vs_agl.bin	494	vertex	3fe933604f1d6d15	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xb2a8
++vs_agl.bin	492	vertex	3fe933604f1d6d15	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xb2a8
+ ps_agl.bin	5337	pixel	3b54572b15f324ff	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xb2eb8
+ ps_agl.bin	5338	pixel	26d36072440af29c	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xb3318
+ ps_agl.bin	5339	pixel	cabbf2fdafcfd176	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xb3770
+@@ -6147,7 +6145,7 @@ ps_agl.bin	5410	pixel	a126043dd3beaf6b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5411	pixel	a1af40cdac11e5b5	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc4a18
+ ps_agl.bin	5412	pixel	7587a8d9231bff83	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc4e68
+ ps_agl.bin	5413	pixel	110c50f7ef219b56	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc52d8
+-vs_agl.bin	495	vertex	2eba9e91d0ea09f0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc55d8
++vs_agl.bin	493	vertex	2eba9e91d0ea09f0	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc55d8
+ ps_agl.bin	5414	pixel	ef9d2a1a5e9752b2	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc5690
+ ps_agl.bin	5415	pixel	a849e16c6b4895ab	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc5910
+ ps_agl.bin	5416	pixel	1c03b2a95fd10ce1	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc5b90
+@@ -6189,7 +6187,7 @@ ps_agl.bin	5451	pixel	9f08499deafb4a88	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5452	pixel	ed8098b5ef487c84	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc97f0
+ ps_agl.bin	5453	pixel	d3e332cd510698b9	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc9990
+ ps_agl.bin	5454	pixel	ae16289b4b8183a4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc9b30
+-vs_agl.bin	496	vertex	4dc59b0224e2a1bf	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc9e98
++vs_agl.bin	494	vertex	4dc59b0224e2a1bf	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc9e98
+ ps_agl.bin	5455	pixel	31358946099376ae	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xc9f50
+ ps_agl.bin	5456	pixel	69a69224c4a6cd30	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xca1c8
+ ps_agl.bin	5457	pixel	26a386150813dd3b	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xca440
+@@ -6232,7 +6230,7 @@ ps_agl.bin	5493	pixel	4c553618f806debf	/Lib/agl/agl_resource.Nin_Ounce_NVN2.rele
+ ps_agl.bin	5494	pixel	c794a7d9317e3db2	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xcf68
+ ps_agl.bin	5495	pixel	f0f93117fa3379e4	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xcf790
+ ps_agl.bin	5496	pixel	7edd3a88a576d78e	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xcf940
+-vs_agl.bin	497	vertex	76b638d6db4968ac	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xcfb18
++vs_agl.bin	495	vertex	76b638d6db4968ac	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xcfb18
+ ps_agl.bin	5497	pixel	3610c42922fed6fb	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xcfbb8
+ ps_agl.bin	5498	pixel	e462bbaf055a6827	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xcfde8
+ ps_agl.bin	5499	pixel	1686d39a37ec80b8	/Lib/agl/agl_resource.Nin_Ounce_NVN2.release.sarc.zs/agl_technique_shdw.sharcb#BAHS@0xcff38
+@@ -6635,46 +6633,46 @@ ps_layout.bin	245	pixel	441fa8805ec44fd1	/Layout/LScoreNetSp.Nin_Ounce_NVN2.blar
+ ps_layout.bin	246	pixel	c78b0ae5ab024f2d	/Layout/LThwBreakGauge.Nin_Ounce_NVN2.blarc.zs/bgsh/__ArchiveShader.bnsh#BNSH@0x0#var4
+ ps_layout.bin	247	pixel	eb6cd9683d39b6b5	/Layout/LThwBreakGauge.Nin_Ounce_NVN2.blarc.zs/bgsh/__ArchiveShader.bnsh#BNSH@0x0#var6
+ ps_layout.bin	248	pixel	74997bd247dca86f	/Layout/LThwBreakGauge.Nin_Ounce_NVN2.blarc.zs/bgsh/__ArchiveShader.bnsh#BNSH@0x0#var7
+-vs_main.bin	0	vertex	827f495b663a3c57	main#BNSH@0x5198000#var2
+-ps_main.bin	0	pixel	fd547f6476f0acb9	main#BNSH@0x5198000#var3
+-ps_main.bin	1	pixel	5636e996d84edc54	main#BNSH@0x5198000#var4
+-ps_main.bin	2	pixel	30f08c4097c9895e	main#BNSH@0x5198000#var5
+-vs_main.bin	1	vertex	af1c608b5956bc64	main#BNSH@0x5198000#var5
++vs_main.bin	0	vertex	827f495b663a3c57	main#BNSH@0x5198000#var0
++ps_main.bin	0	pixel	fd547f6476f0acb9	main#BNSH@0x5198000#var0
++ps_main.bin	1	pixel	5636e996d84edc54	main#BNSH@0x5198000#var1
++ps_main.bin	2	pixel	30f08c4097c9895e	main#BNSH@0x5198000#var2
++vs_main.bin	1	vertex	af1c608b5956bc64	main#BNSH@0x5198000#var3
++ps_main.bin	3	pixel	532ebae27e13efc9	main#BNSH@0x519f000#var0
+ vs_main.bin	2	vertex	c97808102b93c6b8	main#BNSH@0x519f000#var0
+ vs_main.bin	3	vertex	19dce55a19174708	main#BNSH@0x519f000#var1
+-vs_main.bin	4	vertex	a7883d6850b671b1	main#BNSH@0x519f000#var13
+-vs_main.bin	5	vertex	6c728f34d652a0e6	main#BNSH@0x519f000#var14
+-ps_main.bin	3	pixel	73d14756a4e3aaef	main#BNSH@0x519f000#var14
+-ps_main.bin	4	pixel	42d588ec0884c796	main#BNSH@0x519f000#var15
+-vs_main.bin	6	vertex	72d23ce4c0596ee7	main#BNSH@0x519f000#var15
+-ps_main.bin	5	pixel	548b2ed012f63df6	main#BNSH@0x519f000#var16
+-ps_main.bin	6	pixel	3f4b58f733a5fe4b	main#BNSH@0x519f000#var17
+-ps_main.bin	7	pixel	4689737bdad3a1a0	main#BNSH@0x519f000#var18
+-ps_main.bin	8	pixel	81e1b464b3a15b3a	main#BNSH@0x519f000#var19
+-ps_main.bin	9	pixel	fb45706a7b199cc6	main#BNSH@0x519f000#var21
+-ps_main.bin	10	pixel	7c016a8021beb0ab	main#BNSH@0x519f000#var22
+-ps_main.bin	11	pixel	3b1d6a00b6dfe345	main#BNSH@0x519f000#var23
+-ps_main.bin	12	pixel	bd1daea16b7f6389	main#BNSH@0x519f000#var24
+-ps_main.bin	13	pixel	455a2da56d45a8bb	main#BNSH@0x519f000#var25
+-ps_main.bin	14	pixel	34a2c0fe1ef1d663	main#BNSH@0x519f000#var26
+-ps_main.bin	15	pixel	419ae8ad35cdcc25	main#BNSH@0x519f000#var27
+-vs_main.bin	7	vertex	f8b6b724f3e4774f	main#BNSH@0x519f000#var27
+-ps_main.bin	16	pixel	532ebae27e13efc9	main#BNSH@0x519f000#var28
++ps_main.bin	4	pixel	ec62aa1260058acc	main#BNSH@0x519f000#var1
++ps_main.bin	5	pixel	507708b7e15ebe89	main#BNSH@0x519f000#var10
++ps_main.bin	6	pixel	144b034fbffb1738	main#BNSH@0x519f000#var11
++ps_main.bin	7	pixel	e09067e1bec71116	main#BNSH@0x519f000#var12
++ps_main.bin	8	pixel	5a0ef340a5b5f82c	main#BNSH@0x519f000#var13
++vs_main.bin	4	vertex	6c728f34d652a0e6	main#BNSH@0x519f000#var14
++ps_main.bin	9	pixel	73d14756a4e3aaef	main#BNSH@0x519f000#var14
++ps_main.bin	10	pixel	42d588ec0884c796	main#BNSH@0x519f000#var15
++vs_main.bin	5	vertex	72d23ce4c0596ee7	main#BNSH@0x519f000#var15
++ps_main.bin	11	pixel	548b2ed012f63df6	main#BNSH@0x519f000#var16
++vs_main.bin	6	vertex	f8b6b724f3e4774f	main#BNSH@0x519f000#var16
++ps_main.bin	12	pixel	3f4b58f733a5fe4b	main#BNSH@0x519f000#var17
++ps_main.bin	13	pixel	4689737bdad3a1a0	main#BNSH@0x519f000#var18
++ps_main.bin	14	pixel	81e1b464b3a15b3a	main#BNSH@0x519f000#var19
++ps_main.bin	15	pixel	0d79b41bfb37903a	main#BNSH@0x519f000#var2
++vs_main.bin	7	vertex	a7883d6850b671b1	main#BNSH@0x519f000#var2
++ps_main.bin	16	pixel	fb45706a7b199cc6	main#BNSH@0x519f000#var20
++ps_main.bin	17	pixel	7c016a8021beb0ab	main#BNSH@0x519f000#var22
++ps_main.bin	18	pixel	3b1d6a00b6dfe345	main#BNSH@0x519f000#var23
++ps_main.bin	19	pixel	bd1daea16b7f6389	main#BNSH@0x519f000#var24
++ps_main.bin	20	pixel	455a2da56d45a8bb	main#BNSH@0x519f000#var25
++ps_main.bin	21	pixel	34a2c0fe1ef1d663	main#BNSH@0x519f000#var26
++ps_main.bin	22	pixel	419ae8ad35cdcc25	main#BNSH@0x519f000#var27
+ vs_main.bin	8	vertex	d2d8d58c34bb22ce	main#BNSH@0x519f000#var28
+ vs_main.bin	9	vertex	06313a54f76e3858	main#BNSH@0x519f000#var29
+-ps_main.bin	17	pixel	ec62aa1260058acc	main#BNSH@0x519f000#var29
+-ps_main.bin	18	pixel	0d79b41bfb37903a	main#BNSH@0x519f000#var30
+-ps_main.bin	19	pixel	bf0c35230e9f4ac4	main#BNSH@0x519f000#var31
+-ps_main.bin	20	pixel	e3cd3dfc92341abc	main#BNSH@0x519f000#var32
+-ps_main.bin	21	pixel	78268e5b2d55ef61	main#BNSH@0x519f000#var33
+-ps_main.bin	22	pixel	3d34be7172846d09	main#BNSH@0x519f000#var35
+-ps_main.bin	23	pixel	04840e8a868f20f7	main#BNSH@0x519f000#var36
+-ps_main.bin	24	pixel	b0d92dac4eb3b481	main#BNSH@0x519f000#var37
+-ps_main.bin	25	pixel	507708b7e15ebe89	main#BNSH@0x519f000#var38
+-ps_main.bin	26	pixel	144b034fbffb1738	main#BNSH@0x519f000#var39
+-ps_main.bin	27	pixel	e09067e1bec71116	main#BNSH@0x519f000#var40
+-vs_main.bin	10	vertex	5005e5b481202f29	main#BNSH@0x519f000#var41
+-ps_main.bin	28	pixel	5a0ef340a5b5f82c	main#BNSH@0x519f000#var41
++ps_main.bin	23	pixel	bf0c35230e9f4ac4	main#BNSH@0x519f000#var3
++vs_main.bin	10	vertex	5005e5b481202f29	main#BNSH@0x519f000#var30
++ps_main.bin	24	pixel	e3cd3dfc92341abc	main#BNSH@0x519f000#var4
++ps_main.bin	25	pixel	78268e5b2d55ef61	main#BNSH@0x519f000#var5
++ps_main.bin	26	pixel	3d34be7172846d09	main#BNSH@0x519f000#var6
++ps_main.bin	27	pixel	04840e8a868f20f7	main#BNSH@0x519f000#var8
++ps_main.bin	28	pixel	b0d92dac4eb3b481	main#BNSH@0x519f000#var9
+ ps_model.bin	0	pixel	f4aeb02e0a2b7ee5	/Model/Ply_Clothes037.product.Nin_Ounce_NVN2.sarc.zs/AnnaSurface.bfsha#BNSH@0x14000#var0
+ vs_model.bin	0	vertex	f97fe613be7b79d1	/Model/Ply_Clothes037.product.Nin_Ounce_NVN2.sarc.zs/AnnaSurface.bfsha#BNSH@0x14000#var0
+ ps_model.bin	1	pixel	1913ffa47283ec90	/Model/Ply_Clothes037.product.Nin_Ounce_NVN2.sarc.zs/AnnaSurface.bfsha#BNSH@0x14000#var1

@@ -18,17 +18,21 @@ struct CoverFlowView: View, Equatable {
     let openSettings: () -> Void
     let openControllers: () -> Void
     let openShellSettings: () -> Void
-    @State private var centredID: String?
+    var openHomeScreen: ((String) -> Void)? = nil
+    var openCoverPicker: ((String) -> Void)? = nil
+    var resetCover: ((String) -> Void)? = nil
+    @State private var scrollPosition = ScrollPosition()
     @State private var division: CGRect?
     private var divided: Bool { division != nil }
-    /// How far the carousel is scrolled: 0 with the first card in the middle.
-    @State private var scrolled: CGFloat = 0
+    private var anchor: UnitPoint { divided ? .leading : .center }
     /// True from the first touch of a scroll until it has settled.
     @State private var userScrolling = false
     /// False while the carousel scrolls, decelerates or snaps: a tap on the centre card then does nothing.
     @State private var settled = true
-    /// A long press on the centre card opened settings: the touch that ends it must not also play.
-    @State private var longPressed = false
+    /// Monotonic token invalidated on every scroll transition so deferred preview commits drop stale work.
+    @State private var previewGeneration: UInt64 = 0
+    /// Tracks selection IDs already driven by the scroll view so `onChange(of: selected.id)` does not scroll back.
+    @State private var scrollDrivenSelectionID: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Re-render only for what is drawn: the games' tiles, the selection and the hints. Settings changes elsewhere do
@@ -51,13 +55,23 @@ struct CoverFlowView: View, Equatable {
         }
         .ignoresSafeArea(.container)
         .sensoryFeedback(.selection, trigger: selected.id)
-        .onAppear { centredID = selected.id }
         .onChange(of: selected.id) { _, id in
-
+            if scrollDrivenSelectionID == id {
+                scrollDrivenSelectionID = nil
+                return
+            }
+            scrollDrivenSelectionID = nil
             // A selection from the D-pad or a tap scrolls the carousel. Never while the player is touching it or it is
             // still moving: the player's gesture always wins.
-            guard centredID != id, !userScrolling else { return }
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) { centredID = id }
+            guard !userScrolling else { return }
+            previewGeneration &+= 1
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) {
+                scrollPosition.scrollTo(id: id, anchor: anchor)
+            }
+        }
+        .onChange(of: divided) { _, _ in
+            guard !userScrolling else { return }
+            scrollPosition.scrollTo(id: selected.id, anchor: anchor)
         }
     }
 
@@ -135,48 +149,114 @@ struct CoverFlowView: View, Equatable {
         // title under the card does.
         .dynamicTypeSize(...(short ? DynamicTypeSize.xxLarge : DynamicTypeSize.accessibility5))
     }
-    private var position: Int { (games.firstIndex { $0.id == selected.id } ?? 0) + 1 }
+    private var selectedIndex: Int { games.firstIndex { $0.id == selected.id } ?? 0 }
+    private var position: Int { selectedIndex + 1 }
+
+    struct CarouselMetrics: Equatable, Sendable {
+        let stride: CGFloat
+        let leadingMargin: CGFloat
+        let trailingMargin: CGFloat
+        let targetMidX: CGFloat
+    }
+
+    nonisolated static func carouselMetrics(width: CGFloat, cover: CGFloat, primaryWidth: CGFloat) -> CarouselMetrics {
+        let stride = cover * 0.64
+        let leadingMargin = max(0, (primaryWidth - stride) / 2)
+        let trailingMargin = max(0, width - stride - leadingMargin)
+        // `.scrollView(axis: .horizontal)` is already inset by `.contentMargins(.leading, leadingMargin, for: .scrollContent)`,
+        // so the centred card's midpoint in that coordinate space is `stride / 2`.
+        return CarouselMetrics(stride: stride, leadingMargin: leadingMargin,
+                               trailingMargin: trailingMargin, targetMidX: stride / 2)
+    }
+
+    nonisolated static func cardPlace(midX: CGFloat, targetMidX: CGFloat, stride: CGFloat) -> CGFloat {
+        guard stride > 0, midX.isFinite, targetMidX.isFinite else { return 0 }
+        return (midX - targetMidX) / stride
+    }
+
+    /// Nearest card index for a horizontal content offset along the fixed-stride carousel.
+    nonisolated static func nearestIndex(offset: CGFloat, stride: CGFloat, count: Int) -> Int {
+        guard count > 0, stride > 0, offset.isFinite else { return 0 }
+        return min(count - 1, max(0, Int((offset / stride).rounded())))
+    }
+
+    private func scheduleScrollSelection(index: Int, requireUserScrolling: Bool) {
+        guard games.indices.contains(index) else { return }
+        let targetID = games[index].id
+        guard targetID != selected.id else { return }
+        previewGeneration &+= 1
+        let generation = previewGeneration
+        Task { @MainActor in
+            guard previewGeneration == generation else { return }
+            guard requireUserScrolling ? userScrolling : !userScrolling else { return }
+            guard games.indices.contains(index), games[index].id == targetID, selected.id != targetID else { return }
+            scrollDrivenSelectionID = targetID
+            select(targetID)
+        }
+    }
 
     /// One native snapping carousel, with the neighbours turned back a little and
     /// tucked behind the middle card, a deck rather than a row.
     private func carousel(width: CGFloat, cover: CGFloat, primaryWidth: CGFloat) -> some View {
-        let spacing = cover * 0.04
-        let stride = cover + spacing
-        let margin = max(0, (primaryWidth - cover) / 2)
-        let anchor: UnitPoint = divided ? .leading : .center
+        let metrics = Self.carouselMetrics(width: width, cover: cover, primaryWidth: primaryWidth)
+        let stride = metrics.stride
+        let targetMidX = metrics.targetMidX
+        let anchor = self.anchor
+        let currentIndex = selectedIndex
         return ScrollView(.horizontal) {
-            LazyHStack(spacing: spacing) {
+            HStack(spacing: 0) {
                 ForEach(Array(games.enumerated()), id: \.element.id) { index, detail in
                     // Places from the middle: -1 is the neighbour on the left, 1 the one on the right.
                     coverButton(detail, cover: cover)
-                        .modifier(FlowTilt(place: CGFloat(index) - scrolled / stride, cover: cover, flat: reduceMotion))
+                        .visualEffect { [flat = reduceMotion, stride, targetMidX] content, proxy in
+                            let place = Self.cardPlace(midX: proxy.frame(in: .scrollView(axis: .horizontal)).midX,
+                                                       targetMidX: targetMidX, stride: stride)
+                            let near = max(-1, min(1, place))
+                            let far = place > 1 ? place - 1 : place < -1 ? place + 1 : 0
+                            return content
+                                .rotation3DEffect(.degrees(flat ? 0 : -near * 24), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+                                .scaleEffect(1 - abs(near) * 0.22)
+                                .brightness(-abs(near) * 0.25 - min(abs(far), 1) * 0.1)
+                        }
+                        .frame(width: stride, height: cover * 9 / 16)
+                        .zIndex(-Double(abs(index - currentIndex)))
                         .id(detail.id)
                 }
-            }.scrollTargetLayout()
+            }
+            .scrollTargetLayout()
         }
         .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne, anchor: anchor))
-        .scrollPosition(id: $centredID, anchor: anchor)
-        .contentMargins(.leading, margin, for: .scrollContent)
-        .contentMargins(.trailing, max(0, width - cover - margin), for: .scrollContent)
-        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x + $0.contentInsets.leading } action: { _, offset in
-            scrolled = offset
-            guard !games.isEmpty else { return }
-            let index = min(games.count - 1, max(0, Int((offset / stride).rounded())))
-            if userScrolling, games[index].id != selected.id { select(games[index].id) }
+        .scrollPosition($scrollPosition, anchor: anchor)
+        .contentMargins(.leading, metrics.leadingMargin, for: .scrollContent)
+        .contentMargins(.trailing, metrics.trailingMargin, for: .scrollContent)
+        .onAppear {
+            scrollPosition.scrollTo(id: selected.id, anchor: anchor)
+        }
+        .onScrollGeometryChange(for: Int.self) { geometry in
+            Self.nearestIndex(offset: geometry.contentOffset.x + geometry.contentInsets.leading,
+                              stride: stride, count: games.count)
+        } action: { _, index in
+            guard userScrolling, games.indices.contains(index) else { return }
+            scheduleScrollSelection(index: index, requireUserScrolling: true)
         }
         .onScrollPhaseChange { _, phase, context in
-            // Preview the nearest card while dragging; commit the final scroll ID only when snapping settles.
+            // Preview the nearest card while dragging and commit the final selection asynchronously when snapping settles.
             settled = phase == .idle
             switch phase {
-            case .interacting, .decelerating: userScrolling = true
-            case .idle:
-                if userScrolling, !games.isEmpty {
-                    let offset = context.geometry.contentOffset.x + context.geometry.contentInsets.leading
-                    let index = min(games.count - 1, max(0, Int((offset / stride).rounded())))
-                    if games[index].id != selected.id { select(games[index].id) }
-                    centredID = games[index].id
+            case .interacting, .decelerating:
+                if !userScrolling {
+                    scrollDrivenSelectionID = nil
                 }
+                userScrolling = true
+            case .idle:
+                let wasScrolling = userScrolling
                 userScrolling = false
+                previewGeneration &+= 1
+                if wasScrolling, !games.isEmpty, stride > 0 {
+                    let offset = context.geometry.contentOffset.x + context.geometry.contentInsets.leading
+                    let index = Self.nearestIndex(offset: offset, stride: stride, count: games.count)
+                    scheduleScrollSelection(index: index, requireUserScrolling: false)
+                }
             default: break
             }
         }
@@ -190,12 +270,16 @@ struct CoverFlowView: View, Equatable {
         return Button {
             // The centred card acts like the game's primary action, once the carousel has settled. A side card only
             // comes to the middle and never starts anything.
-            if longPressed { longPressed = false; return }
             if chosen {
                 if settled { primary(detail) }
                 return
             }
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) { centredID = detail.id }
+            userScrolling = false
+            previewGeneration &+= 1
+            scrollDrivenSelectionID = detail.id
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) {
+                scrollPosition.scrollTo(id: detail.id, anchor: anchor)
+            }
             select(detail.id)
         } label: {
             CoverView(game: detail.game, radius: cover * 0.03, showsState: true)
@@ -203,13 +287,30 @@ struct CoverFlowView: View, Equatable {
                 .shadow(color: .black.opacity(0.5), radius: cover * 0.05, y: cover * 0.03)
         }
         .buttonStyle(.plain)
-        // A long press on the centred card opens its settings, a shortcut for the button at the top.
-        .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-            guard chosen, settled else { return }
-            longPressed = true
-            openSettings()
-        })
-        .sensoryFeedback(.impact(weight: .medium), trigger: longPressed) { _, new in new }
+        .contextMenu {
+            Group {
+                Button(ShellStrings.text("Play"), systemImage: "play.fill") { primary(detail) }
+                    .disabled(detail.game.state != .playable)
+                Button(ShellStrings.text("Game settings"), systemImage: "slider.horizontal.3") {
+                    select(detail.id); openSettings()
+                }
+                if let openHomeScreen {
+                    Button(ShellStrings.text("Add to Home Screen…"), systemImage: "plus.square") {
+                        openHomeScreen(detail.id)
+                    }
+                }
+                if let openCoverPicker {
+                    Button(ShellStrings.text("Change Cover…"), systemImage: "photo.on.rectangle.angled") {
+                        openCoverPicker(detail.id)
+                    }
+                }
+                if let resetCover, detail.game.hasCustomCover {
+                    Button(ShellStrings.text("Reset Cover"), systemImage: "arrow.uturn.backward") {
+                        resetCover(detail.id)
+                    }
+                }
+            }
+        }
         .shellTarget("lib.tile.\(detail.id)", radius: cover * 0.03) { primary(detail) }
         .accessibilityLabel([detail.game.title, detail.game.state.title, detail.game.subtitle].filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityAddTraits(chosen ? .isSelected : [])
@@ -275,24 +376,6 @@ struct CoverFlowView: View, Equatable {
         GlyphHint(role: .settings, label: ShellStrings.text("Game settings"))
         GlyphHint(role: .controllers, label: ShellStrings.text("Controllers"))
         GlyphHint(role: .shellSettings, label: ShellStrings.text("Settings"))
-    }
-}
-
-/// A card's turn by its place: up to 24 degrees back, smaller and darker, pulled in behind its nearer neighbour.
-/// The nearer card is always drawn on top. Reduced motion keeps them flat.
-private struct FlowTilt: ViewModifier {
-    let place: CGFloat
-    let cover: CGFloat
-    let flat: Bool
-    func body(content: Content) -> some View {
-        let near = max(-1, min(1, place))
-        let far = place > 1 ? place - 1 : place < -1 ? place + 1 : 0
-        content
-            .rotation3DEffect(.degrees(flat ? 0 : -near * 24), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
-            .scaleEffect(1 - abs(near) * 0.22)
-            .offset(x: -near * cover * 0.28 - far * cover * 0.55)
-            .brightness(-abs(near) * 0.25 - min(abs(far), 1) * 0.1)
-            .zIndex(-Double(abs(place)))
     }
 }
 

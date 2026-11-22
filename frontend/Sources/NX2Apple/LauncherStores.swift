@@ -35,6 +35,9 @@ import NXModel
     let sticks: StickDeadzoneStore
     /// Per-title play sessions (#816, #1161), shared by the desktop launcher and console mode.
     let playSessions: PlaySessionStore
+    /// The defaults the stores were made with: the launcher keeps its own view settings there too (the library's filter and
+    /// sort), so a test's window never writes them into the shared defaults.
+    let defaults: UserDefaults
     /// The games' build files (#232), measured and removed by `BuildFiles` (the Free space code).
     let buildFiles = BuildFilesStore(measure: { BuildFiles.measure($0) }, remove: { try BuildFiles.remove($0) })
     private var quitObserver: NSObjectProtocol?
@@ -45,11 +48,11 @@ import NXModel
     ///   - defaults: where the stores keep their settings: a test passes its own suite, so it neither reads nor writes the shared ones.
     init(localizer: Localizer = Localizer(), runner: ProcessRunner? = nil, gitCheckout: GitCheckout? = nil,
          releases: ReleaseSource = GitHubReleases(), xcrun: String = "/usr/bin/xcrun", volumesRoot: String = "/Volumes",
-         defaults: UserDefaults = .standard) {
+         defaults: UserDefaults = .standard, dependencyScan: (@Sendable (String, Bool) -> DependencyCheck.Result)? = nil) {
         _ = Self.endGroupsWhenQuitting
         let runner = runner ?? SystemProcessRunner(defaults: defaults)
         let git = gitCheckout ?? SystemGitCheckout(runner: runner)
-        self.localizer = localizer; self.runner = runner; self.gitCheckout = git; self.releases = releases
+        self.localizer = localizer; self.runner = runner; self.gitCheckout = git; self.releases = releases; self.defaults = defaults
         let log = BuildLog()
         let laterBuild = Later<BuildStore>(), laterEngine = Later<EngineSyncStore>()
 
@@ -59,15 +62,24 @@ import NXModel
             isReleaseApp: { laterEngine.value?.usesEngineStore ?? false },
             log: { log.append($0) },
             didMove: { _ = laterEngine.value?.syncEngine() })   // the pull may have moved the pin or the patches
+        let appVersion = AppUpdateStore.appVersion
+        let writesReport = dependencyScan == nil
+        let dependencyReport: @Sendable ([Dep]) -> Void = { deps in
+            if writesReport { DependencyCheck.writeReport(deps, appVersion: appVersion) }
+        }
         let dependencies = DependencyStore(
             localizer: localizer, runner: runner, repo: repo, defaults: defaults,
             needsIOS: { Self.needsIOSPlatform(defaults: defaults) },
+            upstreamContext: { (laterBuild.value?.buildUpstream ?? .nxnative, laterBuild.value?.s2armPath ?? "") },
+            // a stand-in detection (the state gallery) starts no xcrun and writes no report
+            scan: dependencyScan,
+            report: dependencyReport,
             openAppStore: { NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/App Store.app")) },
             log: { log.append($0) },
             installFailed: { laterBuild.value?.note($0) })
         let engineSync = EngineSyncStore(
             localizer: localizer, runner: runner, repo: repo, python: dependencies, defaults: defaults,
-            setRepoPath: { repo.path = $0 },
+            setRepoPath: { repo.path = $0; laterBuild.value?.refreshUpstreamLocalVersion(for: .nxnative) },
             buildRunning: { laterBuild.value?.running ?? false },
             autoUpdate: { repo.autoUpdate },
             log: { log.append($0) })
@@ -88,13 +100,19 @@ import NXModel
                 if defaults.string(forKey: OnboardingDefaults.platform) == "mac" { _ = dependencies.check() }
             })
         laterBuild.value = build
+        build.upstreamChanged = { _ = dependencies.check() }
+        build.nxkitAutoUpdate = { repo.autoUpdate }   // nxkit's own update follows "Update automatically when the app opens" (#1460)
+        if defaults === UserDefaults.standard {
+            build.adoptInstalledUpstreams()
+        }
         self.repo = repo; self.engineSync = engineSync; self.dependencies = dependencies; self.deviceStore = devices
         self.appUpdates = updates; self.build = build
         let queueFile = defaults === UserDefaults.standard
             ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("NX2Apple/build-queue.json") : nil
         let queue = BuildQueueStore(
             file: queueFile, engineID: { engineSync.selection.engineID }, busy: { build.running },
-            start: { build.startQueued($0) }, packageBatch: { _ in build.packageDeferred() }, engineChangedReason: { localizer.t("queue.engineChanged") })
+            start: { build.startQueued($0) }, packageBatch: { _ in build.packageDeferred(); return build.running }, engineChangedReason: { localizer.t("queue.engineChanged") },
+            packageFailureReason: { localizer.t("queue.cannotPackage") })
         self.queue = queue
         build.queue = queue
         let transferFile = queueFile?.deletingLastPathComponent().appendingPathComponent("transfer-queue.json")
@@ -123,7 +141,13 @@ import NXModel
             guard !running else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let build, let queue, !build.running, queue.running != nil else { return }
+                    guard let build, let queue, !build.running else { return }
+                    if !queue.packaging.isEmpty {
+                        let outcome = build.queueOutcome
+                        queue.packageEnded(succeeded: outcome.succeeded, reason: outcome.reason, stopped: outcome.stopped)
+                        return
+                    }
+                    guard queue.running != nil else { return }
                     self?.settleFinishedBuild()
                     let outcome = build.queueOutcome
                     build.activeQueuedGameID = nil
@@ -132,6 +156,7 @@ import NXModel
                         build.deferShellPackaging = false
                         build.queuedExportIPA = nil
                         build.queuedExportOneGame = nil
+                        build.queuedExportFramework = nil
                     }
                 }
             }

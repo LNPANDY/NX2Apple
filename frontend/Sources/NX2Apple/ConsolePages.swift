@@ -33,19 +33,18 @@ struct ConsolePageHeader: View {
                     .background(.white.opacity(0.075), in: Circle()).contentShape(Circle())
             }
             .buttonStyle(.plain).accessibilityLabel(closeLabel)
-            .padTarget(closeID, scope: scope, radius: 26, activate: close)
+            .padTarget(closeID, scope: scope, activate: close)
         }
         .padding(.horizontal, inset).padding(.top, compact ? 28 : 48).padding(.bottom, compact ? 20 : 32)
     }
 }
 
-/// A section's heading on a console page, as the mapping's groups have it.
+/// A section's heading on a console page: sentence case in the console headline, never upper case.
 struct ConsoleSectionHeading: View {
     let title: String
     let compact: Bool
     var body: some View {
-        Text(title.uppercased()).font(.manrope(compact ? 12 : 14, .semibold)).tracking(1.5)
-            .foregroundStyle(LauncherPalette.cream.opacity(0.7)).padding(.leading, 4)
+        Text(title).font(DS.Console.Font.headline).foregroundStyle(DS.Color.textPrimary).padding(.leading, DS.Space.xxs)
             .accessibilityAddTraits(.isHeader)
     }
 }
@@ -114,7 +113,7 @@ struct ConsoleQuestion: View {
                 .background(primary ? LauncherPalette.cream : .white.opacity(0.09), in: Capsule()).contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .padTarget(id, scope: scope, radius: compact ? 26 : 29, activate: action)   // half the height: a capsule ring (a larger radius draws marks at its ends)
+        .padTarget(id, scope: scope, focusColor: primary ? LauncherPalette.onCream : nil, activate: action)
     }
 }
 
@@ -127,12 +126,13 @@ struct ConsoleQuestion: View {
     let lang: Lang
     let compact: Bool
     @Binding var editing: String?
+    var embedded = false
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static var scope: String { "console.gamePad" }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
-    private var inset: CGFloat { compact ? 24 : 64 }
+    private var inset: CGFloat { embedded ? 40 : (compact ? 24 : 70) }
     private var rumbles: Bool { game.controllerSettings.contains { $0.env.hasPrefix("DM_RUMBLE") } }
 
     /// Where the focus starts: the first setting, else the test, else the mapping.
@@ -143,13 +143,16 @@ struct ConsoleQuestion: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if !embedded {
             ConsolePageHeader(title: t("console.gamePad"), subtitle: game.title, compact: compact, closeLabel: t("console.close"),
                               closeID: "console.gamePad.close", scope: Self.scope) { driver.back() }
+                .padding(.horizontal, compact ? 0 : 6).padding(.top, compact ? 0 : 2)
+            }
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
                     Group {
-                        if compact || !game.mapsButtons {
+                        if compact || embedded || !game.mapsButtons {
                             VStack(alignment: .leading, spacing: 28) { rumble; if game.mapsButtons { buttons } }
                                 .frame(maxWidth: 760, alignment: .leading)
                         } else {
@@ -192,26 +195,8 @@ struct ConsoleQuestion: View {
     /// Rumbles every connected controller once at the strength set, so a change can be felt before the game starts.
     private var test: some View {
         let run = { driver.testRumble(gameID: game.id) }
-        return Button(action: run) {
-            HStack(spacing: 16) {
-                Image(systemName: "waveform.path").font(.system(size: compact ? 20 : 24, weight: .semibold)).frame(width: 36)
-                    .foregroundStyle(LauncherPalette.cream).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(t("console.gamePad.test")).font(.manrope(compact ? 17 : 20, .semibold))
-                    Text(t("console.gamePad.testNote")).font(.manrope(compact ? 13 : 15)).foregroundStyle(LauncherPalette.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-            }
-            .padding(.horizontal, 20).padding(.vertical, compact ? 14 : 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-            .contentShape(RoundedRectangle(cornerRadius: 14))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(t("console.gamePad.test")).accessibilityHint(t("console.gamePad.testNote"))
-        .padTarget("console.gamePad.test", scope: Self.scope, radius: 14, activate: run)
-        .id("console.gamePad.test")
+        return ConsoleMenuRow(id: "console.gamePad.test", scope: Self.scope, symbol: "waveform.path", title: t("console.gamePad.test"), note: "", compact: compact, action: run)
+            .accessibilityHint(t("console.gamePad.testNote"))
     }
 
     /// The way to the game's own mapping: the controller drawn large, what the mapping is for, and A to open it.
@@ -226,8 +211,7 @@ struct ConsoleQuestion: View {
                     HStack(spacing: 14) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(t("console.mapping.game")).font(.manrope(compact ? 18 : 22, .semibold))
-                            Text(t("console.mapping.gameNote")).font(.manrope(compact ? 13 : 15)).foregroundStyle(LauncherPalette.secondaryText)
-                                .fixedSize(horizontal: false, vertical: true)
+
                         }
                         Spacer(minLength: 8)
                         Image(systemName: "chevron.right").font(.system(size: 15, weight: .bold)).foregroundStyle(.white.opacity(0.4))
@@ -236,12 +220,12 @@ struct ConsoleQuestion: View {
                 }
                 .padding(compact ? 18 : 24)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 18))
-                .contentShape(RoundedRectangle(cornerRadius: 18))
+                .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+                .contentShape(RoundedRectangle(cornerRadius: 14))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(t("console.mapping.game")).accessibilityHint(t("console.mapping.gameNote"))
-            .padTarget("console.gamePad.mapping", scope: Self.scope, radius: 18, activate: open)
+            .padTarget("console.gamePad.mapping", scope: Self.scope, radius: 14, activate: open)
             .id("console.gamePad.mapping")
         }
     }

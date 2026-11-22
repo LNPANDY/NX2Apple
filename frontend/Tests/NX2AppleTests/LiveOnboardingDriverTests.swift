@@ -321,6 +321,38 @@ import NXModel
         XCTAssertEqual(driver.state.xcode, .needsSetup)
     }
 
+    func testManualXcodeCheckIsSilentReadOnlyAndWaitsForExplicitFinish() async {
+        let fake = Fake(); fake.probe = XcodeProbe(); fake.xcodeWorks = false
+        let deps = ["metal", "xcode", "python", "dotnet", "brew", "brew:xcodegen"].map { dep($0, present: true) }
+        let (driver, _) = make(fake, deps: deps, step: .xcode, platform: .mac)
+        await driver.refreshXcode()
+        driver.backgroundStarted = true
+        driver.recomputeBackground()
+        driver.getXcode()
+        driver.tasks["poll"]?.cancel()
+        let snapshot = driver.state
+        driver.recheckXcode()
+        await driver.settle()
+        XCTAssertEqual(driver.state, snapshot, "An unfinished manual check must not flash a checking state")
+        XCTAssertEqual(fake.opened.count, 1)
+        XCTAssertTrue(fake.commands.isEmpty)
+        XCTAssertTrue(fake.adminCalls.isEmpty)
+        XCTAssertTrue(fake.installed.isEmpty)
+        fake.xcodeWorks = true
+        fake.probe = XcodeProbe(appPath: "/Applications/Xcode.app", selectedIsXcode: true, licenseAccepted: true, firstLaunchDone: true)
+        driver.recheckXcode()
+        await driver.settle()
+        XCTAssertEqual(driver.state.xcode, .ready)
+        XCTAssertTrue(driver.state.canAdvance)
+        await driver.modelDidRefresh()
+        await driver.settle()
+        XCTAssertEqual(driver.state.step, .xcode)
+        XCTAssertEqual(fake.opened.count, 1, "A manual recheck must not reopen the App Store")
+        XCTAssertTrue(fake.commands.isEmpty)
+        XCTAssertTrue(fake.adminCalls.isEmpty)
+        XCTAssertTrue(fake.installed.isEmpty)
+    }
+
     func testPartialXcodeFolderKeepsDownloadingUntilXcodebuildWorks() async {
         let fake = Fake(); fake.probe = XcodeProbe(); fake.xcodeWorks = false
         let (driver, _) = make(fake, deps: [dep("metal", present: true)], step: .xcode, platform: .mac)
@@ -373,7 +405,10 @@ import NXModel
         await finish("brew"); XCTAssertEqual(fake.installed, ["python", "dotnet", "brew", "brew:xcodegen"])
         await finish("brew:xcodegen")
         XCTAssertTrue(driver.state.backgroundReady)
-        XCTAssertEqual(driver.state.step, .keys, "Xcode and the tools are done: the step moves on by itself")
+        XCTAssertEqual(driver.state.step, .xcode, "Ready setup waits for explicit Finish setup")
+        XCTAssertTrue(driver.state.canAdvance)
+        driver.next()
+        XCTAssertEqual(driver.state.step, .keys)
     }
 
     func testToolsStayQueuedUntilXcodeIsReady() async {
@@ -453,13 +488,15 @@ import NXModel
         try "header_key = 00\n".write(to: keys, atomically: true, encoding: .utf8)
         let (driver, model) = make(fake, deps: [], step: .keys, platform: .mac)
         await driver.searchKeys()
-        XCTAssertEqual(driver.state.keys, .found(keys))
+        await driver.settle()
+        XCTAssertEqual(driver.state.keys, .valid)
+        XCTAssertEqual(driver.state.step, .keys)
         driver.confirmKeys()
         await driver.settle()
         XCTAssertEqual(driver.state.keys, .valid)
         XCTAssertEqual(model.keysPath, keys.path, "the same slot the Builds page uses")
 
-        driver.back()   // the step moved on by itself; back to the keys
+        driver.back()   // Return after explicitly confirming the keys.
         fake.keyOutcome = .noHeaderKey
         driver.chooseKeys(keys)
         await driver.settle()
@@ -559,7 +596,8 @@ import NXModel
         try Data().write(to: keys)
         let (driver, model) = make(Fake(), deps: [], step: .keys, platform: .mac, keysPath: keys.path)
         await driver.searchKeys()
-        XCTAssertEqual(driver.state.keys, .found(keys))
+        await driver.settle()
+        XCTAssertEqual(driver.state.keys, .valid)
         driver.skipKeys()
         XCTAssertEqual(driver.state.keys, .skipped)
         XCTAssertTrue(model.keysPath.isEmpty)
@@ -574,6 +612,9 @@ import NXModel
         driver.chooseKeys(keys)
         await driver.settle()
         XCTAssertEqual(driver.state.keys, .valid)
+        XCTAssertEqual(driver.state.step, .keys)
+        XCTAssertNotEqual(model.savedKeys, keys.path, "Verification must not commit unconfirmed keys")
+        driver.confirmKeys()
         XCTAssertEqual(model.savedKeys, keys.path)
 
         let (again, saved) = make(Fake(), deps: [], step: .keys, platform: .mac)
@@ -583,6 +624,24 @@ import NXModel
         XCTAssertEqual(saved.savedKeys, keys.path, "Skip never removes the saved keys")
         XCTAssertTrue(saved.keysRowPath.isEmpty, "skipped: the row stays empty")
         XCTAssertTrue(FileManager.default.fileExists(atPath: keys.path), "the file itself stays")
+    }
+
+    func testDeferringANewVerifiedCandidatePreservesPreviouslySavedKeys() async throws {
+        let original = home.appendingPathComponent("original.keys")
+        let candidate = home.appendingPathComponent("candidate.keys")
+        try Data().write(to: original); try Data().write(to: candidate)
+        let (first, _) = make(Fake(), deps: [], step: .keys, platform: .mac)
+        first.chooseKeys(original); await first.settle(); first.confirmKeys()
+        let (second, model) = make(Fake(), deps: [], step: .keys, platform: .mac)
+        second.chooseKeys(candidate); await second.settle()
+        XCTAssertEqual(second.state.keys, .valid)
+        XCTAssertEqual(second.state.step, .keys)
+        XCTAssertEqual(model.savedKeys, original.path)
+        second.skipKeys()
+        XCTAssertNil(second.state.keysFile)
+        XCTAssertEqual(model.savedKeys, original.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: original.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: candidate.path))
     }
 
     func testResumeBeyondKeysAcceptsTheKeysSavedInSettings() throws {

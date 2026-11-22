@@ -46,49 +46,58 @@ the bundle's `fonts` folder (`build-qt.yml`). If the file is missing the system 
   Metal toolchain** (macOS) or the **Windows cross toolchain** (see [Windows build](#windows-build)),
   plus xcodegen / zstd / spirv-cross. Each row has an install button when a command can fix it.
   The interpreter search covers the Pythons **uv** installs (`~/.local/share/uv/python`,
-  `~/.local/bin`, `UV_PYTHON_INSTALL_DIR`; `%LOCALAPPDATA%\uv\python` on Windows) and picks the
+  `~/.local/bin`, `UV_PYTHON_INSTALL_DIR`, or `%LOCALAPPDATA%\uv\python` on Windows) and picks the
   newest one that runs at 3.12 or newer — the script's own floor — with the build packages.
-- Pick a game folder (or its four inputs separately). Base / update / DLC / `prod.keys` are
-  recognised from the dump names.
-- Build: runs the same script the SwiftUI app runs, streams its stage lines and log, then packs
-  the RomFS archive and reports where the IPA and archive landed.
+- Pick a game folder (or its four inputs separately), or drop files directly. Base / update / DLC /
+  `prod.keys` are recognised from the dump names, and Switch 2 folders or `.nup` files need no keys.
+- Multi-game batch queue (`nspb_qt/build_queue.py`): discover and group multiple games from a folder,
+  queue builds and refreshes across games (`BuildQueue`), and persist queue state with crash/restart
+  recovery.
+- Build and fast refresh: runs the same script the SwiftUI app runs with per-stage progress bars and
+  live log output (`--progress lines`), packs the RomFS archive (`romfs.img`), exports shared-app IPAs
+  or standalone `DmGame.framework` packages (`win/shell_export.py`), and persists `build-seeds` for
+  fast incremental refreshes (`refresh_flow.py`, `build_seed_cache.py`).
+- Windows Oodle emulated heap expansion: `nspb_qt/win/arm64_emu.py` grows the Unicorn heap in 64 MiB
+  steps up to 2 GiB on demand so large shader chunks (such as Pokémon Violet) unpack cleanly.
+- Self-update (`nspb_qt/app_update.py`): checks `releases/latest` for `NX2Apple-windows-x64.zip`,
+  verifies the SHA-256 digest when present, and unpacks and swaps the bundle in place via a detached
+  updater script after the running process exits. Repository download and update buttons also exist
+  (`Download repository`, `Check for updates`).
 - Show in folder follows the selected IPA kind, checking the app bundle inside each candidate
   IPA. Remembered outputs still work after a folder change or when a profile supplies the filename.
   Missing files, unrecognized archives and outputs of the other kind are not offered.
 - `--work-dir` is passed only when the checkout's script declares it (an upstream checkout has
   no such option — issue #5).
-- Languages: every language that has a file in `frontend/l10n` (today Chinese, Swedish, German and French)
-  on devices in that language, English elsewhere, and the header button cycles through them.
+- Languages: all **10 languages** with a file in `frontend/l10n` (`en`, `zh`, `sv`, `de`, `fr`, `it`,
+  `es`, `ja`, `ko`, `pt-br`) on matching systems, English elsewhere, and the header selector cycles
+  through them.
 
 ## What is not there yet
 
-- **The Windows build path remains experimental.** One Rhythm Heaven Groove 1.0.0 IPA built on
-  Windows installed and launched on an iPhone Air running iOS 27.0.1; Play started the game, and the
-  button mappings were correct. That IPA needed three local changes beyond this branch:
-  seedds/nxnative#591 (the Windows image reader), an updated `dmsh_chain.lock` with a regenerated
-  `DMSH_CHAIN` for this machine's SPIRV-Cross and Metal tools, and a two-line declaration of
-  `CMMotionManager.deviceMotionBody` because the Windows toolchain still ships `iPhoneOS26.0.sdk`.
-  SDK symlinks were materialized by hand. The current unmodified frontend is not yet verified end
-  to end; other games and longer-term performance remain unverified. See
-  [Windows build → Open risks](#open-risks).
-- Self-update (`nspb_qt/app_update.py`): checks `releases/latest` for `NX2Apple-windows-x64.zip`,
-  verifies the SHA-256 digest when present, unpacks and swaps the bundle in place via a detached
-  updater script after the running process exits. Repository download and update buttons also exist
-  (`Download repository`, `Check for updates`), logging what git is doing.
-- No per-stage progress bar, no cancel-with-cleanup (cancel terminates the child).
+- **Windows build coverage across titles remains evolving.** Single-title Windows builds (such as
+  Rhythm Heaven Groove) and large-block Oodle heap expansion have progressed significantly, while
+  full end-to-end physical validation across all titles — especially large Oodle titles — remains
+  subject to [Windows build → Open risks](#open-risks).
+- **No `nxkit` support.** The Qt front end builds with `nxnative` (and optional `s2arm`), whereas
+  `nxkit (Beta)` is macOS-only in the SwiftUI launcher.
+- **Cancel terminates the child process.** Stopping an active build ends the child process group
+  and marks any remaining queue items without rolling back partial temporary files beyond seed cleanup.
 
 ## Layout
 
 ```
 nspb_qt/
-  __main__.py       entry point
-  model.py          state, dependency detection, build runner (Qt signals, no widgets)
-  ui.py             the window
-  platform_util.py  per-OS paths, tool discovery, child environment
-  i18n.py           language choice
-  l10n.py           the texts, read from ../frontend/l10n/*.json (the SwiftUI app reads the same files)
-  win/              the Windows build path; imported only when sys.platform is win32
-tests/test_win.py   the Windows-path tests that can run on macOS
+  __main__.py         entry point
+  model.py            state, dependency detection, build runner (Qt signals, no widgets)
+  build_queue.py      multi-game batch queue and discovery
+  refresh_flow.py     fast refresh and batch refresh orchestration
+  app_update.py       Windows self-update
+  ui.py               the window
+  platform_util.py    per-OS paths, tool discovery, child environment
+  i18n.py             language choice
+  l10n.py             the texts, read from ../frontend/l10n/*.json (the SwiftUI app reads the same files)
+  win/                the Windows build path, imported only when sys.platform is win32
+tests/test_win.py     the Windows-path tests that can run on macOS
 ```
 
 ---
@@ -245,16 +254,19 @@ time.
 
 ## Known unsupported game types
 
-These need the game's own arm64 code to run, which upstream does inside a **Mac host**. No
-Windows PC can do that, so the build stops with an explanatory message rather than producing a
-broken IPA:
+Steps that genuinely require booting the game's own arm64 code inside a **Mac host** cannot run on
+a Windows PC without pre-captured data, so the build stops with an explanatory message rather than
+producing a broken IPA:
 
-- **Run-time shader capture** — GLSLC capture (Fire Emblem: Three Houses, Portal), Vulkan
-  capture (Super Mario Galaxy), GL capture of a non-LÖVE game. The game compiles its shaders
-  only while running.
-- **Unreal / Oodle decoding** — games whose shaders sit inside Oodle-compressed or Trinity packs
-  (Pokémon Legends: Z-A, PlatinumGames titles, DRAGON QUEST XI S, …). Upstream decodes them by
-  running the game's own decoder.
+- **Uncaptured run-time shaders, JIT, or NROs** — Windows reuses existing `gl_capture`,
+  `vk_capture`, `glslc_capture`, `jit_capture/`, and `jit/jit.img` folders, compiles embedded GLSL
+  sources offline via `glslc_emu.py`, reconstructs LÖVE (`love_shaders.py`) and GameMaker
+  (`gm_shaders.py`) OpenGL shaders offline, and decodes `nxboot` NROs offline via `nro_emu.py`.
+  Titles that still require live Mac-host capture without existing captures (such as runtime Vulkan
+  capture, non-LÖVE/GameMaker OpenGL capture, missing runtime `nn::jit` dumps, or other runtime
+  NROs) are refused up front.
+- **Oodle decoding** is handled on Windows through `oodle_emu.py` (with `arm64_emu.py` expanding
+  the emulated heap up to 2 GiB on demand, or native x64 Oodle DLL passthrough when available).
 - **The heap check** for a provisional profile. Replaced by an estimate (a 2 GB pool for a game
   with virtual address memory). See `driver.heap_check`.
 - **The pipeline archive** (`pso_offline.py` / `metal-tt`). Apple's Windows Metal tools do not
@@ -263,7 +275,7 @@ broken IPA:
 - **`--prepare-xcode`**, **`--platform mac`** and **`--platform mac-app`**. Refused up front.
 
 Games whose shaders are in the RomFS — Mario Wonder, Odyssey, Mario Kart 8 Deluxe, the Zelda
-titles, Metroid Dread — do not need any of that.
+titles, Metroid Dread — do not need any capture step.
 
 ## Run a build
 
