@@ -57,7 +57,8 @@ struct LaunchOptionsView: View {
         let _ = choicesRevision
         let destination = game.map(LaunchDestination.init) ?? .none
         let shown = destination.categories.contains(category) ? category : (destination.categories.first ?? .game)
-        DSSheetStackLayout(width: LauncherSheet.width, maxHeight: maxHeight) {
+        // Always as high as a sheet may be, the height a game with many options has: the sheet keeps its size when a part or a game has less
+        DSSheetStackLayout(width: LauncherSheet.width, maxHeight: maxHeight, fill: true) {
             VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .bottom) {
                 DSSheetHeader(title: loc.t("launch.title"), message: game?.displayName(loc.lang) ?? "")
@@ -80,9 +81,12 @@ struct LaunchOptionsView: View {
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.bottom, DSSheetInsets.gap)
             }
             }
-            if let game {
-                if destination == .none { noBuild(game) } else { content(game, destination: destination, category: shown) }
+            VStack(alignment: .leading, spacing: 0) {
+                if let game {
+                    if destination == .none { noBuild(game) } else { content(game, destination: destination, category: shown) }
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             footer(game, destination: destination, category: shown)
         }
         .padScope("launch", focus)
