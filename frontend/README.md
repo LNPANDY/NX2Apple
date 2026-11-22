@@ -611,3 +611,7 @@ Make that work lazy or cache it. Then profile a release build with the Time
 Profiler to confirm. Raise a budget only when the launcher shows more on purpose,
 and say why in the pull request. The counts exist only in debug builds, so
 `LauncherWork.count` costs nothing in a release build.
+
+### Library receipts
+
+**File → Open Builds in Game Library** opens completed builds in the optional [NX2 Game Library companion](https://github.com/iJaack/nx2-game-library) when it is installed. Otherwise it saves a `.nx2library` receipt for later import. The receipt references local Mac apps and transferable iPhone build folders. The companion uses the Mac app for desktop play and the signed iPhone framework and packed data for device transfers.
