@@ -188,7 +188,8 @@ import XCTest
             if os.path.exists('\(temporary.path)/fail-xcode'):
                 print('error: xcodebuild failed', flush=True)
                 sys.exit(65)
-            dd = val('-derivedDataPath')
+            sym = next((x.split('=', 1)[1] for x in a if x.startswith('SYMROOT=')), None)
+            dd = val('-derivedDataPath') or sym[:-len('/Build/Products')]
             app = dd + '/Build/Products/Release-iphoneos/DmShell.app'
             os.makedirs(dd + '/Build/Intermediates.noindex/DmShell.build', exist_ok=True)
             open(dd + '/Build/Intermediates.noindex/DmShell.build/main.o', 'w').write('obj')
