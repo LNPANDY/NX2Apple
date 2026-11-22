@@ -1,0 +1,785 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sun, 22 Nov 2026 19:55:01 +0800
+Subject: [PATCH] Add Resident Evil 0 profile and MT Framework movie-clock sync
+
+Upstream-Status: pending
+Reason: Support Resident Evil 0 (010097000BC10000) with MT Framework 30/60/120fps movie-clock sync and on-demand shader table derivation
+Issue: none
+---
+ dm/games/010097000BC10000/README.md           | 29 +++++++++++++
+ dm/games/010097000BC10000/bf_want.tsv         |  1 +
+ dm/games/010097000BC10000/game.tsv            | 42 +++++++++++++++++++
+ dm/games/010097000BC10000/pso_manifest.tsv    |  2 +
+ dm/games/010097000BC10000/shader_facts.tsv    |  1 +
+ dm/games/010097000BC10000/shader_map.tsv      |  2 +
+ .../shader_map.tsv.conflicts.tsv              |  2 +
+ dm/games/010097000BC10000/shader_pairs.tsv    |  1 +
+ dm/games/README.md                            |  1 +
+ dm/games/game.py                              |  6 +--
+ dm/gfx/nvn/hle_nvn.c                          | 35 +++++++++++++---
+ dm/gfx/nvn/nvn_mtl.m                          |  5 +++
+ dm/gfx/tests/t_nvn.c                          | 39 +++++++++++++++++
+ dm/host/front_mac.m                           |  2 +-
+ dm/host/hle_fpslock.c                         | 34 +++++++++------
+ dm/host/hle_profile.c                         |  8 +++-
+ dm/host/hle_profile.h                         |  2 +-
+ dm/host/tests/t_fpslock.c                     | 35 +++++++++++++---
+ dm/host/tests/t_profile_runtime.c             | 10 ++---
+ dm/host/tests/t_resolution.c                  |  2 +
+ dm/tools/docs_patches.py                      |  2 +
+ dm/tools/tests/test_game_profile.py           | 20 +++++++++
+ dm/tools/tests/test_game_profile_runtime.py   |  3 +-
+ dm/tools/tests/test_nsp_incremental.py        | 23 ++++++++++
+ scripts/build_ipa_from_nsp.py                 | 11 +++++
+ 25 files changed, 283 insertions(+), 35 deletions(-)
+ create mode 100644 dm/games/010097000BC10000/README.md
+ create mode 100644 dm/games/010097000BC10000/bf_want.tsv
+ create mode 100644 dm/games/010097000BC10000/game.tsv
+ create mode 100644 dm/games/010097000BC10000/pso_manifest.tsv
+ create mode 100644 dm/games/010097000BC10000/shader_facts.tsv
+ create mode 100644 dm/games/010097000BC10000/shader_map.tsv
+ create mode 100644 dm/games/010097000BC10000/shader_map.tsv.conflicts.tsv
+ create mode 100644 dm/games/010097000BC10000/shader_pairs.tsv
+
+diff --git a/dm/games/010097000BC10000/README.md b/dm/games/010097000BC10000/README.md
+new file mode 100644
+index 0000000..217add0
+--- /dev/null
++++ b/dm/games/010097000BC10000/README.md
+@@ -0,0 +1,29 @@
++# Resident Evil 0 (`010097000BC10000`)
++
++Switch base version 1.0.0 (`v0`), SDK 5.4.0. Capcom's MT Framework on NVN with `NintendoSDK_movie` (`subsdk0`). Modules `main`, `subsdk0`, `sdk`.
++
++Build ID of 1.0.0's `main` (first 16 hex digits): `FB4239AA962B429B`.
++
++## What it needs
++
++| Setting | Where | Why |
++|---|---|---|
++| `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `sys_resource 0x0` | [`game.tsv`](game.tsv) | NPDM declares 0 MB of system resource, so `main` sets a 3.3 GB heap |
++| `present_interval display`, `fps_target 120`, `fps_max 120` | [`game.tsv`](game.tsv), `dm/host/hle_fpslock.c` | Writes only the MT Framework render frame limit (`sMain::mpInstance + 0x4c`), leaving `+0x48` at the game's simulation-time scale |
++| MT Framework movie-clock synchronization | `dm/gfx/nvn/hle_nvn.c`, `dm/host/hle_fpslock.c` | Matches render pacing and presentation interval (`30` or `60` Hz) to the active decoded movie rate (`dm_movie_hz()`) across 30/60/120 fps profiles |
++| Keep display refresh rate in fullscreen | `dm/host/front_mac.m` | Default `DM_SCREEN_MATCH` off for `010097000BC10000` unless overridden by `DM_SCREEN_MATCH` |
++| ProMotion 120 Hz display link floor on iOS | `dm/gfx/nvn/nvn_mtl.m` | Uses `CAFrameRateRangeMake(80, 120, 120)` in mode 2 on iPhone/iPad so ProMotion does not settle on 60 Hz |
++| On-demand shader table derivation | `scripts/build_ipa_from_nsp.py` | Pre-split shader tables are omitted from the profile and derived into a shader-only build profile when splitting the user's own game files |
++
++## Shaders
++
++This profile ships empty placeholder shader tables (`EMPTY_TABLES`). During `scripts/build_ipa_from_nsp.py`, a registered NVN profile with no pre-split `shader_map.tsv` data rows derives a shader-only build folder and keeps all `game.tsv` keys and host fixes intact.
++
++## Frame rate
++
++- `hle_fpslock.c` targets `main` build `fb4239aa962b429b3d1776af92d93e79` at `0x1baac60` (`+0x4c`, `FPS_F32`, 1 copy).
++- While a movie plays (`dm_movie_hz() != 0`), `hle_nvn.c` (`high_cap_tick`, `nvn_fps_high_now`, `present_itv`) and `hle_fpslock.c` clamp both presentation intervals and the MT Framework render limit to the movie's picture rate (`30` or `60` Hz) so audio and video remain synchronized under 30, 60, and 120 fps targets.
++
++## Open
++
++- Shader prewarm manifest (`pso_manifest.tsv`) and `validated.tsv` baseline runs are not yet recorded.
+diff --git a/dm/games/010097000BC10000/bf_want.tsv b/dm/games/010097000BC10000/bf_want.tsv
+new file mode 100644
+index 0000000..54caeb8
+--- /dev/null
++++ b/dm/games/010097000BC10000/bf_want.tsv
+@@ -0,0 +1 @@
++# generated
+diff --git a/dm/games/010097000BC10000/game.tsv b/dm/games/010097000BC10000/game.tsv
+new file mode 100644
+index 0000000..e386090
+--- /dev/null
++++ b/dm/games/010097000BC10000/game.tsv
+@@ -0,0 +1,42 @@
++# Resident Evil 0, Switch 1.0.0 profile: MT Framework render limiter and shared movie pacing.
++
++# ---- Identity ----
++title_id	010097000BC10000
++program_id	010097000BC10000
++
++# ---- App ----
++name	Resident Evil 0
++ipa	ResidentEvil0.ipa
++app_category	public.app-category.games
++
++# ---- Versions ----
++build	v0	1.0.0	main=fb4239aa962b429b3d1776af92d93e79	subsdk0=41097c438a36afd2e879fa6f5e0f0850	sdk=26ffb122262ca25e4c016c0af2f92a29
++package	v0
++shader_versions	v0
++
++# ---- Files ----
++# every module main imports from
++modules	main subsdk0 sdk
++romfs_marker	nativeNXx64/movie/mt00.mp4
++zip_store	.arc:.mfx:.mp4:.metallib
++
++# ---- Memory ----
++# main sets a heap of at most the pool - 64 MB: a 3328 MB heap region
++mem_reserve	0x100000000
++mem_alias	0x10000000
++mem_stack	0x10000000
++app_pool	0xCD500000
++# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon
++sys_resource	0x0
++
++# ---- Shader split ----
++shader_groups	/nativeNXx64/=nativenxx64
++shader_note	Resident Evil 0 shaders
++
++# ---- Frame rate ----
++# Native MT Framework limiter is raised through sMain::mpInstance + 0x4c only,
++# while +0x48 remains the original simulation-time scale. Default to adaptive 120 mode:
++# 120 Hz displays can reach 120 fps, while 60 Hz displays and movies step at 30/60 Hz.
++present_interval	display
++fps_target	120
++fps_max	120
+diff --git a/dm/games/010097000BC10000/pso_manifest.tsv b/dm/games/010097000BC10000/pso_manifest.tsv
+new file mode 100644
+index 0000000..0ca5ca6
+--- /dev/null
++++ b/dm/games/010097000BC10000/pso_manifest.tsv
+@@ -0,0 +1,2 @@
++# Prewarm seed list (shipped in the app, next to shader_map.tsv). Rows: S<TAB>shader key<TAB>stage / R<TAB>render pipeline key (pso_skey hex) / C<TAB>compute shader key / M<TAB>task shader key or -<TAB>native task / mesh pipeline key (pso_skey hex: the mesh shader in the vertex place).
++# Provisional profile: empty until recorded on the Mac (DM_PSO_MANIFEST=off DM_PSO_RECORD).
+diff --git a/dm/games/010097000BC10000/shader_facts.tsv b/dm/games/010097000BC10000/shader_facts.tsv
+new file mode 100644
+index 0000000..1b19e79
+--- /dev/null
++++ b/dm/games/010097000BC10000/shader_facts.tsv
+@@ -0,0 +1 @@
++# Answer table for translation queries (generated by dm/gfx/tools/shader_split.py, do not edit): key <TAB> fact JSON. Provisional profile: filled by the shader split
+diff --git a/dm/games/010097000BC10000/shader_map.tsv b/dm/games/010097000BC10000/shader_map.tsv
+new file mode 100644
+index 0000000..fa9886a
+--- /dev/null
++++ b/dm/games/010097000BC10000/shader_map.tsv
+@@ -0,0 +1,2 @@
++# kind: evidence  provisional profile: filled by the shader split (a Vulkan game's SPIR-V shaders go through the Vulkan layer and leave it empty)
++package	index	stage	dm_ctl_sha16	source
+diff --git a/dm/games/010097000BC10000/shader_map.tsv.conflicts.tsv b/dm/games/010097000BC10000/shader_map.tsv.conflicts.tsv
+new file mode 100644
+index 0000000..35c1b4d
+--- /dev/null
++++ b/dm/games/010097000BC10000/shader_map.tsv.conflicts.tsv
+@@ -0,0 +1,2 @@
++# kind: evidence  control-section key conflict rulings: empty
++dm_ctl_sha16	chosen_pc	class	candidates	records
+diff --git a/dm/games/010097000BC10000/shader_pairs.tsv b/dm/games/010097000BC10000/shader_pairs.tsv
+new file mode 100644
+index 0000000..ac32dd3
+--- /dev/null
++++ b/dm/games/010097000BC10000/shader_pairs.tsv
+@@ -0,0 +1 @@
++# kind: evidence  vertex / pixel shader pairs within BNSH variations (generated by dm/gfx/tools/shader_split.py, do not edit): vertex key <TAB> pixel key
+diff --git a/dm/games/README.md b/dm/games/README.md
+index c97e06e..d1aec39 100644
+--- a/dm/games/README.md
++++ b/dm/games/README.md
+@@ -187,6 +187,7 @@ One row per profile; the notes are each profile's `README.md`. Entries marked pr
+ | [Re:ZERO -Starting Life in Another World- The Prophecy of the Throne](0100D800117F4000/README.md) | `0100D800117F4000` | 1.0.2 | 9.5.0 | The Forge renderer | Vulkan |
+ | [Red Dead Redemption](01007820196A6000/README.md) | `01007820196A6000` | 1.0.7 | 15.3.2 | Rockstar's RAGE (Double Eleven port) | NVN |
+ | [Resident Evil](010050F00BC1A000/README.md) | `010050F00BC1A000` | 1.0.0 (base) | 5.4.0 | Capcom's MT Framework | NVN |
++| [Resident Evil 0](010097000BC10000/README.md) | `010097000BC10000` | 1.0.0 (base) | 5.4.0 | Capcom's MT Framework | NVN |
+ | [Resident Evil 4](0400569027BF4000/README.md) | `0400569027BF4000` | v131072 (Switch 2) | 21.4.3 (Ounce) | RE Engine, Havok, Wwise | NVN2 |
+ | [Return of the Obra Dinn](010032E00E6E2000/README.md) | `010032E00E6E2000` | 1.0.1 | 8.2.0 | Unity 2017.4.28f1 IL2CPP | NVN |
+ | [Rhythm Heaven Groove](0100D9F01D474000/README.md) | `0100D9F01D474000` | 1.0.0 (base) | 21.4.0 | Nintendo's own 2D engine | NVN |
+diff --git a/dm/games/game.py b/dm/games/game.py
+index 4db679f..cee7a2e 100644
+--- a/dm/games/game.py
++++ b/dm/games/game.py
+@@ -163,8 +163,8 @@ def header_one(g):
+     vers = ', '.join('{' + q(b['main']) + ', ' + q(b['display']) + '}' for b in g.builds().values() if 'main' in b)
+     pi = g.get('present_interval', 'game')   # present interval: game = as the game sets it (as on the Switch), display = one frame per display tick
+     if pi not in ('game', 'display'): sys.exit(f'{g.id}: present_interval must be game or display: {pi}')
+-    ft = g.get('fps_target', '0')   # frame rate cap of the rewriter's frame step (FRAME_STEP in the profile's patches.py: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0) or of the engine's own frame limit (hle_fpslock.c): 0 = the game's own step, 30 / 60
+-    if ft not in ('0', '30', '60'): sys.exit(f'{g.id}: fps_target must be 0, 30 or 60: {ft}')
++    ft = g.get('fps_target', '0')   # frame rate cap of the rewriter's frame step (FRAME_STEP in the profile's patches.py: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0) or of the engine's own frame limit (hle_fpslock.c): 0 = the game's own step, 30 / 60 / 120
++    if ft not in ('0', '30', '60', '120'): sys.exit(f'{g.id}: fps_target must be 0, 30, 60 or 120: {ft}')
+     fm = g.get('fps_max', '60')   # the highest rate fps_target and the player's Frame rate may take: 120 only for a game checked at that speed (hle_nvn.c fps_high)
+     if fm not in ('60', '120'): sys.exit(f'{g.id}: fps_max must be 60 or 120: {fm}')
+     fh = g.get('fps_hold', 'on')   # whether the frame step may hold a frame longer than the cap's vsyncs when frames come late (hle_nvn.c fstep_tick): on / off
+@@ -294,7 +294,7 @@ if __name__ == '__main__':
+                 ('modules', 'MODULES'), ('mem_reserve', 'MEM_RESERVE'), ('mem_alias', 'MEM_ALIAS'), ('mem_stack', 'MEM_STACK'),
+                 ('app_pool', 'APP_POOL'), ('mem_used', 'MEM_USED'), ('sys_resource', 'SYS_RESOURCE'), ('mem_map_limit', 'MEM_MAP_LIMIT'),
+                 ('present_interval', 'PRESENT_DISPLAY'), ('core_preempt', 'CORE_PREEMPT'), ('alloc_big_align', 'ALLOC_BIG_ALIGN'),
+-                ('fps_target', 'FPS_TARGET'), ('fps_hold', 'FPS_HOLD'), ('present_snap', 'PRESENT_SNAP'), ('pso_mtl4', 'PSO_MTL4'),
++                ('fps_target', 'FPS_TARGET'), ('fps_max', 'FPS_MAX'), ('fps_hold', 'FPS_HOLD'), ('present_snap', 'PRESENT_SNAP'), ('pso_mtl4', 'PSO_MTL4'),
+                 ('shared_font', 'SHARED_FONT_TTF'), ('pad_layout', 'PAD_LAYOUT'), ('op_mode', 'OPMODE'), ('perf_mode', 'PERF_BOOST'),
+                 ('feedback_snap', 'FEEDBACK_SNAP'), ('tex_flush_upload', 'TEX_FLUSH_UPLOAD'),
+                 ('tex_dirty_upload', 'TEX_DIRTY_UPLOAD'), ('tex_dyn_slots', 'TEX_DYN_SLOTS'), ('gpu_timestamps', 'GPU_TS_SEGMENT'),
+diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
+index 0e02cf6..04f8ab3 100644
+--- a/dm/gfx/nvn/hle_nvn.c
++++ b/dm/gfx/nvn/hle_nvn.c
+@@ -2439,8 +2439,9 @@ static int fps_high(void) {
+     int v = __atomic_load_n(&g_fps_high, __ATOMIC_RELAXED);
+     if (v < 0) {
+         const char *e = getenv("DM_FPS_TARGET"); int t = e ? atoi(e) : dm_prof()->fps_target;
+-        v = t == 120 && DM_GAME_FPS_MAX >= 120 && !dm_fps_state && dm_fps_lock_engine();
+-        if (t == 120 && DM_GAME_FPS_MAX >= 120 && !v) LOG("[RED] [nvn] 120 fps: this main has %s, so it runs at 60", dm_fps_state ? "a frame step in whole vsyncs" : "no engine frame limit the host writes");
++        int fps_max = dm_prof()->fps_max_set ? dm_prof()->fps_max : DM_GAME_FPS_MAX;
++        v = t == 120 && fps_max >= 120 && !dm_fps_state && dm_fps_lock_engine();
++        if (t == 120 && fps_max >= 120 && !v) LOG("[RED] [nvn] 120 fps: this main has %s, so it runs at 60", dm_fps_state ? "a frame step in whole vsyncs" : "no engine frame limit the host writes");
+         __atomic_store_n(&g_fps_high, v, __ATOMIC_RELAXED);
+     }
+     return v;
+@@ -2450,7 +2451,8 @@ static int fstep_hz(void) { return fps_high() ? 120 : 60; }   // the ticks the f
+ static void high_cap_tick(void) {
+     static int win = -1, link_env = -1;
+     if (win < 0) { win = mtl_display_hz() != 0; link_env = getenv("DM_PRESENT_LINK") != NULL; }
+-    int ok = !win || front_screen_max_fps() >= 120, movie = dm_movie_hz(), cap = ok && !movie && !thermal_capped() ? 120 : 60;
++    int ok = !win || front_screen_max_fps() >= 120, movie = dm_movie_hz(), thermal = thermal_capped();
++    int cap = movie ? (movie >= 50 && !thermal ? 60 : 30) : (ok && !thermal ? 120 : 60);
+     static int was; if (cap != was) { LOG("[nvn] 120 fps: cap %d → %d fps (%s)", was, cap, cap == 120 ? "the screen shows it" : !ok ? "the screen is below 120 Hz" : movie ? "movie playing" : "thermal state serious"); was = cap; }
+     atomic_store(&g_high_cap, cap);
+     if (!link_env) mtl_link_mode_set(ok ? 2 : 1);
+@@ -2497,7 +2499,7 @@ static nvn_fstep g_fs;   // present thread only
+ static nvn_fgpu g_fg;   // the GPU time at kmin and at the current hold (nvn_fstep_gpu_slowed)
+ static _Atomic int g_fs_k;   // the hold presentation follows (0 = not decided yet)
+ // The display link runs at 30 Hz at a 30 cap, except while the game fixes its own step at 1 (BotW's VFR override)
+-int nvn_fps_high_now(void) { return atomic_load(&g_fs_k) == 1 ? 120 : 60; }   // hle_fpslock.c: the target of the next game frame, from the hold in force
++int nvn_fps_high_now(void) { int m = dm_movie_hz(); return m ? (m >= 50 && !thermal_capped() ? 60 : 30) : (fps_high() && atomic_load(&g_fs_k) == 1 ? 120 : 60); }   // hle_fpslock.c: the target of the next game frame, from the hold in force or active movie rate
+ // The rate of vi::GetDisplayVsyncEvent (hle_sdk16.c, nvn_mtl.m mtl_link_wait_vsync): the Switch's 60 Hz, or 120 while 120 fps is on and its hold is one tick of 1/120 s. A game that
+ // waits for the next vblank each frame is held to the event's rate whatever the present cap: Unity's NVN device waits until its vblank time (set from the event) passes
+ // (The Rogue Prince of Persia: main+0x14f65f0), so at 120 every frame came two ticks late and the hold fell back to 60. The hold's trial at 120 must already have the event at 120
+@@ -2517,7 +2519,25 @@ static void present_cfg(const win_t *o) {
+     LOG("[nvn] present tick %d Hz, interval mode %s (%s; present interval set by the game %d; %s)", g_hz, g_display_mode ? "display (one frame per tick, a cut)" : "game (original semantics)",
+         m ? "DM_PRESENT_INTERVAL" : "game profile present_interval", o->interval, scr > 0 ? "window" : "no window");
+ }
+-static int present_itv(const win_t *o) { int c = fps_present_cap(), k = atomic_load(&g_fs_k); return c ? (k && fstep_on() ? k : fstep_hz() / c) : g_display_mode ? 1 : o->interval > 0 ? o->interval : 1; }   // vsyncs per frame that presentation follows
++static int g_re_movie_60 = -1;
++static int re_movie_pacing(void) {
++    int v = __atomic_load_n(&g_re_movie_60, __ATOMIC_RELAXED);
++    if (v < 0) {
++        const char *e = getenv("DM_FPS_TARGET"); int t = e ? atoi(e) : dm_prof()->fps_target;
++        v = (!strcmp(dm_prof()->id, "010050F00BC1A000") || !strcmp(dm_prof()->id, "010097000BC10000")) && t == 60;
++        __atomic_store_n(&g_re_movie_60, v, __ATOMIC_RELAXED);
++    }
++    return v;
++}
++static int present_itv(const win_t *o) {   // vsyncs per frame that presentation follows
++    int movie = dm_movie_hz(), c = fps_present_cap(), k = atomic_load(&g_fs_k);
++    if (movie && (fps_high() || re_movie_pacing())) {
++        int mcap = movie >= 50 && !thermal_capped() ? 60 : 30;
++        int itv = fstep_hz() / mcap;
++        return itv > 0 ? itv : 1;
++    }
++    return c ? (k && fstep_on() ? k : fstep_hz() / c) : g_display_mode ? 1 : o->interval > 0 ? o->interval : 1;
++}
+ // Present interval 0 swaps without waiting for a vsync on Horizon: the window's acquire waits only for a texture the display has let go of, the display shows the newest frame at each
+ // vsync, and the game paces itself (or runs as fast as it can; the Switch's unlocked-frame-rate mods set interval 0 to go past 60). The acquire took it as 1 and waited a display
+ // tick each frame. Ori and the Blind Forest: Definitive Edition sets Unity's vSyncCount to 0 only for its shader prewarm behind the first loading screen and back to 1 after it: the
+@@ -4033,6 +4053,11 @@ void nvn_hle_teardown(void) {
+     pthread_mutex_unlock(&g_rt_mu);
+ 
+     atomic_store(&g_screen_at, 0);
++    atomic_store(&g_high_cap, 60);
++    atomic_store(&g_fs_k, 0);
++    __atomic_store_n(&g_fps_high, -1, __ATOMIC_RELAXED);
++    __atomic_store_n(&g_re_movie_60, -1, __ATOMIC_RELAXED);
++    g_present_cap = -1;
+     g_fs_drain = g_fs_drain_late = 0;
+ 
+     pthread_mutex_lock(&g_susp_mu);
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 3ed815e..45f5b87 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -19454,7 +19454,12 @@ static CAFrameRateRange link_range(int mode) {
+         return CAFrameRateRangeMake(rate, hz, hz);
+     }
+     g_link_vperiod = 0;
++#if TARGET_OS_IPHONE
++    // A 60-120 range lets Core Animation settle on 60 even when the game explicitly requested 120 fps.
++    return mode == 3 ? CAFrameRateRangeMake(30, 30, 30) : mode == 2 ? CAFrameRateRangeMake(80, 120, 120) : CAFrameRateRangeMake(60, 60, 60);
++#else
+     return mode == 3 ? CAFrameRateRangeMake(30, 30, 30) : mode == 2 ? CAFrameRateRangeMake(60, 120, 120) : CAFrameRateRangeMake(60, 60, 60);
++#endif
+ }
+ // The display link's frame latency: 2 in variable-refresh fullscreen, 1 otherwise (DM_PRESENT_LATENCY overrides both). In a window the system calls back about 50 ms before the target display
+ // time; in fullscreen it shows the layer directly and, at latency 1, calls back only one 60 Hz period (16 ms) ahead. There, on ProMotion screens (M4 Pro, M5 Max), it shows some
+diff --git a/dm/gfx/tests/t_nvn.c b/dm/gfx/tests/t_nvn.c
+index a032366..36a60c8 100644
+--- a/dm/gfx/tests/t_nvn.c
++++ b/dm/gfx/tests/t_nvn.c
+@@ -1,5 +1,7 @@
+ // NVN null device unit tests: look up addresses from nvnBootstrapLoader the way the game does and go all the way to present; all expected values are hand-calculated, without calling the implementation under test.
+ // For build and run see dm/gfx/tests/Makefile (make -C dm/gfx/tests).
++static int test_movie_hz;
++int dm_movie_hz(void) { return test_movie_hz; }
+ #include "../nvn/hle_nvn.c"
+ #include "../tex/nvn_deswizzle.h"
+ #include <time.h>
+@@ -1846,6 +1848,43 @@ int main(void) {
+         EXPECT("several rows whose alignment would break the wrapped address: refused", 0, nvn_tbuf_rows(20000, 4, 3, &w, &h, &row));
+     }
+ 
++    // 9. MT Framework (RE0) movie-clock synchronization across 120 and 60 fps targets
++    for (int target = 120; target >= 60; target -= 60) {
++        pid_t pid = fork();
++        if (pid == 0) {
++            win_t w = {.interval = 1};
++            dm_fps_state = NULL; g_engine_stub = 1;
++            g_fps_high = -1; g_present_cap = -1; g_re_movie_60 = -1;
++            setenv("DM_PROF_TITLE_ID", "010097000BC10000", 1);
++            setenv("DM_PROF_FPS_MAX", "120", 1);
++            setenv("DM_PROF_PRESENT_INTERVAL", "display", 1);
++            setenv("DM_FPS_TARGET", target == 120 ? "120" : "60", 1);
++            nvn_present_config(target, 1);
++            test_movie_hz = 0; atomic_store(&g_fs_k, 1);
++            if (target == 120) {
++                high_cap_tick();
++                if (fps_high() != 1 || atomic_load(&g_high_cap) != 120 || nvn_fps_high_now() != 120 || present_itv(&w) != 1) _exit(1);
++                test_movie_hz = 30; high_cap_tick();
++                if (atomic_load(&g_high_cap) != 30 || nvn_fps_high_now() != 30 || present_itv(&w) != 4) _exit(2);
++                test_movie_hz = 24; high_cap_tick();
++                if (atomic_load(&g_high_cap) != 30 || nvn_fps_high_now() != 30 || present_itv(&w) != 4) _exit(7);
++                test_movie_hz = 60; high_cap_tick();
++                if (atomic_load(&g_high_cap) != 60 || nvn_fps_high_now() != 60 || present_itv(&w) != 2) _exit(3);
++            } else {
++                if (fps_high() != 0 || present_itv(&w) != 1) _exit(4);
++                test_movie_hz = 30;
++                if (present_itv(&w) != 2) _exit(5);
++                test_movie_hz = 24;
++                if (present_itv(&w) != 2) _exit(8);
++                test_movie_hz = 60;
++                if (present_itv(&w) != 1) _exit(6);
++            }
++            _exit(0);
++        }
++        int st = 0; waitpid(pid, &st, 0);
++        EXPECT(target == 120 ? "RE0 movie clock sync under 120 fps target" : "RE0 movie clock sync under 60 fps target", 1, WIFEXITED(st) && WEXITSTATUS(st) == 0);
++    }
++
+     printf("== %d checks, %d failed ==\n", g_n, g_fail);
+     return g_fail != 0;
+ }
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 38cbf2a..9ce6493 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -85,7 +85,7 @@ static CGError screen_set_mode(CGDirectDisplayID id, CGDisplayModeRef m) {   //
+     CGDisplayModeRelease(g_match_orig); g_match_orig = NULL;
+ }
+ static void screen_match_apply(void) {   // main thread: on a new frame rate, on entering and leaving fullscreen and on a move to another screen
+-    static int off = -1; if (off < 0) { const char *e = getenv("DM_SCREEN_MATCH"); off = e && !strcmp(e, "0"); if (off) LOG("front end: the screen keeps its refresh rate in fullscreen too (DM_SCREEN_MATCH=0)"); }
++    static int off = -1; if (off < 0) { const char *e = getenv("DM_SCREEN_MATCH"); off = e ? !strcmp(e, "0") : !strcmp(dm_profile()->id, "010097000BC10000"); if (off) LOG("front end: the screen keeps its refresh rate in fullscreen too (%s)", e ? "DM_SCREEN_MATCH=0" : "010097000BC10000 default"); }
+     NSScreen *scr = g_win.screen; int want = g_match_want, full = (g_win.styleMask & NSWindowStyleMaskFullScreen) != 0;
+     CGDirectDisplayID id = scr ? [scr.deviceDescription[@"NSScreenNumber"] unsignedIntValue] : kCGNullDirectDisplay;
+     if (g_match_orig && (!full || id != g_match_id)) screen_match_restore(id == g_match_id);
+diff --git a/dm/host/hle_fpslock.c b/dm/host/hle_fpslock.c
+index 7c40df2..475fc29 100644
+--- a/dm/host/hle_fpslock.c
++++ b/dm/host/hle_fpslock.c
+@@ -51,7 +51,10 @@ static const lock_t k_locks[] = {
+     // stur q1, [x9, #8]), a constant of the Switch build, so it is written here. The simulation's own rate is Frostbite's SimulationTimeSettings, set below by name: on a build without
+     // this row the game keeps 30 fps at the right speed (the simulation at 60 and the regulator at 30: match clock as at 30). The game asks for present interval 2
+     // (BaseDisplaySettings.PresentInterval), which the profile's present_interval display ignores
++    // EA SPORTS FC 27 1.8d.310c: the game's frame regulator...
+     { "a48c0de3bc353efa0e4d359bde05ef24", "FIFA frame regulator", 0xda20e38, 0x8, FPS_F64, 2, 0 },
++    // Resident Evil 0 1.0.0: write only the MT Framework render limiter (+0x4c). +0x48 remains the native simulation-time scale.
++    { "fb4239aa962b429b3d1776af92d93e79", "Resident Evil 0 MT Framework render frame limit", 0x1baac60, 0x4c, FPS_F32, 1, 0 },
+ };
+ #define NLOCKS ((int)(sizeof k_locks / sizeof k_locks[0]))
+ #define MAX_LOCKS (NLOCKS + 7)   // target, Monolith, four Unreal rows, Unity targetFrameRate
+@@ -293,6 +296,7 @@ void dm_fpslock_teardown(void) {
+     pthread_mutex_unlock(&g_fpslock_mu);
+ }
+ int nvn_fps_high_now(void);   // hle_nvn.c
++int dm_movie_hz(void);        // hle_movie.c
+ void dm_fps_lock_tick(void) {
+     dynamic_resolution_tick();   // separate from the FPS cap
+     if (g_fps_tick_state == -1) return;
+@@ -301,7 +305,8 @@ void dm_fps_lock_tick(void) {
+         if (!nrow && !nier && !fb.n && !uq.base && !ue_missing) return;
+         const char *e = getenv("DM_FPS_TARGET"); int t = e ? atoi(e) : dm_profile()->fps_target; g_fps_tick_src = e ? "DM_FPS_TARGET" : "game profile fps_target";
+         if (t != 0 && t != 30 && t != 60 && t != 120) { LOG("[RED] DM_FPS_TARGET=%s: must be 0, 30, 60 or 120; leaving the game's frame limit", e); t = 0; }
+-        if (t == 120 && DM_GAME_FPS_MAX < 120) { LOG("[RED] DM_FPS_TARGET=120: this game's speed at 120 fps is not checked (profile fps_max); running at 60"); t = 60; }
++        int fps_max = dm_profile()->fps_max_set ? dm_profile()->fps_max : DM_GAME_FPS_MAX;
++        if (t == 120 && fps_max < 120) { LOG("[RED] DM_FPS_TARGET=120: this game's speed at 120 fps is not checked (profile fps_max); running at 60"); t = 60; }
+         g_fps_tick_high = t == 120;
+         if (t && ue_missing) LOG("[RED] main: Unreal %s not found by the rewriter (ue_cvar.py NAMES; game profile ue_fps_cvar): the game's own frame limit stays", DM_GAME_UE_FPS_CVAR);
+         if (!nrow && !nier && !fb.n && !uq.base) return;
+@@ -337,16 +342,21 @@ void dm_fps_lock_tick(void) {
+     if (uq.base) unity_vsync_tick(target, src);
+     for (int r = 0; r < nrow; r++) {
+         const lock_t *L = rows[r]; uint64_t obj = (uint64_t)(uintptr_t)base;
++        // Resident Evil 0: clamp MT Framework's render limiter to the active movie picture rate (30 or 60 Hz) even under a 60/120 target.
++        int movie_hz = dm_movie_hz();
++        int re0_row = !strcmp(L->what, "Resident Evil 0 MT Framework render frame limit");
++        int row_target = target;
++        if (re0_row && movie_hz > 0) row_target = movie_hz >= 50 ? (target > 60 ? 60 : target) : (target > 30 ? 30 : target);
+         if (L->ptr_off && (!rd((uint64_t)(uintptr_t)(base + L->ptr_off), &obj, sizeof obj) || !obj)) continue;   // not created yet
+         if (L->flag) { uint8_t b; if (!rd(obj + (L->flag >> 8), &b, 1) || !(b & (L->flag & 0xff))) continue; }   // the object's flag is off (Unreal: no fixed frame rate in use)
+         if (L->kind == FPS_F64) {
+             for (int c = 0; c < L->copies; c++) {
+-                uint64_t a = obj + L->field + 8 * (uint64_t)c; double cur, want = target;
++                uint64_t a = obj + L->field + 8 * (uint64_t)c; double cur, want = row_target;
+                 if (!rd(a, &cur, sizeof cur)) break;
+                 if (cur == want || !(cur >= 10 && cur <= 120)) continue;   // already set, or not set yet
+                 double *p = (double *)(uintptr_t)a;
+                 dm_guest_write_prepare(p, sizeof *p); __atomic_store_n((uint64_t *)p, *(uint64_t *)&want, __ATOMIC_RELAXED);
+-                if (nlog[r] < 8) { nlog[r]++; LOG("main: %s%s %g → %d fps (%s)", L->what, L->copies > 1 ? (c ? " (reported rate)" : " (target)") : "", cur, target, src); }
++                if (nlog[r] < 8) { nlog[r]++; LOG("main: %s%s %g → %d fps (%s)", L->what, L->copies > 1 ? (c ? " (reported rate)" : " (target)") : "", cur, row_target, src); }
+             }
+             continue;
+         }
+@@ -354,15 +364,15 @@ void dm_fps_lock_tick(void) {
+             uint64_t a = obj + L->field + 4 * (uint64_t)c; uint32_t cur, want; char was[16];
+             if (!rd(a, &cur, sizeof cur)) break;
+             if (L->kind == FPS_F32 || L->kind == MS_F32) {
+-                int ms = L->kind == MS_F32; float f, w = ms ? ms_want(target) : (float)target; memcpy(&f, &cur, sizeof f); memcpy(&want, &w, sizeof want);
++                int ms = L->kind == MS_F32; float f, w = ms ? ms_want(row_target) : (float)row_target; memcpy(&f, &cur, sizeof f); memcpy(&want, &w, sizeof want);
+                 if (cur == want || !(ms ? f >= 8 && f <= 100 : f >= 10 && f <= 120)) continue;   // already set, or not set yet (RE Engine: 6000 at boot; Unreal: 0 = no limit until the config sets it)
+                 snprintf(was, sizeof was, ms ? "%.3f ms" : "%g", f);
+             } else if (L->kind == SECS_F32) {
+-                float f, w = 1.0f / (float)target; memcpy(&f, &cur, sizeof f); memcpy(&want, &w, sizeof want);
++                float f, w = 1.0f / (float)row_target; memcpy(&f, &cur, sizeof f); memcpy(&want, &w, sizeof want);
+                 if (cur == want || !(f >= 1.0f / 120 && f <= 0.1f)) continue;   // not set yet (0 before the game's first frame)
+                 snprintf(was, sizeof was, "%.5f s", f);
+             } else if (L->kind == TICKS_U32) {
+-                want = L->scale / (uint32_t)target;
++                want = L->scale / (uint32_t)row_target;
+                 if (cur == want || cur < L->scale / 120 || cur > L->scale / 10) continue;
+                 snprintf(was, sizeof was, "%u", cur);
+             } else if (L->kind == MODE_U32) {
+@@ -371,7 +381,7 @@ void dm_fps_lock_tick(void) {
+                 snprintf(was, sizeof was, "%u", cur);
+             } else {
+                 int fps = L->kind == FPS_I32;
+-                want = fps ? (uint32_t)target : target > 60 ? 1 : 60 / (uint32_t)target;   // above 60 the display link paces it: a vsync count stays 1
++                want = fps ? (uint32_t)row_target : row_target > 60 ? 1 : 60 / (uint32_t)row_target;   // above 60 the display link paces it: a vsync count stays 1
+                 uint32_t value = !cur && L->kind == VSYNCS_DEFAULT2_I32 ? 2 : cur;   // Monolith's zero means its native two-vsync default
+                 if (value == want || value < (fps ? 10u : 1u) || value > (fps ? 120u : 4u)) continue;
+                 snprintf(was, sizeof was, "%u", cur);
+@@ -379,11 +389,11 @@ void dm_fps_lock_tick(void) {
+             uint32_t *p = (uint32_t *)(uintptr_t)a;
+             dm_guest_write_prepare(p, sizeof *p); __atomic_store_n(p, want, __ATOMIC_RELAXED);
+             if (nlog[r] < 8) { nlog[r]++; char now[24];
+-                if (L->kind == MS_F32) snprintf(now, sizeof now, "%.3f ms (%d fps)", ms_want(target), target);
+-                else if (L->kind == SECS_F32) snprintf(now, sizeof now, "%.5f s (%d fps)", 1.0 / target, target);
+-                else if (L->kind == TICKS_U32) snprintf(now, sizeof now, "%u (%d fps)", want, target);
+-                else if (L->kind == MODE_U32) snprintf(now, sizeof now, "1 (%d fps)", target);
+-                else snprintf(now, sizeof now, "%u%s", L->kind == FPS_F32 ? (unsigned)target : want, L->kind == FPS_F32 || L->kind == FPS_I32 ? " fps" : " vsyncs");
++                if (L->kind == MS_F32) snprintf(now, sizeof now, "%.3f ms (%d fps)", ms_want(row_target), row_target);
++                else if (L->kind == SECS_F32) snprintf(now, sizeof now, "%.5f s (%d fps)", 1.0 / row_target, row_target);
++                else if (L->kind == TICKS_U32) snprintf(now, sizeof now, "%u (%d fps)", want, row_target);
++                else if (L->kind == MODE_U32) snprintf(now, sizeof now, "1 (%d fps)", row_target);
++                else snprintf(now, sizeof now, "%u%s", L->kind == FPS_F32 ? (unsigned)row_target : want, L->kind == FPS_F32 || L->kind == FPS_I32 ? " fps" : " vsyncs");
+                 LOG("main: %s%s %s → %s (%s)", L->what, L->copies > 1 ? (c ? " (render thread)" : " (game thread)") : "", was, now, src); }
+         }
+     }
+diff --git a/dm/host/hle_profile.c b/dm/host/hle_profile.c
+index c141b04..1fad779 100644
+--- a/dm/host/hle_profile.c
++++ b/dm/host/hle_profile.c
+@@ -64,6 +64,9 @@ static uint64_t num(const char *v, uint64_t dflt) {
+ #ifndef DM_GAME_FPS_TARGET
+ #define DM_GAME_FPS_TARGET 0
+ #endif
++#ifndef DM_GAME_FPS_MAX
++#define DM_GAME_FPS_MAX 60
++#endif
+ #ifndef DM_GAME_FPS_HOLD
+ #define DM_GAME_FPS_HOLD 1
+ #endif
+@@ -143,7 +146,7 @@ static void defaults(void) {
+           copy_str(P.ver[P.nver].build, sizeof P.ver[0].build, k[i].build); copy_str(P.ver[P.nver].ver, sizeof P.ver[0].ver, k[i].ver); P.nver++;
+       } }
+     P.present_display = DM_GAME_PRESENT_DISPLAY; P.core_preempt = DM_GAME_CORE_PREEMPT; P.alloc_big_align = DM_GAME_ALLOC_BIG_ALIGN;
+-    P.fps_target = DM_GAME_FPS_TARGET; P.fps_hold = DM_GAME_FPS_HOLD; P.present_snap = DM_GAME_PRESENT_SNAP; P.pso_mtl4 = DM_GAME_PSO_MTL4;
++    P.fps_target = DM_GAME_FPS_TARGET; P.fps_max = DM_GAME_FPS_MAX; P.fps_hold = DM_GAME_FPS_HOLD; P.present_snap = DM_GAME_PRESENT_SNAP; P.pso_mtl4 = DM_GAME_PSO_MTL4;
+ #ifdef DM_GAME_SHARED_FONT_TTF
+     P.shared_font_ttf = DM_GAME_SHARED_FONT_TTF;
+ #else
+@@ -205,6 +208,7 @@ static void set_kv(const char *k, const char *v) {
+     else if (!strcmp(k, "core_preempt")) P.core_preempt = truthy(v);
+     else if (!strcmp(k, "alloc_big_align")) P.alloc_big_align = truthy(v);
+     else if (!strcmp(k, "fps_target")) P.fps_target = (int)num(v, (uint64_t)P.fps_target);
++    else if (!strcmp(k, "fps_max")) { P.fps_max = (int)num(v, (uint64_t)P.fps_max); P.fps_max_set = 1; }
+     else if (!strcmp(k, "fps_hold")) P.fps_hold = truthy(v);
+     else if (!strcmp(k, "present_snap")) P.present_snap = truthy(v);
+     else if (!strcmp(k, "pso_mtl4")) P.pso_mtl4 = truthy(v);
+@@ -263,7 +267,7 @@ static void read_file(const char *path) {
+ // Environment: DM_PROF_<KEY> with the game.tsv key upper-cased (DM_PROF_MEM_RESERVE=0x140000000).
+ static void read_env(void) {
+     static const char *keys[] = {"TITLE_ID","NAME","ROMFS_MARKER","PROGRAM_ID","MODULES","MEM_RESERVE","MEM_ALIAS","MEM_STACK","APP_POOL",
+-        "MEM_USED","SYS_RESOURCE","MEM_MAP_LIMIT","PRESENT_INTERVAL","CORE_PREEMPT","ALLOC_BIG_ALIGN","FPS_TARGET","FPS_HOLD","PRESENT_SNAP",
++        "MEM_USED","SYS_RESOURCE","MEM_MAP_LIMIT","PRESENT_INTERVAL","CORE_PREEMPT","ALLOC_BIG_ALIGN","FPS_TARGET","FPS_MAX","FPS_HOLD","PRESENT_SNAP",
+         "PSO_MTL4","SHARED_FONT","PAD_LAYOUT","OP_MODE","PERF_MODE","FEEDBACK_SNAP","TEX_FLUSH_UPLOAD","TEX_DIRTY_UPLOAD",
+         "TEX_DYN_SLOTS","GPU_TIMESTAMPS","VCONV_RANGE","DEVICE_API","STDALLOC_CAP","SHADER_KEY_SKIP","TEX_BC_CPU","UE_TEXTURE_POOL","ENC_THREAD","DRAW_BARRIERS","GAME_ARGS","GAME_ENV", NULL};
+     char k[64], name[96];
+diff --git a/dm/host/hle_profile.h b/dm/host/hle_profile.h
+index e73d416..da0951b 100644
+--- a/dm/host/hle_profile.h
++++ b/dm/host/hle_profile.h
+@@ -24,7 +24,7 @@ struct dm_profile {
+     int mem_map_limit;
+     struct { char build[40], ver[40]; } ver[DM_PROF_MAX_VER];   // display version by main build ID
+     int nver;
+-    int present_display, core_preempt, alloc_big_align, fps_target, fps_hold, present_snap, pso_mtl4;
++    int present_display, core_preempt, alloc_big_align, fps_target, fps_max, fps_max_set, fps_hold, present_snap, pso_mtl4;
+     int shared_font_ttf;         // -1 = decide by the SDK version (hle_sdk16.c font_skip)
+     int pad_layout, opmode, perf_boost;
+     char feedback_snap[DM_PROF_STR];
+diff --git a/dm/host/tests/t_fpslock.c b/dm/host/tests/t_fpslock.c
+index c18d399..be37d55 100644
+--- a/dm/host/tests/t_fpslock.c
++++ b/dm/host/tests/t_fpslock.c
+@@ -7,6 +7,8 @@ static int test_fps_max = 120;
+ #define DM_GAME_FPS_MAX test_fps_max
+ static int test_high = 120;   // what the frame step's hold allows (hle_nvn.c)
+ int nvn_fps_high_now(void) { return test_high; }
++static int test_movie_hz;     // active movie picture rate (hle_movie.c)
++int dm_movie_hz(void) { return test_movie_hz; }
+ #include "../hle_fpslock.c"
+ #include <assert.h>
+ #include <math.h>
+@@ -54,19 +56,26 @@ static void check(int which) {
+     g_nmod = 1; strcpy(g_mod[0].name, "main"); g_mod[0].base = base;
+     strcpy(g_mod[0].build_id, "94ceae325c205c4b9d6f7235552f28fd");
+     setenv("DM_FPS_TARGET", which == 27 ? "0" : which == 26 ? "120" : which >= 25 ? "60" : which == 22 || which == 24 ? "60" : which >= 19 ? "120" : which == 1 || which == 10 || which == 18 ? "30" : which == 2 || which == 11 ? "0" : "60", 1);
+-    if (which >= 30) setenv("DM_FPS_TARGET", which == 31 || which == 34 ? "30" : which == 32 ? "0" : "60", 1);
++    if (which >= 30 && which <= 37) setenv("DM_FPS_TARGET", which == 31 || which == 34 ? "30" : which == 32 ? "0" : "60", 1);
++    if (which >= 38) setenv("DM_FPS_TARGET", which == 39 ? "60" : "120", 1);
+     if (which == 20) test_fps_max = 60;
++    if (which == 40) setenv("DM_PROF_FPS_MAX", "60", 1);
+     int32_t *unity = (int32_t *)(base + 0x4afc868);
+     *unity = which == 1 ? 60 : which == 4 ? -1 : which == 5 ? 0 : 30;
+     uint8_t object[0x500] = {0};
+-    float *f = NULL; int32_t *sync = NULL;
++    float *f = NULL, *sim = NULL; int32_t *sync = NULL;
+     if (which <= 5 && which != 3) g_mod[0].unity_target_fps = 0x4afc868;   // 0 to 5: Unity's targetFrameRate where the rewriter found it (Pokémon Brilliant Diamond 1.3.0); 3: nothing found
+-    if (which >= 30) {   // any build with the engine-derived interval: its adjacent previous value belongs to the engine
++    if (which >= 30 && which <= 37) {   // any build with the engine-derived interval: its adjacent previous value belongs to the engine
+         g_mod[0].monolith_interval = 0x6000;
+         sync = (int32_t *)(base + 0x6000);
+         sync[0] = which == 31 ? 1 : which == 33 || which == 34 ? 0 : which == 35 ? -1 : which == 36 ? 5 : 2;
+         sync[1] = 17;
+         if (which == 37) g_mod[0].native_fps_blocked = 1;
++    } else if (which >= 38) {   // Resident Evil 0: MT Framework render limit at [main+0x1baac60]+0x4c only; +0x48 simulation scale stays untouched
++        strcpy(g_mod[0].build_id, "fb4239aa962b429b3d1776af92d93e79");
++        *(uintptr_t *)(base + 0x1baac60) = (uintptr_t)object;
++        sim = (float *)(object + 0x48); *sim = 30.0f;
++        f = (float *)(object + 0x4c); *f = 30.0f;
+     } else if (which == 6) {
+         strcpy(g_mod[0].build_id, "c9a3dd7702075ecd90101f4555389582");
+         *(uintptr_t *)(base + 0x1295b3f0) = (uintptr_t)object;
+@@ -134,7 +143,7 @@ static void check(int which) {
+     if (which & 1) assert(dm_fps_lock_engine() == engine);   // the graphics layer's present cap may ask before the first present (the acquire)
+     dm_fps_lock_tick();
+     assert(dm_fps_lock_engine() == engine);
+-    if (which >= 30) {
++    if (which >= 30 && which <= 37) {
+         assert(sync[1] == 17);   // no fabricated previous-frame state
+         if (which == 30 || which == 33) {
+             assert(sync[0] == 1 && writes == 1);
+@@ -150,6 +159,22 @@ static void check(int which) {
+         } else assert(sync[0] == 5 && writes == 0);   // an unexpected value is left alone
+         munmap(base, len); return;
+     }
++    if (which >= 38) {
++        assert(*sim == 30.0f);
++        if (which == 38) {   // 120 target: tracks 120 outside movies, clamps to 30/60 Hz during movies
++            assert(*f == 120.0f);
++            test_movie_hz = 30; dm_fps_lock_tick(); assert(*f == 30.0f && *sim == 30.0f);
++            test_movie_hz = 60; test_high = 60; dm_fps_lock_tick(); assert(*f == 60.0f);
++            test_movie_hz = 0; test_high = 120; dm_fps_lock_tick(); assert(*f == 120.0f && *sim == 30.0f);
++        } else if (which == 39) {   // 60 target: also clamps to 30 Hz during 30 Hz movies and restores 60 afterwards
++            assert(*f == 60.0f);
++            test_movie_hz = 30; dm_fps_lock_tick(); assert(*f == 30.0f && *sim == 30.0f);
++            test_movie_hz = 0; dm_fps_lock_tick(); assert(*f == 60.0f && *sim == 30.0f);
++        } else {   // DM_PROF_FPS_MAX=60 overrides compiled test_fps_max=120
++            assert(*f == 60.0f && *sim == 30.0f);
++        }
++        munmap(base, len); return;
++    }
+     if (which == 19) {   // 120: the target follows the hold, so the game's step stays what the screen shows; the game setting its own 30 again changes nothing
+         int32_t *t = (int32_t *)(object + 0x1dc);
+         assert(*t == 120);
+@@ -232,7 +257,7 @@ static void check(int which) {
+ 
+ int main(void) {
+     // Each process starts the production one-time initialization with a fresh build and target.
+-    for (int i = 0; i < 38; i++) {
++    for (int i = 0; i < 41; i++) {
+         pid_t p = fork(); assert(p >= 0);
+         if (!p) { check(i); _exit(0); }
+         int status; assert(waitpid(p, &status, 0) == p); assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+diff --git a/dm/host/tests/t_profile_runtime.c b/dm/host/tests/t_profile_runtime.c
+index bbf0e32..1073894 100644
+--- a/dm/host/tests/t_profile_runtime.c
++++ b/dm/host/tests/t_profile_runtime.c
+@@ -22,7 +22,7 @@ static int child_file(const char *path) {
+     CHECK(!strcmp(p->args, "-foo=1 -bar"));
+     CHECK(p->stdalloc_cap == 0x180000000ull);
+     CHECK(p->shader_skip_off == 0x770 && p->shader_skip_len == 0x78);
+-    CHECK(p->tex_bc_cpu == 1 && p->ue_texture_pool == 1000 && p->enc_thread == 1 && p->draw_barriers_game == 1 && p->core_preempt == 1 && p->fps_target == 30);
++    CHECK(p->tex_bc_cpu == 1 && p->ue_texture_pool == 1000 && p->enc_thread == 1 && p->draw_barriers_game == 1 && p->core_preempt == 1 && p->fps_target == 30 && p->fps_max == 120);
+     CHECK(p->shared_font_ttf == 1 && p->nvn_api_major == 55 && p->nvn_api_minor == 12);
+     CHECK(p->nver == 1 && !strcmp(p->ver[0].build, "abcd") && !strcmp(p->ver[0].ver, "2.0.1"));
+     return 0;
+@@ -37,9 +37,9 @@ static int child_none(const char *path) {
+ }
+ static int child_env(void) {   // DM_PROF_<KEY> wins over the file and over the compiled profile
+     unsetenv("DM_PROFILE");
+-    setenv("DM_PROF_STDALLOC_CAP", "0x40000000", 1); setenv("DM_PROF_SHADER_KEY_SKIP", "0x30+0x10", 1); setenv("DM_PROF_ENC_THREAD", "1", 1);
++    setenv("DM_PROF_STDALLOC_CAP", "0x40000000", 1); setenv("DM_PROF_SHADER_KEY_SKIP", "0x30+0x10", 1); setenv("DM_PROF_ENC_THREAD", "1", 1); setenv("DM_PROF_FPS_MAX", "120", 1);
+     const struct dm_profile *p = dm_profile();
+-    CHECK(p->stdalloc_cap == 0x40000000ull && p->shader_skip_off == 0x30 && p->shader_skip_len == 0x10 && p->enc_thread == 1);
++    CHECK(p->stdalloc_cap == 0x40000000ull && p->shader_skip_off == 0x30 && p->shader_skip_len == 0x10 && p->enc_thread == 1 && p->fps_max == 120);
+     return 0;
+ }
+ static int child_compiled(void) {   // no DM_PROFILE: exactly the header
+@@ -53,7 +53,7 @@ static int child_compiled(void) {   // no DM_PROFILE: exactly the header
+     CHECK(p->stdalloc_cap == DM_GAME_STDALLOC_CAP);
+     CHECK(p->shader_skip_off == DM_GAME_SHADER_KEY_SKIP_OFF && p->shader_skip_len == DM_GAME_SHADER_KEY_SKIP_LEN);
+     CHECK(p->tex_bc_cpu == DM_GAME_TEX_BC_CPU && p->ue_texture_pool == DM_GAME_UE_TEXTURE_POOL && p->enc_thread == DM_GAME_ENC_THREAD && p->draw_barriers_game == DM_GAME_DRAW_BARRIERS_GAME);
+-    CHECK(p->core_preempt == DM_GAME_CORE_PREEMPT && p->fps_target == DM_GAME_FPS_TARGET);
++    CHECK(p->core_preempt == DM_GAME_CORE_PREEMPT && p->fps_target == DM_GAME_FPS_TARGET && p->fps_max == DM_GAME_FPS_MAX);
+ #ifdef DM_GAME_NVN_API_MAJOR
+     CHECK(p->nvn_api_major == DM_GAME_NVN_API_MAJOR && p->nvn_api_minor == DM_GAME_NVN_API_MINOR);
+ #else
+@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
+     char full[300], none[300]; snprintf(full, sizeof full, "%s/full.tsv", dir); snprintf(none, sizeof none, "%s/none.tsv", dir);
+     if (write_file(full, "# values that differ from any compiled profile\n"
+             "title_id\t0100000000001234\nprogram_id\t0x0100000000001234\nname\tRuntime Test\nmodules\tmain subsdk0 sdk\ngame_args\t-foo=1 -bar\n"
+-            "stdalloc_cap\t0x180000000\nshader_key_skip\t0x770+0x78\ntex_bc_cpu\t1\nue_texture_pool\t1000\nenc_thread\t1\ndraw_barriers\tgame\ncore_preempt\t1\nfps_target\t30\n"
++            "stdalloc_cap\t0x180000000\nshader_key_skip\t0x770+0x78\ntex_bc_cpu\t1\nue_texture_pool\t1000\nenc_thread\t1\ndraw_barriers\tgame\ncore_preempt\t1\nfps_target\t30\nfps_max\t120\n"
+             "shared_font\tttf\ndevice_api\t55.12\nbuild\tabcd\t2.0.1\tdisplay\n")) return 1;
+     if (write_file(none, "shader_key_skip\t0x0+0x0\nshared_font\tauto\ndevice_api\t0.0\nstdalloc_cap\t0x0\ntex_bc_cpu\t0\nue_texture_pool\t0\nenc_thread\t0\ndraw_barriers\t0\n")) return 1;
+     const char *cases[][2] = {{"file", full}, {"none", none}, {"env", NULL}, {"compiled", NULL}};
+diff --git a/dm/host/tests/t_resolution.c b/dm/host/tests/t_resolution.c
+index a389c68..ff6aa50 100644
+--- a/dm/host/tests/t_resolution.c
++++ b/dm/host/tests/t_resolution.c
+@@ -1,5 +1,7 @@
+ // Exercise production memory policy with native/old/wrong-build images, at
+ // every FPS choice. No game assets or executable guest code are needed.
++int nvn_fps_high_now(void) { return 60; }
++int dm_movie_hz(void) { return 0; }
+ #include "../hle_fpslock.c"
+ static module_t modules[1];
+ module_t *g_mod = modules; int g_nmod = 1;
+diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
+index dd8f940..bdef143 100644
+--- a/dm/tools/docs_patches.py
++++ b/dm/tools/docs_patches.py
+@@ -76,6 +76,8 @@ HOST_BINDING = [
+      'why': "the studio's engine, which its other games ship", 'blocked': 'one game on that engine here'}),
+     ('k_locks', 'FIFA', '', {'what': "Frostbite's frame regulator at a fixed pointer", 'now': 'build', 'goal': 'engine', 'purpose': 'frame rate',
+      'why': "engine code other Frostbite games ship (the simulation's own rate is already set by name)", 'blocked': 'one Frostbite game here'}),
++    ('k_locks', 'Resident Evil 0', '', {'what': "MT Framework's render frame limit at a fixed pointer", 'now': 'build', 'goal': 'engine', 'purpose': 'frame rate',
++     'why': 'engine code other MT Framework games ship', 'blocked': 'one MT Framework row in k_locks here'}),
+     ('k_ue', '', 'feae83dc9e9fb34c77d0a62f1fa9ae9f', {'what': "UE3's GMalloc setup skipped, the host allocator in (hle_uemalloc.c)", 'now': 'build', 'goal': 'game', 'purpose': 'address space',
+      'why': "UE3 inlines the allocator's constructor into the GMalloc setup and has its own vtable layout (25 slots, 32-bit sizes), so the Unreal 4/5 discovery does not apply"}),
+     ('k_nier_dr', '', '', {'what': "NieR's frame interval and dynamic-resolution floor at fixed addresses", 'now': 'build', 'goal': 'game', 'purpose': 'frame rate',
+diff --git a/dm/tools/tests/test_game_profile.py b/dm/tools/tests/test_game_profile.py
+index 55f5cf9..dd46f55 100644
+--- a/dm/tools/tests/test_game_profile.py
++++ b/dm/tools/tests/test_game_profile.py
+@@ -121,3 +121,23 @@ class BuildModules(unittest.TestCase):
+         r, text = self.run_game(self.ROWS.replace('subsdk1=', 'subsdk2='), 'header', ID, '{d}/game.h')
+         self.assertEqual(r.returncode, 0, r.stderr)
+         self.assertIn('{"' + 'd' * 32 + '", "main subsdk0 sdk"}', text)
++
++
++class FrameRateTarget120(unittest.TestCase):
++    def test_fps_target_120_allowed_and_invalid_rejected(self):
++        with tempfile.TemporaryDirectory() as d:
++            Path(d, ID).mkdir()
++            profile = Path(d, ID) / 'game.tsv'
++            profile.write_text(TSV + 'fps_target\t120\nfps_max\t120\n')
++            output = Path(d, ID) / 'game.h'
++            r = subprocess.run([sys.executable, str(GAME), 'header', ID, str(output)],
++                               env={**os.environ, 'DM_GAMES_DIR': d}, capture_output=True, text=True)
++            self.assertEqual(r.returncode, 0, r.stderr)
++            text = output.read_text()
++            self.assertIn('#define DM_GAME_FPS_TARGET 120', text)
++            self.assertIn('#define DM_GAME_FPS_MAX 120', text)
++            profile.write_text(TSV + 'fps_target\t90\n')
++            r = subprocess.run([sys.executable, str(GAME), 'header', ID, str(output)],
++                               env={**os.environ, 'DM_GAMES_DIR': d}, capture_output=True, text=True)
++            self.assertNotEqual(r.returncode, 0)
++            self.assertIn('fps_target must be 0, 30, 60 or 120', r.stderr)
+diff --git a/dm/tools/tests/test_game_profile_runtime.py b/dm/tools/tests/test_game_profile_runtime.py
+index a724f94..07b27c6 100644
+--- a/dm/tools/tests/test_game_profile_runtime.py
++++ b/dm/tools/tests/test_game_profile_runtime.py
+@@ -10,7 +10,7 @@ REPO = Path(__file__).resolve().parents[3]
+ sys.path.insert(0, str(REPO / 'dm/games'))
+ import game  # pyright: ignore[reportMissingImports]  (dm/games, put on sys.path above)
+ 
+-KEYS = ('title_id', 'program_id', 'modules', 'stdalloc_cap', 'shader_key_skip', 'tex_bc_cpu', 'ue_texture_pool', 'enc_thread', 'draw_barriers', 'core_preempt', 'fps_target', 'device_api', 'game_args')
++KEYS = ('title_id', 'program_id', 'modules', 'stdalloc_cap', 'shader_key_skip', 'tex_bc_cpu', 'ue_texture_pool', 'enc_thread', 'draw_barriers', 'core_preempt', 'fps_target', 'fps_max', 'device_api', 'game_args')
+ 
+ 
+ def profile(gid):
+@@ -47,6 +47,7 @@ class GameProfileTest(unittest.TestCase):
+             self.assertEqual(int(rows['tex_bc_cpu']), int(g.get('tex_bc_cpu', 'off') == 'on'), g.id)
+             self.assertEqual(int(rows['enc_thread']), int(g.get('enc_thread', 'off') == 'on'), g.id)
+             self.assertEqual(int(rows['draw_barriers']), int(g.get('draw_barriers', 'full') == 'game'), g.id)
++            self.assertEqual(int(rows['fps_max']), int(g.get('fps_max', '60')), g.id)
+             self.assertEqual(rows['device_api'] == '0.0', not g.get('device_api', ''), g.id)
+             self.assertEqual(rows['shared_font'] == 'auto', not g.get('shared_font', ''), g.id)
+ 
+diff --git a/dm/tools/tests/test_nsp_incremental.py b/dm/tools/tests/test_nsp_incremental.py
+index 9c22639..28307d7 100644
+--- a/dm/tools/tests/test_nsp_incremental.py
++++ b/dm/tools/tests/test_nsp_incremental.py
+@@ -1245,4 +1245,27 @@ class BuildSources(unittest.TestCase):   # profile_guess.py build_sources reads
+         self.assertFalse((self.game / 'RomFS.img.sources').exists())
+ 
+ 
++class EmptyShaderTableDerivation(SplitShaders):
++    """Registered NVN profiles with empty placeholder shader_map.tsv trigger shader-only derivation without losing game.tsv settings."""
++    def test_empty_shader_map_triggers_derivation_and_preserves_profile(self):
++        (self.src / 'shader_map.tsv').write_text('# placeholder\npackage\tindex\tstage\tdm_ctl_sha16\tsource\n')
++        (self.src / 'patches.py').write_text(f'CUTS = {{"{BID}": []}}\n')
++        g = game.Game(self.src)
++        self.assertTrue(nsp.needs_shader_table_derivation(g))
++        nsp.derive_profile(g, self.pdir, 'v0', self.ex, ['main'], shader_only=True)
++        derived = game.Game(self.pdir)
++        self.go(derived, own=True)
++        self.assertEqual(derived.rows, g.rows)
++        self.assertEqual((self.pdir / 'patches.py').resolve(), (self.src / 'patches.py').resolve())
++        self.assertFalse(nsp.needs_shader_table_derivation(derived))
++
++    def test_nonempty_shader_map_never_skips_verification(self):
++        (self.src / 'shader_facts.tsv').write_text('# facts\n')
++        (self.src / 'shader_pairs.tsv').write_text('# pairs\n')
++        g = game.Game(self.src)
++        self.assertFalse(nsp.needs_shader_table_derivation(g))
++        with self.assertRaisesRegex(nsp.BuildError, 'differ from game profile'):
++            self.go(g, own=False)
++
++
+ if __name__ == '__main__': unittest.main()
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 7224b8d..4922362 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -2692,6 +2692,14 @@ def compute_reader_additions(g, tables, split_log):
+     except (OSError, UnicodeError, ValueError): return False
+ 
+ 
++def needs_shader_table_derivation(g):
++    """True when a registered NVN profile ships without pre-split shader_map.tsv data rows and needs a shader-only build directory."""
++    t = g.table('shader_map.tsv')
++    if not t.is_file(): return True
++    rows = [l for l in data_rows(t.read_bytes()) if l.strip() and not l.startswith(b'package\tindex\t')]
++    return not rows
++
++
+ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, oodle=None, dlc_roms=(), derive_dlc=None, derive_compute=None, derive_dup=None):
+     """The shader split into pkg, checked against the profile's tables. The package is reused when the extractor and the modules it imports, the profile settings and tables it reads or is checked against,
+     the DLC RomFS roots, each version's modules, RomFS (paths and sizes) and run-time capture, and the package's own contents are as at the last successful split. Returns the package's content key, the shader build's input (a damaged copy, ALLOW_DAMAGED, is keyed by its RomFS files' times and its damage list, so only the same extraction reuses it): a split that runs
+@@ -4635,6 +4643,9 @@ def main(args=None):
+             derive_dlc = (lambda: derive_shader_tables('the installed DLC shader content differs from the registered tables')) if not own else None
+             derive_compute = (lambda: derive_shader_tables('the reader decoded additional compute kernels from this registered build')) if not own else None
+             derive_dup = (lambda: derive_shader_tables('main duplicate shader labels shifted under first-copy selection', keep_analysis=True)) if not own else None
++            if not own and needs_shader_table_derivation(g):
++                derive_shader_tables('game profile has no pre-split shader tables')
++                own = True
+             pkey = split_shaders(py, repo, [rfs.source(dirs[v]) for v in sv], [dirs[v] / 'ExeFS/main' for v in sv], sh / 'pkg', env, logs, g, own, oodle, dlc_roms, derive_dlc, derive_compute, derive_dup)
+             if observed_glslc is not None: check_glslc_coverage(observed_glslc, g)
+         seen = seen_keys(g, sh, seen_logs(work, app)) if seen_shaders else None
