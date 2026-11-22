@@ -138,6 +138,7 @@ struct ShellSettingsView: View {
 
                 Section {
                     TouchArrangeRow(arranged: !store.touchLayout.isEmpty)
+                        .id("shs.arrange")
                 }
 
                 if actions.supportsSideloadCertificate || sideloadCertificate != nil {

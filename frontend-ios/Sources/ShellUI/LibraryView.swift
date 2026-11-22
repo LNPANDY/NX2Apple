@@ -609,8 +609,8 @@ public struct LibraryView: View {
                 .onChange(of: focus.id) { _, id in
                     guard let id, id.hasPrefix("set.") else { return }
                     withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
-                        if id == "set.back" { settingsPosition.scrollTo(edge: .top) }
-                        else { proxy.scrollTo(id, anchor: .center) }
+                        if id == "set.back" || id == "set.play" { settingsPosition.scrollTo(edge: .top) }
+                        else { proxy.scrollTo(GameDetailView.scrollRowID(for: id), anchor: .center) }
                     }
                 }
             }

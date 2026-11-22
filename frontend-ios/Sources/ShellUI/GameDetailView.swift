@@ -89,6 +89,7 @@ public struct GameDetailView: View {
                 // The button mapping is one row here and opens a card of its own, as a long choice list does.
                 if section.id == PadMappingRows.sectionID {
                     PadMappingEntryRow(gameID: detail.id, rows: section.rows, targetID: "set.row.padMapping")
+                        .id("set.row.padMapping")
                 } else {
                     ForEach(section.rows) { row in
                         // Equatable on its row: a change re-renders the changed row only, not every row of the game.
@@ -108,6 +109,7 @@ public struct GameDetailView: View {
                     GameSettingsGlassButton(title: ShellStrings.text("Use app data")) { actions.onUseAppData(detail.id) }.shellTarget("set.appdata") { actions.onUseAppData(detail.id) }
                 }
             }
+            .id("set.data")
             divider
             HStack {
                 Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary)
@@ -131,6 +133,7 @@ public struct GameDetailView: View {
                         .shellTarget("set.cloud.off") { actions.onDisableCloudSaves(detail.id) }
                 }
             }
+            .id("set.cloud")
             if let backup = detail.latestSaveBackup, !backup.isEmpty {
                 divider
                 GameSettingsGlassButton(title: ShellStrings.text("Restore backup…")) {
@@ -140,6 +143,7 @@ public struct GameDetailView: View {
                 .shellTarget("set.cloud.restore") {
                     requestRestoreBackup(backup)
                 }
+                .id("set.cloud.restore")
             }
         }
         if !detail.game.version.isEmpty {
@@ -151,7 +155,7 @@ public struct GameDetailView: View {
         }
         if askHomeScreen != nil || actions.supportsHomeScreen {
             if nativeSections {
-                Section { homeScreenButton }
+                Section { homeScreenButton.id("set.homeScreen") }
             } else {
                 homeScreenButton
             }
@@ -162,6 +166,7 @@ public struct GameDetailView: View {
                     coverButtons
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        .id("set.cover")
                 }
             } else {
                 coverButtons
@@ -175,6 +180,7 @@ public struct GameDetailView: View {
             Text(ShellStrings.text("Brings back the settings this game was tested with."))
                 .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
         }
+        .id("set.reset")
         if let askDelete {
             // Last and apart from the rest: the one action here that removes something. It only asks, the question names what goes.
             VStack(alignment: .leading, spacing: 10) {
@@ -184,6 +190,7 @@ public struct GameDetailView: View {
                 Text(ShellStrings.text("Deletes the game’s data on this device. You choose whether its saves go too."))
                     .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
             }
+            .id("set.delete")
         }
     }
 
@@ -281,6 +288,90 @@ public struct GameDetailView: View {
             askRestoreBackup(detail.game, backup)
         } else {
             localSheet = .restoreBackup
+        }
+    }
+
+    static func rowTargetID(_ rowID: String) -> String { "set.row." + rowID }
+
+    /// Normalizes multi-button row targets back to the canonical focus ID used in `orderedFocusRowIDs`.
+    static func focusRowID(for targetID: String) -> String {
+        switch targetID {
+        case "set.appdata": "set.data"
+        case "set.cloud.shell", "set.cloud.off": "set.cloud"
+        case "set.cover.reset": "set.cover"
+        default: targetID
+        }
+    }
+
+    /// Maps any focus target inside a game settings row to the Form cell ID `ScrollViewProxy.scrollTo` recognizes.
+    /// `ForEach(section.rows)` cells are keyed by `SettingRow.id` (`DM_*`), while static rows carry explicit `.id("set.*")`.
+    static func scrollRowID(for targetID: String) -> String {
+        let canonical = focusRowID(for: targetID)
+        if canonical.hasPrefix("set.row.") && canonical != "set.row.padMapping" {
+            return String(canonical.dropFirst("set.row.".count))
+        }
+        return canonical
+    }
+
+    /// Deterministic top-to-bottom order of enabled focus rows in `GameDetailView`, so D-pad up/down can advance
+    /// into lazy `Form` cells that have not entered the viewport yet.
+    static func orderedFocusRowIDs(
+        detail: GameDetail,
+        showsHomeScreen: Bool,
+        showsChangeCover: Bool,
+        showsDelete: Bool
+    ) -> [String] {
+        var ids: [String] = []
+        for section in detail.sections {
+            if section.id == PadMappingRows.sectionID {
+                ids.append("set.row.padMapping")
+            } else {
+                for row in section.rows where row.enabled {
+                    ids.append(rowTargetID(row.id))
+                }
+            }
+        }
+        ids.append("set.data")
+        ids.append("set.cloud")
+        if let backup = detail.latestSaveBackup, !backup.isEmpty {
+            ids.append("set.cloud.restore")
+        }
+        if showsHomeScreen {
+            ids.append("set.homeScreen")
+        }
+        if showsChangeCover {
+            ids.append("set.cover")
+        }
+        if detail.hasModifiedSettings {
+            ids.append("set.reset")
+        }
+        if showsDelete {
+            ids.append("set.delete")
+        }
+        return ids
+    }
+
+    /// Fallback vertical navigation step when `FocusNavigation.next` hits the edge of currently materialized `Form` cells.
+    static func fallbackVerticalTarget(
+        from current: String?,
+        action: ShellInput.Action,
+        orderedRows: [String]
+    ) -> String? {
+        guard action == .down || action == .up else { return nil }
+        let rowID = current.map(focusRowID(for:))
+        if action == .down {
+            if current == nil || current == "set.back" || current == "set.play" {
+                return orderedRows.first
+            }
+            guard let rowID, let idx = orderedRows.firstIndex(of: rowID), idx + 1 < orderedRows.count else {
+                return nil
+            }
+            return orderedRows[idx + 1]
+        } else {
+            guard let rowID, let idx = orderedRows.firstIndex(of: rowID) else {
+                return nil
+            }
+            return idx > 0 ? orderedRows[idx - 1] : "set.back"
         }
     }
 }

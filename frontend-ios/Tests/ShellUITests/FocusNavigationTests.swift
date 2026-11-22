@@ -103,4 +103,63 @@ final class FocusNavigationTests: XCTestCase {
         XCTAssertEqual(LibraryView.fallbackActivatedGame(games: games, selected: games[1], focusID: nil)?.id, "g2")
         XCTAssertNil(LibraryView.fallbackActivatedGame(games: games, selected: games[0], focusID: "lib.controllers"))
     }
+
+    func testGameSettingsScrollRowIDAndOrderedLazyFallback() {
+        XCTAssertEqual(GameDetailView.scrollRowID(for: "set.appdata"), "set.data")
+        XCTAssertEqual(GameDetailView.scrollRowID(for: "set.cloud.shell"), "set.cloud")
+        XCTAssertEqual(GameDetailView.scrollRowID(for: "set.cloud.off"), "set.cloud")
+        XCTAssertEqual(GameDetailView.scrollRowID(for: "set.cover.reset"), "set.cover")
+        XCTAssertEqual(GameDetailView.scrollRowID(for: "set.row.DM_SHOW_FPS"), "DM_SHOW_FPS")
+        XCTAssertEqual(GameDetailView.scrollRowID(for: "set.row.padMapping"), "set.row.padMapping")
+        XCTAssertEqual(GameDetailView.focusRowID(for: "set.row.DM_SHOW_FPS"), "set.row.DM_SHOW_FPS")
+        XCTAssertEqual(GameDetailView.focusRowID(for: "set.appdata"), "set.data")
+
+        let detail = GameDetail(
+            game: GameTile(id: "g1", title: "Game 1"),
+            sections: [
+                SettingSection(id: "Game", title: "Game", rows: [
+                    SettingRow(id: "DM_OPMODE", label: "Mode", kind: .toggle(on: "1", off: "0"), value: "0", fromShell: false),
+                    SettingRow(id: "DM_LOCKED", label: "Locked", kind: .toggle(on: "1", off: "0"), value: "0", enabled: false, fromShell: false)
+                ]),
+                SettingSection(id: PadMappingRows.sectionID, title: "Controller", rows: [
+                    SettingRow(id: "pad.A", label: "A", kind: .choice([SettingOption("A", "A")]), value: "A", fromShell: true)
+                ])
+            ],
+            dataSource: "App data",
+            cloudSaves: "iCloud",
+            hasModifiedSettings: true,
+            latestSaveBackup: "backup.zip"
+        )
+        let ordered = GameDetailView.orderedFocusRowIDs(
+            detail: detail,
+            showsHomeScreen: true,
+            showsChangeCover: true,
+            showsDelete: true
+        )
+        XCTAssertEqual(ordered, [
+            "set.row.DM_OPMODE",
+            "set.row.padMapping",
+            "set.data",
+            "set.cloud",
+            "set.cloud.restore",
+            "set.homeScreen",
+            "set.cover",
+            "set.reset",
+            "set.delete"
+        ])
+
+        // Moving down walks every row through lazy boundaries and stops at the last row.
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.back", action: .down, orderedRows: ordered), "set.row.DM_OPMODE")
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.row.padMapping", action: .down, orderedRows: ordered), "set.data")
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.appdata", action: .down, orderedRows: ordered), "set.cloud")
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.cloud.off", action: .down, orderedRows: ordered), "set.cloud.restore")
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.cover.reset", action: .down, orderedRows: ordered), "set.reset")
+        XCTAssertNil(GameDetailView.fallbackVerticalTarget(from: "set.delete", action: .down, orderedRows: ordered))
+
+        // Moving up walks back through every row and returns to the close button from the first row.
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.delete", action: .up, orderedRows: ordered), "set.reset")
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.appdata", action: .up, orderedRows: ordered), "set.row.padMapping")
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.row.DM_OPMODE", action: .up, orderedRows: ordered), "set.back")
+        XCTAssertNil(GameDetailView.fallbackVerticalTarget(from: "set.back", action: .up, orderedRows: ordered))
+    }
 }
