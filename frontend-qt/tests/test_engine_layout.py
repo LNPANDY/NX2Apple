@@ -226,6 +226,313 @@ class BundledEngine(unittest.TestCase):
         finally:
             engine.__file__ = orig_file
 
+    def _write_real_manifest(self, eng: Path) -> list[str]:
+        sys.path.insert(0, str(ROOT / 'tools'))
+        tools_engine = importlib.import_module('engine')
+        count = tools_engine.write_files_manifest(eng)
+        self.assertGreater(count, 0)
+        return (eng / '.engine-files').read_text(encoding='utf-8').splitlines()
+
+    def test_bundled_engine_prunes_stale_upgrade_files_from_real_manifest(self):
+        import stat
+        eng = self.tree(self.app)
+        (eng / '.engine-id').write_text('a' * 40 + '-' + 'b' * 12 + '\n', encoding='utf-8')
+        (eng / '.upstream-ref').write_text('a' * 40 + '\n', encoding='utf-8')
+        for rel in (
+            'dm/games/01007EF00011E000/game.tsv',
+            'dm/games/01007EF00011E000/shader_facts.tsv',
+            'dm/games/0100F2C0115B6000/game.tsv',
+            'dm/games/0100F2C0115B6000/shader_facts.tsv',
+            'dm/tools/nx_extract_bin/nx_extract.exe',
+            'dm/gfx/tools/spirv_cross_bin/spirv-cross.exe',
+        ):
+            p = eng / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text('current\n', encoding='utf-8')
+
+        entries = self._write_real_manifest(eng)
+        self.assertIn('.engine-id', entries)
+        self.assertIn('scripts/build_ipa_from_nsp.py', entries)
+        self.assertIn('dm/tools/nx_extract_bin/nx_extract.exe', entries)
+
+        # Simulate stale v1.4.0 / v1.3.0 files + read-only stale file + retired game runtime artifacts.
+        stale_files = (
+            'dm/games/01007EF00011E000/shader_facts_manual.tsv',
+            'dm/games/0100F2C0115B6000/shader_facts_manual.tsv',
+            'dm/games/010014C011146000/patches.py',
+            'dm/games/010014C011146000/c1_full.tsv',
+            'dm/games/010014C011146000/cb_extent.tsv',
+            'dm/games/010014C011146000/__pycache__/patches.cpython-312.pyc',
+            'scripts/stale_orphan.pyc',
+        )
+        for rel in stale_files:
+            p = eng / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text('stale\n', encoding='utf-8')
+        ro_stale = eng / 'dm/games/01007EF00011E000/readonly_old.tsv'
+        ro_stale.write_text('ro\n', encoding='utf-8')
+        os.chmod(ro_stale, stat.S_IREAD)
+        self.addCleanup(lambda: os.chmod(ro_stale, stat.S_IWRITE | stat.S_IREAD) if ro_stale.exists() else None)
+
+        # Runtime derived shader tables for still-managed games and live bytecode caches must survive.
+        live_c1 = eng / 'dm/games/01007EF00011E000/c1_full.tsv'
+        live_cb = eng / 'dm/games/01007EF00011E000/cb_extent.tsv'
+        live_c1.write_text('# chain b-1 inputs abc \n', encoding='utf-8')
+        live_cb.write_text('# chain b-1 inputs abc \n', encoding='utf-8')
+        live_pycache = eng / 'scripts' / '__pycache__' / 'build_ipa_from_nsp.cpython-312.pyc'
+        live_pycache.parent.mkdir(parents=True, exist_ok=True)
+        live_pycache.write_bytes(b'pyc')
+        live_loose_pyc = eng / 'scripts' / 'build_ipa_from_nsp.pyc'
+        live_loose_pyc.write_bytes(b'pyc')
+
+        custom_user = eng / 'custom_notes' / 'keep.txt'
+        custom_user.parent.mkdir(parents=True, exist_ok=True)
+        custom_user.write_text('user data', encoding='utf-8')
+        outside_dir = self.r / 'outside_secret_dir'
+        outside_dir.mkdir(parents=True, exist_ok=True)
+        outside_file = outside_dir / 'secret.txt'
+        outside_file.write_text('do not delete', encoding='utf-8')
+        escape_link = eng / 'dm' / 'escape_link'
+        try:
+            escape_link.symlink_to(outside_dir)
+            has_symlink = True
+        except OSError:
+            has_symlink = False
+
+        # bundled_engine() stays lightweight for Qt UI thread callers and must NOT block on disk walk.
+        self.assertEqual(engine.bundled_engine(), str(eng))
+        self.assertTrue((eng / stale_files[0]).is_file(), 'bundled_engine() must not prune synchronously on UI thread')
+
+        # Background / explicit entry performs full idempotent pruning.
+        pruned = engine.ensure_bundled_engine_pruned()
+        self.assertIn(stale_files[0], pruned)
+        self.assertIn('dm/games/01007EF00011E000/readonly_old.tsv', pruned)
+        for rel in stale_files:
+            self.assertFalse((eng / rel).exists(), f'{rel} must be pruned')
+        self.assertFalse(ro_stale.exists())
+        self.assertFalse((eng / 'dm/games/010014C011146000').exists(), 'retired game dir + orphan __pycache__ must be removed')
+        self.assertTrue(live_c1.is_file(), 'c1_full.tsv for still-managed game must survive')
+        self.assertTrue(live_cb.is_file(), 'cb_extent.tsv for still-managed game must survive')
+        self.assertTrue((eng / 'dm/games/01007EF00011E000/shader_facts.tsv').is_file())
+        self.assertTrue((eng / 'dm/games/0100F2C0115B6000/shader_facts.tsv').is_file())
+        self.assertTrue((eng / 'dm/tools/nx_extract_bin/nx_extract.exe').is_file())
+        self.assertTrue((eng / 'dm/gfx/tools/spirv_cross_bin/spirv-cross.exe').is_file())
+        self.assertTrue((eng / 'scripts/build_ipa_from_nsp.py').is_file())
+        self.assertTrue(live_pycache.is_file())
+        self.assertTrue(live_loose_pyc.is_file())
+        self.assertTrue(custom_user.is_file())
+        if has_symlink:
+            self.assertFalse(escape_link.is_symlink())
+            self.assertTrue(outside_file.is_file(), 'symlink target outside engine_dir must never be touched')
+
+    def test_prune_blocks_ntfs_junction_and_never_caches_failed_prune(self):
+        eng = self.tree(self.r / 'junc_and_cache')
+        (eng / '.engine-id').write_text('a' * 40 + '-' + 'b' * 12 + '\n', encoding='utf-8')
+        (eng / 'dm/games/01007EF00011E000/game.tsv').parent.mkdir(parents=True, exist_ok=True)
+        (eng / 'dm/games/01007EF00011E000/game.tsv').write_text('ok\n', encoding='utf-8')
+        self._write_real_manifest(eng)
+
+        # Simulate a Windows NTFS junction directory (where Path.is_symlink() is False on Windows)
+        junc_dir = eng / 'dm' / 'fake_junction'
+        junc_dir.mkdir(parents=True)
+        inner_secret = junc_dir / 'do_not_delete.txt'
+        inner_secret.write_text('target file', encoding='utf-8')
+        orig_is_link_or_junc = engine._is_link_or_junction
+
+        def fake_is_junc(p: Path) -> bool:
+            return p == junc_dir or orig_is_link_or_junc(p)
+
+        # When _remove_dir_link fails (e.g. non-empty dir fallback rmdir fails), inner files stay untouched
+        # and cache must NOT record success so a later run retries.
+        with mock.patch.object(engine, '_is_link_or_junction', side_effect=fake_is_junc), \
+                mock.patch.object(engine, '_remove_dir_link', return_value=False):
+            engine.ensure_bundled_engine_pruned(eng)
+        self.assertTrue(inner_secret.is_file(), 'junction target must never be walked/deleted')
+        self.assertNotIn(os.path.realpath(eng), engine._PRUNED_BUNDLED, 'failed prune must never poison cache')
+
+        # Now test real unlink failure on a stale file -> cache stays empty -> succeeds when unlocked -> cached thereafter.
+        shutil.rmtree(junc_dir)
+        stale = eng / 'dm/games/01007EF00011E000/shader_facts_manual.tsv'
+        stale.write_text('stale\n', encoding='utf-8')
+        with mock.patch.object(engine, '_unlink_file', return_value=False):
+            engine.ensure_bundled_engine_pruned(eng)
+        self.assertTrue(stale.is_file())
+        self.assertNotIn(os.path.realpath(eng), engine._PRUNED_BUNDLED)
+
+        removed = engine.ensure_bundled_engine_pruned(eng)
+        self.assertEqual(removed, ['dm/games/01007EF00011E000/shader_facts_manual.tsv'])
+        self.assertFalse(stale.exists())
+        self.assertIn(os.path.realpath(eng), engine._PRUNED_BUNDLED)
+        # Subsequent call with unchanged manifest signature is a cached no-op
+        with mock.patch.object(engine, '_prune_stale_bundled_engine_files_checked') as spy:
+            self.assertEqual(engine.ensure_bundled_engine_pruned(eng), [])
+            spy.assert_not_called()
+
+    def test_model_check_deps_worker_prunes_in_background_thread(self):
+        import types
+        injected_stub = False
+        before_mods = set(sys.modules)
+        try:
+            try:
+                with mock.patch.object(sys, 'frozen', False):
+                    from nspb_qt.model import Model
+            except ModuleNotFoundError as exc:
+                if exc.name != 'PySide6':
+                    raise
+                injected_stub = True
+                qt_pkg = types.ModuleType('PySide6')
+                qt_core = types.ModuleType('PySide6.QtCore')
+
+                class _BoundSignal:
+                    def connect(self, _cb):
+                        pass
+
+                    def emit(self, *_a):
+                        pass
+
+                class Signal:
+                    def __init__(self, *_a):
+                        self._name = ''
+
+                    def __set_name__(self, _owner, name):
+                        self._name = f'_sig_{name}'
+
+                    def __get__(self, inst, owner=None):
+                        if inst is None:
+                            return self
+                        sig = getattr(inst, self._name, None)
+                        if sig is None:
+                            sig = _BoundSignal()
+                            setattr(inst, self._name, sig)
+                        return sig
+
+                class QObject:
+                    def __init__(self, *_a, **_kw):
+                        pass
+
+                class QThread:
+                    pass
+
+                class Qt:
+                    QueuedConnection = object()
+
+                class QMetaObject:
+                    @staticmethod
+                    def invokeMethod(*_a, **_kw):
+                        pass
+
+                class QSettings:
+                    IniFormat = 1
+
+                qt_core.QObject = QObject
+                qt_core.Signal = Signal
+                qt_core.Slot = lambda *_a, **_kw: (lambda fn: fn)
+                qt_core.Q_ARG = lambda _t, v: v
+                qt_core.QThread = QThread
+                qt_core.Qt = Qt
+                qt_core.QMetaObject = QMetaObject
+                qt_core.QSettings = QSettings
+                qt_pkg.QtCore = qt_core
+                sys.modules['PySide6'] = qt_pkg
+                sys.modules['PySide6.QtCore'] = qt_core
+                with mock.patch.object(sys, 'frozen', False):
+                    from nspb_qt.model import Model
+
+            m = Model.__new__(Model)
+            m.build_upstream = 'nxnative'
+            m.repo_path = ''
+            with mock.patch.object(engine, 'ensure_bundled_engine_pruned') as prune_spy, \
+                    mock.patch.object(Model, '_check_deps', return_value=None):
+                m._check_deps_worker()
+            prune_spy.assert_called_once()
+        finally:
+            if injected_stub:
+                import nspb_qt
+                for mod_name in list(sys.modules):
+                    if mod_name not in before_mods and (
+                        mod_name == 'PySide6'
+                        or mod_name.startswith('PySide6.')
+                        or mod_name == 'nspb_qt.model'
+                    ):
+                        sys.modules.pop(mod_name, None)
+                if 'nspb_qt.model' not in before_mods and hasattr(nspb_qt, 'model'):
+                    delattr(nspb_qt, 'model')
+
+    def test_win_driver_main_prunes_stale_engine_files_before_loading_upstream(self):
+        from nspb_qt.win import driver
+        eng = self.tree(self.r / 'isolated_driver_eng')
+        (eng / '.engine-id').write_text('a' * 40 + '-' + 'b' * 12 + '\n', encoding='utf-8')
+        (eng / 'dm/games/01007EF00011E000/shader_facts.tsv').parent.mkdir(parents=True, exist_ok=True)
+        (eng / 'dm/games/01007EF00011E000/shader_facts.tsv').write_text('ok\n', encoding='utf-8')
+        self._write_real_manifest(eng)
+        stale = eng / 'dm/games/01007EF00011E000/shader_facts_manual.tsv'
+        stale.write_text('stale\n', encoding='utf-8')
+
+        seen_stale_during_load: list[bool] = []
+        fake_mod = mock.MagicMock()
+        fake_mod.cli.return_value = 0
+
+        def fake_load(repo: Path):
+            seen_stale_during_load.append(stale.exists())
+            return fake_mod
+
+        with mock.patch.dict(os.environ, {'NSPB_REPO': str(eng), 'NSPB_ALLOW_NON_WINDOWS': '1'}), \
+                mock.patch.object(driver, 'load_upstream', side_effect=fake_load), \
+                mock.patch.object(driver, 'patch', lambda _m, _r: None):
+            rc = driver.main(['--help'])
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen_stale_during_load, [False])
+        self.assertFalse(stale.exists())
+
+    def test_prune_never_touches_git_repos_or_corrupt_manifests(self):
+        # 1) Directory containing .git (dir or worktree file) must never be pruned
+        for git_kind in ('dir', 'file'):
+            eng = self.tree(self.r / f'git_{git_kind}')
+            (eng / '.engine-id').write_text('a' * 40 + '-' + 'b' * 12 + '\n', encoding='utf-8')
+            (eng / 'dm/games/01007EF00011E000').mkdir(parents=True, exist_ok=True)
+            (eng / 'dm/games/01007EF00011E000/shader_facts.tsv').write_text('ok\n', encoding='utf-8')
+            self._write_real_manifest(eng)
+            untracked = eng / 'dm/games/01007EF00011E000/shader_facts_manual.tsv'
+            untracked.write_text('keep me\n', encoding='utf-8')
+            if git_kind == 'dir':
+                (eng / '.git').mkdir()
+            else:
+                (eng / '.git').write_text('gitdir: ../.git/worktrees/x\n', encoding='utf-8')
+            self.assertEqual(engine.prune_stale_bundled_engine_files(eng), [])
+            self.assertTrue(untracked.is_file())
+
+        # 2) Empty, truncated (missing scripts/build_ipa_from_nsp.py), malformed, or symlink .engine-files
+        bad_cases = (
+            '',
+            '.engine-id\ndm/games/01007EF00011E000/shader_facts.tsv\n',
+            '.engine-id\n../escape\ndm/a\nscripts/build_ipa_from_nsp.py\n',
+            '.engine-id\nC:\\bad\\path\ndm/a\nscripts/build_ipa_from_nsp.py\n',
+        )
+        for idx, payload in enumerate(bad_cases):
+            eng = self.tree(self.r / f'bad_{idx}')
+            (eng / '.engine-id').write_text('a' * 40 + '-' + 'b' * 12 + '\n', encoding='utf-8')
+            target = eng / 'dm/games/01007EF00011E000/shader_facts_manual.tsv'
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('keep me\n', encoding='utf-8')
+            (eng / '.engine-files').write_text(payload, encoding='utf-8')
+            self.assertEqual(engine.prune_stale_bundled_engine_files(eng), [])
+            self.assertTrue(target.is_file(), f'case {idx} must not delete files')
+
+        # 3) Symlinked .engine-files must be refused
+        eng_sym = self.tree(self.r / 'sym_manifest')
+        (eng_sym / '.engine-id').write_text('a' * 40 + '-' + 'b' * 12 + '\n', encoding='utf-8')
+        keep_file = eng_sym / 'dm/games/01007EF00011E000/shader_facts_manual.tsv'
+        keep_file.parent.mkdir(parents=True, exist_ok=True)
+        keep_file.write_text('keep me\n', encoding='utf-8')
+        real_manifest = self.r / 'real_manifest.txt'
+        real_manifest.write_text('.engine-id\ndm/a\nscripts/build_ipa_from_nsp.py\n', encoding='utf-8')
+        try:
+            (eng_sym / '.engine-files').symlink_to(real_manifest)
+            self.assertEqual(engine.prune_stale_bundled_engine_files(eng_sym), [])
+            self.assertTrue(keep_file.is_file())
+        except OSError:
+            pass
+
 
 class OnlineSync(unittest.TestCase):
     """A release carries no engine: the first start downloads it, and a failed fetch is a failure row (no Qt needed)."""

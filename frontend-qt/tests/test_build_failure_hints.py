@@ -270,6 +270,37 @@ class Rows(unittest.TestCase):
             self.assertIn('%@', TABLE['fail.winPrereq.whatNamed'][lang.code])
             self.assertIn('%@', TABLE['fail.noIOSShaders.whatDetail'][lang.code])
 
+    def test_split_shader_tables_mismatch_classified_independently_across_all_languages(self):
+        real_log = (
+            "[5/8] shader split\n"
+            "[RED] the split shader tables differ from game profile 01007EF00011E000's:\n"
+            "  shader_facts.tsv: 0 row(s) only in the profile, 2 only in the split\n"
+            "    split: 8e2cc2671cae6020\t{\"fout\":{\"0\":\"uint\"}}\n"
+            "    split: 93aa5e22a8202409\t{\"fout\":{\"0\":\"uint\"}}\n"
+            "Either these game files are not the versions the profile registers, or shader_split.py now reads "
+            "them differently and the profile's tables were not split again "
+            "(the split's tables: D:\\Games\\01007EF00011E000_build\\split\\tables)\n"
+        )
+        f = bf.classify(real_log)
+        self.assertEqual(f.kind, bf.PROFILE_TABLES_MISMATCH)
+        self.assertEqual(f.what_key, 'fail.profileTablesMismatch.what')
+        self.assertEqual(f.next_key, 'fail.profileTablesMismatch.next')
+
+        # Unrelated update-version mismatches must keep classifying as PROFILE_UPDATE_MISMATCH
+        for upd_log in (
+            'FAIL: game profile totk has no build for v131072 (it registers v0 1.0.0, v65536 1.1.0)',
+            '[RED] requested version v720896 is not in the input folder',
+        ):
+            self.assertEqual(bf.classify(upd_log).kind, bf.PROFILE_UPDATE_MISMATCH, upd_log)
+
+        for lang in Lang.all():
+            for key in ('fail.profileTablesMismatch.what', 'fail.profileTablesMismatch.next'):
+                text = TABLE[key][lang.code]
+                self.assertTrue(text, f'{lang.code}:{key}')
+                self.assertNotIn(';', text, f'{lang.code}:{key}')
+                self.assertNotIn('；', text, f'{lang.code}:{key}')
+                self.assertNotIn('nx2apple', text.lower(), f'{lang.code}:{key}')
+
 
 class Override(unittest.TestCase):
     BASE = ['-m', 'x', '/in', '-k', '/k', '--progress', 'lines']

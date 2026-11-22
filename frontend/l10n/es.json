@@ -994,6 +994,8 @@
   "fail.otherMetal.risk": "Esto compila con un compilador de Metal con el que nadie probó los shaders. Las imágenes pueden salir mal, el resultado no está probado y no tiene soporte. La elección vale solo para esta compilación y no se guarda.",
   "fail.otherMetal.what": "El compilador de Metal de este Mac no es el que se usó para probar los shaders.",
   "fail.override.note": "Compilar de todos modos: esta compilación añade %@ (confirmado, no se guarda)",
+  "fail.profileTablesMismatch.next": "Es posible que la versión del juego o actualización no coincida con la registrada en el perfil, o que una actualización sobre la carpeta anterior haya dejado archivos antiguos del motor. Comprueba la versión en el registro de compilación o extrae el archivo en una carpeta nueva y vacía (eliminando antes la carpeta engine antigua) e inténtalo de nuevo.",
+  "fail.profileTablesMismatch.what": "Las tablas de shaders extraídas no coinciden con este perfil del juego.",
   "fail.profileUpdateMismatch.next": "Selecciona la versión de actualización indicada en el registro o vacía el campo de actualización para compilar el juego base y vuelve a intentarlo.",
   "fail.profileUpdateMismatch.what": "La versión de actualización seleccionada no coincide con la que requiere el perfil de este juego.",
   "fail.psoDiskFull.next": "Libera espacio en el disco que contiene la carpeta de compilación, o elige una carpeta de compilación en otro disco. Luego compila de nuevo.",

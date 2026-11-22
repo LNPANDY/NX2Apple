@@ -994,6 +994,8 @@
   "fail.otherMetal.risk": "会用没有测试过的 Metal 编译器构建。画面可能出错，结果也没有人测试过，不受支持。这个选择只对这一次构建有效，不会保存。",
   "fail.otherMetal.what": "这台 Mac 的 Metal 编译器不是着色器测试时用的那一个。",
   "fail.override.note": "仍然构建：这一次构建加上 %@（已确认，不会保存）",
+  "fail.profileTablesMismatch.next": "可能是当前游戏或更新包版本与配置文件注册的版本不匹配，也可能是覆盖升级或直接覆盖解压时残留了旧版引擎文件。请先在构建日志中核对游戏与更新版本，或将应用压缩包解压到全新的空目录（若手动替换请先删除旧的 engine 文件夹）后再重试。",
+  "fail.profileTablesMismatch.what": "切分出的着色器表与当前游戏配置文件不一致。",
   "fail.profileUpdateMismatch.next": "请选择构建日志中提示的对应版本更新包，或清空更新栏仅构建游戏本体，然后重试。",
   "fail.profileUpdateMismatch.what": "所选的游戏更新补丁版本与当前游戏配置文件要求不匹配。",
   "fail.psoDiskFull.next": "请释放存放构建文件夹的硬盘空间，或选择另一块硬盘上的构建文件夹，然后重新构建。",

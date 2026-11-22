@@ -924,6 +924,8 @@ class Model(QObject):
         handheld report read "Check again does nothing". A failed check now says so.
         """
         try:
+            if not getattr(self, 'is_s2arm_selected', False):
+                engine.ensure_bundled_engine_pruned(self.engine_path or None)
             self._check_deps()
         except RuntimeError:
             return
@@ -3176,6 +3178,7 @@ class Model(QObject):
         def run_build() -> tuple[bool, str]:
             if _aborted():
                 return False, self.t('msg.stopped')
+            engine.ensure_bundled_engine_pruned(eng_path or None)
             Path(out_d).mkdir(parents=True, exist_ok=True)
 
             status = build_seed_cache.inspect_seed(seed_root, tid, engine_path=eng_path)
@@ -3965,6 +3968,7 @@ class Model(QObject):
             self.log(self.t('imgGuide.driveReused', os.path.basename(queued_ext_img)) + '\n')
 
         def run_build() -> tuple[bool, str]:
+            engine.ensure_bundled_engine_pruned(self.engine_path or None)
             active_py = py
             build_cwd = cwd
             if needs_nsz:

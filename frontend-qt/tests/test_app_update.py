@@ -35,6 +35,81 @@ class AppUpdateTests(unittest.TestCase):
         self.assertIn('--name "NX2Apple"', wf)
         self.assertNotIn('--name "NS Port Builder"', wf)
         self.assertIn("Compress-Archive -Path 'NX2Apple' -DestinationPath '../NX2Apple-windows-x64.zip'", wf)
+        manifest_pos = wf.find('tree-manifest --out')
+        copy_pos = wf.find('cp -r ../../engine-tree "NX2Apple/engine"')
+        self.assertGreater(manifest_pos, -1, 'build-qt.yml must refresh .engine-files after adding Windows tools')
+        self.assertGreater(copy_pos, manifest_pos, 'tree-manifest must run before copying engine-tree into NX2Apple/engine')
+
+    def test_windows_relaunch_ps1_backs_up_prunes_managed_dirs_and_rolls_back_safely(self) -> None:
+        ps1 = app_update.WINDOWS_RELAUNCH_PS1
+        # Pure ASCII required for -Command invocation and Windows PowerShell 5.1 compatibility
+        self.assertTrue(ps1.isascii())
+        for ps7_op in ('&&', '||', '?.', '??'):
+            self.assertNotIn(ps7_op, ps1, f'PowerShell 5.1 does not support {ps7_op}')
+        # Never run /MIR on target root (would wipe user keys/games files placed next to the exe)
+        self.assertNotIn('/MIR', ps1)
+        # Never bind wildcard-interpreting -Path on bracketed paths like C:\Games\NX2Apple [1.5.0]
+        self.assertNotIn('Split-Path', ps1)
+        self.assertNotIn('Join-Path', ps1)
+        self.assertNotIn('New-Item', ps1)
+        self.assertIn('[System.IO.Path]::GetDirectoryName', ps1)
+        self.assertIn('[System.IO.Directory]::CreateDirectory', ps1)
+        self.assertIn(r".TrimEnd('\', '/')", ps1)
+        self.assertIsNone(re.search(r'(?<!\w)-Path\b', ps1), 'Never pass wildcard-expanding -Path; use -LiteralPath')
+
+        # Must validate staged bundle completeness before touching target/backup,
+        # and verify _internal + newExe explicitly after robocopy.
+        self.assertIn('$stagedValid =', ps1)
+        self.assertIn('if ($stagedValid)', ps1)
+        self.assertIn('[System.IO.Path]::Combine($staged, \'_internal\')', ps1)
+        self.assertIn('$targetInternal = [System.IO.Path]::Combine($target, \'_internal\')', ps1)
+        self.assertIn('$allManagedPresent = (Test-Path -LiteralPath $targetInternal -PathType Container)', ps1)
+
+        # Must recover an interrupted prior `.old` backup before overwriting backup.
+        prior_pos = ps1.find('if ((Test-Path -LiteralPath $backup -PathType Container) -and (-not $targetHealthy))')
+        # Must back up only managed root files + managed subdirs (never huge user ROMs in target root).
+        self.assertNotIn('& robocopy $target $backup', ps1)
+        backup_pos = ps1.find('$backupOk = -not $bkFail')
+        # Must pre-clean managed subdirs ONLY when (-not $priorRecoveryFailed) and ((-not $hadExisting) -or $backupOk), BEFORE robocopy.
+        gate_pos = ps1.find('if ((-not $priorRecoveryFailed) -and ((-not $hadExisting) -or $backupOk))')
+        preclean_pos = ps1.find('Remove-Item -LiteralPath $dstSub -Recurse -Force -ErrorAction Stop')
+        robocopy_pos = ps1.find('& robocopy $staged $target /E')
+        self.assertGreater(prior_pos, -1)
+        self.assertGreater(backup_pos, prior_pos)
+        self.assertGreater(gate_pos, backup_pos)
+        self.assertGreater(preclean_pos, gate_pos)
+        self.assertGreater(robocopy_pos, preclean_pos)
+
+        # Managed directories must cover PyInstaller _internal, engine, wheels, and any staged subdir
+        self.assertIn("@('engine', '_internal', 'wheels')", ps1)
+        self.assertIn('Get-ChildItem -LiteralPath $staged -Directory', ps1)
+
+        # Rollback branch must first clear broken managed subdirs before restoring from $backup,
+        # prevent launching half-written fresh install (`$allowLaunch = $false`), and
+        # $backup must ONLY be deleted inside the success branch (never in rollback or trailing cleanup).
+        rollback_marker = 'if ((-not $swapOk) -or ($rc -ge 8) -or (-not (Test-Path -LiteralPath $newExe -PathType Leaf)) -or (-not $allManagedPresent))'
+        rollback_pos = ps1.find(rollback_marker)
+        success_else = ps1.find('\n    } else {', rollback_pos)
+        end_swap_if = ps1.find('\n    }\n  }\n}', success_else)
+        self.assertGreater(rollback_pos, robocopy_pos)
+        self.assertGreater(success_else, rollback_pos)
+        self.assertGreater(end_swap_if, success_else)
+
+        rollback_block = ps1[rollback_pos:success_else]
+        success_block = ps1[success_else:end_swap_if]
+        trailing_block = ps1[end_swap_if:]
+
+        rb_clean_pos = rollback_block.find('Remove-Item -LiteralPath $dstSub -Recurse -Force')
+        rb_restore_pos = rollback_block.find('& robocopy $backup $target /E')
+        self.assertGreater(rb_clean_pos, -1)
+        self.assertGreater(rb_restore_pos, rb_clean_pos)
+        self.assertIn('$allowLaunch = $false', rollback_block)
+        self.assertNotIn('Remove-Item -LiteralPath $backup', rollback_block)
+        self.assertIn('Remove-Item -LiteralPath $backup', success_block)
+        self.assertNotIn('Remove-Item -LiteralPath $backup', trailing_block)
+        # Never launch a broken exe whose _internal directory is missing (e.g. rollback failure on same exe name)
+        self.assertIn("$launchInternal = [System.IO.Path]::Combine($target, '_internal')", trailing_block)
+        self.assertIn('(Test-Path -LiteralPath $launchInternal -PathType Container)', trailing_block)
 
     def test_is_newer_compares_numeric_segments_and_release_candidates(self) -> None:
         self.assertTrue(app_update.is_newer('v1.2.2', '1.2.0'))

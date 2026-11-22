@@ -994,6 +994,8 @@
   "fail.otherMetal.risk": "Isto faz o build com um compilador Metal com o qual ninguém testou os shaders. As imagens podem sair erradas, o resultado não foi testado e não tem suporte. A escolha vale só para este build e não é salva.",
   "fail.otherMetal.what": "O compilador Metal deste Mac não é o que foi usado para testar os shaders.",
   "fail.override.note": "Compilar mesmo assim: este build adiciona %@ (confirmado, não salvo)",
+  "fail.profileTablesMismatch.next": "A versão selecionada do jogo ou atualização pode ser diferente da registrada no perfil, ou arquivos antigos do motor permaneceram após uma atualização por cima. Verifique a versão no log de compilação ou extraia o pacote em uma pasta nova e vazia (removendo qualquer pasta engine antiga antes) e tente compilar novamente.",
+  "fail.profileTablesMismatch.what": "As tabelas de shaders extraídas não correspondem a este perfil do jogo.",
   "fail.profileUpdateMismatch.next": "Selecione a versão de atualização indicada no registro ou limpe o campo de atualização para compilar o jogo base e tente novamente.",
   "fail.profileUpdateMismatch.what": "A versão da atualização selecionada não corresponde à exigida pelo perfil deste jogo.",
   "fail.psoDiskFull.next": "Libere espaço no disco que guarda a pasta do build, ou escolha uma pasta de build em outro disco. Depois faça o build de novo.",

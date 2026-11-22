@@ -414,8 +414,38 @@ class Tree(Fixture):
         self.assertEqual(eid, E.engine_id(self.r)); self.assertIn(eid, said)
         self.assertIn('line-2', (out / 'dm/fork_patches.txt').read_text())
         self.assertTrue((out / 'AGENTS.md').is_file())
+        manifest = out / '.engine-files'
+        self.assertTrue(manifest.is_file())
+        raw = manifest.read_bytes()
+        self.assertNotIn(b'\r\n', raw)
+        entries = raw.decode('utf-8').splitlines()
+        self.assertEqual(entries, sorted(entries))
+        self.assertIn('.engine-id', entries)
+        self.assertIn('.upstream-ref', entries)
+        self.assertIn('dm/a.c', entries)
+        self.assertIn('dm/fork_patches.txt', entries)
+        self.assertNotIn('.engine-files', entries)
         self.assertFalse((out / '.git').exists()); self.assertFalse((out / '.gitignore').exists())   # no history, no repository files
         self.assertFalse((out / 'tools').exists()); self.assertFalse((out / 'patches').exists())    # nothing of the fork
+
+    def test_tree_manifest_updates_after_adding_bundled_windows_tools(self):
+        self.tool('sync')
+        out, _ = self.make()
+        exe = out / 'dm/tools/nx_extract_bin/nx_extract.exe'
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b'MZ')
+        spv = out / 'dm/gfx/tools/spirv_cross_bin/spirv-cross.exe'
+        spv.parent.mkdir(parents=True, exist_ok=True)
+        spv.write_bytes(b'MZ')
+        said = self.tool('tree-manifest', '--out', str(out))
+        self.assertIn('entries', said)
+        entries = (out / '.engine-files').read_text(encoding='utf-8').splitlines()
+        self.assertIn('dm/tools/nx_extract_bin/nx_extract.exe', entries)
+        self.assertIn('dm/gfx/tools/spirv_cross_bin/spirv-cross.exe', entries)
+        self.assertNotIn('.engine-files', entries)
+        not_tree = self.tmp / 'not-a-tree'
+        not_tree.mkdir()
+        self.tool('tree-manifest', '--out', str(not_tree), expect=2)
 
     def test_a_series_change_without_a_pin_move_changes_the_identity(self):
         self.tool('sync'); out, _ = self.make('one')
