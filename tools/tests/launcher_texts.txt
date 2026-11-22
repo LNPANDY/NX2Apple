@@ -50,6 +50,7 @@ MetalFX
 Microphone
 Microphone gain
 Mix with other audio
+Original
 Performance
 Performance HUD
 Picture
@@ -60,6 +61,7 @@ Plays game audio alongside other apps instead of stopping them.
 Polish
 Portuguese
 Press a button to join
+Recommended
 Render scale
 Renders about a quarter more pixels: a little slower and warmer.
 Rumble cutoff
@@ -69,10 +71,13 @@ Saves memory on devices without hardware BC textures, with slightly less precise
 Shader prefetch
 Simplified Chinese
 Size
+Skips top mip levels of large static textures to save GPU memory and reduce heat. Takes effect on next launch.
 Small
+Smooth
 Spanish
 Standard
 Switch 2 controllers
+Texture quality
 Thai
 The first start waits a few minutes for it, once.
 The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.

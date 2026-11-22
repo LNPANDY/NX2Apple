@@ -16,7 +16,7 @@ enum LaunchCategory: String, CaseIterable, Identifiable {
     /// Frame rate, resolution, console mode, upscaling and the engine's tuning switches.
     static let performanceEnvs: Set<String> = ["DM_FPS_TARGET", "DM_DYNAMIC_RESOLUTION", "DM_RENDER_SCALE", "DM_OPMODE", "DM_PRESENT_UPSCALE",
                                                "DM_UPSCALER", "DM_PRESENT_SNAP", "DM_PSO_MTL4", "DM_PSO_PREBUILD", "DM_NVN_ENC_THREAD",
-                                               "DM_FPS_HOLD", "DM_METAL_HUD"]
+                                               "DM_NVN_TEX_MIP_SKIP", "DM_FPS_HOLD", "DM_METAL_HUD"]
 
     static func of(_ setting: LaunchSetting) -> LaunchCategory {
         if gameEnvs.contains(setting.env) { return .game }
