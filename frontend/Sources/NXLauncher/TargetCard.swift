@@ -45,6 +45,24 @@ package struct TargetCard: View {
                             .padTarget("set.build.bc", scope: "main", enabled: !build.running, activate: { if !build.running { build.bcOnCPU.toggle() } }, adjust: { _ in if !build.running { build.bcOnCPU.toggle() } })
                     }
                     .padding(.horizontal, 18).padding(.vertical, 14)
+                    if build.showsIOSSeenShadersToggle, let info = build.cachedSeenShaders {
+                        CardDivider()
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(loc.t("opt.iosSeenShaders")).font(.manrope(14))
+                                Text(String(format: loc.t("opt.iosSeenShaders.note"), info.seenCount, info.totalCount))
+                                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 12)
+                            Toggle(loc.t("opt.iosSeenShaders"), isOn: $build.iosSeenShadersOnly)
+                                .toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(build.running)
+                                .padTarget("set.build.iosSeenShaders", scope: "main", enabled: !build.running,
+                                           activate: { if !build.running { build.iosSeenShadersOnly.toggle() } },
+                                           adjust: { _ in if !build.running { build.iosSeenShadersOnly.toggle() } })
+                        }
+                        .padding(.horizontal, 18).padding(.vertical, 14)
+                    }
                 }
                 .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))

@@ -220,12 +220,23 @@ package struct InstallCard: View {
                                        activate: { if !build.running { build.bcOnCPU.toggle() } },
                                        adjust: { _ in if !build.running { build.bcOnCPU.toggle() } })
                     }
+                    if build.queueHasIOSSeenShadersEligible {
+                        CardDivider()
+                        CardRow(loc.t("opt.iosSeenShaders"), detail: loc.t("opt.iosSeenShaders.queueNote")) {
+                            Toggle(loc.t("opt.iosSeenShaders"), isOn: $build.iosSeenShadersOnly)
+                                .toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(build.running)
+                                .padTarget("set.build.iosSeenShaders", scope: "main", enabled: !build.running,
+                                           activate: { if !build.running { build.iosSeenShadersOnly.toggle() } },
+                                           adjust: { _ in if !build.running { build.iosSeenShadersOnly.toggle() } })
+                        }
+                    }
                 }
             }
         }
         .onAppear {
             if recentDevice == nil { recentDevice = devices.installDevice }
             if !devices.checked { _ = devices.refresh() }
+            if forQueue { build.refreshQueueSeenShadersEligibility() }
         }
         .sheet(isPresented: $selectDeviceGamesOpen) {
             SendSelectedSheet(mode: .device, build: build) { selectDeviceGamesOpen = false }.environmentObject(loc)

@@ -13,8 +13,30 @@ struct LaunchSetting: Decodable, Identifiable {
     let on, off: String?   // toggle: the values the variable takes
     /// "basic" for a setting shown first (settings.tsv's level column, seedds/nxnative#399); without it, `basicByDefault` decides.
     var level: String? = nil
+    /// A pair of [width, height] sizes for docked and handheld console modes.
+    struct RenderSizePair: Decodable, Equatable {
+        let docked, handheld: [Int]
+        func size(docked isDocked: Bool) -> [Int]? {
+            let s = isDocked ? docked : handheld
+            return s.count == 2 ? s : nil
+        }
+    }
+    /// The 3D views' base size the setting scales, docked and handheld ([width, height]), with optional per-mode cap (render_cap).
+    struct RenderBase: Decodable, Equatable {
+        let docked, handheld: [Int]
+        let cap: RenderSizePair?
+        init(docked: [Int], handheld: [Int], cap: RenderSizePair? = nil) {
+            self.docked = docked
+            self.handheld = handheld
+            self.cap = cap
+        }
+        func size(docked isDocked: Bool) -> [Int]? {
+            let s = isDocked ? docked : handheld
+            return s.count == 2 ? s : nil
+        }
+    }
     /// The 3D views' base size the setting scales, docked and handheld ([width, height]); the render scale's row shows pixels with it.
-    var base: [String: [Int]]? = nil
+    var base: RenderBase? = nil
     /// `<VAR>=<value>` (schema 1, optional): the row is a sub-setting, shown only while the row that sets <VAR> has that value.
     var needs: String? = nil
     /// The game language row's preselected language: the Mac's, when the game has it (forMac sets it and makes it the default).
@@ -146,19 +168,27 @@ struct LaunchSetting: Decodable, Identifiable {
         return s
     }
 
-    /// render_base in the game's profile ("1600x900 1280x720": docked, then handheld).
-    static func renderBase(titleID: String, repo: String) -> [String: [Int]]? {
+    /// render_base (and optional render_cap) in the game's profile ("1600x900 1280x720": docked, then handheld).
+    static func renderBase(titleID: String, repo: String) -> RenderBase? {
+        func parsePair(_ key: String, in lines: [Substring]) -> [[Int]]? {
+            guard let line = lines.first(where: { $0.hasPrefix(key + "\t") }) else { return nil }
+            let sizes = line.dropFirst(key.count + 1).split(separator: " ").map { $0.split(separator: "x").compactMap { Int($0) } }
+            return sizes.count == 2 && sizes.allSatisfy({ $0.count == 2 }) ? sizes : nil
+        }
         let path = EngineLayout.root(repo) + "/dm/games/" + titleID + "/game.tsv"
-        guard !repo.isEmpty, let text = try? String(contentsOfFile: path, encoding: .utf8),
-              let line = text.split(separator: "\n").first(where: { $0.hasPrefix("render_base\t") }) else { return nil }
-        let sizes = line.dropFirst("render_base\t".count).split(separator: " ").map { $0.split(separator: "x").compactMap { Int($0) } }
-        guard sizes.count == 2, sizes.allSatisfy({ $0.count == 2 }) else { return nil }
-        return ["docked": sizes[0], "handheld": sizes[1]]
+        guard !repo.isEmpty, let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        let lines = text.split(separator: "\n")
+        guard let sizes = parsePair("render_base", in: lines) else { return nil }
+        let cap = parsePair("render_cap", in: lines).map { RenderSizePair(docked: $0[0], handheld: $0[1]) }
+        return RenderBase(docked: sizes[0], handheld: sizes[1], cap: cap)
     }
 
-    /// The render scale as pixels: the base size of the console mode chosen (DM_OPMODE: 1 docked, 0 handheld) times the scale.
+    /// The render scale as pixels: the base size of the console mode chosen (DM_OPMODE: 1 docked, 0 handheld) times the scale, clamped to optional cap.
     func pixels(scale: Double, docked: Bool) -> String? {
-        guard let size = base?[docked ? "docked" : "handheld"], size.count == 2 else { return nil }
-        return "\(Int((Double(size[0]) * scale).rounded()))×\(Int((Double(size[1]) * scale).rounded()))"
+        guard let b = base, let size = b.size(docked: docked) else { return nil }
+        var w = Int((Double(size[0]) * scale).rounded())
+        var h = Int((Double(size[1]) * scale).rounded())
+        if let c = b.cap?.size(docked: docked), w > c[0] || h > c[1] { w = c[0]; h = c[1] }
+        return "\(w)×\(h)"
     }
 }

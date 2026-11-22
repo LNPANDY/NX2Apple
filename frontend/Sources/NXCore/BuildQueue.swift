@@ -42,6 +42,8 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
     package var externalImgPath: String?
     /// Snapshotted build engine chosen when enqueuing this entry; nil for legacy persisted queues.
     package var upstream: EngineUpstreamKind? = nil
+    /// Snapshotted opt-in iOS `--seen-shaders` preference; nil follows the Build form switch.
+    package var iosSeenShaders: Bool? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -66,6 +68,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         case existingAppPath
         case externalImgPath
         case upstream
+        case iosSeenShaders
     }
 
     package init(
@@ -89,7 +92,8 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         locksTarget: Bool = false,
         existingAppPath: String? = nil,
         externalImgPath: String? = nil,
-        upstream: EngineUpstreamKind? = nil
+        upstream: EngineUpstreamKind? = nil,
+        iosSeenShaders: Bool? = nil
     ) {
         self.id = id
         self.gameID = gameID
@@ -112,6 +116,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.existingAppPath = existingAppPath
         self.externalImgPath = externalImgPath
         self.upstream = upstream
+        self.iosSeenShaders = iosSeenShaders
     }
 
     package init(from decoder: Decoder) throws {
@@ -138,6 +143,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.existingAppPath = try c.decodeIfPresent(String.self, forKey: .existingAppPath)
         self.externalImgPath = try c.decodeIfPresent(String.self, forKey: .externalImgPath)
         self.upstream = try c.decodeIfPresent(EngineUpstreamKind.self, forKey: .upstream)
+        self.iosSeenShaders = try c.decodeIfPresent(Bool.self, forKey: .iosSeenShaders)
     }
 
     package var finished: Bool { status == .done || status == .failed || status == .skipped || status == .stopped }

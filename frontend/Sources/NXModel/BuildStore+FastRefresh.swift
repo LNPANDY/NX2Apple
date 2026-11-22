@@ -261,6 +261,10 @@ extension BuildStore {
            let activeCheatsDir = RepoLayout.existingCheatsDir(titleID: tid, explicit: cheatsDir, home: self.home) {
             args += ["--cheat-dir", activeCheatsDir]
         }
+        if !isMac, shouldPassIOSSeenShaders(forTitleID: tid, requested: queuedIOSSeenShaders) {
+            args += ["--seen-shaders"]
+            say(t("msg.iosSeenShadersOn"))
+        }
 
         let repoPath = repo.path
         let prefillMacAppPath = existingMacAppPath ?? macAppPath
