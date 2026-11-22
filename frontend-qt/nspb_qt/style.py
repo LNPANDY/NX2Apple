@@ -1,42 +1,58 @@
-"""Palette and stylesheet mirroring the Mac SwiftUI launcher (LauncherStyles.swift & LauncherCard.swift)."""
+"""Palette and stylesheet aligned with frontend/design-tokens/tokens.json (Dark Glass)."""
 from __future__ import annotations
 
 import os
 import sys
 
-BG = '#000000'
+# Surface & border tokens (aligned with frontend/design-tokens/tokens.json)
+BG = '#0e0e0f'
 SURFACE = '#141416'
 CARD = '#1a1a1c'
+SURFACE_RAISED = '#202023'
 CARD_HOVER = '#222225'
-BORDER = '#2c2c2e'
+BORDER = '#2a2a2d'
 CARD_EDGE = BORDER
-DIVIDER = '#232326'
+HAIRLINE = 'rgba(255, 255, 255, 0.06)'
+SEPARATOR = 'rgba(255, 255, 255, 0.10)'
+DIVIDER = SEPARATOR
 
+# Text hierarchy
 TEXT = '#f5f5f7'
-MUTED = '#9e9ea6'
-FAINT = '#73737a'
-PATH = '#6f7178'
+MUTED = '#a1a1a8'
+FAINT = '#787880'
+PATH = '#7a7c84'
 HINT = '#a8aab0'
 
-ACCENT = '#fff0d6'          # LauncherAccent.cream: rgb(1.0, 0.94, 0.84)
+# Accent tokens (cream)
+ACCENT = '#fff0d6'          # color.accent
 CREAM = ACCENT
 ACCENT_HOVER = '#fff6e6'
 ACCENT_PRESSED = '#e8d7ba'
 ACCENT_DISABLED = '#3a3834'
-ACCENT_INK = '#0d0d0f'      # LauncherAccent.ink
+ACCENT_INK = '#000000'      # color.accentOn
 
-GREEN = '#52d97a'           # LauncherTone.ready
-AMBER = '#ffbd38'           # LauncherTone.caution
+# Semantic status tokens
+GREEN = '#40d678'           # color.status.ready / success
+AMBER = '#ffc73d'           # color.status.warning
 ORANGE = AMBER
-RED = '#ff6161'             # LauncherTone.danger
-NEUTRAL_DOT = '#73737a'     # LauncherTone.muted
+DANGER = '#ff6b66'          # color.status.error
+RED = DANGER
+DANGER_FILL = '#d23b36'     # color.status.errorFill (4.75:1 contrast with white label)
+DANGER_ON = '#ffffff'       # color.status.errorOn
+NEUTRAL_DOT = '#787880'
 
-BTN = '#1b1b1c'
-BTN_HOVER = '#242425'
-BTN_PRESSED = '#2d2d2e'
-BTN_EDGE = '#262627'
-FIELD = '#161617'
-TRACK = '#262627'
+# Four converged corner radii (tokens.json radius: chip / card / sheet / control)
+RADIUS_CHIP = 6
+RADIUS_CARD = 12
+RADIUS_SHEET = 16
+RADIUS_CONTROL = 18
+
+BTN = '#1b1b1e'
+BTN_HOVER = '#242428'
+BTN_PRESSED = '#2d2d32'
+BTN_EDGE = '#2a2a2e'
+FIELD = '#161618'
+TRACK = '#26262a'
 MONO = '"Cascadia Mono", "Consolas", "SF Mono", "Menlo", monospace'
 
 
@@ -71,18 +87,101 @@ def load_font() -> str:
     return families[0] if families else ''
 
 
+def build_dark_palette():
+    """Build a dark QPalette aligned with Dark Glass tokens so native dialogs, tooltips,
+    and Fusion primitives never flash light chrome."""
+    from PySide6.QtGui import QColor, QPalette
+
+    pal = QPalette()
+    bg = QColor(BG)
+    surface = QColor(SURFACE)
+    card = QColor(CARD)
+    raised = QColor(SURFACE_RAISED)
+    text = QColor(TEXT)
+    muted = QColor(MUTED)
+    faint = QColor(FAINT)
+    accent = QColor(ACCENT)
+    accent_ink = QColor(ACCENT_INK)
+    danger = QColor(DANGER)
+
+    for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+        pal.setColor(group, QPalette.ColorRole.Window, bg)
+        pal.setColor(group, QPalette.ColorRole.WindowText, text)
+        pal.setColor(group, QPalette.ColorRole.Base, surface)
+        pal.setColor(group, QPalette.ColorRole.AlternateBase, card)
+        pal.setColor(group, QPalette.ColorRole.ToolTipBase, raised)
+        pal.setColor(group, QPalette.ColorRole.ToolTipText, text)
+        pal.setColor(group, QPalette.ColorRole.Text, text)
+        pal.setColor(group, QPalette.ColorRole.Button, card)
+        pal.setColor(group, QPalette.ColorRole.ButtonText, text)
+        pal.setColor(group, QPalette.ColorRole.BrightText, danger)
+        pal.setColor(group, QPalette.ColorRole.Link, accent)
+        pal.setColor(group, QPalette.ColorRole.LinkVisited, accent)
+        pal.setColor(group, QPalette.ColorRole.Highlight, accent)
+        pal.setColor(group, QPalette.ColorRole.HighlightedText, accent_ink)
+        if hasattr(QPalette.ColorRole, 'PlaceholderText'):
+            pal.setColor(group, QPalette.ColorRole.PlaceholderText, muted)
+
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Window, bg)
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, faint)
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Base, surface)
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, faint)
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Button, surface)
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, faint)
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Highlight, QColor(ACCENT_DISABLED))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.HighlightedText, muted)
+    return pal
+
+
 STYLESHEET = f"""
 QMainWindow, QWidget#root {{
     background: {BG};
     color: {TEXT};
     font-family: "Manrope", "Segoe UI", "Inter", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-    font-size: 13px;
+    font-size: 10pt;
 }}
-QDialog {{
-    background: #141416;
+QDialog, QMessageBox {{
+    background: {SURFACE};
     color: {TEXT};
     font-family: "Manrope", "Segoe UI", "Inter", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-    font-size: 13px;
+    font-size: 10pt;
+}}
+QMessageBox QLabel {{
+    color: {TEXT};
+    font-size: 10pt;
+}}
+QToolTip {{
+    background: {SURFACE_RAISED};
+    color: {TEXT};
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: {RADIUS_CHIP}px;
+    padding: 5px 9px;
+    font-size: 9pt;
+}}
+QMenu {{
+    background: {SURFACE_RAISED};
+    color: {TEXT};
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: {RADIUS_CARD}px;
+    padding: 6px;
+    font-size: 9.5pt;
+}}
+QMenu::item {{
+    padding: 7px 16px;
+    border-radius: {RADIUS_CHIP}px;
+    color: {TEXT};
+}}
+QMenu::item:selected {{
+    background: rgba(255, 255, 255, 0.11);
+    color: #ffffff;
+}}
+QMenu::item:disabled {{
+    color: {FAINT};
+}}
+QMenu::separator {{
+    height: 1px;
+    background: {SEPARATOR};
+    margin: 5px 10px;
 }}
 QScrollArea {{
     background: transparent;
@@ -126,109 +225,119 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
 }}
 QFrame#card {{
     background: {CARD};
-    border: 1px solid {BORDER};
-    border-radius: 14px;
+    border: 1px solid {HAIRLINE};
+    border-radius: {RADIUS_CARD}px;
 }}
 QFrame#subcard {{
-    background: #141416;
-    border: 1px solid #262629;
-    border-radius: 10px;
+    background: {SURFACE_RAISED};
+    border: 1px solid {HAIRLINE};
+    border-radius: {RADIUS_CARD}px;
 }}
 QFrame#failureCard {{
-    background: #221618;
-    border: 1px solid #5c2b2f;
-    border-radius: 14px;
+    background: #231517;
+    border: 1px solid rgba(255, 107, 102, 0.38);
+    border-radius: {RADIUS_CARD}px;
 }}
 QFrame#bannerCard {{
-    background: #1c1b18;
-    border: 1px solid #3d3526;
-    border-radius: 12px;
+    background: #1d1b17;
+    border: 1px solid rgba(255, 199, 61, 0.28);
+    border-radius: {RADIUS_CARD}px;
+}}
+QFrame#staleShaderBanner {{
+    background: rgba(255, 199, 61, 0.10);
+    border: 1px solid rgba(255, 199, 61, 0.30);
+    border-radius: {RADIUS_CARD}px;
 }}
 QFrame#divider {{
-    background: {DIVIDER};
+    background: {SEPARATOR};
     border: none;
     max-height: 1px;
     min-height: 1px;
 }}
 QFrame#topBar {{
     background: {BG};
-    border-bottom: 1px solid #161618;
+    border-bottom: 1px solid {HAIRLINE};
 }}
 QFrame#activityBar {{
-    background: #0d0d0f;
-    border-top: 1px solid #1f1f22;
+    background: {SURFACE};
+    border-top: 1px solid {HAIRLINE};
 }}
 QLabel {{
     background: transparent;
     color: {TEXT};
 }}
 QLabel#pageTitle {{
-    font-size: 36px;
+    font-size: 25pt;
     font-weight: 800;
     color: {TEXT};
 }}
 QLabel#pageNote {{
-    font-size: 14px;
+    font-size: 10.5pt;
     color: {MUTED};
 }}
 QLabel#sectionTitle {{
-    font-size: 14px;
+    font-size: 11pt;
     font-weight: 600;
     color: {MUTED};
 }}
 QLabel#sectionFoot {{
-    font-size: 12px;
+    font-size: 8.5pt;
     color: {FAINT};
 }}
 QLabel#rowTitle {{
-    font-size: 13px;
+    font-size: 10pt;
     font-weight: 600;
     color: {TEXT};
 }}
 QLabel#muted {{
     color: {MUTED};
-    font-size: 12px;
+    font-size: 9pt;
 }}
 QLabel#faint {{
     color: {FAINT};
-    font-size: 11px;
+    font-size: 8.5pt;
 }}
 QLabel#mono {{
     color: {MUTED};
-    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Menlo", monospace;
-    font-size: 11.5px;
+    font-family: {MONO};
+    font-size: 9pt;
 }}
 QPushButton {{
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.07);
     color: {TEXT};
-    border: 1px solid rgba(255, 255, 255, 0.13);
-    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: {RADIUS_CARD}px;
     padding: 6px 16px;
-    min-height: 18px;
+    min-height: 20px;
     font-weight: 600;
-    font-size: 12.5px;
+    font-size: 9.5pt;
+    outline: none;
 }}
 QPushButton:hover {{
-    background: rgba(255, 255, 255, 0.13);
-    border-color: rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.20);
 }}
 QPushButton:pressed {{
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.05);
+}}
+QPushButton[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
 }}
 QPushButton:disabled {{
     background: rgba(255, 255, 255, 0.03);
-    color: #55555a;
+    color: #5a5a62;
     border-color: rgba(255, 255, 255, 0.05);
 }}
 QPushButton#creamPill {{
     background: {ACCENT};
     color: {ACCENT_INK};
     border: 1px solid transparent;
-    border-radius: 14px;
+    border-radius: {RADIUS_SHEET}px;
     padding: 6px 18px;
     min-height: 20px;
-    font-size: 13px;
+    font-size: 9.5pt;
     font-weight: 700;
+    outline: none;
 }}
 QPushButton#creamPill:hover {{
     background: {ACCENT_HOVER};
@@ -236,19 +345,49 @@ QPushButton#creamPill:hover {{
 QPushButton#creamPill:pressed {{
     background: {ACCENT_PRESSED};
 }}
+QPushButton#creamPill[kbFocus="true"]:focus {{
+    border: 2px solid #ffffff;
+}}
 QPushButton#creamPill:disabled {{
     background: {ACCENT_DISABLED};
-    color: #7c7972;
+    color: #84817a;
+}}
+QPushButton#creamOutlinePill {{
+    background: rgba(255, 240, 214, 0.09);
+    color: {ACCENT};
+    border: 1px solid rgba(255, 240, 214, 0.38);
+    border-radius: {RADIUS_SHEET}px;
+    padding: 6px 18px;
+    min-height: 20px;
+    font-size: 9.5pt;
+    font-weight: 700;
+    outline: none;
+}}
+QPushButton#creamOutlinePill:hover {{
+    background: rgba(255, 240, 214, 0.16);
+    border-color: rgba(255, 240, 214, 0.58);
+}}
+QPushButton#creamOutlinePill:pressed {{
+    background: rgba(255, 240, 214, 0.06);
+}}
+QPushButton#creamOutlinePill[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
+}}
+QPushButton#creamOutlinePill:disabled {{
+    background: rgba(255, 255, 255, 0.03);
+    color: #5a5a62;
+    border-color: rgba(255, 255, 255, 0.06);
 }}
 QPushButton#primary {{
     background: {ACCENT};
     color: {ACCENT_INK};
     border: 1px solid transparent;
-    border-radius: 18px;
-    padding: 10px 26px;
+    border-radius: {RADIUS_CONTROL}px;
+    padding: 9px 26px;
     min-height: 22px;
-    font-size: 14px;
+    font-size: 10.5pt;
     font-weight: 700;
+    outline: none;
 }}
 QPushButton#primary:hover {{
     background: {ACCENT_HOVER};
@@ -256,159 +395,316 @@ QPushButton#primary:hover {{
 QPushButton#primary:pressed {{
     background: {ACCENT_PRESSED};
 }}
+QPushButton#primary[kbFocus="true"]:focus {{
+    border: 2px solid #ffffff;
+}}
 QPushButton#primary:disabled {{
-    background: #252422;
-    color: #6b6862;
+    background: #262523;
+    color: #706d67;
 }}
 QPushButton#heroPlay {{
     background: {ACCENT};
     color: {ACCENT_INK};
     border: 1px solid transparent;
-    border-radius: 22px;
+    border-radius: {RADIUS_CONTROL}px;
     padding: 10px 28px;
     min-height: 24px;
-    font-size: 15px;
+    font-size: 11pt;
     font-weight: 800;
+    outline: none;
 }}
 QPushButton#heroPlay:hover {{
     background: {ACCENT_HOVER};
+}}
+QPushButton#heroPlay:pressed {{
+    background: {ACCENT_PRESSED};
+}}
+QPushButton#heroPlay[kbFocus="true"]:focus {{
+    border: 2px solid #ffffff;
 }}
 QPushButton#heroPlay:disabled {{
     background: rgba(255, 255, 255, 0.12);
     color: rgba(255, 255, 255, 0.40);
 }}
 QPushButton#heroSecondary {{
-    background: rgba(20, 20, 22, 0.72);
+    background: rgba(26, 26, 28, 0.76);
     color: {TEXT};
-    border: 1px solid rgba(255, 255, 255, 0.20);
-    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: {RADIUS_SHEET}px;
     padding: 7px 18px;
     min-height: 20px;
-    font-size: 13px;
+    font-size: 9.5pt;
     font-weight: 600;
+    outline: none;
 }}
 QPushButton#heroSecondary:hover {{
-    background: rgba(38, 38, 42, 0.88);
-    border-color: rgba(255, 255, 255, 0.32);
+    background: rgba(40, 40, 44, 0.90);
+    border-color: rgba(255, 255, 255, 0.30);
+}}
+QPushButton#heroSecondary:pressed {{
+    background: rgba(20, 20, 22, 0.88);
+}}
+QPushButton#heroSecondary[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
+}}
+QPushButton#heroSecondary:disabled {{
+    background: rgba(26, 26, 28, 0.45);
+    color: rgba(255, 255, 255, 0.36);
+    border-color: rgba(255, 255, 255, 0.08);
+}}
+QPushButton#iconBtn {{
+    background: transparent;
+    color: {MUTED};
+    border: 1px solid transparent;
+    border-radius: {RADIUS_SHEET}px;
+    padding: 0px;
+    min-height: 0px;
+    outline: none;
+}}
+QPushButton#iconBtn:hover {{
+    background: rgba(255, 255, 255, 0.08);
+    color: {TEXT};
+}}
+QPushButton#iconBtn[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
+}}
+QPushButton#iconBtnActive {{
+    background: rgba(255, 240, 214, 0.14);
+    color: {ACCENT};
+    border: 1px solid rgba(255, 240, 214, 0.32);
+    border-radius: {RADIUS_SHEET}px;
+    padding: 0px;
+    min-height: 0px;
+    outline: none;
+}}
+QPushButton#iconBtnActive:hover {{
+    background: rgba(255, 240, 214, 0.20);
+}}
+QPushButton#iconBtnActive[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
 }}
 QPushButton#winCtrlBtn {{
     background: transparent;
     color: rgba(255, 255, 255, 0.72);
-    border: none;
-    border-radius: 6px;
+    border: 1px solid transparent;
+    border-radius: {RADIUS_CHIP}px;
     padding: 0px;
     min-height: 0px;
-    font-size: 13px;
-    font-weight: 500;
+    outline: none;
 }}
 QPushButton#winCtrlBtn:hover {{
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.11);
     color: #ffffff;
+}}
+QPushButton#winCtrlBtn[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
 }}
 QPushButton#winCloseBtn {{
     background: transparent;
     color: rgba(255, 255, 255, 0.72);
-    border: none;
-    border-radius: 6px;
+    border: 1px solid transparent;
+    border-radius: {RADIUS_CHIP}px;
     padding: 0px;
     min-height: 0px;
-    font-size: 13px;
-    font-weight: 500;
+    outline: none;
 }}
 QPushButton#winCloseBtn:hover {{
-    background: #e81123;
-    color: #ffffff;
+    background: {DANGER_FILL};
+    color: {DANGER_ON};
+}}
+QPushButton#winCloseBtn[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
 }}
 QPushButton#danger {{
-    background: rgba(255, 97, 97, 0.15);
-    color: {RED};
-    border: 1px solid rgba(255, 97, 97, 0.35);
-    border-radius: 9px;
-    padding: 6px 14px;
+    background: {DANGER_FILL};
+    color: {DANGER_ON};
+    border: 1px solid rgba(255, 107, 102, 0.45);
+    border-radius: {RADIUS_CARD}px;
+    padding: 6px 16px;
+    min-height: 20px;
     font-weight: 600;
+    font-size: 9.5pt;
+    outline: none;
 }}
 QPushButton#danger:hover {{
-    background: rgba(255, 97, 97, 0.25);
+    background: #e04640;
+}}
+QPushButton#danger:pressed {{
+    background: #b8302c;
+}}
+QPushButton#danger[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
+}}
+QPushButton#danger:disabled {{
+    background: rgba(210, 59, 54, 0.28);
+    color: rgba(255, 255, 255, 0.42);
+    border-color: rgba(255, 107, 102, 0.16);
 }}
 QPushButton#ghost {{
     background: transparent;
     color: {MUTED};
-    border: none;
-    border-radius: 8px;
+    border: 1px solid transparent;
+    border-radius: {RADIUS_CHIP}px;
     padding: 5px 10px;
+    min-height: 18px;
     font-weight: 600;
+    font-size: 9.5pt;
+    outline: none;
 }}
 QPushButton#ghost:hover {{
     background: rgba(255, 255, 255, 0.07);
     color: {TEXT};
 }}
-QPushButton#navTab {{
+QPushButton#ghost[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
+}}
+QToolButton {{
     background: transparent;
-    color: rgba(255, 255, 255, 0.62);
-    border: none;
-    border-radius: 9px;
-    padding: 7px 16px;
-    font-size: 13px;
-    font-weight: 500;
+    color: {MUTED};
+    border: 1px solid transparent;
+    border-radius: {RADIUS_CHIP}px;
+    padding: 4px 8px;
+    font-size: 9.5pt;
+    font-weight: 600;
+    outline: none;
 }}
-QPushButton#navTab:hover {{
-    color: rgba(255, 255, 255, 0.88);
-    background: rgba(255, 255, 255, 0.05);
+QToolButton:hover {{
+    background: rgba(255, 255, 255, 0.07);
+    color: {TEXT};
 }}
-QPushButton#navTabActive {{
-    background: rgba(255, 255, 255, 0.10);
-    color: #ffffff;
-    border: none;
-    border-radius: 9px;
-    padding: 7px 16px;
-    font-size: 13px;
-    font-weight: 700;
+QToolButton[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
 }}
 QLineEdit#searchField {{
     background: rgba(255, 255, 255, 0.07);
     color: {TEXT};
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: {RADIUS_SHEET}px;
     padding: 5px 14px;
-    font-size: 12.5px;
+    font-size: 9.5pt;
+    selection-background-color: {ACCENT};
+    selection-color: {ACCENT_INK};
+}}
+QLineEdit#searchField:hover {{
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.18);
 }}
 QLineEdit#searchField:focus {{
-    border-color: {ACCENT};
+    border: 2px solid {ACCENT};
     background: rgba(255, 255, 255, 0.10);
+}}
+QCheckBox {{
+    color: {TEXT};
+    spacing: 8px;
+    font-size: 9.5pt;
+    font-weight: 500;
+    outline: none;
+}}
+QCheckBox:disabled {{
+    color: {FAINT};
+}}
+QCheckBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.24);
+}}
+QCheckBox::indicator:hover {{
+    border-color: rgba(255, 240, 214, 0.65);
+    background: rgba(255, 255, 255, 0.10);
+}}
+QCheckBox::indicator:checked {{
+    background: {ACCENT};
+    border: 1px solid {ACCENT};
+}}
+QCheckBox::indicator:disabled {{
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.10);
+}}
+QCheckBox[kbFocus="true"]:focus {{
+    color: {ACCENT};
+}}
+QCheckBox[kbFocus="true"]:focus::indicator {{
+    border: 2px solid {ACCENT};
+}}
+QCheckBox#platformChipCheck {{
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: {RADIUS_CHIP}px;
+    padding: 4px 10px 4px 8px;
+    color: {TEXT};
+    font-size: 9pt;
+    font-weight: 600;
+}}
+QCheckBox#platformChipCheck:hover {{
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.22);
+}}
+QCheckBox#platformChipCheck:checked {{
+    background: rgba(255, 240, 214, 0.12);
+    border-color: rgba(255, 240, 214, 0.42);
+    color: {ACCENT};
+}}
+QCheckBox#platformChipCheck:disabled {{
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.06);
+    color: {FAINT};
+}}
+QCheckBox#platformChipCheck[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
 }}
 QComboBox#launcherDropdown {{
     background: rgba(255, 255, 255, 0.06);
     color: {TEXT};
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 9px;
-    padding: 6px 12px;
-    font-size: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: {RADIUS_CARD}px;
+    padding: 6px 28px 6px 12px;
+    font-size: 9.5pt;
     font-weight: 500;
-    min-width: 160px;
+    min-width: 148px;
+    outline: none;
 }}
 QComboBox#launcherDropdown:hover {{
     background: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.20);
+}}
+QComboBox#launcherDropdown[kbFocus="true"]:focus {{
+    border: 2px solid {ACCENT};
 }}
 QComboBox#launcherDropdown::drop-down {{
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
     border: none;
-    width: 24px;
+    width: 26px;
+}}
+QComboBox#launcherDropdown::down-arrow {{
+    width: 10px;
+    height: 10px;
 }}
 QComboBox QAbstractItemView {{
-    background: #1f1f23;
+    background: {SURFACE_RAISED};
     color: {TEXT};
-    border: 1px solid {BORDER};
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: {RADIUS_CARD}px;
     selection-background-color: {ACCENT};
     selection-color: {ACCENT_INK};
     padding: 4px;
+    outline: none;
 }}
 QPlainTextEdit {{
-    background: #0d0d0f;
+    background: {BG};
     color: #c7c7cc;
-    border: 1px solid #242428;
-    border-radius: 10px;
+    border: 1px solid {HAIRLINE};
+    border-radius: {RADIUS_CARD}px;
     padding: 10px;
-    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Menlo", monospace;
-    font-size: 11.5px;
+    font-family: {MONO};
+    font-size: 9pt;
+    selection-background-color: {ACCENT};
+    selection-color: {ACCENT_INK};
+}}
+QPlainTextEdit:focus {{
+    border: 1px solid rgba(255, 240, 214, 0.45);
 }}
 QProgressBar {{
     background: rgba(255, 255, 255, 0.10);

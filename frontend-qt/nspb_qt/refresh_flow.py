@@ -29,6 +29,7 @@ from . import inputs as _inputs
 from . import library as lib
 from . import platform_util as pu
 from . import post_build_cleanup as pbc
+from . import style
 from .app_update import APP_VERSION
 
 try:
@@ -1776,6 +1777,7 @@ if HAS_QT:
             self.setWindowTitle(self.m.t('batchRefresh.title'))
             self.setModal(True)
             self.setFixedWidth(680)
+            self.setStyleSheet(style.STYLESHEET)
 
             root_lay = QVBoxLayout(self)
             root_lay.setContentsMargins(24, 22, 24, 20)
@@ -1903,10 +1905,10 @@ if HAS_QT:
             out_d = entry.out_dir or _resolve_game_out_dir(g, getattr(self.m, 'out_dir', ''))
 
             card = QFrame()
-            card.setObjectName('subcard')
+            card.setObjectName('card')
             lay = QVBoxLayout(card)
-            lay.setContentsMargins(14, 10, 14, 10)
-            lay.setSpacing(6)
+            lay.setContentsMargins(16, 12, 16, 12)
+            lay.setSpacing(8)
 
             top = QHBoxLayout()
             top.setSpacing(10)
@@ -1940,7 +1942,10 @@ if HAS_QT:
                     if target == 'mac-app'
                     else self.m.t('batchRefresh.platformIOS')
                 )
-                cb = QCheckBox(f'[{plat_name}]')
+                from .widgets import LauncherCheckBox
+                cb = LauncherCheckBox(plat_name)
+                cb.setObjectName('platformChipCheck')
+                cb.setCursor(Qt.CursorShape.PointingHandCursor)
                 disabled_missing = (not can_fast) and a.missing_original_package
                 if disabled_missing:
                     cb.setChecked(False)
@@ -1982,7 +1987,7 @@ if HAS_QT:
                 miss_lbl = QLabel(self.m.t(miss_key))
                 miss_lbl.setObjectName('muted')
                 miss_lbl.setWordWrap(True)
-                _apply_text_color(miss_lbl, '#ffbd38')
+                _apply_text_color(miss_lbl, style.AMBER)
                 lay.addWidget(miss_lbl)
             return card
 
@@ -2051,6 +2056,7 @@ if HAS_QT:
             self.setWindowTitle(self.m.t('imgGuide.title'))
             self.setModal(True)
             self.setFixedWidth(680)
+            self.setStyleSheet(style.STYLESHEET)
 
             root_lay = QVBoxLayout(self)
             root_lay.setContentsMargins(24, 22, 24, 20)
@@ -2227,12 +2233,12 @@ if HAS_QT:
                         return
                     self.choose_img_btn.setEnabled(True)
                     if not valid:
-                        _apply_text_color(self.opt1_status_lbl, '#ff6161')
+                        _apply_text_color(self.opt1_status_lbl, style.DANGER)
                         self.opt1_status_lbl.setText(self.m.t('imgGuide.invalidImg', gname))
                         self.opt1_status_lbl.show()
                         return
                     reused_msg = self.m.t('imgGuide.driveReused', os.path.basename(picked))
-                    _apply_text_color(self.opt1_status_lbl, '#52d97a')
+                    _apply_text_color(self.opt1_status_lbl, style.GREEN)
                     self.opt1_status_lbl.setText(reused_msg)
                     self.opt1_status_lbl.show()
                     self.selected_img_path = picked

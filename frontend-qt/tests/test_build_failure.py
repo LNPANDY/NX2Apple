@@ -53,6 +53,7 @@ class BuildFailure(unittest.TestCase):
         m.repo_path = ''  # A failure-view fixture never starts a process in a detected checkout.
         m.lang = Lang('en')   # these assertions read English whatever the device language is
         w = MainWindow(m)
+        w._switch_page('builds')
         # Delete while the app exists: PySide destroys leftovers after it at exit and segfaults.
         self.addCleanup(self._delete, m, w)
         w.resize(900, height)
