@@ -207,7 +207,7 @@ import NXModel
         .environmentObject(PadFocus())
         try renderToPNG(
             sheet,
-            size: NSSize(width: 740, height: 780),
+            size: NSSize(width: ActivityLogSheet.width, height: 860),
             styleMask: [.borderless],
             wait: 0.5,
             to: output.appendingPathComponent("mac-activity-log-after-\(lang.code).png")

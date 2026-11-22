@@ -97,7 +97,7 @@ enum GalleryCoverage {
         "ControllerMappingStatus": [.sheet(.controlsSheet)], "SteamControllerSection": [.sheet(.controlsSheet)],
         "CloudSaveSheet": [.sheet(.cloudChoose), .sheet(.cloudFetching)], "FreeSpaceView": [.sheet(.freeSpace), .desktop(D.freeSpaceRunning)],
         "BuildFilesRemoveSheet": [.sheet(.buildFilesRemove)], "BuildSelectedSheet": [.sheet(.buildSelected)],
-        "SupportedGamesSheet": [.sheet(.supportedGames)], "SupportedGameRow": [.sheet(.supportedGames)], "BatchRefreshSheet": [.sheet(.batchRefresh)],
+        "SupportedGamesSheet": [.sheet(.supportedGames)], "ActivityLogSheet": [.sheet(.activityLog), .sheet(.activityLogEmpty)], "SupportedGameRow": [.sheet(.supportedGames)], "BatchRefreshSheet": [.sheet(.batchRefresh)],
         "MissingImgGuideSheet": [.sheet(.imgGuide)], "SavesView": [.sheet(.saves), .desktop(D.savesReady)], "SaveImportSheet": [.sheet(.saveImport)],
         "SkippedLibraryItemsOverlay": [.sheet(.skippedItems)], "SkippedItemRow": [.sheet(.skippedItems)], "UpdateSheet": [.sheet(.appUpdate)],
         "PlayerNameSheet": [.sheet(.playerName)], "BuildProcessStepsSheet": [.sheet(.buildSteps)],

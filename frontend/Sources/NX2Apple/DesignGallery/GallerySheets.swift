@@ -21,6 +21,7 @@ enum GallerySheet: String, CaseIterable {
     case saves, saveImport
     case skippedItems, appUpdate, playerName, playerRename, buildSteps, sendSelectedDevice, shellCopy
     case cheats, invalidXcode
+    case activityLog, activityLogEmpty
 
     var title: String {
         switch self {
@@ -70,6 +71,8 @@ enum GallerySheet: String, CaseIterable {
         case .shellCopy: return "Copy game data: USB link speed"
         case .cheats: return "Cheats: no files yet"
         case .invalidXcode: return "Chosen app is not Xcode"
+        case .activityLog: return "Activity Log: a game open"
+        case .activityLogEmpty: return "Activity Log: no play history"
         }
     }
 
@@ -83,6 +86,7 @@ enum GallerySheet: String, CaseIterable {
         case .saves: return CGSize(width: 600, height: 560)
         case .buildSteps: return CGSize(width: 600, height: 440)
         case .cheats: return CGSize(width: 600, height: 700)
+        case .activityLog: return CGSize(width: ActivityLogSheet.width, height: 780)
         case .sendSelectedDevice: return CGSize(width: 680, height: 720)
         default: return nil
         }
@@ -223,6 +227,8 @@ extension GalleryFixtures {
         case .saveImport:
             return AnyView(SaveImportSheet(gameName: name, source: "/Users/Shared/Exports/\(game.name) save.zip",
                                            target: "/Volumes/Games/\(game.name)/save/\(game.titleID)", cancel: {}, confirm: {}))
+        case .activityLog, .activityLogEmpty:
+            return AnyView(activityLogSheet(empty: sheet == .activityLogEmpty, library: library))
         case .skippedItems:
             let items = [
                 SkippedLibraryItem(path: "/Volumes/Games/Update v3.nsp", name: "Update v3.nsp", rootPath: "/Volumes/Games", reason: .orphanSupplement(titleID: "0100000000990800")),
@@ -260,5 +266,36 @@ extension GalleryFixtures {
         case .confirmTestedValues:
             return confirm(t("launch.useTested"), subtitle: name, note: String(format: t("launch.useTestedMany"), 3), t("launch.useTested"), destructive: false)
         }
+    }
+}
+
+extension GalleryFixtures {
+    /// The Activity Log on a play history of the fixture's first three games and one removed game, over the two weeks before a
+    /// fixed day, the first game opened.
+    fileprivate func activityLogSheet(empty: Bool, library: GameLibrary) -> some View {
+        let store = PlaySessionStore(file: nil)
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let calendar = Calendar(identifier: .gregorian)
+        func play(_ id: String, _ title: String, _ days: [(Int, Double)]) {
+            for (ago, minutes) in days {
+                let start = calendar.date(byAdding: .day, value: -ago, to: now) ?? now
+                store.started(titleID: id, title: title, at: start, calendar: calendar)
+                store.ended(titleID: id, at: start.addingTimeInterval(minutes * 60))
+            }
+        }
+        let games = Array(library.games.prefix(3))
+        if !empty {
+            let plans: [[(Int, Double)]] = [
+                [(13, 65), (12, 80), (10, 95), (9, 50), (7, 110), (6, 75), (4, 120), (3, 60), (1, 105), (0, 100)],
+                [(11, 55), (8, 70), (5, 85), (2, 65), (1, 45)],
+                [(9, 40), (4, 35), (0, 50)],
+            ]
+            for (game, plan) in zip(games, plans) { play(game.titleID, game.displayName(lang), plan) }
+            play("0100AA0000090000", "Solaris Prime", [(13, 45), (6, 50), (40, 30)])
+        }
+        let folder = artworkFolder
+        return ActivityLogSheet(store: store, owned: { id in library.games.first { $0.titleID.uppercased() == id } },
+                                cover: { GameLibrary.artwork(for: $0, slot: .thumbnail, repo: "", banners: folder, maxPixel: ArtworkImages.cardPixels) },
+                                showInLibrary: { _ in }, now: now, initialExpandedID: games.first?.titleID.uppercased())
     }
 }
