@@ -59,13 +59,16 @@ public enum ShellInGameMenu {
     }
 
     public static func build(profile: LauncherProfile, titleID: String, shellDefaults: [String: String],
+                             envFileOverrides: [String: String] = [:],
                              bundle: Bundle = ShellStrings.bundle) -> Payload {
         let items: [Item] = allowedEnvs.compactMap { env in
             guard let setting = profile.settings.first(where: { $0.env == env }),
                   setting.kind == "choice" || setting.kind == "toggle" else {
                 return nil
             }
-            let effectiveDefault = shellDefaults[setting.env].flatMap { setting.accepts($0) ? $0 : nil } ?? setting.def
+            let effectiveDefault = envFileOverrides[setting.env].flatMap { setting.accepts($0) ? $0 : nil }
+                ?? shellDefaults[setting.env].flatMap { setting.accepts($0) ? $0 : nil }
+                ?? setting.def
             let label = ShellStrings.setting(setting.label, bundle: bundle)
             if setting.kind == "toggle" {
                 return Item(
@@ -95,8 +98,10 @@ public enum ShellInGameMenu {
     }
 
     public static func encode(profile: LauncherProfile, titleID: String, shellDefaults: [String: String],
+                              envFileOverrides: [String: String] = [:],
                               bundle: Bundle = ShellStrings.bundle) -> String? {
-        let payload = build(profile: profile, titleID: titleID, shellDefaults: shellDefaults, bundle: bundle)
+        let payload = build(profile: profile, titleID: titleID, shellDefaults: shellDefaults,
+                            envFileOverrides: envFileOverrides, bundle: bundle)
         guard let data = try? JSONEncoder().encode(payload) else { return nil }
         return String(data: data, encoding: .utf8)
     }
