@@ -80,6 +80,46 @@ final class MacGameModeTests: XCTestCase {
         XCTAssertTrue(verifyOff.ok, "strict codesign verification failed after turning Game Mode off: \(verifyOff.out) \(verifyOff.err)")
     }
 
+    private func fileID(_ url: URL) throws -> UInt64 {
+        try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? UInt64)
+    }
+
+    /// macOS keeps its game decision for the bundle directory, so a toggle has to hand the same Contents to a new directory.
+    func testToggleRenewsBundleDirectoryAndKeepsContents() throws {
+        let app = try makeSignedGameBundle(initialGameMode: false)
+        let before = try fileID(app)
+        let contentsBefore = try fileID(app.appendingPathComponent("Contents"))
+
+        try MacGameMode.applySync(true, toApp: app.path)
+        let afterOn = try fileID(app)
+        XCTAssertNotEqual(afterOn, before, "turning Game Mode on gives the bundle a new directory")
+        XCTAssertEqual(try fileID(app.appendingPathComponent("Contents")), contentsBefore, "Contents is moved, not copied")
+        XCTAssertTrue(MacGameMode.isEnabled(inApp: app.path))
+        XCTAssertTrue(MacGameMode.canConfigure(app: app.path))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: temporary.path), ["SampleGame.app"], "no work directory is left beside the bundle")
+        let verify = SystemProcessRunner().capture(ProcessLaunch(
+            executable: "/usr/bin/codesign",
+            arguments: ["--verify", "--deep", "--strict", app.path],
+            mergesErrors: true
+        ))
+        XCTAssertTrue(verify.ok, "strict codesign verification failed after the directory was renewed: \(verify.out) \(verify.err)")
+
+        try MacGameMode.applySync(false, toApp: app.path)
+        XCTAssertNotEqual(try fileID(app), afterOn, "turning Game Mode off renews the directory too")
+        XCTAssertFalse(MacGameMode.isEnabled(inApp: app.path))
+    }
+
+    func testRenewLeavesBundleInPlaceWhenTopLevelHasOtherEntries() throws {
+        let app = try makeSignedGameBundle(initialGameMode: false)
+        let before = try fileID(app)
+        try Data().write(to: app.appendingPathComponent("Icon\r"))
+
+        XCTAssertFalse(MacGameMode.renewBundleDirectory(app))
+        XCTAssertEqual(try fileID(app), before)
+        XCTAssertTrue(MacGameMode.canConfigure(app: app.path), "the bundle is whole after a renew that could not finish")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: temporary.path), ["SampleGame.app"])
+    }
+
     func testStripDetritusDoesNotFollowSymbolicLinksOutsideBundle() throws {
         let app = try makeSignedGameBundle(initialGameMode: false)
         let outsideDir = temporary.appendingPathComponent("outside")
