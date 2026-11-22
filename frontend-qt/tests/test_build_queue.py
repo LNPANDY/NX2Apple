@@ -604,6 +604,7 @@ class MainWindowBuildQueueUITests(unittest.TestCase):
         m.deps = []
         m.set_lang(Lang(lang_code))
         w = MainWindow(m, perform_startup_checks=False)
+        w._switch_page('builds')
         self.addCleanup(self._cleanup_window, m, w)
         w.resize(1080, 860)
         w.show()

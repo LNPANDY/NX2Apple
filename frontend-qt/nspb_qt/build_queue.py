@@ -1726,7 +1726,8 @@ if HAS_QT:
                 rl.setContentsMargins(16, 11, 16, 11)
                 rl.setSpacing(12)
 
-                cb = QCheckBox()
+                from .widgets import LauncherCheckBox
+                cb = LauncherCheckBox()
                 cb.setEnabled(available)
                 cb.setChecked(available and key in checked_ids)
                 cb.toggled.connect(self._update_footer)

@@ -8,11 +8,20 @@ import threading
 import weakref
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QTimer, QUrl, Qt
-from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QFont, QIcon, QMouseEvent, QPixmap
+from PySide6.QtCore import QPoint, QSize, QTimer, QUrl, Qt
+from PySide6.QtGui import (
+    QDesktopServices,
+    QDragEnterEvent,
+    QDropEvent,
+    QFont,
+    QIcon,
+    QKeySequence,
+    QMouseEvent,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFrame,
@@ -54,17 +63,31 @@ from .sheets import (
     OnboardingDialog,
 )
 from .widgets import (
+    BuildLogHighlighter,
     CardGroup,
     CardPageHeading,
+    CenteredColumnWidget,
     DropOverlayWidget,
     ElidedLabel,
     GameCardWidget,
     HeroBannerWidget,
     HorizontalStripViewport,
+    LauncherComboBox,
     LauncherSegmented,
     LauncherSwitch,
     StatusDot,
+    install_keyboard_focus_filter,
     make_divider,
+    render_svg_icon,
+    render_svg_pixmap,
+    svg_chevron_left,
+    svg_chevron_right,
+    svg_gamepad,
+    svg_settings,
+    svg_win_close,
+    svg_win_maximize,
+    svg_win_minimize,
+    svg_win_restore,
 )
 
 
@@ -80,8 +103,8 @@ def _set_dot(d: QLabel, color: str) -> None:
 
 
 class TopBarFrame(QFrame):
-    """Custom frameless top bar that keeps the center navigation tabs pinned at the exact horizontal center
-    and supports dragging / double-clicking to move or maximize the window."""
+    """Custom frameless top bar using a balanced three-column QHBoxLayout so center navigation
+    stays centered on wide windows and never overlaps trailing controls on narrow windows."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -90,18 +113,10 @@ class TopBarFrame(QFrame):
         self._drag_offset: QPoint | None = None
 
     def recenter_nav(self) -> None:
-        if self.search_box is not None:
-            sw = max(108, min(172, self.width() - 845))
-            self.search_box.setFixedWidth(sw)
-        if self.nav_container is None:
-            return
-        self.nav_container.adjustSize()
-        nw = self.nav_container.width()
-        nh = self.nav_container.height()
-        x = max(0, (self.width() - nw) // 2)
-        y = max(0, (self.height() - nh) // 2)
-        self.nav_container.setGeometry(x, y, nw, nh)
-        self.nav_container.raise_()
+        lay = self.layout()
+        if lay is not None:
+            lay.invalidate()
+            lay.activate()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -195,8 +210,10 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(820, 440)
         self.setAcceptDrops(True)
         self.setStyleSheet(style.STYLESHEET)
+        install_keyboard_focus_filter()
 
-        self._current_page = 'builds'
+        self._current_page = 'library'
+        self._last_main_page = 'library'
         self._failed = False
         self._library_filter = 'owned'  # 'owned' or 'built'
         self._search_query = ''
@@ -204,6 +221,8 @@ class MainWindow(QMainWindow):
         self._drive_status: tuple[str, str, str] | None = None
         self._options_expanded = True
         self._deps_expanded = True
+        self._log_expanded = False
+        self._stale_shader_reason: str = ''
         self._deps_sig: tuple | None = None
         self._dep_row_widgets: dict[str, dict] = {}
         self._onboarding_checked = False
@@ -237,9 +256,11 @@ class MainWindow(QMainWindow):
         self.top_bar = self._build_top_bar()
         root_col.addWidget(self.top_bar)
 
-        # 2. Engine Sync / Failure Banner (below top bar)
+        # 2. Engine Sync / Failure Banner + Stale Shader Banner (below top bar)
         self.engine_banner = self._build_engine_banner()
         root_col.addWidget(self.engine_banner)
+        self.stale_shader_banner = self._build_stale_shader_banner()
+        root_col.addWidget(self.stale_shader_banner)
 
         # 3. Main Scrollable Workspace
         # `self.scroll` is the ONLY QScrollArea in MainWindow (hosting Library, Builds and Settings),
@@ -297,7 +318,8 @@ class MainWindow(QMainWindow):
         if self.m.log_path:
             self._append_log(self.m.t('log.at', str(self.m.log_path)) + '\n\n')
 
-        self._switch_page('builds')
+        self._setup_shortcuts()
+        self._switch_page('library')
 
         self._refresh_all()
         if perform_startup_checks:
@@ -316,22 +338,55 @@ class MainWindow(QMainWindow):
     def _toggle_maximize_window(self) -> None:
         if self.isMaximized():
             self.showNormal()
-            self.max_win_btn.setText('□')
+            self.max_win_btn.setIcon(render_svg_icon(svg_win_maximize(), 14))
         else:
             self.showMaximized()
-            self.max_win_btn.setText('❐')
+            self.max_win_btn.setIcon(render_svg_icon(svg_win_restore(), 14))
+
+    def _setup_shortcuts(self) -> None:
+        self._shortcuts: list[QShortcut] = []
+        for seq, handler in (
+            (QKeySequence('Ctrl+F'), self._focus_search),
+            (QKeySequence('Ctrl+1'), lambda: self._switch_page('library')),
+            (QKeySequence('Ctrl+2'), lambda: self._switch_page('builds')),
+            (QKeySequence('Ctrl+,'), lambda: self._switch_page('settings')),
+            (QKeySequence(Qt.Key_Escape), self._handle_escape),
+        ):
+            sc = QShortcut(seq, self)
+            sc.activated.connect(handler)
+            self._shortcuts.append(sc)
+
+    def _focus_search(self) -> None:
+        if self._current_page != 'library':
+            self._switch_page('library')
+        self.search_input.setFocus(Qt.ShortcutFocusReason)
+        self.search_input.selectAll()
+
+    def _handle_escape(self) -> None:
+        if getattr(self, '_eng_popup', None) is not None and self._eng_popup.isVisible():
+            self._eng_popup.close()
+            return
+        if self.search_input.hasFocus() or self.search_input.text():
+            self.search_input.clear()
+            self.search_input.clearFocus()
+            return
+        if self._current_page == 'settings':
+            self._switch_page(self._last_main_page or 'library')
 
     def _build_top_bar(self) -> TopBarFrame:
         bar = TopBarFrame()
         bar.setObjectName('topBar')
         bar.setFixedHeight(64)
         row = QHBoxLayout(bar)
-        row.setContentsMargins(24, 0, 16, 0)
-        row.setSpacing(10)
+        row.setContentsMargins(20, 0, 14, 0)
+        row.setSpacing(12)
 
-        # Brand (App Icon + NX2Apple)
-        brand_row = QHBoxLayout()
-        brand_row.setSpacing(10)
+        # Left column: Brand (App Icon + NX2Apple), balanced against right column
+        left_slot = QWidget(bar)
+        left_slot.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        left_lay = QHBoxLayout(left_slot)
+        left_lay.setContentsMargins(0, 0, 0, 0)
+        left_lay.setSpacing(10)
         self.app_icon_lbl = QLabel()
         self.app_icon_lbl.setFixedSize(26, 26)
         icon_file = Path(__file__).resolve().parent / 'assets' / 'app_icon.png'
@@ -341,97 +396,130 @@ class MainWindow(QMainWindow):
                 self.app_icon_lbl.setPixmap(
                     pm.scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 )
-        brand_row.addWidget(self.app_icon_lbl)
+        left_lay.addWidget(self.app_icon_lbl)
         self.title_label = QLabel('NX2Apple')
-        self.title_label.setStyleSheet('font-size: 23px; font-weight: 800; color: #ffffff;')
-        brand_row.addWidget(self.title_label)
-        row.addLayout(brand_row)
+        self.title_label.setStyleSheet('font-size: 16pt; font-weight: 800; color: #ffffff;')
+        self.title_label.setMinimumWidth(0)
+        left_lay.addWidget(self.title_label)
+        left_lay.addStretch(1)
+        row.addWidget(left_slot, 1)
 
-        row.addStretch(1)
-
-        # Pinned-center Navigation tabs: Library / Builds / Settings
+        # Center column: dual-pill segmented navigation (Library | Builds)
         nav_host = QWidget(bar)
+        nav_host.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         nav_wrap = QHBoxLayout(nav_host)
         nav_wrap.setContentsMargins(0, 0, 0, 0)
-        nav_wrap.setSpacing(4)
-        self.nav_btns: dict[str, QPushButton] = {}
-        for page_id in ('library', 'builds', 'settings'):
-            btn = QPushButton(self.m.t('nav.' + page_id))
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda _=False, p=page_id: self._switch_page(p))
-            self.nav_btns[page_id] = btn
-            nav_wrap.addWidget(btn)
+        nav_wrap.setSpacing(0)
+        self.nav_seg = LauncherSegmented(
+            [
+                ('library', self.m.t('nav.library')),
+                ('builds', self.m.t('nav.builds')),
+            ],
+            selected='library',
+        )
+        self.nav_seg.changed.connect(self._switch_page)
+        nav_wrap.addWidget(self.nav_seg)
         bar.nav_container = nav_host
-        bar.recenter_nav()
+        row.addWidget(nav_host, 0, Qt.AlignCenter)
 
-        # Trailing controls: Search input + New Build + Update pill + Window controls (Min/Max/Close)
+        # Right column: flexible Search + Settings icon button + Update pill + SVG Window controls
+        right_slot = QWidget(bar)
+        right_slot.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        right_lay = QHBoxLayout(right_slot)
+        right_lay.setContentsMargins(0, 0, 0, 0)
+        right_lay.setSpacing(8)
+        right_lay.addStretch(1)
+
         self.search_input = QLineEdit()
         self.search_input.setObjectName('searchField')
         self.search_input.setPlaceholderText(self.m.t('library.search'))
-        self.search_input.setFixedWidth(172)
+        self.search_input.setMinimumWidth(104)
+        self.search_input.setMaximumWidth(188)
+        self.search_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self._on_search_changed)
         bar.search_box = self.search_input
-        row.addWidget(self.search_input)
+        right_lay.addWidget(self.search_input)
 
-        self.new_build_btn = QPushButton('+ ' + self.m.t('library.newBuild'))
-        self.new_build_btn.setCursor(Qt.PointingHandCursor)
-        self.new_build_btn.clicked.connect(lambda: self._switch_page('builds'))
-        row.addWidget(self.new_build_btn)
+        self.settings_btn = QPushButton('')
+        self.settings_btn.setObjectName('iconBtn')
+        self.settings_btn.setFixedSize(34, 34)
+        self.settings_btn.setIconSize(QSize(18, 18))
+        self.settings_btn.setIcon(render_svg_icon(svg_settings(style.MUTED), 18))
+        self.settings_btn.setToolTip(self.m.t('nav.settings'))
+        self.settings_btn.setAccessibleName(self.m.t('nav.settings'))
+        self.settings_btn.setCursor(Qt.PointingHandCursor)
+        self.settings_btn.clicked.connect(lambda: self._switch_page('settings'))
+        right_lay.addWidget(self.settings_btn)
 
         self.update_btn = QPushButton('')
         self.update_btn.setObjectName('creamPill')
         self.update_btn.hide()
-        row.addWidget(self.update_btn)
+        right_lay.addWidget(self.update_btn)
 
         self.lang_btn = QPushButton(self.m.lang.toggle_label)
         self.lang_btn.setFixedWidth(92)
         self.lang_btn.clicked.connect(self.m.toggle_lang)
         self.lang_btn.hide()   # Language selection lives in Settings -> App -> Language, matching the Mac SwiftUI top bar
 
-        # Built-in Frameless Window Controls (Minimize / Maximize / Close)
+        # Built-in Frameless Window Controls (vector SVG icons)
         win_ctrl_wrap = QHBoxLayout()
-        win_ctrl_wrap.setContentsMargins(6, 0, 0, 0)
+        win_ctrl_wrap.setContentsMargins(4, 0, 0, 0)
         win_ctrl_wrap.setSpacing(2)
 
-        self.min_win_btn = QPushButton('—')
+        self.min_win_btn = QPushButton('')
         self.min_win_btn.setObjectName('winCtrlBtn')
-        self.min_win_btn.setFixedSize(36, 28)
+        self.min_win_btn.setFixedSize(34, 28)
+        self.min_win_btn.setIconSize(QSize(14, 14))
+        self.min_win_btn.setIcon(render_svg_icon(svg_win_minimize(), 14))
+        self.min_win_btn.setAccessibleName('Minimize')
         self.min_win_btn.setCursor(Qt.PointingHandCursor)
         self.min_win_btn.clicked.connect(self.showMinimized)
         win_ctrl_wrap.addWidget(self.min_win_btn)
 
-        self.max_win_btn = QPushButton('□')
+        self.max_win_btn = QPushButton('')
         self.max_win_btn.setObjectName('winCtrlBtn')
-        self.max_win_btn.setFixedSize(36, 28)
+        self.max_win_btn.setFixedSize(34, 28)
+        self.max_win_btn.setIconSize(QSize(14, 14))
+        self.max_win_btn.setIcon(render_svg_icon(svg_win_maximize(), 14))
+        self.max_win_btn.setAccessibleName('Maximize')
         self.max_win_btn.setCursor(Qt.PointingHandCursor)
         self.max_win_btn.clicked.connect(self._toggle_maximize_window)
         win_ctrl_wrap.addWidget(self.max_win_btn)
 
-        self.close_win_btn = QPushButton('✕')
+        self.close_win_btn = QPushButton('')
         self.close_win_btn.setObjectName('winCloseBtn')
-        self.close_win_btn.setFixedSize(36, 28)
+        self.close_win_btn.setFixedSize(34, 28)
+        self.close_win_btn.setIconSize(QSize(14, 14))
+        self.close_win_btn.setIcon(render_svg_icon(svg_win_close(), 14))
+        self.close_win_btn.setAccessibleName('Close')
         self.close_win_btn.setCursor(Qt.PointingHandCursor)
         self.close_win_btn.clicked.connect(self.close)
         win_ctrl_wrap.addWidget(self.close_win_btn)
 
-        row.addLayout(win_ctrl_wrap)
+        right_lay.addLayout(win_ctrl_wrap)
+        row.addWidget(right_slot, 1)
 
         return bar
 
     def _switch_page(self, page_id: str) -> None:
         self._current_page = page_id
+        if page_id in ('library', 'builds'):
+            self._last_main_page = page_id
         self.library_page.setVisible(page_id == 'library')
         self.builds_page.setVisible(page_id == 'builds')
         self.settings_page.setVisible(page_id == 'settings')
         self.stack.setCurrentIndex(0)
         self.scroll.verticalScrollBar().setValue(0)
-        for pid, btn in self.nav_btns.items():
-            btn.setObjectName('navTabActive' if pid == page_id else 'navTab')
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
+        self.nav_seg.set_selected(page_id if page_id in ('library', 'builds') else '')
+        is_settings = page_id == 'settings'
+        self.settings_btn.setObjectName('iconBtnActive' if is_settings else 'iconBtn')
+        self.settings_btn.setIcon(
+            render_svg_icon(svg_settings(style.ACCENT if is_settings else style.MUTED), 18)
+        )
+        self.settings_btn.style().unpolish(self.settings_btn)
+        self.settings_btn.style().polish(self.settings_btn)
         self.search_input.setVisible(page_id == 'library')
-        self.new_build_btn.setVisible(page_id != 'builds')
         self.top_bar.recenter_nav()
         self._refresh_activity_bar()
         if page_id == 'library':
@@ -487,6 +575,51 @@ class MainWindow(QMainWindow):
         else:
             self.engine_banner.hide()
 
+    def _build_stale_shader_banner(self) -> QWidget:
+        wrap = QWidget()
+        wlay = QVBoxLayout(wrap)
+        wlay.setContentsMargins(24, 8, 24, 0)
+        wlay.setSpacing(0)
+        box = QFrame()
+        box.setObjectName('staleShaderBanner')
+        lay = QHBoxLayout(box)
+        lay.setContentsMargins(16, 10, 12, 10)
+        lay.setSpacing(12)
+        lay.addWidget(StatusDot(style.AMBER, size=8))
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        self.stale_shader_title = QLabel('')
+        self.stale_shader_title.setObjectName('rowTitle')
+        self.stale_shader_body = QLabel('')
+        self.stale_shader_body.setObjectName('muted')
+        self.stale_shader_body.setWordWrap(True)
+        col.addWidget(self.stale_shader_title)
+        col.addWidget(self.stale_shader_body)
+        lay.addLayout(col, 1)
+        self.stale_shader_dismiss_btn = QPushButton('')
+        self.stale_shader_dismiss_btn.setObjectName('iconBtn')
+        self.stale_shader_dismiss_btn.setFixedSize(28, 28)
+        self.stale_shader_dismiss_btn.setIconSize(QSize(12, 12))
+        self.stale_shader_dismiss_btn.setIcon(render_svg_icon(svg_win_close(style.MUTED), 12))
+        self.stale_shader_dismiss_btn.setToolTip(self.m.t('library.dismissSkipped'))
+        self.stale_shader_dismiss_btn.setAccessibleName(self.m.t('library.dismissSkipped'))
+        self.stale_shader_dismiss_btn.setCursor(Qt.PointingHandCursor)
+        self.stale_shader_dismiss_btn.clicked.connect(self._dismiss_stale_shader_banner)
+        lay.addWidget(self.stale_shader_dismiss_btn)
+        wlay.addWidget(box)
+        wrap.hide()
+        return wrap
+
+    def _show_stale_shader_banner(self, reason: str) -> None:
+        self._stale_shader_reason = reason
+        self.stale_shader_title.setText(self.m.t(TITLE))
+        self.stale_shader_body.setText(self.m.t(TEXT[reason]))
+        self.stale_shader_banner.show()
+
+    def _dismiss_stale_shader_banner(self) -> None:
+        self._stale_shader_reason = ''
+        self.stale_shader_banner.hide()
+
     # ================================================================ Page 0: Library
 
     def _build_library_page(self) -> QWidget:
@@ -504,14 +637,28 @@ class MainWindow(QMainWindow):
         ecol.setSpacing(14)
         ecol.addStretch(1)
 
-        icon_lbl = QLabel('🎮')
-        icon_lbl.setAlignment(Qt.AlignCenter)
-        icon_lbl.setStyleSheet('font-size: 46px;')
-        ecol.addWidget(icon_lbl)
+        icon_badge = QFrame()
+        icon_badge.setObjectName('emptyLibBadge')
+        icon_badge.setFixedSize(84, 84)
+        icon_badge.setStyleSheet(
+            'QFrame#emptyLibBadge {'
+            ' background: rgba(255, 240, 214, 0.08);'
+            ' border: 1px solid rgba(255, 240, 214, 0.22);'
+            ' border-radius: 42px;'
+            '}'
+        )
+        ib_lay = QVBoxLayout(icon_badge)
+        ib_lay.setContentsMargins(0, 0, 0, 0)
+        self.empty_lib_icon = QLabel()
+        self.empty_lib_icon.setAlignment(Qt.AlignCenter)
+        self.empty_lib_icon.setStyleSheet('background: transparent; border: none;')
+        self.empty_lib_icon.setPixmap(render_svg_pixmap(svg_gamepad(style.ACCENT), 42))
+        ib_lay.addWidget(self.empty_lib_icon)
+        ecol.addWidget(icon_badge, 0, Qt.AlignHCenter)
 
         self.lib_welcome_title = QLabel(self.m.t('library.welcome'))
         self.lib_welcome_title.setAlignment(Qt.AlignCenter)
-        self.lib_welcome_title.setStyleSheet('font-size: 40px; font-weight: 800; color: #ffffff;')
+        self.lib_welcome_title.setStyleSheet('font-size: 26pt; font-weight: 800; color: #ffffff;')
         ecol.addWidget(self.lib_welcome_title)
 
         self.lib_welcome_note = QLabel(self.m.t('library.welcomeNote'))
@@ -587,21 +734,34 @@ class MainWindow(QMainWindow):
         self.rescan_lib_btn.clicked.connect(self._rescan_library)
         chead.addWidget(self.rescan_lib_btn)
 
-        scroll_left_btn = QPushButton('‹')
-        scroll_left_btn.setFixedSize(30, 30)
-        scroll_left_btn.setStyleSheet('padding: 0px; font-size: 16px; font-weight: 700;')
-        scroll_left_btn.clicked.connect(lambda: self._scroll_collection(-1))
-        scroll_right_btn = QPushButton('›')
-        scroll_right_btn.setFixedSize(30, 30)
-        scroll_right_btn.setStyleSheet('padding: 0px; font-size: 16px; font-weight: 700;')
-        scroll_right_btn.clicked.connect(lambda: self._scroll_collection(1))
-        chead.addWidget(scroll_left_btn)
-        chead.addWidget(scroll_right_btn)
+        self.scroll_left_btn = QPushButton('')
+        self.scroll_left_btn.setObjectName('iconBtn')
+        self.scroll_left_btn.setFixedSize(32, 32)
+        self.scroll_left_btn.setIconSize(QSize(14, 14))
+        self.scroll_left_btn.setIcon(render_svg_icon(svg_chevron_left(), 14))
+        self.scroll_left_btn.setToolTip(self.m.t('library.scrollBack'))
+        self.scroll_left_btn.setAccessibleName(self.m.t('library.scrollBack'))
+        self.scroll_left_btn.setCursor(Qt.PointingHandCursor)
+        self.scroll_left_btn.clicked.connect(lambda: self._scroll_collection(-1))
+
+        self.scroll_right_btn = QPushButton('')
+        self.scroll_right_btn.setObjectName('iconBtn')
+        self.scroll_right_btn.setFixedSize(32, 32)
+        self.scroll_right_btn.setIconSize(QSize(14, 14))
+        self.scroll_right_btn.setIcon(render_svg_icon(svg_chevron_right(), 14))
+        self.scroll_right_btn.setToolTip(self.m.t('library.scrollForward'))
+        self.scroll_right_btn.setAccessibleName(self.m.t('library.scrollForward'))
+        self.scroll_right_btn.setCursor(Qt.PointingHandCursor)
+        self.scroll_right_btn.clicked.connect(lambda: self._scroll_collection(1))
+
+        chead.addWidget(self.scroll_left_btn)
+        chead.addWidget(self.scroll_right_btn)
         ccol.addLayout(chead)
 
         self._coll_offset = 0
         self._ensure_selected_card_visible = False
         self.coll_viewport = HorizontalStripViewport(height=176)
+        self.coll_viewport.overflowChanged.connect(self._sync_collection_scroll_arrows)
         self.coll_strip = self.coll_viewport.strip
         self.coll_strip_layout = self.coll_viewport.strip_layout
         ccol.addWidget(self.coll_viewport)
@@ -637,22 +797,14 @@ class MainWindow(QMainWindow):
         self.skipped_btn.setCursor(Qt.PointingHandCursor)
         self.skipped_btn.clicked.connect(self._show_skipped_files_dialog)
         sb_lay.addWidget(self.skipped_btn)
-        self.skipped_dismiss_btn = QPushButton('✕')
-        self.skipped_dismiss_btn.setObjectName('skippedDismissBtn')
-        self.skipped_dismiss_btn.setFixedSize(26, 26)
+        self.skipped_dismiss_btn = QPushButton('')
+        self.skipped_dismiss_btn.setObjectName('iconBtn')
+        self.skipped_dismiss_btn.setFixedSize(28, 28)
+        self.skipped_dismiss_btn.setIconSize(QSize(12, 12))
+        self.skipped_dismiss_btn.setIcon(render_svg_icon(svg_win_close(style.MUTED), 12))
         self.skipped_dismiss_btn.setCursor(Qt.PointingHandCursor)
         self.skipped_dismiss_btn.setToolTip(self.m.t('library.dismissSkipped'))
         self.skipped_dismiss_btn.setAccessibleName(self.m.t('library.dismissSkipped'))
-        self.skipped_dismiss_btn.setStyleSheet(
-            'QPushButton#skippedDismissBtn {'
-            f' background: rgba(255, 255, 255, 0.06); color: {style.MUTED};'
-            f' border: 1px solid {style.BORDER}; border-radius: 13px;'
-            ' font-size: 11px; font-weight: 600; padding: 0;'
-            '}'
-            'QPushButton#skippedDismissBtn:hover {'
-            f' background: rgba(255, 255, 255, 0.12); color: {style.TEXT};'
-            '}'
-        )
         self.skipped_dismiss_btn.clicked.connect(self._dismiss_skipped_banner)
         sb_lay.addWidget(self.skipped_dismiss_btn)
         sw_lay.addWidget(self.skipped_banner)
@@ -716,6 +868,10 @@ class MainWindow(QMainWindow):
             selected=self._library_filter,
         )
         self.rescan_lib_btn.setText(self.m.t('library.rescan'))
+        self.scroll_left_btn.setToolTip(self.m.t('library.scrollBack'))
+        self.scroll_left_btn.setAccessibleName(self.m.t('library.scrollBack'))
+        self.scroll_right_btn.setToolTip(self.m.t('library.scrollForward'))
+        self.scroll_right_btn.setAccessibleName(self.m.t('library.scrollForward'))
 
         skipped = list(getattr(self.m.library, 'skipped_files', []))
         show_skipped = (
@@ -845,12 +1001,45 @@ class MainWindow(QMainWindow):
                     selected_card = card
                 card.clicked.connect(self._on_card_selected)
                 card.doubleClicked.connect(self._on_card_double_clicked)
+                card.navigateRequested.connect(self._on_card_keyboard_nav)
                 self.coll_strip_layout.addWidget(card)
         self.coll_strip_layout.addStretch(1)
         self.coll_viewport.sync_strip(
             ensure_visible=selected_card if self._ensure_selected_card_visible else None
         )
+        self._sync_collection_scroll_arrows(self.coll_viewport.has_overflow())
         self._ensure_selected_card_visible = False
+
+    def _sync_collection_scroll_arrows(self, has_overflow: bool) -> None:
+        self.scroll_left_btn.setVisible(bool(has_overflow))
+        self.scroll_right_btn.setVisible(bool(has_overflow))
+
+    def _on_card_keyboard_nav(self, from_title_id: str, direction: int) -> None:
+        filtered = self._filtered_games()
+        if not filtered:
+            return
+        from_key = from_title_id.upper()
+        cur_idx = next(
+            (i for i, g in enumerate(filtered) if g.title_id.upper() == from_key),
+            None,
+        )
+        if cur_idx is None:
+            sel = self.m.library.selected
+            cur_idx = next(
+                (i for i, g in enumerate(filtered) if sel is not None and g.title_id == sel.title_id),
+                0,
+            )
+        next_idx = max(0, min(len(filtered) - 1, cur_idx + direction))
+        target_tid = filtered[next_idx].title_id
+        self._coll_offset = next_idx
+        self._ensure_selected_card_visible = True
+        self.m.library.select(target_tid)
+        self._refresh_library()
+        for i in range(self.coll_strip_layout.count()):
+            w = self.coll_strip_layout.itemAt(i).widget()
+            if isinstance(w, GameCardWidget) and w.title_id.upper() == target_tid.upper():
+                w.setFocus(Qt.TabFocusReason)
+                break
 
     def _on_card_selected(self, title_id: str) -> None:
         self._ensure_selected_card_visible = True
@@ -1089,6 +1278,7 @@ class MainWindow(QMainWindow):
             return
         self._failed = False
         self._stale_shaders_shown = False
+        self._dismiss_stale_shader_banner()
         self.footer.setText('')
         self.refresh_queue.enqueue_many(items)
         self._switch_page('builds')
@@ -1220,12 +1410,6 @@ class MainWindow(QMainWindow):
         if not g:
             return
         menu = QMenu(self)
-        menu.setStyleSheet(
-            f'QMenu {{ background: #1c1c1f; color: {style.TEXT}; border: 1px solid {style.BORDER}; '
-            f'border-radius: 10px; padding: 6px; }} '
-            f'QMenu::item {{ padding: 7px 18px; border-radius: 6px; }} '
-            f'QMenu::item:selected {{ background: rgba(255,255,255,0.12); }}'
-        )
 
         act_build = menu.addAction(self.m.t('library.buildAgain') if g.has_any_build else self.m.t('build.startGame'))
         act_build.triggered.connect(lambda: (self.m.load_game_from_library(g), self._switch_page('builds')))
@@ -1251,12 +1435,26 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
 
         act_remove = menu.addAction(self.m.t('library.remove'))
-        act_remove.triggered.connect(lambda: (self.m.library.remove(g.title_id), self._refresh_library()))
+        act_remove.triggered.connect(lambda: self._confirm_remove_from_library(g))
 
         act_delete = menu.addAction(self.m.t('delete.menu'))
         act_delete.triggered.connect(lambda: self._delete_game_dialog(g))
 
         menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
+
+    def _confirm_remove_from_library(self, game: lib.LibraryGame) -> None:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(self.m.t('library.remove'))
+        box.setText(self.m.t('library.removeQuestion'))
+        box.setInformativeText(self.m.t('library.removeNote'))
+        remove_btn = box.addButton(self.m.t('library.remove'), QMessageBox.ButtonRole.DestructiveRole)
+        cancel_btn = box.addButton(self.m.t('fail.confirm.cancel'), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(cancel_btn)
+        box.exec()
+        if box.clickedButton() is remove_btn:
+            self.m.library.remove(game.title_id)
+            self._refresh_library()
 
     def _pick_custom_artwork(self, game: lib.LibraryGame) -> None:
         f, _ = QFileDialog.getOpenFileName(
@@ -1325,10 +1523,14 @@ class MainWindow(QMainWindow):
     # ================================================================ Page 1: Builds
 
     def _build_builds_page(self) -> QWidget:
-        body = QWidget()
-        self.body_col = QVBoxLayout(body)
-        self.body_col.setContentsMargins(40, 28, 40, 36)
-        self.body_col.setSpacing(20)
+        body = CenteredColumnWidget(
+            max_width=920,
+            min_h_margin=28,
+            top_margin=28,
+            bottom_margin=36,
+            spacing=20,
+        )
+        self.body_col = body.body_col
 
         # Page heading
         self.build_heading = CardPageHeading(self.m.t('build.heading'), self.m.t('build.intro'))
@@ -1360,9 +1562,13 @@ class MainWindow(QMainWindow):
         self.install_group = self._build_install_card()
         self.body_col.addWidget(self.install_group)
 
-        # Card 4: Action + BuildFailureCard + OutcomeCard
+        # Card 4: Action Card
         self.action_group = self._build_action_card()
         self.body_col.addWidget(self.action_group)
+
+        # Card 4.2: Top-level BuildFailureCard (promoted out of action_group to avoid nested boxes)
+        self.failure_box = self._build_failure_card()
+        self.body_col.addWidget(self.failure_box)
 
         # Card 4.5: Build Queue Card
         self.queue_card = bq.BuildQueueCard(self.m, self.m.build_queue)
@@ -1795,7 +2001,8 @@ class MainWindow(QMainWindow):
         col.addWidget(self.setup_hint_sub)
         rl.addLayout(col, 1)
         self.setup_goto_btn = QPushButton(self.m.t('nav.settings'))
-        self.setup_goto_btn.setObjectName('creamPill')
+        self.setup_goto_btn.setObjectName('creamOutlinePill')
+        self.setup_goto_btn.setMinimumWidth(148)
         self.setup_goto_btn.clicked.connect(lambda: self._switch_page('settings'))
         rl.addWidget(self.setup_goto_btn)
         grp.add_row(r)
@@ -1804,7 +2011,7 @@ class MainWindow(QMainWindow):
     def _build_files_card(self) -> CardGroup:
         grp = CardGroup(title=self.m.t('section.files'), footer=self.m.t('msg.workdirHint'))
 
-        # Row 1: Game folder CTA (cream capsule button)
+        # Row 1: Game folder CTA (cream outline pill so build_btn remains the sole solid primary CTA)
         r_folder = QWidget()
         rf_lay = QHBoxLayout(r_folder)
         rf_lay.setContentsMargins(18, 14, 18, 14)
@@ -1822,8 +2029,8 @@ class MainWindow(QMainWindow):
         fcol.addWidget(self.folder_cta_sub)
         rf_lay.addLayout(fcol, 1)
         self.pick_folder_btn = QPushButton(self.m.t('data.pickFolder'))
-        self.pick_folder_btn.setObjectName('creamPill')
-        self.pick_folder_btn.setFixedWidth(184)
+        self.pick_folder_btn.setObjectName('creamOutlinePill')
+        self.pick_folder_btn.setMinimumWidth(148)
         self.pick_folder_btn.clicked.connect(self._pick_game_dir)
         rf_lay.addWidget(self.pick_folder_btn)
         grp.add_row(r_folder)
@@ -1880,7 +2087,6 @@ class MainWindow(QMainWindow):
         or_lay = QHBoxLayout(out_row)
         or_lay.setContentsMargins(18, 12, 18, 12)
         or_lay.setSpacing(12)
-        or_lay.addWidget(_dot(style.NEUTRAL_DOT))
         ocol = QVBoxLayout()
         ocol.setSpacing(2)
         self.out_title_lbl = QLabel(self.m.t('build.saveTo'))
@@ -1896,7 +2102,7 @@ class MainWindow(QMainWindow):
         self.out_clear_btn.hide()
         or_lay.addWidget(self.out_clear_btn)
         self.out_btn = QPushButton(self.m.t('build.outDir'))
-        self.out_btn.setFixedWidth(184)
+        self.out_btn.setMinimumWidth(148)
         self.out_btn.clicked.connect(self._pick_out_dir)
         or_lay.addWidget(self.out_btn)
         grp.add_row(out_row)
@@ -1927,7 +2133,7 @@ class MainWindow(QMainWindow):
         r.addWidget(clear)
 
         choose = QPushButton(self.m.t('data.choose'))
-        choose.setFixedWidth(184)
+        choose.setMinimumWidth(148)
         choose.clicked.connect(lambda _=False, k=key, m=multi: self._pick_input(k, m))
         r.addWidget(choose)
 
@@ -1956,7 +2162,6 @@ class MainWindow(QMainWindow):
         rp_lay = QHBoxLayout(r_plat)
         rp_lay.setContentsMargins(18, 12, 18, 12)
         rp_lay.setSpacing(12)
-        rp_lay.addWidget(_dot(style.GREEN))
         pcol = QVBoxLayout()
         pcol.setSpacing(2)
         self.target_title_lbl = QLabel(self.m.t('build.ios'))
@@ -1981,7 +2186,6 @@ class MainWindow(QMainWindow):
         rbc_lay = QHBoxLayout(r_bc)
         rbc_lay.setContentsMargins(18, 12, 18, 12)
         rbc_lay.setSpacing(12)
-        rbc_lay.addWidget(_dot(style.NEUTRAL_DOT))
         bccol = QVBoxLayout()
         bccol.setSpacing(2)
         self.bc_title_lbl = QLabel(self.m.t('opt.bc'))
@@ -2010,7 +2214,6 @@ class MainWindow(QMainWindow):
         rk_lay = QHBoxLayout(r_kind)
         rk_lay.setContentsMargins(18, 12, 18, 12)
         rk_lay.setSpacing(12)
-        rk_lay.addWidget(_dot(style.GREEN))
         kcol = QVBoxLayout()
         kcol.setSpacing(2)
         self.ipa_kind_title = QLabel(self.m.t('shell.ipaKind'))
@@ -2414,29 +2617,30 @@ class MainWindow(QMainWindow):
         self.footer.setTextInteractionFlags(Qt.TextSelectableByMouse)
         act.addWidget(self.footer, 1)
 
-        self.reveal_ipa_btn = QPushButton(f"{self.m.t('shell.showInFinder')} (IPA)")
+        self.reveal_ipa_btn = QPushButton(f"{self.m.t('shell.showInFinder')} · {self.m.t('delete.part.ipa')}")
         self.reveal_ipa_btn.clicked.connect(lambda: pu.reveal(self.m.ipa_path))
         self.reveal_ipa_btn.hide()
         act.addWidget(self.reveal_ipa_btn)
 
-        self.reveal_arc_btn = QPushButton(f"{self.m.t('shell.showInFinder')} (romfs)")
+        self.reveal_arc_btn = QPushButton(f"{self.m.t('shell.showInFinder')} · {self.m.t('delete.part.archive')}")
         self.reveal_arc_btn.clicked.connect(lambda: pu.reveal(self.m.archive_path))
         self.reveal_arc_btn.hide()
         act.addWidget(self.reveal_arc_btn)
 
-        self.reveal_app_btn = QPushButton('.app')
+        self.reveal_app_btn = QPushButton(self.m.t('delete.part.macApp'))
         self.reveal_app_btn.clicked.connect(lambda: pu.reveal(self.m.mac_app_path))
         self.reveal_app_btn.hide()
         act.addWidget(self.reveal_app_btn)
 
         grp.add_row(r)
+        return grp
 
-        # BuildFailureCard (shown on a known early stop)
-        self.failure_box = QFrame()
-        self.failure_box.setObjectName('failureCard')
-        self.failure_box.setContentsMargins(14, 8, 14, 14)
-        fcol = QVBoxLayout(self.failure_box)
-        fcol.setContentsMargins(16, 14, 16, 14)
+    def _build_failure_card(self) -> QFrame:
+        # Standalone top-level BuildFailureCard (shown on a known early stop)
+        box = QFrame()
+        box.setObjectName('failureCard')
+        fcol = QVBoxLayout(box)
+        fcol.setContentsMargins(18, 14, 18, 14)
         fcol.setSpacing(6)
         self.failure_title = QLabel()
         self.failure_title.setObjectName('sectionTitle')
@@ -2466,10 +2670,8 @@ class MainWindow(QMainWindow):
         frow.addWidget(self.failure_anyway_btn)
         frow.addStretch(1)
         fcol.addLayout(frow)
-        self.failure_box.hide()
-        grp.add_row(self.failure_box)
-
-        return grp
+        box.hide()
+        return box
 
     def _build_stages_card(self) -> CardGroup:
         grp = CardGroup(title=self.m.t('prog.title'))
@@ -2487,29 +2689,66 @@ class MainWindow(QMainWindow):
 
     def _build_log_card(self) -> CardGroup:
         grp = CardGroup(title=self.m.t('build.log'))
-        head = QWidget()
-        hl = QHBoxLayout(head)
-        hl.setContentsMargins(18, 10, 18, 6)
-        self.log_label = QLabel(self.m.t('build.log'))
-        self.log_label.setObjectName('rowTitle')
-        hl.addWidget(self.log_label)
-        hl.addStretch(1)
+        self.log_label = grp.title_label
+
+        self.copy_log_btn = QPushButton(self.m.t('diag.copy'))
+        self.copy_log_btn.setObjectName('ghost')
+        self.copy_log_btn.setCursor(Qt.PointingHandCursor)
+        self.copy_log_btn.clicked.connect(self._copy_log)
+        grp.header_row.addWidget(self.copy_log_btn)
+
         self.export_log_btn = QPushButton(self.m.t('log.export'))
         self.export_log_btn.setObjectName('ghost')
+        self.export_log_btn.setCursor(Qt.PointingHandCursor)
         self.export_log_btn.clicked.connect(self._export_log)
-        hl.addWidget(self.export_log_btn)
-        grp.add_row(head)
+        grp.header_row.addWidget(self.export_log_btn)
 
-        log_wrap = QWidget()
-        lw = QVBoxLayout(log_wrap)
-        lw.setContentsMargins(14, 4, 14, 14)
+        self.log_toggle_btn = QPushButton('')
+        self.log_toggle_btn.setObjectName('ghost')
+        self.log_toggle_btn.setCursor(Qt.PointingHandCursor)
+        self.log_toggle_btn.clicked.connect(lambda: self._set_log_expanded(not self._log_expanded))
+        grp.header_row.addWidget(self.log_toggle_btn)
+
+        self.log_wrap = QWidget()
+        lw = QVBoxLayout(self.log_wrap)
+        lw.setContentsMargins(14, 12, 14, 14)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setPlaceholderText(self.m.t('log.placeholder'))
         self.log.setMinimumHeight(200)
+        self._log_highlighter = BuildLogHighlighter(self.log.document())
         lw.addWidget(self.log)
-        grp.add_row(log_wrap)
+        grp.add_row(self.log_wrap)
+
+        self._set_log_expanded(False, grp=grp)
         return grp
+
+    def _set_log_expanded(self, expanded: bool, *, grp: CardGroup | None = None) -> None:
+        self._log_expanded = bool(expanded)
+        target_grp = grp if grp is not None else getattr(self, 'log_group', None)
+        if hasattr(self, 'log_wrap'):
+            self.log_wrap.setVisible(self._log_expanded)
+        if target_grp is not None:
+            target_grp.card.setVisible(self._log_expanded)
+        if hasattr(self, 'log_toggle_btn'):
+            arrow = '▾' if self._log_expanded else '▸'
+            key = 'dep.hide' if self._log_expanded else 'dep.show'
+            self.log_toggle_btn.setText(f'{arrow}  {self.m.t(key)}')
+
+    def _restore_copy_log_label(self) -> None:
+        if getattr(self, '_window_closed', False):
+            return
+        try:
+            self.copy_log_btn.setText(self.m.t('diag.copy'))
+        except RuntimeError:
+            pass
+
+    def _copy_log(self) -> None:
+        cb = QApplication.clipboard()
+        if cb is not None:
+            cb.setText(self.log.toPlainText())
+        self.copy_log_btn.setText(self.m.t('diag.copied'))
+        QTimer.singleShot(2000, self, self._restore_copy_log_label)
 
     def _export_log(self) -> None:
         f, _ = QFileDialog.getSaveFileName(self, self.m.t('log.export'), 'nx2apple-build.log', 'Log files (*.log *.txt)')
@@ -2523,10 +2762,14 @@ class MainWindow(QMainWindow):
     # ================================================================ Page 2: Settings
 
     def _build_settings_page(self) -> QWidget:
-        sbody = QWidget()
-        scol = QVBoxLayout(sbody)
-        scol.setContentsMargins(40, 28, 40, 36)
-        scol.setSpacing(22)
+        sbody = CenteredColumnWidget(
+            max_width=920,
+            min_h_margin=28,
+            top_margin=28,
+            bottom_margin=36,
+            spacing=22,
+        )
+        scol = sbody.body_col
 
         self.settings_heading = CardPageHeading(self.m.t('settings.heading'), self.m.t('settings.note'))
         scol.addWidget(self.settings_heading)
@@ -2558,7 +2801,7 @@ class MainWindow(QMainWindow):
         rl_lay.addWidget(self.settings_rescan_btn)
 
         self.settings_lib_choose_btn = QPushButton(self.m.t('library.chooseFolder'))
-        self.settings_lib_choose_btn.setFixedWidth(184)
+        self.settings_lib_choose_btn.setMinimumWidth(148)
         self.settings_lib_choose_btn.clicked.connect(self._pick_library_folder)
         rl_lay.addWidget(self.settings_lib_choose_btn)
         self.settings_lib_group.add_row(r_lib)
@@ -2657,8 +2900,8 @@ class MainWindow(QMainWindow):
 
         self.deps_rows_host = QWidget()
         self.deps_rows = QVBoxLayout(self.deps_rows_host)
-        self.deps_rows.setContentsMargins(0, 4, 0, 0)
-        self.deps_rows.setSpacing(8)
+        self.deps_rows.setContentsMargins(0, 6, 0, 0)
+        self.deps_rows.setSpacing(0)
         deps_col.addWidget(self.deps_rows_host)
         grp.add_row(r_deps)
         grp.add_divider()
@@ -2668,8 +2911,6 @@ class MainWindow(QMainWindow):
         rc_lay = QHBoxLayout(r_cache)
         rc_lay.setContentsMargins(18, 12, 18, 12)
         rc_lay.setSpacing(12)
-        self.cache_dot = _dot(style.GREEN)
-        rc_lay.addWidget(self.cache_dot)
         ccol = QVBoxLayout()
         ccol.setSpacing(2)
         self.cache_title_lbl = QLabel(self.m.t('shellCache.row'))
@@ -2742,13 +2983,13 @@ class MainWindow(QMainWindow):
         def_btn_col = QVBoxLayout()
         def_btn_col.setSpacing(6)
         self.defender_btn = QPushButton(self.m.t('defender.addBtn'))
-        self.defender_btn.setFixedWidth(184)
+        self.defender_btn.setMinimumWidth(148)
         self.defender_btn.clicked.connect(self._on_defender_clicked)
         def_btn_col.addWidget(self.defender_btn)
 
         self.defender_remove_btn = QPushButton(self.m.t('defender.removeBtn'))
         self.defender_remove_btn.setObjectName('ghost')
-        self.defender_remove_btn.setFixedWidth(184)
+        self.defender_remove_btn.setMinimumWidth(148)
         self.defender_remove_btn.hide()
         self.defender_remove_btn.clicked.connect(self._on_defender_remove_clicked)
         def_btn_col.addWidget(self.defender_remove_btn)
@@ -2761,7 +3002,6 @@ class MainWindow(QMainWindow):
         rd_lay = QHBoxLayout(r_diag)
         rd_lay.setContentsMargins(18, 12, 18, 12)
         rd_lay.setSpacing(12)
-        rd_lay.addWidget(_dot(style.GREEN))
         dcol = QVBoxLayout()
         dcol.setSpacing(2)
         self.diag_title_lbl = QLabel(self.m.t('diag.title'))
@@ -2773,7 +3013,7 @@ class MainWindow(QMainWindow):
         dcol.addWidget(self.diag_note_lbl)
         rd_lay.addLayout(dcol, 1)
         self.diag_btn = QPushButton(self.m.t('diag.copy'))
-        self.diag_btn.setFixedWidth(184)
+        self.diag_btn.setMinimumWidth(148)
         self.diag_btn.clicked.connect(self._copy_diagnostics)
         rd_lay.addWidget(self.diag_btn)
         grp.add_row(r_diag)
@@ -2873,6 +3113,14 @@ class MainWindow(QMainWindow):
         self.defender_remove_btn.setVisible(state in ('ready', 'partial') or bool(rec_dirs or rec_procs))
         self.defender_remove_btn.setEnabled(not busy and not self.m.running)
 
+    def _restore_diag_label(self) -> None:
+        if getattr(self, '_window_closed', False):
+            return
+        try:
+            self.diag_btn.setText(self.m.t('diag.copy'))
+        except RuntimeError:
+            pass
+
     def _copy_diagnostics(self) -> None:
         report = feat.Diagnostics.format_report(
             app_version=APP_VERSION,
@@ -2884,7 +3132,7 @@ class MainWindow(QMainWindow):
         if cb:
             cb.setText(report)
         self.diag_btn.setText(self.m.t('diag.copied'))
-        QTimer.singleShot(2000, lambda: self.diag_btn.setText(self.m.t('diag.copy')))
+        QTimer.singleShot(2000, self, self._restore_diag_label)
 
     def _toggle_deps_expanded(self) -> None:
         self._deps_expanded = not self._deps_expanded
@@ -2894,18 +3142,16 @@ class MainWindow(QMainWindow):
     def _build_app_card(self) -> CardGroup:
         grp = CardGroup(title=self.m.t('section.app'))
 
-        # Row 1: Language 13-language dropdown
+        # Row 1: Language dropdown
         r_lang = QWidget()
         rl_lay = QHBoxLayout(r_lang)
         rl_lay.setContentsMargins(18, 12, 18, 12)
-        rl_lay.addWidget(_dot(style.GREEN))
         self.app_lang_lbl = QLabel(self.m.t('settings.language'))
         self.app_lang_lbl.setObjectName('rowTitle')
         rl_lay.addWidget(self.app_lang_lbl, 1)
 
-        self.lang_combo = QComboBox()
-        self.lang_combo.setObjectName('launcherDropdown')
-        self.lang_combo.setFixedWidth(184)
+        self.lang_combo = LauncherComboBox()
+        self.lang_combo.setMinimumWidth(148)
         for lg in Lang.all():
             self.lang_combo.addItem(lg.name, lg.code)
         curr_idx = next((i for i, lg in enumerate(Lang.all()) if lg.code == self.m.lang.code), 0)
@@ -2919,7 +3165,6 @@ class MainWindow(QMainWindow):
         r_notif = QWidget()
         rn_lay = QHBoxLayout(r_notif)
         rn_lay.setContentsMargins(18, 12, 18, 12)
-        rn_lay.addWidget(_dot(style.NEUTRAL_DOT))
         ncol = QVBoxLayout()
         ncol.setSpacing(2)
         self.notif_title_lbl = QLabel(self.m.t('settings.notify'))
@@ -2941,7 +3186,6 @@ class MainWindow(QMainWindow):
         r_setup = QWidget()
         rs_lay = QHBoxLayout(r_setup)
         rs_lay.setContentsMargins(18, 12, 18, 12)
-        rs_lay.addWidget(_dot(style.NEUTRAL_DOT))
         scol = QVBoxLayout()
         scol.setSpacing(2)
         self.setup_row_title = QLabel(self.m.t('settings.setup'))
@@ -2953,7 +3197,7 @@ class MainWindow(QMainWindow):
         scol.addWidget(self.setup_row_note)
         rs_lay.addLayout(scol, 1)
         self.run_onboarding_btn = QPushButton(self.m.t('settings.setupBtn'))
-        self.run_onboarding_btn.setFixedWidth(184)
+        self.run_onboarding_btn.setMinimumWidth(148)
         self.run_onboarding_btn.clicked.connect(self._open_onboarding)
         rs_lay.addWidget(self.run_onboarding_btn)
         grp.add_row(r_setup)
@@ -2963,6 +3207,7 @@ class MainWindow(QMainWindow):
         r_ver = QWidget()
         rv_lay = QHBoxLayout(r_ver)
         rv_lay.setContentsMargins(18, 12, 18, 12)
+        rv_lay.setSpacing(12)
         self.ver_dot = _dot(style.GREEN)
         rv_lay.addWidget(self.ver_dot)
         vcol = QVBoxLayout()
@@ -2976,7 +3221,7 @@ class MainWindow(QMainWindow):
         vcol.addWidget(self.ver_status_lbl)
         rv_lay.addLayout(vcol, 1)
         self.ver_action_btn = QPushButton(self.m.t('repo.update'))
-        self.ver_action_btn.setFixedWidth(184)
+        self.ver_action_btn.setMinimumWidth(148)
         self.ver_action_btn.clicked.connect(self._on_version_action_clicked)
         rv_lay.addWidget(self.ver_action_btn)
         grp.add_row(r_ver)
@@ -3172,10 +3417,18 @@ class MainWindow(QMainWindow):
         self.lang_combo.blockSignals(False)
 
         # Navigation bar texts
-        for pid, btn in self.nav_btns.items():
-            btn.setText(t('nav.' + pid))
+        self.nav_seg.set_items(
+            [('library', t('nav.library')), ('builds', t('nav.builds'))],
+            selected=self._current_page if self._current_page in ('library', 'builds') else '',
+        )
+        self.settings_btn.setToolTip(t('nav.settings'))
+        self.settings_btn.setAccessibleName(t('nav.settings'))
         self.search_input.setPlaceholderText(t('library.search'))
-        self.new_build_btn.setText('+ ' + t('library.newBuild'))
+        self.stale_shader_dismiss_btn.setToolTip(t('library.dismissSkipped'))
+        self.stale_shader_dismiss_btn.setAccessibleName(t('library.dismissSkipped'))
+        if self._stale_shader_reason:
+            self.stale_shader_title.setText(t(TITLE))
+            self.stale_shader_body.setText(t(TEXT[self._stale_shader_reason]))
 
         # Headings & Cards
         self.running_setup.setText(t('section.setup'))
@@ -3198,8 +3451,9 @@ class MainWindow(QMainWindow):
 
         self.stages_card.set_title(t('prog.title'))
         self.log_group.set_title(t('build.log'))
-        self.log_label.setText(t('build.log'))
+        self.copy_log_btn.setText(t('diag.copy'))
         self.export_log_btn.setText(t('log.export'))
+        self._set_log_expanded(self._log_expanded)
         self.log.setPlaceholderText(t('log.placeholder'))
 
         # Settings page texts
@@ -3232,8 +3486,9 @@ class MainWindow(QMainWindow):
         self.diag_title_lbl.setText(t('diag.title'))
         self.diag_note_lbl.setText(t('diag.note'))
         self.diag_btn.setText(t('diag.copy'))
-        self.reveal_ipa_btn.setText(f"{t('shell.showInFinder')} (IPA)")
-        self.reveal_arc_btn.setText(f"{t('shell.showInFinder')} (romfs)")
+        self.reveal_ipa_btn.setText(f"{t('shell.showInFinder')} · {t('delete.part.ipa')}")
+        self.reveal_arc_btn.setText(f"{t('shell.showInFinder')} · {t('delete.part.archive')}")
+        self.reveal_app_btn.setText(t('delete.part.macApp'))
         self.top_bar.recenter_nav()
 
         self.app_group.set_title(t('section.app'))
@@ -3278,7 +3533,7 @@ class MainWindow(QMainWindow):
                 self.update_btn.setStyleSheet('')
                 self.ver_action_btn.setStyleSheet('')
                 self.update_btn.setMinimumWidth(0)
-                self.ver_action_btn.setMinimumWidth(0)
+                self.ver_action_btn.setMinimumWidth(148)
             self.ver_action_btn.setText(btn_label)
             self.update_btn.setText(btn_label)
             self.update_btn.setEnabled(not self.m.app_update_busy and not self.m.running)
@@ -3286,7 +3541,7 @@ class MainWindow(QMainWindow):
         else:
             _set_dot(self.ver_dot, style.GREEN)
             self.ver_action_btn.setStyleSheet('')
-            self.ver_action_btn.setMinimumWidth(0)
+            self.ver_action_btn.setMinimumWidth(148)
             self.ver_action_btn.setText(t('repo.update'))
         self.ver_action_btn.setEnabled(not self.m.app_update_busy and not self.m.running)
 
@@ -3425,6 +3680,7 @@ class MainWindow(QMainWindow):
         self._clear_dep_rows()
         self._deps_sig = sig
         for d in self.m.deps:
+            self.deps_rows.addWidget(make_divider())
             self.deps_rows.addWidget(self._make_dep_row(d))
 
         self._refresh_running()
@@ -3433,9 +3689,9 @@ class MainWindow(QMainWindow):
     def _make_dep_row(self, d: Dep) -> QFrame:
         t = self.m.t
         f = QFrame()
-        f.setObjectName('subcard')
+        f.setStyleSheet('background: transparent; border: none;')
         outer = QVBoxLayout(f)
-        outer.setContentsMargins(12, 10, 12, 10)
+        outer.setContentsMargins(0, 10, 0, 10)
         outer.setSpacing(6)
 
         r = QHBoxLayout()
@@ -3747,9 +4003,7 @@ class MainWindow(QMainWindow):
         reason = stale_reason(s)
         if reason and not getattr(self, '_stale_shaders_shown', False):
             self._stale_shaders_shown = True
-            box = QMessageBox(QMessageBox.Icon.Information, 'NX2Apple', self.m.t(TITLE), parent=self)
-            box.setInformativeText(self.m.t(TEXT[reason]))
-            box.exec()
+            self._show_stale_shader_banner(reason)
 
     def _on_finished(self, ok: bool, note: str) -> None:
         t = self.m.t
@@ -3761,6 +4015,10 @@ class MainWindow(QMainWindow):
             self.footer.setText(note or t('msg.buildFailed'))
             if self._current_page != 'builds':
                 self._switch_page('builds')
+            self._set_log_expanded(True)
+            if self.scroll.widget() is not None:
+                self.scroll.widget().adjustSize()
+            self.body_col.activate()
             self.scroll.ensureWidgetVisible(self.log, 0, 0)
         self._show_failure()
         self.reveal_ipa_btn.hide()
@@ -3936,18 +4194,19 @@ class MainWindow(QMainWindow):
         start = self.m.game_dir or (str(Path(self.m.base_path).parent) if self.m.base_path else str(Path.home()))
         if key == 'keys':
             f, _ = QFileDialog.getOpenFileName(
-                self, 'prod.keys', start, 'Keys (prod.keys *.keys *);;All files (*)')
+                self, self.m.t('data.keys'), start, 'Keys (prod.keys *.keys *);;All files (*)')
             if f:
                 self.m.keys_path = f
         elif multi:
             fs, _ = QFileDialog.getOpenFileNames(
-                self, 'DLC', start, 'Switch dumps (*.nsp *.xci *.nsz *.xcz)')
+                self, self.m.t('data.dlc'), start, 'Switch dumps (*.nsp *.xci *.nsz *.xcz)')
             if fs:
                 self.m.leave_game_folder()
                 self.m.dlc_paths = fs
         else:
+            title_key = 'data.base' if key == 'base' else 'data.update'
             flt = 'Switch games (*.nsp *.xci *.nsz *.xcz *.nup)' if key == 'base' else 'Switch dumps (*.nsp *.xci *.nsz *.xcz)'
-            f, _ = QFileDialog.getOpenFileName(self, key, start, flt)
+            f, _ = QFileDialog.getOpenFileName(self, self.m.t(title_key), start, flt)
             if f:
                 if key == 'base' and inputs.is_game_folder_candidate(f):
                     self.m.take_game_folder(f)
@@ -4003,6 +4262,7 @@ class MainWindow(QMainWindow):
                 return
         self._failed = False
         self._stale_shaders_shown = False
+        self._dismiss_stale_shader_banner()
         self.reveal_ipa_btn.hide()
         self.reveal_arc_btn.hide()
         self.reveal_app_btn.hide()
