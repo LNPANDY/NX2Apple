@@ -6,7 +6,7 @@ popover and alert, every notice and every case of the state enums the views swit
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
 328 scenes.
 
-## Views: 221 of 231 in a scene
+## Views: 222 of 232 in a scene
 
 | View | Scenes |
 |---|---|
@@ -50,6 +50,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `CheatsView` | `cheats` |
 | `CloudSaveSheet` | `cloudChoose`, `cloudFetching` |
 | `CloudSavesCard` | `settingsLibrary`, `gameOptions` |
+| `CloudSyncConflictSheet` | `cloudSyncConflict` |
 | `ConsoleAdvancedList` | `console-advanced` |
 | `ConsoleAllGamesPage` | `consoleAllGames` |
 | `ConsoleArtColumn` | `consoleOptions` |
@@ -242,7 +243,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `UpstreamPicker` | `nxkitEngine`, `desktop-mngBlocked` |
 | `UpstreamVersionPill` | `buildsIdle`, `desktop-engineDropdown` |
 
-## Presentations: 30 of 36 in a scene
+## Presentations: 31 of 37 in a scene
 
 | Presentation | Scenes |
 |---|---|
@@ -251,6 +252,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `BuildPage.swift .sheet BuildProcessStepsSheet` | `buildSteps` |
 | `BuildPage.swift .sheet LauncherConfirmSheet` | `confirmCancelDraft` |
 | `BuildPage.swift .sheet LauncherConfirmSheet 2` | `confirmCancelQueue` |
+| `CloudSavesCard.swift .sheet CloudSyncConflictSheet` | `cloudSyncConflict` |
 | `Controls.swift .sheet LauncherConfirmSheet` | `controlsDiscard` |
 | `EngineSwitcherCard.swift .popover EngineDropdownPanel` | Reason: A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it. |
 | `ExportSteps.swift .sheet SendSelectedSheet` | `desktop-sendSelectedDrive` |

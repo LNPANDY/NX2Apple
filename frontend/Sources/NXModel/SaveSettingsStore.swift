@@ -33,4 +33,8 @@ import NXCore
         else if let data = try? JSONEncoder().encode(value) { defaults.set(data, forKey: Self.gameKey(titleID)) }
         revision += 1
     }
+
+    package func notifySaveChanged() {
+        revision += 1
+    }
 }

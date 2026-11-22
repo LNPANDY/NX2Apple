@@ -95,7 +95,7 @@ enum GalleryCoverage {
         "DeleteGameSheet": [.sheet(.deleteGame), .desktop(D.deleteGameIOS)], "RenameGameSheet": [.sheet(.rename)],
         "ConsoleControllersSheet": [.sheet(.controllersSheet)], "ControlsView": [.sheet(.controlsSheet)], "PadModeSection": [.sheet(.controlsSheet)],
         "ControllerMappingStatus": [.sheet(.controlsSheet)], "SteamControllerSection": [.sheet(.controlsSheet)],
-        "CloudSaveSheet": [.sheet(.cloudChoose), .sheet(.cloudFetching)], "FreeSpaceView": [.sheet(.freeSpace), .desktop(D.freeSpaceRunning)],
+        "CloudSaveSheet": [.sheet(.cloudChoose), .sheet(.cloudFetching)], "CloudSyncConflictSheet": [.sheet(.cloudSyncConflict)], "FreeSpaceView": [.sheet(.freeSpace), .desktop(D.freeSpaceRunning)],
         "BuildFilesRemoveSheet": [.sheet(.buildFilesRemove)], "BuildSelectedSheet": [.sheet(.buildSelected)],
         "SupportedGamesSheet": [.sheet(.supportedGames)], "SupportedGameRow": [.sheet(.supportedGames)], "BatchRefreshSheet": [.sheet(.batchRefresh)],
         "MissingImgGuideSheet": [.sheet(.imgGuide)], "SavesView": [.sheet(.saves), .desktop(D.savesReady)], "SaveImportSheet": [.sheet(.saveImport)],
@@ -169,6 +169,7 @@ enum GalleryCoverage {
         "ShellCopySheet.swift .sheet ShellCopySheet": [.sheet(.shellCopy)],
         "PlayersCard.swift .sheet PlayerNameSheet": [.sheet(.playerName)],
         "PlayersCard.swift .sheet LauncherConfirmSheet": [.sheet(.confirmRemovePlayer)],
+        "CloudSavesCard.swift .sheet CloudSyncConflictSheet": [.sheet(.cloudSyncConflict)],
     ]
 
     /// The launcher's notices (LauncherNoticeItem), by id.

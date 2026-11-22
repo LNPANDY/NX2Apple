@@ -12,7 +12,7 @@ enum GallerySheet: String, CaseIterable {
     case removeGame
     case controllersSheet
     case controlsSheet, controlsDiscard
-    case cloudFetching, cloudFetchingLong, cloudChoose, cloudChosen, cloudUnreadable
+    case cloudFetching, cloudFetchingLong, cloudChoose, cloudChosen, cloudUnreadable, cloudSyncConflict
     case freeSpace, freeSpaceMeasuring, freeSpaceConfirm, buildFilesRemove
     case confirmUninstall, confirmEngineChannel, confirmStaleFrameworks, confirmBuildAnyway, confirmRemovePlayer
     case confirmCancelQueue, confirmCancelDraft, confirmTestedValues
@@ -37,6 +37,7 @@ enum GallerySheet: String, CaseIterable {
         case .cloudChoose: return "Cloud save: choose"
         case .cloudChosen: return "Cloud save: one chosen"
         case .cloudUnreadable: return "Cloud save: unreadable"
+        case .cloudSyncConflict: return "Cloud sync: conflict"
         case .freeSpace: return "Free space"
         case .freeSpaceMeasuring: return "Free space: measuring"
         case .freeSpaceConfirm: return "Free space: confirm"
@@ -154,6 +155,19 @@ extension GalleryFixtures {
             return AnyView(CloudSaveSheet(gate: cloudGate(.asking(differ), titleID: game.titleID), picked: sheet == .cloudChosen ? .cloud : nil))
         case .cloudUnreadable:
             return AnyView(CloudSaveSheet(gate: cloudGate(.asking(unreadable), titleID: game.titleID)))
+        case .cloudSyncConflict:
+            let plan = CloudSaveNow.SyncPlan(
+                titleID: game.titleID,
+                gameName: name,
+                save: directory.appendingPathComponent("save"),
+                cloudFile: directory.appendingPathComponent("save.dmsync")
+            )
+            let prompt = CloudSaveSyncStore.ConflictPrompt(
+                plan: plan,
+                local: CloudSaveCheck.Save(hash: "a", saved: now.addingTimeInterval(-20 * 60)),
+                cloud: CloudSaveCheck.Save(hash: "b", saved: now.addingTimeInterval(-26 * 3600), device: "iPhone17,1")
+            )
+            return AnyView(CloudSyncConflictSheet(prompt: prompt, picked: .cloud, cancel: {}, choose: { _ in }))
         case .freeSpace:
             return AnyView(FreeSpaceView(m: stores.build, game: game, survey: survey(game), chosen: [.extracted, .oldShaders]))
         case .freeSpaceMeasuring:
