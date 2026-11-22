@@ -195,6 +195,40 @@ import Testing
         #expect(source.contains("let value: String ="))
         #expect(source.contains("let traits: AccessibilityTraits ="))
     }
+
+    @Test func optionsButtonClampsInsideShortLandscapeAndSafeArea() {
+        let shortCanvas = CGSize(width: 568, height: 320)
+        let pos = TouchLayoutEditorView.optionsButtonPosition(
+            swap: CGPoint(x: 284, y: 10),
+            screenInsets: .init(top: 12, left: 44, bottom: 21, right: 44),
+            canvasSize: shortCanvas,
+            scale: 1
+        )
+        // 22pt half-height + 6pt margin + 12pt top inset = 40pt minimum Y
+        #expect(pos.y >= 40)
+        #expect(pos.y <= shortCanvas.height - 21 - 28)
+        #expect(pos.x >= 44 + 28 && pos.x <= shortCanvas.width - 44 - 28)
+    }
+
+    @Test func selectionToolbarAvoidsOptionsButton() {
+        let canvas = CGSize(width: 852, height: 393)
+        let optionsCenter = CGPoint(x: 426, y: 34)
+        let box = CGRect(x: 396, y: 74, width: 60, height: 60)
+        let bounds = CGRect(x: 0, y: 0, width: 852, height: 393)
+        let toolbarWidth: CGFloat = 108
+        let pos = TouchLayoutEditorView.selectionToolsPosition(
+            toolbarWidth: toolbarWidth,
+            box: box,
+            bounds: bounds,
+            division: nil,
+            optionsCenter: optionsCenter,
+            canvasSize: canvas,
+            scale: 1
+        )
+        let toolbarRect = CGRect(x: pos.x - toolbarWidth / 2, y: pos.y - 30, width: toolbarWidth, height: 60)
+        let optionsRect = CGRect(x: optionsCenter.x - 22, y: optionsCenter.y - 22, width: 44, height: 44)
+        #expect(!toolbarRect.intersects(optionsRect), "floating toolbar \(toolbarRect) must not overlap options button \(optionsRect)")
+    }
 }
 
 import SwiftUI

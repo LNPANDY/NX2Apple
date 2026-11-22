@@ -99,7 +99,7 @@ import XCTest
         let action = app.buttons["state.action"]
         XCTAssertTrue(action.waitForExistence(timeout: 5))
         XCTAssertTrue(action.label.hasPrefix("Update game data"))
-        XCTAssertFalse(app.buttons["settings.open"].exists)
+        XCTAssertTrue(app.buttons["settings.open"].isHittable)
     }
 
     func testGameDataErrorAlertAppearsAboveGameSettingsSheet() {
@@ -148,10 +148,16 @@ import XCTest
         XCTAssertTrue(confirmButton.waitForExistence(timeout: 5))
         confirmButton.tap()
 
-        // Invalid password/PKCS12 reports inline inside the password sheet without dismissing or hiding behind another modal.
+        // Invalid password/PKCS12 reports inline inside the password sheet without clearing the entered password.
         let errorText = app.staticTexts["shellSettings.sideloadCert.passwordError"]
         XCTAssertTrue(errorText.waitForExistence(timeout: 5))
         XCTAssertTrue(passwordField.exists)
+        let toggleButton = app.buttons["shellSettings.sideloadCert.passwordToggle"]
+        XCTAssertTrue(toggleButton.exists)
+        toggleButton.tap()
+        let revealedField = app.textFields["shellSettings.sideloadCert.passwordField"]
+        XCTAssertTrue(revealedField.waitForExistence(timeout: 5))
+        XCTAssertEqual(revealedField.value as? String, "wrong-pass")
 
         let cancelButton = app.buttons["shellSettings.sideloadCert.passwordCancel"]
         XCTAssertTrue(cancelButton.exists)

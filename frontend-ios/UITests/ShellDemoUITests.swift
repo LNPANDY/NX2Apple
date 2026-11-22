@@ -775,8 +775,8 @@ import XCTest
             XCTAssertTrue(action.label.hasPrefix(label))
             XCTAssertTrue(action.isHittable)
             XCTAssertEqual(action.frame.midY, baseline.midY, accuracy: 4)
-            XCTAssertGreaterThan(action.frame.width, app.frame.width * 0.6)
-            XCTAssertFalse(app.buttons["settings.open"].exists)
+            XCTAssertGreaterThan(action.frame.width, app.frame.width * 0.55)
+            XCTAssertTrue(app.buttons["settings.open"].isHittable)
         }
     }
 
@@ -798,7 +798,7 @@ import XCTest
         XCTAssertTrue(app.alerts.staticTexts["Play requested. The demo does not launch games."].exists)
         app.alerts.buttons["OK"].tap()
         launch("needs-update")
-        XCTAssertFalse(app.buttons["settings.open"].exists)
+        XCTAssertTrue(app.buttons["settings.open"].isHittable)
         XCTAssertTrue(app.buttons["state.action"].isHittable)
         app.buttons["state.action"].tap()
         XCTAssertTrue(app.buttons["help.done"].waitForExistence(timeout: 5))
@@ -812,8 +812,9 @@ import XCTest
             let tile = app.buttons["tile." + id]
             tile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
             expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: tile)
-            expectation(for: NSPredicate(format: "exists == %@", NSNumber(value: playable)), evaluatedWith: app.buttons["settings.open"])
+            expectation(for: NSPredicate(format: "exists == true"), evaluatedWith: app.buttons["settings.open"])
             waitForExpectations(timeout: 5)
+            XCTAssertTrue(app.buttons["settings.open"].isHittable)
             XCTAssertEqual(app.buttons.matching(identifier: "state.action").count, 1)
             XCTAssertTrue(app.buttons["state.action"].label.hasPrefix(label))
             XCTAssertTrue(app.buttons["state.action"].isHittable)
@@ -1371,7 +1372,6 @@ import XCTest
 
         let backBtn = app.buttons["homeScreen.close"].firstMatch
         XCTAssertTrue(backBtn.waitForExistence(timeout: 5))
-        reveal(backBtn)
         backBtn.tap()
         XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
     }
@@ -1535,5 +1535,47 @@ import XCTest
             XCTAssertTrue(topControl.waitForExistence(timeout: 3) && topControl.isHittable,
                           "Up arrow must scroll game settings back to the top row (\(orientation))")
         }
+    }
+
+    func testEmptyLibraryGuideSecondaryEdgeSwipeAndTouchReset() {
+        XCUIDevice.shared.orientation = .portrait
+        launch("empty")
+        XCTAssertTrue(app.staticTexts["empty.guide"].waitForExistence(timeout: 5))
+        let openSettings = app.buttons["empty.openSettings"]
+        XCTAssertTrue(openSettings.waitForExistence(timeout: 5))
+        XCTAssertTrue(openSettings.isHittable)
+        openSettings.tap()
+        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
+
+        // Verify touch layout editor options popover exposes Reset all controls.
+        let arrange = app.buttons["shellSettings.arrange"]
+        reveal(arrange)
+        arrange.tap()
+        let options = app.buttons["touchLayout.options"]
+        XCTAssertTrue(options.waitForExistence(timeout: 5))
+        options.tap()
+        let optionsScroll = app.scrollViews["touchLayout.options.scroll"].firstMatch
+        XCTAssertTrue(optionsScroll.waitForExistence(timeout: 5))
+        let resetAll = app.buttons["touchLayout.resetAll"]
+        for _ in 0..<4 where !resetAll.exists {
+            optionsScroll.swipeUp()
+        }
+        XCTAssertTrue(resetAll.exists)
+        app.buttons["touchLayout.back"].tap()
+
+        // Verify secondary game settings route supports iOS left-edge swipe back.
+        XCUIDevice.shared.orientation = .portrait
+        extraArguments = ["--samples"]
+        launch("settings")
+        let addBtn = app.buttons["set.homeScreen"].firstMatch
+        reveal(addBtn)
+        addBtn.tap()
+        let homeTitle = app.staticTexts["homeScreen.title"]
+        XCTAssertTrue(homeTitle.waitForExistence(timeout: 5))
+        let leftEdge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.45))
+        let rightTarget = app.coordinate(withNormalizedOffset: CGVector(dx: 0.80, dy: 0.45))
+        leftEdge.press(forDuration: 0.05, thenDragTo: rightTarget, withVelocity: .default, thenHoldForDuration: 0)
+        XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
+        XCTAssertFalse(homeTitle.exists)
     }
 }

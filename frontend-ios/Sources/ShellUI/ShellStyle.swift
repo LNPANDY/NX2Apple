@@ -135,7 +135,7 @@ struct SectionHeading: View {
                 .foregroundStyle(ShellPalette.cream.opacity(0.72)).accessibilityAddTraits(.isHeader)
             if let trailing {
                 Spacer(minLength: 8)
-                Text(trailing).shellText(12, .medium, relativeTo: .caption).monospacedDigit().foregroundStyle(.white.opacity(0.4))
+                Text(trailing).shellText(12, .medium, relativeTo: .caption).monospacedDigit().foregroundStyle(.white.opacity(0.60))
             }
         }
     }
@@ -162,10 +162,15 @@ struct ShellButtonStyle: ButtonStyle {
 /// The one primary action of a screen: a cream capsule with black type, as the Mac hero's Play.
 struct PrimaryPillStyle: ButtonStyle {
     var expands = false
+    var allowsMultiline = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.shellType(ShellType.primaryButton)
-            .lineLimit(1).minimumScaleFactor(0.8)
-            .padding(.horizontal, 26).frame(minHeight: 50)
+            .lineLimit(allowsMultiline ? 2 : 1)
+            .minimumScaleFactor(allowsMultiline ? 0.75 : 0.8)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, allowsMultiline ? 18 : 26)
+            .padding(.vertical, allowsMultiline ? 8 : 0)
+            .frame(minHeight: 50)
             .frame(maxWidth: expands ? .infinity : nil)
             .foregroundStyle(.black)
             .background(ShellPalette.cream, in: Capsule())
@@ -309,12 +314,37 @@ struct PlaceholderArt: View {
         GeometryReader { geometry in
             let side = min(geometry.size.width, geometry.size.height)
             ZStack(alignment: .bottomLeading) {
-                LinearGradient(colors: [Color(hue: hue, saturation: 0.42, brightness: 0.36),
-                                        Color(hue: hue, saturation: 0.55, brightness: 0.13)],
-                               startPoint: .topTrailing, endPoint: .bottomLeading)
-                Circle().fill(Color(hue: hue, saturation: 0.30, brightness: 0.62).opacity(0.30))
-                    .frame(width: side * 1.1, height: side * 1.1)
-                    .position(x: geometry.size.width * 0.8, y: geometry.size.height * 0.22)
+                // Draw gradient and off-center decorative disc in a bounded Canvas so the disc's overflow
+                // never expands the enclosing button's UIKit/VoiceOver accessibilityFrame.
+                Canvas { context, size in
+                    let bounds = CGRect(origin: .zero, size: size)
+                    let gradient = Gradient(colors: [
+                        Color(hue: hue, saturation: 0.42, brightness: 0.36),
+                        Color(hue: hue, saturation: 0.55, brightness: 0.13)
+                    ])
+                    context.fill(
+                        Path(bounds),
+                        with: .linearGradient(
+                            gradient,
+                            startPoint: CGPoint(x: bounds.maxX, y: bounds.minY),
+                            endPoint: CGPoint(x: bounds.minX, y: bounds.maxY)
+                        )
+                    )
+                    let diameter = min(size.width, size.height) * 1.1
+                    let center = CGPoint(x: size.width * 0.8, y: size.height * 0.22)
+                    let discRect = CGRect(
+                        x: center.x - diameter * 0.5,
+                        y: center.y - diameter * 0.5,
+                        width: diameter,
+                        height: diameter
+                    )
+                    context.fill(
+                        Path(ellipseIn: discRect),
+                        with: .color(Color(hue: hue, saturation: 0.30, brightness: 0.62).opacity(0.30))
+                    )
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
                 if lettering {
                     Text(title).font(ShellFonts.fixed(max(9, side * 0.16), weight: .heavy)).tracking(-side * 0.004)
                         .foregroundStyle(ShellPalette.cream.opacity(0.92))
@@ -327,11 +357,18 @@ struct PlaceholderArt: View {
 }
 
 /// A 16:9 card with the hairline every picture gets, so dark art keeps its edge on the dark page. In the library it
-/// carries the game's state as a small dot in its top-left corner.
+/// carries the game's state as a small dot in its top-left corner, upgrading to a full warning chip on wide covers.
 struct CoverView: View {
     let game: GameTile
     var radius: CGFloat = 10
     var showsState = false
+
+    nonisolated static let compactStateDotThreshold: CGFloat = 220
+
+    nonisolated static func usesCompactStateDot(forWidth width: CGFloat) -> Bool {
+        width < compactStateDotThreshold
+    }
+
     var body: some View {
         ArtView(game: game)
             .aspectRatio(16 / 9, contentMode: .fit)
@@ -340,9 +377,10 @@ struct CoverView: View {
             .overlay(alignment: .topLeading) {
                 GeometryReader { geometry in
                     let size = max(8, min(14, geometry.size.width * 0.034))
+                    let compact = Self.usesCompactStateDot(forWidth: geometry.size.width)
                     HStack(spacing: 6) {
                         if showsState {
-                            if game.state.artworkWarning != nil {
+                            if !compact, game.state.artworkWarning != nil {
                                 AlertStateChip(state: game.state, dotSize: size)
                             } else {
                                 StateDot(state: game.state, size: size)

@@ -485,7 +485,7 @@ struct HeroView<Accessory: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             HeroText(status: game.state, title: game.title,
                      explanation: game.state == .playable ? "" : game.state.explanation,
-                     titleSize: max(36, titleSize), hintLines: short ? 1 : 2,
+                     titleSize: titleSize, hintLines: short ? 1 : 2,
                      recentlyPlayed: game.recentlyPlayed ?? "")
                 .modifier(ShellSelectionTransition(value: game.id))
                 .matchedGeometryEffect(id: "hero.details", in: poseNamespace, properties: .position)

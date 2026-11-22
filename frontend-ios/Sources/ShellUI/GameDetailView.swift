@@ -214,7 +214,7 @@ public struct GameDetailView: View {
                 .disabled(!detail.hasModifiedSettings)
                 .shellTarget("set.reset", enabled: detail.hasModifiedSettings) { actions.onResetDefaults(detail.id) }
             Text(ShellStrings.text("Brings back the settings this game was tested with."))
-                .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
+                .shellText(12.5).foregroundStyle(.white.opacity(0.62)).fixedSize(horizontal: false, vertical: true)
         }
         .id("set.reset")
         if let askDelete {
@@ -224,7 +224,7 @@ public struct GameDetailView: View {
                     .accessibilityIdentifier("set.delete")
                     .shellTarget("set.delete") { askDelete(detail.game) }
                 Text(ShellStrings.text("Deletes the game’s data on this device. You choose whether its saves go too."))
-                    .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
+                    .shellText(12.5).foregroundStyle(.white.opacity(0.62)).fixedSize(horizontal: false, vertical: true)
             }
             .id("set.delete")
         }
@@ -579,10 +579,10 @@ struct SegmentedChoice: View {
                         // The system's echo of a controller button picks nothing (the shell's focus took the button).
                         Button { if !ignoresPress() { change(option.id) } } label: {
                             Text(option.label).shellText(13.5, chosen ? .bold : .medium).lineLimit(1)
-                                .padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 40)
-                                .foregroundStyle(chosen ? .black : .white.opacity(0.75))
+                                .padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 44)
+                                .foregroundStyle(chosen ? .black : .white.opacity(0.78))
                                 .background(chosen ? ShellPalette.cream : .clear, in: RoundedRectangle(cornerRadius: 8))
-                                .contentShape(RoundedRectangle(cornerRadius: 8))
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(label + ", " + option.label)

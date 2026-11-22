@@ -98,6 +98,65 @@ import UniformTypeIdentifiers
         #expect(abs(rectBefore.height - rectAfter.height) < 1e-3)
     }
 
+    @Test func concurrentDragAndPinchEndingInEitherOrderNeverDoubleApplies() {
+        let imageSize = CGSize(width: 1920, height: 1080)
+        let start = CoverCropViewport.initial(imageSize: imageSize, viewportSize: viewportSize)
+        let expected = start.transformed(
+            magnification: 2.0,
+            translation: CGSize(width: 48, height: -24),
+            imageSize: imageSize,
+            viewportSize: viewportSize
+        )
+
+        // Order 1: drag ends first while pinch is still active, then pinch ends.
+        var dragFirst = CoverCropGestureSession(viewport: start)
+        dragFirst.updatePinch(2.0)
+        dragFirst.updateDrag(CGSize(width: 48, height: -24))
+        let liveBeforeEnd1 = dragFirst.liveViewport(imageSize: imageSize, viewportSize: viewportSize)
+        #expect(abs(liveBeforeEnd1.scale - expected.scale) < 1e-6)
+        #expect(abs(liveBeforeEnd1.offset.width - expected.offset.width) < 1e-6)
+        #expect(abs(liveBeforeEnd1.offset.height - expected.offset.height) < 1e-6)
+
+        dragFirst.endDrag(CGSize(width: 48, height: -24), imageSize: imageSize, viewportSize: viewportSize)
+        let liveBetween1 = dragFirst.liveViewport(imageSize: imageSize, viewportSize: viewportSize)
+        #expect(abs(liveBetween1.scale - expected.scale) < 1e-6, "ending drag must not double-scale live preview")
+        #expect(abs(liveBetween1.offset.width - expected.offset.width) < 1e-6)
+        #expect(abs(liveBetween1.offset.height - expected.offset.height) < 1e-6)
+
+        dragFirst.endPinch(2.0, imageSize: imageSize, viewportSize: viewportSize)
+        #expect(abs(dragFirst.viewport.scale - expected.scale) < 1e-6, "ending pinch after drag must not double-scale")
+        #expect(abs(dragFirst.viewport.offset.width - expected.offset.width) < 1e-6)
+        #expect(abs(dragFirst.viewport.offset.height - expected.offset.height) < 1e-6)
+
+        // Order 2: pinch ends first while drag is still active, then drag continues and ends.
+        var pinchFirst = CoverCropGestureSession(viewport: start)
+        pinchFirst.updatePinch(2.0)
+        pinchFirst.updateDrag(CGSize(width: 48, height: -24))
+        pinchFirst.endPinch(2.0, imageSize: imageSize, viewportSize: viewportSize)
+        let liveBetween2 = pinchFirst.liveViewport(imageSize: imageSize, viewportSize: viewportSize)
+        #expect(abs(liveBetween2.scale - expected.scale) < 1e-6)
+        #expect(abs(liveBetween2.offset.width - expected.offset.width) < 1e-6, "ending pinch must not double-translate live preview")
+        #expect(abs(liveBetween2.offset.height - expected.offset.height) < 1e-6)
+
+        pinchFirst.endDrag(CGSize(width: 48, height: -24), imageSize: imageSize, viewportSize: viewportSize)
+        #expect(abs(pinchFirst.viewport.scale - expected.scale) < 1e-6)
+        #expect(abs(pinchFirst.viewport.offset.width - expected.offset.width) < 1e-6, "ending drag after pinch must not double-translate")
+        #expect(abs(pinchFirst.viewport.offset.height - expected.offset.height) < 1e-6)
+
+        // Order 3: pinch ends while finger keeps dragging an extra (+12, +6).
+        var continuedDrag = CoverCropGestureSession(viewport: start)
+        continuedDrag.updatePinch(2.0)
+        continuedDrag.updateDrag(CGSize(width: 48, height: -24))
+        continuedDrag.endPinch(2.0, imageSize: imageSize, viewportSize: viewportSize)
+        continuedDrag.updateDrag(CGSize(width: 60, height: -18))
+        let continuedLive = continuedDrag.liveViewport(imageSize: imageSize, viewportSize: viewportSize)
+        #expect(abs(continuedLive.offset.width - (expected.offset.width + 12)) < 1e-6)
+        #expect(abs(continuedLive.offset.height - (expected.offset.height + 6)) < 1e-6)
+        continuedDrag.endDrag(CGSize(width: 60, height: -18), imageSize: imageSize, viewportSize: viewportSize)
+        #expect(abs(continuedDrag.viewport.offset.width - (expected.offset.width + 12)) < 1e-6)
+        #expect(abs(continuedDrag.viewport.offset.height - (expected.offset.height + 6)) < 1e-6)
+    }
+
     // MARK: - EXIF orientation normalization & JPEG rendering
 
     @Test func decodeNormalizedImageMatchesImageIOForAllEightExifOrientations() throws {
@@ -199,6 +258,52 @@ import UniformTypeIdentifiers
         view.guardedActions.onResetCustomCover?("0100000000010000")
         #expect(savedCount == 1)
         #expect(resetCount == 1)
+    }
+
+    @Test func concurrentEndThenCancelLeavesZeroJumpOnNextGesture() {
+        let imageSize = CGSize(width: 1600, height: 1200)
+        let viewportSize = CGSize(width: 320, height: 180)
+        let initial = CoverCropViewport.initial(imageSize: imageSize, viewportSize: viewportSize)
+
+        // Scenario A: pinch ends cleanly (storing dragBaseline), then drag is cancelled by the system.
+        var sessionA = CoverCropGestureSession(viewport: initial)
+        sessionA.updateDrag(CGSize(width: 120, height: -80))
+        sessionA.updatePinch(2.2)
+        let committedA = sessionA.endPinch(2.2, imageSize: imageSize, viewportSize: viewportSize)
+        #expect(sessionA.isDragActive)
+        #expect(!sessionA.isPinchActive)
+        sessionA.cancelDrag()
+        #expect(!sessionA.isDragActive)
+        #expect(sessionA.pendingTranslation == .zero)
+        // Next fresh 1pt drag must start cleanly from 0 instead of jumping by -119pt.
+        sessionA.updateDrag(CGSize(width: 1, height: 1))
+        #expect(abs(sessionA.pendingTranslation.width - 1) < 1e-4)
+        #expect(abs(sessionA.pendingTranslation.height - 1) < 1e-4)
+        let nextA = sessionA.liveViewport(imageSize: imageSize, viewportSize: viewportSize)
+        #expect(abs(nextA.offset.width - committedA.offset.width) <= 2)
+        #expect(abs(nextA.offset.height - committedA.offset.height) <= 2)
+
+        // Scenario B: drag ends cleanly (storing pinchBaseline), then pinch is cancelled by the system.
+        var sessionB = CoverCropGestureSession(viewport: initial)
+        sessionB.updateDrag(CGSize(width: 30, height: -20))
+        sessionB.updatePinch(2.5)
+        let committedB = sessionB.endDrag(CGSize(width: 30, height: -20), imageSize: imageSize, viewportSize: viewportSize)
+        #expect(sessionB.isPinchActive)
+        #expect(!sessionB.isDragActive)
+        sessionB.cancelPinch()
+        #expect(!sessionB.isPinchActive)
+        #expect(abs(sessionB.pendingMagnification - 1) < 1e-6)
+        // Next fresh gentle pinch (1.02x) must zoom in slightly instead of shrinking to 1.02 / 2.5 = 0.408x.
+        sessionB.updatePinch(1.02)
+        #expect(abs(sessionB.pendingMagnification - 1.02) < 1e-4)
+        let nextB = sessionB.liveViewport(imageSize: imageSize, viewportSize: viewportSize)
+        #expect(nextB.scale >= committedB.scale)
+
+        // Scenario C: single interrupted drag discards uncommitted preview before Done.
+        var sessionC = CoverCropGestureSession(viewport: initial)
+        sessionC.updateDrag(CGSize(width: 90, height: 40))
+        sessionC.cancelDrag()
+        #expect(sessionC.liveViewport(imageSize: imageSize, viewportSize: viewportSize) == initial)
     }
 
     // MARK: - Helpers

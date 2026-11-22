@@ -44,6 +44,35 @@ import UIKit
         XCTAssertEqual(CoverFlowView.nearestIndex(offset: 300, stride: 300, count: 0), 0)
     }
 
+    func testCardHeightFitsInsideShortLandscapeWithoutOverflow() {
+        let shortSize = CGSize(width: 667, height: 340)
+        let cardHeight = CoverFlowView.cardHeight(in: shortSize, short: true, nativeBars: true, showsBottomHints: true)
+        XCTAssertGreaterThanOrEqual(cardHeight, 84)
+        let totalRequired = cardHeight * 1.06 + CoverFlowView.infoHeight(short: true) + 50 + 16 + 28
+        XCTAssertLessThanOrEqual(totalRequired, shortSize.height, "Card, info, launch actions, and bottom hints must fit inside safe-area height")
+
+        // Extreme short landscape (320pt tall) + xxLarge type + status label + multi-line explanation must never overflow or produce negative/NaN sizes.
+        let extremeSize = CGSize(width: 568, height: 320)
+        let extremeCard = CoverFlowView.cardHeight(
+            in: extremeSize,
+            short: true,
+            nativeBars: true,
+            showsBottomHints: true,
+            hasStatusLabel: true,
+            hasExplanation: true,
+            dynamicTypeSize: .xxLarge
+        )
+        XCTAssertTrue(extremeCard.isFinite)
+        XCTAssertGreaterThan(extremeCard, 0)
+        let extremeInfo = CoverFlowView.infoHeight(short: true, hasStatusLabel: true, hasExplanation: true, dynamicTypeSize: .xxLarge)
+        XCTAssertGreaterThanOrEqual(extremeInfo, 130)
+        XCTAssertLessThanOrEqual(extremeCard * 1.06 + extremeInfo + 50 + 16 + 28, extremeSize.height)
+
+        // Degenerate or non-finite viewport dimensions never produce negative or NaN card heights.
+        let degenerate = CoverFlowView.cardHeight(in: CGSize(width: -10, height: CGFloat.nan), short: true, nativeBars: false, showsBottomHints: true)
+        XCTAssertEqual(degenerate, 0)
+    }
+
     #if canImport(UIKit)
     func testColdLaunchMaterializesAllCardsAndScrollsToLastWithoutAttributeGraphCycle() throws {
         setenv("AG_PRINT_CYCLES", "2", 1)

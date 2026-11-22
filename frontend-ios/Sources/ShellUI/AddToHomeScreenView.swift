@@ -146,7 +146,7 @@ public struct AddToHomeScreenView: View {
                          ? "✓ " + ShellStrings.text("Icon Saved & Title Copied")
                          : ShellStrings.text("Save Icon & Open Shortcuts"))
                 }
-                .buttonStyle(PrimaryPillStyle(expands: true))
+                .buttonStyle(PrimaryPillStyle(expands: true, allowsMultiline: true))
                 .disabled(saving)
                 .accessibilityIdentifier("homeScreen.save")
                 .shellTarget("hsc.save", enabled: !saving, radius: ShellFocusTarget.capsule, action: triggerSaveAndOpen)
@@ -280,9 +280,11 @@ private struct SecondaryPillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .shellType(ShellType.button)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .padding(.horizontal, 22)
+            .lineLimit(2)
+            .minimumScaleFactor(0.78)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 6)
             .frame(maxWidth: .infinity, minHeight: 46)
             .foregroundStyle(.white.opacity(0.92))
             .background(.white.opacity(configuration.isPressed ? 0.15 : 0.08), in: Capsule())

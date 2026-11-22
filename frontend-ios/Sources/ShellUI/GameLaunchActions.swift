@@ -39,6 +39,8 @@ struct GameLaunchActions: View {
         return HStack(spacing: 12) {
             Button(action: primary) {
                 Label(game.state.actionTitle, systemImage: game.state.actionSymbol)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
                     .contentTransition(.opacity)
                     .padding(.horizontal, expands ? 0 : 14)
                     .frame(maxWidth: expands ? .infinity : nil, minHeight: 26)
@@ -53,7 +55,7 @@ struct GameLaunchActions: View {
             .accessibilityLabel(game.state.actionTitle + ", " + game.title)
             .accessibilityIdentifier("state.action")
             .shellTarget(focusPrefix + "play", enabled: !joining, radius: ShellFocusTarget.capsule, action: primary)
-            if (game.state == .playable || joining), let settings {
+            if let settings {
                 Button(action: settings) {
                     Label(ShellStrings.text("Game settings"), systemImage: "slider.horizontal.3")
                         .labelStyle(.iconOnly)
@@ -62,6 +64,7 @@ struct GameLaunchActions: View {
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
                 .controlSize(.large)
+                .frame(minWidth: 44, minHeight: 44)
                 .glassEffectID("settings", in: namespace)
                 .glassEffectTransition(reduceMotion ? .identity : .matchedGeometry)
                 .accessibilityLabel(ShellStrings.text("Game settings") + ", " + game.title)

@@ -111,6 +111,119 @@ public struct CoverCropViewport: Equatable, Sendable {
     }
 }
 
+/// Tracks concurrent drag and pinch-zoom gestures for `CoverCropView` so ending one gesture
+/// never double-commits the other gesture's in-flight magnification or translation.
+public struct CoverCropGestureSession: Equatable, Sendable {
+    public private(set) var viewport: CoverCropViewport
+    private var dragActive = false
+    private var rawDrag: CGSize = .zero
+    private var dragBaseline: CGSize = .zero
+    private var pinchActive = false
+    private var rawPinch: CGFloat = 1
+    private var pinchBaseline: CGFloat = 1
+
+    public init(viewport: CoverCropViewport = CoverCropViewport()) {
+        self.viewport = viewport
+    }
+
+    public var isDragActive: Bool { dragActive }
+    public var isPinchActive: Bool { pinchActive }
+
+    public mutating func reset(to viewport: CoverCropViewport) {
+        self.viewport = viewport
+        dragActive = false
+        rawDrag = .zero
+        dragBaseline = .zero
+        pinchActive = false
+        rawPinch = 1
+        pinchBaseline = 1
+    }
+
+    /// Discards an interrupted drag gesture without committing stale baseline offsets to future touches.
+    public mutating func cancelDrag() {
+        dragActive = false
+        rawDrag = .zero
+        dragBaseline = .zero
+    }
+
+    /// Discards an interrupted pinch gesture without committing stale baseline scales to future pinches.
+    public mutating func cancelPinch() {
+        pinchActive = false
+        rawPinch = 1
+        pinchBaseline = 1
+    }
+
+    public var pendingMagnification: CGFloat {
+        guard pinchActive else { return 1 }
+        let safeRaw = rawPinch.isFinite && rawPinch > 0 ? rawPinch : 1
+        let safeBase = pinchBaseline.isFinite && pinchBaseline > 0 ? pinchBaseline : 1
+        return safeRaw / safeBase
+    }
+
+    public var pendingTranslation: CGSize {
+        guard dragActive else { return .zero }
+        let dx = (rawDrag.width.isFinite ? rawDrag.width : 0) - (dragBaseline.width.isFinite ? dragBaseline.width : 0)
+        let dy = (rawDrag.height.isFinite ? rawDrag.height : 0) - (dragBaseline.height.isFinite ? dragBaseline.height : 0)
+        return CGSize(width: dx, height: dy)
+    }
+
+    public func liveViewport(imageSize: CGSize, viewportSize: CGSize) -> CoverCropViewport {
+        viewport.transformed(
+            magnification: pendingMagnification,
+            translation: pendingTranslation,
+            imageSize: imageSize,
+            viewportSize: viewportSize
+        )
+    }
+
+    public mutating func updateDrag(_ translation: CGSize) {
+        if !dragActive {
+            dragActive = true
+            dragBaseline = .zero
+        }
+        rawDrag = translation
+    }
+
+    public mutating func updatePinch(_ magnification: CGFloat) {
+        if !pinchActive {
+            pinchActive = true
+            pinchBaseline = 1
+        }
+        rawPinch = magnification
+    }
+
+    @discardableResult
+    public mutating func endDrag(_ translation: CGSize, imageSize: CGSize, viewportSize: CGSize) -> CoverCropViewport {
+        updateDrag(translation)
+        let committed = liveViewport(imageSize: imageSize, viewportSize: viewportSize)
+        viewport = committed
+        dragActive = false
+        rawDrag = .zero
+        dragBaseline = .zero
+        if pinchActive {
+            pinchBaseline = rawPinch.isFinite && rawPinch > 0 ? rawPinch : 1
+        }
+        return committed
+    }
+
+    @discardableResult
+    public mutating func endPinch(_ magnification: CGFloat, imageSize: CGSize, viewportSize: CGSize) -> CoverCropViewport {
+        updatePinch(magnification)
+        let committed = liveViewport(imageSize: imageSize, viewportSize: viewportSize)
+        viewport = committed
+        pinchActive = false
+        rawPinch = 1
+        pinchBaseline = 1
+        if dragActive {
+            dragBaseline = CGSize(
+                width: rawDrag.width.isFinite ? rawDrag.width : 0,
+                height: rawDrag.height.isFinite ? rawDrag.height : 0
+            )
+        }
+        return committed
+    }
+}
+
 /// Decodes user-selected photos with EXIF orientation normalized upright and renders 16:9 cropped JPEGs.
 public enum CoverImageProcessor {
     /// Decodes image bytes into an upright sRGB-compatible `CGImage`, applying any EXIF orientation tag.

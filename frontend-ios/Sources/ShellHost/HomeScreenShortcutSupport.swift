@@ -395,20 +395,32 @@ public enum HomeScreenGuideCardRenderer {
         let barY = headerY - 24
         let segments = max(1, stepper.totalSteps)
         let gap: CGFloat = 8
-        let segW = (w - margin * 2 - gap * CGFloat(segments - 1)) / CGFloat(segments)
-        for idx in 0..<segments {
-            let segRect = CGRect(x: margin + CGFloat(idx) * (segW + gap), y: barY, width: segW, height: 6)
-            ctx.addPath(CGPath(roundedRect: segRect, cornerWidth: 3, cornerHeight: 3, transform: nil))
-            ctx.setFillColor(idx <= stepper.currentIndex ? cream : CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.16))
-            ctx.fillPath()
+        let segW = max(0, (w - margin * 2 - gap * CGFloat(segments - 1)) / CGFloat(segments))
+        if segW > 0 {
+            for idx in 0..<segments {
+                let segRect = CGRect(x: margin + CGFloat(idx) * (segW + gap), y: barY, width: segW, height: 6)
+                ctx.addPath(CGPath(roundedRect: segRect, cornerWidth: 3, cornerHeight: 3, transform: nil))
+                ctx.setFillColor(idx <= stepper.currentIndex ? cream : CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.16))
+                ctx.fillPath()
+            }
         }
 
-        let bodyRect = CGRect(x: margin + 4, y: 96, width: w - (margin + 4) * 2, height: barY - 116)
-        drawWrappedStep(stepper.currentStepText, in: bodyRect, ctx: ctx)
+        let bodyWidth = max(0, w - (margin + 4) * 2)
+        let bodyHeight = max(0, barY - 116)
+        if bodyWidth > 0, bodyHeight > 0 {
+            let bodyRect = CGRect(x: margin + 4, y: 96, width: bodyWidth, height: bodyHeight)
+            drawWrappedStep(stepper.currentStepText, in: bodyRect, ctx: ctx)
+        }
 
-        if !hintText.isEmpty {
-            let hintLine = makeLine(hintText, font: systemFont(size: 22, bold: false), color: CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.55))
-            drawCenteredLine(hintLine, in: CGRect(x: margin, y: 30, width: w - margin * 2, height: 42), ctx: ctx)
+        let hintMaxW = w - margin * 2
+        if !hintText.isEmpty, hintMaxW > 0 {
+            let hintFont = systemFont(size: 22, bold: false)
+            let hintColor = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.65)
+            let hintRect = CGRect(x: margin, y: 30, width: hintMaxW, height: 42)
+            let rawHint = makeLine(hintText, font: hintFont, color: hintColor)
+            if let hintLine = CTLineCreateTruncatedLine(rawHint, Double(hintRect.width), .end, makeLine("…", font: hintFont, color: hintColor)) {
+                drawCenteredLine(hintLine, in: hintRect, ctx: ctx)
+            }
         }
     }
 

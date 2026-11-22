@@ -75,9 +75,13 @@ struct ShellSettingsView: View {
     @State private var pendingCertFileName: String?
     @State private var certPromptPresented = false
     @State private var certPassword = ""
+    @State private var certPasswordVisible = false
     @State private var certPromptError: String?
     @State private var certImportError: String?
     @State private var certBusy = false
+    @State private var confirmingClearData = false
+    @State private var confirmingClearCloud = false
+    @State private var confirmingRemoveCert = false
     @FocusState private var certPasswordFocused: Bool
 
     var body: some View {
@@ -126,9 +130,11 @@ struct ShellSettingsView: View {
                     .accessibilityIdentifier("shellSettings.data")
                     .shellTarget("shs.data", action: actions.onPickShellData)
                     if store.dataFolderName != nil {
-                        Button(ShellStrings.text("Remove"), role: .destructive, action: actions.onClearShellData)
-                            .accessibilityIdentifier("shellSettings.data.remove")
-                            .shellTarget("shs.data.remove", action: actions.onClearShellData)
+                        Button(ShellStrings.text("Remove"), role: .destructive) {
+                            confirmingClearData = true
+                        }
+                        .accessibilityIdentifier("shellSettings.data.remove")
+                        .shellTarget("shs.data.remove") { confirmingClearData = true }
                     }
                 } footer: {
                     Text(ShellStrings.text("Games look for their data here. Keep one romfs.img per game in any folder inside. Each game is found by the image itself, so the folder names do not matter. Each game can also have a folder of its own."))
@@ -147,10 +153,12 @@ struct ShellSettingsView: View {
                     .accessibilityIdentifier("shellSettings.cloud")
                     .shellTarget("shs.cloud", action: actions.onPickShellCloud)
                     if store.cloudSavesFolderName != nil {
-                        Button(ShellStrings.text("Turn off"), role: .destructive, action: actions.onClearShellCloud)
-                            .accessibilityIdentifier("shellSettings.cloud.off")
-                            .accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
-                            .shellTarget("shs.cloud.off", action: actions.onClearShellCloud)
+                        Button(ShellStrings.text("Turn off"), role: .destructive) {
+                            confirmingClearCloud = true
+                        }
+                        .accessibilityIdentifier("shellSettings.cloud.off")
+                        .accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
+                        .shellTarget("shs.cloud.off") { confirmingClearCloud = true }
                     }
                 } footer: {
                     Text(ShellStrings.text("Games without a folder of their own save here. Choose the same iCloud Drive folder you use on your Mac."))
@@ -226,7 +234,7 @@ struct ShellSettingsView: View {
         .tint(ShellPalette.cream)
         .preferredColorScheme(.dark)
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in revision += 1 }
-        .onChange(of: certPromptPresented || certImportError != nil) { _, presented in
+        .onChange(of: certPromptPresented || certImportError != nil || confirmingClearData || confirmingClearCloud || confirmingRemoveCert) { _, presented in
             onModalPresentedChange?(presented)
         }
         .onDisappear {
@@ -234,6 +242,45 @@ struct ShellSettingsView: View {
         }
         .sheet(isPresented: $certPromptPresented, onDismiss: handleCertificateSheetDismiss) {
             certificatePasswordSheet
+        }
+        .confirmationDialog(
+            ShellStrings.text("Remove game data folder?"),
+            isPresented: $confirmingClearData,
+            titleVisibility: .visible
+        ) {
+            Button(ShellStrings.text("Remove"), role: .destructive) {
+                actions.onClearShellData()
+            }
+            .accessibilityIdentifier("shellSettings.data.removeConfirm")
+            Button(ShellStrings.text("Cancel"), role: .cancel) { }
+        } message: {
+            Text(ShellStrings.text("Games using this shared folder will no longer find their data until you choose a folder again. Your files on disk are not deleted."))
+        }
+        .confirmationDialog(
+            ShellStrings.text("Turn off cloud saves?"),
+            isPresented: $confirmingClearCloud,
+            titleVisibility: .visible
+        ) {
+            Button(ShellStrings.text("Turn off"), role: .destructive) {
+                actions.onClearShellCloud()
+            }
+            .accessibilityIdentifier("shellSettings.cloud.offConfirm")
+            Button(ShellStrings.text("Cancel"), role: .cancel) { }
+        } message: {
+            Text(ShellStrings.text("Games without a folder of their own will stop syncing saves with iCloud Drive. Existing save files are kept."))
+        }
+        .confirmationDialog(
+            ShellStrings.text("Remove signing certificate?"),
+            isPresented: $confirmingRemoveCert,
+            titleVisibility: .visible
+        ) {
+            Button(ShellStrings.text("Remove certificate"), role: .destructive) {
+                actions.onRemoveSideloadCertificate?()
+            }
+            .accessibilityIdentifier("shellSettings.sideloadCert.removeConfirm")
+            Button(ShellStrings.text("Cancel"), role: .cancel) { }
+        } message: {
+            Text(ShellStrings.text("Unsigned game frameworks will not be signed automatically on launch until you import another .p12 certificate."))
         }
         .alert(
             Text(verbatim: ShellStrings.text("Certificate import failed")),
@@ -252,12 +299,47 @@ struct ShellSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    SecureField(ShellStrings.text("Certificate password"), text: $certPassword)
+                    HStack(spacing: 8) {
+                        Group {
+                            if certPasswordVisible {
+                                TextField(ShellStrings.text("Certificate password"), text: $certPassword)
+                                    #if os(iOS)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    #endif
+                            } else {
+                                SecureField(ShellStrings.text("Certificate password"), text: $certPassword)
+                                    #if os(iOS)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    #endif
+                            }
+                        }
                         .focused($certPasswordFocused)
                         .submitLabel(.done)
                         .onSubmit { confirmCertificatePassword() }
                         .disabled(certBusy)
                         .accessibilityIdentifier("shellSettings.sideloadCert.passwordField")
+
+                        Button {
+                            let wasFocused = certPasswordFocused
+                            certPasswordVisible.toggle()
+                            if wasFocused {
+                                Task { @MainActor in
+                                    certPasswordFocused = true
+                                }
+                            }
+                        } label: {
+                            Image(systemName: certPasswordVisible ? "eye.slash" : "eye")
+                                .foregroundStyle(.white.opacity(0.75))
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(certBusy)
+                        .accessibilityLabel(ShellStrings.text(certPasswordVisible ? "Hide password" : "Show password"))
+                        .accessibilityIdentifier("shellSettings.sideloadCert.passwordToggle")
+                    }
                 } header: {
                     if let fileName = pendingCertFileName {
                         Text(verbatim: ShellStrings.text("Enter the password for \(fileName). Leave it blank if the certificate has no password."))
@@ -287,8 +369,15 @@ struct ShellSettingsView: View {
                     .accessibilityIdentifier("shellSettings.sideloadCert.passwordCancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(ShellStrings.text("Import")) {
+                    Button {
                         confirmCertificatePassword()
+                    } label: {
+                        if certBusy {
+                            ProgressView()
+                                .tint(ShellPalette.cream)
+                        } else {
+                            Text(ShellStrings.text("Import"))
+                        }
                     }
                     .disabled(certBusy)
                     .accessibilityIdentifier("shellSettings.sideloadCert.passwordConfirm")
@@ -297,7 +386,7 @@ struct ShellSettingsView: View {
         }
         .tint(ShellPalette.cream)
         .preferredColorScheme(.dark)
-        .presentationDetents([.large])
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(ShellPalette.background)
         .interactiveDismissDisabled(certBusy)
@@ -361,11 +450,13 @@ struct ShellSettingsView: View {
                     .shellTarget("shs.sideloadCert.replace", action: startCertificateImport)
                 }
 
-                if let onRemove = actions.onRemoveSideloadCertificate {
-                    Button(ShellStrings.text("Remove certificate"), role: .destructive, action: onRemove)
-                        .disabled(certBusy)
-                        .accessibilityIdentifier("shellSettings.sideloadCert.remove")
-                        .shellTarget("shs.sideloadCert.remove", action: onRemove)
+                if actions.onRemoveSideloadCertificate != nil {
+                    Button(ShellStrings.text("Remove certificate"), role: .destructive) {
+                        confirmingRemoveCert = true
+                    }
+                    .disabled(certBusy)
+                    .accessibilityIdentifier("shellSettings.sideloadCert.remove")
+                    .shellTarget("shs.sideloadCert.remove") { confirmingRemoveCert = true }
                 }
             } else {
                 LabeledContent {
@@ -403,6 +494,7 @@ struct ShellSettingsView: View {
             switch outcome {
             case .picked(let fileName):
                 certPassword = ""
+                certPasswordVisible = false
                 certPromptError = nil
                 pendingCertFileName = fileName
                 certPromptPresented = true
@@ -427,10 +519,10 @@ struct ShellSettingsView: View {
             certBusy = false
             if let failure, !failure.isEmpty {
                 certPromptError = failure
-                certPassword = ""
                 certPasswordFocused = true
             } else {
                 certPassword = ""
+                certPasswordVisible = false
                 pendingCertFileName = nil
                 certPromptError = nil
                 certPromptPresented = false
@@ -448,6 +540,7 @@ struct ShellSettingsView: View {
     private func cancelCertificatePasswordPrompt() {
         certPasswordFocused = false
         certPassword = ""
+        certPasswordVisible = false
         certPromptError = nil
         pendingCertFileName = nil
         certPromptPresented = false

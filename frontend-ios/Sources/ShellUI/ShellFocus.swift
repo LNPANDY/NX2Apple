@@ -24,6 +24,18 @@ struct FocusTarget: Equatable {
     // Native sheets host their own preferences; retain the library targets while a sheet is open.
     var libraryValues: [FocusTarget] = []
     var toolbarValues: [String: FocusTarget] = [:]
+    private var toolbarOwners: [String: UUID] = [:]
+
+    func registerToolbar(_ target: FocusTarget, owner: UUID) {
+        toolbarValues[target.id] = target
+        toolbarOwners[target.id] = owner
+    }
+
+    func unregisterToolbar(id: String, owner: UUID) {
+        guard toolbarOwners[id] == owner else { return }
+        toolbarValues.removeValue(forKey: id)
+        toolbarOwners.removeValue(forKey: id)
+    }
 
     func active(prefix: String, toolbarIDs: Set<String>) -> [FocusTarget] {
         let content = (libraryValues + values).filter { !toolbarIDs.contains($0.id) }
