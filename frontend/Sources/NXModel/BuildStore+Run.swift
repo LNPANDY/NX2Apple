@@ -292,7 +292,7 @@ extension BuildStore {
         }
         // A game folder's files are not encrypted: the script ignores -k for it, and the launcher does not ask for the keys.
         var args = [engineRoot + "/" + RepoLayout.buildScript, inputDir] + (folder != nil ? [] : ["-k", keysPath])
-        if RepoLayout.supportsProgressJson(capabilityDir) {
+        if !isVariant || RepoLayout.supportsProgressJson(capabilityDir) {
             args += ["--progress", "json"]
         }
         if let selectedTitleID { args += ["--title-id", selectedTitleID] }
@@ -300,7 +300,7 @@ extension BuildStore {
         // iPad build: the in-game menu's words in the launcher's language (GameMenuText, #1129), and the CPU decode of BC textures when
         // the player turned that compatibility switch on (a Mac app runs on this Mac's GPU, which always has BC support).
         var tempEnvURL: URL?
-        if target != BuildTarget.mac, RepoLayout.supportsEnvFile(capabilityDir) {
+        if target != BuildTarget.mac, (!isVariant || RepoLayout.supportsEnvFile(capabilityDir)) {
             let envURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("nspb-env-\(UUID().uuidString).txt")
             do {
                 try GameMenuText.envFile(bcOnCPU: bcOnCPU, t).write(to: envURL, atomically: true, encoding: .utf8)
@@ -343,7 +343,7 @@ extension BuildStore {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
             args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
         }
-        if !macApp, RepoLayout.supportsCheatDir(repo.path),
+        if !macApp, RepoLayout.supportsCheatDir(capabilityDir),
            let activeCheatsDir = RepoLayout.existingCheatsDir(titleID: gameTitleID ?? tidHex, home: self.home) {
             args += ["--cheat-dir", activeCheatsDir]
         }

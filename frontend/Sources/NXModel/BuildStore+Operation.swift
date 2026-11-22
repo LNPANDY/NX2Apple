@@ -67,15 +67,30 @@ extension BuildStore {
         BuildTarget.normalized(entry.target)
     }
 
+    private func entryForcesStandaloneIOS(_ entry: QueueEntry) -> Bool {
+        guard !entry.fastRefresh, effectiveQueuedTarget(for: entry) != BuildTarget.mac else { return false }
+        return (entry.upstream ?? buildUpstream).buildsIOSStandaloneOnly
+    }
+
     private var queueHasIOSTarget: Bool {
         guard hasQueuedBuilds else { return false }
         guard !skipsQueuedIOS else { return false }
         return queue?.queued.contains { effectiveQueuedTarget(for: $0) != BuildTarget.mac } ?? false
     }
 
+    /// True when the staged queue holds at least one iOS entry that uses the shared shell or direct device install
+    /// (excluding standalone-only variants like Kid with Sword that always export a one-game IPA).
+    private var queueHasSharedIOSTarget: Bool {
+        guard hasQueuedBuilds else { return false }
+        guard !skipsQueuedIOS else { return false }
+        return queue?.queued.contains {
+            effectiveQueuedTarget(for: $0) != BuildTarget.mac && !entryForcesStandaloneIOS($0)
+        } ?? false
+    }
+
     /// True when a staged queue targets iPhone/iPad direct install without a device and signing team chosen yet.
     package var queueNeedsDevice: Bool {
-        queueHasIOSTarget && !iosExportsShell && !iosInstallsDirectly
+        queueHasSharedIOSTarget && !iosExportsShell && !iosInstallsDirectly
     }
 
     /// Whether the Build page's primary Start button (or step 1's Build & export) can start right now.
@@ -130,7 +145,8 @@ extension BuildStore {
                 return
             }
             let hasIOS = queueHasIOSTarget
-            if hasIOS, iosPackagesSharedApp {
+            let hasSharedIOS = queueHasSharedIOSTarget
+            if hasSharedIOS, iosPackagesSharedApp {
                 if let why = shellRootProblem() {
                     doneNote = why
                     done = false
@@ -138,7 +154,7 @@ extension BuildStore {
                 }
                 let rebuilding = Set(
                     queue.queued
-                        .filter { effectiveQueuedTarget(for: $0) != BuildTarget.mac }
+                        .filter { effectiveQueuedTarget(for: $0) != BuildTarget.mac && !entryForcesStandaloneIOS($0) }
                         .map(\.titleID)
                 )
                 if askAboutStaleFrameworks(except: rebuilding, then: { [weak self] in self?.startBuildOrQueue() }) {
@@ -146,11 +162,11 @@ extension BuildStore {
                 }
             }
             clearUnstartedDraft()
-            let packageOnce = hasIOS && iosPackagesSharedApp
-            let batchExportsIPA: Bool? = hasIOS ? iosExportsShell : nil
-            let batchExportsFramework: Bool? = hasIOS ? iosExportsFramework : nil
-            let destination = (!hasIOS || iosExportsShell) ? nil : devices.deviceName(devices.installDevice)
-            if hasIOS {
+            let packageOnce = hasSharedIOS && iosPackagesSharedApp
+            let batchExportsIPA: Bool? = hasSharedIOS ? iosExportsShell : (hasIOS ? true : nil)
+            let batchExportsFramework: Bool? = hasSharedIOS ? iosExportsFramework : (hasIOS ? false : nil)
+            let destination = (!hasSharedIOS || iosExportsShell) ? nil : devices.deviceName(devices.installDevice)
+            if hasSharedIOS {
                 deferredExportsIPA = iosExportsShell
             }
             if deferredShell.isEmpty {
@@ -222,7 +238,12 @@ extension BuildStore {
             outDir = entry.outputDirectory
         }
         target = normalizedTarget
-        if normalizedTarget != BuildTarget.mac, let entryExport = entry.exportIPA {
+        let standaloneIOS = normalizedTarget != BuildTarget.mac && targetUpstream.buildsIOSStandaloneOnly
+        if standaloneIOS {
+            queuedExportIPA = true
+            queuedExportOneGame = true
+            queuedExportFramework = false
+        } else if normalizedTarget != BuildTarget.mac, let entryExport = entry.exportIPA {
             queuedExportIPA = entryExport
             if entry.exportFramework == true && entryExport {
                 queuedExportOneGame = false
@@ -236,13 +257,13 @@ extension BuildStore {
             queuedExportOneGame = nil
             queuedExportFramework = nil
         }
-        deferShellPackaging = entry.packageAfter && normalizedTarget != BuildTarget.mac && !exportsOneGame && !exportsFramework
-        if deferShellPackaging {
-            deferredExportsIPA = entry.exportIPA ?? exportsShell
-        }
         queuedIOSSeenShaders = normalizedTarget != BuildTarget.mac ? entry.iosSeenShaders : nil
 
         if entry.fastRefresh {
+            deferShellPackaging = entry.packageAfter && normalizedTarget != BuildTarget.mac && !exportsOneGame && !exportsFramework
+            if deferShellPackaging {
+                deferredExportsIPA = entry.exportIPA ?? exportsShell
+            }
             activeQueueEntryUpstream = .nxnative
             if buildUpstream != .nxnative {
                 buildUpstream = .nxnative
@@ -294,6 +315,10 @@ extension BuildStore {
         activeQueueEntryUpstream = targetUpstream
         if buildUpstream != targetUpstream {
             buildUpstream = targetUpstream
+        }
+        deferShellPackaging = !standaloneIOS && entry.packageAfter && normalizedTarget != BuildTarget.mac && !exportsOneGame && !exportsFramework
+        if deferShellPackaging {
+            deferredExportsIPA = entry.exportIPA ?? exportsShell
         }
         if let extImg = entry.externalImgPath?.trimmingCharacters(in: .whitespacesAndNewlines),
            !extImg.isEmpty,

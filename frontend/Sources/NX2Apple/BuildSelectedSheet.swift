@@ -260,12 +260,28 @@ struct BuildSelectedSheet: View {
     private func add() {
         guard canAdd else { return }
         let batch = UUID()
+        let upstream = effectiveUpstream
         queue.enqueue(candidates.filter { checked.contains($0.id) }.flatMap { game in
-            targets.map { target in
-                QueueEntry(game: game, engineID: engineID, target: target, batch: batch,
-                           packageAfter: packagesSharedApp && target != BuildTarget.mac,
-                           exportIPA: target != BuildTarget.mac && exportsFramework ? true : nil,
-                           exportFramework: target != BuildTarget.mac && exportsFramework ? true : nil)
+            let isNUP = isNUPInput(game)
+            return targets.map { target in
+                let isIOS = target != BuildTarget.mac
+                let rowUpstream = Self.rowEngineTag(
+                    for: game.titleID,
+                    selectedTarget: target,
+                    activeUpstream: upstream,
+                    isNUP: isNUP,
+                    supportsGenericNUP: mngSupportsGenericNUP
+                ) ?? upstream
+                let standaloneIOS = isIOS && rowUpstream.buildsIOSStandaloneOnly
+                return QueueEntry(
+                    game: game,
+                    engineID: engineID,
+                    target: target,
+                    batch: batch,
+                    packageAfter: !standaloneIOS && packagesSharedApp && isIOS,
+                    exportIPA: standaloneIOS ? true : (isIOS && exportsFramework ? true : nil),
+                    exportFramework: standaloneIOS ? false : (isIOS && exportsFramework ? true : nil)
+                )
             }
         })
         added(targets == [BuildTarget.mac] ? BuildTarget.mac : BuildTarget.ios)

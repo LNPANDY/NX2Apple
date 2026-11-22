@@ -126,6 +126,7 @@ final class EngineVariantsAndTunedQueryTests: XCTestCase {
             "org.nxnative.0400486024dec000.ABC123DEF4"
         )
         XCTAssertNil(OneGameIPA.personalBundleID(titleID: "0400486024DEC000", teamID: "  "))
+        XCTAssertNil(OneGameIPA.personalBundleID(titleID: "0400486024DEC000", teamID: "0000000000"))
         XCTAssertEqual(
             OneGameIPA.arguments(ipa: "/tmp/out.ipa", bundleID: "org.nxnative.0400486024dec000.TEAM1"),
             ["--platform", "ios", "--romfs", "bundle", "-o", "/tmp/out.ipa", "--bundle-id", "org.nxnative.0400486024dec000.TEAM1"]

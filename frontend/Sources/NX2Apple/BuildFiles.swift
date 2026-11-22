@@ -18,10 +18,17 @@ enum BuildFiles {
         try BuildFolder.remove(Set(BuildFolderPart.allCases), in: game.folder, protecting: game.protecting, buildRunning: false)
     }
 
-    /// Parses a valid 16-hex-character TitleID from a `<TitleID>_build` directory name, returning uppercase hex or nil.
+    /// Parses a valid 16-hex-character TitleID from a `<TitleID>_build` or `<TitleID>_<variant>_build` directory name.
     nonisolated static func orphanTitleID(folderName: String) -> String? {
         guard folderName.hasSuffix("_build") else { return nil }
-        let prefix = String(folderName.dropLast("_build".count))
+        var prefix = String(folderName.dropLast("_build".count))
+        for suffix in EngineUpstreamKind.allCases.compactMap(\.workDirSuffix) {
+            let token = "_" + suffix
+            if prefix.hasSuffix(token) {
+                prefix = String(prefix.dropLast(token.count))
+                break
+            }
+        }
         guard prefix.count == 16,
               prefix.unicodeScalars.allSatisfy({
                   ($0.value >= 0x30 && $0.value <= 0x39)

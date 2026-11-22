@@ -15,7 +15,7 @@ package enum OneGameIPA {
     package static func personalBundleID(titleID: String, teamID: String) -> String? {
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let team = teamID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !tid.isEmpty, !team.isEmpty else { return nil }
+        guard !tid.isEmpty, !team.isEmpty, team != "0000000000" else { return nil }
         return "org.nxnative.\(tid).\(team)"
     }
 

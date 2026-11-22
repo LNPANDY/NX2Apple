@@ -34,9 +34,11 @@ final class NxkitBuilderTests: XCTestCase {
         XCTAssertEqual(descriptor.environmentPrefixes, ["NXB_", "NXKIT_"])
 
         XCTAssertEqual(EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: true, nxkitEnabled: true),
-                       [.nxnative, .macNativeGames, .s2arm, .nxkit])
-        XCTAssertEqual(EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false, nxkitEnabled: true), [.nxnative, .nxkit])
-        XCTAssertEqual(EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false, nxkitEnabled: false), [.nxnative])
+                       [.nxnative, .nxkit, .s2arm, .macNativeGames, .kidWithSword, .noLagKart])
+        XCTAssertEqual(EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false, nxkitEnabled: true),
+                       [.nxnative, .nxkit, .kidWithSword, .noLagKart])
+        XCTAssertEqual(EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false, nxkitEnabled: false),
+                       [.nxnative, .kidWithSword, .noLagKart])
         // bundled, never downloaded as an upstream checkout
         XCTAssertNil(UpstreamEngineStore.archiveURL(for: .nxkit))
         XCTAssertNil(UpstreamEngineStore(root: temporary).directory(for: .nxkit))

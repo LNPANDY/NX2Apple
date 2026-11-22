@@ -261,4 +261,113 @@ import XCTest
         XCTAssertEqual(queue.entries.first { $0.titleID == "0400486024DEC000" }?.upstream, .kidWithSword)
         XCTAssertEqual(queue.entries.first { $0.titleID == "0100152000022000" }?.upstream, .nxnative)
     }
+
+    func testQueuedKidWithSwordIOSDoesNotRequireDeviceOrFailDeferredPackaging() throws {
+        let kwsTree = try makeVariantTree(name: "kws-queue-ios", flags: "\"--work-dir\" \"--bundle-id\"")
+        let runner = RecordingRunner()
+        let outDir = temporary.appendingPathComponent("out-kws-q", isDirectory: true)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        store.kidWithSwordPath = kwsTree
+        store.outDir = outDir.path
+        // Simulate direct-install default with NO device paired and NO exportIPA toggle set globally.
+        devices.installDevice = ""
+        devices.signingTeam = "TEAM77"
+        devices.exportIPA = false
+        devices.exportOneGame = false
+
+        let oot = temporary.appendingPathComponent("Ocarina [0400486024DEC000].nsp")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: oot)
+        try Data([0]).write(to: keys)
+
+        var packageBatchCalled = false
+        let queue = BuildQueueStore(
+            file: nil,
+            engineID: { "main" },
+            busy: { store.running },
+            start: { store.startQueued($0) },
+            packageBatch: { _ in
+                packageBatchCalled = true
+                return false
+            }
+        )
+        store.queue = queue
+        store.selectUpstream(.kidWithSword)
+
+        // Enqueue an OoT iOS entry with packageAfter: true (as if queued from shared-shell mode).
+        queue.enqueue([
+            QueueEntry(
+                titleID: "0400486024DEC000",
+                name: "Ocarina of Time",
+                target: BuildTarget.ios,
+                inputs: ["base": [oot.path], "keys": [keys.path]],
+                outputDirectory: outDir.path,
+                engineID: "main",
+                packageAfter: true,
+                upstream: .kidWithSword
+            )
+        ])
+
+        // Queue enqueue normalizes standalone-only variant to one-game export (never shared shell).
+        XCTAssertEqual(queue.entries.first?.packageAfter, false)
+        XCTAssertEqual(queue.entries.first?.exportIPA, true)
+        XCTAssertFalse(store.queueNeedsDevice, "Standalone-only Kid with Sword iOS queue must not be blocked by missing paired device")
+
+        // Switch form back to nxnative (with built-in repo available) before starting queue to verify
+        // startQueued computes deferShellPackaging AFTER switching buildUpstream to .kidWithSword.
+        repo.isRepo = true
+        store.selectUpstream(.nxnative)
+        runner.onStart = { launch in
+            if let idx = launch.arguments.firstIndex(of: "-o"), idx + 1 < launch.arguments.count {
+                try? Data("ipa".utf8).write(to: URL(fileURLWithPath: launch.arguments[idx + 1]))
+            }
+        }
+        store.startBuildOrQueue()
+        XCTAssertTrue(waitUntil { !runner.launches.isEmpty && !store.running })
+        XCTAssertFalse(store.deferShellPackaging, "Kid with Sword iOS queue build must never arm deferShellPackaging")
+
+        let outcome = store.queueOutcome
+        XCTAssertTrue(outcome.succeeded)
+        queue.buildEnded(succeeded: outcome.succeeded, reason: outcome.reason, stopped: outcome.stopped)
+        XCTAssertFalse(packageBatchCalled, "Standalone OneGameIPA must never trigger shared-shell packageBatch")
+        XCTAssertEqual(queue.entries.first?.status, .done)
+    }
+
+    func testGameFolderUsesActiveVariantEngineRootAndEnforcesAllowlist() throws {
+        let kwsTree = try makeVariantTree(name: "kws-folder", flags: "\"--work-dir\"")
+        // Add Switch 2 folder + profile support markers ONLY inside kwsTree (not in repo.path).
+        let dmDir = URL(fileURLWithPath: kwsTree).appendingPathComponent("dm/games/0400486024DEC000", isDirectory: true)
+        try FileManager.default.createDirectory(at: dmDir, withIntermediateDirectories: true)
+        try Data("title_id\t0400486024DEC000\nname\tOcarina of Time\n".utf8).write(to: dmDir.appendingPathComponent("game.tsv"))
+        try Data("# \"--work-dir\" \"--romfs-dir\" \"provisional\"\n".utf8)
+            .write(to: URL(fileURLWithPath: kwsTree).appendingPathComponent("scripts/build_ipa_from_nsp.py"))
+
+        let store = BuildStore(localizer: localizer, runner: RecordingRunner(), repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.kidWithSwordPath = kwsTree
+        store.selectUpstream(.kidWithSword)
+
+        let ootContents = GameFolder.Contents(
+            folder: temporary.path,
+            titleID: 0x0400486024DEC000,
+            updates: [],
+            dlc: [],
+            nup: nil
+        )
+        // Negative check: without scripts/pack_dump.py in kwsTree, engineBuildsFolders fails even if repo.path differs.
+        XCTAssertEqual(store.gameFolderEngineProblem(ootContents), localizer.t("folder.engineOld"))
+        try Data("# pack_dump\n".utf8).write(to: URL(fileURLWithPath: kwsTree).appendingPathComponent("scripts/pack_dump.py"))
+        XCTAssertNil(store.gameFolderEngineProblem(ootContents), "Variant folder check must probe active variant engine root")
+
+        let otherContents = GameFolder.Contents(
+            folder: temporary.path,
+            titleID: 0x0100152000022000,
+            updates: [],
+            dlc: [],
+            nup: nil
+        )
+        XCTAssertEqual(store.gameFolderEngineProblem(otherContents), localizer.t("upstream.kwsOnlyTitle"))
+    }
 }

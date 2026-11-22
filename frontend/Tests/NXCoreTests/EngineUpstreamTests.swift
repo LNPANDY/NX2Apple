@@ -106,20 +106,23 @@ final class EngineUpstreamTests: XCTestCase {
 
         XCTAssertEqual(
             EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: false),
-            [.nxnative, .macNativeGames, .nxkit]
+            [.nxnative, .nxkit, .macNativeGames, .kidWithSword, .noLagKart]
         )
         XCTAssertEqual(
             EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: false, nxkitEnabled: false),
-            [.nxnative, .macNativeGames]
+            [.nxnative, .macNativeGames, .kidWithSword, .noLagKart]
         )
         XCTAssertEqual(
             EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: true),
-            [.nxnative, .macNativeGames, .s2arm, .nxkit]
+            [.nxnative, .nxkit, .s2arm, .macNativeGames, .kidWithSword, .noLagKart]
         )
         if ProcessInfo.processInfo.environment["NX2APPLE_ENABLE_S2ARM"] != "1",
            ProcessInfo.processInfo.environment["NX2APPLE_MULTI_UPSTREAM"] != "0" {
             XCTAssertFalse(S2ArmBuilder.featureEnabled)
-            XCTAssertEqual(EngineUpstream.availableOnMac(), [.nxnative, .macNativeGames, .nxkit])
+            XCTAssertEqual(
+                EngineUpstream.availableOnMac(),
+                [.nxnative, .nxkit, .macNativeGames, .kidWithSword, .noLagKart]
+            )
         }
     }
 

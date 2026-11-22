@@ -187,24 +187,30 @@ final class UpstreamEngineStoreTests: XCTestCase {
         XCTAssertEqual(EngineUpstreamKind.nxnative.displayName, "nxnative")
         XCTAssertEqual(EngineUpstreamKind.macNativeGames.displayName, "MacNativeGames")
         XCTAssertEqual(EngineUpstreamKind.s2arm.displayName, "S2Arm")
+        XCTAssertEqual(EngineUpstreamKind.kidWithSword.displayName, "Kid with Sword")
+        XCTAssertEqual(EngineUpstreamKind.noLagKart.displayName, "No Lag Kart")
         XCTAssertTrue(EngineUpstreamKind.nxnative.isBuiltIn)
         XCTAssertFalse(EngineUpstreamKind.macNativeGames.isBuiltIn)
         XCTAssertFalse(EngineUpstreamKind.s2arm.isBuiltIn)
+        XCTAssertFalse(EngineUpstreamKind.kidWithSword.isBuiltIn)
+        XCTAssertFalse(EngineUpstreamKind.noLagKart.isBuiltIn)
         XCTAssertEqual(EngineUpstreamKind.nxnative.cardNoteKey, "upstream.nxnativeCardNote")
         XCTAssertEqual(EngineUpstreamKind.macNativeGames.cardNoteKey, "upstream.mngCardNote")
         XCTAssertEqual(EngineUpstreamKind.s2arm.cardNoteKey, "upstream.s2armCardNote")
+        XCTAssertEqual(EngineUpstreamKind.kidWithSword.cardNoteKey, "upstream.kwsCardNote")
+        XCTAssertEqual(EngineUpstreamKind.noLagKart.cardNoteKey, "upstream.noLagKartCardNote")
 
         XCTAssertEqual(
             EngineUpstream.availableOnMac(macNativeGamesEnabled: true, s2armEnabled: true, nxkitEnabled: false),
-            [.nxnative, .macNativeGames, .s2arm]
+            [.nxnative, .s2arm, .macNativeGames, .kidWithSword, .noLagKart]
         )
         XCTAssertEqual(
             EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: true, nxkitEnabled: false),
-            [.nxnative, .s2arm]
+            [.nxnative, .s2arm, .kidWithSword, .noLagKart]
         )
         XCTAssertEqual(
             EngineUpstream.availableOnMac(macNativeGamesEnabled: false, s2armEnabled: false, nxkitEnabled: false),
-            [.nxnative]
+            [.nxnative, .kidWithSword, .noLagKart]
         )
     }
 
