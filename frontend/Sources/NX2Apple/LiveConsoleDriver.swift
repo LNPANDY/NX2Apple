@@ -74,6 +74,7 @@ struct ConsolePadSnapshot: Equatable {
     let shellRoot: () -> String
     private let pads: () -> [ConsolePadSnapshot]
     private let steamPads: () -> [ConsolePadSnapshot]
+    private let hidPads: () -> [ConsolePadSnapshot]
     private let launch: (LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void
     private let artwork: (LibraryGame, String) -> NSImage?
     private let startingTimeout: TimeInterval
@@ -104,6 +105,7 @@ struct ConsolePadSnapshot: Equatable {
 
     init(launchGracePeriod: TimeInterval = 1.75, library: GameLibrary, controls: ControlLayout, repo: @escaping () -> String, lang: @escaping () -> Lang, labels: @escaping (String) -> String,
          pads: (() -> [ConsolePadSnapshot])? = nil, steamPads: (() -> [ConsolePadSnapshot])? = nil,
+         hidPads: (() -> [ConsolePadSnapshot])? = nil,
          launch: ((LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void)? = nil,
          artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, playerOutput: ((String, Int) -> Void)? = nil,
          player: @escaping () -> PlayerProfile? = { nil },
@@ -123,6 +125,7 @@ struct ConsolePadSnapshot: Equatable {
         self.startingTimeout = startingTimeout
         self.pads = pads ?? { [] }
         self.steamPads = steamPads ?? { pads == nil ? SteamLinkGamepads.shared.snapshots : [] }
+        self.hidPads = hidPads ?? { pads == nil ? HIDGamepads.shared.snapshots : [] }
         self.launch = launch ?? Self.openApplication
         self.artwork = artwork ?? { [banners = library.artworkDirectory] game, repo in
             GameLibrary.artwork(for: game, slot: .thumbnail, repo: repo, banners: banners, maxPixel: Self.tilePixels)
@@ -146,6 +149,9 @@ struct ConsolePadSnapshot: Equatable {
         let center = NotificationCenter.default
         observers = [
             center.addObserver(forName: .steamLinkPadsChanged, object: SteamLinkGamepads.shared, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshControllers(announce: false) }
+            },
+            center.addObserver(forName: .hidPadsChanged, object: HIDGamepads.shared, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshControllers(announce: false) }
             },
             center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] note in
@@ -732,6 +738,7 @@ struct ConsolePadSnapshot: Equatable {
             }
         }
         snapshots += steamPads()
+        snapshots += hidPads()
         let live = Set(snapshots.map(\.id))
         batteryWatchers = batteryWatchers.filter { live.contains($0.key) || !devicePads }
         overrides = overrides.filter { live.contains($0.key) }

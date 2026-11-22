@@ -139,12 +139,14 @@ final class LauncherGamepad: ObservableObject {
     private var repeating: Action?
     private var repeatingController: String?
     private let steam: SteamLinkGamepads?
+    private let hid: HIDGamepads?
     private let appIsActive: () -> Bool
     private static let log = Logger(subsystem: "NX2Apple", category: "console.controllers")
 
-    init(steam: SteamLinkGamepads? = .shared, observeSystem: Bool = true,
+    init(steam: SteamLinkGamepads? = .shared, hid: HIDGamepads? = .shared, observeSystem: Bool = true,
          appIsActive: @escaping () -> Bool = { NSApp?.isActive ?? false }) {
         self.steam = steam
+        self.hid = hid
         self.appIsActive = appIsActive
         let center = NotificationCenter.default
         observers = (observeSystem ? [NSNotification.Name.GCControllerDidConnect, .GCControllerDidDisconnect] : []).map {
@@ -170,7 +172,17 @@ final class LauncherGamepad: ObservableObject {
             })
             observers.append(center.addObserver(forName: .steamLinkPadsChanged, object: steam, queue: .main) { [weak self] note in
                 if let id = note.userInfo?["removed"] as? String { self?.disconnected(id) }
-                self?.connected = !GCController.controllers().isEmpty || !steam.snapshots.isEmpty
+                self?.connected = !GCController.controllers().isEmpty || !steam.snapshots.isEmpty || !(self?.hid?.snapshots.isEmpty ?? true)
+            })
+        }
+        if let hid {
+            observers.append(center.addObserver(forName: .hidPadInput, object: hid, queue: .main) { [weak self] note in
+                guard let self, let input = note.userInfo?["input"] as? HIDGamepads.Input else { return }
+                self.read(Self.input(from: input.state), controller: input.id, isJoyCon: false)
+            })
+            observers.append(center.addObserver(forName: .hidPadsChanged, object: hid, queue: .main) { [weak self] note in
+                if let id = note.userInfo?["removed"] as? String { self?.disconnected(id) }
+                self?.connected = !GCController.controllers().isEmpty || !(steam?.snapshots.isEmpty ?? true) || !hid.snapshots.isEmpty
             })
         }
         if observeSystem { attach() }
@@ -189,13 +201,21 @@ final class LauncherGamepad: ObservableObject {
                     l: pad.buttons.contains(5), r: pad.buttons.contains(6), plus: pad.buttons.contains(9), select: pad.buttons.contains(10))
     }
 
+    /// The raw-HID fallback's state (NXCore) in the launcher's own input shape; `plus` is start, `select` is back.
+    static func input(from state: HIDPadState) -> RawPadInput {
+        RawPadInput(dpadX: state.dpadX, dpadY: state.dpadY, leftStickX: state.lx, leftStickY: state.ly,
+                    rightStickX: state.rx, rightStickY: state.ry,
+                    a: state.a, b: state.b, x: state.x, y: state.y,
+                    l: state.l, r: state.r, plus: state.start, select: state.back)
+    }
+
     deinit { observers.forEach(NotificationCenter.default.removeObserver); repeatTimer?.invalidate() }
 
     /// Every controller GameController lists, wired or wireless, whatever its vendor, drives the launcher: each gets a handler on its
     /// physical input profile (an extended gamepad is one, so are the simpler ones).
     private func attach() {
         let pads = GCController.controllers()
-        connected = !pads.isEmpty || !(steam?.snapshots.isEmpty ?? true)
+        connected = !pads.isEmpty || !(steam?.snapshots.isEmpty ?? true) || !(hid?.snapshots.isEmpty ?? true)
         for pad in pads {
             let id = String(UInt(bitPattern: ObjectIdentifier(pad).hashValue), radix: 16)
             let isJC = Self.isJoyCon(category: pad.productCategory, vendorName: pad.vendorName)
