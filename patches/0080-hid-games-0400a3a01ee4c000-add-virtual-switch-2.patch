@@ -1,0 +1,1692 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sun, 22 Nov 2026 19:42:23 +0800
+Subject: [PATCH] hid, games/0400A3A01EE4C000: add virtual Switch 2 Nmouse and
+ Pokopia iPhone support
+
+Add host virtual Switch 2 Joy-Con 2 mouse (Nmouse) emulation bridged from Mac mouse and iOS touch/pointer input (DM_VIRTUAL_NMOUSE, 2.5s lift-off, physical Joy-Con 2 priority and detach recovery, teardown reset, DuoHarness runtime stubs, and t_hid_nmouse tests).
+
+Add Pokemon Pokopia (0400A3A01EE4C000) iPhone support: app.entitlements with build_ipa.sh default pickup, KTGL dynamic render-scale stubs with NO_FRAME_STEP and loader.c g_state_page bounds/teardown guard, render_cap support in settings.py, and opt-in iOS --seen-shaders support (ios_seen_shaders, sh/partial-ios isolation, DM_PARTIAL_SHADERS=1).
+
+Upstream-Status: pending
+Reason: Virtual Switch 2 Nmouse input bridge, Pokemon Pokopia iPhone support, and opt-in iOS --seen-shaders fast build
+Issue: none
+---
+ dm/games/0400A3A01EE4C000/README.md        |   3 +
+ dm/games/0400A3A01EE4C000/app.entitlements |   6 +
+ dm/games/0400A3A01EE4C000/game.tsv         |  18 +
+ dm/games/0400A3A01EE4C000/patches.py       |  59 ++++
+ dm/games/README.md                         |   1 +
+ dm/games/settings.py                       |  10 +-
+ dm/host/dm.h                               |   1 +
+ dm/host/front.h                            |   6 +
+ dm/host/front_mac.m                        |  53 ++-
+ dm/host/hle_hid.c                          | 379 ++++++++++++++++++---
+ dm/host/loader.c                           |  37 +-
+ dm/host/pad_switch2_apple.m                |   2 +-
+ dm/host/tests/Makefile                     |   7 +
+ dm/host/tests/t_hid_nmouse.c               | 169 +++++++++
+ dm/ios/Sources/DmGamepad.m                 |  44 ++-
+ dm/ios/Sources/LauncherSettings.swift      |  10 +-
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   5 +
+ dm/ios/tools/build_ipa.sh                  |  22 +-
+ dm/tools/docs_patches.py                   |   2 +-
+ dm/tools/patch_nso.py                      |   8 +-
+ dm/tools/tests/test_ipa_tables.py          |  17 +-
+ dm/tools/tests/test_launcher_settings.py   |   6 +-
+ dm/tools/tests/test_nsp_mac_app.py         |  42 ++-
+ docs/launcher.schema.json                  |   4 +-
+ scripts/build_ipa_from_nsp.py              |  69 ++--
+ 25 files changed, 868 insertions(+), 112 deletions(-)
+ create mode 100644 dm/games/0400A3A01EE4C000/app.entitlements
+ create mode 100644 dm/games/0400A3A01EE4C000/patches.py
+ create mode 100644 dm/host/tests/t_hid_nmouse.c
+
+diff --git a/dm/games/0400A3A01EE4C000/README.md b/dm/games/0400A3A01EE4C000/README.md
+index 6ce540e..e58434c 100644
+--- a/dm/games/0400A3A01EE4C000/README.md
++++ b/dm/games/0400A3A01EE4C000/README.md
+@@ -10,6 +10,9 @@ A Switch 2 game: update v655360 (the title screen says Ver. 2.0.1), SDK 20.5.25
+ | `mem_used 0x5600000` | `game.tsv` | the rewritten modules take 82 MB, more than the default 64 MB that `SetHeapSize` checks the game's request against |
+ | `pad_layout full` | `game.tsv` | |
+ | `depth_mode zero` | `game.tsv` | the game sets near = 0 (the log's `depth mode` line). Without the key the pipeline archive made offline holds the other entry point, and the host refuses it |
++| [`app.entitlements`](app.entitlements) | profile | requests `increased-memory-limit` and `extended-virtual-addressing` on iOS builds when `DM_ENTITLEMENTS` is unset |
++| `present_interval display`, `fps_target 60`, `op_mode handheld` | `game.tsv` | steps by elapsed frame time so display-mode pacing supports 30/60 fps without frame-step stubs, and defaults to handheld for iPhone memory headroom |
++| [`patches.py`](patches.py), `render_base`, `render_cap` | profile | KTGL dynamic-resolution ladder stub (`DM_RENDER_SCALE` 0.5 to 1.0, capped at 1600x900 handheld and 1920x1080 docked) with `NO_FRAME_STEP` |
+ 
+ ## Files
+ 
+diff --git a/dm/games/0400A3A01EE4C000/app.entitlements b/dm/games/0400A3A01EE4C000/app.entitlements
+new file mode 100644
+index 0000000..b2909dd
+--- /dev/null
++++ b/dm/games/0400A3A01EE4C000/app.entitlements
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0"><dict>
++<key>com.apple.developer.kernel.increased-memory-limit</key><true/>
++<key>com.apple.developer.kernel.extended-virtual-addressing</key><true/>
++</dict></plist>
+diff --git a/dm/games/0400A3A01EE4C000/game.tsv b/dm/games/0400A3A01EE4C000/game.tsv
+index 46fe391..9b30f51 100644
+--- a/dm/games/0400A3A01EE4C000/game.tsv
++++ b/dm/games/0400A3A01EE4C000/game.tsv
+@@ -38,6 +38,24 @@ mem_used	0x5600000
+ # the game sets near = 0 (the log's depth mode line): the pipeline bases made before it runs are made for that mode
+ depth_mode	zero
+ 
++# ---- Frame rate ----
++# The game steps its time by how long each frame took (whole 1/60 s ticks, up to 50 ms), so a cap needs no frame step:
++# it is applied by the present interval alone (display mode). The launcher offers 30 / 60 fps, 60 by default.
++present_interval	display
++fps_target	60
++
++# ---- Render scale ----
++# The render-scale stub (patches.py) takes the scale as a fraction of 1920x1080 and caps it to the operation mode's
++# ladder size (handheld 1600x900, docked 1920x1080), so each 0.05 step maps to a whole 32x18 ladder step.
++render_base	1920x1080 1920x1080
++render_cap	1920x1080 1600x900
++
++# ---- Operation mode ----
++# Handheld renders at 720p for iPhone memory and thermal headroom
++op_mode	handheld
++
+ # ---- Shader split (shader_split.py) ----
+ shader_groups	/motor_asset_re/=rdb
+ shader_note	Pokemon Pokopia shaders
++# Optional fast iOS shader build (--seen-shaders) using the playtest list in shader_seen.tsv
++ios_seen_shaders	1
+diff --git a/dm/games/0400A3A01EE4C000/patches.py b/dm/games/0400A3A01EE4C000/patches.py
+new file mode 100644
+index 0000000..656ecf8
+--- /dev/null
++++ b/dm/games/0400A3A01EE4C000/patches.py
+@@ -0,0 +1,59 @@
++# Pokemon Pokopia (0400A3A01EE4C000): the rewriter's patches of this game's own builds. dm/tools/patch_nso.py loads every profile's patches.py and applies those of a module's
++# CUTS, OBS and FRAME_STEP as described there ("Registered patches"). Patches of Nintendo SDK module builds are in dm/tools/sdk_patches.py
++from nso_asm import ADRP, B
++
++# Render scale (DM_RENDER_SCALE, state +0x10; the launcher's Render scale). KTGL's dynamic resolution sizes the 3D views from a ladder of 31 sizes, 960x540 to 1920x1080 in steps
++# of 32x18 (widths at main+0x2849658, heights at main+0x28496e0, read by main+0x1129990 / main+0x11299d0; indices 31-33 are 2560, 3840, 7680 wide). Its controller
++# (main+0x22cd20, run every frame on the game's task threads) picks an index into [obj+0x88]: from the operation mode and the graphics scale tier (main+0x22d338: handheld
++# tier 0 starts at 20, 1600x900; docked 30, 1920x1080), stepped down and up by its load counters (+0x9c, +0xa0 against 1.25), which on this host never move (index 20 held
++# through a 2.5-minute iPhone run and Mac runs). At main+0x22cf68 it stores the index as the current one (+0x2a), and the views' sizes follow from that index (w0, the argument
++# of the size lookups after it). The stub there replaces w0 by the ladder step of the host's scale, a fraction of the 1920x1080 output: round((2 x scale - 1) x 30), so 0.5 is
++# 960x540, 0.75 1440x810, 0.9 1728x972, held to the game's own index, so the scale only lowers the size the operation mode picks (handheld: 0.85 and up stay 1600x900;
++# docked: the whole range). 1.0 (the default), unset or over runs the game's own index. Registers: x16, x17, q16, q17 saved; the flags are free (the next consumer, fcsel at
++# main+0x22cf90, follows the cmp at main+0x22cf80). The game steps by the time that passed (game.tsv, Frame rate), so the page holds settings only: no frame step (ctx.no_step)
++_index_store = 0x22cf68   # strb w0,[x19,#0x2a]
++
++def render_scale(ctx):
++    here, emit = ctx.here, ctx.emit
++    ctx.site(_index_store, '60aa0039')
++    s = here()
++    words = [
++        0xa9bd47f0,                       # stp x16,x17,[sp,#-0x30]!
++        0xad00c7f0,                       # stp q16,q17,[sp,#0x10]
++        None,                             # adrp x16, state page
++        0xb9401211,                       # ldr w17,[x16,#0x10]     the host scale's bits
++        0x34000231,                       # cbz w17,keep            unset
++        0x52a7f010,                       # mov w16,#0x3f800000     1.0
++        0x6b10023f,                       # cmp w17,w16
++        0x540001c2,                       # b.hs keep               1.0 or over: the game's own index
++        0x1e270230,                       # fmov s16,w17
++        0x1e302a10,                       # fadd s16,s16,s16        2 x scale
++        0x1e2e1011,                       # fmov s17,#1.0
++        0x1e313a10,                       # fsub s16,s16,s17        - 1
++        0x1e27d011,                       # fmov s17,#30.0
++        0x1e310a10,                       # fmul s16,s16,s17        x 30
++        0x1e200211,                       # fcvtns w17,s16          to the nearest step
++        0x528003d0,                       # mov w16,#30
++        0x6b10023f,                       # cmp w17,w16
++        0x1a903231,                       # csel w17,w17,w16,lo     at most 30 (1920x1080)
++        0x6b00023f,                       # cmp w17,w0
++        0x1a803231,                       # csel w17,w17,w0,lo      at most the game's own index: the scale only lowers the mode's size
++        0x2a1103e0,                       # mov w0,w17              the index the game stores and sizes from
++        0xad40c7f0,                       # keep: ldp q16,q17,[sp,#0x10]
++        0xa8c347f0,                       # ldp x16,x17,[sp],#0x30
++        0x3900aa60,                       # strb w0,[x19,#0x2a]     the original
++    ]
++    for k, w in enumerate(words): emit(ADRP(16, here(), ctx.state) if w is None else w)
++    emit(B(here(), _index_store + 4))
++    ctx.put(_index_store, [B(_index_store, s)], "dynamic resolution index: the step of the host render scale below 1.0 (else the game's own)")
++    ctx.render_scale = 1   # it only lowers the game's size: the loader holds DM_RENDER_SCALE to 1.0 and the launcher offers the row (patch_nso.py RENDER_SCALE)
++    ctx.no_step = True     # settings only: the host keeps its own pacing (display mode, the player's Frame rate)
++
++FRAME_STEP = {'76a489f3bd3642fa5e18bd83d32c98ba': render_scale}   # v655360 (2.0.1) main
++
++BINDING = [
++    {'what': 'render scale at the dynamic-resolution index store', 'now': 'build', 'goal': 'game', 'purpose': 'rendering',
++     'why': "KTGL's dynamic-resolution controller in the game's main; its function fingerprint (MATCH_FRAME_STEP) would carry it to later updates of this game, and possibly other KTGL "
++            'games on the same engine version, which nobody has compared yet',
++     'checked': 'v655360 main on the Mac: the controller runs every frame and holds index 20 (1600x900) handheld; DM_RENDER_SCALE runs (2026-11-15)'},
++]
+diff --git a/dm/games/README.md b/dm/games/README.md
+index c97e06e..3d2f212 100644
+--- a/dm/games/README.md
++++ b/dm/games/README.md
+@@ -293,6 +293,7 @@ One row per profile; the notes are each profile's `README.md`. Entries marked pr
+ | `device_api` | Optional, decided by the SDK version without it: the NVN API version `major.minor` that `nvnDeviceGetInteger` reports, 55.15 for SDK 11 and later (what Mario requires) and 53.313 for SDK 10 and older (`hle_nvn.c` `nvn_api`). Games check it and skip creating their device on a mismatch: Super Mario 3D World + Bowser's Fury (SDK 10) requires major 53 and minor ≥ 313. No profile sets it. `DM_NVN_API` overrides. Not part of the shader chain version (only `shader_*` keys are) |
+ | `depth_mode` | `gl` (the default, NVN's near = −w) or `zero` (near = 0): the depth mode the game sets with `nvnDeviceSetDepthMode`, for the pipeline bases made before the game runs: the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) for the iPhone (`main0` or `main0_z` vertex entries; built for a game with `pso_mtl4 on` or with `DM_PSO_GPUS`) and the NSP script's Mac prebuild (`DM_PSO_PREBUILD_DEPTH`). The host itself follows the mode the game sets; a wrong value only costs the device its own prebuild. The heap and address region checks of a provisional or derived profile set it when their boot reaches the game's call; without that call they leave it, as no call means unknown, not GL. Keep the key when the profile moves into `dm/games`: it is no shader input. Great Ace Attorney Chronicles, 13 Sentinels (both releases), Big Brain Academy, Link's Awakening, Engage, ASTRAL CHAIN, Luigi's Mansion 3, Octopath Traveler 0 and Kirby Air Riders set `zero` |
+ | `render_base` | The 3D views' base size, docked then handheld (`1600x900 1280x720`): what `DM_RENDER_SCALE` scales. `settings.py` writes it into the render scale's row of `launcher.json` as `base`, so a front end can show the setting in pixels. Only for a game with a render scale stub, and only a size its note documents. The slider's top is the stub's largest scale, which the rewriter writes as `RENDER_SCALE` in the fixups table (1.0, or 3.0 for Hades II, whose stub also raises its 1280x720) |
++| `render_cap` | With `render_base`: the largest size the render-scale stub draws in each mode, docked then handheld (`1920x1080 1600x900`), for a stub that only lowers the size the mode picks from a larger base (Pokémon Pokopia's ladder). `settings.py` writes it into the row's `base` as `cap` |
+ | `op_mode` | The operation mode the game sees at start: `console` (the default, docked) or `handheld`. Super Mario Galaxy and Captain Toad: Treasure Tracker use `handheld`: docked, their pointer is the Joy-Con gyro, which the host does not have; handheld, it is the touch screen, which the iPhone front end feeds with the touches no gamepad control takes (in the 3D layout, outside the right third of the screen, which is the right stick; `DmGamepad.m`). Handheld also renders at 720p. `DM_OPMODE=0` / `1` overrides, also from `Documents/env.txt` |
+ | `perf_mode` | `follow` (the default): the performance mode follows the operation mode (Boost docked, Normal handheld); `boost`: Boost whatever the operation mode (`hle_oe.c`), a combination a Switch 1 never reports, so a profile choice. Rhythm Heaven Groove plays handheld with Boost: docked means a TV to the game, which then asks for a latency calibration, and only Boost gives its 1920x1080 draw size (handheld Normal draws 1280x720) |
+ | `pad_layout` | The iPhone virtual gamepad's layout on first launch: `simple` (the default) = 2D (left stick, A/B/X/Y, shoulders, − / +), `full` = 3D (adds a D-pad, a right stick and L3 / R3; the right stick is not drawn: a touch landing in the right third of the screen on no control holds it, centred where it lands), `touch` = Tap (no control but the layout button: every touch goes to the game's touch screen; needs `op_mode handheld`, Balatro). The layout button at the top centre goes to the next layout in game (Tap only in handheld mode) and the app remembers the player's choice (`DmGamepad.m`) |
+diff --git a/dm/games/settings.py b/dm/games/settings.py
+index bd17f67..02d1ab3 100644
+--- a/dm/games/settings.py
++++ b/dm/games/settings.py
+@@ -34,12 +34,18 @@ def meta(text, n):
+ 
+ def render_base(g):
+     """The profile's render_base ("<w>x<h> <w>x<h>": the 3D views' base size docked, then handheld, which DM_RENDER_SCALE scales) as
+-    {"docked": [w, h], "handheld": [w, h]}, for a front end to show the render scale in pixels; None when the profile has none"""
++    {"docked": [w, h], "handheld": [w, h]} (plus optional "cap" from render_cap), for a front end to show the render scale in pixels; None when the profile has none"""
+     v = g.get('render_base', '')
+     if not v: return None
+     m = re.fullmatch(r'\s*(\d+)x(\d+)\s+(\d+)x(\d+)\s*', v)
+     if not m: sys.exit(f'{g.id}: render_base is "<w>x<h> <w>x<h>" (docked, then handheld): {v}')
+-    return {'docked': [int(m[1]), int(m[2])], 'handheld': [int(m[3]), int(m[4])]}
++    out = {'docked': [int(m[1]), int(m[2])], 'handheld': [int(m[3]), int(m[4])]}
++    c = g.get('render_cap', '')   # the largest size the stub draws in each mode, when it only lowers the size the mode picks from a larger base (Pokemon Pokopia)
++    if c:
++        k = re.fullmatch(r'\s*(\d+)x(\d+)\s+(\d+)x(\d+)\s*', c)
++        if not k: sys.exit(f'{g.id}: render_cap is "<w>x<h> <w>x<h>" (docked, then handheld): {c}')
++        out['cap'] = {'docked': [int(k[1]), int(k[2])], 'handheld': [int(k[3]), int(k[4])]}
++    return out
+ 
+ 
+ def rows():
+diff --git a/dm/host/dm.h b/dm/host/dm.h
+index b19d504..f6968c1 100644
+--- a/dm/host/dm.h
++++ b/dm/host/dm.h
+@@ -79,6 +79,7 @@ typedef struct {
+     uint64_t fps_state_off;    // frame step state page (patch_nso.py FRAME_STEP: Tears of the Kingdom 1.4.3 and Breath of the Wild 1.9.0 main); 0 = none
+     uint64_t cheat_state_off;  // 16 KB writable cheat state page (patch_nso.py / cheat_bake.py: 4 KB slot bytes + 12 KB Code Cave mirror); 0 = none
+     uint32_t step_max;         // the largest step the frame step stubs give the game (the fixups table's STEP_MAX, patch_nso.py ctx.step_max); 0 = FSTEP_MAX
++    uint32_t no_step;          // NO_FRAME_STEP in its fixups table (patch_nso.py ctx.no_step): the state page holds settings only, no frame step
+     uint32_t render_scale_max; // a render-scale stub's largest scale (the fixups table's RENDER_SCALE, patch_nso.py): DM_RENDER_SCALE is held to it; 0 = no such stub
+     int movie_native_color_keys; // the movie SDK's MediaData uses the native buffer's colour index directly (MOVIE_NATIVE_COLOR_KEYS)
+     int64_t patch_off;         // patch area relative to the base; negative = before the base (image too large, see patch_nso.py FAR), and size does not include it
+diff --git a/dm/host/front.h b/dm/host/front.h
+index 0a65314..4ee6c25 100644
+--- a/dm/host/front.h
++++ b/dm/host/front.h
+@@ -68,6 +68,12 @@ void dm_set_game_image_header(const void *mh);
+ typedef struct { uint32_t id; float x, y; } dm_touch;
+ void dm_touch_set(const dm_touch *t, int n);
+ void dm_touch_script(const dm_touch *t, int n);   // scripted touches (DM_KEYS, DM_CTL; hle_hid.c): as dm_touch_set, but never recorded by DM_REC
++// Virtual Switch 2 Nmouse pointer (Mac mouse / iOS touch or pointer -> hle_hid.c): normalized picture coordinates [0, 1),
++// relative deltas in pointer pixels (dx, dy), wheel deltas, button mask (DM_HOST_MOUSE_*), and flags (DM_HOST_MOUSE_FLAG_*).
++// Active while the game requests Nmouse, DM_VIRTUAL_NMOUSE != 0, and no physical Joy-Con 2 mouse is connected. May be called from any thread.
++enum { DM_HOST_MOUSE_LEFT = 1u << 0, DM_HOST_MOUSE_RIGHT = 1u << 1, DM_HOST_MOUSE_MIDDLE = 1u << 2 };
++enum { DM_HOST_MOUSE_FLAG_ABS = 1u << 0, DM_HOST_MOUSE_FLAG_REL = 1u << 1, DM_HOST_MOUSE_FLAG_SURFACE = 1u << 2, DM_HOST_MOUSE_FLAG_RESET = 1u << 3 };
++void dm_host_mouse(float nx, float ny, float dx, float dy, int wheel_x, int wheel_y, uint32_t buttons, uint32_t flags);
+ 
+ // Save not written (called by the host's hle_fs.c; the iOS front end provides a strong implementation of the same name that shows the native prompt "Not enough storage. Progress was not saved"; the default weak implementation only logs).
+ // Timing: when a save write fails (disk full etc.) within one of the game's save transactions (between two Commits), so that this Commit is refused and the previously committed save is unchanged, it is called once per refused transaction;
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index f4ce2e2..593771b 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -178,12 +178,17 @@ static void display_awake(int on) {
+ }
+ // Release only front-end input when the game window loses focus. Controller
+ // and mouse ownership lives in controllers_mac.m, keyboard state stays here.
++static uint32_t g_mac_mouse_btn;   // virtual Switch 2 Nmouse buttons currently held by Mac mouse events
+ static void hq_close(void);
+ static void input_release(void) {
+     [NSCursor setHiddenUntilMouseMoves:NO];
+     display_awake(0);
+     g_input_on = 0;
+     key_state_clear(&g_key_state); g_btn = 0; g_held_fn = 0; push();
++    if (g_mac_mouse_btn || dm_joy_mouse_wanted()) {
++        g_mac_mouse_btn = 0;
++        dm_host_mouse(0.f, 0.f, 0.f, 0.f, 0, 0, 0, DM_HOST_MOUSE_FLAG_RESET);
++    }
+     front_controllers_window(0);
+     hq_close();
+ }
+@@ -634,18 +639,52 @@ int front_ctrl_support(int min, int max) {
+ void front_picture_shape(int w, int h) { if (w > 0 && h > 0) g_picture_aspect = (double)w / h; }
+ @interface DmGameView : NSView @end
+ @implementation DmGameView
+-- (void)mouseDown:(NSEvent *)e { [self mouseDragged:e]; }
+-- (void)mouseDragged:(NSEvent *)e {
+-    if (!g_input_on) return;
++- (BOOL)picturePoint:(NSEvent *)e nx:(float *)nx ny:(float *)ny {
+     NSPoint p = [self convertPoint:e.locationInWindow fromView:nil]; NSSize b = self.bounds.size;
+     double w = b.width, h = b.height;
+-    if (w <= 0 || h <= 0) return;
++    if (w <= 0 || h <= 0) return NO;
+     double a = g_picture_aspect; if (w / h > a) w = h * a; else h = w / a;   // the centered picture the present fits into the view (16:9, or a taller one under DM_SCREEN_ASPECT)
+     double x0 = (b.width - w) / 2, y0 = (b.height - h) / 2;
+-    dm_touch t = {0, (float)fmin(fmax((p.x - x0) / w, 0), 0.999), (float)fmin(fmax(1 - (p.y - y0) / h, 0), 0.999)};   // The AppKit view origin is at bottom left, the touchscreen origin is at top left
++    *nx = (float)fmin(fmax((p.x - x0) / w, 0), 0.999);
++    *ny = (float)fmin(fmax(1 - (p.y - y0) / h, 0), 0.999);   // AppKit view origin is bottom left, touchscreen / Nmouse origin is top left
++    return YES;
++}
++- (void)sendNmouse:(NSEvent *)e wheelX:(int)wx wheelY:(int)wy {
++    if (!g_input_on || !dm_joy_mouse_wanted()) return;
++    float nx, ny;
++    if (![self picturePoint:e nx:&nx ny:&ny]) return;
++    dm_host_mouse(nx, ny, (float)e.deltaX, (float)e.deltaY, wx, wy, g_mac_mouse_btn,
++                  DM_HOST_MOUSE_FLAG_ABS | DM_HOST_MOUSE_FLAG_REL | DM_HOST_MOUSE_FLAG_SURFACE);
++}
++- (void)mouseMoved:(NSEvent *)e { [self sendNmouse:e wheelX:0 wheelY:0]; }
++- (void)mouseDown:(NSEvent *)e {
++    if (!g_input_on) return;
++    g_mac_mouse_btn |= DM_HOST_MOUSE_LEFT;
++    [self mouseDragged:e];
++}
++- (void)mouseDragged:(NSEvent *)e {
++    if (!g_input_on) return;
++    float nx, ny;
++    if (![self picturePoint:e nx:&nx ny:&ny]) return;
++    if (dm_joy_mouse_wanted()) {
++        dm_host_mouse(nx, ny, (float)e.deltaX, (float)e.deltaY, 0, 0, g_mac_mouse_btn,
++                      DM_HOST_MOUSE_FLAG_ABS | DM_HOST_MOUSE_FLAG_REL | DM_HOST_MOUSE_FLAG_SURFACE);
++    }
++    dm_touch t = {0, nx, ny};
+     front_controllers_mouse(&t);
+ }
+-- (void)mouseUp:(NSEvent *)e { (void)e; front_controllers_mouse(NULL); }
++- (void)mouseUp:(NSEvent *)e {
++    g_mac_mouse_btn &= ~DM_HOST_MOUSE_LEFT;
++    [self sendNmouse:e wheelX:0 wheelY:0];
++    front_controllers_mouse(NULL);
++}
++- (void)rightMouseDown:(NSEvent *)e { if (!g_input_on) return; g_mac_mouse_btn |= DM_HOST_MOUSE_RIGHT; [self sendNmouse:e wheelX:0 wheelY:0]; }
++- (void)rightMouseDragged:(NSEvent *)e { [self sendNmouse:e wheelX:0 wheelY:0]; }
++- (void)rightMouseUp:(NSEvent *)e { g_mac_mouse_btn &= ~DM_HOST_MOUSE_RIGHT; [self sendNmouse:e wheelX:0 wheelY:0]; }
++- (void)otherMouseDown:(NSEvent *)e { if (!g_input_on) return; if (e.buttonNumber == 2) { g_mac_mouse_btn |= DM_HOST_MOUSE_MIDDLE; [self sendNmouse:e wheelX:0 wheelY:0]; } }
++- (void)otherMouseDragged:(NSEvent *)e { if (e.buttonNumber == 2) [self sendNmouse:e wheelX:0 wheelY:0]; }
++- (void)otherMouseUp:(NSEvent *)e { if (e.buttonNumber == 2) { g_mac_mouse_btn &= ~DM_HOST_MOUSE_MIDDLE; [self sendNmouse:e wheelX:0 wheelY:0]; } }
++- (void)scrollWheel:(NSEvent *)e { [self sendNmouse:e wheelX:(int)lrint(e.scrollingDeltaX) wheelY:(int)lrint(e.scrollingDeltaY)]; }
+ // The drawable follows the view in pixels: a layer assigned to a layer-backed view kept the drawable at the first window's 1280x720 in fullscreen too, so the game picture was
+ // scaled down to it and up again by the compositor
+ - (void)fitDrawable {
+@@ -1632,8 +1671,8 @@ void front_run(void (*guest)(void)) {
+         // The pointer hides after DM_CURSOR_HIDE seconds (3 by default, 0 keeps it) without movement over the game, and comes back with the next movement, click or scroll. macOS
+         // hides it only for a game that asks (a game window does not, and a pointer left over a fullscreen game stays on the picture); it is also shown whenever the window is
+         // not key or the pointer is outside the game view, so the title bar and other windows keep theirs
++        win.acceptsMouseMovedEvents = YES;
+         if (idle > 0) {
+-            win.acceptsMouseMovedEvents = YES;
+             // DM_CURSOR_HIDDEN=1: the launcher's console had the pointer hidden when it started this game, so it starts hidden too (start_hidden, hidden at the top) and does
+             // not flash up until the first idle poll. The not-over rule below waits (armed) until the game window has been under the pointer once, as a new window is not key
+             // yet when the timer first runs
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index d0c5a6b..752c326 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -431,6 +431,7 @@ static void styles_sync(void) {
+ // npad, empty once docked, and took no input again (GitHub issue #2143)
+ void dm_hid_opmode_changed(void) { styles_sync(); }
+ // Joy-Cons as devices (dm_input.h): which a pad holds, then each one's buttons and stick. The style events tell the game that its npads changed
++static void jcms_clear_sides(int p, uint32_t detached_mask);
+ void dm_joy_attach(int p, uint32_t sides) {
+     if (p < 0 || p >= DM_PLAYERS) return;
+     atomic_store(&g_joy_two[p], (sides & DM_JOY_2) && (sides & 3) ? 1u : 0u);
+@@ -438,6 +439,7 @@ void dm_joy_attach(int p, uint32_t sides) {
+     if (sides == 3 || !sides) atomic_store(&g_joy_paired[p], sides == 3);
+     atomic_fetch_and(&g_joy_reported[p], sides);   // a Joy-Con taken away has reported nothing yet when it comes back
+     if (atomic_exchange(&g_joy_sides[p], sides) != sides && !sides) for (int s = 0; s < 2; s++) { atomic_store(&g_joy_btn[p][s], 0); atomic_store(&g_joy_axes[p][s], 0); }
++    jcms_clear_sides(p, (~sides) & 3u);
+     styles_sync();
+ }
+ void dm_joy_set(int p, int side, uint64_t buttons, int32_t sx, int32_t sy) {
+@@ -1285,14 +1287,28 @@ HLE_FORCE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS
+     return k;
+ }
+ HLE_FORCE("_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE", "six-axis sensor; always sampling on the host", void, h_hid_SixStart, const uint32_t *h) { (void)h; }
+-// Merged mouse pointer (Nmouse, Switch 2 SDKs; Pokemon Pokopia, main+0x11251dc). The SDK opens the hid service itself in InitializeNmouse, which the host does not serve (abort 0xe15). No device
+-// reports here: GetNmouseHandles finds none and the merged handle, which exists without a device on the console, has no states. The game skips its mouse code on those answers (main+0x112638c, +0x11262b4)
++// Merged mouse pointer (Nmouse, Switch 2 SDKs; Pokemon Pokopia, main+0x11251dc). The SDK opens the hid service itself in InitializeNmouse, which the host does not serve (abort 0xe15).
++// Physical Joy-Con 2 sensors report through dm_joy_mouse; when none are connected and DM_VIRTUAL_NMOUSE is not 0, host mouse/touch events (dm_host_mouse) feed a virtual Nmouse pointer.
+ static _Atomic uint32_t g_jcms_wanted;   // the game reads the mouse sensors (dm_joy_mouse_wanted, with InitializeJcms below)
++// An NmouseState as Nintendo Switch 2 Welcome Tour reads it (main+0x253b2c): 48 bytes, 8 bytes first as in a JcmsState, then the Switch's MouseState fields (sampling number,
++// position, movement, wheel), buttons at 0x28 (left 1, right 2, middle 4: R / ZR on a right Joy-Con, L / ZL on a left one) and attributes at 0x2c (bit 1 connected, bit 0 on a surface)
++typedef struct { int64_t unk0, sampling; int32_t x, y, dx, dy, wheel_x, wheel_y; uint32_t buttons, attributes; } NmouseState;
++_Static_assert(sizeof(NmouseState) == 48, "NmouseState");
++#define NMOUSE_TAG 0x4e4d0000ull
++#define NMOUSE_HOST_HANDLE (NMOUSE_TAG | 0xff00ull)   // virtual host mouse / touch Nmouse handle when no physical Joy-Con 2 mouse is active
++#define NMOUSE_RING 16
++#define NMOUSE_LIFTOFF_NS 2500000000ull   // 2.5 s idle lift-off (clears on-surface bit so games return to controller prompts)
++static int nmouse_fill_states(NmouseState *out, int n, uint64_t h);
++static uint32_t nmouse_type_set(uint64_t h);
+ HLE_FORCE("_ZN2nn3hid14FinalizeNmouseEv", "merged mouse: nothing to release", void, h_hid_NmouseFini, void) { atomic_fetch_and(&g_jcms_wanted, ~2u); }
+-HLE_FORCE("_ZN2nn3hid26SetMergedNmouseSourceTypesENS_4util10BitFlagSetILi32ENS0_10NmouseTypeEEE", "merged mouse sources: no device", void, h_hid_NmouseSources, uint32_t types) { (void)types; }
+-HLE_FORCE("_ZN2nn3hid21GetMergedNmouseHandleEPNS0_12NmouseHandleE", "merged mouse handle: 0, with no states", int, h_hid_NmouseMerged, uint64_t *out) { *out = 0; return 1; }
+-HLE_FORCE("_ZN2nn3hid16GetNmouseTypeSetEPNS_4util10BitFlagSetILi32ENS0_10NmouseTypeEEENS0_12NmouseHandleE", "mouse types: none", int, h_hid_NmouseTypes, uint32_t *out, uint64_t h) { (void)h; *out = 0; return 1; }
+-HLE_FORCE("_ZN2nn3hid15GetNmouseStatesEPiPNS0_11NmouseStateEiNS0_12NmouseHandleE", "mouse states: none", int, h_hid_NmouseStates, int *count, void *out, int n, uint64_t h) { (void)out; (void)n; (void)h; *count = 0; return 1; }
++HLE_FORCE("_ZN2nn3hid26SetMergedNmouseSourceTypesENS_4util10BitFlagSetILi32ENS0_10NmouseTypeEEE", "merged mouse sources: accepted", void, h_hid_NmouseSources, uint32_t types) { (void)types; }
++HLE_FORCE("_ZN2nn3hid21GetMergedNmouseHandleEPNS0_12NmouseHandleE", "merged mouse handle: 0", int, h_hid_NmouseMerged, uint64_t *out) { *out = 0; return 1; }
++HLE_FORCE("_ZN2nn3hid16GetNmouseTypeSetEPNS_4util10BitFlagSetILi32ENS0_10NmouseTypeEEENS0_12NmouseHandleE", "mouse types: active physical or virtual source", int, h_hid_NmouseTypes, uint32_t *out, uint64_t h) { if (out) *out = nmouse_type_set(h); return 1; }
++HLE_FORCE("_ZN2nn3hid15GetNmouseStatesEPiPNS0_11NmouseStateEiNS0_12NmouseHandleE", "mouse states: newest first for physical Joy-Con 2 or virtual host pointer", int, h_hid_NmouseStates, int *count, void *out, int n, uint64_t h) {
++    if (!count) return 0;
++    *count = (out && n > 0) ? nmouse_fill_states((NmouseState *)out, n, h) : 0;
++    return 1;
++}
+ 
+ // Joy-Con 2 mouse sensor (JCMS, Switch 2 SDKs; Donkey Kong Bananza). The SDK opens the hid service itself in InitializeJcms, which the host does not serve. A handle is the npad id in
+ // byte 0 and the JcmsType in byte 1 (sdk hid::utility::MakeJcmsHandle); a JcmsState is 32 bytes, and GetJcmsStates returns 0 while its ring holds no samples, as here: no controller
+@@ -1318,9 +1334,25 @@ static float g_nm_pos[DM_PLAYERS][2][2]; static int32_t g_nm_d[DM_PLAYERS][2][2]
+ static int g_nm_last[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = -1};   // the Joy-Con last used on a surface: the player's pointer, also while it is lifted
+ static int g_nmouse_range[2];
+ #define NMOUSE_SCALE 0.25f   // pointer pixels per sensor count (a slow 10 cm slide is about 6,000 counts: about 1,500 pixels)
++static void jcms_clear_sides(int p, uint32_t detached_mask) {
++    if (p < 0 || p >= DM_PLAYERS || !detached_mask) return;
++    pthread_mutex_lock(&g_jcms_mu);
++    for (int s = 0; s < 2; s++) {
++        if (!(detached_mask & (1u << s))) continue;
++        if (g_nm_state[p][s] & DM_JOYMOUSE_CONNECTED) {
++            int64_t n = ++g_jcms_n[p][s];
++            g_jcms[p][s][(n - 1) % JCMS_RING] = (JcmsState){.sampling = n, .attributes = 0};
++        }
++        g_nm_state[p][s] = 0;
++        g_nm_d[p][s][0] = g_nm_d[p][s][1] = 0;
++        if (g_nm_last[p] == s) g_nm_last[p] = (g_nm_state[p][s ^ 1] & DM_JOYMOUSE_CONNECTED) ? (s ^ 1) : -1;
++    }
++    pthread_mutex_unlock(&g_jcms_mu);
++}
+ void dm_joy_mouse(int p, int side, int32_t dx, int32_t dy, uint32_t state) {
+     if (p < 0 || p >= DM_PLAYERS || (side != 0 && side != 1)) return;
+     pthread_mutex_lock(&g_jcms_mu);
++    if (!state && g_jcms_n[p][side] == 0) { pthread_mutex_unlock(&g_jcms_mu); return; }
+     int64_t n = ++g_jcms_n[p][side];
+     g_jcms[p][side][(n - 1) % JCMS_RING] = (JcmsState){.sampling = n, .dx = dx, .dy = dy, .attributes = state & 3};
+     int w = g_nmouse_range[0] > 0 ? g_nmouse_range[0] : 1920, hgt = g_nmouse_range[1] > 0 ? g_nmouse_range[1] : 1080;
+@@ -1329,6 +1361,7 @@ void dm_joy_mouse(int p, int side, int32_t dx, int32_t dy, uint32_t state) {
+     xy[0] = fminf((float)(w - 1), fmaxf(0.f, xy[0] + dx * NMOUSE_SCALE)); xy[1] = fminf((float)(hgt - 1), fmaxf(0.f, xy[1] + dy * NMOUSE_SCALE));
+     g_nm_d[p][side][0] = (int32_t)lrintf(dx * NMOUSE_SCALE); g_nm_d[p][side][1] = (int32_t)lrintf(dy * NMOUSE_SCALE); g_nm_state[p][side] = state;
+     if (state & DM_JOYMOUSE_ON_SURFACE) g_nm_last[p] = side;
++    else if (!(state & DM_JOYMOUSE_CONNECTED) && g_nm_last[p] == side) g_nm_last[p] = (g_nm_state[p][side ^ 1] & DM_JOYMOUSE_CONNECTED) ? (side ^ 1) : -1;
+     pthread_mutex_unlock(&g_jcms_mu);
+ }
+ // A handle's player and Joy-Con: the player the npad shows (a split pair's other half included), its Joy-Con of the handle's side
+@@ -1596,17 +1629,196 @@ HLE_FORCE("_ZN2nn3hid38StoreSixAxisSensorCalibrationParameterERKNS0_19SixAxisSen
+     pthread_mutex_unlock(&g_six_cal_mu);
+     return RES_OK;
+ }
+-// The Switch 2's pointer on top of those sensors (Nmouse; Fire Emblem Fortune's Weave initializes it at boot with the 1920x1080 screen it maps the pointer to, main+0x650a24). InitializeNmouse opens the
+-// hid service as InitializeJcms does (its Result aborts: sdk+0x6d5340). No controller of the host has the sensor, so there are no handles, and the calls on a handle have nothing to do
+-HLE_FORCE("_ZN2nn3hid16InitializeNmouseEPvmii", "Joy-Con mouse pointer: no hid service; front ends may turn the sensors on", void, h_hid_NmouseInit, void *work, uint64_t size, int w, int h) { (void)work; (void)size; (void)w; (void)h; atomic_fetch_or(&g_jcms_wanted, 2u); }
++// The Switch 2's pointer on top of those sensors (Nmouse; Fire Emblem Fortune's Weave initializes it at boot with the 1920x1080 screen it maps the pointer to, main+0x650a24).
++// InitializeNmouse opens the hid service as InitializeJcms does (its Result aborts: sdk+0x6d5340).
++HLE_FORCE("_ZN2nn3hid16InitializeNmouseEPvmii", "Joy-Con mouse pointer: no hid service; front ends may turn the sensors on", void, h_hid_NmouseInit, void *work, uint64_t size, int w, int h) {
++    (void)work; (void)size;
++    pthread_mutex_lock(&g_jcms_mu);
++    if (w > 0 && h > 0) { g_nmouse_range[0] = w; g_nmouse_range[1] = h; }
++    pthread_mutex_unlock(&g_jcms_mu);
++    atomic_fetch_or(&g_jcms_wanted, 2u);
++}
++// Virtual host Nmouse state (protected by g_jcms_mu): fed by Mac mouse / iOS touch & pointer through dm_host_mouse()
++// when DM_VIRTUAL_NMOUSE != 0 and no physical Joy-Con 2 mouse is connected.
++static NmouseState g_vm_ring[NMOUSE_RING];
++static int64_t g_vm_n;
++static float g_vm_pos[2];
++static int32_t g_vm_accum_dx, g_vm_accum_dy, g_vm_accum_wx, g_vm_accum_wy;
++static uint32_t g_vm_buttons;
++static int g_vm_on_surface;
++static uint64_t g_vm_active_ns;
++
++static int vm_env_enabled(void) {
++    const char *e = getenv("DM_VIRTUAL_NMOUSE");
++    return !e || atoi(e) != 0;
++}
++static int phys_jcms_any_locked(void) {
++    for (int p = 0; p < DM_PLAYERS; p++)
++        for (int s = 0; s < 2; s++)
++            if (g_jcms_n[p][s] > 0 && (g_nm_state[p][s] & DM_JOYMOUSE_CONNECTED)) return 1;
++    return 0;
++}
++static int vm_active_locked(void) {
++    return g_vm_n > 0 && vm_env_enabled() && !phys_jcms_any_locked();
++}
++static int vm_on_surface_locked(uint64_t now) {
++    if (!g_vm_on_surface) return 0;
++    if (g_vm_buttons) return 1;   // keep on surface while a button is held (e.g. click-drag)
++    if (now >= g_vm_active_ns && now - g_vm_active_ns >= NMOUSE_LIFTOFF_NS) {
++        g_vm_on_surface = 0;
++        return 0;
++    }
++    return 1;
++}
++static void vm_range_locked(int *w, int *hgt) {
++    *w = g_nmouse_range[0] > 0 ? g_nmouse_range[0] : 1920;
++    *hgt = g_nmouse_range[1] > 0 ? g_nmouse_range[1] : 1080;
++}
++static float vm_clampf(float v, float lo, float hi) {
++    if (!(v >= lo)) return lo;
++    return v > hi ? hi : v;
++}
++void dm_host_mouse(float nx, float ny, float dx, float dy, int wheel_x, int wheel_y, uint32_t buttons, uint32_t flags) {
++    if (!vm_env_enabled() && !(flags & DM_HOST_MOUSE_FLAG_RESET)) return;
++    uint64_t now = now_ns();
++    pthread_mutex_lock(&g_jcms_mu);
++    if (flags & DM_HOST_MOUSE_FLAG_RESET) {
++        g_vm_buttons = 0;
++        g_vm_on_surface = 0;
++        g_vm_accum_dx = g_vm_accum_dy = g_vm_accum_wx = g_vm_accum_wy = 0;
++        if (g_vm_n > 0) {
++            int64_t n = ++g_vm_n;
++            g_vm_ring[(n - 1) % NMOUSE_RING] = (NmouseState){
++                .sampling = n,
++                .x = (int32_t)lrintf(g_vm_pos[0]),
++                .y = (int32_t)lrintf(g_vm_pos[1]),
++                .attributes = 2u,
++            };
++        }
++        pthread_mutex_unlock(&g_jcms_mu);
++        return;
++    }
++    int w, hgt; vm_range_locked(&w, &hgt);
++    int first = g_vm_n == 0;
++    if (first) { g_vm_pos[0] = w / 2.f; g_vm_pos[1] = hgt / 2.f; }
++    float max_x = (float)(w > 1 ? w - 1 : 0), max_y = (float)(hgt > 1 ? hgt - 1 : 0);
++    int32_t step_dx = 0, step_dy = 0;
++    if (flags & DM_HOST_MOUSE_FLAG_ABS) {
++        float tx = vm_clampf(nx, 0.f, 1.f) * max_x;
++        float ty = vm_clampf(ny, 0.f, 1.f) * max_y;
++        if (flags & DM_HOST_MOUSE_FLAG_REL) {
++            step_dx = (int32_t)lrintf(dx);
++            step_dy = (int32_t)lrintf(dy);
++        } else if (!first) {
++            step_dx = (int32_t)lrintf(tx - g_vm_pos[0]);
++            step_dy = (int32_t)lrintf(ty - g_vm_pos[1]);
++        }
++        g_vm_pos[0] = tx;
++        g_vm_pos[1] = ty;
++    } else if (flags & DM_HOST_MOUSE_FLAG_REL) {
++        g_vm_pos[0] = vm_clampf(g_vm_pos[0] + dx, 0.f, max_x);
++        g_vm_pos[1] = vm_clampf(g_vm_pos[1] + dy, 0.f, max_y);
++        step_dx = (int32_t)lrintf(dx);
++        step_dy = (int32_t)lrintf(dy);
++    }
++    uint32_t btn = buttons & (DM_HOST_MOUSE_LEFT | DM_HOST_MOUSE_RIGHT | DM_HOST_MOUSE_MIDDLE);
++    int surface = (flags & DM_HOST_MOUSE_FLAG_SURFACE) || btn != 0;
++    int moved = step_dx != 0 || step_dy != 0 || wheel_x != 0 || wheel_y != 0;
++    int btn_changed = btn != g_vm_buttons;
++    if (surface && (moved || btn != 0 || btn_changed || !g_vm_on_surface)) {
++        g_vm_on_surface = 1;
++        g_vm_active_ns = now;
++    } else if (!surface) {
++        g_vm_on_surface = 0;
++    }
++    g_vm_buttons = btn;
++    g_vm_accum_dx += step_dx;
++    g_vm_accum_dy += step_dy;
++    g_vm_accum_wx += wheel_x;
++    g_vm_accum_wy += wheel_y;
++    int64_t n = ++g_vm_n;
++    g_vm_ring[(n - 1) % NMOUSE_RING] = (NmouseState){
++        .sampling = n,
++        .x = (int32_t)lrintf(g_vm_pos[0]),
++        .y = (int32_t)lrintf(g_vm_pos[1]),
++        .dx = step_dx,
++        .dy = step_dy,
++        .wheel_x = (int32_t)wheel_x,
++        .wheel_y = (int32_t)wheel_y,
++        .buttons = btn,
++        .attributes = 2u | (vm_on_surface_locked(now) ? 1u : 0u),
++    };
++    pthread_mutex_unlock(&g_jcms_mu);
++}
+ // A Joy-Con whose sensor reports (dm_joy_mouse) has a pointer handle on its npad: NMOUSE_TAG | npad id << 8 | side (the merged handle 0 stays the one without a device)
+-#define NMOUSE_TAG 0x4e4d0000ull
+ static int nmouse_of(uint64_t h, int *side) {
+-    if ((h & ~0xffffull) != NMOUSE_TAG) return -1;
++    if ((h & ~0xffffull) != NMOUSE_TAG || h == NMOUSE_HOST_HANDLE) return -1;
+     int p = jcms_target((uint32_t)(h >> 8 & 0xff) | (uint32_t)(h & 1) << 8, side);
+-    return p >= 0 && g_jcms_n[p][*side] ? p : -1;
++    if (p < 0) return -1;
++    pthread_mutex_lock(&g_jcms_mu);
++    int ok = g_jcms_n[p][*side] > 0 && (g_nm_state[p][*side] & DM_JOYMOUSE_CONNECTED) != 0;
++    pthread_mutex_unlock(&g_jcms_mu);
++    return ok ? p : -1;
++}
++static int nmouse_phys_first_locked(int *out_p, int *out_side) {
++    for (int p = 0; p < DM_PLAYERS; p++) {
++        int pref = g_nm_last[p] >= 0 ? g_nm_last[p] : 1;
++        for (int pass = 0; pass < 2; pass++) {
++            int s = pass == 0 ? pref : (pref ^ 1);
++            if (g_jcms_n[p][s] > 0 && (g_nm_state[p][s] & DM_JOYMOUSE_CONNECTED)) {
++                *out_p = p; *out_side = s; return 1;
++            }
++        }
++    }
++    return 0;
+ }
+-HLE_FORCE("_ZN2nn3hid16GetNmouseHandlesEPNS0_12NmouseHandleEij", "Joy-Con mouse pointer handles: one per Joy-Con of the npad whose sensor reports", int, h_hid_NmouseHandles, void *out, int n, uint32_t id) {
++static void nmouse_fill_phys_locked(NmouseState *st, int p, int side) {
++    memset(st, 0, sizeof *st);
++    uint64_t b = atomic_load(&g_joy_btn[p][side]);
++    st->buttons = side ? ((b & DM_BTN_R) ? 1u : 0u) | ((b & DM_BTN_ZR) ? 2u : 0u) : ((b & DM_BTN_L) ? 1u : 0u) | ((b & DM_BTN_ZL) ? 2u : 0u);
++    st->sampling = g_jcms_n[p][side];
++    st->x = (int32_t)lrintf(g_nm_pos[p][side][0]);
++    st->y = (int32_t)lrintf(g_nm_pos[p][side][1]);
++    st->dx = g_nm_d[p][side][0];
++    st->dy = g_nm_d[p][side][1];
++    st->attributes = 2u | ((g_nm_state[p][side] & DM_JOYMOUSE_ON_SURFACE) ? 1u : 0u);
++}
++static uint32_t nmouse_type_set(uint64_t h) {
++    int side, p = nmouse_of(h, &side);
++    if (p >= 0) return side ? 2u : 1u;
++    pthread_mutex_lock(&g_jcms_mu);
++    uint32_t t = 0;
++    if ((h == NMOUSE_HOST_HANDLE || h == 0) && vm_active_locked()) t = 4u;
++    else if (h == 0 && nmouse_phys_first_locked(&p, &side)) t = side ? 2u : 1u;
++    pthread_mutex_unlock(&g_jcms_mu);
++    return t;
++}
++static int nmouse_fill_states(NmouseState *out, int n, uint64_t h) {
++    int side, p = nmouse_of(h, &side);
++    uint64_t now = now_ns();
++    pthread_mutex_lock(&g_jcms_mu);
++    if (p >= 0) {
++        nmouse_fill_phys_locked(&out[0], p, side);
++        pthread_mutex_unlock(&g_jcms_mu);
++        return 1;
++    }
++    if ((h == NMOUSE_HOST_HANDLE || h == 0) && vm_active_locked()) {
++        int64_t have = g_vm_n;
++        int k = 0;
++        for (; k < n && k < NMOUSE_RING && have - k > 0; k++) out[k] = g_vm_ring[(have - 1 - k) % NMOUSE_RING];
++        if (k > 0) out[0].attributes = 2u | (vm_on_surface_locked(now) ? 1u : 0u);
++        pthread_mutex_unlock(&g_jcms_mu);
++        return k;
++    }
++    if (h == 0 && nmouse_phys_first_locked(&p, &side)) {
++        nmouse_fill_phys_locked(&out[0], p, side);
++        pthread_mutex_unlock(&g_jcms_mu);
++        return 1;
++    }
++    pthread_mutex_unlock(&g_jcms_mu);
++    return 0;
++}
++HLE_FORCE("_ZN2nn3hid16GetNmouseHandlesEPNS0_12NmouseHandleEij", "Joy-Con mouse pointer handles: physical Joy-Con 2 sensors, or virtual host pointer when none are connected", int, h_hid_NmouseHandles, void *out, int n, uint32_t id) {
+     // The Joy-Con last used on a surface first, and it stays first while lifted (to press a button): Nintendo Switch 2 Welcome Tour moves its pointer by the first handle only
+     uint64_t *o = out; int k = 0;
+     for (int pass = 0; pass < 2; pass++)
+@@ -1615,48 +1827,110 @@ HLE_FORCE("_ZN2nn3hid16GetNmouseHandlesEPNS0_12NmouseHandleEij", "Joy-Con mouse
+             pthread_mutex_lock(&g_jcms_mu); int first = g_nm_last[p] < 0 ? sd == 1 : g_nm_last[p] == sd; pthread_mutex_unlock(&g_jcms_mu);
+             if (first == !pass) o[k++] = h;
+         }
++    if (k == 0 && o && n > 0 && (id == 0 || id == NPAD_HANDHELD || npad_resolve(id).pad == 0)) {
++        pthread_mutex_lock(&g_jcms_mu);
++        if (vm_active_locked()) o[k++] = NMOUSE_HOST_HANDLE;
++        pthread_mutex_unlock(&g_jcms_mu);
++    }
+     if (jcms_log_due(2 + (id & 1))) LOG("hid nmouse: GetNmouseHandles npad %u (up to %d): %d", id, n, k);
+     return k; }
+ HLE_FORCE("_ZN2nn3hid32SetNmouseButtonConfigJoyLeftJcmsERKNS0_29NmouseButtonConfigJoyLeftJcmsE", "Joy-Con mouse pointer: no sensor on the host", void, h_hid_NmouseCfgL, const void *c) { (void)c; }
+ HLE_FORCE("_ZN2nn3hid33SetNmouseButtonConfigJoyRightJcmsERKNS0_30NmouseButtonConfigJoyRightJcmsE", "Joy-Con mouse pointer: no sensor on the host", void, h_hid_NmouseCfgR, const void *c) { (void)c; }
+ // SDK 21's forms (Mario Kart World 1.8.0 at boot, by pull request #1116: InitializeNmouse with a pointer type aborted on the hid service). The pointer settings are kept or dropped, with no
+ // device to apply them to. The calls on a handle return the SDK's bool (its Result is success: SDK 22.2.0 sdk+0x6d5510 and +0x6d5530): the merged handle 0 above is known, and with no device
+-// its pointer takes the settings and reports nothing (no state, no controller); the standard mouse has no handle, as no USB mouse is connected
+-HLE_FORCE("_ZN2nn3hid16InitializeNmouseEPvmiiNS0_17NmousePointerTypeE", "Joy-Con mouse pointer (with a pointer type): no hid service; no sensor on the host", void, h_hid_NmouseInitT,
+-          void *work, uint64_t size, int w, int h, int type) { (void)work; (void)size; (void)type; g_nmouse_range[0] = w; g_nmouse_range[1] = h; atomic_fetch_or(&g_jcms_wanted, 2u); }
+-HLE_FORCE("_ZN2nn3hid22SetNmousePointerRangesEii", "Joy-Con mouse pointer range: kept", void, h_hid_NmouseSetRange, int w, int h) { g_nmouse_range[0] = w; g_nmouse_range[1] = h; }
+-HLE_FORCE("_ZN2nn3hid22GetNmousePointerRangesEPiS1_", "Joy-Con mouse pointer range: the one set", void, h_hid_NmouseGetRange, int *w, int *h) { *w = g_nmouse_range[0]; *h = g_nmouse_range[1]; }
++// its pointer takes the settings and reports nothing (no state, no controller); the standard mouse handle reports the virtual host pointer once active
++HLE_FORCE("_ZN2nn3hid16InitializeNmouseEPvmiiNS0_17NmousePointerTypeE", "Joy-Con mouse pointer (with a pointer type): no hid service; front ends may feed virtual Nmouse", void, h_hid_NmouseInitT,
++          void *work, uint64_t size, int w, int h, int type) {
++    (void)work; (void)size; (void)type;
++    pthread_mutex_lock(&g_jcms_mu);
++    g_nmouse_range[0] = w; g_nmouse_range[1] = h;
++    pthread_mutex_unlock(&g_jcms_mu);
++    atomic_fetch_or(&g_jcms_wanted, 2u);
++}
++HLE_FORCE("_ZN2nn3hid22SetNmousePointerRangesEii", "Joy-Con mouse pointer range: kept", void, h_hid_NmouseSetRange, int w, int h) {
++    pthread_mutex_lock(&g_jcms_mu); g_nmouse_range[0] = w; g_nmouse_range[1] = h; pthread_mutex_unlock(&g_jcms_mu);
++}
++HLE_FORCE("_ZN2nn3hid22GetNmousePointerRangesEPiS1_", "Joy-Con mouse pointer range: the one set", void, h_hid_NmouseGetRange, int *w, int *h) {
++    pthread_mutex_lock(&g_jcms_mu); *w = g_nmouse_range[0]; *h = g_nmouse_range[1]; pthread_mutex_unlock(&g_jcms_mu);
++}
+ HLE_FORCE("_ZN2nn3hid28SetNmousePointerMovementAreaEiiii", "Joy-Con mouse pointer area: no device to apply it to", void, h_hid_NmouseArea, int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; }
+ HLE_FORCE("_ZN2nn3hid21RestrictNmousePointerEffff", "Joy-Con mouse pointer restriction: no device to apply it to", void, h_hid_NmouseRestrict, float a, float b, float c, float d) { (void)a; (void)b; (void)c; (void)d; }
+-HLE_FORCE("_ZN2nn3hid34SetNmouseButtonConfigStandardMouseERKNS0_31NmouseButtonConfigStandardMouseE", "USB mouse buttons: no mouse on the host", void, h_hid_NmouseCfgM, const void *c) { (void)c; }
+-HLE_FORCE("_ZN2nn3hid28GetStandardMouseNmouseHandleEPNS0_12NmouseHandleE", "USB mouse handle: none (no mouse on the host)", bool, h_hid_NmouseStd, uint64_t *out) { (void)out; return false; }
+-HLE_FORCE("_ZN2nn3hid19EnableNmousePointerENS0_12NmouseHandleEb", "mouse pointer on / off: the merged handle and a Joy-Con's take it", bool, h_hid_NmouseEnable, uint64_t h, unsigned on) { (void)on; int sd; return h == 0 || nmouse_of(h, &sd) >= 0; }
+-HLE_FORCE("_ZN2nn3hid24SetNmousePointerPositionENS0_12NmouseHandleEii", "mouse pointer position: a Joy-Con's pointer moves there; the merged handle takes it, with no device", bool, h_hid_NmousePos, uint64_t h, int x, int y) {
++HLE_FORCE("_ZN2nn3hid34SetNmouseButtonConfigStandardMouseERKNS0_31NmouseButtonConfigStandardMouseE", "USB mouse buttons: accepted", void, h_hid_NmouseCfgM, const void *c) { (void)c; }
++HLE_FORCE("_ZN2nn3hid28GetStandardMouseNmouseHandleEPNS0_12NmouseHandleE", "USB mouse handle: virtual host pointer when active and no physical Joy-Con 2 mouse is connected", bool, h_hid_NmouseStd, uint64_t *out) {
++    pthread_mutex_lock(&g_jcms_mu);
++    int active = vm_active_locked();
++    pthread_mutex_unlock(&g_jcms_mu);
++    if (!active) return false;
++    if (out) *out = NMOUSE_HOST_HANDLE;
++    return true;
++}
++HLE_FORCE("_ZN2nn3hid19EnableNmousePointerENS0_12NmouseHandleEb", "mouse pointer on / off: merged, Joy-Con 2, or active virtual host handle", bool, h_hid_NmouseEnable, uint64_t h, unsigned on) {
++    (void)on;
++    if (h == 0) return true;
++    if (h == NMOUSE_HOST_HANDLE) {
++        pthread_mutex_lock(&g_jcms_mu); int active = vm_active_locked(); pthread_mutex_unlock(&g_jcms_mu);
++        return active != 0;
++    }
++    int sd; return nmouse_of(h, &sd) >= 0;
++}
++HLE_FORCE("_ZN2nn3hid24SetNmousePointerPositionENS0_12NmouseHandleEii", "mouse pointer position: moves Joy-Con 2 or virtual host pointer; merged handle takes it", bool, h_hid_NmousePos, uint64_t h, int x, int y) {
+     int side, p = nmouse_of(h, &side);
+-    if (jcms_log_due(5)) LOG("hid nmouse: SetNmousePointerPosition %#llx %d,%d (%s)", (unsigned long long)h, x, y, p >= 0 ? "a Joy-Con's" : "no device");
+-    if (p < 0) return h == 0;
+-    pthread_mutex_lock(&g_jcms_mu); g_nm_pos[p][side][0] = (float)x; g_nm_pos[p][side][1] = (float)y; pthread_mutex_unlock(&g_jcms_mu);
+-    return true; }
+-// An NmouseState as Nintendo Switch 2 Welcome Tour reads it (main+0x253b2c): 48 bytes, 8 bytes first as in a JcmsState, then the Switch's MouseState fields (sampling number,
+-// position, movement, wheel), buttons at 0x28 (left 1, right 2: R / ZR on a right Joy-Con, L / ZL on a left one) and attributes at 0x2c (bit 1 connected, which the game
+-// requires; bit 0 here: on a surface)
+-typedef struct { int64_t unk0, sampling; int32_t x, y, dx, dy, wheel_x, wheel_y; uint32_t buttons, attributes; } NmouseState;
+-_Static_assert(sizeof(NmouseState) == 48, "NmouseState");
+-HLE_FORCE("_ZN2nn3hid14GetNmouseStateEPNS0_11NmouseStateENS0_12NmouseHandleE", "mouse state: a Joy-Con's pointer; none for the merged handle (no device)", bool, h_hid_NmouseState, void *out, uint64_t h) {
++    if (jcms_log_due(5)) LOG("hid nmouse: SetNmousePointerPosition %#llx %d,%d (%s)", (unsigned long long)h, x, y, p >= 0 ? "a Joy-Con's" : h == NMOUSE_HOST_HANDLE ? "virtual host" : "merged/none");
++    if (p >= 0) {
++        pthread_mutex_lock(&g_jcms_mu); g_nm_pos[p][side][0] = (float)x; g_nm_pos[p][side][1] = (float)y; pthread_mutex_unlock(&g_jcms_mu);
++        return true;
++    }
++    if (h == NMOUSE_HOST_HANDLE || h == 0) {
++        pthread_mutex_lock(&g_jcms_mu);
++        int active = vm_active_locked();
++        if (active) {
++            int w, hgt; vm_range_locked(&w, &hgt);
++            g_vm_pos[0] = vm_clampf((float)x, 0.f, (float)(w > 1 ? w - 1 : 0));
++            g_vm_pos[1] = vm_clampf((float)y, 0.f, (float)(hgt > 1 ? hgt - 1 : 0));
++        }
++        pthread_mutex_unlock(&g_jcms_mu);
++        return h == 0 || active;
++    }
++    return false;
++}
++HLE_FORCE("_ZN2nn3hid14GetNmouseStateEPNS0_11NmouseStateENS0_12NmouseHandleE", "mouse state: Joy-Con 2 or virtual host pointer", bool, h_hid_NmouseState, void *out, uint64_t h) {
++    if (!out) return false;
+     int side, p = nmouse_of(h, &side);
+-    if (p < 0 && jcms_log_due(6)) LOG("hid nmouse: state %#llx: no device", (unsigned long long)h);
+-    if (p < 0 || !out) return false;
+     NmouseState st = {0};
+-    uint64_t b = atomic_load(&g_joy_btn[p][side]);
+-    st.buttons = side ? ((b & DM_BTN_R) ? 1u : 0u) | ((b & DM_BTN_ZR) ? 2u : 0u) : ((b & DM_BTN_L) ? 1u : 0u) | ((b & DM_BTN_ZL) ? 2u : 0u);
+-    pthread_mutex_lock(&g_jcms_mu);
+-    st.sampling = g_jcms_n[p][side]; st.x = (int32_t)lrintf(g_nm_pos[p][side][0]); st.y = (int32_t)lrintf(g_nm_pos[p][side][1]);
+-    st.dx = g_nm_d[p][side][0]; st.dy = g_nm_d[p][side][1];
+-    st.attributes = 2u | ((g_nm_state[p][side] & DM_JOYMOUSE_ON_SURFACE) ? 1u : 0u);
+-    pthread_mutex_unlock(&g_jcms_mu);
+-    memcpy(out, &st, sizeof st);
+-    if (jcms_log_due(4)) LOG("hid nmouse: state %#llx: #%lld at %d,%d d %d,%d buttons %u attr %u", (unsigned long long)h, (long long)st.sampling, st.x, st.y, st.dx, st.dy, st.buttons, st.attributes);
+-    return true; }
++    if (p >= 0) {
++        pthread_mutex_lock(&g_jcms_mu);
++        nmouse_fill_phys_locked(&st, p, side);
++        pthread_mutex_unlock(&g_jcms_mu);
++        memcpy(out, &st, sizeof st);
++        if (jcms_log_due(4)) LOG("hid nmouse: state %#llx: #%lld at %d,%d d %d,%d buttons %u attr %u", (unsigned long long)h, (long long)st.sampling, st.x, st.y, st.dx, st.dy, st.buttons, st.attributes);
++        return true;
++    }
++    if (h == NMOUSE_HOST_HANDLE || h == 0) {
++        uint64_t now = now_ns();
++        pthread_mutex_lock(&g_jcms_mu);
++        int active = vm_active_locked();
++        if (active) {
++            st.sampling = g_vm_n;
++            st.x = (int32_t)lrintf(g_vm_pos[0]);
++            st.y = (int32_t)lrintf(g_vm_pos[1]);
++            st.dx = g_vm_accum_dx;
++            st.dy = g_vm_accum_dy;
++            st.wheel_x = g_vm_accum_wx;
++            st.wheel_y = g_vm_accum_wy;
++            g_vm_accum_dx = g_vm_accum_dy = g_vm_accum_wx = g_vm_accum_wy = 0;
++            st.buttons = g_vm_buttons;
++            st.attributes = 2u | (vm_on_surface_locked(now) ? 1u : 0u);
++        }
++        pthread_mutex_unlock(&g_jcms_mu);
++        if (active) {
++            memcpy(out, &st, sizeof st);
++            if (jcms_log_due(4)) LOG("hid nmouse: virtual state %#llx: #%lld at %d,%d d %d,%d wheel %d,%d buttons %u attr %u", (unsigned long long)h, (long long)st.sampling, st.x, st.y, st.dx, st.dy, st.wheel_x, st.wheel_y, st.buttons, st.attributes);
++            return true;
++        }
++    }
++    if (jcms_log_due(6)) LOG("hid nmouse: state %#llx: no device", (unsigned long long)h);
++    return false;
++}
+ HLE_FORCE("_ZN2nn3hid13GetNpadIdTypeEPjNS0_12NmouseHandleE", "mouse's controller: none (no device)", bool, h_hid_NmouseNpad, uint32_t *out, uint64_t h) { (void)out; (void)h; return false; }
+ HLE_FORCE("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19SixAxisSensorHandleE", "six-axis sensor states: every requested entry, newest first",
+           int, h_hid_SixStates, SixAxisState *out, int n, const uint32_t *h) { return six_states(out, n, *h); }
+@@ -1877,6 +2151,23 @@ void dm_hid_touch_teardown(void) {
+     g_touch_kept = g_touch_newest = g_touch_points = 0;
+     g_touch_at = 0;
+     pthread_mutex_unlock(&g_touch_mu);
++    atomic_store(&g_jcms_wanted, 0);
++    pthread_mutex_lock(&g_jcms_mu);
++    memset(g_jcms, 0, sizeof g_jcms);
++    memset(g_jcms_n, 0, sizeof g_jcms_n);
++    memset(g_nm_pos, 0, sizeof g_nm_pos);
++    memset(g_nm_d, 0, sizeof g_nm_d);
++    memset(g_nm_state, 0, sizeof g_nm_state);
++    for (int p = 0; p < DM_PLAYERS; p++) g_nm_last[p] = -1;
++    g_nmouse_range[0] = g_nmouse_range[1] = 0;
++    memset(g_vm_ring, 0, sizeof g_vm_ring);
++    g_vm_n = 0;
++    g_vm_pos[0] = g_vm_pos[1] = 0.f;
++    g_vm_accum_dx = g_vm_accum_dy = g_vm_accum_wx = g_vm_accum_wy = 0;
++    g_vm_buttons = 0;
++    g_vm_on_surface = 0;
++    g_vm_active_ns = 0;
++    pthread_mutex_unlock(&g_jcms_mu);
+ }
+ HLE_FORCE("_ZN2nn3hid21InitializeTouchScreenEv", "connect to the hid touch screen; the host takes touch points from the front end", void, h_hid_InitTouch, void) {}
+ // SDK 18 overload with two ints (Super Mario Galaxy); the SDK's own one opens the hid service and aborts in sm::Initialize
+diff --git a/dm/host/loader.c b/dm/host/loader.c
+index b122571..c22722b 100644
+--- a/dm/host/loader.c
++++ b/dm/host/loader.c
+@@ -320,6 +320,7 @@ static void read_layout(module_t *m, const char *dir) {
+         else if (!strcmp(key, "RENDER_SCALE")) m->render_scale_max = (uint32_t)v;
+         else if (!strcmp(key, "MOVIE_NATIVE_COLOR_KEYS")) m->movie_native_color_keys = v == 1;
+         else if (!strcmp(key, "STEP_MAX")) m->step_max = (uint32_t)v;
++        else if (!strcmp(key, "NO_FRAME_STEP")) m->no_step = (uint32_t)v;
+         else if (!strcmp(key, "UE_MALLOC_VT")) m->ue_malloc_vt = v;
+         else if (!strcmp(key, "UE_MALLOC_SLOT")) m->ue_malloc_slot = (unsigned)v;
+         else if (!strcmp(key, "FPS_TARGET_PTR")) m->fps_target_ptr = v;
+@@ -361,32 +362,38 @@ static void read_layout(module_t *m, const char *dir) {
+ // target, 0 = the game's own interval logic. The profile's fps_target, overridden by DM_FPS_TARGET (0, 30 or 60); the graphics layer decides the steps and paces presents
+ // (hle_nvn.c fstep_tick)
+ uint8_t *dm_fps_state;
++// The state page itself, also for a build whose stubs only read its settings (NO_FRAME_STEP: render scale, dynamic resolution), where dm_fps_state stays NULL so the host paces
++// as without a page (no frame step, no thermal 30 fps cap: hle_nvn.c fps_step_cap); dm_fps_state_apply writes the settings here
++static uint8_t *g_state_page;
+ int dm_fps_step_max;   // the largest step the stubs give the game (STEP_MAX in its fixups table; 0 = FSTEP_MAX): the frame step holds frames and pays back within it (hle_nvn.c)
+ static const char *g_fps_mod;   // the module holding the state page (for the log)
+ static float g_render_scale_max = 1.0f;   // the render-scale stub's largest scale (RENDER_SCALE in its fixups table; 1 for a stub that only lowers the game's size)
+ static void install_fps_state(module_t *m) {
+-    if (m->fps_state_off + 0x40 > m->size || m->fps_state_off < m->key_page_off + m->key_page_size) die("%s: frame step state page out of range", m->name);
+-    dm_fps_state = m->base + m->fps_state_off; g_fps_mod = m->name; dm_fps_step_max = (int)m->step_max;
++    if (m->fps_state_off > m->size || m->size - m->fps_state_off < 0x100 || m->fps_state_off < m->key_page_off + m->key_page_size)
++        die("%s: frame step state page out of range", m->name);
++    g_state_page = m->base + m->fps_state_off; g_fps_mod = m->name; dm_fps_step_max = (int)m->step_max;
++    if (!m->no_step) dm_fps_state = g_state_page;
++    else LOG("%s: state page for its stubs' settings only (NO_FRAME_STEP): no frame step, the host paces as without one", m->name);
+     if (m->render_scale_max > 1) g_render_scale_max = (float)m->render_scale_max;
+ }
+ // The settings in the state page, written when the game starts (main.c, after host loading): on iOS the loading runs at app launch, before the launcher has set DM_FPS_TARGET and
+ // DM_RENDER_SCALE (Launcher.swift), and nothing reads the page before the game runs
+ void dm_fps_state_apply(void) {
+-    if (!dm_fps_state) return;
++    if (!g_state_page) return;
+     const char *e = getenv("DM_FPS_TARGET"); int t = e ? atoi(e) : dm_profile()->fps_target;
+     if (t != 0 && t != 30 && t != 60) { LOG("[RED] DM_FPS_TARGET=%s: must be 0, 30 or 60; using the game's own frame step", e); t = 0; }
+-    float f = (float)t; memcpy(dm_fps_state, &f, sizeof f);
++    float f = (float)t; memcpy(g_state_page, &f, sizeof f);
+     // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880, Hades II's render size): 1.0 keeps the game's own size
+     // and dynamic resolution; another factor fixes the size at that fraction (DM_RENDER_SCALE, 0.5 to the stub's largest scale: 1.0, or above for a stub that also raises it,
+     // Hades II's 3.0). Independent of the frame step: written at target 0 too
+     const char *rs = getenv("DM_RENDER_SCALE"); float sc = 1.0f, hi = g_render_scale_max;
+     if (rs) { char *end; sc = strtof(rs, &end); if (end == rs || *end || !(sc >= 0.5f && sc <= hi)) { LOG("[RED] DM_RENDER_SCALE=%s: must be 0.5 to %.1f; keeping the game's size", rs, hi); sc = 1.0f; } else LOG("%s: 3D views rendered at %.2f of the game's size (DM_RENDER_SCALE)", g_fps_mod, sc); }
+-    memcpy(dm_fps_state + 0x10, &sc, sizeof sc);
++    memcpy(g_state_page + 0x10, &sc, sizeof sc);
+     // The game's own dynamic resolution, for builds whose stubs read it (the DYNAMIC_RESOLUTION capability of a frame step stub: Ocarina of Time's level function): 1 lets it
+     // run, 0 (the default) holds full resolution. Builds without such a stub ignore the field
+     const char *dr = getenv("DM_DYNAMIC_RESOLUTION"); uint32_t dyn = dr && !strcmp(dr, "1");
+     if (dr && strcmp(dr, "0") && strcmp(dr, "1")) LOG("[RED] DM_DYNAMIC_RESOLUTION=%s: must be 0 or 1; keeping full resolution", dr);
+-    memcpy(dm_fps_state + 0x40, &dyn, sizeof dyn);
++    memcpy(g_state_page + 0x40, &dyn, sizeof dyn);
+     // Screen shape: DM_SCREEN_ASPECT, the screen's width / height between 1.3 and 1.77, makes the builds with screen-shape stubs
+     // (Breath of the Wild 1.9.0's patches.py) render that shape: the output keeps its width (1920) and takes the height that gives the ratio, a multiple of 48 so the
+     // 2/3-size layout space (1280 wide) stays whole: 1.43 → 1920x1344 and 1280x896. State +0x48 u32 output height, +0x4c u32 layout height, +0x50 its float; 0 = 16:9
+@@ -396,17 +403,17 @@ void dm_fps_state_apply(void) {
+         if (end == as || *end || !(a >= 1.3f && a < 1.77f)) LOG("[RED] DM_SCREEN_ASPECT=%s: a width / height from 1.3 to 1.77; keeping 16:9", as);
+         else {
+             uint32_t oh = (uint32_t)(1920.0f / a / 48.0f + 0.5f) * 48, lh = oh * 2 / 3; float lf = (float)lh;
+-            memcpy(dm_fps_state + 0x48, &oh, 4); memcpy(dm_fps_state + 0x4c, &lh, 4); memcpy(dm_fps_state + 0x50, &lf, 4);
++            memcpy(g_state_page + 0x48, &oh, 4); memcpy(g_state_page + 0x4c, &lh, 4); memcpy(g_state_page + 0x50, &lf, 4);
+             extern void mtl_present_screen(uint32_t w, uint32_t h); mtl_present_screen(1920, oh);   // the picture's shape for a texture that follows it (nvn_mtl.m present_shape)
+             const char *ms = getenv("DM_SCREEN_ASPECT_SITES"); uint32_t mask = ms ? (uint32_t)strtoul(ms, NULL, 0) : 0xffffffffu;   // the stubs of the game's own conversions, one bit each (+0x54)
+-            memcpy(dm_fps_state + 0x54, &mask, 4);
++            memcpy(g_state_page + 0x54, &mask, 4);
+             if (ms) LOG("%s: screen shape: conversion sites %#x (DM_SCREEN_ASPECT_SITES)", g_fps_mod, mask);
+             // The field of view: views of the screen's ratio (the scene, the HUD's camera) keep 16:9's sides and show more above and below (patches.py's sead::PerspectiveProjection stubs)
+             float r = 1920.0f / (float)oh, k = (16.0f / 9.0f) / r, tol = 0.01f;
+             const char *fo = getenv("DM_SCREEN_FOV"); if (fo && !strcmp(fo, "off")) tol = -1.0f;   // trials: the scene keeps the game's vertical angle (no view matches); the HUD camera still widens
+-            memcpy(dm_fps_state + 0x58, &r, 4); memcpy(dm_fps_state + 0x5c, &k, 4); memcpy(dm_fps_state + 0x60, &tol, 4);
++            memcpy(g_state_page + 0x58, &r, 4); memcpy(g_state_page + 0x5c, &k, 4); memcpy(g_state_page + 0x60, &tol, 4);
+             float wide = 16.0f / 9.0f, wtol = 0.001f, far = 10000.0f;   // the HUD camera's projection: 16:9, near 1, far 10000 (+0x74 / +0x78 / +0x7c)
+-            memcpy(dm_fps_state + 0x74, &wide, 4); memcpy(dm_fps_state + 0x78, &wtol, 4); memcpy(dm_fps_state + 0x7c, &far, 4);
++            memcpy(g_state_page + 0x74, &wide, 4); memcpy(g_state_page + 0x78, &wtol, 4); memcpy(g_state_page + 0x7c, &far, 4);
+             // The HUD at the taller edges (patches.py duo_anchor.c, +0x80..+0x98): the shift (half the layout height over 360), the stretch of full-screen panes, the edge rule's
+             // distance, the listed corner widgets' distance, a full-screen pane's width and height in the 1280x720 space, and the tallest one still stretched (a menu's
+             // background is about 720 tall, the weapon wheel's gradient 1280; the map's tiles are left alone anyway)
+@@ -418,13 +425,15 @@ void dm_fps_state_apply(void) {
+             float anc[7] = {(float)lh / 2 - 360.0f, (float)lh / 720.0f, 280.0f, 100.0f, 1270.0f, 710.0f, 1300.0f};
+             const char *hv = getenv("DM_SCREEN_HUD");
+             if (hv && sscanf(hv, "%f,%f,%f,%f,%f", &anc[2], &anc[3], &anc[4], &anc[5], &anc[6]) < 4) LOG("[RED] DM_SCREEN_HUD=%s: <edge>,<listed>,<full width>,<full height>[,<tallest>]; keeping the rest", hv);
+-            memcpy(dm_fps_state + 0x80, anc, sizeof anc);
++            memcpy(g_state_page + 0x80, anc, sizeof anc);
+             LOG("%s: screen shape: HUD moves out by %.0f (edge %.0f, listed widgets %.0f), panes %.0fx%.0f or larger stretched %.3f", g_fps_mod, anc[0], anc[2], anc[3], anc[4], anc[5], anc[1]);
+             LOG("%s: screen shape %.3f: output 1920x%u, layout 1280x%u (DM_SCREEN_ASPECT; only builds with screen-shape stubs follow it)", g_fps_mod, a, oh, lh);
+         }
+     }
+-    char cap[32]; snprintf(cap, sizeof cap, ", capped at %d fps", t);
+-    LOG("%s: frame step %s%s (%s)", g_fps_mod, !t ? "as the game sets it" : "in whole vsyncs decided by the host", t ? cap : "", e ? "DM_FPS_TARGET" : "game profile fps_target");
++    if (dm_fps_state) {
++        char cap[32]; snprintf(cap, sizeof cap, ", capped at %d fps", t);
++        LOG("%s: frame step %s%s (%s)", g_fps_mod, !t ? "as the game sets it" : "in whole vsyncs decided by the host", t ? cap : "", e ? "DM_FPS_TARGET" : "game profile fps_target");
++    }
+ }
+ static void install_key_page(module_t *m) {
+     if (m->key_page_off + m->key_page_size > m->size) die("%s: key page out of range", m->name);
+@@ -989,5 +998,5 @@ void dm_modules_teardown(void) {
+     free(g_mod); g_mod = NULL;
+     free(g_loaded); g_loaded = NULL;
+     g_nmod = 0; g_nloaded = 0; g_mod_capacity = 0;
+-    dm_fps_state = NULL; g_fps_mod = NULL;
++    g_state_page = NULL; dm_fps_state = NULL; g_fps_mod = NULL; g_render_scale_max = 1.0f; dm_fps_step_max = 0;
+ }
+diff --git a/dm/host/pad_switch2_apple.m b/dm/host/pad_switch2_apple.m
+index 3e9520a..9ef8e03 100644
+--- a/dm/host/pad_switch2_apple.m
++++ b/dm/host/pad_switch2_apple.m
+@@ -72,7 +72,7 @@ static void s2_sync_sides(s2_pad *p) {
+     int pl = g_joy ? s2_player(p) : -1; if (pl < 0) return;
+     dm_joy_attach(pl, p->st.pro.have ? 0 : (uint32_t)((p->st.left.have ? 1 : 0) | (p->st.right.have ? 2 : 0) | DM_JOY_2));
+ }
+-static void s2_joy_release(int pl, int side) { if (g_joy && pl >= 0) { dm_joy_set(pl, side, 0, 0, 0); dm_motion_clear_joy(pl, side); } }
++static void s2_joy_release(int pl, int side) { if (g_joy && pl >= 0) { dm_joy_set(pl, side, 0, 0, 0); dm_motion_clear_joy(pl, side); dm_joy_mouse(pl, side, 0, 0, 0); } }
+ static void s2_pad_unlink(s2_pad *p) { s2_pad **link = &g_pads; while (*link && *link != p) link = &(*link)->next; if (*link) *link = p->next; }
+ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has the other one alone; anything else starts a pad
+     if (pid != S2_PID_PRO)
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 4b2d1dd..b0ee87c 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -79,6 +79,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
+ 	$(B)/t_motion_pro_mac
+ 	$(B)/t_jc1
+ 	TMPDIR="$(abspath $(B))" $(B)/t_hid
++	$(B)/t_hid_nmouse
+ 	$(B)/t_pad_hid
+ 	$(B)/t_pad_hid_mac
+ 	$(B)/t_pad_pro
+@@ -325,6 +326,12 @@ $(B)/t_launcher_contract: t_launcher_contract.c ../input_map.h ../dm_input.h | $
+ 	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. -o $@ t_launcher_contract.c
+ $(B)/t_hid: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c ../hle_bigstack.c
++run: $(B)/t_hid_nmouse
++$(B)/t_hid_nmouse: t_hid_nmouse.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../front.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
++	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function $(if $(findstring -fsanitize,$(SAN)),,-fsanitize=address,undefined) -I.. $(GINC) -o $@ t_hid_nmouse.c ../hle_haptics.c ../hle_bigstack.c
++.PHONY: hid-nmouse
++hid-nmouse: $(B)/t_hid_nmouse
++	$(B)/t_hid_nmouse
+ $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -g -fsanitize=thread -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c ../hle_bigstack.c
+ # The default application task role lifts the QoS ceiling for a Mac host without a window.
+diff --git a/dm/host/tests/t_hid_nmouse.c b/dm/host/tests/t_hid_nmouse.c
+new file mode 100644
+index 0000000..7e2cc79
+--- /dev/null
++++ b/dm/host/tests/t_hid_nmouse.c
+@@ -0,0 +1,169 @@
++// Virtual Switch 2 Nmouse (dm_host_mouse in hle_hid.c): relative delta accumulation, button mapping,
++// 2.5 s idle lift-off, physical Joy-Con 2 priority preemption, DM_VIRTUAL_NMOUSE=0 disable, and teardown reset.
++#include <math.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include "../hle_hid.c"
++
++static int checks, fails, g_mode = 1;
++static uint64_t g_test_now = 1000000000ull;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); } } while (0)
++
++int dm_opmode(void) { return g_mode; }
++uint64_t guest_ns(void) { return g_test_now; }
++uint64_t now_ns(void) { return g_test_now; }
++uint64_t guest_ns_at_host_time(uint64_t host_ns) { return host_ns; }
++int guest_clock_pinned(void) { return 0; }
++uint64_t dm_guest_frame(void) { return 0; }
++void dm_oe_execute(int index, const void *param, size_t n) { (void)index; (void)param; (void)n; }
++void front_web_shot(const char *path) { (void)path; }
++int front_ctrl_support(int min, int max) { (void)min; (void)max; return -1; }
++void (*_Atomic dm_touch_observer)(const dm_touch *t, int n);
++void dm_touch_set(const dm_touch *t, int n) { (void)t; (void)n; }
++void dm_touch_script(const dm_touch *t, int n) { (void)t; (void)n; }
++int touch_fill_n(void *out, int max, uint64_t now, int points) { (void)out; (void)max; (void)now; (void)points; return 0; }
++int gesture_fill(void *out, int n, uint64_t now) { (void)out; (void)n; (void)now; return 0; }
++void dm_gfx_shot_at(long frame, const char *path) { (void)frame; (void)path; }
++void hle_bind_system_event(void *g, int autoclear) { (void)g; (void)autoclear; }
++void hle_signal_system_event(void *g) { (void)g; }
++int hle_signal_bound_system_event(void *g) { (void)g; return 1; }
++void dm_gfx_texlist(int target) { (void)target; }
++int dm_guest_as_contains(uintptr_t a) { (void)a; return 0; }
++void dm_gfx_restop(void) {}
++void dm_gfx_texraw(uint64_t serial, const char *path) { (void)serial; (void)path; }
++void dm_ctl_peek(uint64_t a, int n) { (void)a; (void)n; }
++void crash_dump_now(const char *why) { (void)why; }
++void dm_ctl_memdump(uint64_t a, uint64_t n, const char *path) { (void)a; (void)n; (void)path; }
++void dm_ctl_cvar_i32(uint64_t off, int32_t v) { (void)off; (void)v; }
++void dm_ctl_cvar_f32(uint64_t off, float v) { (void)off; (void)v; }
++void dm_gfx_texdump_next(const char *path) { (void)path; }
++void dm_gfx_passdump_next(long n) { (void)n; }
++void dm_gfx_addr_note(uint64_t a, char *note, size_t n) { (void)a; if (n) note[0] = 0; }
++void dm_gfx_bufsnap(const char *key, uint64_t a, size_t n, const char *path) { (void)key; (void)a; (void)n; (void)path; }
++void probe_atrace(uint64_t lo, uint64_t n) { (void)lo; (void)n; }
++void dm_applet_enter(const char *name) { (void)name; }
++void dm_applet_leave(void) {}
++
++static void step_ms(uint64_t ms) { g_test_now += ms * 1000000ull; }
++
++int main(void) {
++    unsetenv("DM_VIRTUAL_NMOUSE");
++    uint32_t ids[2] = {0, NPAD_HANDHELD};
++    h_hid_SetIds(ids, 2);
++    dm_pad_players(1);
++
++    // 1. Before any host mouse event: no handles, no standard mouse, no merged state
++    uint64_t nh[4] = {0}, std_h = 7;
++    NmouseState st = {0};
++    int rw = 0, rh = 0;
++    CHECK(!dm_joy_mouse_wanted(), "nmouse not wanted before init");
++    h_hid_NmouseInit(NULL, 0, 1920, 1080);
++    h_hid_NmouseGetRange(&rw, &rh);
++    CHECK(dm_joy_mouse_wanted() && rw == 1920 && rh == 1080, "4-arg InitializeNmouse enables wanted and records range");
++    CHECK(h_hid_NmouseHandles(nh, 4, 0) == 0, "no virtual handle before first host mouse event");
++    CHECK(!h_hid_NmouseStd(&std_h) && std_h == 7, "no standard mouse handle before first event");
++    CHECK(!h_hid_NmouseState(&st, 0), "no merged state before first event");
++
++    // 2. Absolute placement + relative delta / wheel accumulation across multiple host events
++    dm_host_mouse(0.5f, 0.5f, 0.f, 0.f, 0, 0, 0, DM_HOST_MOUSE_FLAG_ABS | DM_HOST_MOUSE_FLAG_SURFACE);
++    CHECK(h_hid_NmouseHandles(nh, 4, 0) == 1 && nh[0] == NMOUSE_HOST_HANDLE, "virtual handle exposed for player 1");
++    CHECK(h_hid_NmouseStd(&std_h) && std_h == NMOUSE_HOST_HANDLE, "standard mouse handle exposes virtual handle");
++    CHECK(h_hid_NmouseEnable(NMOUSE_HOST_HANDLE, 1), "EnableNmousePointer accepts active virtual handle");
++    uint32_t types = 0;
++    CHECK(h_hid_NmouseTypes(&types, NMOUSE_HOST_HANDLE) == 1 && types == 4u, "GetNmouseTypeSet reports standard mouse type");
++
++    CHECK(h_hid_NmouseState(&st, NMOUSE_HOST_HANDLE), "initial state readable");
++    CHECK(st.x == 960 && st.y == 540 && st.dx == 0 && st.dy == 0 && st.attributes == 3u, "first abs placement has zero jump delta and is on surface");
++
++    // Accumulate two relative moves + wheel before the game reads
++    dm_host_mouse(0.f, 0.f, 12.f, -5.f, 1, 2, DM_HOST_MOUSE_LEFT, DM_HOST_MOUSE_FLAG_REL | DM_HOST_MOUSE_FLAG_SURFACE);
++    dm_host_mouse(0.f, 0.f, 8.f, 3.f, -1, 4, DM_HOST_MOUSE_LEFT | DM_HOST_MOUSE_RIGHT, DM_HOST_MOUSE_FLAG_REL | DM_HOST_MOUSE_FLAG_SURFACE);
++    CHECK(h_hid_NmouseState(&st, NMOUSE_HOST_HANDLE), "accumulated state readable");
++    CHECK(st.x == 980 && st.y == 538 && st.dx == 20 && st.dy == -2, "relative deltas accumulated across events");
++    CHECK(st.wheel_x == 0 && st.wheel_y == 6, "wheel deltas accumulated across events");
++    CHECK(st.buttons == (DM_HOST_MOUSE_LEFT | DM_HOST_MOUSE_RIGHT) && st.attributes == 3u, "left and right buttons mapped");
++
++    // Second read with no new events drains deltas while preserving position and buttons
++    CHECK(h_hid_NmouseState(&st, 0), "merged handle 0 reads active virtual pointer");
++    CHECK(st.x == 980 && st.y == 538 && st.dx == 0 && st.dy == 0 && st.wheel_y == 0, "deltas cleared after read");
++    CHECK(st.buttons == (DM_HOST_MOUSE_LEFT | DM_HOST_MOUSE_RIGHT), "buttons preserved");
++
++    // Middle button and ring history via GetNmouseStates (newest first)
++    dm_host_mouse(0.f, 0.f, -4.f, 6.f, 0, 0, DM_HOST_MOUSE_MIDDLE, DM_HOST_MOUSE_FLAG_REL | DM_HOST_MOUSE_FLAG_SURFACE);
++    NmouseState hist[4] = {0}; int cnt = 0;
++    CHECK(h_hid_NmouseStates(&cnt, hist, 4, 0) == 1 && cnt == 4, "GetNmouseStates returns 4 newest samples");
++    CHECK(hist[0].sampling == 4 && hist[0].dx == -4 && hist[0].dy == 6 && hist[0].buttons == DM_HOST_MOUSE_MIDDLE, "newest ring sample matches");
++    CHECK(hist[1].sampling == 3 && hist[1].dx == 8 && hist[1].dy == 3, "second newest ring sample matches");
++
++    // SetNmousePointerPosition updates virtual position clamped to range
++    CHECK(h_hid_NmousePos(NMOUSE_HOST_HANDLE, 3000, -10), "SetNmousePointerPosition accepted");
++    CHECK(h_hid_NmouseState(&st, NMOUSE_HOST_HANDLE) && st.x == 1919 && st.y == 0, "SetNmousePointerPosition clamps to pointer range");
++
++    // 3. 2.5 s idle automatic lift-off (held button prevents lift-off; releasing starts 2.5 s idle timer)
++    step_ms(3000);
++    CHECK(h_hid_NmouseState(&st, NMOUSE_HOST_HANDLE) && (st.attributes & 3u) == 3u, "held button keeps pointer on surface past 2.5 s");
++    // Release buttons while still on surface
++    dm_host_mouse(0.f, 0.f, 0.f, 0.f, 0, 0, 0, DM_HOST_MOUSE_FLAG_REL | DM_HOST_MOUSE_FLAG_SURFACE);
++    step_ms(2499);
++    CHECK(h_hid_NmouseState(&st, NMOUSE_HOST_HANDLE) && (st.attributes & 3u) == 3u, "still on surface at 2499 ms idle");
++    step_ms(1);
++    CHECK(h_hid_NmouseState(&st, NMOUSE_HOST_HANDLE) && st.attributes == 2u, "auto lift-off at 2500 ms clears on-surface bit and keeps connected");
++    CHECK(h_hid_NmouseStates(&cnt, hist, 2, NMOUSE_HOST_HANDLE) == 1 && cnt == 2 && hist[0].attributes == 2u, "GetNmouseStates also reflects auto lift-off");
++
++    // Next movement immediately puts pointer back on surface
++    dm_host_mouse(0.f, 0.f, 3.f, 0.f, 0, 0, 0, DM_HOST_MOUSE_FLAG_REL | DM_HOST_MOUSE_FLAG_SURFACE);
++    CHECK(h_hid_NmouseState(&st, NMOUSE_HOST_HANDLE) && (st.attributes & 3u) == 3u && st.dx == 3, "movement restores on-surface state");
++
++    // RESET flag clears buttons and lifts off immediately
++    dm_host_mouse(0.f, 0.f, 0.f, 0.f, 0, 0, DM_HOST_MOUSE_LEFT, DM_HOST_MOUSE_FLAG_REL | DM_HOST_MOUSE_FLAG_SURFACE);
++    dm_host_mouse(0.f, 0.f, 0.f, 0.f, 0, 0, 0, DM_HOST_MOUSE_FLAG_RESET);
++    CHECK(h_hid_NmouseState(&st, NMOUSE_HOST_HANDLE) && st.buttons == 0 && st.attributes == 2u, "RESET clears buttons and lifts off");
++
++    // 4. Physical Joy-Con 2 priority preemption (must never fight physical JC2 hardware)
++    dm_joy_attach(0, 3 | DM_JOY_2);
++    dm_joy_mouse(0, 1, 10, -4, DM_JOYMOUSE_CONNECTED | DM_JOYMOUSE_ON_SURFACE);
++    CHECK(h_hid_NmouseHandles(nh, 4, 0) == 1 && nh[0] != NMOUSE_HOST_HANDLE && (nh[0] & 0xffffu) == 0x0001u, "physical JC2 preempts virtual handle");
++    std_h = 9;
++    CHECK(!h_hid_NmouseStd(&std_h) && std_h == 9, "standard mouse handle yields while physical JC2 is connected");
++    CHECK(!h_hid_NmouseState(&st, NMOUSE_HOST_HANDLE), "virtual handle inactive while physical JC2 is connected");
++    CHECK(h_hid_NmouseState(&st, nh[0]) && (st.attributes & 3u) == 3u, "physical JC2 handle reads physical sensor state");
++    CHECK(h_hid_NmouseStates(&cnt, hist, 2, 0) == 1 && cnt == 1 && hist[0].sampling == 1, "merged handle 0 serves physical JC2 while connected");
++
++    // Disconnect physical JC2 via dm_joy_attach(0, 0) ONLY (no manual dm_joy_mouse(..., 0)):
++    // mirrors pad_switch2_apple.m teardown / leavePair / joinPadOf detach paths and must restore virtual pointer
++    dm_joy_attach(0, 0);
++    CHECK(h_hid_NmouseHandles(nh, 4, 0) == 1 && nh[0] == NMOUSE_HOST_HANDLE, "dm_joy_attach(0, 0) clears dead physical JC2 handle and restores virtual handle");
++    CHECK(h_hid_NmouseStd(&std_h) && std_h == NMOUSE_HOST_HANDLE, "virtual standard mouse resumes after dm_joy_attach(0, 0)");
++
++    // Dual physical JC2: detaching right side only keeps left side active; detaching both restores virtual pointer
++    dm_joy_attach(0, 3 | DM_JOY_2);
++    dm_joy_mouse(0, 0, 2, 1, DM_JOYMOUSE_CONNECTED | DM_JOYMOUSE_ON_SURFACE);
++    dm_joy_mouse(0, 1, 5, -2, DM_JOYMOUSE_CONNECTED | DM_JOYMOUSE_ON_SURFACE);
++    CHECK(h_hid_NmouseHandles(nh, 4, 0) == 2 && (nh[0] & 1) == 1, "dual JC2 reports right first as last on surface");
++    dm_joy_attach(0, 1 | DM_JOY_2);
++    CHECK(h_hid_NmouseHandles(nh, 4, 0) == 1 && (nh[0] & 0xffffu) == 0x0000u, "detaching right JC2 keeps left JC2 handle only");
++    CHECK(!h_hid_NmouseStd(&std_h), "virtual pointer still yields while left JC2 remains connected");
++    dm_joy_attach(0, 0);
++    dm_host_mouse(0.25f, 0.25f, 0.f, 0.f, 0, 0, 0, DM_HOST_MOUSE_FLAG_ABS | DM_HOST_MOUSE_FLAG_SURFACE);
++    CHECK(h_hid_NmouseStd(&std_h) && std_h == NMOUSE_HOST_HANDLE, "virtual pointer resumes after all physical JC2 detach");
++
++    // 5. Negative check: DM_VIRTUAL_NMOUSE=0 disables virtual Nmouse completely
++    setenv("DM_VIRTUAL_NMOUSE", "0", 1);
++    std_h = 11;
++    CHECK(!h_hid_NmouseStd(&std_h) && std_h == 11, "DM_VIRTUAL_NMOUSE=0 hides standard mouse handle");
++    CHECK(!h_hid_NmouseState(&st, NMOUSE_HOST_HANDLE), "DM_VIRTUAL_NMOUSE=0 rejects virtual state reads");
++    CHECK(h_hid_NmouseHandles(nh, 4, 0) == 0, "DM_VIRTUAL_NMOUSE=0 hides virtual handle from GetNmouseHandles");
++    unsetenv("DM_VIRTUAL_NMOUSE");
++    CHECK(h_hid_NmouseStd(&std_h) && std_h == NMOUSE_HOST_HANDLE, "re-enabling DM_VIRTUAL_NMOUSE restores virtual handle");
++
++    // 6. Teardown resets all virtual and physical Nmouse state cleanly
++    dm_hid_touch_teardown();
++    CHECK(!dm_joy_mouse_wanted(), "teardown clears wanted flag");
++    CHECK(!h_hid_NmouseStd(&std_h), "teardown clears virtual mouse state");
++    CHECK(h_hid_NmouseHandles(nh, 4, 0) == 0, "teardown clears all handles");
++
++    printf("t_hid_nmouse: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 143828e..5780612 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -185,6 +185,8 @@ @implementation DmGamepad {
+     DmPadGeo _geo; CGRect _geoBounds; UIEdgeInsets _geoInsets; BOOL _geoFull, _geoValid;   // where the controls are, and what it was computed for
+     unsigned _loggedDropped;                       // the moved controls that kept their place, as last logged
+     UITouch *_game[16];                           // touches on the game's touch screen by finger slot
++    CGPoint _nmLast; BOOL _nmActive;              // virtual Switch 2 Nmouse state for unclaimed touches / pointer hover
++    UIHoverGestureRecognizer *_nmHover API_AVAILABLE(ios(13.4));
+ }
+ 
+ static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
+@@ -218,6 +220,10 @@ - (instancetype)initWithFrame:(CGRect)f {
+             [(UIView *)environment setNeedsLayout];
+         }];
+         self.multipleTouchEnabled = YES; self.opaque = NO; self.backgroundColor = UIColor.clearColor;
++        if (@available(iOS 13.4, *)) {
++            _nmHover = [[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(onHover:)];
++            [self addGestureRecognizer:_nmHover];
++        }
+         const char *feedback = getenv("DM_TOUCH_HAPTICS");
+         if (!feedback || atoi(feedback)) {
+             _touchFeedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+@@ -406,16 +412,50 @@ - (void)recompute {
+     if (changed || stick || _stickShown) [self refresh];   // also refresh on the stick release so the knob returns to the centre
+     _stickShown = stick;
+ }
++- (void)onHover:(UIHoverGestureRecognizer *)gr API_AVAILABLE(ios(13.4)) {
++    if (!dm_joy_mouse_wanted()) return;
++    CGRect b = _layout.game;
++    if (b.size.width <= 0 || b.size.height <= 0) return;
++    CGPoint p = dm_game_touch_point(b, [gr locationInView:self]);
++    if (gr.state == UIGestureRecognizerStateEnded || gr.state == UIGestureRecognizerStateCancelled) {
++        _nmActive = NO;
++        dm_host_mouse((float)p.x, (float)p.y, 0.f, 0.f, 0, 0, 0, DM_HOST_MOUSE_FLAG_ABS);
++        return;
++    }
++    float dx = _nmActive ? (float)((p.x - _nmLast.x) * b.size.width) : 0.f;
++    float dy = _nmActive ? (float)((p.y - _nmLast.y) * b.size.height) : 0.f;
++    _nmLast = p; _nmActive = YES;
++    dm_host_mouse((float)p.x, (float)p.y, dx, dy, 0, 0, 0,
++                  DM_HOST_MOUSE_FLAG_ABS | DM_HOST_MOUSE_FLAG_REL | DM_HOST_MOUSE_FLAG_SURFACE);
++}
+ // Touches no control takes go to the game's touch screen, normalized on front_ios.m's actual 16:9 viewport (including portrait and tabletop splits, and the cropped Fill picture): Super Mario Galaxy's pointer in handheld mode (profile op_mode). The host reports them only in handheld mode, as on the Switch (hle_hid.c touch_read)
+ - (void)pushGame {
+     CGRect b = _layout.game;
+-    if (b.size.width <= 0 || b.size.height <= 0) { dm_touch_set(NULL, 0); return; }
++    if (b.size.width <= 0 || b.size.height <= 0) {
++        dm_touch_set(NULL, 0);
++        if (_nmActive) { _nmActive = NO; dm_host_mouse(0.f, 0.f, 0.f, 0.f, 0, 0, 0, DM_HOST_MOUSE_FLAG_RESET); }
++        return;
++    }
+     dm_touch t[16]; int n = 0;
+     for (int i = 0; i < 16; i++) if (_game[i]) {
+         CGPoint p = dm_game_touch_point(b, [_game[i] locationInView:self]);   // with Fill the game rectangle is larger than the view (DmLayout.h)
+         t[n++] = (dm_touch){(uint32_t)i, (float)p.x, (float)p.y};
+     }
+     dm_touch_set(t, n);
++    if (dm_joy_mouse_wanted()) {
++        if (n > 0) {
++            CGPoint p = CGPointMake(t[0].x, t[0].y);
++            uint32_t btn = n >= 2 ? DM_HOST_MOUSE_RIGHT : DM_HOST_MOUSE_LEFT;
++            float dx = _nmActive ? (float)((p.x - _nmLast.x) * b.size.width) : 0.f;
++            float dy = _nmActive ? (float)((p.y - _nmLast.y) * b.size.height) : 0.f;
++            uint32_t flags = DM_HOST_MOUSE_FLAG_ABS | DM_HOST_MOUSE_FLAG_SURFACE | (_nmActive ? DM_HOST_MOUSE_FLAG_REL : 0u);
++            _nmLast = p; _nmActive = YES;
++            dm_host_mouse((float)p.x, (float)p.y, dx, dy, 0, 0, btn, flags);
++        } else if (_nmActive) {
++            _nmActive = NO;
++            dm_host_mouse((float)_nmLast.x, (float)_nmLast.y, 0.f, 0.f, 0, 0, 0, DM_HOST_MOUSE_FLAG_ABS);
++        }
++    }
+ }
+ - (BOOL)gameBegin:(UITouch *)t {
+     if (CGRectIsEmpty(_layout.game) || (_layout.separated && !CGRectContainsPoint(_layout.game, [t locationInView:self]))) return NO;
+@@ -487,7 +527,7 @@ - (void)endTouches:(NSSet<UITouch *> *)ts tapped:(BOOL)ended {
+ }
+ - (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:YES]; }
+ - (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:NO]; }
+-- (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0] = _stick[1] = nil; for (int i = 0; i < 16; i++) _game[i] = nil; [self pushGame]; [self recompute]; }
++- (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0] = _stick[1] = nil; for (int i = 0; i < 16; i++) _game[i] = nil; if (_nmActive || dm_joy_mouse_wanted()) { _nmActive = NO; dm_host_mouse(0.f, 0.f, 0.f, 0.f, 0, 0, 0, DM_HOST_MOUSE_FLAG_RESET); } [self pushGame]; [self recompute]; }
+ 
+ // ---- Shapes ----
+ static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
+diff --git a/dm/ios/Sources/LauncherSettings.swift b/dm/ios/Sources/LauncherSettings.swift
+index c0006c0..2c11933 100644
+--- a/dm/ios/Sources/LauncherSettings.swift
++++ b/dm/ios/Sources/LauncherSettings.swift
+@@ -8,7 +8,8 @@ struct Setting: Decodable, Identifiable {
+     let needs: String?     // "<VAR>=<value>": a sub-setting, drawn only while that setting has that value
+     let level: String?     // "basic": shown first (the Mac window's Basic settings); any other or none: Advanced settings. The iPhone keeps one list
+     let base: Base?        // render scale: the 3D views' size at 1.0, docked and handheld, for the size in pixels (the Mac window)
+-    struct Base: Decodable { let docked, handheld: [Int] }
++    struct Base: Decodable { let docked, handheld: [Int]; let cap: Cap? }
++    struct Cap: Decodable { let docked, handheld: [Int] }   // the largest size the stub draws in each mode (render_cap): the label holds the size to it
+     let options: [[String]]?   // choice: [value, label]
+     let min, max, step: Double?   // range
+     let on, off: String?   // toggle: the values the variable takes (1 / 0 when not given)
+@@ -93,9 +94,12 @@ final class LauncherModel: ObservableObject {
+     func rangeLabel(_ s: Setting, _ v: Double) -> String {
+         let p = "\(Int((v * 100).rounded())) %"
+         guard let b = s.base else { return p }
+-        let size = (values["DM_OPMODE"] ?? "1") == "0" ? b.handheld : b.docked
++        let handheld = (values["DM_OPMODE"] ?? "1") == "0"
++        let size = handheld ? b.handheld : b.docked
+         guard size.count == 2 else { return p }
+-        return "\(Int((Double(size[0]) * v).rounded())) × \(Int((Double(size[1]) * v).rounded())) (\(p))"
++        var w = Int((Double(size[0]) * v).rounded()), h = Int((Double(size[1]) * v).rounded())
++        if let c = b.cap.map({ handheld ? $0.handheld : $0.docked }), c.count == 2, w > c[0] || h > c[1] { w = c[0]; h = c[1] }   // the stub only lowers the mode's size
++        return "\(w) × \(h) (\(p))"
+     }
+     var changed: Bool { settings.contains { !fixed.contains($0.env) && !$0.isDefault(values[$0.env] ?? $0.def) } }
+ 
+diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+index 4a5970d..dcf3a26 100644
+--- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
++++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+@@ -134,4 +134,9 @@ void dm_audio_route_changed(void) {}
+ void dm_cloud_saves_env(void) {}
+ int save_sync_flush(int timeout_ms) { (void)timeout_ms; return 1; }
+ bool front_ios_hud_enabled_from_saved_choice(void) { return false; }
++int dm_joy_mouse_wanted(void) { return 0; }
++void dm_host_mouse(float nx, float ny, float dx, float dy, int wheel_x, int wheel_y, uint32_t buttons, uint32_t flags) {
++    (void)nx; (void)ny; (void)dx; (void)dy; (void)wheel_x; (void)wheel_y; (void)buttons; (void)flags;
++}
++void dm_switch2_teardown(void) {}
+ void dm_host_shutdown(const char *why) { (void)why; }
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index 8a21757..a6bc321 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -7,7 +7,7 @@
+ #   Environment: GAME=game profile (dm/games/<base game title ID>, or one in DM_GAMES_DIR; required), W=the game's work folder (required: <NSP folder>/<title ID>-work, never the home folder), PATCHED / ROMFS / MSL_IOS can each be overridden
+ #   DM_COPY_ROMFS=NO leaves the game files (RomFS) out of the IPA, as it does for the Xcode build phase: the package then stays small (a large game's full package can exceed what iOS extracts), and the app takes the files from Documents/romfs.img (scripts/push_romfs.sh); default: they are packed
+ #   DM_SHADER_FILES=1 packs an NVN game's shader library as its separate files, msl/b-<chain>/, not as the one file b-<chain>.img, for install tools that cannot copy a large file (AltServer; pack_ipa.py --shader-files); default: off
+-#   DM_ENTITLEMENTS=<plist> is the unsigned IPA's entitlements, signed ad-hoc into the executable (relative to the caller's directory; default: Increased Memory Limit; an empty string = none)
++#   DM_ENTITLEMENTS=<plist> is the unsigned IPA's entitlements, signed ad-hoc into the executable (relative to the caller's directory; default: the profile's app.entitlements, else Increased Memory Limit; an empty string = none)
+ #   DM_FRAMEWORK=1 (route C, docs/launcher-c-plan.md M1) compiles the game's modules into DmIOS.app/Frameworks/DmGame.framework instead of the executable
+ #     (project-framework.yml): Gen/framework/ holds the framework's dm/ tables, profile.tsv and game.manifest.json; the framework is signed ad-hoc first
+ #     (no entitlements: a dylib cannot hold them) and the app's executable second. Default 0: the build above, unchanged.
+@@ -38,6 +38,8 @@ IOS_SOURCE=$PWD; IOS=$PWD; DM=$(cd .. && pwd)
+ t() { echo "[$(date +%T)] $*"; }; die() { t "FAIL: $*"; exit 1; }
+ [ -n "${GAME:-}" ] || die "GAME is not set: GAME=<base game title ID> $0; profiles: $(python3 "$DM/games/game.py" list | awk -F'\t' '{printf "%s (%s)  ", $1, $3}')"
+ export GAME; GD=$(python3 "$DM/games/game.py" dir "$GAME") || die "no game profile $GAME"   # dm/games/<id>, or a profile in DM_GAMES_DIR (the NSP script's provisional one); the make that gen_build.py runs uses the same GAME
++# A profile's app.entitlements is its default entitlements (e.g. Extended Virtual Addressing as well as Increased Memory Limit); DM_ENTITLEMENTS still overrides it
++[ -n "${DM_ENTITLEMENTS+set}" ] || [ ! -f "$GD/app.entitlements" ] || DM_ENTITLEMENTS=$GD/app.entitlements
+ gp() { python3 "$DM/games/game.py" "$GAME" "$1" || die "game profile $GD: $1"; }   # read a key of the game profile
+ [ -f "$GD/game.tsv" ] || die "no game profile $GD/game.tsv"
+ [ -n "${W:-}" ] || die "W is not set: W=<NSP folder>/$GAME-work (the game's work folder) $0"
+@@ -134,11 +136,15 @@ elif [ "$GFXAPI" = gl ]; then [ -f "$MSL_IOS/gl/gl_shaders.metallib" ] || die "n
+ else [ -n "$V" ] && lib_has "$MSL_IOS/b-$V" || die "no iOS shader libraries $MSL_IOS/b-$V (IOSOUT=$MSL_IOS dmsh_build.py ...)"
+   # One chain version serves every game and every state of a profile's tables: the libraries' stamp (b-$V/inputs.tsv, written by a full dmsh_build.py run) must name this game and the
+   # digest of its profile's current inputs, and c1_full.tsv (not in the repository: the same build makes it, and cb_extent.tsv, from its Mac outputs) must name that digest, or the host ignores it
+-  IN=$(DM_GAME="$GAME" python3 "$DM/gfx/tools/dmsh_chain.py" --inputs) || die "dmsh_chain.py --inputs (game profile $GD)"
+-  STAMP=$(lib_cat "$MSL_IOS/b-$V" inputs.tsv)
+-  printf '%s\n' "$STAMP" | grep -qxF "$(printf 'game\t%s' "$GAME")" && printf '%s\n' "$STAMP" | grep -qxF "$(printf 'inputs\t%s' "$IN")" ||
+-    die "the iOS shader libraries $MSL_IOS/b-$V are not a full build from this profile's current tables (inputs $IN; their stamp: $([ -n "$STAMP" ] && printf '%s\n' "$STAMP" | grep -v '^#' | tr '\n\t' '  ' || echo none)): build them again (IOSOUT=$MSL_IOS dmsh_build.py ...)"
+-  head -1 "$GD/c1_full.tsv" 2> /dev/null | grep -q "^# chain b-$V inputs $IN " || die "$GD/c1_full.tsv is missing or not made from these libraries (chain $V, inputs $IN): a full dmsh_build.py run makes it and cb_extent.tsv"; fi
++  if [ "${DM_PARTIAL_SHADERS:-0}" = "1" ]; then
++    t "partial iOS shaders (DM_PARTIAL_SHADERS=1): skipping full inputs.tsv and c1_full.tsv stamp check"
++  else
++    IN=$(DM_GAME="$GAME" python3 "$DM/gfx/tools/dmsh_chain.py" --inputs) || die "dmsh_chain.py --inputs (game profile $GD)"
++    STAMP=$(lib_cat "$MSL_IOS/b-$V" inputs.tsv)
++    printf '%s\n' "$STAMP" | grep -qxF "$(printf 'game\t%s' "$GAME")" && printf '%s\n' "$STAMP" | grep -qxF "$(printf 'inputs\t%s' "$IN")" ||
++      die "the iOS shader libraries $MSL_IOS/b-$V are not a full build from this profile's current tables (inputs $IN; their stamp: $([ -n "$STAMP" ] && printf '%s\n' "$STAMP" | grep -v '^#' | tr '\n\t' '  ' || echo none)): build them again (IOSOUT=$MSL_IOS dmsh_build.py ...)"
++    head -1 "$GD/c1_full.tsv" 2> /dev/null | grep -q "^# chain b-$V inputs $IN " || die "$GD/c1_full.tsv is missing or not made from these libraries (chain $V, inputs $IN): a full dmsh_build.py run makes it and cb_extent.tsv"
++  fi; fi
+ }
+ check_program
+ P0=$GAME; P0_PATCHED=$PATCHED; P0_ROMFS=$ROMFS; P0_MSL=$MSL_IOS; P0_GFX=$GFXAPI
+@@ -175,6 +181,10 @@ cp "$PATCHED"/*.fixups.tsv "$PATCHED"/*.gates.tsv "$PATCHED"/*.cuts.tsv "$PATCHE
+ if [ -f "$PATCHED/cheat_trampolines.tsv" ]; then cp "$PATCHED/cheat_trampolines.tsv" $TD/ || die "copy cheat_trampolines.tsv"; fi   # optional offline-baked iOS cheat trampolines and metadata
+ if [ -f "$PATCHED/nro.tsv" ]; then cp "$PATCHED/nro.tsv" $TD/ || die "copy the NRO table"; fi   # the NRO modules the game loads with nn::ro (hle_ro.c), embedded by gen_embed.py
+ if [ "$GFXAPI" = vulkan ] || [ "$GFXAPI" = gl ]; then cp "$GD/shader_map.tsv" $TD/ || die "copy shader tables"   # empty NVN table: the NVN layer draws nothing
++elif [ "${DM_PARTIAL_SHADERS:-0}" = "1" ]; then
++  cp "$GD/shader_map.tsv" $TD/ || die "copy shader tables"
++  t "partial iOS shaders (DM_PARTIAL_SHADERS=1): omitting c1_full.tsv and cb_extent.tsv"
++  for f in shader_pairs.tsv pso_pairs.tsv; do if [ -f "$GD/$f" ]; then cp "$GD/$f" $TD/ || die "copy $f"; fi; done
+ else cp "$GD/shader_map.tsv" "$GD/c1_full.tsv" $TD/ || die "copy shader tables"
+   if [ -f "$GD/cb_extent.tsv" ]; then cp "$GD/cb_extent.tsv" $TD/ || die "copy cb_extent.tsv"; else t "no $GD/cb_extent.tsv: the host copies whole uniform bindings"; fi
+   # the shader pairs, beside the shader map where the pipeline prebuild reads them (nvn_mtl.m pso_prebuild): without them the app makes no pulling bases, and a hybrid draw has no stand-in
+diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
+index dd8f940..f74711d 100644
+--- a/dm/tools/docs_patches.py
++++ b/dm/tools/docs_patches.py
+@@ -185,7 +185,7 @@ def frame_step_sites(fn, base=0, others=(), found=None):   # (offset, reason) of
+     pos, puts = [0x6000000], []                    # render-scale stub, the sites in each of the rule's other functions ({label: [(offset, reason)]}) and the capabilities it declares
+     def emit(w): pos[0] += 4
+     at = {label: OTHER_BASE + i * 0x1000000 for i, label in enumerate(others)}
+-    ctx = types.SimpleNamespace(here=lambda: pos[0], emit=emit, site=lambda off, orig: None, put=lambda off, words, why: puts.append((off, why)), state=0x9000000, render_scale=0, step_max=0, base=base,
++    ctx = types.SimpleNamespace(here=lambda: pos[0], emit=emit, site=lambda off, orig: None, put=lambda off, words, why: puts.append((off, why)), state=0x9000000, render_scale=0, step_max=0, no_step=False, base=base,
+                                 others=at, found=found, capabilities=set(), fps_ready=False, address=lambda off, lo_off=None: 0)
+     fn(ctx)
+     in_others = {label: sorted((off - a, why) for off, why in puts if a <= off < a + 0x1000000) for label, a in at.items()}
+diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
+index a6dfab0..a809144 100644
+--- a/dm/tools/patch_nso.py
++++ b/dm/tools/patch_nso.py
+@@ -1496,6 +1496,8 @@ obs += region_obs
+ # stub holds full resolution (DM_DYNAMIC_RESOLUTION, written by the loader; the stub declares the DYNAMIC_RESOLUTION capability). Stub bodies assembled with clang
+ # A build's stubs are FRAME_STEP[build ID](ctx) in its patches.py: ctx.here() / ctx.emit(word) assemble into the patch area, ctx.site(offset, original bytes) asserts a site and that it is
+ # no rewrite site, ctx.put(offset, words, reason) writes it (listed with the cuts), ctx.state is the state page's offset, ctx.render_scale = n marks a render-scale stub that takes scales up to n (1: it only lowers the game's size),
++# ctx.no_step = True says the stubs only read the page's settings (render scale, dynamic resolution) and step nothing: the loader then writes those settings while the host keeps its own
++# pacing (no frame step: present interval, frame-rate cap and thermal behaviour as without a state page; Pokemon Pokopia's render scale, whose game steps by the time that passed),
+ # ctx.step_max = n says the stubs hand the game steps of at most n vsyncs (its own interval logic stops there; 0 = FSTEP_MAX, 3), so the host holds frames and pays back at most n,
+ # ctx.others the other functions a MATCH_FRAME_STEP rule names, ctx.found what an anchored rule's find returned, ctx.address(offset) the data address an adrp there and the add / load / store after it make (in the original
+ # text: the fingerprints mask those pages, so a matched stub reads the globals it needs from its functions), and ctx.capabilities.add(name) declares a launcher capability the
+@@ -1503,6 +1505,7 @@ obs += region_obs
+ FRAME_STEP = PATCHES['FRAME_STEP']
+ FS_STATE_OFF = 0
+ STEP_MAX = 0   # n = the stubs give the game steps of at most n vsyncs (ctx.step_max): the fixups table says so (STEP_MAX n), and the host holds frames at most n vsyncs (nvn_fstep.h smax)
++NO_STEP = False   # the stubs read only the settings in the state page (ctx.no_step): the fixups table says so (NO_FRAME_STEP), and the loader leaves the host's pacing as without a frame step
+ RENDER_SCALE = 0   # n = the build has a render-scale stub (state +0x10) that takes scales up to n: the fixups table says so (RENDER_SCALE n), the loader holds DM_RENDER_SCALE to it and the launcher offers the setting up to it (dm/games/settings.tsv)
+ FS_CAPABILITIES = set()   # capabilities the frame step stubs declare (ctx.capabilities)
+ if (BUILD_ID in FRAME_STEP or FS_MATCH) and NAME == 'main':
+@@ -1537,9 +1540,9 @@ def stub_address(off, what, lo_off=None):   # ADRP and its low instruction (adja
+ if FS_STATE_OFF:   # the build's stubs (FRAME_STEP of its patches.py), or those placed by their function (MATCH_FRAME_STEP: ctx.base is its start)
+     use_area(0); fs = types.SimpleNamespace(here=here, emit=emit, site=lambda off, orig: stub_site(off, orig, 'frame step'),
+                                             put=lambda off, words, why: stub_put(off, words, why + (' [function match]' if FS_MATCH else ''), 'frame_step'),
+-                                            state=FS_STATE_OFF, render_scale=0, step_max=0, base=FS_MATCH[1] if FS_MATCH else 0, others=FS_MATCH[2] if FS_MATCH else {},
++                                            state=FS_STATE_OFF, render_scale=0, step_max=0, no_step=False, base=FS_MATCH[1] if FS_MATCH else 0, others=FS_MATCH[2] if FS_MATCH else {},
+                                             found=FS_MATCH[3] if FS_MATCH else None, capabilities=set(), address=lambda off, lo_off=None: stub_address(off, 'frame step', lo_off))
+-    (FS_MATCH[0]['stub'] if FS_MATCH else FRAME_STEP[BUILD_ID])(fs); RENDER_SCALE = fs.render_scale; STEP_MAX = fs.step_max; FS_CAPABILITIES = fs.capabilities
++    (FS_MATCH[0]['stub'] if FS_MATCH else FRAME_STEP[BUILD_ID])(fs); RENDER_SCALE = fs.render_scale; STEP_MAX = fs.step_max; NO_STEP = bool(fs.no_step); FS_CAPABILITIES = fs.capabilities
+ 
+ # ---- Stubs (the modules whose patch file has STUBS of their build) ----
+ # A fix of the game's own code that needs more instructions than its sites hold: STUBS[build ID](ctx) in its patches.py assembles them into the patch area and branches there from
+@@ -1976,6 +1979,7 @@ with open(P('fixups.tsv'), 'w') as f:
+     if TWO: f.write(f'# BACK_OFF\t{BACK_OFF:#x}\n# BACK_LEN\t{BACK_LEN:#x}\n')   # the back patch area (TWO): its offset in the image, and its length, the last bytes of the file
+     for k in KEY_INDEX: f.write(f'# KEY_{k}_IDX\t{KEY_INDEX[k]}\n')
+     if FS_STATE_OFF: f.write(f'# FPS_STATE_OFF\t{FS_STATE_OFF:#x}\n')   # frame step state page (FRAME_STEP): the loader writes the target fps there
++    if FS_STATE_OFF and NO_STEP: f.write('# NO_FRAME_STEP\t1\n')   # its stubs only read the settings (ctx.no_step): no frame step, the host paces as without the page
+     if CHEAT_STATE_OFF: f.write(f'# CHEAT_STATE_OFF\t{CHEAT_STATE_OFF:#x}\n')   # 16 KB writable cheat state page (4 KB slot bytes + 12 KB Code Cave mirror)
+     if UE_CALLS: f.write(f'# UE_MALLOC_VT\t{UE_VT:#x}\n# UE_MALLOC_SLOT\t{UE_SLOT:#x}\n')   # Unreal's FMallocBinned3 (ue_malloc.py): its vtable and the slot of its name getter, which names the slot layout
+     if FPS_TARGET_PTR is not None: f.write(f'# FPS_TARGET_PTR\t{FPS_TARGET_PTR:#x}\n# FPS_TARGET_FIELD\t{FPS_TARGET_FIELD:#x}\n')   # a target frame rate the game steps by (fps_target.py)
+diff --git a/dm/tools/tests/test_ipa_tables.py b/dm/tools/tests/test_ipa_tables.py
+index 5fa02d4..0b52d1e 100644
+--- a/dm/tools/tests/test_ipa_tables.py
++++ b/dm/tools/tests/test_ipa_tables.py
+@@ -20,12 +20,13 @@ class IpaTables(unittest.TestCase):
+         for suffix in ('fixups', 'gates', 'cuts', 'obs'):
+             (self.patched / f'main.{suffix}.tsv').write_text(suffix + '\n')
+ 
+-    def stage(self, api, setup=''):
++    def stage(self, api, setup='', extra_env=None):
+         script = (REPO / 'dm/ios/tools/build_ipa.sh').read_text()
+         start = script.index('program_tables() {')
+         end = script.index('\n}', start) + 2
+         env = dict(os.environ, GD=str(self.profile), PATCHED=str(self.patched), TD=str(self.tables),
+                    GFXAPI=api, DM=str(REPO / 'dm'), GAME='test', VNACP='absent')
++        if extra_env: env.update(extra_env)
+         # Settings generation is outside this test. All table copies use the real cp.
+         helpers = 'set -u\ndie() { echo "FAIL: $*"; exit 1; }\nt() { echo "$*"; }\npython3() { :; }\n'
+         return subprocess.run(['bash', '-c', helpers + setup + script[start:end] + '\nprogram_tables\n'],
+@@ -59,6 +60,20 @@ class IpaTables(unittest.TestCase):
+         (self.profile / 'c1_full.tsv').unlink()
+         self.assertNotEqual(self.stage('nvn').returncode, 0)
+ 
++    def test_partial_shaders_omits_c1_full_and_cb_extent(self):
++        (self.profile / 'c1_full.tsv').unlink()
++        (self.profile / 'cb_extent.tsv').write_text('cb_extent\n')
++        (self.profile / 'shader_pairs.tsv').write_text('pairs\n')
++        (self.profile / 'pso_pairs.tsv').write_text('pso\n')
++        result = self.stage('nvn', extra_env={'DM_PARTIAL_SHADERS': '1'})
++        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        self.assertEqual((self.tables / 'shader_map.tsv').read_bytes(), b'shader_map.tsv\n')
++        self.assertEqual((self.tables / 'shader_pairs.tsv').read_bytes(), b'pairs\n')
++        self.assertEqual((self.tables / 'pso_pairs.tsv').read_bytes(), b'pso\n')
++        self.assertFalse((self.tables / 'c1_full.tsv').exists())
++        self.assertFalse((self.tables / 'cb_extent.tsv').exists())
++        self.assertIn('DM_PARTIAL_SHADERS=1', result.stdout)
++
+     def test_seed_copy_failure_still_fails(self):
+         (self.profile / 'pso_manifest.tsv').write_text('C\t1234567890abcdef\n')
+         # A present seed must not silently disappear when the destination refuses writes.
+diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
+index 36afd47..137e650 100644
+--- a/dm/tools/tests/test_launcher_settings.py
++++ b/dm/tools/tests/test_launcher_settings.py
+@@ -198,13 +198,17 @@ class LauncherSettingsTests(unittest.TestCase):
+ 
+     def test_render_base_goes_into_the_render_scale_row(self):
+         schema = json.loads((ROOT / 'docs/launcher.schema.json').read_text(encoding='utf-8'))
+-        for gid, base in [(BOTW, {'docked': [1600, 900], 'handheld': [1280, 720]}), (WONDER, None)]:   # Breath of the Wild's note; Wonder's profile has none
++        for gid, base in [(BOTW, {'docked': [1600, 900], 'handheld': [1280, 720]}),
++                          ('0400A3A01EE4C000', {'docked': [1920, 1080], 'handheld': [1920, 1080], 'cap': {'docked': [1920, 1080], 'handheld': [1600, 900]}}),
++                          (WONDER, None)]:   # Breath of the Wild, Pokemon Pokopia (with render_cap), Wonder (none)
+             with self.subTest(gid=gid), tempfile.TemporaryDirectory() as tmp, \
+                     patch.object(settings.nacp, 'languages', return_value=['en-US']), patch.dict(os.environ, {'GFXAPI': 'nvn'}):
+                 (Path(tmp) / 'main.fixups.tsv').write_text('# RENDER_SCALE\t1\n')   # the render scale row's condition
+                 listed = settings.build(gid, tmp, Path(tmp) / 'control.nacp')
+             self.assertEqual({s['env']: s for s in listed['settings']}['DM_RENDER_SCALE'].get('base'), base)
+             self.assertEqual(conforms(listed, schema, schema), [])
++        bad_cap = type('Profile', (), {'id': 'P', 'get': lambda self, key, default='': {'render_base': '1920x1080 1920x1080', 'render_cap': '1600x900'}.get(key, default)})()
++        with self.assertRaises(SystemExit): settings.render_base(bad_cap)
+         for bad in ('1600x900', '1600x900 1280', 'big small', '1600x900x3 1280x720', 'a1600x900 1280x720', '1600x900 1280x720 640x360'):
+             with self.subTest(bad=bad):
+                 profile = type('Profile', (), {'id': BOTW, 'get': lambda self, key, default='', bad=bad: bad})()
+diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
+index a5c8bec..ea8f82b 100644
+--- a/dm/tools/tests/test_nsp_mac_app.py
++++ b/dm/tools/tests/test_nsp_mac_app.py
+@@ -1648,18 +1648,26 @@ class SeenShaders(unittest.TestCase):   # --seen-shaders: the keys, the partial
+         log.parent.mkdir(exist_ok=True); log.write_text('shaders 1: ok 1\n')
+         d = Path(cmd[3]) / f'b-{self.CHAIN}'; d.mkdir(parents=True, exist_ok=True); (d / 'k_b.metallib').write_bytes(b'x')
+         if not cmd[4:]: (d / 'inputs.tsv').write_text('inputs\tI\n')
++        if env and env.get('IOSOUT'):
++            di = Path(env['IOSOUT']) / f'b-{self.CHAIN}'; di.mkdir(parents=True, exist_ok=True); (di / 'k_b.metallib').write_bytes(b'x')
++            if not cmd[4:]: (di / 'inputs.tsv').write_text('inputs\tI\n')
+ 
+     def seen(self, *logs): return nsp.seen_keys(self.g, self.sh, logs)
+ 
+-    def build(self, seen=None, pkg='P'):
++    def build(self, seen=None, pkg='P', mac=True, pull=None):
+         self.ran.clear()
+-        return nsp.build_shaders(sys.executable, REPO, self.sh, REPO / 'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate', {'WORK': str(self.tmp)}, self.logs, self.g, pkg_key=pkg, mac=True, seen=seen)
++        return nsp.build_shaders(sys.executable, REPO, self.sh, REPO / 'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate', {'WORK': str(self.tmp)}, self.logs, self.g, pkg_key=pkg, mac=mac, seen=seen, pull=pull)
+ 
+     def test_option(self):
+         self.assertTrue(nsp.parse_args(['--seen-shaders']).seen_shaders); self.assertFalse(nsp.parse_args(['--no-seen-shaders']).seen_shaders)
+         self.assertIsNone(nsp.parse_args([]).seen_shaders); self.assertFalse(nsp.SEEN_SHADERS)   # the default stays the whole map
+-        with mock.patch.object(nsp, 'PROG', mock.Mock()), mock.patch.object(nsp, 'check_native_python'), self.assertRaisesRegex(nsp.BuildError, 'needs --platform mac or mac-app'):
+-            nsp.main(nsp.parse_args(['--seen-shaders', str(self.tmp)]))
++        with self.assertRaisesRegex(nsp.BuildError, 'ios_seen_shaders'):
++            nsp.check_seen_shaders_allowed(self.g, mac=False)
++        ios_ok = types.SimpleNamespace(table=lambda n: self.tmp / n, dir=self.tmp, id='0400A3A01EE4C000', get=lambda k, d=None: '1' if k == 'ios_seen_shaders' else d)
++        nsp.check_seen_shaders_allowed(ios_ok, mac=False)
++        (self.tmp / 'shader_seen.tsv').unlink()
++        with self.assertRaisesRegex(nsp.BuildError, 'has no list of the shaders'):
++            nsp.check_seen_shaders_allowed(ios_ok, mac=False)
+ 
+     def test_keys_from_the_list_and_the_logs(self):
+         a, b, c, d = self.keys('a', 'b', 'c', 'd')
+@@ -1705,6 +1713,32 @@ class SeenShaders(unittest.TestCase):   # --seen-shaders: the keys, the partial
+         self.build([a])
+         self.assertEqual(kmac.read_text(), 'K\nnote\n'); self.assertTrue((lib / 'inputs.tsv').is_file()); self.assertTrue((lib / 'k_b.metallib').is_file())
+ 
++    def test_ios_partial_library_isolated_and_cleaned_by_full(self):
++        a, b = self.keys('a', 'b')
++        full_ios = self.sh / f'ios/b-{self.CHAIN}'; full_ios.mkdir(parents=True); (full_ios / 'k_b.metallib').write_bytes(b'full')
++        kf = self.sh / f'ios/b-{self.CHAIN}.key'; kf.write_text('FULL_IOS\nnote\n')
++        kmac = self.sh / f'mac-b-{self.CHAIN}.key'; kmac.write_text('FULL_MAC\nnote\n')
++        with mock.patch.object(nsp, 'chain_tables', self.no_call('chain_tables')), mock.patch.object(nsp, 'prune_stale_chains', self.no_call('prune_stale_chains')), \
++             mock.patch.object(nsp, 'prune_shader_cache', self.no_call('prune_shader_cache')), mock.patch.object(nsp, 'stale_shaders', self.no_call('stale_shaders')):
++            out = self.build([a, b], mac=False, pull=True)
++            self.assertEqual(out, self.sh / 'partial-ios')
++            self.assertEqual(len(self.ran), 1, self.ran)
++            cmd, env = self.ran[0]
++            self.assertEqual(cmd[2:], [str(self.sh / 'pkg'), str(self.sh / 'partial-ios/mac'), a, b])
++            self.assertEqual((env['IOSOUT'], env['DMSH_TARGETS'], env['DMSH_CAS']), (str(self.sh / 'partial-ios'), 'ios', str(self.sh / 'cache')))
++            self.assertFalse((self.sh / 'partial-ios/mac').exists())   # temporary Mac reflection output is removed
++            self.assertTrue((self.sh / f'partial-ios/b-{self.CHAIN}/k_b.metallib').is_file())
++            self.assertTrue((self.sh / 'partial-ios/key').is_file())
++            self.assertEqual(kf.read_text(), 'FULL_IOS\nnote\n'); self.assertEqual(kmac.read_text(), 'FULL_MAC\nnote\n')
++            self.assertEqual((full_ios / 'k_b.metallib').read_bytes(), b'full')
++            # Second identical iOS partial call hits partial-ios/key cache
++            self.assertEqual(self.build([a, b], mac=False, pull=True), self.sh / 'partial-ios'); self.assertEqual(self.ran, [])
++        # Full iOS build removes partial-ios
++        with mock.patch.object(nsp, 'chain_tables', lambda *a: True), mock.patch.object(nsp, 'stale_shaders', lambda *a: None), \
++             mock.patch.object(nsp, 'prune_stale_chains'), mock.patch.object(nsp, 'prune_shader_cache'), mock.patch.object(nsp, 'pack_libraries'):
++            self.assertEqual(self.build(mac=False, pull=True), self.sh / 'ios')
++        self.assertFalse((self.sh / 'partial-ios').exists())
++
+     def test_full_build_mentions_it_and_replaces_the_partial_library(self):
+         self.build(self.keys('a'))
+         self.assertFalse(any('--seen-shaders builds only' in m for m in self.said))
+diff --git a/docs/launcher.schema.json b/docs/launcher.schema.json
+index 4bb97df..4582c5d 100644
+--- a/docs/launcher.schema.json
++++ b/docs/launcher.schema.json
+@@ -29,7 +29,9 @@
+         "on": {"description": "toggle: the value the switch takes when on.", "type": "string"},
+         "off": {"description": "toggle: the value the switch takes when off.", "type": "string"},
+         "base": {"description": "Render scale only: the 3D views' size the scale multiplies, docked and handheld, from the game's profile; absent for most games.", "type": "object", "required": ["docked", "handheld"],
+-                 "properties": {"docked": {"$ref": "#/$defs/size"}, "handheld": {"$ref": "#/$defs/size"}}},
++                 "properties": {"docked": {"$ref": "#/$defs/size"}, "handheld": {"$ref": "#/$defs/size"},
++                                "cap": {"description": "The largest size the stub draws in each mode (a stub that only lowers the size the mode picks, from a base above it): the size shown is the base times the scale, held to this.", "type": "object", "required": ["docked", "handheld"],
++                                        "properties": {"docked": {"$ref": "#/$defs/size"}, "handheld": {"$ref": "#/$defs/size"}}}}},
+         "level": {"description": "basic: a setting a front end shows first. Without it, the front end decides.", "const": "basic"},
+         "needs": {"description": "<VAR>=<value>: a sub-setting, drawn only while the row that sets <VAR> has that value. A row naming a variable this list does not have stays drawn.", "type": "string", "pattern": "^DM_[A-Z0-9_]+=[^;=]+$"}
+       },
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index b7bddc7..1cf61c6 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -2830,6 +2830,13 @@ def seen_logs(work, app):   # the logs a --seen-shaders build reads: the run com
+     return work / 'run/host.log', logs / f'{app:016X}.log', logs / f'{app:016X}.prev.log'
+ 
+ 
++def check_seen_shaders_allowed(g, mac):
++    if not mac and g.get('ios_seen_shaders', '') != '1':
++        raise BuildError(f'--seen-shaders / SEEN_SHADERS on iOS requires a game profile that enables ios_seen_shaders ({g.id} builds the whole map on iOS)')
++    if not g.table('shader_seen.tsv').is_file():
++        raise BuildError(f'--seen-shaders: game profile {g.id} has no list of the shaders its playtests used ({g.table("shader_seen.tsv")}): build the whole map, without this option')
++
++
+ def seen_keys(g, sh, logs):
+     """The keys of a partial Mac library: the profile's shader_seen.tsv, those of the last partial build (sh/partial-keys.txt) and those the logs report missing. The file keeps what earlier runs added, as a
+     shader that loads no longer shows in the next log. Only keys of the shader map go in: a list or a log of another game version may name others, and the builder knows only the map's. No key at all stops
+@@ -2987,15 +2994,17 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+     PROG.stage('Mac shaders' if mac else 'iOS shaders')
+     chain = chain_of(repo)
+     shader_cache.adopt(sh / 'cache/cas', shader_cache.chain_file(sh / 'cache', chain), say)
+-    out = sh / 'partial' if seen else sh / 'cache' if mac else ios
+-    libs, kf, kmac = out / f'b-{chain}', ios / f'b-{chain}.key', out / 'key' if seen else sh / f'mac-b-{chain}.key'
++    out = (sh / 'partial' if mac else sh / 'partial-ios') if seen else (sh / 'cache' if mac else ios)
++    libs = out / f'b-{chain}'
++    kf = out / 'key' if (seen and not mac) else ios / f'b-{chain}.key'
++    kmac = out / 'key' if (seen and mac) else sh / f'mac-b-{chain}.key'
+     pso_pairs = g.table('pso_pairs.tsv')
+     if not pso_pairs.is_file(): pso_pairs = sh / 'pso_pairs.tsv'   # the split's copy is a shader input too (vs_pad)
+     if pkg_key:
+         PROG.set(step='checking the inputs')
+         key = fingerprint(pkg_key, ('files', chain_files(repo)), translator_key(xlate), shader_profile_key(py, repo, env, g), ('files', [pso_pairs]), *toolchain(repo, env),
+-                          {k: env.get(k) for k in ('XLATE_DEBUG', 'XLATE_REDUCED')}, *((seen,) if seen else ()), env=env)
+-        note = next((n for k in ((kmac,) if seen else (kmac, kf) if mac else (kf,)) if (n := reused(k, key)) is not None), None)
++                          {k: env.get(k) for k in ('XLATE_DEBUG', 'XLATE_REDUCED')}, *(('ios_pull', pull),) if (seen and not mac) else (), *((seen,) if seen else ()), env=env)
++        note = next((n for k in (((kmac if mac else kf),) if seen else (kmac, kf) if mac else (kf,)) if (n := reused(k, key)) is not None), None)
+         if note is None and from_seed and not seen and shader_lib.has_library(libs):
+             stamp = shader_lib.read_stamp(libs)
+             r = subprocess.run([str(py), str(repo / 'dm/gfx/tools/dmsh_chain.py'), '--inputs'], env=dict(env, DM_GAME=g.id), capture_output=True, text=True)
+@@ -3003,7 +3012,7 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+             if stamp.get('game') == g.id and cur_in and stamp.get('inputs') == cur_in:
+                 note = 'seeded'
+         # the libraries are the last build's, so are tables that name their stamp; a missing or stale one is made from that build's Mac outputs, and without them the step runs again
+-        lost_pull = pull and not mac and not seen and shader_lib.left_out_pulling(libs)   # includes an image built before pulling libraries were kept by default
++        lost_pull = pull and not mac and shader_lib.left_out_pulling(libs)   # includes an image built before pulling libraries were kept by default
+         if lost_pull: say('the app now needs the pulling vertex libraries, which this image left out: building them')
+         if shader_lib.has_library(libs) and note is not None and not lost_pull and (seen or chain_tables(py, repo, sh, env, logs, g, chain)):
+             if key and not (kmac if mac else kf).is_file():
+@@ -3012,9 +3021,11 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+             if not seen: prune_stale_chains(sh, chain); prune_shader_cache(sh, chain); pack_libraries(sh, chain, None if mac else pull)   # folders from before this become the one file here
+             PROG.end(f'{note}, reused (inputs unchanged)'); return out
+     else: key = None
+-    rmtree(kmac)
+-    if not mac: rmtree(kf)
+-    if seen: rmtree(out)   # what a run leaves is what it built; its keys are in partial-keys.txt
++    if seen:
++        rmtree(out)   # what a run leaves is what it built; its keys are in partial-keys.txt
++    else:
++        rmtree(kmac)
++        if not mac: rmtree(kf)
+     # The Metal work follows from what the build produces: an iPhone build needs only the iOS libraries (the macOS
+     # metallibs are about half of the compile and never enter the IPA), a Mac build only the Mac's, and a build that
+     # wants both compiles both. The Mac sources and reflection are written either way (c1_full / cb_extent come from them).
+@@ -3022,8 +3033,8 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+     # them from there) builds them again too: a full dmsh_build.py run removes every output of the folder first, so that
+     # a stale key keeps no old library, and restores only the targets it builds. The Metal compile cache gives back every
+     # library whose MSL was compiled before.
+-    keep_mac = not mac and shader_lib.has_library(sh / 'cache' / f'b-{chain}')
+-    benv = dict(env, XLATE=str(xlate), IOSOUT=str(ios), DMSH_TARGETS='mac' if mac else 'mac,ios' if keep_mac else 'ios')
++    keep_mac = not mac and not seen and shader_lib.has_library(sh / 'cache' / f'b-{chain}')
++    benv = dict(env, XLATE=str(xlate), IOSOUT=str(out if seen else ios), DMSH_TARGETS='mac' if mac else 'mac,ios' if keep_mac else 'ios')
+     if ALLOW_OTHER_METAL: benv['DM_ALLOW_OTHER_METAL'] = '1'
+     if mac: del benv['IOSOUT']   # dmsh_build.py builds the iOS libraries only with IOSOUT
+     elif pull is False: benv['DMSH_IOS_PULL'] = '0'   # nothing in this app reads them
+@@ -3039,7 +3050,7 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+         PROG.event('shaders_stale', reason=reason, old=old, new=new, count=n)
+         say(f'[NOTE] cached shader libraries cannot be reused ({old} -> {new}): ' + ('the translation chain changed' if reason == 'chain' else 'the game profile\'s shader inputs changed')
+             + f'; {n:,} base libraries scheduled (including cache restores; later builds reuse as before)')
+-    if mac and not seen and g.table('shader_seen.tsv').is_file():
++    if not seen and g.table('shader_seen.tsv').is_file() and (mac or g.get('ios_seen_shaders', '') == '1'):
+         say(f'building the whole shader map, {len(shader_keys(g)):,} shaders: hours for a large one the first time. --seen-shaders builds only the {len(seen_listed(g)):,} the profile\'s playtests used, in minutes; areas they do not cover then draw incomplete')
+     prefill_tmp = None
+     try:
+@@ -3058,7 +3069,10 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+         if not seen:   # the run's folder replaces the library: a stopped build keeps no old shaders under the same chain, as dmsh_build.py removes a folder's
+             shader_lib.remove_image(sh / 'cache' / f'b-{chain}')
+             if not mac: shader_lib.remove_image(ios / f'b-{chain}')
+-        run([py, repo / 'dm/gfx/tools/own_compilers.py', sh / 'pkg', out if seen else sh / 'cache', *(seen or ())], log, env=benv)
++        # For a partial iOS build, keep dmsh_build.py's Mac reflection output folder separate from IOSOUT so publish_library('mac') never deletes IOSOUT/b-<chain>.
++        mac_out = out if (seen and mac) else (out / 'mac') if seen else sh / 'cache'
++        run([py, repo / 'dm/gfx/tools/own_compilers.py', sh / 'pkg', mac_out, *(seen or ())], log, env=benv)
++        if seen and not mac: rmtree(mac_out)
+     finally:
+         PROG.watch(None)
+         if prefill_tmp is not None: rmtree(prefill_tmp)
+@@ -3081,10 +3095,10 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+     else: PROG.end()
+     if not seen: shader_regressions(py, repo, sh / 'cache', chain, logs)   # before the key: a stopped build is checked again on the next run
+     if key:
+-        for k in (kmac,) if mac else (kf, kmac) if keep_mac else (kf,): k.write_text(f'{key}\n{note}\n')
++        for k in ((kmac if mac else kf),) if seen else (kmac,) if mac else (kf, kmac) if keep_mac else (kf,): k.write_text(f'{key}\n{note}\n')
+     if not seen:   # last: a build that stopped before here keeps the old libraries and cache entries
+         prune_stale_chains(sh, chain); prune_shader_cache(sh, chain); pack_libraries(sh, chain, None if mac else pull)
+-        if mac: rmtree(sh / 'partial')   # the whole library replaces a partial one; partial-keys.txt stays
++        rmtree(sh / ('partial' if mac else 'partial-ios'))   # the whole library replaces a partial one; partial-keys.txt stays
+     return out
+ 
+ 
+@@ -3711,7 +3725,7 @@ def parse_args(argv):
+                     'and bundle them with the app after the pipeline archive, so its first start builds none (Ocarina of Time: about 6,400 bases, 450-475 s on an M5 Max at the first start); minutes to hours when its inputs changed and '
+                     'about 1.3 GB more app for such a list, made again only when its inputs change; needs the pipeline archive for this Mac\'s GPU; the other GPUs --gpu names get theirs from the host\'s pipelines scripts through metal-tt; '
+                     '--no-prebake: the app builds them on its first start (default: the PREBAKE setting, on)')
+-    ap.add_argument('--seen-shaders', action=argparse.BooleanOptionalAction, help='--platform mac or mac-app: build only the shaders the profile\'s playtests used (its shader_seen.tsv) and those the last runs\' logs reported missing, not the whole map: '
++    ap.add_argument('--seen-shaders', action=argparse.BooleanOptionalAction, help='--platform mac or mac-app (and iOS profiles with ios_seen_shaders): build only the shaders the profile\'s playtests used (its shader_seen.tsv) and those the last runs\' logs reported missing, not the whole map: '
+                     'minutes instead of hours, but areas the list does not cover draw without the rest until this runs again (default: the SEEN_SHADERS setting, off)')
+     ap.add_argument('--show-fps', action=argparse.BooleanOptionalAction, help='show the game\'s frame rate on the iPhone, frames on screen per second at the top left (default: the SHOW_FPS setting, on)')
+     ap.add_argument('--motion', action=argparse.BooleanOptionalAction, help='pass a gyro controller\'s motion (on iOS also the phone\'s own) to games that read it; --no-motion builds with DM_MOTION=0, for when motion misbehaves (default: the MOTION setting, on)')
+@@ -4260,7 +4274,6 @@ def main(args=None):
+     mac = platform in ('mac', 'mac-app')   # the Mac's shaders and host only: no iOS shaders, Xcode project or IPA (mac_run prints the command; mac-app packs a Mac app, mac_app)
+     mac_pack = platform == 'mac-app'
+     seen_shaders = SEEN_SHADERS if args.seen_shaders is None else args.seen_shaders
+-    if seen_shaders and not mac: raise BuildError('--seen-shaders / SEEN_SHADERS builds a partial library of Mac shaders: it needs --platform mac or mac-app')
+     if args.mac_sign and not mac_pack: raise BuildError('--mac-sign signs the Mac app: it needs --platform mac-app')
+     if args.prebake and not mac_pack: raise BuildError('--prebake makes the Mac app\'s prewarm pipelines: it needs --platform mac-app')
+     if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
+@@ -4330,8 +4343,8 @@ def main(args=None):
+         seed_meta = prep['seed']
+         seed_romfs_id = prep['seed_romfs_id']
+         say(f'game profile: {g.id}{" (provisional: " + str(g.dir) + ")" if provisional else ""}')
+-        if seen_shaders and not g.table('shader_seen.tsv').is_file():
+-            raise BuildError(f'--seen-shaders: game profile {g.id} has no list of the shaders its playtests used ({g.table("shader_seen.tsv")}): build the whole map, without this option')
++        if seen_shaders:
++            check_seen_shaders_allowed(g, mac)
+         out_ipa = Path(os.path.expanduser(args.out or OUT_IPA)).resolve() if (args.out or OUT_IPA) else work.parent / g.get('ipa')
+         if shadowed and not (args.out or OUT_IPA):
+             out_ipa = out_ipa.with_name(out_ipa.stem + '-provisional.ipa')
+@@ -4489,7 +4502,7 @@ def main(args=None):
+             g, provisional = gamemod.load(f'{app:016X}'), True
+             say('[RED] provisional game profile: values guessed from the survey, the game may not boot; bring it up per docs/agents after packing')
+         say(f'game profile: {g.id}{" (provisional: " + str(g.dir) + ")" if provisional else ""}')
+-        if seen_shaders and not g.table('shader_seen.tsv').is_file(): raise BuildError(f'--seen-shaders: game profile {g.id} has no list of the shaders its playtests used ({g.table("shader_seen.tsv")}): build the whole map, without this option')
++        if seen_shaders: check_seen_shaders_allowed(g, mac)
+         builds, need = g.builds(), g.words('shader_versions')
+         have, derived = nsp_versions(fam), False
+         if provisional:   # Do not silently pin a cached survey to an older input version.
+@@ -4709,13 +4722,17 @@ def main(args=None):
+ 
+     if getattr(args, 'in_programs', None) is not None:   # a program of the game: the app its first program's build packs takes these
+         rmtree(work / 'tmp')
+-        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
++        if not seen_shaders:
++            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
+         return {'row': (PROGRAM_INDEX, g.id, patched, rfs.source(game), ios, gfx), 'ex': ex, 'keep': keep}
+     programs = other_programs(args, g)
+     if programs and romfs_mode == 'separate': raise BuildError('a game of several programs keeps its files in the app (ROMFS / --romfs bundle): Documents holds one RomFS image, one program\'s')
+     if not prepare_xcode and not shell_fw and free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
+     say('preparing the Xcode project' if prepare_xcode else f'building the game framework for the shell → {shell_fw}' if shell_fw else f'building the IPA → {out_ipa}')
+     ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(rfs.source(game)), MSL_IOS=str(ios), GFXAPI=gfx, FONT_PY=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_XCODE_DERIVED_DATA=str(work / 'xcode-derived-data'), DM_TEAM_ID=team_id, DM_LANG=lang, CONTROL=str(control))
++    if seen_shaders:
++        ipa_env['DM_PARTIAL_SHADERS'] = '1'
++        say('partial iOS shader library (--seen-shaders): skipping full inputs.tsv and c1_full.tsv checks; areas the playtest list does not cover draw incomplete')
+     if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)
+     if args.framework: ipa_env['DM_FRAMEWORK'] = '1'; say('route C: the game\'s modules go into DmIOS.app/Frameworks/DmGame.framework (DM_FRAMEWORK=1)')
+     separate = romfs_mode == 'separate'
+@@ -4760,12 +4777,14 @@ def main(args=None):
+         if not (fw / 'game.manifest.json').is_file(): raise BuildError(f'no game framework at {fw}')
+         PROG.end(fw.name)
+         rmtree(work / 'tmp')
+-        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
++        if not seen_shaders:
++            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
+         say(f'game framework: {fw}')
+         if Path(str(rfs.source(game))).exists():
+             say(f'game files: {rfs.source(game)}')
+         else:
+             say('game files: cached RomFS identity (no local extraction)')
++        if seen_shaders: say('a partial iOS shader library: areas the playtest list does not cover draw incomplete. Build again without --seen-shaders for the whole shader map')
+         report_profile_status(g, reg, pkg_ver, derived, provisional, 'shell framework', patched)
+         return
+     if prepare_xcode:
+@@ -4775,12 +4794,14 @@ def main(args=None):
+         except ValueError as e: raise BuildError(str(e)) from e
+         PROG.end()
+         rmtree(work / 'tmp')
+-        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
++        if not seen_shaders:
++            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
+         say(f'ready: {workspace}')
+         say(f'game project: {project}')
+         say(f'Xcode derived data: {work / "xcode-derived-data"}')
+         if separate: say_push_romfs(rfs.source(game), bundle_id)
+         say('choose the game scheme in Xcode, select your Team and iPhone or iPad, then Run (Release)')
++        if seen_shaders: say('a partial iOS shader library: areas the playtest list does not cover draw incomplete. Build again without --seen-shaders for the whole shader map')
+         report_profile_status(g, reg, pkg_ver, derived, provisional, 'Xcode project', patched)
+         return
+     watch = IpaWatch(repo, work / 'ipa', out_ipa)
+@@ -4792,11 +4813,13 @@ def main(args=None):
+     tree_tar.pack(xcode_data, say)
+     PROG.end(f'{out_ipa.name}, {amount(out_ipa.stat().st_size, "B")}')
+     rmtree(work / 'tmp')
+-    _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
++    if not seen_shaders:
++        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
+     if not keep:
+         for d in [ex] + [r['ex'] for r in programs.values()]: say(f'deleting the extracted game files: {d}'); rmtree(d)
+     say(f'done: {out_ipa} ({out_ipa.stat().st_size / 2**30:.1f} GB)')
+     if separate: say_push_romfs(rfs.source(game), bundle_id)
++    if seen_shaders: say('a partial iOS shader library: areas the playtest list does not cover draw incomplete. Build again without --seen-shaders for the whole shader map')
+     report_profile_status(g, reg, pkg_ver, derived, provisional, patched=patched)
+ 
+ 
