@@ -53,7 +53,7 @@ import NXLauncher
 
     /// Fictional games, so no title's art or name is shown.
     nonisolated static let games: [(titleID: String, name: String, hue: Double)] = [
-        ("0100000000010000", "Marble Orchard", 0.58), ("0100000000020000", "Lantern Coast", 0.08),
+        ("01000000000F0000", "Marble Orchard", 0.58), ("0100000000020000", "Lantern Coast", 0.08),
         ("0100000000030000", "Paper Comet", 0.83), ("0100000000040000", "Tidewater Run", 0.47),
         ("0100000000050000", "Echo Garden", 0.30), ("0100000000060000", "Iron Meadow", 0.0),
         ("0100000000070000", "Night Ferry", 0.66), ("0100000000080000", "Saltglass", 0.13),

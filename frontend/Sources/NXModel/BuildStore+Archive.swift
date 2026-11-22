@@ -90,7 +90,7 @@ extension BuildStore {
         let cleanedFallbackName = RomFSArchive.cleanPackageGameName(gameName)
         let isIOSBuild = runningTarget != BuildTarget.mac
         let repoPath = repo.path
-        let pythonPath = deps.pythonPath
+        let pythonPath = resolveBuildPython()
         let runner = self.runner
         let externalImg = fastRefreshExternalImgPath
         let fastRefreshMode = isFastRefresh ?? (fastRefreshActive || (externalImg?.isEmpty == false))
@@ -382,7 +382,8 @@ extension BuildStore {
         generation: Int, then: @escaping (String) -> Void
     ) {
         let engine = EngineLayout.root(repoPath)
-        let romfsPy = pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath
+        let safePy = MacNativeGamesBuilder.isManagedUVPython(pythonPath) ? Toolchain.findPython().path : pythonPath
+        let romfsPy = safePy.isEmpty ? "/usr/bin/python3" : safePy
         let runner = self.runner
         let launch = ProcessLaunch(
             executable: romfsPy,
@@ -681,7 +682,7 @@ extension BuildStore {
             return .success(nil)
         }
 
-        let resolvedPy = pythonPath.isEmpty ? Toolchain.findPython().path : pythonPath
+        let resolvedPy = (pythonPath.isEmpty || MacNativeGamesBuilder.isManagedUVPython(pythonPath)) ? Toolchain.findPython().path : pythonPath
         let py = resolvedPy.isEmpty ? "/usr/bin/python3" : resolvedPy
         let tool = EngineLayout.root(repoPath) + "/" + RepoLayout.romfsImageTool
         let env = ["PATH": BuildCommands.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: py)]

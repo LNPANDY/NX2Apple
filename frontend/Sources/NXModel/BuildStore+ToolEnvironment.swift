@@ -2,6 +2,20 @@ import Foundation
 import NXCore
 
 extension BuildStore {
+    /// Resolves the Python interpreter for `nxnative` or `S2Arm` builds while rejecting stale cross-upstream caches
+    /// and any interpreter under MacNativeGames's `uv-python` directory.
+    package func resolveBuildPython(includeS2Arm: Bool = false) -> String {
+        let expected: EngineUpstreamKind = includeS2Arm ? .s2arm : .nxnative
+        let cached = deps.pythonPath
+        let upstreamMatches = deps.pythonUpstream == nil || deps.pythonUpstream == expected
+        let isManagedMNG = MacNativeGamesBuilder.isManagedUVPython(cached, home: home)
+            || MacNativeGamesBuilder.isManagedUVPython(cached)
+        if deps.checked, !cached.isEmpty, upstreamMatches, !isManagedMNG {
+            return cached
+        }
+        return Toolchain.findPython(includeS2Arm: includeS2Arm).path
+    }
+
     /// The environment the build's tools run in, for the script: PATH, the user, the .NET runtime root, the bundled Python's settings.
     func toolEnvironment(python py: String) -> [String: String] {
         // The root of the runtime the apphost looks for: derived from the detected installation, not assumed to be ~/.dotnet (Homebrew keeps it in .../opt/dotnet/libexec).

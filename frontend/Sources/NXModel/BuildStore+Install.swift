@@ -76,7 +76,7 @@ extension BuildStore {
 
     /// The installer with this store's tools, log, stages and process hand-off wired in. The install and the export (BuildStore+Export.swift) share it.
     func makeInstaller(respectSkipMode: Bool = true) -> ShellInstaller {
-        let python = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
+        let python = resolveBuildPython()
         var installer = ShellInstaller(xcrun: devices.xcrun, repo: repo.path, python: python, root: shellRoot, device: devices.installDevice, team: devices.signingTeam)
         installer.deviceName = devices.deviceName(devices.installDevice)
         installer.defaults = defaults
@@ -447,7 +447,7 @@ extension BuildStore {
             return
         }
         let engineRoot = EngineLayout.root(repoPath)
-        let python = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
+        let python = resolveBuildPython()
         let toolPath = BuildCommands.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: python)
         guard let package = ShellInstall.shellPackage(resources: resources, repo: repoPath) else {
             let looked = ([resources, repoPath].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }.joined(separator: ", ")
@@ -499,7 +499,8 @@ extension BuildStore {
         }
         let stageID = 1005
         let stageName = t("dev.saveStage")
-        let groupPython = deps.pythonPath.isEmpty ? "/usr/bin/python3" : deps.pythonPath
+        let resolvedPy = resolveBuildPython()
+        let groupPython = resolvedPy.isEmpty ? "/usr/bin/python3" : resolvedPy
         let lang = localizer.lang
         let runner = self.runner
         let cancel = installCancel
@@ -635,8 +636,9 @@ extension BuildStore {
         }
         append("[\(name)] \(command.joined(separator: " "))\n")
         let env = environment ?? ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"]
+        let resolvedGroupPy = resolveBuildPython()
         let launch = ProcessLaunch(command, environment: env,
-                                   groupPython: deps.pythonPath.isEmpty ? "/usr/bin/python3" : deps.pythonPath)
+                                   groupPython: resolvedGroupPy.isEmpty ? "/usr/bin/python3" : resolvedGroupPy)
         let utf8 = UTF8StreamDecoder.Locked()
         var buffer = "", lastError = ""
         let handleLine: @MainActor (BuildStore, String) -> Void = { store, raw in

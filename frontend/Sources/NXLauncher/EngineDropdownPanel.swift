@@ -128,8 +128,9 @@ package struct EngineDropdownPanel: View {
         let hasUpdate = build.upstreamHasUpdate(kind)
         let tooltip = build.upstreamUpdateTooltip(kind)
         let canSelect = !build.running && !blocked
-        let subtitle = blocked ? loc.t("upstream.mngOnlyFiveTitles") : loc.t(kind.cardNoteKey)
-        let helpText = blocked ? loc.t("upstream.mngOnlyFiveTitles") : (tooltip ?? loc.t(selected ? "upstream.activeBadge" : "upstream.readySwitch"))
+        let blockedReason = loc.t(build.mngBlockedReasonKey)
+        let subtitle = blocked ? blockedReason : loc.t(kind.cardNoteKey)
+        let helpText = blocked ? blockedReason : (tooltip ?? loc.t(selected ? "upstream.activeBadge" : "upstream.readySwitch"))
         let displayName = name(kind)
         return HStack(spacing: 8) {
             Button {
@@ -262,7 +263,7 @@ package struct EngineDropdownPanel: View {
                         EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
                     }
                 }
-                Text(blocked ? loc.t("upstream.mngOnlyFiveTitles") : loc.t(kind.cardNoteKey))
+                Text(blocked ? loc.t(build.mngBlockedReasonKey) : loc.t(kind.cardNoteKey))
                     .font(.manrope(11.5))
                     .foregroundStyle(LauncherPalette.secondaryText)
                     .lineLimit(1)
@@ -367,7 +368,7 @@ package struct EngineDropdownPanel: View {
                         EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
                     }
                 }
-                Text(blocked ? loc.t("upstream.mngOnlyFiveTitles") : loc.t(messageKey))
+                Text(blocked ? loc.t(build.mngBlockedReasonKey) : loc.t(messageKey))
                     .font(.manrope(11.5))
                     .foregroundStyle(blocked ? LauncherPalette.secondaryText : LauncherPalette.building)
                     .fixedSize(horizontal: false, vertical: true)

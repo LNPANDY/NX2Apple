@@ -43,8 +43,9 @@ extension BuildStore {
         return titleID
     }
 
-    /// Applies a known library/queue title ID (hinting 16-hex IDs and reverting MacNativeGames for non-5/non-hex IDs).
+    /// Applies a known library/queue title ID (hinting 16-hex IDs and reverting MacNativeGames for non-12/non-hex IDs).
     package func applyKnownTitleID(_ titleID: String?) {
+        packageHeaderProbeGeneration &+= 1
         let trimmed = titleID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         hintedTitleID = trimmed.isEmpty ? nil : trimmed
         if !running,
@@ -64,19 +65,98 @@ extension BuildStore {
         MacNativeGamesBuilder.normalizedHex16(gameTitleID)
     }
 
-    /// True when the active game has a recognized 16-hex title ID among the 5 MacNativeGames-supported titles.
+    /// True when the single-game Build form currently holds a selected package or game folder.
+    package var hasSelectedGameInput: Bool {
+        !basePath.isEmpty || gameFolder != nil
+    }
+
+    /// True when a queue entry is eligible for MacNativeGames (Mac target, not fast refresh, in the 12-title allowlist).
+    package static func canQueueEntryUseMNG(_ entry: QueueEntry) -> Bool {
+        guard !entry.fastRefresh else { return false }
+        guard BuildTarget.normalized(entry.target) == BuildTarget.mac else { return false }
+        return MacNativeGamesBuilder.supportsTitleID(entry.titleID)
+    }
+
+    /// True when the staged build queue holds any waiting entry that MacNativeGames cannot build.
+    package var isMNGBlockedByQueuedBuilds: Bool {
+        if activeQueueEntryUpstream == .macNativeGames {
+            return false
+        }
+        if queueBlocksMNG {
+            return true
+        }
+        guard let queued = queue?.queued, !queued.isEmpty else { return false }
+        return queued.contains { !Self.canQueueEntryUseMNG($0) }
+    }
+
+    /// True when the active game has a recognized 16-hex title ID among the 12 MacNativeGames-supported titles.
     package var isCurrentGameMNGSupported: Bool {
         detectedGameTitleID16.map { MacNativeGamesBuilder.supportsTitleID($0) } ?? false
     }
 
-    /// True when a game is recognized and does NOT belong to the 5 supported titles.
+    /// Default-Deny: once any single-game input is selected, MNG is allowed only when a recognized 16-hex title ID
+    /// belongs to the 12 supported titles. Any incompatible queued entry also blocks MNG selection.
+    /// Only pure empty state (no input selected and no incompatible waiting queue entries) permits MNG.
     package var isMNGBlockedByCurrentGame: Bool {
-        detectedGameTitleID16 != nil && !isCurrentGameMNGSupported
+        if isMNGBlockedByQueuedBuilds {
+            return true
+        }
+        if let tid = detectedGameTitleID16 {
+            return !MacNativeGamesBuilder.supportsTitleID(tid)
+        }
+        return hasSelectedGameInput
+    }
+
+    /// Localized reason key explaining why MacNativeGames is currently disabled in the engine switcher.
+    package var mngBlockedReasonKey: String {
+        isMNGBlockedByQueuedBuilds ? "upstream.mngBlockedByQueue" : "upstream.mngOnlyFiveTitles"
     }
 
     /// True when Builds should show the lightweight MacNativeGames recommendation banner under the engine switcher.
     package var shouldRecommendMacNativeGames: Bool {
-        MacNativeGamesBuilder.featureEnabled && !running && buildUpstream == .nxnative && isCurrentGameMNGSupported
+        MacNativeGamesBuilder.featureEnabled && !running && buildUpstream == .nxnative && !isMNGBlockedByQueuedBuilds && isCurrentGameMNGSupported
+    }
+
+    /// Reads the NCA header title ID off the main thread when a renamed package has no `[TitleID]` in its filename,
+    /// revalidating that `basePath` and `gameFolder` did not change before writing back `hintedTitleID`.
+    package func probeBasePackageTitleIDIfNeeded() {
+        packageHeaderProbeGeneration &+= 1
+        let gen = packageHeaderProbeGeneration
+        guard gameFolder == nil else { return }
+        let capturedBase = basePath
+        guard !capturedBase.isEmpty else { return }
+        guard TitleID.parse(capturedBase) == nil else { return }
+        guard effectiveHintedTitleID == nil else { return }
+        let capturedKeys = keysPath
+        guard !capturedKeys.isEmpty else { return }
+        let reader = readPackageTitleID
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let resolved = reader(capturedBase, capturedKeys)
+            hop {
+                guard let self,
+                      self.packageHeaderProbeGeneration == gen,
+                      self.gameFolder == nil,
+                      self.basePath == capturedBase,
+                      TitleID.parse(self.basePath) == nil,
+                      self.effectiveHintedTitleID == nil else { return }
+                if let resolved, let normalized = MacNativeGamesBuilder.normalizedHex16(resolved) {
+                    self.hintedTitleID = normalized
+                }
+            }
+        }
+    }
+
+    func nszFailureMessage(_ failure: NszInstallFailureKind, python: String) -> String {
+        switch failure {
+        case .pep668:
+            return String(format: t("msg.nszFailedPEP668"), python)
+        case .permissionDenied:
+            return String(format: t("msg.nszFailedPermission"), shortPath(Toolchain.nszVenvDir(home: home)))
+        case .network:
+            return t("msg.nszFailedNetwork")
+        case .other:
+            return String(format: t("msg.nszFailed"), python)
+        }
     }
 
     /// Auto-reverts from MacNativeGames back to nxnative whenever a recognized unsupported game is selected.
@@ -141,28 +221,40 @@ extension BuildStore {
         mngRun = true
         let baseDir = inputFolder
         let tidHex = buildKey
-        let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+        let resolvedTitleID = gameTitleID
+        let outputRoot = outDir.isEmpty ? baseDir : outDir
+        let workDir = outputRoot + "/" + tidHex + "_build"
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
             fail(failureWhat(failure!))
             return
         }
-        guard let route = MacNativeGamesBuilder.route(forTitleID: gameTitleID, in: macNativeGamesPath) else {
-            fail(String(format: t("upstream.mngUnsupportedGame"), gameTitleID ?? ""))
+        guard let route = MacNativeGamesBuilder.route(forTitleID: resolvedTitleID, in: macNativeGamesPath) else {
+            fail(String(format: t("upstream.mngUnsupportedGame"), resolvedTitleID ?? ""))
             return
         }
         try? FileManager.default.createDirectory(atPath: workDir, withIntermediateDirectories: true)
-        let macOutput = MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, preferred: macAppPath)
+        // Keep first-build `-o` outside `--work` (required by games/tmnt/build.py: --out and --work must be separate).
+        let stageDir = URL(fileURLWithPath: outputRoot + "/" + tidHex + "_stage")
+        let macOutput = MacAppOutput(
+            workDir: URL(fileURLWithPath: workDir),
+            key: tidHex,
+            titleID: resolvedTitleID,
+            preferred: macAppPath,
+            stagingDirectory: stageDir
+        )
         oneGameIPAPath = ""
         macAppPath = ""
         effectiveWorkDir = workDir
 
-        let compressed = ([basePath, updatePath] + dlcPaths).contains {
-            let e = ($0 as NSString).pathExtension.lowercased()
-            return e == "nsz" || e == "xcz"
-        }
         let gameInput = gameFolder?.scriptInput ?? basePath
         let isUnencrypted = gameFolder != nil || (gameInput as NSString).pathExtension.lowercased() == "nup"
+        let currentKeys = keysPath
+        let currentUpdate = isUnencrypted ? "" : updatePath
+        let currentDLCs = isUnencrypted ? [] : dlcPaths
+        let needsPreDecompress = !isUnencrypted && ([gameInput, currentUpdate] + currentDLCs).contains {
+            !$0.isEmpty && MacNativeGamesBuilder.needsPreDecompress(route: route, path: $0)
+        }
         let tree = macNativeGamesPath
         let homeDir = home
         let runner = self.runner
@@ -171,7 +263,8 @@ extension BuildStore {
         let installingPyMsg = t("upstream.mngInstallingPython314")
         let generatingFontsMsg = t("upstream.mngGeneratingSharedFonts")
         let installingNszMsg = t("msg.installingNsz")
-        let nszFailedFmt = t("msg.nszFailed")
+        let unpackingNszMsg = t("upstream.mngUnpackingNsz")
+        let decompressFailedFmt = t("msg.nszDecompressFailed")
         let py314MissingMsg = t("dep.python.mngMissing")
         let cancel = installCancel
         installCancel.set(false)
@@ -252,26 +345,58 @@ extension BuildStore {
                 "TMPDIR": effectiveTmpDir,
             ].merging(BundledTools.environment(for: py314)) { $1 }
              .merging(MacNativeGamesBuilder.environment(languageCode: langCode)) { $1 })
-            // nsz lives in a folder the launcher owns: an externally managed Python refuses pip install (#1500).
-            let prepEnv = compressed ? PythonPackages.environment(python: py314, env: baseEnv, home: homeDir, runner: runner) : baseEnv
+            let prepEnv = baseEnv
 
-            if compressed, !Toolchain.runOK(py314, ["-c", "import nsz"], env: prepEnv, runner: runner) {
+            var effectiveGameInput = gameInput
+            var effectiveUpdatePath = currentUpdate
+            var effectiveDlcPaths = currentDLCs
+
+            // Never mutate uv-managed Python 3.14 with bare `pip install nsz` (PEP 668).
+            // Pre-decompress compressed containers in an isolated app-managed nsz-venv only when the route needs it.
+            if needsPreDecompress {
                 if cancel.value {
                     hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
                     return
                 }
-                hop {
-                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
-                    self.beginExternalStage(name: installingNszMsg)
-                    self.say(installingNszMsg)
-                }
-                let ok = PythonPackages.installNsz(python: py314, env: prepEnv, home: homeDir, runner: runner) { @Sendable line in
+                let alreadyReady = Toolchain.readyManagedNszTool(
+                    venvDir: Toolchain.nszVenvDir(home: homeDir),
+                    environment: prepEnv,
+                    runner: runner
+                ) != nil
+                if !alreadyReady {
                     hop {
                         guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
-                        self.append(line + "\n")
+                        self.beginExternalStage(name: installingNszMsg)
+                        self.say(installingNszMsg)
                     }
                 }
-                if !ok || cancel.value {
+                let toolResult = Toolchain.ensureManagedNszTool(
+                    preferredPython: py314,
+                    home: homeDir,
+                    runner: runner,
+                    cancel: cancel,
+                    onLine: { line in
+                        hop {
+                            guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                            self.append(line + "\n")
+                        }
+                    }
+                )
+                if cancel.value {
+                    hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
+                    return
+                }
+                let nszTool: ManagedNszTool
+                switch toolResult {
+                case .success(let readyTool):
+                    nszTool = readyTool
+                    if !alreadyReady {
+                        hop {
+                            guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                            self.finishExternalStage(name: installingNszMsg)
+                        }
+                    }
+                case .failure(let err):
                     hop {
                         guard let self, self.archiveGeneration == gen else { return }
                         self.installPhaseActive = false
@@ -279,13 +404,95 @@ extension BuildStore {
                             self.finishStoppedExternalPrep()
                             return
                         }
-                        self.fail(String(format: nszFailedFmt, py314))
+                        self.fail(self.nszFailureMessage(err, python: py314))
                     }
                     return
                 }
+
                 hop {
                     guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
-                    self.finishExternalStage(name: installingNszMsg)
+                    self.beginExternalStage(name: unpackingNszMsg)
+                    self.say(unpackingNszMsg)
+                }
+
+                func unpackOne(_ path: String) -> Result<String, NszUnpackError> {
+                    guard !path.isEmpty, MacNativeGamesBuilder.needsPreDecompress(route: route, path: path) else {
+                        return .success(path)
+                    }
+                    return Toolchain.unpackCompressedPackage(
+                        input: path,
+                        keysPath: currentKeys,
+                        workDir: workDir,
+                        tool: nszTool,
+                        environment: prepEnv,
+                        runner: runner,
+                        cancel: cancel,
+                        onLine: { line in
+                            hop {
+                                guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                                self.append(line + "\n")
+                            }
+                        }
+                    )
+                }
+
+                switch unpackOne(effectiveGameInput) {
+                case .success(let unpacked):
+                    effectiveGameInput = unpacked
+                case .failure(let err):
+                    hop {
+                        guard let self, self.archiveGeneration == gen else { return }
+                        self.installPhaseActive = false
+                        if self.stopping || self.installCancel.value {
+                            self.finishStoppedExternalPrep()
+                            return
+                        }
+                        self.fail(String(format: decompressFailedFmt, err.message))
+                    }
+                    return
+                }
+
+                if !effectiveUpdatePath.isEmpty {
+                    switch unpackOne(effectiveUpdatePath) {
+                    case .success(let unpacked):
+                        effectiveUpdatePath = unpacked
+                    case .failure(let err):
+                        hop {
+                            guard let self, self.archiveGeneration == gen else { return }
+                            self.installPhaseActive = false
+                            if self.stopping || self.installCancel.value {
+                                self.finishStoppedExternalPrep()
+                                return
+                            }
+                            self.fail(String(format: decompressFailedFmt, err.message))
+                        }
+                        return
+                    }
+                }
+
+                var unpackedDLCs: [String] = []
+                for dlc in effectiveDlcPaths {
+                    switch unpackOne(dlc) {
+                    case .success(let unpacked):
+                        unpackedDLCs.append(unpacked)
+                    case .failure(let err):
+                        hop {
+                            guard let self, self.archiveGeneration == gen else { return }
+                            self.installPhaseActive = false
+                            if self.stopping || self.installCancel.value {
+                                self.finishStoppedExternalPrep()
+                                return
+                            }
+                            self.fail(String(format: decompressFailedFmt, err.message))
+                        }
+                        return
+                    }
+                }
+                effectiveDlcPaths = unpackedDLCs
+
+                hop {
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.finishExternalStage(name: unpackingNszMsg)
                 }
             }
 
@@ -296,7 +503,8 @@ extension BuildStore {
             var sharedFontsPath = ""
             if MacNativeGamesBuilder.needsAutoSharedFonts(
                 route: route,
-                gameInput: gameInput,
+                titleID: resolvedTitleID,
+                gameInput: effectiveGameInput,
                 isUnencryptedInput: isUnencrypted,
                 workDir: workDir
             ) {
@@ -331,6 +539,9 @@ extension BuildStore {
             }
 
             let finalFontsPath = sharedFontsPath
+            let finalGameInput = effectiveGameInput
+            let finalUpdatePath = effectiveUpdatePath
+            let finalDlcPaths = effectiveDlcPaths
             hop {
                 guard let self, self.archiveGeneration == gen else { return }
                 self.installPhaseActive = false
@@ -351,10 +562,16 @@ extension BuildStore {
                     workDir: workDir,
                     outputAppPath: macOutput.builderURL.path,
                     sharedFontsPath: finalFontsPath,
+                    gameInputOverride: finalGameInput,
+                    updatePathOverride: finalUpdatePath,
+                    dlcPathsOverride: finalDlcPaths,
                     environment: denv
                 ) else {
                     self.fail(String(format: self.t("upstream.mngUnsupportedGame"), self.gameTitleID ?? ""))
                     return
+                }
+                if let stagingDir = macOutput.stagingDirectoryURL {
+                    try? FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
                 }
                 self.startBuildProcess(launch: launch, envCleanup: nil, macOutput: macOutput)
             }
@@ -380,13 +597,16 @@ extension BuildStore {
         workDir: String,
         outputAppPath: String,
         sharedFontsPath: String = "",
+        gameInputOverride: String? = nil,
+        updatePathOverride: String? = nil,
+        dlcPathsOverride: [String]? = nil,
         environment: [String: String]
     ) -> ProcessLaunch? {
         guard let route = MacNativeGamesBuilder.route(forTitleID: gameTitleID, in: macNativeGamesPath) else { return nil }
-        let gameInput = gameFolder?.scriptInput ?? basePath
+        let gameInput = gameInputOverride ?? (gameFolder?.scriptInput ?? basePath)
         let unencrypted = gameFolder != nil || (gameInput as NSString).pathExtension.lowercased() == "nup"
-        let effectiveUpdatePath = unencrypted ? "" : updatePath
-        let effectiveDlcPaths = unencrypted ? [] : dlcPaths
+        let effectiveUpdatePath = unencrypted ? "" : (updatePathOverride ?? updatePath)
+        let effectiveDlcPaths = unencrypted ? [] : (dlcPathsOverride ?? dlcPaths)
         let args = MacNativeGamesBuilder.arguments(
             route: route,
             tree: macNativeGamesPath,

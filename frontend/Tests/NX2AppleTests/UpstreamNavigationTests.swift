@@ -131,8 +131,8 @@ private struct OfflineUpstreamTransport: EngineTransport {
         try Data("#!/usr/bin/env python3\n".utf8).write(to: mngDir.appendingPathComponent("build_app.py"))
         build.macNativeGamesPath = mngDir.path
 
-        let nonMngFile = root.appendingPathComponent("Odyssey [0100000000010000].nsp")
-        let nonMngUntaggedFile = root.appendingPathComponent("Odyssey.nsp")
+        let nonMngFile = root.appendingPathComponent("MarioKart [0100152000022000].nsp")
+        let nonMngUntaggedFile = root.appendingPathComponent("MarioKart.nsp")
         let totkFile = root.appendingPathComponent("TOTK [0100F2C0115B6000].nsp")
         try Data([0]).write(to: nonMngFile)
         try Data([0]).write(to: nonMngUntaggedFile)
@@ -161,7 +161,7 @@ private struct OfflineUpstreamTransport: EngineTransport {
         XCTAssertEqual(build.target, BuildTarget.mac)
         XCTAssertNil(pad.frame(of: "set.build.mngRecommend"))
 
-        // 2. Switching to non-5 game reverts to nxnative, disables MacNativeGames inside dropdown, and keyboard arrow skips it.
+        // 2. Switching to a non-12 game reverts to nxnative, disables MacNativeGames inside dropdown, and keyboard arrow skips it.
         build.updateSlot("base") { $0.paths = [nonMngFile.path] }
         RunLoop.main.run(until: Date().addingTimeInterval(0.15))
         XCTAssertEqual(build.buildUpstream, .nxnative)
@@ -183,8 +183,8 @@ private struct OfflineUpstreamTransport: EngineTransport {
         // 2b. Library game without [TitleID] in filename still reverts MNG and blocks it in Builds.
         build.buildUpstream = .macNativeGames
         let untaggedGame = LibraryGame(
-            titleID: "0100000000010000",
-            name: "Odyssey",
+            titleID: "0100152000022000",
+            name: "Mario Kart 8 Deluxe",
             lastTarget: BuildTarget.ios,
             inputs: ["base": [nonMngUntaggedFile.path]]
         )
@@ -209,15 +209,16 @@ private struct OfflineUpstreamTransport: EngineTransport {
         XCTAssertEqual(build.buildUpstream, .nxnative)
         XCTAssertEqual(build.target, BuildTarget.ios)
         XCTAssertTrue(build.isMNGBlockedByCurrentGame)
-        XCTAssertEqual(build.detectedGameTitleID16, "0100000000010000")
+        XCTAssertEqual(build.detectedGameTitleID16, "0100152000022000")
 
-        // 3. SupportedGamesSheet search matches "MacNativeGames" and "MNG" for all 5 titles.
+        // 3. SupportedGamesSheet search matches "MacNativeGames" and "MNG" for all 12 titles.
         let full = SupportedGames.list(engineRoot: root.path, includeMacNativeGames: true)
-            + [SupportedGame(titleID: "0100000000010000", name: "Super Mario Odyssey", edition: .switch1, version: "1.4.1", notes: "")]
+            + [SupportedGame(titleID: "0100152000022000", name: "Mario Kart 8 Deluxe", edition: .switch1, version: "3.0.3", notes: "")]
         let mngHits = full.filter { SupportedGamesSheet.matchesSearch($0, needle: "MacNativeGames", ownedName: "") }
         let shortHits = full.filter { SupportedGamesSheet.matchesSearch($0, needle: "mng", ownedName: "") }
         XCTAssertEqual(Set(mngHits.map(\.titleID)), MacNativeGamesBuilder.supportedTitleIDs)
         XCTAssertEqual(Set(shortHits.map(\.titleID)), MacNativeGamesBuilder.supportedTitleIDs)
+        XCTAssertEqual(mngHits.count, 12)
 
         // 4. LibraryArtworkState carries MNG upstream flag for built MNG bundles only.
         let mngApp = root.appendingPathComponent("TOTK.app")
@@ -235,7 +236,7 @@ private struct OfflineUpstreamTransport: EngineTransport {
         var libGame = LibraryGame(titleID: "0100F2C0115B6000", name: "TOTK")
         libGame.appPath = mngApp.path
         XCTAssertTrue(LibraryArtworkState(libGame).isMacNativeGames)
-        XCTAssertFalse(LibraryArtworkState(LibraryGame(titleID: "0100000000010000", name: "Odyssey")).isMacNativeGames)
+        XCTAssertFalse(LibraryArtworkState(LibraryGame(titleID: "0100152000022000", name: "Mario Kart 8 Deluxe")).isMacNativeGames)
     }
 
     func testEngineDropdownIncludesNxkitWhenSelectableAndBuildPageUsesTopSwitcher() throws {

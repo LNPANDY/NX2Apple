@@ -44,14 +44,23 @@ import NXCore
     private let busy: () -> Bool
     private let engineChangedReason: () -> String
     private let packageFailureReason: () -> String
+    private var currentUpstream: () -> EngineUpstreamKind
+    private var defaultKeysPath: () -> String
+    private var readPackageTitleID: (String, String) -> String?
 
     package init(file: URL?, engineID: @escaping () -> String, busy: @escaping () -> Bool,
                  start: @escaping (QueueEntry) -> String?, packageBatch: @escaping ([QueueEntry]) -> Bool = { _ in false },
                  engineChangedReason: @escaping () -> String = { "The engine changed since this game was queued" },
-                 packageFailureReason: @escaping () -> String = { L10n.string("queue.cannotPackage", .en) }) {
+                 packageFailureReason: @escaping () -> String = { L10n.string("queue.cannotPackage", .en) },
+                 currentUpstream: @escaping () -> EngineUpstreamKind = { .nxnative },
+                 defaultKeysPath: @escaping () -> String = { "" },
+                 readPackageTitleID: @escaping (String, String) -> String? = { PackageHeaderTitleID.readHex16(path: $0, keysPath: $1) }) {
         self.file = file; self.engineID = engineID; self.busy = busy; self.start = start; self.packageBatch = packageBatch
         self.engineChangedReason = engineChangedReason
         self.packageFailureReason = packageFailureReason
+        self.currentUpstream = currentUpstream
+        self.defaultKeysPath = defaultKeysPath
+        self.readPackageTitleID = readPackageTitleID
         let stored = file.map(BuildQueueFile.load) ?? (entries: [QueueEntry](), paused: false)
         var loaded = stored.entries
         for index in loaded.indices { loaded[index].target = BuildTarget.normalized(loaded[index].target) }
@@ -97,8 +106,37 @@ import NXCore
             (entry.status != .done || group.allSatisfy { $0.status == .done && $0.packagePending == nil })
     }
 
+    /// Wires the active build upstream and package header title ID reader when attached to `BuildStore`.
+    package func bindUpstreamProvider(
+        currentUpstream: @escaping () -> EngineUpstreamKind,
+        defaultKeysPath: @escaping () -> String,
+        readPackageTitleID: @escaping (String, String) -> String?
+    ) {
+        self.currentUpstream = currentUpstream
+        self.defaultKeysPath = defaultKeysPath
+        self.readPackageTitleID = readPackageTitleID
+    }
+
+    private func resolvedEntryUpstream(for entry: QueueEntry, batchUpstream: EngineUpstreamKind) -> EngineUpstreamKind {
+        if entry.fastRefresh { return .nxnative }
+        let desired = entry.upstream ?? batchUpstream
+        switch desired {
+        case .macNativeGames:
+            let isMac = BuildTarget.normalized(entry.target) == BuildTarget.mac
+            return (isMac && MacNativeGamesBuilder.supportsTitleID(entry.titleID)) ? .macNativeGames : .nxnative
+        case .nxkit:
+            return BuildTarget.normalized(entry.target) == BuildTarget.mac ? .nxkit : .nxnative
+        case .nxnative, .s2arm:
+            return desired
+        }
+    }
+
     package func enqueue(_ new: [QueueEntry]) {
         guard !new.isEmpty else { return }
+        // Capture active upstream once for the whole batch before publishing entries,
+        // so adding a mixed batch does not downgrade later eligible MNG entries mid-loop.
+        let batchUpstream = currentUpstream()
+        let fallbackKeys = defaultKeysPath()
         for var entry in new {
             entry.target = BuildTarget.normalized(entry.target)
             if macOnly(), entry.target != BuildTarget.mac, !entry.fastRefresh {   // a refresh of an iPhone app stays one: `startQueued` skips it
@@ -106,6 +144,22 @@ import NXCore
                 entry.packageAfter = false; entry.exportIPA = nil; entry.exportFramework = nil
             }
             entry.status = .queued; entry.reason = nil
+            if MacNativeGamesBuilder.normalizedHex16(entry.titleID) == nil,
+               !entry.fastRefresh,
+               let base = entry.inputs["base"]?.first,
+               !base.isEmpty {
+                if let parsed = TitleID.parse(base) {
+                    entry.titleID = String(format: "%016llX", parsed)
+                } else {
+                    let entryKeys = entry.inputs["keys"]?.first ?? ""
+                    let effectiveKeys = entryKeys.isEmpty ? fallbackKeys : entryKeys
+                    if !effectiveKeys.isEmpty, let headerID = readPackageTitleID(base, effectiveKeys),
+                       let normalized = MacNativeGamesBuilder.normalizedHex16(headerID) {
+                        entry.titleID = normalized
+                    }
+                }
+            }
+            entry.upstream = resolvedEntryUpstream(for: entry, batchUpstream: batchUpstream)
             let key = QueueKey(titleID: entry.titleID, target: entry.target)
             let group = entries.filter { QueueKey(titleID: $0.titleID, target: $0.target).titleID == key.titleID }
             if let index = entries.firstIndex(where: { QueueKey(titleID: $0.titleID, target: $0.target) == key }) {

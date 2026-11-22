@@ -445,7 +445,7 @@ struct LauncherView: View {
         .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)
         .sheet(isPresented: $selectingGames) {
             BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !m.exportsOneGame && !m.exportsFramework, exportsFramework: m.exportsFramework,
-                macOnlyNoteKey: m.isMacOnlyUpstreamSelected ? m.macOnlyNoteKey : nil,
+                macOnlyNoteKey: m.isMacOnlyUpstreamSelected ? m.macOnlyNoteKey : nil, macNativeGamesSelected: m.isMacNativeGamesSelected,
                 added: { target in m.target = target; buildEditorOpen = true; page = .builds }) { selectingGames = false }
                 .environmentObject(loc).environmentObject(padFocus)
         }

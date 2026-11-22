@@ -382,6 +382,7 @@ package enum Toolchain {
         var seen = Set<String>()
         var fallback: (String, (Int, Int))? = nil   // newest with an acceptable version but no packages
         for c in pythonCandidates() where !c.isEmpty && seen.insert(c).inserted {
+            if MacNativeGamesBuilder.isManagedUVPython(c) { continue }
             guard FileManager.default.isExecutableFile(atPath: c), let v = pythonVersion(c) else { continue }
             guard v >= minPython else { continue }
             if importsOK(c, includeS2Arm: includeS2Arm) { return (c, true) }

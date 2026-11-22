@@ -12,6 +12,8 @@ import NXLauncher
 extension GalleryFixtures {
     /// A title MacNativeGames maintains, for the scenes that need one. The game keeps the fixture's own name and cover.
     static let mngTitleID = "0100F2C0115B6000"
+    /// A title MacNativeGames does not maintain, so `.mngBlocked` always shows the blocked state even with real covers.
+    static let nonMNGTitleID = "0100152000022000"
 
     func macNativeGamesView(_ scene: GalleryDesktopScene, stores: LauncherStores, library: GameLibrary,
                             launcher: (GalleryLauncher) -> AnyView) -> AnyView {
@@ -27,7 +29,7 @@ extension GalleryFixtures {
             return launcher(GalleryLauncher(page: .builds, editor: true))
         case .mngBlocked:
             build.macNativeGamesPath = makeMNGTree().path
-            configureBuild(stores, library: library)   // a fictional title: not one of the five
+            configureNonMNGTitle(stores)   // explicit non-MNG title ID (not one of the 12)
             return launcher(GalleryLauncher(page: .settings, category: .tools))
         case .mngUpdateAvailable:
             build.macNativeGamesPath = makeMNGTree(receipt: UpstreamVersionReceipt(commit: String(repeating: "a", count: 40), version: "2026-10-28",
@@ -68,6 +70,17 @@ extension GalleryFixtures {
     private func configureMNGTitle(_ stores: LauncherStores) {
         let game = catalog[0]
         let package = directory.appendingPathComponent("\(game.name) [\(Self.mngTitleID)].nsp")
+        try? Data().write(to: package)
+        stores.build.target = BuildTarget.mac
+        stores.build.outDir = "/Volumes/Games"
+        stores.build.updateSlot("base") { $0.paths = [package.path] }
+        stores.build.selectUpstream(.nxnative)
+    }
+
+    /// The build's game is fixture game 0 under a title MacNativeGames does not maintain, so MNG stays blocked.
+    private func configureNonMNGTitle(_ stores: LauncherStores) {
+        let game = catalog[0]
+        let package = directory.appendingPathComponent("\(game.name) [\(Self.nonMNGTitleID)].nsp")
         try? Data().write(to: package)
         stores.build.target = BuildTarget.mac
         stores.build.outDir = "/Volumes/Games"
