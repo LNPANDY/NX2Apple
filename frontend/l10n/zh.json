@@ -847,6 +847,7 @@
   "dev.resignOlder": "这个游戏是在共用应用出现之前构建成独立应用的。请重新构建，把它放进共用应用。",
   "dev.resignStage": "续签并安装到 %@",
   "dev.resigned": "已续签并安装到 %@",
+  "dev.resigning": "续签中…",
   "dev.saveFailed": "保存 IPA 失败：%@（请检查目标位置的可用空间和写入权限）",
   "dev.saveIPATitle": "保存已签名的 IPA",
   "dev.saveNeedsApp": "没有可打包的已签名 App：%@（请重新构建）",

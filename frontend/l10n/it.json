@@ -847,6 +847,7 @@
   "dev.resignOlder": "Questo gioco è stato compilato come app a sé, prima che esistesse l’app condivisa. Compilalo di nuovo per inserirlo nell’app condivisa.",
   "dev.resignStage": "Nuova firma per %@",
   "dev.resigned": "Firmato di nuovo e installato su %@",
+  "dev.resigning": "Nuova firma…",
   "dev.saveFailed": "Salvataggio dell’IPA non riuscito: %@ (controlla lo spazio libero e i permessi di scrittura nella destinazione)",
   "dev.saveIPATitle": "Salva l’IPA firmato",
   "dev.saveNeedsApp": "Nessuna app firmata da impacchettare: %@ (compila di nuovo)",

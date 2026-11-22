@@ -847,6 +847,7 @@
   "dev.resignOlder": "Ce jeu a été compilé comme une app à part, avant qu’il existe une app partagée. Compilez-le à nouveau pour le mettre dans l’app partagée.",
   "dev.resignStage": "Re-signature pour %@",
   "dev.resigned": "Re-signé et installé sur %@",
+  "dev.resigning": "Nouvelle signature…",
   "dev.saveFailed": "Échec de l’enregistrement de l’IPA : %@ (vérifiez l’espace libre et les droits d’écriture à la destination)",
   "dev.saveIPATitle": "Enregistrer l’IPA signée",
   "dev.saveNeedsApp": "Aucune app signée à empaqueter : %@ (compilez à nouveau)",

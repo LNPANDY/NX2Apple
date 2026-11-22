@@ -847,6 +847,7 @@
   "dev.resignOlder": "이 게임은 공유 앱이 생기기 전에 자체 앱으로 빌드되었습니다. 공유 앱에 넣으려면 다시 빌드하세요.",
   "dev.resignStage": "%@용으로 다시 서명하는 중",
   "dev.resigned": "다시 서명하고 %@에 설치함",
+  "dev.resigning": "재서명 중…",
   "dev.saveFailed": "IPA 저장 실패: %@ (여유 공간과 대상의 쓰기 권한을 확인하세요)",
   "dev.saveIPATitle": "서명된 IPA 저장",
   "dev.saveNeedsApp": "패키징할 서명된 앱이 없습니다: %@ (다시 빌드하세요)",

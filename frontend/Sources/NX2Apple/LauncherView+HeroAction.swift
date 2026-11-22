@@ -4,6 +4,17 @@ import NXCore
 import NXModel
 import NXLauncher
 
+private struct HeroGlassButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .brightness(configuration.isPressed ? 0.08 : 0)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
 /// The hero primary action and Mac / device launch lifecycle tracking.
 extension LauncherView {
     static func needsImmediateGatekeeperHint(for game: LibraryGame) -> Bool {
@@ -72,8 +83,10 @@ extension LauncherView {
         if game.onDevice {
             HStack(spacing: 12) {
                 if !game.isOlderIOSBuild {
+                    let isResigning = m.running && m.operation?.kind == .renewingSignature
                     let expiry = signatureExpiry[game.id].map { AppSignature.describe($0, loc.t) } ?? loc.t("dev.expiryUnknown")
-                    heroSecondary(loc.t("dev.resign"), symbol: "checkmark.seal", id: "hero.resign", enabled: !m.running,
+                    heroSecondary(loc.t(isResigning ? "dev.resigning" : "dev.resign"), symbol: "checkmark.seal", id: "hero.resign",
+                                  enabled: !m.running, loading: isResigning,
                                   help: expiry + "\n" + loc.t("dev.resignHelp")) { resign(game) }
                 }
                 if game.isReady {
@@ -84,16 +97,16 @@ extension LauncherView {
         }
     }
 
-    private func heroSecondary(_ title: String, symbol: String, id: String, enabled: Bool, help: String,
+    private func heroSecondary(_ title: String, symbol: String, id: String, enabled: Bool, loading: Bool = false, help: String,
                                action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            LauncherHeroActionLabel(title: title, symbol: symbol)
+            LauncherHeroActionLabel(title: title, symbol: symbol, loading: loading)
                 .foregroundStyle(LauncherPalette.text)
                 .contentShape(Capsule())
                 .launcherGlass(in: DSPill())
         }
-        .buttonStyle(.plain).fixedSize(horizontal: false, vertical: true).disabled(!enabled || artworkEditor != nil)
-        .opacity(enabled && artworkEditor == nil ? 1 : 0.45)
+        .buttonStyle(HeroGlassButtonStyle()).fixedSize(horizontal: false, vertical: true).disabled(!enabled || artworkEditor != nil)
+        .opacity(loading ? 0.88 : (enabled && artworkEditor == nil ? 1 : 0.45))
         .launcherHover(enabled: enabled && artworkEditor == nil).help(help)
         .padTarget(id, scope: "main", enabled: enabled && artworkEditor == nil) { if enabled && artworkEditor == nil { action() } }
     }

@@ -20,28 +20,61 @@ struct BuildMetadataHero<Trailing: View>: View {
     @State private var queueIcons: [String: NSImage] = [:]
     @EnvironmentObject private var loc: Localizer
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Standalone non-build operation (such as re-signing the shared iOS app) must not display an unrelated game draft left in the form.
+    private var standaloneOperation: ActiveOperation? {
+        (build.running && !build.buildingGame) ? build.operation : nil
+    }
     /// Grey only while the build runs, in colour idle and finished (#1458).
     private var reveal: Double { build.running && build.buildingGame ? min(max(build.gameTitleID == titleID ? (build.overallProgress ?? 0) : 0, 0), 1) : 1 }
     var artworkGames: [QueueGame] {
+        guard standaloneOperation == nil else { return [] }
         guard let current = queueGames.first(where: \.running) else { return Array(queueGames.prefix(4)) }
         return Array(([current] + queueGames.filter { $0.id != current.id }).prefix(4))
     }
     private var queuedGame: QueueGame? { artworkGames.first }
-    private var titleID: String? { queuedGame?.titleID ?? build.gameTitleID }
+    private var titleID: String? {
+        if let op = standaloneOperation { return op.titleID }
+        return queuedGame?.titleID ?? build.gameTitleID
+    }
     @State private var metadataName: String?
     @State private var icon: NSImage?
     private var game: LibraryGame? { library?.games.first { $0.titleID == titleID } }
-    private var chosen: Bool { !build.basePath.isEmpty || build.gameFolder != nil || queuedGame != nil }
+    private var chosen: Bool { standaloneOperation != nil || !build.basePath.isEmpty || build.gameFolder != nil || queuedGame != nil }
     /// A finished build: success, or a warning while data is still missing. Nil while it runs or before it starts.
     private var finishedOutcome: ArtworkOutcomeBadge.Outcome? {
         guard !build.running, let status = build.completionStatus else { return nil }
         return status == .needsData ? .warning : .success
     }
 
+    private func standaloneOperationSymbol(_ kind: ActiveOperation.Kind) -> String {
+        switch kind {
+        case .renewingSignature: return "checkmark.seal.fill"
+        case .installing: return "iphone.and.arrow.forward"
+        case .exportingIPA: return "shippingbox.fill"
+        case .sendingGameData: return "arrow.up.doc.fill"
+        case .building, .verifyingFirstStart: return "hammer.fill"
+        }
+    }
+
+    private var heroHeading: String {
+        if let op = standaloneOperation {
+            if op.titleID == nil { return op.title(loc.t) }
+            return game?.displayName(loc.lang) ?? op.game ?? metadataName ?? op.title(loc.t)
+        }
+        return game?.displayName(loc.lang) ?? queuedGame?.entries.first?.name ?? metadataName ?? (build.gameName.isEmpty ? loc.t("build.addGame") : build.gameName)
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: DS.Space.m) {
             if chosen {
-                if artworkGames.count > 1 {
+                if let op = standaloneOperation, op.titleID == nil {
+                    Image(systemName: standaloneOperationSymbol(op.kind))
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(LauncherPalette.cream)
+                        .frame(width: DS.Control.headerIcon, height: DS.Control.headerIcon)
+                        .background(DS.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.sheet))
+                        .accessibilityHidden(true)
+                } else if artworkGames.count > 1 {
                     QueueArtworkStack(items: artworkGames.map { QueueArtworkItem(id: $0.titleID, image: queueIcons[$0.titleID]) }, size: DS.Control.headerIcon)
                 } else {
                     BuildIconReveal(image: icon ?? queuedGame.flatMap { queueIcons[$0.titleID] }, progress: reveal)
@@ -55,7 +88,7 @@ struct BuildMetadataHero<Trailing: View>: View {
                 }
             }
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                Text(game?.displayName(loc.lang) ?? queuedGame?.entries.first?.name ?? metadataName ?? (build.gameName.isEmpty ? loc.t("build.addGame") : build.gameName))
+                Text(heroHeading)
                     .font(DS.Font.title).foregroundStyle(DS.Color.textPrimary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
                 let line = statusLine.isEmpty ? BuildHeaderLine.text(build, loc.t) : statusLine
@@ -132,6 +165,13 @@ extension BuildMetadataHero where Trailing == EmptyView {
         if build.running {
             let stage = build.stages.last { $0.state == .running }
             let eta = stage.flatMap { $0.remaining(at: now) }.map { String(format: t("prog.etaEstimate"), BuildProgress.duration($0)) }
+            if !build.buildingGame, let op = build.operation {
+                var parts: [String] = []
+                if op.titleID != nil { parts.append(t(op.kind.key)) }
+                if let stageName = stage?.displayName(t), !stageName.isEmpty { parts.append(stageName) }
+                if let eta { parts.append(eta) }
+                return parts.isEmpty ? target : parts.joined(separator: " · ")
+            }
             return ([String(format: t("build.header.building"), target)] + [stage?.displayName(t), eta].compactMap { $0 }).joined(separator: " · ")
         }
         if build.failure != nil || build.stages.contains(where: { $0.state == .failed }) {

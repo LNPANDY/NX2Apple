@@ -846,6 +846,7 @@
   "dev.resignOlder": "This game was built as its own app, before there was one shared app. Build it again to put it in the shared app.",
   "dev.resignStage": "Re-signing for %@",
   "dev.resigned": "Re-signed and installed on %@",
+  "dev.resigning": "Re-signing…",
   "dev.saveFailed": "Saving the IPA failed: %@ (check free space and write permission at the destination)",
   "dev.saveIPATitle": "Save the signed IPA",
   "dev.saveNeedsApp": "No signed app to pack: %@ (build again)",
