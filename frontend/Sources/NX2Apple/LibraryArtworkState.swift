@@ -38,6 +38,8 @@ final class LibraryArtworkStateCache {
         let sourceFolder: String
         let titleID: String
         let building: Bool
+        /// nxkit's launcher.json (its date and size): a rebuild into the same app path changes the No game profile tag.
+        let nxkitList: NxkitBuildProfile.Stamp?
 
         init(_ game: LibraryGame, building: Bool) {
             appPath = game.appPath
@@ -52,6 +54,7 @@ final class LibraryArtworkStateCache {
             sourceFolder = game.sourceFolder
             titleID = game.titleID
             self.building = building
+            nxkitList = NxkitBuildProfile.stamp(app: game.appPath)
         }
     }
 

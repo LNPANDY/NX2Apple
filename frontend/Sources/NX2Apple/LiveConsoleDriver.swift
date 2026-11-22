@@ -224,8 +224,9 @@ struct ConsolePadSnapshot: Equatable {
         // built by nxkit without a game profile (v0lumehi/nxkit#54): read here, the views never touch the file
         if game.isReady, let app = game.playableMacBundle, app.upstream == .nxkit, let profile = NxkitBuildProfile.read(app: game.appPath) {
             console.genericBuild = profile
-            console.genericReport = NxkitFeedback.genericBuildReportURL(titleID: game.titleID, gameVersion: app.version ?? "",
-                                                                        nxkitVersion: nxkitVersion(game.titleID) ?? "")
+            console.genericReport = NxkitFeedback.genericBuildReportURL(gameName: game.displayName(lang()), titleID: game.titleID,
+                                                                        gameVersion: app.version ?? "",
+                                                                        nxkitVersion: profile.nxkitVersion ?? nxkitVersion(game.titleID) ?? "")
         }
         return withHistory(of: game, console)
     }

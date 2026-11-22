@@ -4,7 +4,7 @@ import Foundation
 /// (v0lumehi/nxkit#54). nxkit builds a game without a title module on its generic path, and its rule R15 says no such build is silent:
 /// the launcher shows it, a log line is not enough. The object is
 /// `"build": {"profile": "title" | "generic", "engine": "<engine family id>" | null, "graphics": "nvn" | "vulkan" | "opengl" | null,
-/// "evidence": ["<short marker>", ...]}`.
+/// "evidence": ["<short marker>", ...], "nxkit_version": "<x.y.z>"}`.
 ///
 /// It is read tolerantly: a missing file, a file that is not JSON, a missing `build` object, `"profile": "title"` and a profile value this
 /// launcher does not know all read as nil (a normal build, nothing shown). A field of the wrong type is left out, never fatal.
@@ -15,9 +15,12 @@ package struct NxkitBuildProfile: Equatable, Sendable {
     package var graphics: String?
     /// nxkit's short markers for what it found. Not shown, kept for a report.
     package var evidence: [String]
+    /// The nxkit version that built the app, nil when the file does not say (a build before nxkit wrote it): the report then takes
+    /// the launcher's own record of the build.
+    package var nxkitVersion: String?
 
-    package init(engine: String? = nil, graphics: String? = nil, evidence: [String] = []) {
-        self.engine = engine; self.graphics = graphics; self.evidence = evidence
+    package init(engine: String? = nil, graphics: String? = nil, evidence: [String] = [], nxkitVersion: String? = nil) {
+        self.engine = engine; self.graphics = graphics; self.evidence = evidence; self.nxkitVersion = nxkitVersion
     }
 
     /// The generic build `data` (the text of launcher.json) describes, nil for a normal build or anything this launcher cannot read.
@@ -30,7 +33,7 @@ package struct NxkitBuildProfile: Equatable, Sendable {
             return s
         }
         let evidence = (build["evidence"] as? [Any])?.compactMap { $0 as? String } ?? []
-        return NxkitBuildProfile(engine: text("engine"), graphics: text("graphics"), evidence: evidence)
+        return NxkitBuildProfile(engine: text("engine"), graphics: text("graphics"), evidence: evidence, nxkitVersion: text("nxkit_version"))
     }
 
     /// The list of an app nxkit built (LaunchSetting.listURL names the same file).
@@ -38,17 +41,22 @@ package struct NxkitBuildProfile: Equatable, Sendable {
         URL(fileURLWithPath: app).appendingPathComponent("Contents/Resources/nxkit/launcher.json")
     }
 
-    private struct Stamp: Equatable { let modified: Date?; let size: UInt64? }
+    /// The list's date and size, nil when the app has none: a cache that keeps what read() said (LibraryArtworkStateCache) keys on it,
+    /// so a rebuild into the same app path is seen.
+    package struct Stamp: Hashable, Sendable { let modified: Date?; let size: UInt64? }
+    package static func stamp(app: String) -> Stamp? {
+        guard !app.isEmpty, let attributes = try? FileManager.default.attributesOfItem(atPath: listURL(app: app).path) else { return nil }
+        return Stamp(modified: attributes[.modificationDate] as? Date, size: (attributes[.size] as? NSNumber)?.uint64Value)
+    }
+
     private static let lock = NSLock()
     nonisolated(unsafe) private static var cache: [String: (stamp: Stamp, profile: NxkitBuildProfile?)] = [:]
 
     /// The generic build of the app at `app`, nil for a normal build and for an app that is not nxkit's (it has no nxkit/launcher.json).
     /// Views call it while drawing: the file is read again only when its date or size changed.
     package static func read(app: String) -> NxkitBuildProfile? {
-        guard !app.isEmpty else { return nil }
+        guard let stamp = stamp(app: app) else { return nil }
         let url = listURL(app: app)
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
-        let stamp = Stamp(modified: attributes[.modificationDate] as? Date, size: (attributes[.size] as? NSNumber)?.uint64Value)
         lock.lock()
         if let hit = cache[url.path], hit.stamp == stamp { lock.unlock(); return hit.profile }
         lock.unlock()

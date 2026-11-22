@@ -217,8 +217,8 @@ extension LauncherView {
     /// An app nxkit built without a game profile (NxkitBuildProfile), and its prefilled report: only what this launcher knows.
     func nxkitGenericBuild(_ game: LibraryGame) -> (profile: NxkitBuildProfile, report: URL)? {
         guard let app = game.playableMacBundle, app.upstream == .nxkit, let profile = NxkitBuildProfile.read(app: game.appPath) else { return nil }
-        return (profile, NxkitFeedback.genericBuildReportURL(titleID: game.titleID, gameVersion: app.version ?? "",
-                                                             nxkitVersion: m.nxkitRecord(game.titleID)?.version ?? ""))
+        return (profile, NxkitFeedback.genericBuildReportURL(gameName: game.displayName(loc.lang), titleID: game.titleID, gameVersion: app.version ?? "",
+                                                             nxkitVersion: profile.nxkitVersion ?? m.nxkitRecord(game.titleID)?.version ?? ""))
     }
 
     private func heroBadges(_ game: LibraryGame) -> some View {

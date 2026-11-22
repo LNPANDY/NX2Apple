@@ -84,7 +84,7 @@ extension GalleryFixtures {
         case .nxkitGeneric:   // the hero of a game nxkit built without a game profile (v0lumehi/nxkit#54), already answered
             let id = makeNxkitApp(for: 0, in: library)
             if let app = library.games.first(where: { $0.id == id })?.appPath {
-                try? Data(#"{"schema":1,"settings":[],"build":{"profile":"generic","engine":"unreal","graphics":"vulkan","evidence":["UnrealEngine"]}}"#.utf8)
+                try? Data(#"{"schema":1,"settings":[],"build":{"profile":"generic","engine":"unreal","graphics":"vulkan","evidence":["UnrealEngine"],"nxkit_version":"0.10.3"}}"#.utf8)
                     .write(to: NxkitBuildProfile.listURL(app: app))
             }
             var records = build.nxkitRecords

@@ -167,6 +167,11 @@ import NXLauncher
             (t("console.gamePage.status"), t(game.status.labelKey)),
         ])
         if game.olderTools { ConsoleNoticeCard(tone: .warning, title: t("library.olderToolsHelp")) }
+        if game.status == .ready, let profile = game.genericBuild {
+            // the same note, short: who opens the build sees it was built without a game profile
+            ConsoleNoticeCard(tone: .warning, title: t("nxkit.generic.title"), detail: NxkitGenericBuildRow.detected(profile, t),
+                              action: genericReportAction)
+        }
         ConsoleGroupedList {
             // A game that is not built builds from here (#1111): now when nothing builds, after the running build otherwise
             if game.status == .needsBuild && !state.builds.running {

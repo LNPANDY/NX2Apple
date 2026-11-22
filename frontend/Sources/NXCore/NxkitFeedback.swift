@@ -127,12 +127,16 @@ package enum NxkitFeedback {
     }
 
     /// "Report" for an app nxkit built without a game profile (NxkitBuildProfile): the same issue form, prefilled only with what this
-    /// launcher knows. An empty value is left out, the player fills in the rest and the result in the form.
-    package static func genericBuildReportURL(titleID: String, gameVersion: String, nxkitVersion: String,
+    /// launcher knows, the title "[Game] <name>" as issueURL writes it. An empty value is left out, the player fills in the rest and the
+    /// result in the form.
+    package static func genericBuildReportURL(gameName: String, titleID: String, gameVersion: String, nxkitVersion: String,
                                               macModel: String = NxkitFeedback.macModel,
-                                              macOSVersion: String = NxkitFeedback.macOSVersion) -> URL {
+                                              macOSVersion: String = NxkitFeedback.macOSVersion,
+                                              home: String = NSHomeDirectory(), user: String = NSUserName()) -> URL {
+        let name = scrub(gameName, home: home, user: user)
         let fields: [(String, String)] = [
             (Field.template, Field.templateName),
+            (Field.title, name.isEmpty ? "" : "[Game] " + name),
             (Field.titleID, titleID.uppercased()),
             (Field.gameVersion, gameVersion),
             (Field.nxkitVersion, nxkitVersion),

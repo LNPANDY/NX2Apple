@@ -28,6 +28,14 @@ final class NxkitBuildProfileTests: XCTestCase {
         XCTAssertEqual(parse(#"{"build":{"profile":"GENERIC","engine":"  "}}"#), NxkitBuildProfile(), "case and blank values")
     }
 
+    func testTheNxkitVersion() {
+        XCTAssertEqual(parse(#"{"build":{"profile":"generic","nxkit_version":"0.11.0"}}"#)?.nxkitVersion, "0.11.0")
+        XCTAssertNil(parse(#"{"build":{"profile":"generic"}}"#)?.nxkitVersion, "an older nxkit: the launcher's record is used")
+        XCTAssertNil(parse(#"{"build":{"profile":"generic","nxkit_version":11}}"#)?.nxkitVersion, "the wrong type is left out")
+        XCTAssertNil(parse(#"{"build":{"profile":"generic","nxkit_version":" "}}"#)?.nxkitVersion)
+        XCTAssertNotNil(parse(#"{"build":{"profile":"generic","nxkit_version":[]}}"#), "the build is still generic")
+    }
+
     func testFieldsOfTheWrongTypeAreLeftOut() {
         let profile = parse(#"{"build":{"profile":"generic","engine":7,"graphics":["nvn"],"evidence":["a",1,null,"b"],"later":{"x":1}}}"#)
         XCTAssertEqual(profile, NxkitBuildProfile(engine: nil, graphics: nil, evidence: ["a", "b"]))
@@ -67,13 +75,16 @@ final class NxkitBuildProfileTests: XCTestCase {
     }
 
     func testTheReportIsPrefilledWithWhatTheLauncherKnows() throws {
-        let url = NxkitFeedback.genericBuildReportURL(titleID: "0100abcd00010000", gameVersion: "1.2.0", nxkitVersion: "0.10.3",
-                                                      macModel: "Mac15,8", macOSVersion: "26.1.0")
+        let url = NxkitFeedback.genericBuildReportURL(gameName: "Crash Bandicoot 4", titleID: "0100abcd00010000", gameVersion: "1.2.0",
+                                                      nxkitVersion: "0.10.3", macModel: "Mac15,8", macOSVersion: "26.1.0",
+                                                      home: "/Users/zijad", user: "zijad")
         let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
         XCTAssertEqual(components.scheme! + "://" + components.host! + components.path, NxkitFeedback.newIssueURL)
-        XCTAssertEqual(components.queryItems?.map(\.name), ["template", "title_id", "game_version", "nxkit_version", "mac_model", "macos_version"])
+        XCTAssertEqual(components.queryItems?.map(\.name),
+                       ["template", "title", "title_id", "game_version", "nxkit_version", "mac_model", "macos_version"])
         let values = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
         XCTAssertEqual(values["template"], "game_report.yml")
+        XCTAssertEqual(values["title"], "[Game] Crash Bandicoot 4", "the title as the Did it work? reports write it")
         XCTAssertEqual(values["title_id"], "0100ABCD00010000")
         XCTAssertEqual(values["game_version"], "1.2.0")
         XCTAssertEqual(values["nxkit_version"], "0.10.3")
@@ -81,8 +92,17 @@ final class NxkitBuildProfileTests: XCTestCase {
         XCTAssertEqual(values["macos_version"], "26.1.0")
     }
 
+    func testTheTitleCarriesNoPath() throws {
+        let url = NxkitFeedback.genericBuildReportURL(gameName: "/Users/zijad/Games/Odd Name", titleID: "0100ABCD00010000", gameVersion: "",
+                                                      nxkitVersion: "", macModel: "", macOSVersion: "", home: "/Users/zijad", user: "zijad")
+        let title = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "title" }?.value)
+        XCTAssertFalse(title.contains("zijad"), title)
+        XCTAssertTrue(title.hasPrefix("[Game] "), title)
+    }
+
     func testAnUnknownValueIsLeftOutOfTheReport() throws {
-        let url = NxkitFeedback.genericBuildReportURL(titleID: "0100ABCD00010000", gameVersion: "", nxkitVersion: "", macModel: "", macOSVersion: "26.1.0")
+        let url = NxkitFeedback.genericBuildReportURL(gameName: "", titleID: "0100ABCD00010000", gameVersion: "", nxkitVersion: "",
+                                                      macModel: "", macOSVersion: "26.1.0")
         let names = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems).map(\.name)
         XCTAssertEqual(names, ["template", "title_id", "macos_version"])
     }
