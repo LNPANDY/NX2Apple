@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sun, 22 Nov 2026 05:58:34 +0800
+Subject: [PATCH] games/0400A3A01EE4C000: add 5 Pokopia Pokedex and world
+ shaders to shader_seen.tsv
+
+Add the five shaders observed in Pokemon Pokopia first-area and Pokedex 3D preview runs (36b7f49db42c771b, a09599043ae63349, a3305c931b85d38a, b639e7c91c3eacfe, cc679c7b4d3e703c) so --seen-shaders builds include full Pokedex character models.
+
+Upstream-Status: forwarded seedds/nxnative#3171
+Reason: Include Pokopia Pokedex and first-area shaders in --seen-shaders builds
+Issue: none
+
+---
+ dm/games/0400A3A01EE4C000/shader_seen.tsv | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/dm/games/0400A3A01EE4C000/shader_seen.tsv b/dm/games/0400A3A01EE4C000/shader_seen.tsv
+index 0f35ac6..7fc44ef 100644
+--- a/dm/games/0400A3A01EE4C000/shader_seen.tsv
++++ b/dm/games/0400A3A01EE4C000/shader_seen.tsv
+@@ -1714,6 +1714,7 @@ key	stage
+ 36a5adcd00d84a8e	pixel
+ 36a8fbe2e8ba5b5c	vertex
+ 36a9463562c50117	pixel
++36b7f49db42c771b	vertex
+ 36b8a28918c3058c	pixel
+ 36ba772ee931c551	compute
+ 36bfb5faf11d6d15	pixel
+@@ -5144,6 +5145,7 @@ a075361e12f447c0	pixel
+ a079a46d8c8fa20b	pixel
+ a085d12928c9c593	pixel
+ a0952cb3210b7af0	pixel
++a09599043ae63349	pixel
+ a09a1623db5d80ae	vertex
+ a09ad0ebe781afd3	pixel
+ a09eee848d5f0408	pixel
+@@ -5237,6 +5239,7 @@ a3258a4c99c0ae7f	pixel
+ a3288156a0aead33	pixel
+ a32b9ecde6faa5c1	pixel
+ a32c4f9aef477db6	pixel
++a3305c931b85d38a	pixel
+ a334be3b98fadbf8	pixel
+ a3356d523af0a768	pixel
+ a338256083e85d4c	vertex
+@@ -5812,6 +5815,7 @@ b612a25e1808c296	pixel
+ b614c99ba6a595f1	pixel
+ b616846e4fa1afc1	vertex
+ b622ddf72ee65b9c	compute
++b639e7c91c3eacfe	vertex
+ b63af6815304ad53	pixel
+ b63b659e3ed9a712	pixel
+ b640798d081b4432	pixel
+@@ -6532,6 +6536,7 @@ cc5294d7ec5fb26a	pixel
+ cc58e3dd79e150c8	compute
+ cc62264849751f55	pixel
+ cc64ad2cac978ebe	pixel
++cc679c7b4d3e703c	vertex
+ cc6c17b9f8f3675c	vertex
+ cc6d398b9ef66a44	pixel
+ cc7411bf9684215a	compute
