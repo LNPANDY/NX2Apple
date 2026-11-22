@@ -309,17 +309,29 @@ public struct ActivityLogView: View {
         }
     }
 
-    private func cycleSort() {
-        let all = SortOrder.allCases
-        sort = all[((all.firstIndex(of: sort) ?? 0) + 1) % all.count]
-    }
-
+    /// The order of the list: cream pills in a dark capsule, as on the Mac.
     private var sortControl: some View {
-        NativeCreamSegmentedControl(options: SortOrder.allCases.map { SettingOption(id: $0.rawValue, verbatimLabel: sortLabel($0)) },
-                                    value: sort.rawValue,
-                                    accessibilityLabel: ShellStrings.text("Play history"),
-                                    accessibilityIdentifier: "activityLog.sort") { sort = SortOrder(rawValue: $0) ?? .mostPlayed }
-            .shellTarget("act.sort", action: cycleSort)
+        HStack(spacing: 4) {
+            ForEach(SortOrder.allCases, id: \.self) { order in
+                let on = sort == order
+                Button { sort = order } label: {
+                    Text(sortLabel(order))
+                        .shellText(13, on ? .bold : .medium, relativeTo: .footnote)
+                        .foregroundStyle(on ? .black : .white.opacity(0.85))
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(on ? ShellPalette.cream : .clear, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+                .shellTarget("act.sort.\(order.rawValue)") { sort = order }
+            }
+        }
+        .padding(3)
+        .background(Color.white.opacity(0.07), in: Capsule())
+        .overlay(Capsule().strokeBorder(ShellPalette.hairline, lineWidth: 1))
+        .fixedSize()
     }
 
     private var gamesListSection: some View {
@@ -329,7 +341,7 @@ public struct ActivityLogView: View {
                 HStack(alignment: .center, spacing: 12) {
                     SectionHeading(title: ShellStrings.text("Play history"))
                     Spacer(minLength: 8)
-                    sortControl.frame(width: 360)
+                    sortControl
                 }
                 VStack(alignment: .leading, spacing: 12) {
                     SectionHeading(title: ShellStrings.text("Play history"))
