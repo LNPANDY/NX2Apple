@@ -322,23 +322,28 @@ struct ConsolePadSnapshot: Equatable {
     }
 
     private func openGame(_ game: LibraryGame, environment: [String: String], gameID: String, generation: UInt64) {
+        let armedCheats = CheatFuseMonitor.shared.prepareAndArm(for: game, shellRoot: shellRoot())
         launch(game, environment) { [weak self] pid, error in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self else { return }
+                    guard let self else { CheatFuseMonitor.shared.abort(armedCheats); return }
                     // LaunchServices may return an app started elsewhere. A stale callback does not own that process.
-                    guard self.launchGeneration == generation else { return }
-                    guard self.state.startingGameID == gameID else { return }
-                    if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription, kind: "error"); return }
+                    guard self.launchGeneration == generation else { CheatFuseMonitor.shared.abort(armedCheats); return }
+                    guard self.state.startingGameID == gameID else { CheatFuseMonitor.shared.abort(armedCheats); return }
+                    if let error { CheatFuseMonitor.shared.abort(armedCheats); self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription, kind: "error"); return }
                     self.launchedPID = pid
                     self.library.recordPlayed(game.id)   // the Recently played order (#937)
                     if let pid { self.beginTracking(game, pid: pid, environment: environment) }   // the session, its pause and its end (+Sessions)
                     self.launchedGame = game
                     if let pid {   // the launcher's one watcher and its switch (ReturnAfterPlay.swift), and the cloud's send an engine leaves to it (SaveEngine)
+                        CheatFuseMonitor.shared.didStart(pid: pid, pending: armedCheats)
                         GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in
+                            CheatFuseMonitor.shared.didExit(pid: pid)
                             CloudSaveSend.afterExit(app: game.appPath, environment: environment, engine: SaveEngines.forApp(game.appPath))
                             self?.gameDidTerminate(pid: pid)
                         }
+                    } else {
+                        CheatFuseMonitor.shared.abort(armedCheats)
                     }
                     self.state.starting = .opening
                     self.timeoutTask?.cancel()

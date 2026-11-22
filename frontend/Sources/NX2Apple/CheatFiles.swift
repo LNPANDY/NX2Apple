@@ -104,6 +104,35 @@ struct CheatFiles {
     var masterOffFile: URL { folder.appendingPathComponent(".cheats-off-\(titleID)") }
     /// The host's own safe-mode flag (Mac only): a front end leaves it alone, and may say what it means.
     var runningFlag: URL { folder.appendingPathComponent(".cheats-running-\(titleID)") }
+    /// 30-second anti-crash fuse receipts stored beside the switches.
+    var armedFile: URL { folder.appendingPathComponent(".cheats-armed.json") }
+    var stableFile: URL { folder.appendingPathComponent(".cheats-stable.json") }
+    var trippedFile: URL { folder.appendingPathComponent(".cheats-tripped.json") }
+
+    struct ArmedReceipt: Codable, Equatable {
+        let titleID: String
+        let buildID: String
+        let enabled: [String]
+        let newlyEnabled: [String]
+        let hadMasterOnly: Bool
+        let startedAt: TimeInterval
+    }
+
+    struct StableReceipt: Codable, Equatable {
+        let buildID: String
+        let enabled: [String]
+        let recordedAt: TimeInterval
+    }
+
+    struct TrippedReceipt: Codable, Equatable {
+        let titleID: String
+        let buildID: String
+        let disabled: [String]
+        let disabledMaster: Bool
+        let trippedAt: TimeInterval
+    }
+
+    static let fuseDisarmSeconds: TimeInterval = 30.0
 
     // ---- the files ----
 
@@ -167,6 +196,147 @@ struct CheatFiles {
 
     /// The last run ended with cheats on and without a clean exit: the game starts with every cheat off until its panel restores them.
     var safeMode: Bool { FileManager.default.fileExists(atPath: runningFlag.path) }
+
+    // ---- 30-second crash guard fuse ----
+
+    func readArmed() -> ArmedReceipt? { Self.decodeJSON(ArmedReceipt.self, at: armedFile) }
+    func readStable() -> StableReceipt? { Self.decodeJSON(StableReceipt.self, at: stableFile) }
+    func readTripped() -> TrippedReceipt? { Self.decodeJSON(TrippedReceipt.self, at: trippedFile) }
+    func clearTripped() { try? FileManager.default.removeItem(at: trippedFile) }
+
+    /// Ordered enabled keys in `<build ID>.enabled`, deduplicated while preserving file order.
+    func enabledList(_ buildID: String) -> [String] {
+        guard let text = try? String(contentsOf: enabledFile(buildID), encoding: .utf8) else { return [] }
+        var seen = Set<String>(), out: [String] = []
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let key = String(raw)
+            if !key.isEmpty, seen.insert(key).inserted { out.append(key) }
+        }
+        return out
+    }
+
+    /// Writes `.cheats-armed.json` before launch if any cheats (or master-only entries) will run.
+    @discardableResult
+    func armBeforeLaunch(buildID explicitBuildID: String?, now: Date = Date()) -> ArmedReceipt? {
+        guard masterOn else { return nil }
+        guard let targetBuild = resolveFuseBuildID(explicit: explicitBuildID) else { return nil }
+        let enabledKeys = enabledList(targetBuild)
+        let hasMaster = found().first(where: { $0.buildID == targetBuild })
+            .flatMap { cheats(of: $0) }?
+            .contains(where: { $0.kind == .master && !$0.broken }) ?? false
+        let hadMasterOnly = enabledKeys.isEmpty && hasMaster
+        guard !enabledKeys.isEmpty || hadMasterOnly else { return nil }
+
+        let stableSet: Set<String>
+        if let stable = readStable(), stable.buildID.uppercased() == targetBuild {
+            stableSet = Set(stable.enabled)
+        } else {
+            stableSet = []
+        }
+        let newlyEnabled = enabledKeys.filter { !stableSet.contains($0) }
+        let receipt = ArmedReceipt(
+            titleID: titleID,
+            buildID: targetBuild,
+            enabled: enabledKeys,
+            newlyEnabled: newlyEnabled,
+            hadMasterOnly: hadMasterOnly,
+            startedAt: now.timeIntervalSince1970
+        )
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        Self.encodeJSON(receipt, to: armedFile)
+        return receipt
+    }
+
+    /// Recovers a leftover `.cheats-armed.json` by disabling newly enabled cheats (or all armed cheats,
+    /// or writing `.cheats-off-<TID>` for master-only files) and recording `.cheats-tripped.json`.
+    @discardableResult
+    func recoverIfArmed(now: Date = Date()) -> TrippedReceipt? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: armedFile.path) else { return nil }
+        defer { try? fm.removeItem(at: armedFile) }
+        guard let armed = readArmed() else { return nil }
+
+        let targetBuild = armed.buildID.uppercased()
+        var disabledNames: [String] = []
+        var disabledMaster = false
+
+        if !armed.newlyEnabled.isEmpty {
+            disabledNames = armed.newlyEnabled
+            removeEnabledKeys(Set(armed.newlyEnabled), from: targetBuild)
+        } else if !armed.enabled.isEmpty {
+            disabledNames = armed.enabled
+            removeEnabledKeys(Set(armed.enabled), from: targetBuild)
+        } else if armed.hadMasterOnly {
+            disabledMaster = true
+            try? setMaster(false)
+        } else {
+            return nil
+        }
+
+        let tripped = TrippedReceipt(
+            titleID: titleID,
+            buildID: targetBuild,
+            disabled: disabledNames,
+            disabledMaster: disabledMaster,
+            trippedAt: now.timeIntervalSince1970
+        )
+        Self.encodeJSON(tripped, to: trippedFile)
+        return tripped
+    }
+
+    /// Disarms the active receipt after surviving the 30-second window and records `.cheats-stable.json`.
+    @discardableResult
+    func disarmAndRecordStable(expectedBuildID: String? = nil, now: Date = Date()) -> Bool {
+        guard let armed = readArmed() else { return false }
+        if let expectedBuildID, armed.buildID.uppercased() != expectedBuildID.uppercased() { return false }
+        let stable = StableReceipt(
+            buildID: armed.buildID.uppercased(),
+            enabled: armed.enabled,
+            recordedAt: now.timeIntervalSince1970
+        )
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        Self.encodeJSON(stable, to: stableFile)
+        try? FileManager.default.removeItem(at: armedFile)
+        return true
+    }
+
+    /// Resolves a Mac game process exit: disarms as stable at >= threshold, otherwise trips the fuse.
+    @discardableResult
+    func handleProcessExit(elapsed: TimeInterval, threshold: TimeInterval = fuseDisarmSeconds, now: Date = Date()) -> TrippedReceipt? {
+        if elapsed >= threshold {
+            disarmAndRecordStable(now: now)
+            return nil
+        }
+        return recoverIfArmed(now: now)
+    }
+
+    private func resolveFuseBuildID(explicit: String?) -> String? {
+        if let explicit {
+            let trimmed = explicit.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if trimmed.count >= 16, Self.isHex(trimmed.prefix(16)) { return String(trimmed.prefix(16)) }
+        }
+        let all = found()
+        return all.count == 1 ? all[0].buildID : nil
+    }
+
+    private func removeEnabledKeys(_ keys: Set<String>, from buildID: String) {
+        let remaining = enabledList(buildID).filter { !keys.contains($0) }
+        let body = remaining.map { $0 + "\n" }.joined()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? Data(body.utf8).write(to: enabledFile(buildID), options: .atomic)
+    }
+
+    private static func decodeJSON<T: Decodable>(_ type: T.Type, at url: URL) -> T? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+
+    private static func encodeJSON<T: Encodable>(_ value: T, to url: URL) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(value) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
 
     // ---- reading a cheat file (parse_file) ----
 
@@ -400,10 +570,13 @@ struct CheatTransfer {
 
     var destination: String { CheatFiles.deviceFolder(titleID: files.titleID) }
 
-    /// What goes: the folder's files without the host's safe-mode flag (a Mac-only state) and half-written temporaries.
+    /// What goes: the folder's files without Mac-only runtime state flags (safe mode, crash fuse receipts) and half-written temporaries.
     func stage() throws -> URL {
         let fm = FileManager.default
-        let names = ((try? fm.contentsOfDirectory(atPath: files.folder.path)) ?? []).filter { !$0.hasPrefix(".cheats-running-") && !$0.hasSuffix(".tmp") }
+        let localOnly: Set<String> = [".cheats-armed.json", ".cheats-stable.json", ".cheats-tripped.json"]
+        let names = ((try? fm.contentsOfDirectory(atPath: files.folder.path)) ?? []).filter {
+            !$0.hasPrefix(".cheats-running-") && !$0.hasSuffix(".tmp") && !localOnly.contains($0)
+        }
         guard names.contains(where: { $0.lowercased().hasSuffix(".txt") }) || fm.fileExists(atPath: files.folder.appendingPathComponent("atmosphere").path) else { throw Failure.noFiles }
         let dir = scratch.appendingPathComponent("nxnative-cheats-\(UUID().uuidString)").appendingPathComponent("cheats")
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)

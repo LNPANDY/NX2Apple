@@ -5,36 +5,39 @@ Subject: [PATCH] mac: add Home menu overlay and safe background pause timer
  generation
 
 Upstream-Status: pending [builds on controllers_mac from seedds/nxnative#221]
-Reason: Open an in-game Home menu on short Home press, pause in background, and guard hide timers across resume
+Reason: Open an in-game Home menu on short Home press, pause in background, auto-pause on controller disconnect after 3 s, and guard hide timers across resume
 Issue: LNPANDY/NX2Apple#1120
 ---
- dm/host/controllers_mac.h         |   2 +
- dm/host/controllers_mac.m         |  16 +++
- dm/host/front_mac.m               | 216 +++++++++++++++++++++++++++---
- dm/host/home_quit.h               |  91 ++++++++++---
- dm/host/home_quit_mac.h           |  47 +++++++
- dm/host/tests/t_controllers_mac.m |   9 ++
- dm/host/tests/t_home_quit.c       | 112 +++++++++++++++-
- dm/host/tests/t_home_quit_mac.m   |  43 +++++-
+ dm/host/controllers_mac.h         |   5 +
+ dm/host/controllers_mac.m         |  50 ++++-
+ dm/host/front_mac.m               | 342 ++++++++++++++++++++++++++++--
+ dm/host/home_quit.h               | 163 ++++++++++++--
+ dm/host/home_quit_mac.h           |  63 ++++++
+ dm/host/tests/t_controllers_mac.m |  19 +-
+ dm/host/tests/t_home_quit.c       | 148 ++++++++++++-
+ dm/host/tests/t_home_quit_mac.m   |  43 +++-
  docs/frontends.md                 |   4 +-
  docs/playing.md                   |   2 +-
- 10 files changed, 504 insertions(+), 38 deletions(-)
+ 10 files changed, 795 insertions(+), 44 deletions(-)
 
 diff --git a/dm/host/controllers_mac.h b/dm/host/controllers_mac.h
-index bd852c4..991a422 100644
+index bd852c4..dc7a350 100644
 --- a/dm/host/controllers_mac.h
 +++ b/dm/host/controllers_mac.h
-@@ -14,6 +14,8 @@ void front_controllers_window(int active);
+@@ -14,6 +14,11 @@ void front_controllers_window(int active);
  @class GCController;
  GCController *front_controllers_quit_buttons(int *home, int *a, int *b);
  void front_controllers_quit_prompt(int active);
 +// Up and down for the Home menu (home_quit.h): the d-pad or the left stick past HQ_STICK on any player's controller, before remapping
 +void front_controllers_menu_dirs(int *up, int *down);
++// Active physical controllers across GameController, HID, Steam, Switch 2 BLE and JC1, and a main-thread callback when the count changes.
++int front_controllers_connected_count(void);
++void front_controllers_set_count_cb(void (*cb)(int count));
  void front_home_poll(void);
  
  // Called on the main thread when mapped input reaches the game.
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
-index 8fa01c0..166bd87 100644
+index 8fa01c0..bb1aac6 100644
 --- a/dm/host/controllers_mac.m
 +++ b/dm/host/controllers_mac.m
 @@ -16,6 +16,7 @@
@@ -45,7 +48,7 @@ index 8fa01c0..166bd87 100644
  #include <math.h>
  
  enum { PAD_OFF, PAD_DPAD, PAD_LEFT_STICK, PAD_RIGHT_STICK, PAD_TOUCH };
-@@ -322,6 +323,21 @@ static void controller_reset_motion(DMController *d) {
+@@ -322,6 +323,42 @@ static void controller_reset_motion(DMController *d) {
      }
      return holder;
  }
@@ -64,11 +67,105 @@ index 8fa01c0..166bd87 100644
 +        *down|=!!(d->input.buttons & DM_BTN_DOWN) || d->input.ly< -far;
 +    }
 +}
++static void (*g_count_cb)(int count);
++static int g_last_pad_count = -1;
++int front_controllers_connected_count(void) {
++    int n=0;
++    for(DMController *d in g_devices) {
++        if(d->slot<0) continue;
++        if(d.controller || (d->device && d->connected) || d->s2 || d->jc1 || d->generic) n++;
++    }
++    return n;
++}
++static void controller_notify_count(void) {
++    int count=front_controllers_connected_count();
++    if(count==g_last_pad_count) return;
++    g_last_pad_count=count;
++    if(g_count_cb) g_count_cb(count);
++}
++void front_controllers_set_count_cb(void (*cb)(int count)) {
++    g_count_cb=cb;
++    g_last_pad_count=front_controllers_connected_count();
++    if(g_count_cb) g_count_cb(g_last_pad_count);
++}
  static void controller_update_focus(void) {
      int was_focused=g_focus, listening=controller_listening();
      g_focus=listening && !g_quit_prompt && !g_applet;
+@@ -397,6 +434,7 @@ static void controller_connect(DMController *d) {
+     fprintf(stderr, "controller '%s': player %d\n", d.name.UTF8String, g_merge ? 1 : d->slot + 1);
+     controller_panel_refresh();
+     front_cp_poll();   // a controller joined while the controller applet's prompt is up
++    controller_notify_count();
+ }
+ static void controller_disconnect(DMController *d) {
+     if (d->slot < 0) return;
+@@ -414,6 +452,7 @@ static void controller_disconnect(DMController *d) {
+     controller_panel_refresh();
+     front_cp_poll();   // one controller fewer to wait for, or one player fewer, while the controller applet's prompt is up
+     if(controller_listening()) front_home_poll();
++    controller_notify_count();
+ }
+ // Generic HID uses the same registry, slot table and shared button map as GC
+ // and Triton. Its decoder keeps physical state through focus changes.
+@@ -469,6 +508,7 @@ static void hidpad_detach(hid_pad *hid) {
+     DMController *d=controller_for_hid(hid); if(!d) return;
+     controller_disconnect(d); d->generic=NULL; [g_devices removeObject:d];
+     controller_panel_refresh();
++    controller_notify_count();
+ }
+ static int32_t controller_axis(float v) { return (int32_t)(fmaxf(-1, fminf(1, v)) * DM_STICK_MAX); }
+ // Switch 2 controllers over Bluetooth LE (pad_switch2_apple.h): the shared registry owns the slot, the mapping and the focus gate, as for the HID and split Joy-Con pads.
+@@ -494,15 +534,17 @@ static void s2pad_read(s2_pad *pad) {
+     DMController *d=[DMController new]; d->s2=pad;
+     d.name=@(pad->name); d.model=[@"Nintendo / " stringByAppendingString:d.name];
+     controller_load_map(d); [g_devices addObject:d];
+-    if(g_press_to_join && !g_merge) { fprintf(stderr,"controller '%s' (Bluetooth) connected: press a button to play (DM_PAD_PRESS_TO_JOIN)\n",pad->name); front_cp_poll(); return 1; }
++    if(g_press_to_join && !g_merge) { fprintf(stderr,"controller '%s' (Bluetooth) connected: press a button to play (DM_PAD_PRESS_TO_JOIN)\n",pad->name); front_cp_poll(); controller_notify_count(); return 1; }
+     controller_connect(d);
+-    if(d->slot<0) { d->s2=NULL; [g_devices removeObject:d]; controller_panel_refresh(); return 0; }
++    if(d->slot<0) { d->s2=NULL; [g_devices removeObject:d]; controller_panel_refresh(); controller_notify_count(); return 0; }
+     s2pad_read(pad);
++    controller_notify_count();
+     return 1;
+ }
+ static void s2pad_detach(s2_pad *pad) {   // pad is already off the transport's list
+     DMController *d=controller_for_s2(pad); if(!d) return;
+     controller_disconnect(d); d->s2=NULL; [g_devices removeObject:d]; controller_panel_refresh();
++    controller_notify_count();
+ }
+ // Original Joy-Cons (pad_jc1_mac.h): the shared registry owns the slot, the mapping and the focus gate. A pad is one Joy-Con or a left and a right one, and a player from its first
+ // button press (as a raw HID pad, with or without DM_PAD_PRESS_TO_JOIN). The transport sends the npad states and the motion to the game itself (dm_joy_set, dm_motion_set_joy,
+@@ -532,10 +574,12 @@ static void jc1pad_attach(jc1_pad *pad) {
+     controller_load_map(d); [g_devices addObject:d];
+     if(!g_merge) { fprintf(stderr,"controller '%s' (HID) connected: press a button to play\n",pad->name); front_cp_poll(); }
+     jc1pad_read(pad);
++    controller_notify_count();
+ }
+ static void jc1pad_detach(jc1_pad *pad) {   // pad is already off the transport's list
+     DMController *d=controller_for_jc1(pad); if(!d) return;
+     controller_disconnect(d); d->jc1=NULL; [g_devices removeObject:d]; controller_panel_refresh();
++    controller_notify_count();
+ }
+ static void jc1_models_changed(void) { controllers_changed(nil); }
+ // GameController's controllers of Joy-Cons read from HID stay unread here, with Home and Capture away from macOS
+@@ -634,6 +678,7 @@ static void controllers_reconcile(NSArray<GCController *> *now) {
+     }
+     controller_pro_changed();
+     controller_panel_refresh();
++    controller_notify_count();
+ }
+ static void controllers_changed(GCController *gone) {
+     // Native notifications can precede the manager's asynchronous HID callback.
+@@ -790,6 +835,7 @@ static void steam_close(DMSteamHID *hid) {
+         IOHIDDeviceRegisterInputReportCallback(hid->device,d->report,sizeof d->report,NULL,NULL);
+         IOHIDDeviceUnscheduleFromRunLoop(hid->device,CFRunLoopGetMain(),kCFRunLoopCommonModes);
+         controller_disconnect(d); [g_devices removeObject:d]; hid.raw=nil;
++        controller_notify_count();
+     }
+     IOHIDDeviceClose(hid->device,kIOHIDOptionsTypeNone); hid->opened=NO;
+ }
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index fde8888..38cbf2a 100644
+index fde8888..fc0ef34 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1,7 +1,7 @@
@@ -80,7 +177,18 @@ index fde8888..38cbf2a 100644
  // Cheats (hle_cheats.c): the Cheats menu's rows toggle, reload (⌘R) and open the cheats folder; its first item "Show Cheats
  // Window" (⌘⇧C, or DM_CHEATS_WINDOW=1 at launch) opens a Cheats panel beside the game: sections, search, the master switch,
  // safe mode, values, details and the import of cheat files (see the code below).
-@@ -193,19 +193,28 @@ static void input_resume(void) {
+@@ -151,8 +151,10 @@ static int fn_shortcut(NSEvent *e) {
+ }
+ static ctrl_prompt g_cp; static int g_cp_confirm, g_cp_cancel;   // the controller applet's prompt (front_ctrl_support) and a key pressed in it since its last step
+ int front_cp_poll(void);
++static int dc_handle_key(unsigned short keyCode, int down);
+ static void on_key(NSEvent *e, int down) {
+     if (!g_input_on) return;
++    if (dc_handle_key(e.keyCode, down)) return;
+     if (cp_blocks_input(g_cp.phase)) {   // the prompt has the keyboard: Return or J (A) is done, Escape or K (B) closes it, no key reaches the game
+         unsigned short c = e.keyCode;
+         if (down && g_cp.phase == CP_OPEN) { if (c == 53 || c == 40) g_cp_cancel = 1; else if (c == 36 || c == 38) g_cp_confirm = 1; front_cp_poll(); }
+@@ -193,19 +195,36 @@ static void input_resume(void) {
  
  // Quit with the Home button (home_quit.h, LNPANDY/NX2Apple#336): held for 2 s it opens the prompt (home_quit_mac.h) over the game's view, A quits through the same path as ⌘Q
  // (NSApp terminate, so the save writer and the other exit handlers run as there), B or Home closes it. While the prompt is open the game is told it lost the focus, as the
@@ -92,17 +200,24 @@ index fde8888..38cbf2a 100644
  static int g_hq_on;
 -static NSTimer *g_hq_timer;   // while Home is held: the time runs on without a button change
 -static NSView *g_hq_hold, *g_hq_prompt; static CAShapeLayer *g_hq_ring;
++static hq_disconnect g_dc;
++static int g_dc_suspended;
 +static NSTimer *g_hq_timer;   // while anything is shown or Home is held: the time runs on, and pads that report only some buttons on their own are read
 +static NSView *g_hq_hold, *g_hq_prompt, *g_hq_menu; static CAShapeLayer *g_hq_ring;
 +static int g_hq_menu_sel = -1;   // the selection g_hq_menu was built with
  static char g_hq_text[HQ_TEXTS][256];
 +static void bg_enter(void);
++static void dc_suspend_set(int on);
++static void dc_resume_now(const char *why);
++static void hq_changed(hq_phase was, hq_phase now, GCController *holder);
++static void hq_tick(void);
  static void hq_start(void) {
 -    g_hq_on = hq_enabled(getenv("DM_HOME_QUIT"));
 +    g_hq.no_hold = !hq_enabled(getenv("DM_HOME_QUIT"));
 +    g_hq.menu = hq_enabled(getenv("DM_HOME_MENU"));
 +    g_hq.launcher = hq_launcher(getenv("DM_HOME_MENU_LAUNCHER"));
 +    g_hq_on = !g_hq.no_hold || g_hq.menu;
++    hq_disconnect_init(&g_dc, getenv("DM_DISCONNECT_PAUSE"));
      char title[256]; snprintf(title, sizeof title, "Quit %s?", DM_GAME_NAME);
 -    const char *def[HQ_TEXTS] = {"Keep holding to quit", title, "Unsaved progress will be lost.", "Quit", "Cancel"};
 +    const char *def[HQ_TEXTS] = {"Keep holding to quit", title, "Unsaved progress will be lost.", "Quit", "Cancel", "Resume", "Back to console mode", DM_GAME_NAME};
@@ -112,17 +227,18 @@ index fde8888..38cbf2a 100644
 +    LOG("front end: hold the Home button to quit %s", !g_hq.no_hold ? "is on" : "is off (DM_HOME_QUIT=0)");
 +    LOG("front end: a short press of Home opens the Home menu %s%s", g_hq.menu ? "(on)" : "is off (DM_HOME_MENU=0)",
 +        g_hq.menu ? (g_hq.launcher ? ", with Back to console mode (DM_HOME_MENU_LAUNCHER=1)" : ", without Back to console mode") : "");
++    LOG("front end: auto-pause on controller disconnect %s", g_dc.enabled ? "is on (3 s)" : "is off (DM_DISCONNECT_PAUSE=0)");
  }
  // The Home button setting for apps (macOS 27), once, when the first controller is there (GameController reads it only while one is connected): "system" in the log
  // explains a hold that does nothing, since the system keeps Home whatever the host asks. A front end reads the setting itself (GCControllerHomeButtonSettingsManager)
-@@ -229,28 +238,57 @@ static void hq_fade(NSView *v, int in) {
+@@ -229,58 +248,335 @@ static void hq_fade(NSView *v, int in) {
      [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) { ctx.duration = 0.18; v.animator.alphaValue = in ? 1 : 0; }
                          completionHandler:^{ if (!in) [v removeFromSuperview]; }];
  }
 -static void hq_hide_hold(void) { [g_hq_timer invalidate]; g_hq_timer = nil; [g_hq_hold removeFromSuperview]; g_hq_hold = nil; g_hq_ring = nil; }
 +static void hq_tick(void) {   // the timer runs while a phase needs it
 +    hq_phase p = g_hq.phase;
-+    int want = g_hq_on && (p == HQ_HOLDING || p == HQ_PROMPT || p == HQ_MENU || p == HQ_SETTLE);
++    int want = (g_hq_on || g_dc.paused || p == HQ_SETTLE) && (p == HQ_HOLDING || p == HQ_PROMPT || p == HQ_MENU || p == HQ_SETTLE);
 +    if (want && !g_hq_timer) g_hq_timer = [NSTimer scheduledTimerWithTimeInterval:1.0 / 60 repeats:YES block:^(NSTimer *t) { (void)t; front_home_poll(); }];
 +    else if (!want && g_hq_timer) { [g_hq_timer invalidate]; g_hq_timer = nil; }
 +}
@@ -134,13 +250,39 @@ index fde8888..38cbf2a 100644
 +    if (!g) for (GCController *c in GCController.controllers) if ((g = c.extendedGamepad)) break;
 +    return g.buttonA.sfSymbolsName;
 +}
++static void hq_menu_choose_row(NSInteger idx) {
++    if (g_hq.phase != HQ_MENU) return;
++    int rows[HQ_ROWS], n = hq_menu_rows(&g_hq, rows);
++    if (idx < 0 || idx >= n) return;
++    int row = rows[idx];
++    if (row == HQ_ROW_RESUME) {
++        if (g_dc.paused) { dc_resume_now("Resume clicked"); return; }
++        hq_phase was = g_hq.phase;
++        g_hq.phase = HQ_SETTLE;
++        hq_changed(was, HQ_SETTLE, nil);
++        hq_tick();
++        front_home_poll();
++    } else if (row == HQ_ROW_CONSOLE) {
++        hq_phase was = g_hq.phase;
++        g_hq.phase = HQ_PAUSED;
++        hq_changed(was, HQ_PAUSED, nil);
++        hq_tick();
++    } else if (row == HQ_ROW_QUIT) {
++        hq_phase was = g_hq.phase;
++        g_hq.phase = HQ_PROMPT; g_hq.a_up = 1; g_hq.b_up = 1;
++        hq_changed(was, HQ_PROMPT, nil);
++        hq_tick();
++    }
++}
 +// The menu, built again when the selection moves (no fade then)
 +static void hq_show_menu(GCController *holder) {
 +    if (g_hq_menu && g_hq_menu_sel == g_hq.sel) return;
 +    int rows[HQ_ROWS], n = hq_menu_rows(&g_hq, rows);
 +    NSMutableArray<NSString *> *labels = [NSMutableArray new];
 +    for (int i = 0; i < n; i++) [labels addObject:@(g_hq_text[rows[i] == HQ_ROW_RESUME ? HQ_TEXT_RESUME : rows[i] == HQ_ROW_CONSOLE ? HQ_TEXT_CONSOLE : HQ_TEXT_QUIT])];
-+    NSView *cv = g_win.contentView, *v = hq_menu_view(cv.bounds, @(g_hq_text[HQ_TEXT_MENU_TITLE]), labels, g_hq.sel, hq_a_symbol(holder));
++    NSView *cv = g_win.contentView, *v = hq_menu_view_click(cv.bounds, @(g_hq_text[HQ_TEXT_MENU_TITLE]), labels, g_hq.sel, hq_a_symbol(holder), ^(NSInteger idx) {
++        hq_menu_choose_row(idx);
++    });
 +    [cv addSubview:v];
 +    if (g_hq_menu) [g_hq_menu removeFromSuperview]; else hq_fade(v, 1);
 +    g_hq_menu = v; g_hq_menu_sel = g_hq.sel;
@@ -174,12 +316,16 @@ index fde8888..38cbf2a 100644
      case HQ_SETTLE:
 -        hq_hide_prompt(); dm_focus_set(1);
 -        LOG("front end: quit prompt closed, the game goes on");
-+        hq_hide_prompt(); hq_hide_menu(); dm_focus_set(1);
++        if (g_dc.paused || g_dc_suspended) { hq_disconnect_resume(&g_dc); dc_suspend_set(0); }
++        hq_hide_prompt(); hq_hide_menu();
++        if (g_win.isKeyWindow && NSApp.active) dm_focus_set(1); else dm_focus_set(2);
 +        LOG("front end: %s closed, the game goes on", was == HQ_MENU ? "Home menu" : "quit prompt");
          break;
      case HQ_IDLE:
          if (was == HQ_SETTLE) front_controllers_quit_prompt(0);   // the game reads the controllers again, as they are now
-@@ -259,28 +297,167 @@ static void hq_changed(hq_phase was, hq_phase now, GCController *holder) {
+         break;
+     case HQ_QUIT:
++        if (g_dc.paused || g_dc_suspended) { hq_disconnect_resume(&g_dc); dc_suspend_set(0); }
          LOG("front end: quit from the Home button prompt");
          [NSApp terminate:nil];   // as ⌘Q
          break;
@@ -190,7 +336,8 @@ index fde8888..38cbf2a 100644
      }
  }
  void front_home_poll(void) {
-     static int busy; if (!g_hq_on || !g_win || !g_input_on || busy) return;
+-    static int busy; if (!g_hq_on || !g_win || !g_input_on || busy) return;
++    static int busy; if ((!g_hq_on && !g_dc.paused && g_hq.phase != HQ_SETTLE) || !g_win || !g_input_on || busy) return;
      busy = 1;
 -    int home, a, b; GCController *holder = front_controllers_quit_buttons(&home, &a, &b);
 +    int home, a, b, up, down; GCController *holder = front_controllers_quit_buttons(&home, &a, &b);
@@ -210,7 +357,7 @@ index fde8888..38cbf2a 100644
  }
  static void hq_close(void) {
 -    if (g_hq.phase == HQ_IDLE || g_hq.phase == HQ_QUIT) return;
-+    if (g_hq.phase == HQ_IDLE || g_hq.phase == HQ_QUIT || g_hq.phase == HQ_PAUSED) return;   // the paused game is hidden on purpose: it stays paused
++    if (g_hq.phase == HQ_IDLE || g_hq.phase == HQ_QUIT || g_hq.phase == HQ_PAUSED || g_dc.paused) return;   // a paused game stays paused while the player pairs a controller
      if (g_hq.phase == HQ_PROMPT) LOG("front end: quit prompt closed, the window lost the focus");
 -    hq_cancel(&g_hq); hq_hide_hold(); hq_hide_prompt();
 +    if (g_hq.phase == HQ_MENU) LOG("front end: Home menu closed, the window lost the focus");
@@ -272,8 +419,12 @@ index fde8888..38cbf2a 100644
 +    int in_fs = (win.styleMask & NSWindowStyleMaskFullScreen) != 0;
 +    g_bg = 1; g_bg_full = in_fs || g_bg_want_fs; g_bg_want_fs = 0;
 +    LOG("front end: Home menu: back to console mode, pausing the game");
++    int already_suspended = g_dc_suspended;
++    g_dc_suspended = 0;
++    hq_disconnect_resume(&g_dc);
 +    input_release();   // hq_close leaves HQ_PAUSED alone
-+    dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1);
++    dm_focus_set(3);
++    if (!already_suspended) { dm_audio_suspend(1); dm_gfx_suspend(1); }
 +    LOG("front end: background: input released, focus 3, audio and graphics suspended");
 +    if (!in_fs && !g_bg_exiting_fs) { bg_clear_exit_obs(); bg_hide(gen); return; }
 +    LOG("front end: background: leaving full screen first");
@@ -342,39 +493,121 @@ index fde8888..38cbf2a 100644
 +    }];
 +    [dc addObserverForName:[NSString stringWithFormat:@"org.nxnative.quit.%d", pid] object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
 +        (void)n;
-+        LOG("front end: quit asked by the launcher%s", g_bg ? " (paused in the background: audio and graphics resumed for the exit)" : "");
-+        if (g_bg) { dm_gfx_suspend(0); dm_audio_suspend(0); }   // the exit handlers run as after ⌘Q, with nothing held suspended
++        LOG("front end: quit asked by the launcher%s", (g_bg || g_dc_suspended) ? " (paused: audio and graphics resumed for the exit)" : "");
++        if (g_bg || g_dc_suspended) { g_dc_suspended = 0; hq_disconnect_resume(&g_dc); dm_gfx_suspend(0); dm_audio_suspend(0); }   // the exit handlers run as after ⌘Q, with nothing held suspended
 +        [NSApp terminate:nil];
 +    }];
 +    LOG("front end: launcher requests: org.nxnative.resume.%d and org.nxnative.quit.%d", pid, pid);
 +}
++static void dc_suspend_set(int on) {
++    if (on == g_dc_suspended) return;
++    g_dc_suspended = on;
++    if (g_bg || g_win.miniaturized) return;
++    if (on) { dm_audio_suspend(1); dm_gfx_suspend(1); }
++    else { dm_gfx_suspend(0); dm_audio_suspend(0); }
++}
++static void dc_resume_now(const char *why) {
++    if (!g_dc.paused && !g_dc_suspended) return;
++    hq_disconnect_resume(&g_dc);
++    dc_suspend_set(0);
++    LOG("front end: controller disconnect pause ended (%s)", why);
++    if (g_hq.phase == HQ_MENU) {
++        if (g_win.isKeyWindow && NSApp.active) {
++            hq_phase was = g_hq.phase;
++            g_hq.phase = HQ_SETTLE;
++            hq_changed(was, HQ_SETTLE, nil);
++            hq_tick();
++            front_home_poll();
++        } else {
++            g_hq.phase = HQ_IDLE;
++            hq_hide_menu();
++            hq_tick();
++            front_controllers_quit_prompt(0);
++            if (!g_bg && !g_win.miniaturized) dm_focus_set(2);
++        }
++    } else if (g_hq.phase == HQ_PROMPT) {
++        if (!g_bg && !g_win.miniaturized) dm_focus_set(2);
++    } else if (!g_bg && !g_win.miniaturized && g_win.isKeyWindow && NSApp.active) {
++        dm_focus_set(1);
++    }
++}
++static int dc_handle_key(unsigned short keyCode, int down) {
++    if (g_hq.phase == HQ_PROMPT) {
++        if (!down) return 1;
++        if (keyCode == 53) {   // Escape cancels the quit prompt (and ends disconnect pause if active)
++            hq_phase was = g_hq.phase;
++            g_hq.phase = HQ_SETTLE;
++            hq_changed(was, HQ_SETTLE, nil);
++            hq_tick();
++            front_home_poll();
++        } else if (keyCode == 36) {   // Return confirms Quit
++            hq_phase was = g_hq.phase;
++            g_hq.phase = HQ_QUIT;
++            hq_changed(was, HQ_QUIT, nil);
++        }
++        return 1;
++    }
++    if (!g_dc.paused) return 0;
++    if (down && (keyCode == 53 || keyCode == 36 || keyCode == 49)) dc_resume_now("keyboard resume");
++    return 1;
++}
++static void dc_count_changed(int count) {
++    hq_disconnect_action act = hq_disconnect_update(&g_dc, count, CACurrentMediaTime());
++    if (act == HQ_DC_ARM) {
++        uint64_t gen = g_dc.gen;
++        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(HQ_DISCONNECT_S * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
++            if (!g_win || g_bg || g_win.miniaturized || g_hq.phase == HQ_QUIT || g_hq.phase == HQ_PAUSED) {
++                if (g_dc.pending && g_dc.gen == gen) { g_dc.pending = 0; g_dc.gen++; }
++                return;
++            }
++            if (hq_disconnect_due(&g_dc, gen, front_controllers_connected_count()) != HQ_DC_PAUSE) return;
++            LOG("front end: all controllers disconnected for %.0f s, pausing the game", HQ_DISCONNECT_S);
++            if (g_hq.phase != HQ_MENU && g_hq.phase != HQ_PROMPT) {
++                hq_phase was = g_hq.phase;
++                g_hq.phase = HQ_MENU; g_hq.sel = 0; g_hq.a_up = 1; g_hq.b_up = 1;
++                hq_changed(was, HQ_MENU, nil);
++                hq_tick();
++            }
++            dm_focus_set(3);
++            dc_suspend_set(1);
++        });
++    } else if (act == HQ_DC_RESUME) {
++        dc_resume_now("controller reconnected");
++    }
++}
  // The controller applet's prompt (front.h front_ctrl_support, ctrl_prompt.h; GitHub issue #1640): the game asked for more players than it sees, and the game's thread waits while
  // the prompt is up over the game, as the Switch's player screen. A controller that joins meanwhile is a player at once (its first button with DM_PAD_PRESS_TO_JOIN, its
  // connection without), and the count on the card follows. A and B are the physical buttons A and B on any controller (controllers_mac.m front_controllers_applet_buttons, as the Home
-@@ -1357,6 +1534,7 @@ void front_run(void (*guest)(void)) {
+@@ -1357,7 +1653,9 @@ void front_run(void (*guest)(void)) {
          NSString *keys = input_preference_map(input_preferences_domain(), "DM_KEYMAP", 0);
          if (keys) key_map_parse(&g_keys, keys.UTF8String);
          hq_start();
 +        bg_start();
          front_controllers_start();
++        front_controllers_set_count_cb(dc_count_changed);
          hq_log_setting();
          [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil queue:NSOperationQueue.mainQueue
-@@ -1383,8 +1561,8 @@ void front_run(void (*guest)(void)) {
+                                                    usingBlock:^(NSNotification *n) { (void)n; hq_log_setting(); }];
+@@ -1383,10 +1681,10 @@ void front_run(void (*guest)(void)) {
          // DM_FOCUS_KEEP (on by default, =0 turns it off): the game stays in focus while its window is up, whichever app is active. Tears of the Kingdom and Ocarina of Time
          // stop presenting out of focus, so clicking into another app read as a hang (no frame and no sound after the last focus change)
          static int keep = -1; if (keep < 0) keep = !getenv("DM_FOCUS_KEEP") || atoi(getenv("DM_FOCUS_KEEP"));
 -        [nc addObserverForName:NSWindowDidResignKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); if (!win.miniaturized && !g_text_box && !keep) dm_focus_set(2); }];
 -        [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_resume(); dm_focus_set(1); }];
-+        [nc addObserverForName:NSWindowDidResignKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); if (!win.miniaturized && !g_text_box && !keep && !g_bg) dm_focus_set(2); }];
-+        [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; if (g_bg) return; input_resume(); dm_focus_set(1); }];   // paused in the background (bg_enter): bg_resume takes it back
-         [nc addObserverForName:NSWindowDidMiniaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1); }];
-         [nc addObserverForName:NSWindowDidDeminiaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; dm_gfx_suspend(0); dm_audio_suspend(0); dm_focus_set(2); }];
+-        [nc addObserverForName:NSWindowDidMiniaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1); }];
+-        [nc addObserverForName:NSWindowDidDeminiaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; dm_gfx_suspend(0); dm_audio_suspend(0); dm_focus_set(2); }];
++        [nc addObserverForName:NSWindowDidResignKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); if (!win.miniaturized && !g_text_box && !keep && !g_bg && !g_dc.paused) dm_focus_set(2); }];
++        [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; if (g_bg) return; input_resume(); if (!g_dc.paused) dm_focus_set(1); }];   // paused in the background (bg_enter): bg_resume takes it back
++        [nc addObserverForName:NSWindowDidMiniaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); dm_focus_set(3); if (!g_dc_suspended && !g_bg) { dm_audio_suspend(1); dm_gfx_suspend(1); } }];
++        [nc addObserverForName:NSWindowDidDeminiaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; if (g_dc.paused || g_bg) return; dm_gfx_suspend(0); dm_audio_suspend(0); dm_focus_set(2); }];
          display_awake(win.isKeyWindow);   // the window may have become key (makeKeyAndOrderFront above) before these observers were installed
+         // Guest thread: 64 MiB stack (the Switch main thread stack is specified by npdm; the host gives plenty)
+         static guest_arg ga; ga.fn = guest;
 diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
-index ddab115..8acb4a5 100644
+index ddab115..e7b8eba 100644
 --- a/dm/host/home_quit.h
 +++ b/dm/host/home_quit.h
-@@ -7,6 +7,11 @@
+@@ -7,13 +7,22 @@
  // macOS 27 respects the claim when the Home button setting for apps lets the app decide (front_mac.m logs the setting). When the system takes Home anyway (it opens the
  // Games app or the player's chosen app), the game window loses the focus and whatever was shown closes (hq_cancel). DM_HOME_QUIT=0 turns it off. A front end passes the
  // texts in the player's language as DM_HOME_QUIT_TEXT (hq_text_line, docs/frontends.md), English otherwise.
@@ -385,17 +618,19 @@ index ddab115..8acb4a5 100644
 +// hq_resumed takes it back when the game is shown again. DM_HOME_MENU=0 turns the menu off (a short press does nothing, as before).
  #pragma once
  #include <stddef.h>
++#include <stdint.h>
  #include <stdio.h>
-@@ -14,6 +19,8 @@
+ #include <string.h>
  
  #define HQ_HOLD_S 2.0    // how long Home is held before the prompt opens
  #define HQ_RING_S 0.3    // the hold indicator shows only after this, so a short press shows nothing
 +#define HQ_TAP_S 0.5     // Home let go within this is a short press: it opens the Home menu
 +#define HQ_STICK 0.5     // a stick moved this far (of its range) up or down moves the menu's selection, as the d-pad does
++#define HQ_DISCONNECT_S 3.0   // how long all physical controllers stay gone before auto-pausing
  
  typedef enum {
      HQ_IDLE,      // nothing shown, the game has its input
-@@ -21,29 +28,77 @@ typedef enum {
+@@ -21,29 +30,77 @@ typedef enum {
      HQ_PROMPT,    // the prompt is open: the game gets no controller input
      HQ_SETTLE,    // the prompt was closed: the game gets controller input again once Home, A and B are all up, so the B that closed it never reaches the game
      HQ_QUIT,      // A was pressed in the prompt: the front end quits (final)
@@ -424,7 +659,11 @@ index ddab115..8acb4a5 100644
  static inline int hq_enabled(const char *env) { return !(env && !strcmp(env, "0")); }
 +// Whether the launcher asked for Back to console mode: DM_HOME_MENU_LAUNCHER=1 only
 +static inline int hq_launcher(const char *env) { return env && !strcmp(env, "1"); }
-+
+
+-// One step with the buttons as they are now (pressed on any controller) at time now. Called on every change of a button and, while Home is held, from a timer.
+-static inline hq_phase hq_step(home_quit *q, double now, int home, int a, int b) {
+-    int pressed = home && !q->home;
+-    q->home = home;
 +// The rows the menu shows (HQ_ROW_*), into rows; returns how many
 +static inline int hq_menu_rows(const home_quit *q, int rows[HQ_ROWS]) {
 +    int n = 0;
@@ -438,11 +677,7 @@ index ddab115..8acb4a5 100644
 +    int rows[HQ_ROWS], n = hq_menu_rows(q, rows);
 +    return rows[q->sel < 0 ? 0 : q->sel >= n ? n - 1 : q->sel];
 +}
- 
--// One step with the buttons as they are now (pressed on any controller) at time now. Called on every change of a button and, while Home is held, from a timer.
--static inline hq_phase hq_step(home_quit *q, double now, int home, int a, int b) {
--    int pressed = home && !q->home;
--    q->home = home;
++
 +// One step with the buttons as they are now (pressed on any controller) at time now, up and down being the d-pad or a stick (only the menu reads them). Called on
 +// every change of a button and, while anything is shown, from a timer.
 +static inline hq_phase hq_step_nav(home_quit *q, double now, int home, int a, int b, int up, int down) {
@@ -480,7 +715,7 @@ index ddab115..8acb4a5 100644
          break;
      case HQ_PROMPT:
          if (!a) q->a_up = 1;
-@@ -59,23 +114,29 @@ static inline hq_phase hq_step(home_quit *q, double now, int home, int a, int b)
+@@ -59,23 +116,99 @@ static inline hq_phase hq_step(home_quit *q, double now, int home, int a, int b)
      }
      return q->phase;
  }
@@ -511,6 +746,76 @@ index ddab115..8acb4a5 100644
 -// The texts, in this order, one per line of DM_HOME_QUIT_TEXT: the hold indicator, the prompt's title, its note, the quit button, the cancel button
 -enum { HQ_TEXT_HOLD, HQ_TEXT_TITLE, HQ_TEXT_NOTE, HQ_TEXT_QUIT, HQ_TEXT_CANCEL, HQ_TEXTS };
 -// Line i of text into out; an empty or missing line (or no text) gives def. The title's default has the game's name: def is the caller's
++// Auto-pause when every physical controller disconnects during play: armed only after at least one physical controller has been seen
++// in this session, fires after HQ_DISCONNECT_S with a generation token check, and resumes when any controller reconnects or the player
++// chooses Resume. DM_DISCONNECT_PAUSE=0 turns it off.
++typedef enum {
++    HQ_DC_NONE,     // no state change
++    HQ_DC_ARM,      // start the HQ_DISCONNECT_S timer carrying d->gen
++    HQ_DC_PAUSE,    // timer expired with zero controllers: open the pause menu and suspend audio/GPU
++    HQ_DC_RESUME,   // a controller reconnected while disconnect-paused: close the pause menu and resume
++} hq_disconnect_action;
++
++typedef struct {
++    int enabled;     // on unless DM_DISCONNECT_PAUSE=0
++    int had_pad;     // at least one physical controller was active during this session
++    int pending;     // countdown is armed
++    int paused;      // currently auto-paused due to controller disconnect
++    uint64_t gen;    // bumped on every transition so stale timers do nothing
++    double since;    // when the countdown was armed (monotonic seconds)
++} hq_disconnect;
++
++static inline int hq_disconnect_enabled(const char *env) { return !(env && !strcmp(env, "0")); }
++
++static inline void hq_disconnect_init(hq_disconnect *d, const char *env) {
++    memset(d, 0, sizeof *d);
++    d->enabled = hq_disconnect_enabled(env);
++}
++
++static inline hq_disconnect_action hq_disconnect_update(hq_disconnect *d, int count, double now) {
++    if (!d->enabled) return HQ_DC_NONE;
++    if (count > 0) {
++        d->had_pad = 1;
++        if (d->pending) { d->pending = 0; d->gen++; }
++        if (d->paused) { d->paused = 0; d->gen++; return HQ_DC_RESUME; }
++        return HQ_DC_NONE;
++    }
++    if (d->had_pad && !d->pending && !d->paused) {
++        d->pending = 1;
++        d->since = now;
++        d->gen++;
++        return HQ_DC_ARM;
++    }
++    return HQ_DC_NONE;
++}
++
++static inline hq_disconnect_action hq_disconnect_due(hq_disconnect *d, uint64_t gen, int count) {
++    if (!d->enabled || !d->pending || d->gen != gen || d->paused) return HQ_DC_NONE;
++    if (count > 0) {
++        d->had_pad = 1;
++        d->pending = 0;
++        d->gen++;
++        return HQ_DC_NONE;
++    }
++    d->pending = 0;
++    d->paused = 1;
++    d->gen++;
++    return HQ_DC_PAUSE;
++}
++
++static inline hq_disconnect_action hq_disconnect_tick(hq_disconnect *d, double now, int count) {
++    if (!d->enabled || !d->pending) return HQ_DC_NONE;
++    if (count > 0) return hq_disconnect_update(d, count, now);
++    if (now - d->since < HQ_DISCONNECT_S - 1e-9) return HQ_DC_NONE;
++    return hq_disconnect_due(d, d->gen, count);
++}
++
++static inline void hq_disconnect_resume(hq_disconnect *d) {
++    if (d->pending || d->paused) d->gen++;
++    d->pending = 0;
++    d->paused = 0;
++}
++
 +// The texts, in this order, one per line of DM_HOME_QUIT_TEXT: the hold indicator, the prompt's title, its note, the quit button (also the menu's Quit row), the cancel
 +// button, then the Home menu's Resume row, its Back to console mode row and its title. The menu's lines come last, so a front end that passes the first five still works
 +enum { HQ_TEXT_HOLD, HQ_TEXT_TITLE, HQ_TEXT_NOTE, HQ_TEXT_QUIT, HQ_TEXT_CANCEL, HQ_TEXT_RESUME, HQ_TEXT_CONSOLE, HQ_TEXT_MENU_TITLE, HQ_TEXTS };
@@ -519,18 +824,26 @@ index ddab115..8acb4a5 100644
      const char *s = text;
      for (int k = 0; s && k < i; k++) { s = strchr(s, '\n'); if (s) s++; }
 diff --git a/dm/host/home_quit_mac.h b/dm/host/home_quit_mac.h
-index ffc3ab5..be83949 100644
+index ffc3ab5..d071406 100644
 --- a/dm/host/home_quit_mac.h
 +++ b/dm/host/home_quit_mac.h
-@@ -97,6 +97,53 @@ static NSView *hq_prompt_view(NSRect bounds, NSString *title, NSString *note, NS
+@@ -97,6 +97,69 @@ static NSView *hq_prompt_view(NSRect bounds, NSString *title, NSString *note, NS
      return hq_card_view(bounds, title, note, quit, cancel, a_symbol, b_symbol, 1);
  }
  
 +// The Home menu of a short press (home_quit.h HQ_MENU, LNPANDY/NX2Apple#952): on the same scrim and card as the prompt, the title (the game's name) and one row per
 +// action, stacked. The selected row is the cream pill with the controller's A glyph, the others plain; front_mac.m builds it again when the selection moves.
 +// Rows are this wide (points at a 720-high view), whatever their labels: a longer label gets a smaller font, then is cut
++@interface HqMenuPill : NSView
++@property (nonatomic, copy) void (^onClick)(void);
++@end
++@implementation HqMenuPill
++- (void)mouseUp:(NSEvent *)e {
++    if (self.onClick && NSPointInRect([self convertPoint:e.locationInWindow fromView:nil], self.bounds)) self.onClick();
++}
++@end
 +#define HQ_ROW_W 360
-+static NSView *hq_menu_row_view(NSString *label, int selected, NSString *a_symbol, CGFloat k) {
++static NSView *hq_menu_row_view(NSString *label, int selected, NSString *a_symbol, CGFloat k, void (^on_click)(void)) {
 +    NSColor *fg = selected ? HQ_BACKGROUND : [NSColor colorWithWhite:1 alpha:0.85];
 +    CGFloat w = HQ_ROW_W * k, glyph = 24 * k, gap = 10 * k, inset = 20 * k, room = w - 2 * inset - (selected ? glyph + gap : 0);
 +    NSTextField *t = hq_label(label, hq_fit(label, 22 * k, room), NSFontWeightSemibold, fg, 0);
@@ -538,7 +851,8 @@ index ffc3ab5..be83949 100644
 +    [t setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
 +    NSStackView *row = [NSStackView stackViewWithViews:selected ? @[hq_glyph(a_symbol, @"a.circle", glyph, fg), t] : @[t]];
 +    row.spacing = gap; row.translatesAutoresizingMaskIntoConstraints = NO;
-+    NSView *pill = [NSView new]; pill.translatesAutoresizingMaskIntoConstraints = NO;
++    HqMenuPill *pill = [HqMenuPill new]; pill.translatesAutoresizingMaskIntoConstraints = NO;
++    pill.onClick = on_click;
 +    pill.wantsLayer = YES; pill.layer.cornerRadius = 28 * k;
 +    pill.layer.backgroundColor = selected ? HQ_CREAM.CGColor : [NSColor colorWithWhite:1 alpha:0.06].CGColor;
 +    [pill addSubview:row];
@@ -548,14 +862,18 @@ index ffc3ab5..be83949 100644
 +    pill.accessibilityElement = YES; pill.accessibilityRole = NSAccessibilityButtonRole; pill.accessibilityLabel = label; pill.accessibilitySelected = selected;
 +    return pill;
 +}
-+// labels: the rows' texts in order; sel: the selected one
-+static NSView *hq_menu_view(NSRect bounds, NSString *title, NSArray<NSString *> *labels, NSInteger sel, NSString *a_symbol) {
++// labels: the rows' texts in order; sel: the selected one; on_row: optional click callback for each row index
++static NSView *hq_menu_view_click(NSRect bounds, NSString *title, NSArray<NSString *> *labels, NSInteger sel, NSString *a_symbol, void (^on_row)(NSInteger)) {
 +    CGFloat k = hq_scale(bounds.size);
 +    NSView *scrim = [[HqScrim alloc] initWithFrame:bounds]; scrim.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 +    scrim.wantsLayer = YES; scrim.layer.backgroundColor = [NSColor colorWithWhite:0 alpha:0.6].CGColor;
 +    NSTextField *t = hq_label(title, 34 * k, NSFontWeightBold, NSColor.whiteColor, 1);
 +    NSMutableArray<NSView *> *rows = [NSMutableArray new];
-+    for (NSUInteger i = 0; i < labels.count; i++) [rows addObject:hq_menu_row_view(labels[i], (NSInteger)i == sel, a_symbol, k)];
++    for (NSUInteger i = 0; i < labels.count; i++) {
++        NSInteger idx = (NSInteger)i;
++        void (^cb)(void) = on_row ? ^{ on_row(idx); } : nil;
++        [rows addObject:hq_menu_row_view(labels[i], idx == sel, a_symbol, k, cb)];
++    }
 +    NSStackView *list = [NSStackView stackViewWithViews:rows];
 +    list.orientation = NSUserInterfaceLayoutOrientationVertical; list.alignment = NSLayoutAttributeCenterX;
 +    list.spacing = 12 * k; list.translatesAutoresizingMaskIntoConstraints = NO;
@@ -572,15 +890,27 @@ index ffc3ab5..be83949 100644
 +    scrim.accessibilityElement = YES; scrim.accessibilityRole = NSAccessibilityGroupRole; scrim.accessibilityLabel = title;
 +    return scrim;
 +}
++static NSView *hq_menu_view(NSRect bounds, NSString *title, NSArray<NSString *> *labels, NSInteger sel, NSString *a_symbol) {
++    return hq_menu_view_click(bounds, title, labels, sel, a_symbol, nil);
++}
 +
  // The hold indicator at the top of the view: a pill with a ring that fills while Home is held, and its label. hq_hold_set moves the ring
  static NSView *hq_hold_view(NSRect bounds, NSString *label, CAShapeLayer **ring_out) {
      CGFloat k = hq_scale(bounds.size), d = 26 * k, line = 3.5 * k;
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index dfd8fe7..84380db 100644
+index dfd8fe7..731acbc 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
-@@ -797,6 +797,15 @@ static void test_home_quit_routing(void) {
+@@ -739,6 +739,8 @@ static void generic_value(hid_pad *pad,int page,int usage,int value,int min,int
+ }
+ // The real adapter callbacks and prompt state machine, without a window or a
+ // wall-clock delay. Only admitted GC/Triton inputs can operate the prompt.
++static int test_pad_count_calls, test_pad_count_last;
++static void test_pad_count_cb(int count) { test_pad_count_calls++; test_pad_count_last = count; }
+ static void test_home_quit_routing(void) {
+     hid_fixture_start();
+     DMController *raw=[DMController new]; raw.name=raw.model=@"Triton";
+@@ -797,8 +799,23 @@ static void test_home_quit_routing(void) {
      assert(q.phase==HQ_IDLE && received[gc_slot]);
      report(0,1); now+=HQ_HOLD_S; front_home_poll(); report(1,1);
      assert(q.phase==HQ_QUIT && !received[raw_slot]); // wire A quits, regardless of its guest mapping
@@ -593,11 +923,20 @@ index dfd8fe7..84380db 100644
 +    [native.extendedGamepad.leftThumbstick setValueForXAxis:0 yAxis:0.2]; gc_event(gc);
 +    front_controllers_menu_dirs(&up,&down); assert(!up && !down);
 +    front_controllers_window(0); front_controllers_menu_dirs(&up,&down); assert(!up && !down); front_controllers_window(1);
++    test_pad_count_calls = 0; test_pad_count_last = -1;
++    front_controllers_set_count_cb(test_pad_count_cb);
++    assert(test_pad_count_calls == 1 && test_pad_count_last == 3 && front_controllers_connected_count() == 3); // raw Steam + GC + admitted generic HID
      test_home_poll=nil; front_controllers_quit_prompt(0);
-     hidpad_removed(NULL,kIOReturnSuccess,NULL,hid); hid_fixture_finish();
+-    hidpad_removed(NULL,kIOReturnSuccess,NULL,hid); hid_fixture_finish();
++    hidpad_removed(NULL,kIOReturnSuccess,NULL,hid);
++    assert(test_pad_count_calls == 2 && test_pad_count_last == 2 && front_controllers_connected_count() == 2);
++    front_controllers_set_count_cb(NULL);
++    hid_fixture_finish();
      puts("Home quit: adapter ownership, physical labels, prompt/settle gating and focus recovery: OK");
+ }
+ static void test_generic_hid_routing(void) {
 diff --git a/dm/host/tests/t_home_quit.c b/dm/host/tests/t_home_quit.c
-index ff11b7d..94ef558 100644
+index ff11b7d..b904d9b 100644
 --- a/dm/host/tests/t_home_quit.c
 +++ b/dm/host/tests/t_home_quit.c
 @@ -1,5 +1,6 @@
@@ -608,7 +947,7 @@ index ff11b7d..94ef558 100644
  #include "../home_quit.h"
  #include <stdio.h>
  
-@@ -61,6 +62,106 @@ int main(void) {
+@@ -61,9 +62,145 @@ int main(void) {
      hq_step(&q, 3.1, 0, 0, 0);
      CHECK(hq_step(&q, 3.2, 1, 0, 0) == HQ_HOLDING, "then a press holds again");
  
@@ -715,7 +1054,46 @@ index ff11b7d..94ef558 100644
      CHECK(hq_enabled(NULL) && hq_enabled("1") && hq_enabled(""), "on by default");
      CHECK(!hq_enabled("0"), "DM_HOME_QUIT=0: off");
  
-@@ -75,6 +176,15 @@ int main(void) {
++    // Auto-pause on physical controller disconnect after 3 s (DM_DISCONNECT_PAUSE)
++    hq_disconnect dc;
++    hq_disconnect_init(&dc, NULL);
++    CHECK(dc.enabled && !dc.had_pad && !dc.pending && !dc.paused, "disconnect pause enabled by default");
++    CHECK(hq_disconnect_update(&dc, 0, 0.0) == HQ_DC_NONE && !dc.pending, "zero controllers with no prior pad never arms");
++    CHECK(hq_disconnect_update(&dc, 1, 1.0) == HQ_DC_NONE && dc.had_pad, "connecting a controller marks had_pad");
++    CHECK(hq_disconnect_update(&dc, 0, 2.0) == HQ_DC_ARM && dc.pending, "disconnecting last controller arms countdown");
++    uint64_t armed_gen = dc.gen;
++    CHECK(hq_disconnect_tick(&dc, 4.9, 0) == HQ_DC_NONE && !dc.paused, "2.9 s is before the 3 s threshold");
++    CHECK(hq_disconnect_tick(&dc, 5.0, 0) == HQ_DC_PAUSE && dc.paused && !dc.pending, "3.0 s triggers auto-pause");
++    CHECK(hq_disconnect_due(&dc, armed_gen, 0) == HQ_DC_NONE, "stale timer token cannot double-trigger");
++    CHECK(hq_disconnect_update(&dc, 1, 6.0) == HQ_DC_RESUME && !dc.paused, "reconnecting a controller resumes automatically");
++
++    // Reconnecting during the 3 s window cancels the countdown and invalidates the generation token
++    CHECK(hq_disconnect_update(&dc, 0, 10.0) == HQ_DC_ARM, "second disconnect arms again");
++    uint64_t stale_gen = dc.gen;
++    CHECK(hq_disconnect_update(&dc, 1, 11.5) == HQ_DC_NONE && !dc.pending, "reconnecting before 3 s cancels countdown");
++    CHECK(hq_disconnect_due(&dc, stale_gen, 0) == HQ_DC_NONE && !dc.paused, "cancelled generation does not fire later");
++    CHECK(hq_disconnect_update(&dc, 0, 12.0) == HQ_DC_ARM && dc.pending && dc.gen != stale_gen, "re-disconnecting gets a newer generation");
++    CHECK(hq_disconnect_due(&dc, stale_gen, 0) == HQ_DC_NONE && !dc.paused && dc.pending, "stale generation cannot prematurely trigger a newly armed countdown");
++    CHECK(hq_disconnect_update(&dc, 1, 12.5) == HQ_DC_NONE && !dc.pending, "reconnect clears newly armed countdown");
++
++    // Manual resume while still at 0 controllers stays resumed until another controller connects and disconnects
++    CHECK(hq_disconnect_update(&dc, 0, 20.0) == HQ_DC_ARM, "disconnect again");
++    CHECK(hq_disconnect_due(&dc, dc.gen, 0) == HQ_DC_PAUSE && dc.paused, "fires via due()");
++    hq_disconnect_resume(&dc);
++    CHECK(!dc.paused && !dc.pending, "manual resume clears pause");
++    CHECK(hq_disconnect_update(&dc, 1, 25.0) == HQ_DC_NONE, "controller returns after manual resume");
++    CHECK(hq_disconnect_update(&dc, 0, 26.0) == HQ_DC_ARM, "subsequent disconnect arms again");
++
++    // DM_DISCONNECT_PAUSE=0 turns auto-pause off
++    hq_disconnect_init(&dc, "0");
++    CHECK(!dc.enabled && !hq_disconnect_enabled("0") && hq_disconnect_enabled("1") && hq_disconnect_enabled(NULL), "DM_DISCONNECT_PAUSE=0 disables auto-pause");
++    CHECK(hq_disconnect_update(&dc, 1, 0.0) == HQ_DC_NONE, "connect ignored when disabled");
++    CHECK(hq_disconnect_update(&dc, 0, 1.0) == HQ_DC_NONE && !dc.pending, "disconnect never arms when disabled");
++
+     char out[64];
+     hq_text_line("Hold\nQuit Zelda?\nLost\nQuit\nCancel", HQ_TEXT_TITLE, "d", out, sizeof out);
+     CHECK(!strcmp(out, "Quit Zelda?"), "a line of the text");
+@@ -75,6 +212,15 @@ int main(void) {
      CHECK(!strcmp(out, "Quit"), "a missing line takes the default");
      hq_text_line(NULL, HQ_TEXT_HOLD, "Keep holding to quit", out, sizeof out);
      CHECK(!strcmp(out, "Keep holding to quit"), "no text: the defaults");

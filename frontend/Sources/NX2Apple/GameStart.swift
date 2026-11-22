@@ -73,3 +73,98 @@ enum GameStart {
         (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
     }
 }
+
+/// Tracks armed Mac cheat sessions by process ID and generation token: disarms after 30 s of stable play
+/// (or on a >= 30 s exit), and trips the crash fuse if the game exits within 30 s.
+@MainActor final class CheatFuseMonitor {
+    static let shared = CheatFuseMonitor()
+
+    struct PendingArm {
+        let token: UInt64
+        let files: CheatFiles
+        let buildID: String
+        let appURL: URL
+        let startedAt: Date
+    }
+
+    private struct ActiveSession {
+        let token: UInt64
+        let files: CheatFiles
+        let buildID: String
+        let appURL: URL
+        let startedAt: Date
+        let timer: Task<Void, Never>
+    }
+
+    private let isProcessAlive: (Int32, URL) -> Bool
+    private var nextToken: UInt64 = 0
+    private var sessions: [Int32: ActiveSession] = [:]
+
+    init(isProcessAlive: @escaping (Int32, URL) -> Bool = CheatFuseMonitor.defaultIsProcessAlive) {
+        self.isProcessAlive = isProcessAlive
+    }
+
+    static func defaultIsProcessAlive(pid: Int32, appURL: URL) -> Bool {
+        guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return false }
+        guard let runningURL = app.bundleURL?.standardizedFileURL else { return false }
+        return runningURL == appURL.standardizedFileURL
+    }
+
+    /// Recovers any leftover armed receipt from a prior crash, then arms the new Mac launch if cheats will run.
+    func prepareAndArm(for game: LibraryGame, shellRoot: String = "", support: URL? = nil, now: Date = Date()) -> PendingArm? {
+        let files = support.map { CheatFiles(titleID: game.titleID, support: $0) } ?? CheatFiles(titleID: game.titleID)
+        if !SaveTransfer.runningOnMac(titleID: game.titleID) {
+            files.recoverIfArmed(now: now)
+        }
+        let buildID = CheatFiles.buildID(appPath: game.appPath, iosAppPath: game.iosAppPath, titleID: game.titleID, shellRoot: shellRoot)
+        guard let armed = files.armBeforeLaunch(buildID: buildID, now: now) else { return nil }
+        nextToken &+= 1
+        return PendingArm(
+            token: nextToken,
+            files: files,
+            buildID: armed.buildID,
+            appURL: URL(fileURLWithPath: game.appPath).standardizedFileURL,
+            startedAt: now
+        )
+    }
+
+    /// Cancels an armed receipt if LaunchServices failed to start the game process.
+    func abort(_ pending: PendingArm?) {
+        guard let pending else { return }
+        if let armed = pending.files.readArmed(), armed.buildID == pending.buildID {
+            try? FileManager.default.removeItem(at: pending.files.armedFile)
+        }
+    }
+
+    /// Binds an armed receipt to the launched process ID and schedules automatic disarm after `delaySeconds`.
+    func didStart(pid: Int32, pending: PendingArm?, delaySeconds: TimeInterval = CheatFiles.fuseDisarmSeconds) {
+        guard let pending else { return }
+        sessions[pid]?.timer.cancel()
+        let token = pending.token
+        let timer = Task { [weak self] in
+            let ns = UInt64(max(0, delaySeconds) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: ns)
+            guard !Task.isCancelled, let self, let active = self.sessions[pid], active.token == token else { return }
+            guard self.isProcessAlive(pid, active.appURL) else { return }
+            active.files.disarmAndRecordStable(expectedBuildID: active.buildID)
+            self.sessions.removeValue(forKey: pid)
+        }
+        sessions[pid] = ActiveSession(
+            token: token,
+            files: pending.files,
+            buildID: pending.buildID,
+            appURL: pending.appURL,
+            startedAt: pending.startedAt,
+            timer: timer
+        )
+    }
+
+    /// Resolves a tracked process exit: disarms as stable at >= threshold, otherwise trips the fuse.
+    @discardableResult
+    func didExit(pid: Int32, threshold: TimeInterval = CheatFiles.fuseDisarmSeconds, now: Date = Date()) -> CheatFiles.TrippedReceipt? {
+        guard let active = sessions.removeValue(forKey: pid) else { return nil }
+        active.timer.cancel()
+        let elapsed = now.timeIntervalSince(active.startedAt)
+        return active.files.handleProcessExit(elapsed: elapsed, threshold: threshold, now: now)
+    }
+}
