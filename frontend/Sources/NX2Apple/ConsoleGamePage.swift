@@ -86,7 +86,26 @@ import NXLauncher
 
     // MARK: Overview
 
+    /// A game nxkit built without a game profile (v0lumehi/nxkit#54): what that means, what nxkit detected, and Report, which opens the
+    /// prefilled issue in the browser. On the Overview above everything, since the game may not start or may render wrong.
+    @ViewBuilder private var genericBuildNotice: some View {
+        if game.status == .ready, let profile = game.genericBuild {
+            let detected = NxkitGenericBuildRow.detected(profile, t)
+            ConsoleNoticeCard(tone: .warning, title: t("nxkit.generic.title"),
+                              detail: t("nxkit.generic.note") + (detected.isEmpty ? "" : "\n" + detected),
+                              action: genericReportAction)
+        }
+    }
+
+    private var genericReportAction: (title: String, id: String, scope: String, perform: () -> Void)? {
+        guard game.genericReport != nil else { return nil }
+        let driver = driver, id = game.id
+        return (title: t("nxkit.feedback.report"), id: "console.gamePage.genericReport", scope: scope,
+                perform: { driver.openGenericBuildReport(id) })
+    }
+
     @ViewBuilder private var overview: some View {
+        genericBuildNotice
         if game.status == .ready {
             ConsoleStatsCard(items: [
                 (t("console.lastPlayed"), game.lastPlayed.map { ConsoleTimes.relative($0, now: state.time, lang: lang) } ?? t("console.notPlayed")),

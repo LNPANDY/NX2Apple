@@ -38,6 +38,7 @@ import NXLauncher
     func askResetOptions(_ gameID: String) { base.askResetOptions(gameID) }
     func resetOptions(_ gameID: String) { base.resetOptions(gameID) }
     func openOnDesktop(_ gameID: String) { base.openOnDesktop(gameID) }
+    func openGenericBuildReport(_ gameID: String) { base.openGenericBuildReport(gameID) }
     func setPref(_ pref: ConsolePref, on: Bool) { base.setPref(pref, on: on) }
     func appUpdateAction() { base.appUpdateAction() }
     func confirmAppUpdate() { base.confirmAppUpdate() }

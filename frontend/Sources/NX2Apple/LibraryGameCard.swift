@@ -46,6 +46,12 @@ struct LibraryGameCard: View {
                             .help(loc.t("library.mng.help"))
                             .accessibilityLabel(loc.t("library.mng.help"))
                             .padding(DS.Interaction.chipInset)
+                    } else if state.isNxkitGeneric {
+                        // nxkit built it without a game profile (v0lumehi/nxkit#54): the same quiet tag in the same corner
+                        DSTag(loc.t("nxkit.generic.badge"), emphasized: true)
+                            .help(loc.t("nxkit.generic.help"))
+                            .accessibilityLabel(loc.t("nxkit.generic.help"))
+                            .padding(DS.Interaction.chipInset)
                     }
                 }
                 .dsCardArt(radius: LibraryCardLayout.radius, selected: selected, focused: focused)

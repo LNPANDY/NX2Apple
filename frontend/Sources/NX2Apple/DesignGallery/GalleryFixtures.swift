@@ -242,7 +242,7 @@ import NXLauncher
             root = onboardingView(scenario)
         case .onboardingState(let state):
             root = onboardingView(state)
-        case .nxkitEngine, .nxkitUnavailable, .nxkitUnsigned, .nxkitRunning, .nxkitFinished, .nxkitFailed, .nxkitLibrary:
+        case .nxkitEngine, .nxkitUnavailable, .nxkitUnsigned, .nxkitRunning, .nxkitFinished, .nxkitFailed, .nxkitLibrary, .nxkitGeneric:
             root = nxkitView(scene, stores: stores, library: library) { page, step, category in
                 AnyView(launcher(page, editor: page == .builds, category: category, step: step))
             }   // GalleryNxkit.swift

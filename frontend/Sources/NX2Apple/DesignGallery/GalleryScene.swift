@@ -29,7 +29,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
     case consoleControllers, consoleControllersAssigned, consoleSearch, consoleQuickMenu, consoleStarting, consoleStartingCloud
 
     // nxkit (Beta), LNPANDY/NX2Apple#1460 (GalleryNxkit.swift)
-    case nxkitEngine, nxkitUnavailable, nxkitUnsigned, nxkitRunning, nxkitFinished, nxkitFailed, nxkitLibrary
+    case nxkitEngine, nxkitUnavailable, nxkitUnsigned, nxkitRunning, nxkitFinished, nxkitFailed, nxkitLibrary, nxkitGeneric
     // The design system's own check scenes
     case cardStates
     // The other states of the desktop and of console mode, and the scenes with motion (GalleryDesktopScenes.swift,
@@ -72,7 +72,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         + GallerySheet.allCases.map(GalleryScene.sheet)
         + onboardingScenes
         + consoleScenes.map(\.scene)
-        + [.nxkitEngine, .nxkitUnavailable, .nxkitUnsigned, .nxkitRunning, .nxkitFinished, .nxkitFailed, .nxkitLibrary]
+        + [.nxkitEngine, .nxkitUnavailable, .nxkitUnsigned, .nxkitRunning, .nxkitFinished, .nxkitFailed, .nxkitLibrary, .nxkitGeneric]
         + [.cardStates]
         + GalleryDesktopScene.allCases.map(GalleryScene.desktop)
         + GalleryConsoleScene.allCases.map(GalleryScene.console)
@@ -105,7 +105,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .settings, .settingsLibrary, .settingsControls, .settingsTools, .settingsEngineError: return .settings
         case .sheet: return .sheets
         case .onboarding, .onboardingState: return .onboarding
-        case .nxkitEngine, .nxkitUnavailable, .nxkitUnsigned, .nxkitRunning, .nxkitFinished, .nxkitFailed, .nxkitLibrary: return .nxkit
+        case .nxkitEngine, .nxkitUnavailable, .nxkitUnsigned, .nxkitRunning, .nxkitFinished, .nxkitFailed, .nxkitLibrary, .nxkitGeneric: return .nxkit
         case .cardStates: return .design
         case .desktop(let state): return state.group
         case .console(let state): return state.group
@@ -161,6 +161,7 @@ enum GalleryScene: Hashable, Identifiable, CaseIterable {
         case .nxkitFinished: return "Finished: Did it work?"
         case .nxkitFailed: return "Failed: nxkit exit code"
         case .nxkitLibrary: return "Library: built with nxkit"
+        case .nxkitGeneric: return "Library: nxkit without a game profile"
         case .cardStates: return "Card and row states"
         case .desktop(let state): return state.title
         case .console(let state): return state.title

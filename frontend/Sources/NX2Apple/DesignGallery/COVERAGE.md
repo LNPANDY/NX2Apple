@@ -196,6 +196,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `MissingImgGuideSheet` | `imgGuide` |
 | `MissingToolRow` | `desktop-missingTool` |
 | `NxkitFeedbackRow` | `nxkitFinished`, `nxkitLibrary` |
+| `NxkitGenericBuildRow` | `nxkitGeneric` |
 | `OnboardingCheck` | `onboarding-done` |
 | `OnboardingDemoHost` | `onboarding-fresh` |
 | `OnboardingDropZone` | `onboarding-gamesEmpty` |
