@@ -848,6 +848,7 @@
   "dev.resignOlder": "Dieses Spiel wurde als eigene App gebaut, bevor es die gemeinsame App gab. Baue es neu, damit es in der gemeinsamen App landet.",
   "dev.resignStage": "Neu signieren für %@",
   "dev.resigned": "Neu signiert und auf %@ installiert",
+  "dev.resigning": "Erneut signieren…",
   "dev.saveFailed": "Sichern der IPA fehlgeschlagen: %@ (prüfe den freien Speicherplatz und die Schreibrechte am Ziel)",
   "dev.saveIPATitle": "Signierte IPA sichern",
   "dev.saveNeedsApp": "Keine signierte App zum Packen: %@ (bitte erneut bauen)",

@@ -847,6 +847,7 @@
   "dev.resignOlder": "Este jogo foi compilado como app próprio, antes de existir um app compartilhado. Faça o build de novo para colocá-lo no app compartilhado.",
   "dev.resignStage": "Reassinando para %@",
   "dev.resigned": "Reassinado e instalado em %@",
+  "dev.resigning": "Reassinando…",
   "dev.saveFailed": "Falha ao salvar o IPA: %@ (verifique o espaço livre e a permissão de gravação no destino)",
   "dev.saveIPATitle": "Salvar o IPA assinado",
   "dev.saveNeedsApp": "Não há app assinado para empacotar: %@ (faça o build de novo)",

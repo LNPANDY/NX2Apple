@@ -847,6 +847,7 @@
   "dev.resignOlder": "Este juego se compiló como app propia, antes de que existiera una app compartida. Vuelve a compilarlo para ponerlo en la app compartida.",
   "dev.resignStage": "Volviendo a firmar para %@",
   "dev.resigned": "Vuelto a firmar e instalado en %@",
+  "dev.resigning": "Volviendo a firmar…",
   "dev.saveFailed": "Falló el guardado del IPA: %@ (revisa el espacio libre y el permiso de escritura en el destino)",
   "dev.saveIPATitle": "Guardar el IPA firmado",
   "dev.saveNeedsApp": "No hay app firmada que empaquetar: %@ (compila de nuevo)",

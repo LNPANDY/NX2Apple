@@ -847,6 +847,7 @@
   "dev.resignOlder": "Det här spelet byggdes som en egen app, innan det fanns en delad app. Bygg det igen för att lägga in det i den delade appen.",
   "dev.resignStage": "Signerar om för %@",
   "dev.resigned": "Omsignerad och installerad på %@",
+  "dev.resigning": "Signerar om…",
   "dev.saveFailed": "Det gick inte att spara IPA-filen: %@ (kontrollera ledigt utrymme och skrivrättighet på målet)",
   "dev.saveIPATitle": "Spara den signerade IPA-filen",
   "dev.saveNeedsApp": "Ingen signerad app att packa: %@ (bygg igen)",

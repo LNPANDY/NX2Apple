@@ -8,16 +8,19 @@ extension BuildStore {
     /// Where the work goes, as the store knows it when the work starts.
     package enum OperationPlace {
         case target
+        case device(String)
         case folder
         case none
     }
 
-    func beginOperation(_ kind: ActiveOperation.Kind, game: String?, titleID: String?, destination place: OperationPlace) {
+    package func beginOperation(_ kind: ActiveOperation.Kind, game: String?, titleID: String?, destination place: OperationPlace) {
         var destination: ActiveOperation.Destination?
         switch place {
         case .target:
             if runningTarget == BuildTarget.mac { destination = .thisMac }
             else if !devices.installDevice.isEmpty { destination = .device(devices.deviceName(devices.installDevice)) }
+        case .device(let name):
+            if !name.isEmpty { destination = .device(name) }
         case .folder:
             let name = (devices.driveFolder as NSString).lastPathComponent
             if !name.isEmpty { destination = .folder(name) }

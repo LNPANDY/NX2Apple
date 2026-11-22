@@ -914,6 +914,9 @@ import XCTest
         store.runningTarget = BuildTarget.ios
         store.beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .none)
         XCTAssertEqual(store.operation, ActiveOperation(kind: .renewingSignature))
+        store.beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .device("Andy's iPhone"))
+        XCTAssertEqual(store.operation?.destination, .device("Andy's iPhone"))
+        XCTAssertEqual(store.operation?.title { $0 }, "op.renewingSignature · Andy's iPhone")
         store.beginOperation(.building, game: "Game A", titleID: "0100000000001000", destination: .target)
         store.runningTarget = BuildTarget.mac
         store.beginOperation(.building, game: "Game A", titleID: "0100000000001000", destination: .target)

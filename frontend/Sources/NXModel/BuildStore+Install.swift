@@ -334,13 +334,14 @@ extension BuildStore {
             doneNote = String(format: t("dev.reinstallMissing"), shortPath(app))
             then?(); return
         }
+        let deviceName = devices.deviceName(device)
         buildingGame = false; runningTarget = BuildTarget.ios
-        beginOperation(.installing, game: nil, titleID: nil, destination: .target)
+        beginOperation(.installing, game: nil, titleID: nil, destination: .device(deviceName))
         needsReplaceOldImgReminder = false; updatedImgPath = ""
         running = true
-        runTool(id: 1004, name: String(format: t("dev.reinstallStage"), devices.deviceName(device)),
+        runTool(id: 1004, name: String(format: t("dev.reinstallStage"), deviceName),
                 BuildCommands.reinstallCommand(xcrun: devices.xcrun, device: device, app: app), nameKey: "dev.reinstallStage",
-                nameArgument: devices.deviceName(device), step: BuildProgress.installStep) { error in
+                nameArgument: deviceName, step: BuildProgress.installStep) { error in
             if let error {
                 // The app is still on the device: a failed reinstall is a note, not a failed build
                 self.running = false
@@ -389,7 +390,7 @@ extension BuildStore {
         let bundle = library.bundleID
         let resources = Bundle.main.resourceURL?.path, repoPath = repo.path, home = self.home, runner = self.runner
         buildingGame = false; runningTarget = BuildTarget.ios
-        beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .target)
+        beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .device(name))
         stopping = false; stoppedByPlayer = false; installPhaseActive = true
         needsReplaceOldImgReminder = false; updatedImgPath = ""
         running = true
