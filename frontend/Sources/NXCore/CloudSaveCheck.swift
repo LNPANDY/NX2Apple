@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 /// The check before a Mac game with cloud saves starts (#957): this Mac's save, the cloud's and the one last synced, compared the
@@ -12,7 +13,7 @@ import Foundation
 /// - The last synced is the `base` line of `<DM_SAVE>.sync` (`read_base`).
 package enum CloudSaveCheck {
     /// One side's save: nil hash for no save.
-    package struct Save: Equatable {
+    package struct Save: Equatable, Sendable {
         package var hash: String?
         package var saved: Date?
         package var device: String?
@@ -21,7 +22,7 @@ package enum CloudSaveCheck {
     }
 
     /// What the check found, and so what happens before the start.
-    package enum Outcome: Equatable {
+    package enum Outcome: Equatable, Sendable {
         case same                 // both the same (or no save anywhere): the game starts
         case onlyCloudChanged     // the cloud's changed since the last sync, or this Mac has none: the game starts, the engine brings it in
         case onlyLocalChanged     // this Mac's changed since the last sync: the game starts, the engine sends it
@@ -46,8 +47,8 @@ package enum CloudSaveCheck {
         return .bothChanged
     }
 
-    /// The player's answer to the question.
-    package enum Choice: Equatable {
+    /// Environment variable passed to the engine (`save_sync.c`, `read_choice`), or the engine's own `key` for it.
+    package enum Choice: Equatable, Sendable {
         case cloud        // bring in the cloud's save: this Mac's is kept in its backups
         case local        // this Mac's replaces the cloud's: the cloud's is kept in this Mac's backups
         case offline      // the cloud could not be read: play with this Mac's, send nothing until compared
@@ -113,9 +114,59 @@ package enum CloudSaveCheck {
         var found: String?
         for line in String(decoding: data, as: UTF8.self).split(separator: "\n") where line.hasPrefix("base\t") {
             let hash = line.dropFirst(5).prefix(hashDigits)
-            if hash.count == hashDigits, hash.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) { found = String(hash) }
+            if hash.count == hashDigits, isLowerHexString(hash) { found = String(hash) }
         }
         return found
+    }
+
+    /// Atomically updates `<save>.sync` to `hash` (`write_base` in `save_sync.c`).
+    @discardableResult
+    package static func writeBase(save: URL, hash: String) -> Bool {
+        guard hash.count == hashDigits, isLowerHexString(hash) else { return false }
+        let syncPath = save.path + ".sync"
+        let tmpPath = "\(syncPath).\(getpid()).tmp"
+        let parent = save.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let content = "# save sync (dm/host/save_sync.h): the save last known to be the same here and in the cloud\nbase\t\(hash)\n"
+        do {
+            try Data(content.utf8).write(to: URL(fileURLWithPath: tmpPath), options: [])
+            if rename(tmpPath, syncPath) != 0 {
+                unlink(tmpPath)
+                return false
+            }
+            return true
+        } catch {
+            unlink(tmpPath)
+            return false
+        }
+    }
+
+    /// Removes `<save>.sync` so the next sync treats the local save as changed relative to the cloud.
+    package static func clearBase(save: URL) {
+        try? FileManager.default.removeItem(atPath: save.path + ".sync")
+    }
+
+    /// True when `<save>.pull` exists, meaning a prior in-game cloud pull was interrupted and must be recovered by launching the game once.
+    package static func hasPendingPullJournal(save: URL, fm: FileManager = .default) -> Bool {
+        fm.fileExists(atPath: save.path + ".pull")
+    }
+
+    /// Hardware model identifier matching `device_name` in `save_sync.c` (`sysctlbyname("hw.model")`).
+    package static func currentDeviceModel() -> String {
+        var size = 0
+        guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 1 else { return "unknown" }
+        var buf = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("hw.model", &buf, &size, nil, 0) == 0 else { return "unknown" }
+        let model = String(cString: buf)
+        return model.isEmpty ? "unknown" : model
+    }
+
+    static func isLowerHexString<S: StringProtocol>(_ s: S) -> Bool {
+        s.allSatisfy { ch in
+            guard let ascii = ch.asciiValue else { return false }
+            return (ascii >= UInt8(ascii: "0") && ascii <= UInt8(ascii: "9"))
+                || (ascii >= UInt8(ascii: "a") && ascii <= UInt8(ascii: "f"))
+        }
     }
 
     static let hashDigits = 32
@@ -152,14 +203,15 @@ package enum CloudSaveCheck {
         var sha = SHA256(), files = 0, newest: Int64 = 0
         for (i, folder) in ["save", "save_device"].enumerated() {
             let dir = i == 0 ? save.path : save.path + "_device"
-            guard hasEntries(dir) else { continue }
+            guard let has = hasEntriesChecked(dir) else { return nil }
+            guard has else { continue }
             guard walk(dir, folder, { abs, rel, st in
                 let file = (st.st_mode & S_IFMT) == S_IFREG
                 var guest = [UInt8](repeating: 0, count: 1024)
                 var gl = getxattr(abs, "org.d2rmobile.guest-name", &guest, guest.count, 0, XATTR_NOFOLLOW)
                 if gl < 0 { gl = 0 }
                 let path = Array(rel.utf8)
-                guard path.count <= Int(UInt16.max) else { return false }
+                guard path.count <= Int(UInt16.max), gl <= Int(UInt16.max) else { return false }
                 var h = [UInt8](repeating: 0, count: 16)
                 h[0] = file ? 2 : 1
                 put(UInt16(path.count), into: &h, at: 2); put(UInt16(gl), into: &h, at: 4)
@@ -184,12 +236,12 @@ package enum CloudSaveCheck {
         return Save(hash: hash, saved: Date(timeIntervalSince1970: TimeInterval(newest)))
     }
 
-    private static func put<T: FixedWidthInteger>(_ value: T, into bytes: inout [UInt8], at offset: Int) {
+    static func put<T: FixedWidthInteger>(_ value: T, into bytes: inout [UInt8], at offset: Int) {
         withUnsafeBytes(of: value.littleEndian) { for (i, b) in $0.enumerated() { bytes[offset + i] = b } }
     }
 
     /// A folder's names in byte order, without . and ..; nil when it cannot be read.
-    private static func names(_ dir: String) -> [String]? {
+    static func names(_ dir: String) -> [String]? {
         guard let d = opendir(dir) else { return nil }
         defer { closedir(d) }
         var out: [[UInt8]] = []
@@ -201,9 +253,17 @@ package enum CloudSaveCheck {
         return out.sorted { $0.lexicographicallyPrecedes($1) }.map { String(decoding: $0, as: UTF8.self) }
     }
 
-    private static func hasEntries(_ dir: String) -> Bool { (names(dir) ?? []).contains { $0 != ".DS_Store" } }
+    static func hasEntries(_ dir: String) -> Bool { hasEntriesChecked(dir) == true }
 
-    private static func walk(_ abs: String, _ rel: String, _ visit: (String, String, stat) -> Bool) -> Bool {
+    /// Returns `true` if `dir` holds non-`.DS_Store` entries, `false` if missing (`ENOENT`) or empty, `nil` if unreadable.
+    static func hasEntriesChecked(_ dir: String) -> Bool? {
+        if let list = names(dir) {
+            return list.contains { $0 != ".DS_Store" }
+        }
+        return errno == ENOENT ? false : nil
+    }
+
+    static func walk(_ abs: String, _ rel: String, _ visit: (String, String, stat) -> Bool) -> Bool {
         guard let list = names(abs) else { return false }
         for name in list where name != ".DS_Store" {
             let a = abs + "/" + name, r = rel + "/" + name
