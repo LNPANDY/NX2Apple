@@ -11,3 +11,6 @@ QA/
 *.webp
 # A private build may carry banners in the app bundle (DemoArt/). The images stay out of git, the *.jpg rules above cover them.
 DemoArt/
+
+# Static app icon used when Icon Composer has no iOS Simulator runtime.
+!/AppIcon.png

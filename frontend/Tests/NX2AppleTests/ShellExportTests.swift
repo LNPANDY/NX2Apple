@@ -37,8 +37,9 @@ import NXModel
         // not the install's derived data: the signed app of an install, a reinstall and a re-sign stays where it is
         XCTAssertNotEqual(ShellInstall.exportDerivedData(root: root), ShellInstall.derivedData(root: root))
         let build = ShellInstall.exportBuildCommand(xcrun: "/x", root: root, bundleID: "org.nxnative.shell")
-        XCTAssertEqual(build, ["/x", "xcodebuild", "-project", root + "/project/DmShell.xcodeproj", "-scheme", "DmShell", "-configuration", "Release",
-                               "-destination", "generic/platform=iOS", "-derivedDataPath", root + "/export/derived-data",
+        XCTAssertEqual(build, ["/x", "xcodebuild", "-project", root + "/project/DmShell.xcodeproj", "-target", "DmShell", "-configuration", "Release", "-sdk", "iphoneos",
+                               "SYMROOT=" + root + "/export/derived-data/Build/Products",
+                               "OBJROOT=" + root + "/export/derived-data/Build/Intermediates.noindex",
                                "PRODUCT_BUNDLE_IDENTIFIER=org.nxnative.shell", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO",
                                "CODE_SIGN_IDENTITY=", "build"])
         // no team, no device, no provisioning
@@ -72,7 +73,8 @@ import NXModel
             if os.path.exists('\(state)/xcode-fails'):
                 print('error: Build input file cannot be found: DmShell.m', flush=True)
                 sys.exit(65)
-            app = val('-derivedDataPath') + '/Build/Products/Release-iphoneos/DmShell.app'
+            symroot = next((v.split('=', 1)[1] for v in a if v.startswith('SYMROOT=')), None)
+            app = (symroot or val('-derivedDataPath') + '/Build/Products') + '/Release-iphoneos/DmShell.app'
             os.makedirs(app + '/Frameworks/DmGame\(titleID).framework', exist_ok=True)
             if not os.path.exists(app + '/DmShell'):
                 open(app + '/DmShell', 'w').write('not a real executable')
@@ -182,7 +184,7 @@ import NXModel
         XCTAssertTrue(names.allSatisfy { $0.hasPrefix("Payload/") && !$0.contains("__MACOSX") }, names.joined(separator: "\n"))
 
         let xcodebuild = try XCTUnwrap(calls.first { $0.hasPrefix("xcodebuild") })
-        XCTAssertTrue(xcodebuild.contains("CODE_SIGNING_ALLOWED=NO") && xcodebuild.contains("-destination generic/platform=iOS"), xcodebuild)
+        XCTAssertTrue(xcodebuild.contains("CODE_SIGNING_ALLOWED=NO") && xcodebuild.contains("-target DmShell") && xcodebuild.contains("-sdk iphoneos"), xcodebuild)
         XCTAssertFalse(xcodebuild.contains("DEVELOPMENT_TEAM") || xcodebuild.contains("-allowProvisioningUpdates"), xcodebuild)
         XCTAssertFalse(calls.contains { $0.hasPrefix("devicectl") }, "no device is asked")
         XCTAssertFalse(fm.fileExists(atPath: ShellInstall.derivedData(root: f.root)), "the install's derived data stays untouched")
