@@ -309,8 +309,9 @@ public struct ActivityLogView: View {
         }
     }
 
-    /// The order of the list: cream pills in a dark capsule, as on the Mac.
-    private var sortControl: some View {
+    /// The order of the list: cream pills in a dark capsule, as on the Mac. `fills`: under the heading on a narrow screen the
+    /// three share the whole width.
+    private func sortControl(fills: Bool) -> some View {
         HStack(spacing: 4) {
             ForEach(SortOrder.allCases, id: \.self) { order in
                 let on = sort == order
@@ -320,6 +321,7 @@ public struct ActivityLogView: View {
                         .foregroundStyle(on ? .black : .white.opacity(0.85))
                         .lineLimit(1).minimumScaleFactor(0.8)
                         .padding(.horizontal, 12).padding(.vertical, 7)
+                        .frame(maxWidth: fills ? .infinity : nil)
                         .background(on ? ShellPalette.cream : .clear, in: Capsule())
                         .contentShape(Capsule())
                 }
@@ -331,7 +333,7 @@ public struct ActivityLogView: View {
         .padding(3)
         .background(Color.white.opacity(0.07), in: Capsule())
         .overlay(Capsule().strokeBorder(ShellPalette.hairline, lineWidth: 1))
-        .fixedSize()
+        .fixedSize(horizontal: !fills, vertical: true)
     }
 
     private var gamesListSection: some View {
@@ -341,11 +343,11 @@ public struct ActivityLogView: View {
                 HStack(alignment: .center, spacing: 12) {
                     SectionHeading(title: ShellStrings.text("Play history"))
                     Spacer(minLength: 8)
-                    sortControl
+                    sortControl(fills: false)
                 }
                 VStack(alignment: .leading, spacing: 12) {
                     SectionHeading(title: ShellStrings.text("Play history"))
-                    sortControl
+                    sortControl(fills: true)
                 }
             }
             VStack(spacing: 0) {
