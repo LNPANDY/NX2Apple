@@ -26,6 +26,8 @@ public struct LaunchableGame: Equatable, Sendable {
     public var shellEnvironment: [String: String] = [:]
     /// Keys in `environment` that came only from shell defaults because the game made no choice of its own.
     var shellFallbackKeys: Set<String> = []
+    /// Keys in `environment` that came only from built-in profile defaults (neither explicit UI choices nor shell defaults).
+    var builtInDefaultKeys: Set<String> = []
     /// True when the engine mounts shaders directly from the `DMMSLTR1` trailer in `romfsURL`.
     public var usesEmbeddedShaderTrailer: Bool = false
     /// Fallback bundled same-chain framework URL for reading legacy `msl/` or unpacking `msl-*.aar`.
