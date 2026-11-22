@@ -40,20 +40,20 @@ extension LauncherView {
 
     /// The eShop key art of the games that have none yet, in the launcher's language: the cards and the hero redraw as it arrives.
     /// A change of language picks every banner again (ArtworkStore.fetchMissing). Also warms offline Control NCA icons in the
-    /// background for local unbuilt ROMs that lack a dedicated square icon.
+    /// background for local unbuilt ROMs that lack a dedicated square icon. Every fetch that added files redraws, even when a
+    /// later call started meanwhile: a scan calls this several times, the later calls find the store busy and add nothing, so
+    /// only the first one can redraw the cards.
     func fetchArtwork() {
         let games = library.games
         let ids = games.map(\.titleID), language = loc.lang.code, store = artworkStore
         let banners = library.artworkDirectory, fallbackKeys = library.keysFile()
         let allowRemote = performStartupChecks || artworkStore !== ArtworkStore.shared
-        artworkFetchGeneration &+= 1
-        let generation = artworkFetchGeneration
         if allowRemote {
             Task {
                 let added = await store.fetchMissing(ids, language: language)
                 guard !added.isEmpty else { return }
                 await MainActor.run {
-                    guard artworkFetchGeneration == generation, loc.lang.code == language else { return }
+                    guard loc.lang.code == language else { return }
                     refreshArtwork()
                 }
             }
@@ -72,10 +72,7 @@ extension LauncherView {
                 }
             }
             guard extractedAny else { return }
-            await MainActor.run {
-                guard artworkFetchGeneration == generation else { return }
-                refreshArtwork()
-            }
+            await MainActor.run { refreshArtwork() }
         }
     }
 
