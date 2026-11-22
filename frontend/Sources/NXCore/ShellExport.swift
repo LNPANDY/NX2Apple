@@ -21,8 +21,9 @@ extension ShellInstall {
     /// The shell project (prepared by the install's own script call) built for iOS with signing off, as build_shell.sh --build does.
     /// `bundleID` is the one shell.json holds, so the IPA keeps the identifier of the install.
     package static func exportBuildCommand(xcrun: String, root: String, bundleID: String) -> [String] {
-        [xcrun, "xcodebuild", "-project", projectFolder(root: root) + "/" + projectName, "-scheme", scheme,
-         "-configuration", "Release", "-destination", "generic/platform=iOS", "-derivedDataPath", exportDerivedData(root: root),
+        [xcrun, "xcodebuild", "-project", projectFolder(root: root) + "/" + projectName, "-target", scheme,
+         "-configuration", "Release", "-sdk", "iphoneos",
+         "SYMROOT=\(exportDerivedData(root: root))/Build/Products", "OBJROOT=\(exportDerivedData(root: root))/Build/Intermediates.noindex",
          "PRODUCT_BUNDLE_IDENTIFIER=\(bundleID)", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO", "CODE_SIGN_IDENTITY=", "build"]
     }
 

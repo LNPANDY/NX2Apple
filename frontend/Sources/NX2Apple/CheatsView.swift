@@ -24,6 +24,7 @@ struct CheatsView: View {
     @State private var on: Set<String> = []
     @State private var master = true
     @State private var safeMode = false
+    @State private var tripped: CheatFiles.TrippedReceipt?
     @State private var busy = false
     @State private var result: (text: String, ok: Bool)?
 
@@ -46,6 +47,7 @@ struct CheatsView: View {
             DSSheetHeader(title: loc.t("cheats.title"), message: game?.displayName(loc.lang) ?? "")
                 .padding(.horizontal, DSSheetInsets.horizontal).padding(.top, DSSheetInsets.vertical).padding(.bottom, DSSheetInsets.gap)
             VStack(alignment: .leading, spacing: DSSheetInsets.gap) {
+                if let tripped { fuseTrippedBanner(tripped) }
                 buildCard
                 if game?.cheatsNeedIOSNote ?? false { iosNoteCard }
                 if files.isEmpty { emptyCard } else { listCard }
@@ -86,6 +88,40 @@ struct CheatsView: View {
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         DSSection("", content)
+    }
+
+    /// Prominent banner shown after the 30-second anti-crash fuse automatically disabled suspect cheats.
+    private func fuseTrippedBanner(_ receipt: CheatFiles.TrippedReceipt) -> some View {
+        let detail = receipt.disabledMaster
+            ? loc.t("cheats.fuseTrippedMaster")
+            : String(format: loc.t("cheats.fuseTrippedItems"), receipt.disabled.joined(separator: ", "))
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.shield.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(DS.Color.statusWarning)
+                .frame(width: 26)
+                .padding(.top, 1)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(loc.t("cheats.fuseTrippedTitle"))
+                    .font(DS.Font.body.weight(.semibold))
+                    .foregroundStyle(DS.Color.textPrimary)
+                Text(detail)
+                    .font(DS.Font.callout)
+                    .foregroundStyle(DS.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Button(loc.t("cheats.fuseDismiss")) { dismissTripped() }
+                .buttonStyle(LauncherSecondaryButtonStyle())
+                .fixedSize(horizontal: true, vertical: false)
+                .padTarget("cheats.fuseDismiss", scope: "cheats") { dismissTripped() }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(DS.Color.statusWarning.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(DS.Color.statusWarning.opacity(0.42), lineWidth: 1))
+        .accessibilityElement(children: .contain)
     }
 
     /// The build the game is, and the master switch.
@@ -233,10 +269,19 @@ struct CheatsView: View {
 
     private func refresh() {
         guard let cheatFiles else { return }
+        if let game, !CheatsView.running(game: game) {
+            cheatFiles.recoverIfArmed()
+        }
         files = cheatFiles.found()
         master = cheatFiles.masterOn
         safeMode = cheatFiles.safeMode
+        tripped = cheatFiles.readTripped()
         if let file = current { cheats = cheatFiles.cheats(of: file) ?? []; on = cheatFiles.enabled(file.buildID) } else { cheats = []; on = [] }
+    }
+
+    private func dismissTripped() {
+        cheatFiles?.clearTripped()
+        tripped = nil
     }
 
     private func set(_ cheat: CheatFiles.Cheat, _ value: Bool) {

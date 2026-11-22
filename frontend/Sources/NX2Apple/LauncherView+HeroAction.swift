@@ -203,11 +203,13 @@ extension LauncherView {
                     launchError = error.localizedDescription
                     return
                 }
+                let armedCheats = CheatFuseMonitor.shared.prepareAndArm(for: currentGame, shellRoot: stores.build.shellCachePath)
                 NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: currentGame.appPath), configuration: configuration) { app, error in
                     let pid = app?.processIdentifier
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             if let error {
+                                CheatFuseMonitor.shared.abort(armedCheats)
                                 if launchHintGeneration == generation { endGameLaunch() }
                                 launchError = error.localizedDescription
                                 return
@@ -216,11 +218,15 @@ extension LauncherView {
                             let startedTitleID = currentGame.titleID
                             playSessions.started(titleID: startedTitleID, title: currentGame.displayName(loc.lang))
                             if let pid {   // and the cloud's send an engine leaves to the launcher (SaveEngine)
+                                CheatFuseMonitor.shared.didStart(pid: pid, pending: armedCheats)
                                 let sessionStore = playSessions
                                 GameReturnWatcher.shared.didStart(pid: pid) {
                                     sessionStore.ended(titleID: startedTitleID)
+                                    CheatFuseMonitor.shared.didExit(pid: pid)
                                     CloudSaveSend.afterExit(app: currentGame.appPath, environment: withRecording, engine: SaveEngines.forApp(currentGame.appPath))
                                 }
+                            } else {
+                                CheatFuseMonitor.shared.abort(armedCheats)
                             }
                             if let app, !app.isFinishedLaunching, !app.isTerminated {
                                 Task { @MainActor in

@@ -62,7 +62,6 @@ struct LauncherView: View {
     @State var artworkSlot: ArtworkSlot?   // its tab: the part of the library not being edited dims
     @State var artworkPreview: GameArtwork?   // its draft, which the hero and the selected card draw instead of the saved artwork
     @State var previewGeneration = 0   // the latest preview decode: an older one that finishes late is dropped
-    @State var artworkFetchGeneration = 0   // the latest artwork language fetch: an older one that finishes late is dropped
     @State var artworkHeroAspect = ArtworkEditor.heroBandAspect   // the hero's proportions now, the band the panel frames for
     let artworkStore: ArtworkStore
     @StateObject var controls: ControlLayout

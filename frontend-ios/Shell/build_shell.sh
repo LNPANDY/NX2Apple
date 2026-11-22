@@ -115,6 +115,7 @@ for line in open(template, encoding='utf-8').read().splitlines():
 if not done: sys.exit('[RED] project-shell.yml has no @FRAMEWORKS@ line')
 open(out, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 PY
+python3 -I "$SHELL_ROOT/prepare_icons.py" project.yml "$DM_SHELL_PACKAGE" || die "app icon"
 xcodegen generate -q > /dev/null || die "xcodegen"
 COMMIT=$(git -C "$DM" rev-parse --short=12 HEAD 2> /dev/null) && { [ -z "$(git -C "$DM" status --porcelain --untracked-files=no 2> /dev/null)" ] || COMMIT=$COMMIT+dirty
   /usr/libexec/PlistBuddy -c "Add :DMCommit string $COMMIT" Gen/Info.plist > /dev/null || die "DMCommit"; t "source: $COMMIT"; }
@@ -128,7 +129,8 @@ if [ "$MODE" = --prepare-xcode ]; then
 fi
 
 t "xcodebuild (Release, unsigned, iPhone + iPad)"
-xcodebuild -project DmShell.xcodeproj -scheme DmShell -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$DD" \
+xcodebuild -project DmShell.xcodeproj -target DmShell -configuration Release -sdk iphoneos \
+  SYMROOT="$DD/Build/Products" OBJROOT="$DD/Build/Intermediates.noindex" \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= build > "$S/build.log" 2>&1 \
   || { grep -E 'error:' "$S/build.log" | head -20; die "xcodebuild, log $S/build.log"; }
 APP=$DD/Build/Products/Release-iphoneos/DmShell.app

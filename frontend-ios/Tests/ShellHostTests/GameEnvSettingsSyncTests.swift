@@ -72,7 +72,60 @@ import ShellUI
         let plan = EngineLaunchPlan.make(game: launched, appResources: box.root, documents: box.root, envFileText: nil)
         #expect(plan.environment["DM_OPMODE"] == "0")
         #expect(plan.environment["DM_GUEST_FILE"] == "1")
-        #expect(plan.environment["DM_ENV_FILE_KEYS"]?.contains("DM_OPMODE") == true)
+        let envFileKeys = Set((plan.environment["DM_ENV_FILE_KEYS"] ?? "").split(separator: " ").map(String.init))
+        #expect(!envFileKeys.contains("DM_OPMODE"), "per-game in-game-menu keys stay editable in the gear menu")
+        #expect(envFileKeys.contains("DM_GUEST_FILE"), "non-menu per-game env keys remain listed in DM_ENV_FILE_KEYS")
+    }
+
+    @Test func perGameEnvFileUnlocksAllInGameMenuKeysWhileSharedAndFrameworkEnvFilesStillLockThem() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        try installModeAndFPSSettings(in: box)
+        let envURL = box.appData.appendingPathComponent(Fixtures.orbit + "/env.txt")
+        try box.write(
+            "DM_OPMODE=0\nDM_METAL_HUD=0\nDM_SHOW_FPS=1\nDM_PICTURE_FIT=fill\nDM_AUDIO_MIX=1\nDM_GUEST_FILE=1\n",
+            to: envURL
+        )
+
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher)
+        await model.playNow(Fixtures.orbit)
+        let launched = try #require(launcher.launched.last)
+
+        let plan = EngineLaunchPlan.make(game: launched, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(plan.environment["DM_OPMODE"] == "0")
+        #expect(plan.environment["DM_METAL_HUD"] == "0")
+        #expect(plan.environment["DM_SHOW_FPS"] == "1")
+        #expect(plan.environment["DM_PICTURE_FIT"] == "fill")
+        #expect(plan.environment["DM_AUDIO_MIX"] == "1")
+        #expect(plan.environment["DM_GUEST_FILE"] == "1")
+        let ownKeys = Set((plan.environment["DM_ENV_FILE_KEYS"] ?? "").split(separator: " ").map(String.init))
+        for key in ShellInGameMenu.allowedEnvs {
+            #expect(!ownKeys.contains(key), "\(key) from per-game env.txt should not lock the in-game menu")
+        }
+        #expect(ownKeys == ["DM_GUEST_FILE"])
+
+        // Shared Documents/env.txt and framework dm/env.txt still mark in-game-menu keys as file-locked.
+        let sharedBox = try Sandbox()
+        try sharedBox.giveAppData()
+        try installModeAndFPSSettings(in: sharedBox)
+        let sharedLauncher = RecordingLauncher()
+        let sharedModel = ShellHostModel(config: sharedBox.config(), launcher: sharedLauncher)
+        await sharedModel.playNow(Fixtures.orbit)
+        let sharedLaunched = try #require(sharedLauncher.launched.last)
+        try sharedBox.write("DM_OPMODE=0\n", to: sharedLaunched.frameworkURL.appendingPathComponent("dm/env.txt"))
+
+        let lockedPlan = EngineLaunchPlan.make(
+            game: sharedLaunched,
+            appResources: sharedBox.root,
+            documents: sharedBox.root,
+            envFileText: "DM_METAL_HUD=0\n"
+        )
+        #expect(lockedPlan.environment["DM_METAL_HUD"] == "0")
+        #expect(lockedPlan.environment["DM_OPMODE"] == "0")
+        let lockedKeys = Set((lockedPlan.environment["DM_ENV_FILE_KEYS"] ?? "").split(separator: " ").map(String.init))
+        #expect(lockedKeys.contains("DM_METAL_HUD"))
+        #expect(lockedKeys.contains("DM_OPMODE"))
     }
 
     @Test func uiChangeToDefaultCommentsOutEnvFileLineAndPreventsGhostRebirth() async throws {

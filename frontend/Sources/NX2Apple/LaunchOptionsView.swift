@@ -213,7 +213,7 @@ struct LaunchOptionsView: View {
     /// Saves: the cloud state of a Mac game and the sheet that imports, exports and shows the backups.
     @ViewBuilder private func saves(_ game: LibraryGame, destination: LaunchDestination) -> some View {
         GameSavesSection(game: game, settings: saveSettings, players: players)   // first: the save files, import and export
-        if destination == .mac { CloudSavesCard(game: game, overrides: saveSettings) }
+        if destination == .mac { CloudSavesCard(game: game, overrides: saveSettings, players: players) }
         VStack(alignment: .leading, spacing: 10) {
             heading(loc.t("saves.menu"))
             card {

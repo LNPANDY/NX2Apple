@@ -21,7 +21,7 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods", "artwork.screenshot",
         "update.pill", "launch.opt.DM_OPMODE.0", "launch.opt.NXKIT_OP_MODE.handheld", "launch.opt.DM_PRESENT_UPSCALE.off",
         "launch.opt.DM_FPS_TARGET.30", "launch.opt.DM_FPS_TARGET.60", "launch.opt.DM_FPS_TARGET.120", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx",
-        "launch.opt.DM_SCREEN_ASPECT.0",   // 16:9 (Switch) reads the same in every language
+        "launch.opt.DM_SCREEN_ASPECT.0", "launch.opt.DM_NVN_TEX_MIP_SKIP.0",   // 16:9 (Switch) and Original read the same in German
         "switch2.badge",   // the console's name
         "nxkit.name", "nxkit.version",   // the engine's name and its version number
         "ios.ui.switch2Badge", "appearance.system", "settings.language.system", "sort.name", "launch.opt.DM_PRESENT_INTERVAL.display", "launch.opt.DM_PRESENT_INTERVAL.game",   // the console's name, System, Name, the frame rates

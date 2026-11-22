@@ -215,6 +215,124 @@ import NXModel
         XCTAssertTrue(files.safeMode)
     }
 
+    // ---- 30-second anti-crash fuse ----
+
+    func testCrashFuseDisablesOnlyNewlyEnabledCheatsWhenStableBaselineExists() throws {
+        try write("[Stable HP]\n04000000 00000010 00000001\n[Risky Moon Jump]\n04000000 00000020 00000002\n", "\(build).txt")
+        try write("Stable HP\n", "\(build).enabled")
+
+        let armed1 = files.armBeforeLaunch(buildID: build, now: Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(armed1?.enabled, ["Stable HP"])
+        XCTAssertEqual(armed1?.newlyEnabled, ["Stable HP"])
+        XCTAssertTrue(files.disarmAndRecordStable(expectedBuildID: build, now: Date(timeIntervalSince1970: 135)))
+        XCTAssertNil(files.readArmed())
+        XCTAssertEqual(files.readStable()?.enabled, ["Stable HP"])
+
+        try write("Stable HP\nRisky Moon Jump\n", "\(build).enabled")
+        let armed2 = files.armBeforeLaunch(buildID: build, now: Date(timeIntervalSince1970: 200))
+        XCTAssertEqual(armed2?.enabled, ["Stable HP", "Risky Moon Jump"])
+        XCTAssertEqual(armed2?.newlyEnabled, ["Risky Moon Jump"])
+
+        let tripped = files.handleProcessExit(elapsed: 8.0, threshold: 30.0, now: Date(timeIntervalSince1970: 208))
+        XCTAssertEqual(tripped?.disabled, ["Risky Moon Jump"])
+        XCTAssertEqual(tripped?.disabledMaster, false)
+        XCTAssertNil(files.readArmed())
+        XCTAssertEqual(files.readTripped(), tripped)
+        XCTAssertEqual(files.enabledList(build), ["Stable HP"])
+        XCTAssertTrue(files.masterOn)
+
+        files.clearTripped()
+        XCTAssertNil(files.readTripped())
+    }
+
+    func testCrashFuseDisablesAllEnabledWhenNoNewlyEnabledAndMasterOffForMasterOnly() throws {
+        try write("[A]\n04000000 00000010 00000001\n[B]\n04000000 00000020 00000002\n", "\(build).txt")
+        try write("A\nB\n", "\(build).enabled")
+        _ = files.armBeforeLaunch(buildID: build)
+        XCTAssertTrue(files.disarmAndRecordStable())
+
+        let armed = files.armBeforeLaunch(buildID: build)
+        XCTAssertEqual(armed?.newlyEnabled, [])
+        let tripped = files.recoverIfArmed()
+        XCTAssertEqual(tripped?.disabled, ["A", "B"])
+        XCTAssertEqual(files.enabledList(build), [])
+
+        // Master-only file crashes before 30 s -> turns off master switch.
+        let masterDir = CheatFiles(titleID: titleID, folder: temporary.appendingPathComponent("cheats-master"))
+        try write("{Master Hook}\n04000000 00000010 00000001\n", "\(build).txt", under: masterDir.folder)
+        let armedMaster = masterDir.armBeforeLaunch(buildID: build)
+        XCTAssertEqual(armedMaster?.hadMasterOnly, true)
+        let trippedMaster = masterDir.recoverIfArmed()
+        XCTAssertEqual(trippedMaster?.disabledMaster, true)
+        XCTAssertFalse(masterDir.masterOn)
+    }
+
+    func testCrashFuseStableExitAt30sDoesNotTrip() throws {
+        try write("[A]\n04000000 00000010 00000001\n", "\(build).txt")
+        try write("A\n", "\(build).enabled")
+        _ = files.armBeforeLaunch(buildID: build)
+        let tripped = files.handleProcessExit(elapsed: 30.0, threshold: 30.0)
+        XCTAssertNil(tripped)
+        XCTAssertNil(files.readArmed())
+        XCTAssertEqual(files.readStable()?.enabled, ["A"])
+        XCTAssertEqual(files.enabledList(build), ["A"])
+    }
+
+    func testCheatFuseMonitorTripsOnEarlyExitAndDisarmsOnCleanStableExit() throws {
+        let support = temporary.appendingPathComponent("Support")
+        let app = temporary.appendingPathComponent("FuseGame.app")
+        try write("# BUILD_ID\tcd57b23fa4bbad65803d9788c01821ee\n", "Contents/Resources/dm/main.fixups.tsv", under: app)
+        let game = LibraryGame(titleID: titleID, name: "FuseGame", appPath: app.path)
+        let localFiles = CheatFiles(titleID: titleID, support: support)
+        try write("[Safe]\n04000000 00000010 00000001\n[Crash]\n04000000 00000020 00000002\n", "\(build).txt", under: localFiles.folder)
+        try write("Safe\n", "\(build).enabled", under: localFiles.folder)
+
+        let monitor = CheatFuseMonitor()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        let pending1 = monitor.prepareAndArm(for: game, support: support, now: t0)
+        XCTAssertNotNil(pending1)
+        monitor.didStart(pid: 99001, pending: pending1, delaySeconds: 60)
+        XCTAssertNil(monitor.didExit(pid: 99001, threshold: 30, now: t0.addingTimeInterval(35)))
+        XCTAssertEqual(localFiles.readStable()?.enabled, ["Safe"])
+
+        try write("Safe\nCrash\n", "\(build).enabled", under: localFiles.folder)
+        let t1 = Date(timeIntervalSince1970: 2000)
+        let pending2 = monitor.prepareAndArm(for: game, support: support, now: t1)
+        XCTAssertNotNil(pending2)
+        monitor.didStart(pid: 99002, pending: pending2, delaySeconds: 60)
+        let tripped = monitor.didExit(pid: 99002, threshold: 30, now: t1.addingTimeInterval(5))
+        XCTAssertEqual(tripped?.disabled, ["Crash"])
+        XCTAssertEqual(localFiles.enabledList(build), ["Safe"])
+    }
+
+    func testCheatFuseMonitorTimerRefusesToDisarmWhenProcessIsGoneOrReused() async throws {
+        let support = temporary.appendingPathComponent("SupportReuse")
+        let app = temporary.appendingPathComponent("ReuseGame.app")
+        try write("# BUILD_ID\tcd57b23fa4bbad65803d9788c01821ee\n", "Contents/Resources/dm/main.fixups.tsv", under: app)
+        let game = LibraryGame(titleID: titleID, name: "ReuseGame", appPath: app.path)
+        let localFiles = CheatFiles(titleID: titleID, support: support)
+        try write("[A]\n04000000 00000010 00000001\n", "\(build).txt", under: localFiles.folder)
+        try write("A\n", "\(build).enabled", under: localFiles.folder)
+
+        var alive = false
+        let monitor = CheatFuseMonitor(isProcessAlive: { _, url in
+            alive && url == app.standardizedFileURL
+        })
+        let pending = monitor.prepareAndArm(for: game, support: support)
+        XCTAssertNotNil(pending)
+        monitor.didStart(pid: 99123, pending: pending, delaySeconds: 0.05)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertNotNil(localFiles.readArmed(), "dead or PID-reused process must not disarm or record stable baseline")
+        XCTAssertNil(localFiles.readStable())
+
+        // Now simulate a genuinely matching live process: timer disarms and writes stable baseline.
+        alive = true
+        monitor.didStart(pid: 99124, pending: pending, delaySeconds: 0.05)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertNil(localFiles.readArmed())
+        XCTAssertEqual(localFiles.readStable()?.enabled, ["A"])
+    }
+
     // ---- importing ----
 
     func testAnSDCardsCheatsFolderComesInAsFlatFilesInUpperCase() throws {
@@ -295,6 +413,9 @@ import NXModel
         try write("A\n", "\(build).enabled")
         try write("x", ".cheats-off-\(titleID)")
         try write("x", ".cheats-running-\(titleID)")
+        try write("{}", ".cheats-armed.json")
+        try write("{}", ".cheats-stable.json")
+        try write("{}", ".cheats-tripped.json")
         try write("x", "\(build).enabled.tmp")
         var seen: [String] = [], args: [String] = []
         let t = transfer { a in
@@ -434,11 +555,26 @@ import NXModel
             window.orderOut(nil)
         }
         try shot("cheats", CheatsView(m: model, library: library, gameID: id, devicectl: DeviceControl { _ in (true, "") }, support: support).environmentObject(modelStores.localizer))
+        try shot("cheats-before-en", CheatsView(m: model, library: library, gameID: id, devicectl: DeviceControl { _ in (true, "") }, support: support).environmentObject(modelStores.localizer))
         try shot("cheats-drop", CheatsView(m: model, library: library, gameID: id, support: support, dropped: true).environmentObject(modelStores.localizer))
         model.lang = .de
         try shot("cheats-de", CheatsView(m: model, library: library, gameID: id, support: support).environmentObject(modelStores.localizer))
         model.lang = .zh
         try shot("cheats-zh", CheatsView(m: model, library: library, gameID: id, support: support).environmentObject(modelStores.localizer))
+        try shot("cheats-before-zh", CheatsView(m: model, library: library, gameID: id, support: support).environmentObject(modelStores.localizer))
+
+        // After triggering the 30-second anti-crash fuse on a newly enabled cheat ("Walk through walls").
+        let fuseFiles = CheatFiles(titleID: game, support: support)
+        _ = fuseFiles.armBeforeLaunch(buildID: "CD57B23FA4BBAD65")
+        _ = fuseFiles.disarmAndRecordStable()
+        try write("Infinite health\nAlways sunny\nWalk through walls\n", "CD57B23FA4BBAD65.enabled", under: folder)
+        _ = fuseFiles.armBeforeLaunch(buildID: "CD57B23FA4BBAD65")
+        _ = fuseFiles.handleProcessExit(elapsed: 7.0, threshold: 30.0)
+        model.lang = .en
+        try shot("cheats-after-tripped-en", CheatsView(m: model, library: library, gameID: id, devicectl: DeviceControl { _ in (true, "") }, support: support).environmentObject(modelStores.localizer))
+        model.lang = .zh
+        try shot("cheats-after-tripped-zh", CheatsView(m: model, library: library, gameID: id, devicectl: DeviceControl { _ in (true, "") }, support: support).environmentObject(modelStores.localizer))
+
         model.lang = .en
         try fm.removeItem(at: folder)
         try write("x", ".cheats-running-\(game)", under: folder)

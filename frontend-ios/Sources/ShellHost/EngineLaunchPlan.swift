@@ -143,14 +143,17 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         for (key, value) in game.environment where !deferredKeys.contains(key) { env[key] = value }
 
         var fromFile: [String] = []
+        let inGameEditable = Set(ShellInGameMenu.allowedEnvs)
         let ownText = gameEnvFileText ?? fm.contents(atPath: gdir.appendingPathComponent("env.txt").path).flatMap { String(data: $0, encoding: .utf8) }
-        func apply(_ text: String?) {
+        func apply(_ text: String?, lockInGame: Bool) {
             for (key, value) in parseEnvFile(text ?? "") where env[key] == nil {
                 env[key] = value
-                fromFile.append(key)
+                if lockInGame || !inGameEditable.contains(key) {
+                    fromFile.append(key)
+                }
             }
         }
-        apply(ownText)
+        apply(ownText, lockInGame: false)
         for key in game.shellFallbackKeys where env[key] == nil {
             if let value = game.environment[key] { env[key] = value }
         }
@@ -159,8 +162,8 @@ public struct EngineLaunchPlan: Equatable, Sendable {
            let overlay = GameMods.overlay(in: gdir.appendingPathComponent("mods", isDirectory: true), titleID: game.titleID, fm) {
             env["DM_ROMFS_OVERLAY"] = overlay
         }
-        apply(envFileText)
-        apply(fm.contents(atPath: fw.appendingPathComponent("dm/env.txt").path).flatMap { String(data: $0, encoding: .utf8) })
+        apply(envFileText, lockInGame: true)
+        apply(fm.contents(atPath: fw.appendingPathComponent("dm/env.txt").path).flatMap { String(data: $0, encoding: .utf8) }, lockInGame: true)
         for key in game.builtInDefaultKeys where env[key] == nil {
             if let value = game.environment[key] { env[key] = value }
         }
