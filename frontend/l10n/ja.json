@@ -1793,6 +1793,8 @@
   "launch.set.DM_DYNAMIC_RESOLUTION.note": "負荷が高いとき、ゲームが解像度を下げることを許可します。オフにすると、選択したモードのフル解像度を維持します。",
   "launch.set.DM_FPS_HOLD": "遅れたフレームを保持",
   "launch.set.DM_FPS_TARGET": "フレームレート",
+  "launch.set.DM_FRAMEGEN": "フレーム生成",
+  "launch.set.DM_FRAMEGEN.note": "ゲームが毎秒 30 フレーム描画する間に 60 フレーム表示します。MetalFX が 2 フレームごとに中間フレームを生成し、60 fps より負荷と発熱を抑えられますが、入力遅延がわずかに増え、速い動きで残像が出ることがあります。",
   "launch.set.DM_FULLSCREEN": "表示モード",
   "launch.set.DM_LANG": "ゲームの言語",
   "launch.set.DM_METAL_HUD": "パフォーマンス HUD",

@@ -1794,6 +1794,8 @@
   "launch.set.DM_DYNAMIC_RESOLUTION.note": "부하가 걸리면 게임이 해상도를 낮추게 합니다. 선택한 콘솔 모드의 전체 해상도를 유지하려면 끄세요.",
   "launch.set.DM_FPS_HOLD": "지연 시 프레임 유지",
   "launch.set.DM_FPS_TARGET": "프레임 속도",
+  "launch.set.DM_FRAMEGEN": "프레임 생성",
+  "launch.set.DM_FRAMEGEN.note": "게임이 초당 30프레임을 그리는 동안 60프레임을 표시합니다. MetalFX가 두 프레임 사이에 새 프레임을 만들어 60 fps보다 부하와 발열이 적지만, 입력 지연이 약간 늘어나고 빠른 움직임에서 잔상이 생길 수 있습니다.",
   "launch.set.DM_FULLSCREEN": "화면 모드",
   "launch.set.DM_LANG": "게임 언어",
   "launch.set.DM_METAL_HUD": "성능 HUD",

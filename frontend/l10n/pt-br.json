@@ -1794,6 +1794,8 @@
   "launch.set.DM_DYNAMIC_RESOLUTION.note": "Deixa o jogo baixar a resolução sob carga. Desligue para manter a resolução total do modo de console escolhido.",
   "launch.set.DM_FPS_HOLD": "Segurar quadros quando atrasa",
   "launch.set.DM_FPS_TARGET": "Taxa de quadros",
+  "launch.set.DM_FRAMEGEN": "Geração de quadros",
+  "launch.set.DM_FRAMEGEN.note": "Mostra 60 quadros por segundo enquanto o jogo desenha 30. O MetalFX cria um quadro entre cada par, com menos trabalho e calor que a 60 fps, um pouco mais de atraso de entrada e possíveis rastros em movimentos rápidos.",
   "launch.set.DM_FULLSCREEN": "Modo de tela",
   "launch.set.DM_LANG": "Idioma do jogo",
   "launch.set.DM_METAL_HUD": "HUD de desempenho",

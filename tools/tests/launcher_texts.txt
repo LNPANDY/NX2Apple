@@ -19,6 +19,7 @@ Fill
 Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.
 Fit
 Frame buffering
+Frame generation
 Frame rate
 Frame-rate counter
 French
@@ -69,6 +70,7 @@ Rumble strength
 Russian
 Saves memory on devices without hardware BC textures, with slightly less precise HDR textures.
 Shader prefetch
+Shows 60 frames a second while the game draws 30. MetalFX makes a frame between each two, with less work and heat than 60 fps, slightly more input delay, and possible smearing on fast motion.
 Simplified Chinese
 Size
 Skips top mip levels of large static textures to save GPU memory and reduce heat. Takes effect on next launch.

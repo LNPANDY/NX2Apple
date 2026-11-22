@@ -1794,6 +1794,8 @@
   "launch.set.DM_DYNAMIC_RESOLUTION.note": "允许游戏在负载较高时降低分辨率。关闭后保持所选主机模式的完整分辨率。",
   "launch.set.DM_FPS_HOLD": "帧延迟时保持",
   "launch.set.DM_FPS_TARGET": "帧率",
+  "launch.set.DM_FRAMEGEN": "帧生成",
+  "launch.set.DM_FRAMEGEN.note": "在游戏以 30 帧绘制时输出每秒 60 帧。MetalFX 会在每两帧之间插出一帧，比原生 60 帧更省负载和发热，输入延迟略微增加，高速运动时可能出现拖影。",
   "launch.set.DM_FULLSCREEN": "显示模式",
   "launch.set.DM_LANG": "游戏语言",
   "launch.set.DM_METAL_HUD": "性能 HUD",

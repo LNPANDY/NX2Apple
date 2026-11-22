@@ -14,7 +14,7 @@ enum LaunchCategory: String, CaseIterable, Identifiable {
                                         "DM_SHOW_FPS", "DM_TOUCH_HAPTICS", "DM_RUMBLE", "DM_RUMBLE_GAIN", "DM_RUMBLE_MIN",
                                         "DM_PAD_PRESS_TO_JOIN"]
     /// Frame rate, resolution, console mode, upscaling and the engine's tuning switches.
-    static let performanceEnvs: Set<String> = ["DM_FPS_TARGET", "DM_DYNAMIC_RESOLUTION", "DM_RENDER_SCALE", "DM_OPMODE", "DM_PRESENT_UPSCALE",
+    static let performanceEnvs: Set<String> = ["DM_FPS_TARGET", "DM_PRESENT_INTERVAL", "DM_FRAMEGEN", "DM_DYNAMIC_RESOLUTION", "DM_RENDER_SCALE", "DM_OPMODE", "DM_PRESENT_UPSCALE",
                                                "DM_UPSCALER", "DM_PRESENT_SNAP", "DM_PSO_MTL4", "DM_PSO_PREBUILD", "DM_NVN_ENC_THREAD",
                                                "DM_FPS_HOLD", "DM_METAL_HUD"]
 

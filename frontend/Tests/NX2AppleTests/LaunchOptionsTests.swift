@@ -1,6 +1,9 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+@testable import NXModel
 @testable import NXLauncher
 
 /// Launch options beyond the app's own list: Display mode, the basic / advanced split, the render scale in pixels, and mods.
@@ -158,5 +161,71 @@ final class LaunchOptionsTests: IsolatedDefaultsTestCase {
         let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: "01007EF00011E000", repo: repo, labels: { L10n.string($0, .en) }))
         XCTAssertEqual(ResolutionNote.text(list, shown: { $0.env != "DM_PRESENT_UPSCALE" }, t: { L10n.string($0, .en) })?.detail,
                        "The closest setting is Console mode.", "a row the sheet hides (a sub-setting whose parent is off) is not named")
+    }
+
+    @MainActor func testFrameGenerationRowFollows30FpsAndRendersInEnglishAndChinese() throws {
+        let fps = #"{"env": "DM_FPS_TARGET", "kind": "choice", "label": "Frame rate", "note": "", "default": "30", "section": "Game", "options": [["30", "30 fps"], ["60", "60 fps"]], "level": "basic"}"#
+        let fg = #"{"env": "DM_FRAMEGEN", "kind": "toggle", "label": "Frame generation", "note": "Shows 60 frames a second while the game draws 30. MetalFX makes a frame between each two, with less work and heat than 60 fps, slightly more input delay, and possible smearing on fast motion.", "default": "0", "section": "Game", "on": "1", "off": "0", "needs": "DM_FPS_TARGET=30"}"#
+        let (app, repo) = try self.app([fps, fg, scale, opmode].joined(separator: ","))
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: "01007EF00011E000", repo: repo, labels: { L10n.string($0, .zh) }))
+        let fgRow = try XCTUnwrap(list.first { $0.env == "DM_FRAMEGEN" })
+        XCTAssertEqual(LaunchCategory.of(fgRow), .performance)
+        XCTAssertEqual(fgRow.label, "帧生成")
+        XCTAssertTrue(fgRow.isShown(in: list) { $0.env == "DM_FPS_TARGET" ? "30" : $0.def })
+        XCTAssertFalse(fgRow.isShown(in: list) { $0.env == "DM_FPS_TARGET" ? "60" : $0.def })
+
+        guard let captureDir = ProcessInfo.processInfo.environment["NX_FRAMEGEN_CAPTURE_DIR"] else { return }
+        let outURL = URL(fileURLWithPath: captureDir)
+        try FileManager.default.createDirectory(at: outURL, withIntermediateDirectories: true)
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let bundleURL = URL(fileURLWithPath: app)
+        let macOS = bundleURL.appendingPathComponent("Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: macOS.appendingPathComponent("nxnative"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+        try FileManager.default.createSymbolicLink(at: macOS.appendingPathComponent("dmhost"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+        let domain = TestPreferences.domain(in: temporary, "framegen")
+        let plist: [String: Any] = ["DMTitleID": "01007EF00011E000", "CFBundleDisplayName": "The Legend of Zelda: Breath of the Wild",
+                                    "CFBundleExecutable": "nxnative", "CFBundleIdentifier": domain]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: bundleURL.appendingPathComponent("Contents/Info.plist"))
+        defer { CFPreferencesAppSynchronize(domain as CFString) }
+        let game = LibraryGame(titleID: "01007EF00011E000", name: "The Legend of Zelda: Breath of the Wild", appPath: app)
+        let fpsSetting = try XCTUnwrap(list.first(where: { $0.env == "DM_FPS_TARGET" }))
+        let choices = SavedChoices(app: app, titleID: "01007EF00011E000")
+        XCTAssertEqual(LaunchDestination(game), .mac)
+        struct Snapshot: Codable { let games: [LibraryGame]; let folder: String }
+        let libFile = temporary.appendingPathComponent("library.json")
+        try JSONEncoder().encode(Snapshot(games: [game], folder: temporary.path)).write(to: libFile)
+        let library = GameLibrary(file: libFile)
+        let stores = LauncherStores(defaults: testDefaults)
+        stores.repo.path = repo
+        func snap(_ fileName: String, _ lang: Lang) throws {
+            stores.build.lang = lang
+            stores.localizer.lang = lang
+            let view = LaunchOptionsView(m: stores.build, library: library, gameID: library.games[0].id,
+                                         initialCategory: .performance, initialAdvancedOpen: true)
+                .environmentObject(PadFocus())
+                .environmentObject(stores.localizer)
+                .environmentObject(stores.saveSettings)
+                .environmentObject(stores.players)
+                .environment(\.dsSheetMaxHeight, 1080)
+                .launcherDropdownHost()
+            let host = NSHostingView(rootView: view)
+            let size = NSSize(width: LauncherSheet.width, height: 1040)
+            let window = OffscreenWindow(size: size)
+            window.contentView = host
+            window.orderFront(nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: outURL.appendingPathComponent(fileName))
+            window.orderOut(nil)
+        }
+        for lang in [Lang.en, Lang.zh] {
+            choices.set(fpsSetting, "60")
+            try snap("framegen-before-\(lang.code).png", lang)
+            choices.set(fpsSetting, "30")
+            try snap("framegen-after-\(lang.code).png", lang)
+        }
     }
 }

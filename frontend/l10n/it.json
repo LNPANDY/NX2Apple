@@ -1794,6 +1794,8 @@
   "launch.set.DM_DYNAMIC_RESOLUTION.note": "Permette al gioco di abbassare la risoluzione quando il carico aumenta. Disattivala per mantenere la risoluzione piena della modalità scelta.",
   "launch.set.DM_FPS_HOLD": "Mantieni i fotogrammi in ritardo",
   "launch.set.DM_FPS_TARGET": "Fotogrammi al secondo",
+  "launch.set.DM_FRAMEGEN": "Generazione fotogrammi",
+  "launch.set.DM_FRAMEGEN.note": "Mostra 60 fotogrammi al secondo mentre il gioco ne disegna 30. MetalFX crea un fotogramma tra ogni coppia, con meno lavoro e calore rispetto ai 60 fps, un leggero aumento del ritardo di input e possibili scie nei movimenti rapidi.",
   "launch.set.DM_FULLSCREEN": "Modalità di visualizzazione",
   "launch.set.DM_LANG": "Lingua del gioco",
   "launch.set.DM_METAL_HUD": "HUD prestazioni",
