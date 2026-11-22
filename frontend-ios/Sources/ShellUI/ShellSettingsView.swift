@@ -276,13 +276,18 @@ struct ShellSettingsView: View {
         }
         .tint(ShellPalette.cream)
         .preferredColorScheme(.dark)
-        .presentationDetents([.height(280), .medium])
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
         .presentationBackground(ShellPalette.background)
         .interactiveDismissDisabled(certBusy)
         .onAppear {
             Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(120))
+                try? await Task.sleep(for: .milliseconds(150))
                 if certPromptPresented {
+                    certPasswordFocused = true
+                }
+                try? await Task.sleep(for: .milliseconds(250))
+                if certPromptPresented && !certPasswordFocused {
                     certPasswordFocused = true
                 }
             }

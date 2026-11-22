@@ -1212,6 +1212,7 @@
   "ios.host.shadersIncomplete": "このゲームのシェーダーファイル（msl）が不完全であるか、転送中です。転送が完了するのを待つか、NX2Apple からゲームデータをもう一度送信してください。",
   "ios.host.shadersVersionMismatch": "このゲームデータのシェーダーファイルは、このアプリのバージョンと一致しません。NX2Apple から更新されたゲームデータを送信またはコピーしてください。",
   "ios.host.shadersVersionMismatchNamed": "このゲームデータのシェーダーファイル（%@）は、このアプリのバージョン（%@）と一致しません。NX2Apple から更新されたゲームデータを送信またはコピーしてください。",
+  "ios.host.shellDataFolderEmpty": "「%@」にインストール済みゲームのデータが見つかりませんでした。ゲームの romfs.img を含むフォルダを選択してください。",
   "ios.host.shellName": "NX2Apple",
   "ios.host.sideloadCert.emptyFile": "選択した証明書ファイルが空です。",
   "ios.host.sideloadCert.fileTooLarge": "選択した証明書ファイルが大きすぎます。",

@@ -2753,6 +2753,70 @@
         }
       }
     },
+    "No game data for your installed games was found in “%@”. Choose a folder containing a game's romfs.img.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In „%@“ wurden keine Spieldaten für deine installierten Spiele gefunden. Wähle einen Ordner mit der romfs.img eines Spiels."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No game data for your installed games was found in “%@”. Choose a folder containing a game's romfs.img."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron datos de ninguno de tus juegos instalados en “%@”. Elige una carpeta que contenga el archivo romfs.img de un juego."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune donnée de jeu installé n'a été trouvée dans « %@ ». Choisissez un dossier contenant le fichier romfs.img d'un jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun dato dei giochi installati è stato trovato in “%@”. Scegli una cartella contenente il file romfs.img di un gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」にインストール済みゲームのデータが見つかりませんでした。ゲームの romfs.img を含むフォルダを選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”에서 설치된 게임의 데이터를 찾을 수 없습니다. 게임의 romfs.img가 포함된 폴더를 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum dado dos seus jogos instalados foi encontrado em “%@”. Escolha uma pasta que contenha o arquivo romfs.img de um jogo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen speldata för dina installerade spel hittades i ”%@”. Välj en mapp som innehåller ett spels romfs.img."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“%@”中未找到任何已安装游戏的数据。请选择包含游戏 romfs.img 的文件夹。"
+          }
+        }
+      }
+    },
     "No game was specified in the shortcut link.": {
       "localizations": {
         "de": {

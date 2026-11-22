@@ -1213,6 +1213,7 @@
   "ios.host.shadersIncomplete": "Os arquivos de shaders (msl) deste jogo estão incompletos ou ainda estão sendo transferidos. Aguarde a transferência terminar ou envie os dados do jogo novamente pelo NX2Apple.",
   "ios.host.shadersVersionMismatch": "Os arquivos de shaders nestes dados do jogo não correspondem à versão deste app. Envie ou copie dados do jogo atualizados pelo NX2Apple.",
   "ios.host.shadersVersionMismatchNamed": "Os arquivos de shaders nestes dados do jogo (%@) não correspondem à versão deste app (%@). Envie ou copie dados do jogo atualizados pelo NX2Apple.",
+  "ios.host.shellDataFolderEmpty": "Nenhum dado dos seus jogos instalados foi encontrado em “%@”. Escolha uma pasta que contenha o arquivo romfs.img de um jogo.",
   "ios.host.shellName": "NX2Apple",
   "ios.host.sideloadCert.emptyFile": "O arquivo de certificado selecionado está vazio.",
   "ios.host.sideloadCert.fileTooLarge": "O arquivo de certificado selecionado é grande demais.",
