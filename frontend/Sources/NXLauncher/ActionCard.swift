@@ -77,6 +77,8 @@ package struct ActionCard: View {
         } else if !build.doneNote.isEmpty && (build.running || !build.hasQueuedBuilds) {
             Text(build.doneNote).font(DS.Font.body)
                 .foregroundStyle(build.done ? LauncherPalette.ready : LauncherPalette.building).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+        } else if build.running && !build.buildingGame {
+            EmptyView()
         } else if !dependencies.checked {
             Text(loc.t("status.checkingDeps")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
         } else if !dependencies.allPresent {

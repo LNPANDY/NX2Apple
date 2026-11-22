@@ -39,12 +39,11 @@ public struct EngineLaunchPlan: Equatable, Sendable {
     }
 
     /// `envFileText` is the shared `Documents/env.txt`. `gameEnvFileText` is the game's own `Documents/games/<title ID>/env.txt`
-    /// (#557), read from `game.appFolder` when it is nil. A key in the game's file wins over the shared file, and the launch
-    /// environment (the player's settings, the paths above) wins over both. The game's own `mods/` folder sets
-    /// `DM_ROMFS_OVERLAY` (`GameMods`) when the game's env file does not, and it wins over the shared file. The order is: launch
-    /// environment, game env.txt, shell defaults, game mods folder, shared env.txt, framework dm/env.txt.
-    /// The framework file carries build-time defaults such as CPU BC decoding for older GPUs (#719). Automatic `DM_PSO_BUNDLE`
-    /// discovery is a fallback after all env files, so an explicit archive path or `off` can override it.
+    /// (#557), read from `game.appFolder` when it is nil. The precedence order is: explicit UI settings (and launch paths),
+    /// per-game `env.txt`, shell defaults, game `mods/` folder, shared `Documents/env.txt`, framework `dm/env.txt`, and finally
+    /// untouched built-in profile defaults. The framework file carries build-time defaults such as CPU BC decoding for older
+    /// GPUs (#719). Automatic `DM_PSO_BUNDLE` discovery is a fallback after all env files, so an explicit archive path or `off`
+    /// can override it.
     public static func make(game: LaunchableGame, appResources: URL, documents: URL, envFileText: String?, gameEnvFileText: String? = nil,
                             fileManager fm: FileManager = .default) -> EngineLaunchPlan {
         let manifest = game.manifest, fw = game.frameworkURL, gdir = game.appFolder
@@ -129,7 +128,7 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         } else {
             resolvedMSL = fwMSL
         }
-        if let resolvedMSL {
+        if let resolvedMSL, !game.builtInDefaultKeys.contains("DM_MSL_DIR") {
             env["DM_MSL_DIR"] = resolvedMSL.path
         }
         let ownPSO = gdir.appendingPathComponent("pso", isDirectory: true), fwPSO = fw.appendingPathComponent("pso", isDirectory: true)
@@ -140,7 +139,8 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         if let cloud = game.cloudSavesURL { env["DM_SAVE_SYNC"] = cloud.path }
         // The shell already showed its own settings, the per-game launcher screen stays out of the way.
         env["DM_LAUNCHER"] = "0"
-        for (key, value) in game.environment where !game.shellFallbackKeys.contains(key) { env[key] = value }
+        let deferredKeys = game.shellFallbackKeys.union(game.builtInDefaultKeys)
+        for (key, value) in game.environment where !deferredKeys.contains(key) { env[key] = value }
 
         var fromFile: [String] = []
         let ownText = gameEnvFileText ?? fm.contents(atPath: gdir.appendingPathComponent("env.txt").path).flatMap { String(data: $0, encoding: .utf8) }
@@ -161,6 +161,12 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         }
         apply(envFileText)
         apply(fm.contents(atPath: fw.appendingPathComponent("dm/env.txt").path).flatMap { String(data: $0, encoding: .utf8) })
+        for key in game.builtInDefaultKeys where env[key] == nil {
+            if let value = game.environment[key] { env[key] = value }
+        }
+        if env["DM_MSL_DIR"] == nil, let resolvedMSL {
+            env["DM_MSL_DIR"] = resolvedMSL.path
+        }
         env["DM_ENV_FILE_KEYS"] = fromFile.joined(separator: " ")
         if env["DM_PSO_BUNDLE"] == nil {
             if isDirectory(ownPSO) { env["DM_PSO_BUNDLE"] = ownPSO.path } else if isDirectory(fwPSO) { env["DM_PSO_BUNDLE"] = fwPSO.path }
@@ -191,8 +197,8 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         let headerTitle = safeTitle.isEmpty ? safeID : "\(safeTitle) (\(safeID))"
         return [
             "# NX2Apple per-game environment overrides for \(headerTitle)",
-            "# Remove the leading \"# \" on a line to override the in-app setting.",
-            "# Keys set here win over the shared Documents/env.txt and the UI controls.",
+            "# Remove the leading \"# \" on a line to set a per-game override.",
+            "# Keys set here win over Documents/env.txt and built-in defaults, and sync with the in-app settings UI.",
             "#",
             "# Language code (default: en-US)",
             "# DM_LANG=en-US",

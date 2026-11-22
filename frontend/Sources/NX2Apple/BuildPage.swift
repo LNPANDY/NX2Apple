@@ -60,6 +60,7 @@ struct BuildPage: View {
         switch build.send { case .sending, .copying: return true; default: return false }
     }
     private var processActive: Bool { !hasActiveTransfer && ((running && build.buildingGame) || (queue.isAdvancing && queue.packaging.isEmpty)) }
+    private var standaloneOperationActive: Bool { running && !build.buildingGame && !processActive }
     private var completionActive: Bool { build.completionStatus != nil && !editingResult.wrappedValue && !queue.active && !queue.hasWaiting && queue.running == nil }
     private var stagingQueue: Bool { !running && !queue.active && queue.hasWaiting }
     private var queueReview: Bool { !running && !queue.active && (queue.hasWaiting || queue.games.contains(where: \.retryable)) }
@@ -96,14 +97,16 @@ struct BuildPage: View {
                 } else {
                     ProgressCard(build: build)
                 }
-                CardGroup("") {
-                    CardDisclosure(loc.t("section.setup"), detail: build.gameName, isOpen: showRunningSetup) { showRunningSetup.toggle() }
-                        .accessibilityLabel(loc.t("section.setup"))
-                        .accessibilityValue([build.gameName, loc.t(showRunningSetup ? "onboarding.expanded" : "onboarding.collapsed")]
-                            .filter { !$0.isEmpty }.joined(separator: ", "))
-                        .padTarget("set.build.runningSetup", scope: "main") { showRunningSetup.toggle() }
+                if !standaloneOperationActive {
+                    CardGroup("") {
+                        CardDisclosure(loc.t("section.setup"), detail: build.gameName, isOpen: showRunningSetup) { showRunningSetup.toggle() }
+                            .accessibilityLabel(loc.t("section.setup"))
+                            .accessibilityValue([build.gameName, loc.t(showRunningSetup ? "onboarding.expanded" : "onboarding.collapsed")]
+                                .filter { !$0.isEmpty }.joined(separator: ", "))
+                            .padTarget("set.build.runningSetup", scope: "main") { showRunningSetup.toggle() }
+                    }
+                    .onDisappear { showRunningSetup = false }
                 }
-                .onDisappear { showRunningSetup = false }
             }
             if completionActive && !running && !processActive {
                 OutcomeCard(build: build, devices: devices, onViewGame: onViewGame, onPlayGame: onPlayGame)

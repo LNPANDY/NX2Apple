@@ -40,6 +40,8 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
     package var existingAppPath: String?
     /// External or user-chosen `.img` path used for `--prefill-msl` and in-place trailer update without copying back locally.
     package var externalImgPath: String?
+    /// Snapshotted build engine chosen when enqueuing this entry; nil for legacy persisted queues.
+    package var upstream: EngineUpstreamKind? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -63,6 +65,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         case locksTarget
         case existingAppPath
         case externalImgPath
+        case upstream
     }
 
     package init(
@@ -85,7 +88,8 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         fastRefresh: Bool = false,
         locksTarget: Bool = false,
         existingAppPath: String? = nil,
-        externalImgPath: String? = nil
+        externalImgPath: String? = nil,
+        upstream: EngineUpstreamKind? = nil
     ) {
         self.id = id
         self.gameID = gameID
@@ -107,6 +111,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.locksTarget = locksTarget
         self.existingAppPath = existingAppPath
         self.externalImgPath = externalImgPath
+        self.upstream = upstream
     }
 
     package init(from decoder: Decoder) throws {
@@ -132,6 +137,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.locksTarget = try c.decodeIfPresent(Bool.self, forKey: .locksTarget) ?? false
         self.existingAppPath = try c.decodeIfPresent(String.self, forKey: .existingAppPath)
         self.externalImgPath = try c.decodeIfPresent(String.self, forKey: .externalImgPath)
+        self.upstream = try c.decodeIfPresent(EngineUpstreamKind.self, forKey: .upstream)
     }
 
     package var finished: Bool { status == .done || status == .failed || status == .skipped || status == .stopped }

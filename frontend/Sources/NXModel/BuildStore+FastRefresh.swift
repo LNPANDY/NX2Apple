@@ -76,6 +76,10 @@ extension BuildStore {
         guard !running else { return }
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !tid.isEmpty else { return }
+        // Fast refresh is exclusive to nxnative; never run under MacNativeGames or an external builder's Python.
+        if buildUpstream != .nxnative {
+            buildUpstream = .nxnative
+        }
         hintedTitleID = nil
 
         guard repo.isRepo else {
@@ -87,7 +91,7 @@ extension BuildStore {
             return
         }
 
-        let py = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
+        let py = resolveBuildPython()
         let seedRoot = seedCacheRoot
         let trimmedExternalImg = externalImgPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let validExternalImg: String? = (!trimmedExternalImg.isEmpty && FileManager.default.fileExists(atPath: trimmedExternalImg))

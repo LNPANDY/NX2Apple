@@ -20,7 +20,7 @@ extension BuildStore {
             return
         }
         s2armRun = true
-        let initialPy = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
+        let initialPy = resolveBuildPython(includeS2Arm: true)
         let baseDir = inputFolder
         let tidHex = buildKey
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"

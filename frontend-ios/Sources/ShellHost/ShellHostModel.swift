@@ -584,10 +584,40 @@ public struct ShellHostConfig: Sendable {
         if Self.choices(of: shellSettings) != shellChoices { refreshAll() }
     }
 
+    private func gameEnvURL(for id: String) -> URL {
+        appFolder(for: id).appendingPathComponent("env.txt")
+    }
+
+    private func gameEnvOverrides(for id: String) -> [String: String] {
+        GameEnvFileSync.readOverrides(at: gameEnvURL(for: id))
+    }
+
+    private func makeSettingsStore(for id: String, profile: LauncherProfile) -> GameSettingsStore {
+        GameSettingsStore(
+            profile: profile,
+            defaults: config.defaults(id),
+            shell: shellSettings.gameDefaults,
+            envFile: gameEnvOverrides(for: id)
+        )
+    }
+
+    private func reconcileInGameChangesWithEnvFile(for id: String, profile: LauncherProfile) {
+        let envURL = gameEnvURL(for: id)
+        let overrides = GameEnvFileSync.readOverrides(at: envURL)
+        guard !overrides.isEmpty else { return }
+        let store = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults, envFile: overrides)
+        for setting in profile.settings where overrides[setting.env] != nil && store.hasExplicitChoice(setting) {
+            let explicit = store.value(of: setting)
+            _ = store.set(setting.env, to: explicit)
+            GameEnvFileSync.syncKey(setting.env, value: store.savedValue(for: setting.env), in: envURL)
+        }
+    }
+
     private func refreshSettingsAfterGameReturn() {
         shellChoices = Self.choices(of: shellSettings)
         for entry in entries {
             if let profile = cachedOrResolvedProfile(for: entry.id) {
+                reconcileInGameChangesWithEnvFile(for: entry.id, profile: profile)
                 refreshSettings(entry.id, profile: profile)
             } else {
                 refresh(entry.id)
@@ -633,7 +663,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     private func settingsSnapshot(for id: String, profile: LauncherProfile) -> (sections: [SettingSection], hasModifiedSettings: Bool) {
-        let store = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults)
+        let store = makeSettingsStore(for: id, profile: profile)
         let fromShell = Set(profile.settings.filter(store.isFromShell).map(\.env))
         let pad = GamePadMapStore(defaults: config.defaults(id))
         let sections = SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell)
@@ -1129,7 +1159,10 @@ public struct ShellHostConfig: Sendable {
         if setting.hasPrefix("pad.") {
             GamePadMapStore(defaults: config.defaults(id)).change(setting, value: value)
         } else {
-            GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).set(setting, to: value)
+            let store = makeSettingsStore(for: id, profile: profile)
+            if store.set(setting, to: value) {
+                GameEnvFileSync.syncKey(setting, value: store.savedValue(for: setting), in: gameEnvURL(for: id))
+            }
         }
         refreshSettings(id, profile: profile)
     }
@@ -1137,6 +1170,7 @@ public struct ShellHostConfig: Sendable {
     public func resetDefaults(_ id: String) {
         guard let profile = cachedOrResolvedProfile(for: id) else { return }
         GameSettingsStore(profile: profile, defaults: config.defaults(id)).reset()
+        GameEnvFileSync.clearKeys(Set(profile.settings.map(\.env)), in: gameEnvURL(for: id))
         GamePadMapStore(defaults: config.defaults(id)).reset()
         refreshSettings(id, profile: profile)
     }
@@ -1735,6 +1769,7 @@ public struct ShellHostConfig: Sendable {
             romfsURL: resolved.romfsURL, appFolder: gameAppFolder, environment: launchEnvironment(profile: profile, id: id),
             cloudSavesURL: cloud, shellEnvironment: shellSettings.gameDefaults,
             shellFallbackKeys: launchShellFallbackKeys(profile: profile, id: id),
+            builtInDefaultKeys: launchBuiltInDefaultKeys(profile: profile, id: id),
             fallbackBundledFrameworkURL: latestEntry.fallbackBundledFrameworkURL)
         if case .trailer = shaderSource {
             game.usesEmbeddedShaderTrailer = true
@@ -2043,7 +2078,8 @@ public struct ShellHostConfig: Sendable {
     /// A game's values for the engine: its own choices, then the shell's defaults. A game whose settings list has no
     /// performance overlay row still gets the shell's choice.
     func launchEnvironment(profile: LauncherProfile, id: String) -> [String: String] {
-        var env = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).values()
+        let envOverrides = gameEnvOverrides(for: id)
+        var env = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults, envFile: envOverrides).values()
         for (key, value) in shellSettings.gameDefaults where env[key] == nil { env[key] = value }
         // The words the engine shows once per launch where the 3D layout's undrawn right stick is (patch 0067), in the player's language.
         env["DM_TOUCH_HINT"] = Self.touchHint
@@ -2053,7 +2089,7 @@ public struct ShellHostConfig: Sendable {
         env["DM_HOME_QUIT_TEXT"] = Self.quitPromptText(gameName: entry(id)?.title ?? id)
         // The in-game menu's own words (patch 0124), as the Mac's build bakes them into a game's own app.
         env["DM_GAME_MENU_TEXT"] = Self.gameMenuText
-        if let shellMenu = ShellInGameMenu.encode(profile: profile, titleID: id, shellDefaults: shellSettings.gameDefaults) {
+        if let shellMenu = ShellInGameMenu.encode(profile: profile, titleID: id, shellDefaults: shellSettings.gameDefaults, envFileOverrides: envOverrides) {
             env["DM_SHELL_MENU"] = shellMenu
         }
         // A launcher.json DM_PAD_MAP row is authoritative, including an empty value.
@@ -2065,13 +2101,18 @@ public struct ShellHostConfig: Sendable {
     }
 
     func launchShellFallbackKeys(profile: LauncherProfile, id: String) -> Set<String> {
-        let store = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults)
+        let store = makeSettingsStore(for: id, profile: profile)
         var keys = Set(profile.settings.filter { store.isFromShell($0) }.map(\.env))
         let profileEnvs = Set(profile.settings.map(\.env))
         for key in shellSettings.gameDefaults.keys where !profileEnvs.contains(key) {
             keys.insert(key)
         }
         return keys
+    }
+
+    func launchBuiltInDefaultKeys(profile: LauncherProfile, id: String) -> Set<String> {
+        let store = makeSettingsStore(for: id, profile: profile)
+        return Set(profile.settings.filter { !store.hasExplicitChoice($0) && !store.isFromShell($0) }.map(\.env))
     }
 
     // MARK: Controllers

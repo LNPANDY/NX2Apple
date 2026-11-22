@@ -57,7 +57,7 @@ import XCTest
         let stores = LauncherStores(defaults: testDefaults)
         let build = stores.build
         build.macNativeGamesPath = ""; build.buildUpstream = .nxnative
-        let nsp = FileManager.default.temporaryDirectory.appendingPathComponent("Game [0100000000010000].nsp")
+        let nsp = FileManager.default.temporaryDirectory.appendingPathComponent("Game [0100152000022000].nsp")
         try Data().write(to: nsp)
         defer { try? FileManager.default.removeItem(at: nsp) }
         build.updateSlot("base") { $0.paths = [nsp.path] }

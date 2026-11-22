@@ -137,11 +137,8 @@ extension BuildStore {
             fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))
             return
         }
-        // Resolve the interpreter here if the dependency check has not landed yet. checkDeps()
-        // runs on a background queue and startBuild() can beat it — for a moment deps.pythonPath is
-        // empty, and the old fallback was Apple's /usr/bin/python3 (3.9), which the script then
-        // rejected with "require Python 3.12 or newer" whatever the machine actually had (#53).
-        let py = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
+        // Resolve the interpreter safely while rejecting stale cross-upstream caches and MNG's uv-python.
+        let py = resolveBuildPython()
         // engine/ is the only engine and is stale or missing (#214): make it, then start again
         if EngineLayout.needsSyncBeforeBuild(repo.path) {
             _ = engine.syncEngine { ok in
@@ -237,26 +234,46 @@ extension BuildStore {
         if !hasWorkDir {
             say(t("msg.noWorkDir"))
         }
-        // A compressed dump (NSZ / XCZ) needs nsz in the interpreter the build runs under. It is not
-        // part of the dependency probe (most builds never see one), so install it here, once, only
-        // when such a file is actually selected — otherwise the build stops with "pip install nsz".
-        let compressed = ([basePath, updatePath] + dlcPaths).contains {
+        // A compressed dump (NSZ / XCZ) needs `nsz` either in `py` or as an `nsz` executable on PATH
+        // (`build_ipa_from_nsp.py:nsz_command`). Never run bare `pip install` against an externally managed
+        // interpreter (PEP 668): reuse BundledTools or an app-managed `nsz-venv` and prepend its bin dir to PATH.
+        // Inspect `staged` so auto-staged sibling updates/DLCs in .nsz/.xcz format also trigger nsz provisioning.
+        let compressed = staged.contains {
             let e = ($0 as NSString).pathExtension.lowercased()
             return e == "nsz" || e == "xcz"
         }
-        // nsz lives in a folder the launcher owns: an externally managed Python refuses pip install (#1500).
-        // Only a compressed input uses it, so other builds never see its packages on PYTHONPATH.
+        var extraNszBinDir: String? = nil
+        var needsAsyncManagedNszInstall = false
         if compressed {
-            let nszEnv = PythonPackages.environment(python: py, env: ["PATH": BuildCommands.toolPath(python: py),
-                                                                      "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: py)) { $1 }, runner: runner)
-            if !Toolchain.runOK(py, ["-c", "import nsz"], env: ProcessInfo.processInfo.environment.merging(nszEnv) { $1 }) {
-                say(t("msg.installingNsz"))
-                let r = PythonPackages.installNsz(python: py, env: nszEnv, runner: runner) { @Sendable line in
-                    hop { self.append(line + "\n") }
+            let probeEnv = ProxyEnvironment.merged(into: [
+                "PATH": BuildCommands.toolPath(python: py),
+                "HOME": home,
+            ].merging(BundledTools.environment(for: py)) { $1 })
+            if !Toolchain.runOK(py, ["-c", "import nsz"], env: probeEnv, runner: runner) {
+                if let bundledPy = BundledTools.python(),
+                   bundledPy != py,
+                   Toolchain.runOK(bundledPy, ["-c", "import nsz"], env: ProxyEnvironment.merged(into: ["HOME": home].merging(BundledTools.environment(for: bundledPy)) { $1 }), runner: runner) {
+                    let bundledBin = (bundledPy as NSString).deletingLastPathComponent
+                    if FileManager.default.isExecutableFile(atPath: bundledBin + "/nsz") {
+                        extraNszBinDir = bundledBin
+                    }
                 }
-                if !r {
-                    fail(String(format: t("msg.nszFailed"), py))
-                    return
+                if extraNszBinDir == nil {
+                    // Pass a clean base environment (without `py`'s PYTHONHOME/PYTHONPATH) so `nsz-venv` is never contaminated.
+                    let cleanNszProbeEnv = ProxyEnvironment.merged(into: [
+                        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                        "HOME": home,
+                        "LANG": "en_US.UTF-8",
+                    ])
+                    if let ready = Toolchain.readyManagedNszTool(
+                        venvDir: Toolchain.nszVenvDir(home: home),
+                        environment: cleanNszProbeEnv,
+                        runner: runner
+                    ) {
+                        extraNszBinDir = ready.binDir
+                    } else {
+                        needsAsyncManagedNszInstall = true
+                    }
                 }
             }
         }
@@ -321,8 +338,122 @@ extension BuildStore {
         // 'NuGet-Migrations' + lstat("") == ENOENT before any project is read. NSTemporaryDirectory()
         // is the per-user temp folder whether or not the app's own environment carries one.
         var denv = toolEnvironment(python: py)
-        if compressed { denv = PythonPackages.environment(python: py, env: denv, runner: runner) }
+        if let extraNszBinDir, !extraNszBinDir.isEmpty {
+            let curPath = denv["PATH"] ?? BuildCommands.toolPath(python: py)
+            if !curPath.split(separator: ":").contains(Substring(extraNszBinDir)) {
+                denv["PATH"] = extraNszBinDir + ":" + curPath
+            }
+        }
         if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
+
+        if needsAsyncManagedNszInstall {
+            let gen = archiveGeneration
+            let homeDir = home
+            let runner = self.runner
+            let cancel = installCancel
+            let installingNszMsg = t("msg.installingNsz")
+            let immutableArgs = args
+            let immutableEnv = denv
+            let immutableEnvCleanup = tempEnvURL
+            cancel.set(false)
+            installPhaseActive = true
+            beginExternalStage(name: installingNszMsg)
+            say(installingNszMsg)
+            let appendLine: @Sendable (String) -> Void = { [weak self] line in
+                hop {
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.append(line + "\n")
+                }
+            }
+            Task.detached(priority: .userInitiated) { [weak self] in
+                var resolvedBinDir: String? = nil
+                var installFailure: NszInstallFailureKind? = nil
+
+                if !Toolchain.isExternallyManagedPython(py, home: homeDir) {
+                    let pipEnv = ProxyEnvironment.merged(into: [
+                        "PATH": BuildCommands.toolPath(python: py),
+                        "HOME": homeDir,
+                    ].merging(BundledTools.environment(for: py)) { $1 })
+                    final class DirectLog: @unchecked Sendable {
+                        private let lock = NSLock()
+                        var lines: [String] = []
+                        func add(_ l: String) { lock.lock(); lines.append(l); lock.unlock() }
+                        var text: String { lock.lock(); defer { lock.unlock() }; return lines.joined(separator: "\n") }
+                    }
+                    let directLog = DirectLog()
+                    let directOK = runner.runCaptured([py, "-m", "pip", "install", "nsz"], env: pipEnv) { @Sendable line in
+                        directLog.add(line)
+                        appendLine(line)
+                    }
+                    if directOK {
+                        resolvedBinDir = (py as NSString).deletingLastPathComponent
+                    } else if !cancel.value {
+                        let directKind = Toolchain.classifyNszInstallFailure(directLog.text)
+                        if directKind == .pep668 || directKind == .permissionDenied {
+                            switch Toolchain.ensureManagedNszTool(
+                                preferredPython: py,
+                                home: homeDir,
+                                runner: runner,
+                                cancel: cancel,
+                                onLine: appendLine
+                            ) {
+                            case .success(let tool):
+                                resolvedBinDir = tool.binDir
+                            case .failure(let err):
+                                installFailure = err
+                            }
+                        } else {
+                            installFailure = directKind
+                        }
+                    }
+                } else {
+                    switch Toolchain.ensureManagedNszTool(
+                        preferredPython: py,
+                        home: homeDir,
+                        runner: runner,
+                        cancel: cancel,
+                        onLine: appendLine
+                    ) {
+                    case .success(let tool):
+                        resolvedBinDir = tool.binDir
+                    case .failure(let err):
+                        installFailure = err
+                    }
+                }
+
+                let finalBinDir = resolvedBinDir
+                let finalFailure = installFailure
+                hop {
+                    guard let self, self.archiveGeneration == gen else {
+                        if let immutableEnvCleanup { try? FileManager.default.removeItem(at: immutableEnvCleanup) }
+                        return
+                    }
+                    self.installPhaseActive = false
+                    if self.stopping || self.installCancel.value {
+                        if let immutableEnvCleanup { try? FileManager.default.removeItem(at: immutableEnvCleanup) }
+                        self.finishStoppedExternalPrep()
+                        return
+                    }
+                    if let finalFailure {
+                        if let immutableEnvCleanup { try? FileManager.default.removeItem(at: immutableEnvCleanup) }
+                        self.fail(self.nszFailureMessage(finalFailure, python: py))
+                        return
+                    }
+                    self.finishExternalStage(name: installingNszMsg)
+                    var launchEnv = immutableEnv
+                    if let finalBinDir, !finalBinDir.isEmpty {
+                        let curPath = launchEnv["PATH"] ?? BuildCommands.toolPath(python: py)
+                        if !curPath.split(separator: ":").contains(Substring(finalBinDir)) {
+                            launchEnv["PATH"] = finalBinDir + ":" + curPath
+                        }
+                    }
+                    let launch = ProcessLaunch(executable: py, arguments: immutableArgs, environment: launchEnv, directory: engine, groupPython: py)
+                    self.startBuildProcess(launch: launch, envCleanup: immutableEnvCleanup, macOutput: macOutput)
+                }
+            }
+            return
+        }
+
         let launch = ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
         startBuildProcess(launch: launch, envCleanup: tempEnvURL, macOutput: macOutput)
     }
@@ -352,6 +483,7 @@ extension BuildStore {
                     self.stopping = false
                     self.resetProgress()
                     self.doneNote = self.t("msg.stopped")
+                    macOutput?.cleanupEmptyStagingDirectory()
                     self.cleanupStaging()
                     return
                 }
@@ -412,6 +544,7 @@ extension BuildStore {
                         }
                         self.noteFailure()
                     }
+                    macOutput?.cleanupEmptyStagingDirectory()
                     self.cleanupStaging()
                 }
             }
@@ -426,6 +559,7 @@ extension BuildStore {
             }, onExit: onExit)
         } catch {
             if let envCleanup { try? FileManager.default.removeItem(at: envCleanup) }
+            macOutput?.cleanupEmptyStagingDirectory()
             fail(String(format: t("msg.launchFailed"), error.localizedDescription))
         }
     }

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import XCTest
 @testable import NX2Apple
+@testable import NXLauncher
 import NXCore
 import NXModel
 
@@ -186,6 +187,99 @@ import NXModel
                 wait(in: host, for: [viewBuild])
                 _ = texts(in: host, pressing: viewBuild)
                 wait(in: host, for: [stores.build.t("section.progress")], without: [viewBuild])
+            }
+        }
+    }
+
+    func testResigningOnBuildsPageHidesStaleGameDraftAndShowsOperationHeading() throws {
+        try withLauncher(on: .builds) { stores, host in
+            let build = stores.build
+            build.runningTarget = BuildTarget.ios
+            build.buildingGame = false
+            build.beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .device("Andy's iPhone"))
+            let stageName = String(format: build.t("dev.resignStage"), "Andy's iPhone")
+            build.stages = [Stage(id: 1006, name: stageName, state: .running, detail: "compiling", nameKey: "dev.resignStage", nameArgument: "Andy's iPhone")]
+
+            let expectedTitle = try XCTUnwrap(build.operationTitle)
+            wait(in: host, for: [expectedTitle, stageName, build.t("section.progress")],
+                 without: ["Marble Orchard", build.t("section.setup"), String(format: build.t("build.header.building"), build.t("build.ios"))])
+            let allLabels = texts(in: host)
+            XCTAssertFalse(allLabels.contains { $0.contains("Marble Orchard") || $0.contains("/Volumes/Games") },
+                           "Stale single-game draft must stay hidden while re-signing, got \(allLabels)")
+        }
+    }
+
+    private func makeDeviceGameLibrary(in directory: URL) throws -> GameLibrary {
+        let mobile = URL(fileURLWithPath: ShellInstall.appPath(root: directory.appendingPathComponent("shell").path))
+        try FileManager.default.createDirectory(at: mobile, withIntermediateDirectories: true)
+        try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "test.shell"], format: .xml, options: 0)
+            .write(to: mobile.appendingPathComponent("Info.plist"))
+        let library = GameLibrary(file: directory.appendingPathComponent("library.json"))
+        var game = LibraryGame(titleID: "0100000000010000", name: "Orbit")
+        game.iosAppPath = mobile.path
+        game.installedDevice = "UDID-ANDY"
+        library.upsert(game)
+        library.selectedID = game.id
+        return library
+    }
+
+    func testLibraryHeroResignButtonSwitchesToResigningWhileActive() throws {
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = NSApplication.shared.accessibilityAttributeValue(enhanced)
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(previous ?? false, forAttribute: enhanced) }
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stores = LauncherStores(localizer: Localizer(.en), defaults: testDefaults)
+        stores.repo.path = directory.path
+        stores.dependencies.checked = true
+        stores.deviceStore.checked = true
+        let build = stores.build
+        let library = try makeDeviceGameLibrary(in: directory)
+        let window = OffscreenWindow(size: NSSize(width: 1050, height: 850))
+        defer { window.orderOut(nil) }
+        let view = LauncherView(stores: stores, library: library, initialPage: .library, performStartupChecks: false)
+        let libraryHost = NSHostingView(rootView: view)
+        window.contentView = libraryHost
+        window.orderFront(nil)
+
+        wait(in: libraryHost, for: [build.t("dev.resign")], without: [build.t("dev.resigning")])
+        build.runningTarget = BuildTarget.ios
+        build.buildingGame = false
+        build.beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .device("Andy's iPhone"))
+        let stageName = String(format: build.t("dev.resignStage"), "Andy's iPhone")
+        build.stages = [Stage(id: 1006, name: stageName, state: .running, detail: "compiling", nameKey: "dev.resignStage", nameArgument: "Andy's iPhone")]
+        build.running = true
+        wait(in: libraryHost, for: [build.t("dev.resigning")], without: [build.t("dev.resign")])
+    }
+
+    func testCaptureResignVisualQA() throws {
+        guard let folder = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else {
+            throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture re-sign visual QA")
+        }
+        let wasStatic = LauncherGlass.forceStatic
+        LauncherGlass.forceStatic = true
+        defer { LauncherGlass.forceStatic = wasStatic }
+        let output = URL(fileURLWithPath: folder)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let langs: [Lang] = [.en, .zh]
+
+        try withLauncher(on: .builds) { stores, host in
+            let build = stores.build
+            build.runningTarget = BuildTarget.ios
+            build.buildingGame = false
+            build.beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .device("Andy's iPhone"))
+            for lang in langs {
+                stores.localizer.lang = lang
+                let stageName = String(format: stores.localizer.t("dev.resignStage"), "Andy's iPhone")
+                build.stages = [Stage(id: 1006, name: stageName, state: .running, detail: "compiling", nameKey: "dev.resignStage", nameArgument: "Andy's iPhone")]
+                let title = try XCTUnwrap(build.operationTitle)
+                wait(in: host, for: [title, stageName])
+                let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: rep)
+                try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("after-builds-\(lang.code).png"))
             }
         }
     }

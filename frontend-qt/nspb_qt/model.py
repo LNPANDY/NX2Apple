@@ -55,6 +55,7 @@ from . import engine
 from . import input_staging
 from . import inputs
 from . import library as lib
+from . import nsz_setup
 from . import platform_util as pu
 from . import post_build_cleanup as pbc
 from . import romfs_languages
@@ -2381,6 +2382,14 @@ class Model(QObject):
                     self.log(f'could not move {vdir} aside: {e}\n')
                     return False
                 self.log(f'moved the old venv to {aside}\n')
+        def _cancelled() -> bool:
+            return bool(getattr(self, '_build_cancelled', False))
+
+        def _set_proc(proc: subprocess.Popen | None) -> None:
+            if hasattr(self, '_proc'):
+                self._proc = proc
+
+        created_vdir = False
         if not Path(vpy).is_file():
             # The panel's last resort is /usr/bin/python3 (3.9) or the venv path itself, and
             # neither can run `-m venv`: the row used to stay red however often Install ran.
@@ -2400,12 +2409,41 @@ class Model(QObject):
                     force=True,
                 )
             vdir = pu.venv_dir()
+            vdir_existed = vdir.exists()
             vdir.parent.mkdir(parents=True, exist_ok=True)
             self.log(f'$ {base} -m venv {vdir}\n')
-            if not pu._runs(base, ['-m', 'venv', str(vdir)]):
-                shutil.rmtree(vdir, ignore_errors=True)
-                self.log('venv creation failed\n')
-                return False
+            if pu._runs is not pu._ORIG_RUNS:
+                if not pu._runs(base, ['-m', 'venv', str(vdir)]):
+                    if not vdir_existed:
+                        shutil.rmtree(vdir, ignore_errors=True)
+                    self.log('venv creation failed\n')
+                    return False
+            else:
+                rc_venv, was_cancelled, venv_out = nsz_setup.stream_command(
+                    [base, '-m', 'venv', str(vdir)],
+                    env=pu.proxy_env(pu.child_env()),
+                    log=self.log,
+                    is_cancelled=_cancelled,
+                    on_proc=_set_proc,
+                    popen_cls=subprocess.Popen,
+                )
+                if was_cancelled or rc_venv != 0:
+                    if not vdir_existed:
+                        shutil.rmtree(vdir, ignore_errors=True)
+                    if was_cancelled:
+                        self.log('venv creation cancelled\n')
+                    else:
+                        kind = nsz_setup.classify_pip_error(venv_out)
+                        if kind == 'other':
+                            kind = 'venv'
+                        self.log(nsz_setup.format_failure_guidance(kind, base, venv_out))
+                    return False
+            created_vdir = not vdir_existed
+
+        def _cleanup_partial_venv() -> None:
+            if created_vdir:
+                shutil.rmtree(pu.venv_dir(), ignore_errors=True)
+
         ver_str = pu._python_version(vpy)
         ver = pu._ver_tuple(ver_str)
         pkgs = ['lz4', 'capstone', 'unicorn', 'fonttools', 'zbic', 'nsz']
@@ -2413,7 +2451,11 @@ class Model(QObject):
             pkgs.insert(5, 'backports.zstd')
         wheels_fn = getattr(self, 'bundled_wheels', Model.bundled_wheels)
         wheels = wheels_fn()
+        last_pip_out = ''
         for attempt_wheels in ([wheels, None] if wheels else [None]):
+            if _cancelled():
+                _cleanup_partial_venv()
+                return False
             args = self._pip_args(pkgs, attempt_wheels)
             self.log(f'$ {vpy} -m pip {" ".join(args)}'
                      + ('' if attempt_wheels else '  (from PyPI)') + '\n')
@@ -2426,15 +2468,26 @@ class Model(QObject):
                     item_overall_pct=60,
                     force=True,
                 )
+            p: subprocess.Popen | None = None
+            pip_lines: list[str] = []
             try:
-                pip_env = pu.child_env({'PIP_CONFIG_FILE': os.devnull} if attempt_wheels else None)
+                pip_env = pu.proxy_env(
+                    pu.child_env({'PIP_CONFIG_FILE': os.devnull} if attempt_wheels else None)
+                )
                 p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, text=True, encoding='utf-8',
-                                     errors='replace', env=pip_env, **pu.no_window_kwargs())
+                                     errors='replace', env=pip_env, **pu.process_group_kwargs())
+                _set_proc(p)
+                if _cancelled():
+                    pu.kill_process_tree(p)
                 assert p.stdout is not None
                 seen_pkgs: list[str] = []
                 for line in p.stdout:
+                    pip_lines.append(line)
                     self.log(line)
+                    if _cancelled():
+                        pu.kill_process_tree(p)
+                        break
                     if can_prog and dep is not None:
                         low = line.lower()
                         for pk in pkgs:
@@ -2453,6 +2506,10 @@ class Model(QObject):
                                     item_overall_pct=60 + pct * 40 // 100,
                                 )
                 p.wait()
+                last_pip_out = ''.join(pip_lines)
+                if _cancelled():
+                    _cleanup_partial_venv()
+                    return False
                 if p.returncode == 0:
                     if can_prog and dep is not None:
                         self._set_dep_progress(
@@ -2466,7 +2523,23 @@ class Model(QObject):
                     return True
             except OSError as e:
                 self.log(f'{e}\n')
+                _cleanup_partial_venv()
                 return False
+            finally:
+                _set_proc(None)
+                if p is not None:
+                    if _cancelled() or (callable(getattr(p, 'poll', None)) and p.poll() is None):
+                        pu.kill_process_tree(p)
+                    close_out = getattr(getattr(p, 'stdout', None), 'close', None)
+                    if callable(close_out):
+                        try:
+                            close_out()
+                        except OSError:
+                            pass
+        if last_pip_out:
+            kind = nsz_setup.classify_pip_error(last_pip_out)
+            self.log(nsz_setup.format_failure_guidance(kind, vpy, last_pip_out))
+        _cleanup_partial_venv()
         return False
 
     def install_all_missing(self) -> None:
@@ -3791,13 +3864,8 @@ class Model(QObject):
             self._thread.start()
             return
 
-        compressed = any(Path(f).suffix.lower() in ('.nsz', '.xcz')
-                         for f in staged if f)
-        if compressed and not pu._runs(py, ['-c', 'import nsz']):
-            self.log(self.t('msg.installingNsz') + '\n')
-            if not pu._runs(py, ['-m', 'pip', 'install', 'nsz']):
-                self.finished.emit(False, self.t('msg.nszFailed', py))
-                return
+        needs_nsz = any(Path(f).suffix.lower() in ('.nsz', '.xcz')
+                        for f in staged if f)
 
         # On Windows the upstream script is started through the driver, which loads it as a
         # module and replaces the steps that assume a Mac (see nspb_qt/win/driver.py). The
@@ -3895,32 +3963,64 @@ class Model(QObject):
             self.log(self.t('fail.override.note', flag) + '\n')
         if has_valid_queued_ext:
             self.log(self.t('imgGuide.driveReused', os.path.basename(queued_ext_img)) + '\n')
-        self.log(self.t('msg.running', py + ' ' + ' '.join(args)) + '\n')
-
-        env = pu.child_env()
-        if self.ipa_kind == 'oneGame' and not mac_app:
-            env['DM_FULL_ROMFS'] = '1'
-        droot = pu.dotnet_root(self.dotnet_path) if self.dotnet_ok else None
-        if droot:
-            env['DOTNET_ROOT'] = droot
-            env['DOTNET_ROOT_ARM64'] = droot
-        if pu.IS_WIN:
-            # The shim folder goes first on PATH/PYTHONPATH so the tools the pipeline spawns by
-            # name (xcrun, xcodebuild, which, dmsh_xlate, python3) resolve to the Windows
-            # stand-ins, and the child interpreters load sitecustomize. Failing here stops the
-            # build before it wastes time instead of twenty minutes in.
-            try:
-                from .win import shim as wshim
-                env = wshim.build_env(env, python_exe=py)
-                cwd = str(wshim.clean_pkg_root(wshim.shim_dir()))
-                ok_shim, why = wshim.verify_shim(env)
-                if not ok_shim:
-                    self.log(f'[shim] {why}\n')
-            except Exception as e:      # a broken shim must be visible, not fatal
-                self.log(f'[shim] could not prepare the Windows shim: {e}\n')
-            env['NSPB_REPO'] = self.engine_path
 
         def run_build() -> tuple[bool, str]:
+            active_py = py
+            build_cwd = cwd
+            if needs_nsz:
+                def _nsz_log(text: str) -> None:
+                    self.log(text)
+                    self.log_tail = (self.log_tail + text)[-12000:]
+                    stripped = text.strip()
+                    if stripped:
+                        self._last_error = stripped[:200]
+
+                nsz_res = nsz_setup.ensure_nsz_for_build(
+                    py=active_py,
+                    log=_nsz_log,
+                    make_venv=lambda base: self._make_venv(base),
+                    bundled_wheels=getattr(self, 'bundled_wheels', Model.bundled_wheels),
+                    installing_notice=self.t('msg.installingNsz'),
+                    is_cancelled=lambda: bool(getattr(self, '_build_cancelled', False)),
+                    on_proc=lambda proc: setattr(self, '_proc', proc),
+                    popen_cls=subprocess.Popen,
+                )
+                if nsz_res.cancelled or getattr(self, '_build_cancelled', False):
+                    return False, self.t('msg.stopped')
+                if not nsz_res.ok:
+                    msg_key, msg_args = nsz_setup.failure_message_spec(nsz_res, active_py)
+                    return False, self.t(msg_key, *msg_args)
+                if nsz_res.python_path:
+                    active_py = nsz_res.python_path
+                if nsz_res.switched_venv:
+                    self.python_path = active_py
+                    self.python_ok = True
+
+            self.log(self.t('msg.running', active_py + ' ' + ' '.join(args)) + '\n')
+
+            env = pu.child_env()
+            if self.ipa_kind == 'oneGame' and not mac_app:
+                env['DM_FULL_ROMFS'] = '1'
+            droot = pu.dotnet_root(self.dotnet_path) if self.dotnet_ok else None
+            if droot:
+                env['DOTNET_ROOT'] = droot
+                env['DOTNET_ROOT_ARM64'] = droot
+            if pu.IS_WIN:
+                # The shim folder goes first on PATH/PYTHONPATH so the tools the pipeline spawns by
+                # name (xcrun, xcodebuild, which, dmsh_xlate, python3) resolve to the Windows
+                # stand-ins, and the child interpreters load sitecustomize. Failing here stops the
+                # build before it wastes time instead of twenty minutes in.
+                try:
+                    from .win import shim as wshim
+                    env = wshim.build_env(env, python_exe=active_py)
+                    build_cwd = str(wshim.clean_pkg_root(wshim.shim_dir()))
+                    ok_shim, why = wshim.verify_shim(env)
+                    if not ok_shim:
+                        self.log(f'[shim] {why}\n')
+                except Exception as e:      # a broken shim must be visible, not fatal
+                    self.log(f'[shim] could not prepare the Windows shim: {e}\n')
+                env['NSPB_REPO'] = self.engine_path
+
             ok = False
             proc: subprocess.Popen | None = None
             spool_dir: str | None = None
@@ -3929,7 +4029,7 @@ class Model(QObject):
                 if pu.IS_WIN:
                     spool_dir = tempfile.mkdtemp(prefix='nspb-spool-')
                     run_env = {**env, 'NSPB_SPOOL_DIR': spool_dir}
-                proc = subprocess.Popen([py] + args, cwd=cwd,
+                proc = subprocess.Popen([active_py] + args, cwd=build_cwd,
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                         text=True, encoding='utf-8', errors='replace',
                                         bufsize=1, env=run_env,
