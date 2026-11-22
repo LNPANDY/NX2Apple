@@ -15,7 +15,7 @@ enum ShellLayout: Equatable {
 
     static func resolve(_ size: CGSize, accessibilityText: Bool) -> ShellLayout {
         let regular = size.width >= 600 && size.height >= 500
-        if size.width > size.height * 1.2 { return .coverFlow(regular: regular) }
+        if size.width > size.height * 1.15 { return .coverFlow(regular: regular) }
         return regular && !accessibilityText ? .grid : .column
     }
 
@@ -508,10 +508,10 @@ public struct LibraryView: View {
         let coverPickerAction: ((String) -> Void)? = actions.supportsCustomCover ? { openCoverPicker($0) } : nil
         let resetCoverAction: ((String) -> Void)? = actions.onResetCustomCover != nil ? { resetCustomCover($0) } : nil
         if layout.isCoverFlow {
-            CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, obscured: menuPresented, screenInsets: insets,
-                          select: select, primary: { primary($0) }, openSettings: openSettings, openControllers: openControllers,
-                          openShellSettings: openShellSettings, openHomeScreen: homeScreenAction,
-                          openCoverPicker: coverPickerAction, resetCover: resetCoverAction)
+            ArtworkLibrary(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, obscured: menuPresented, screenInsets: insets,
+                           select: select, primary: { primary($0) }, openSettings: openSettings, openControllers: openControllers,
+                           openShellSettings: openShellSettings, openHomeScreen: homeScreenAction,
+                           openCoverPicker: coverPickerAction, resetCover: resetCoverAction)
                 .equatable()
                 .transition(.opacity)
         } else {
