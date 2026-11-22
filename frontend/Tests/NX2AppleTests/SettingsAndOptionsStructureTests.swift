@@ -20,7 +20,7 @@ final class SettingsAndOptionsStructureTests: IsolatedDefaultsTestCase {
     }
 
     func testEachSettingGoesToOnePart() {
-        for env in ["DM_LANG", "DM_FULLSCREEN", "DM_RUMBLE", "DM_RUMBLE_GAIN", "DM_PICTURE_FIT"] { XCTAssertEqual(LaunchCategory.of(setting(env)), .game, env) }
+        for env in ["DM_NVN_TEX_MIP_SKIP", "DM_LANG", "DM_FULLSCREEN", "DM_RUMBLE", "DM_RUMBLE_GAIN", "DM_PICTURE_FIT"] { XCTAssertEqual(LaunchCategory.of(setting(env)), .game, env) }
         for env in ["DM_FPS_TARGET", "DM_RENDER_SCALE", "DM_OPMODE", "DM_PRESENT_UPSCALE", "DM_PSO_PREBUILD"] { XCTAssertEqual(LaunchCategory.of(setting(env)), .performance, env) }
         XCTAssertEqual(LaunchCategory.of(setting("DM_NEW", section: "Performance")), .performance, "a setting this table does not know follows its section")
         XCTAssertEqual(LaunchCategory.of(setting("DM_NEW", section: "Controls")), .game)

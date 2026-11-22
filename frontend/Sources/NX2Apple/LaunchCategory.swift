@@ -10,7 +10,7 @@ enum LaunchCategory: String, CaseIterable, Identifiable {
     var labelKey: String { "launch.cat." + rawValue }
 
     /// Language, display, picture and input: what a player sets once for how the game looks and answers.
-    static let gameEnvs: Set<String> = ["DM_LANG", "DM_FULLSCREEN", MacGameMode.optionEnv, "DM_PICTURE_FIT", "DM_SCREEN_ASPECT",
+    static let gameEnvs: Set<String> = ["DM_NVN_TEX_MIP_SKIP", "DM_LANG", "DM_FULLSCREEN", MacGameMode.optionEnv, "DM_PICTURE_FIT", "DM_SCREEN_ASPECT",
                                         "DM_SHOW_FPS", "DM_TOUCH_HAPTICS", "DM_RUMBLE", "DM_RUMBLE_GAIN", "DM_RUMBLE_MIN",
                                         "DM_PAD_PRESS_TO_JOIN"]
     /// Frame rate, resolution, console mode, upscaling and the engine's tuning switches.

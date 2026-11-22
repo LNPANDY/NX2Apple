@@ -1,0 +1,821 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sun, 22 Nov 2026 19:14:52 +0800
+Subject: [PATCH] gfx/nvn: add DM_NVN_TEX_MIP_SKIP static texture mip-skipping
+ and quality setting
+
+Upstream-Status: pending
+Reason: Skip top mip levels of large block-compressed static textures at upload time via DM_NVN_TEX_MIP_SKIP to cut GPU memory and heat without recompiling games, with copy-path hardening and a 3-tier Texture quality launcher setting
+Issue: none
+---
+ dm/games/settings.tsv                     |   1 +
+ dm/gfx/nvn/nvn_mip_skip.h                 | 177 ++++++++++++++
+ dm/gfx/nvn/nvn_mtl.m                      | 124 ++++++++--
+ dm/gfx/tests/Makefile                     |   4 +
+ dm/gfx/tests/t_mip_skip.m                 | 272 ++++++++++++++++++++++
+ dm/ios/tests/launcher_storage_check.swift |   2 +-
+ dm/tools/tests/test_launcher_settings.py  |   2 +-
+ 7 files changed, 558 insertions(+), 24 deletions(-)
+ create mode 100644 dm/gfx/nvn/nvn_mip_skip.h
+ create mode 100644 dm/gfx/tests/t_mip_skip.m
+
+diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
+index 10af37e..284dd83 100644
+--- a/dm/games/settings.tsv
++++ b/dm/games/settings.tsv
+@@ -15,6 +15,7 @@
+ #   label, note  the setting's name and the line under it (may be empty; only for a setting with a cost: latency, memory, heat)
+ #   meta      optional, key=value pairs separated by ; (settings.py META lists the keys; docs/frontends.md, The settings list, describes them):
+ #             level=basic  a setting a front end shows first;  needs=<VAR>=<value>  a sub-setting, drawn only while the row that sets <VAR> has that value
++DM_NVN_TEX_MIP_SKIP	choice	0=Original,1=Recommended,2=Smooth	0	gfxapi:nvn	Game	Texture quality	Skips top mip levels of large static textures to save GPU memory and reduce heat. Takes effect on next launch.	level=basic
+ DM_FPS_TARGET	choice	30=30 fps,60=60 fps,120=120 fps?DM_GAME_FPS_MAX==120	DM_GAME_FPS_TARGET	DM_GAME_FPS_TARGET!=0	Game	Frame rate		level=basic
+ DM_PRESENT_INTERVAL	choice	game=30 fps,display=60 fps	display	DM_GAME_PRESENT_DISPLAY==1&DM_GAME_FPS_TARGET==0	Game	Frame rate		level=basic
+ DM_DYNAMIC_RESOLUTION	toggle	-	0	fixups:DYNAMIC_RESOLUTION	Game	Dynamic resolution	Lets the game lower its resolution under load. Turn off to keep full resolution for the selected console mode.
+diff --git a/dm/gfx/nvn/nvn_mip_skip.h b/dm/gfx/nvn/nvn_mip_skip.h
+new file mode 100644
+index 0000000..c636fba
+--- /dev/null
++++ b/dm/gfx/nvn/nvn_mip_skip.h
+@@ -0,0 +1,177 @@
++// Static texture top-mip skipping (DM_NVN_TEX_MIP_SKIP=0|1|2).
++// Skips the finest 1 or 2 mip levels of large block-compressed packaged 2D / 2D-array textures
++// at upload time to cut GPU memory footprint and bandwidth without recompiling games.
++// Textures that become GPU copy/clear sources or destinations are hardened back to full size
++// (keyed by guest storage address) so terrain/atlas copies never read truncated levels.
++#ifndef DM_NVN_MIP_SKIP_H
++#define DM_NVN_MIP_SKIP_H
++
++#include <os/lock.h>
++#include <stdatomic.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++
++typedef struct {
++    uint32_t width, height, levels, samples, block_w, block_h;
++    int has_layout, has_mem, is_2d, sparse_pool, linear;
++} nvn_mip_skip_desc;
++
++typedef struct {
++    uint64_t *keys;
++    size_t cap, count;
++} nvn_mip_skip_set;
++
++static _Atomic int g_nvn_mip_skip_env = -1;
++static os_unfair_lock g_nvn_mip_skip_lk = OS_UNFAIR_LOCK_INIT;
++static nvn_mip_skip_set g_nvn_mip_skip_hardened = {0};
++static _Atomic uint64_t g_nvn_mip_skip_uploads = 0;
++static _Atomic uint64_t g_nvn_mip_skip_hardens = 0;
++static _Atomic uint64_t g_nvn_mip_skip_saved = 0;
++
++static inline unsigned nvn_mip_skip_parse(const char *s) {
++    if (!s || !*s) return 0;
++    char *end = NULL;
++    long v = strtol(s, &end, 10);
++    if (end == s || v <= 0) return 0;
++    return v >= 2 ? 2u : 1u;
++}
++
++static inline unsigned nvn_mip_skip_mode(void) {
++    int v = atomic_load_explicit(&g_nvn_mip_skip_env, memory_order_relaxed);
++    if (v < 0) {
++        v = (int)nvn_mip_skip_parse(getenv("DM_NVN_TEX_MIP_SKIP"));
++        atomic_store_explicit(&g_nvn_mip_skip_env, v, memory_order_relaxed);
++    }
++    return (unsigned)v;
++}
++
++static inline void nvn_mip_skip_reset_env(void) {
++    atomic_store_explicit(&g_nvn_mip_skip_env, -1, memory_order_relaxed);
++}
++
++// Effective mip count that a 2D texture of width x height can hold.
++static inline uint32_t nvn_mip_skip_fit_levels(uint32_t w, uint32_t h, uint32_t levels) {
++    uint32_t big = w > h ? w : h;
++    uint32_t fit = 1;
++    while (big >> fit) fit++;
++    if (!levels) levels = 1;
++    return levels < fit ? levels : fit;
++}
++
++// Number of top mip levels to skip (0, 1, or 2) for a packaged texture candidate.
++// Preserves at least 2 mip levels, at least 128x128 dimensions, and exact compression block alignment
++// so downstream compressed uploads and BC-to-ASTC 4x4 transcoders always see aligned extents.
++static inline unsigned nvn_mip_skip_calc(const nvn_mip_skip_desc *d, unsigned req_skip) {
++    if (!d || !req_skip) return 0;
++    if (!d->has_layout || !d->has_mem || !d->is_2d || d->sparse_pool || d->linear) return 0;
++    if (d->samples > 1 || d->block_w < 2 || d->block_h < 2) return 0;
++    uint32_t lo = d->width < d->height ? d->width : d->height;
++    uint32_t hi = d->width < d->height ? d->height : d->width;
++    if (hi < 512u || lo < 256u) return 0;
++    uint32_t levels = nvn_mip_skip_fit_levels(d->width, d->height, d->levels);
++    if (levels < 3u) return 0;
++    unsigned max_try = req_skip > 2u ? 2u : req_skip;
++    for (unsigned s = max_try; s >= 1u; s--) {
++        if (levels < s + 2u) continue;
++        uint32_t nw = d->width >> s;
++        uint32_t nh = d->height >> s;
++        if (nw < 128u || nh < 128u) continue;
++        if ((nw % d->block_w) != 0u || (nh % d->block_h) != 0u) continue;
++        return s;
++    }
++    return 0;
++}
++
++static inline uint64_t nvn_mip_skip_saved_bytes(uint64_t level_skip_offset, uint32_t layers) {
++    return level_skip_offset * (uint64_t)(layers ? layers : 1u);
++}
++
++static inline size_t nvn_mip_skip_slot(uint64_t k, size_t cap) {
++    return (size_t)((k * 0x9E3779B97F4A7C15ull) >> 17) & (cap - 1u);
++}
++
++static inline int nvn_mip_skip_set_has(const nvn_mip_skip_set *s, uint64_t k) {
++    if (!s->cap || !k) return 0;
++    for (size_t i = nvn_mip_skip_slot(k, s->cap);; i = (i + 1u) & (s->cap - 1u)) {
++        if (s->keys[i] == k) return 1;
++        if (!s->keys[i]) return 0;
++    }
++}
++
++static inline int nvn_mip_skip_set_add(nvn_mip_skip_set *s, uint64_t k) {
++    if (!k || nvn_mip_skip_set_has(s, k)) return 0;
++    if ((s->count + 1u) * 2u > s->cap) {
++        size_t oc = s->cap, nc = oc ? oc * 2u : 256u;
++        uint64_t *o = s->keys;
++        uint64_t *nk = (uint64_t *)calloc(nc, sizeof *nk);
++        if (!nk) return 0;
++        s->keys = nk;
++        s->cap = nc;
++        s->count = 0;
++        for (size_t i = 0; i < oc; i++) {
++            if (o[i]) {
++                size_t j = nvn_mip_skip_slot(o[i], nc);
++                while (nk[j]) j = (j + 1u) & (nc - 1u);
++                nk[j] = o[i];
++                s->count++;
++            }
++        }
++        free(o);
++    }
++    size_t i = nvn_mip_skip_slot(k, s->cap);
++    while (s->keys[i]) i = (i + 1u) & (s->cap - 1u);
++    s->keys[i] = k;
++    s->count++;
++    return 1;
++}
++
++static inline void nvn_mip_skip_set_clear(nvn_mip_skip_set *s) {
++    free(s->keys);
++    s->keys = NULL;
++    s->cap = 0;
++    s->count = 0;
++}
++
++static inline int nvn_mip_skip_is_hardened(uint64_t addr) {
++    if (!addr) return 0;
++    os_unfair_lock_lock(&g_nvn_mip_skip_lk);
++    int r = nvn_mip_skip_set_has(&g_nvn_mip_skip_hardened, addr);
++    os_unfair_lock_unlock(&g_nvn_mip_skip_lk);
++    return r;
++}
++
++static inline int nvn_mip_skip_mark_hardened(uint64_t addr) {
++    if (!addr) return 0;
++    os_unfair_lock_lock(&g_nvn_mip_skip_lk);
++    int added = nvn_mip_skip_set_add(&g_nvn_mip_skip_hardened, addr);
++    os_unfair_lock_unlock(&g_nvn_mip_skip_lk);
++    return added;
++}
++
++static inline void nvn_mip_skip_record_upload(uint64_t saved_bytes) {
++    atomic_fetch_add_explicit(&g_nvn_mip_skip_uploads, 1u, memory_order_relaxed);
++    atomic_fetch_add_explicit(&g_nvn_mip_skip_saved, saved_bytes, memory_order_relaxed);
++}
++
++static inline void nvn_mip_skip_record_harden(void) {
++    atomic_fetch_add_explicit(&g_nvn_mip_skip_hardens, 1u, memory_order_relaxed);
++}
++
++static inline void nvn_mip_skip_stats(uint64_t *skipped, uint64_t *hardened, uint64_t *saved_bytes) {
++    if (skipped) *skipped = atomic_load_explicit(&g_nvn_mip_skip_uploads, memory_order_relaxed);
++    if (hardened) *hardened = atomic_load_explicit(&g_nvn_mip_skip_hardens, memory_order_relaxed);
++    if (saved_bytes) *saved_bytes = atomic_load_explicit(&g_nvn_mip_skip_saved, memory_order_relaxed);
++}
++
++static inline void nvn_mip_skip_teardown(void) {
++    os_unfair_lock_lock(&g_nvn_mip_skip_lk);
++    nvn_mip_skip_set_clear(&g_nvn_mip_skip_hardened);
++    os_unfair_lock_unlock(&g_nvn_mip_skip_lk);
++    atomic_store_explicit(&g_nvn_mip_skip_uploads, 0u, memory_order_relaxed);
++    atomic_store_explicit(&g_nvn_mip_skip_hardens, 0u, memory_order_relaxed);
++    atomic_store_explicit(&g_nvn_mip_skip_saved, 0u, memory_order_relaxed);
++    atomic_store_explicit(&g_nvn_mip_skip_env, -1, memory_order_relaxed);
++}
++
++#endif
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 3ed815e..c57c98d 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -41,6 +41,7 @@
+ #include "nvn_link_latch.h"
+ #include "nvn_timestamp.h"
+ #include "nvn_rt_recycle.h"
++#include "nvn_mip_skip.h"
+ #include "msl_image.h"
+ #include "../msl_mount.h"
+ #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
+@@ -3169,7 +3170,7 @@ void mtl_tex_init(const tex_t *t) {
+ // Host record of a packaged texture: the current MTLTexture, the upload stamp, and the global write generation at the last check
+ // spare: the texture the last re-upload replaced, kept resident and written by the next re-upload once the GPU has passed spare_fence (a texture the CPU rewrites every frame, a movie frame,
+ // alternates between two textures instead of allocating one per frame: Link's Awakening's title movie made and freed an 8 MB texture a frame)
+-@interface NvPkg : NSObject { @public id<MTLTexture> tex, spare, view; uint64_t stamp, seen, hash, spare_fence, vgen, vseen, sub, own, lost_gen; const void *span; int sparse, vbase, part; uint8_t *edge[2]; uint32_t edge_n[2], stored; id ps; id<MTLBuffer> eb; uint64_t *ph, up_frame, up_sub; uint32_t nph, missed; } @end   // hash: full hash of the uploaded content under DM_NVN_DIRTYCHECK; span: its tracked range (nvn_dirty_span, NULL = untracked);
++@interface NvPkg : NSObject { @public id<MTLTexture> tex, spare, view; uint64_t stamp, seen, hash, spare_fence, vgen, vseen, sub, own, lost_gen; const void *span; int sparse, vbase, part; uint8_t mip_skip; uint8_t *edge[2]; uint32_t edge_n[2], stored; id ps; id<MTLBuffer> eb; uint64_t *ph, up_frame, up_sub; uint32_t nph, missed; } @end   // hash: full hash of the uploaded content under DM_NVN_DIRTYCHECK; span: its tracked range (nvn_dirty_span, NULL = untracked);
+ // sparse: in a sparse virtual pool, read through its page table (hle_nvn.c nvn_sparse_*), vgen the page table's generation at the upload and vseen at the last look; view: what it is bound as (sparse_view)
+ // ps: its placement sparse texture (NvSparse, sparse_make), which tex is: mapped and uploaded tile by tile (sparse_sync)
+ // edge: the uploaded bytes of the storage's first and last host pages where other data shares them (pkg_edges_take); in eb from the first GPU store into its storage on (pkg_edges_gpu),
+@@ -3827,7 +3828,9 @@ static void up_copy_add(id<MTLTexture> src, MTLSize size, id<MTLTexture> dst, NS
+ static void up_blit_add(id<MTLBuffer> src, size_t off, size_t row, size_t image, MTLSize size,
+                         id<MTLTexture> dst, NSUInteger slice, NSUInteger level) { up_blit_add_at(src, off, row, image, size, dst, slice, level, MTLOriginMake(0, 0, 0)); }
+ 
+-static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture> reuse, MTLTextureUsage keep, id<MTLTexture> prev, const void *span, uint64_t since, unsigned *taken);
++static int bcp_find(const tex_t *t, tex_t *o);
++static int tex_cpu_written(uint64_t serial);
++static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture> reuse, MTLTextureUsage keep, id<MTLTexture> prev, const void *span, uint64_t since, unsigned *taken, unsigned *out_skip);
+ static int g_direct_upload_on = -1; static uint64_t g_direct_uploads, g_direct_dispatches;
+ static int direct_upload_on(void) { if (g_direct_upload_on < 0) { const char *e=getenv("DM_NVN_DIRECT_UPLOAD"); g_direct_upload_on=!e||atoi(e); } return g_direct_upload_on; }
+ int nvn_host_readable(uint64_t a, uint64_t n);   // hle_nvn.c: guest memory and sparse pools
+@@ -3949,10 +3952,11 @@ static void sp_gather(const tex_t *t, const uint64_t *pt, uint64_t np, id<MTLBuf
+ // second texture and a copy of every level for each re-upload, and its spare (of other usage) was never reused
+ // prev: the texture this upload replaces, made of the same storage as it was at stamp `since` (span: its tracked range). Only the images written since are read from guest memory
+ // (pkg_written); the others are copied from prev on the GPU, *taken of them (0: read whole)
+-static id<MTLTexture> pkg_upload(const tex_t *t, uint64_t *stamp, id<MTLTexture> reuse, MTLTextureUsage keep, id<MTLTexture> prev, const void *span, uint64_t since, unsigned *taken) {
++static id<MTLTexture> pkg_upload(const tex_t *t, uint64_t *stamp, id<MTLTexture> reuse, MTLTextureUsage keep, id<MTLTexture> prev, const void *span, uint64_t since, unsigned *taken, unsigned *out_skip) {
+     struct timespec a, b; clock_gettime(CLOCK_MONOTONIC, &a);
+     if (taken) *taken = 0;
+-    id<MTLTexture> r = pkg_upload_(t, stamp, reuse, keep, prev, span, since, taken);
++    if (out_skip) *out_skip = 0;
++    id<MTLTexture> r = pkg_upload_(t, stamp, reuse, keep, prev, span, since, taken, out_skip);
+     clock_gettime(CLOCK_MONOTONIC, &b); uint64_t d_ = (uint64_t)((b.tv_sec - a.tv_sec) * 1000000000ll + b.tv_nsec - a.tv_nsec);
+     atomic_fetch_add(&g_upload_ns, d_); g_up_total_ns += d_;
+     return r;
+@@ -4062,15 +4066,47 @@ static int tex_cpu_wait(const tex_t *t) {
+     if (!g_cb && (gw_live(lo, hi) || nvn_sparse_gen())) { mtl_finish_gpu_at(WS_UPALLOC); return 1; }
+     return 0;
+ }
+-static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture> reuse, MTLTextureUsage keep, id<MTLTexture> prev, const void *span, uint64_t since, unsigned *taken) {
++static unsigned tex_mip_skip_for(const tex_t *t) {
++    unsigned mode = nvn_mip_skip_mode();
++    if (!mode || !t || !t->mem) return 0;
++    if (nvn_mip_skip_is_hardened((uint64_t)(uintptr_t)t->mem)) return 0;
++    tex_t bcp_o;
++    if (bcp_find(t, &bcp_o)) return 0;
++    int bw = 0, bh = 0;
++    if (!nvn_fmt_bpb(t->d.format, &bw, &bh)) return 0;
++    nvn_mip_skip_desc md = {
++        .width = t->d.width,
++        .height = t->d.height,
++        .levels = t->d.levels,
++        .samples = t->d.samples,
++        .block_w = (uint32_t)bw,
++        .block_h = (uint32_t)bh,
++        .has_layout = (t->has_layout || tex_cpu_written(t->serial)) != 0,
++        .has_mem = t->mem != NULL,
++        .is_2d = t->d.target == NVN_TEXTURE_TARGET_2D || t->d.target == NVN_TEXTURE_TARGET_2D_ARRAY,
++        .sparse_pool = t->pool && nvn_sparse_pool(t->pool),
++        .linear = (t->d.flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET)) != 0,
++    };
++    return nvn_mip_skip_calc(&md, mode);
++}
++static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture> reuse, MTLTextureUsage keep, id<MTLTexture> prev, const void *span, uint64_t since, unsigned *taken, unsigned *out_skip) {
+     MTLTextureDescriptor *d = tex_desc(t, 1);
+     if (!d) return nil;
++    unsigned skip = (stamp && out_skip) ? tex_mip_skip_for(t) : 0;
++    if (skip && (NSUInteger)(skip + 2u) <= d.mipmapLevelCount) {
++        d.width = MAX(d.width >> skip, 1u);
++        d.height = MAX(d.height >> skip, 1u);
++        d.mipmapLevelCount -= skip;
++    } else {
++        skip = 0;
++    }
++    if (out_skip) *out_skip = skip;
+     d.usage |= keep & (MTLTextureUsageRenderTarget | MTLTextureUsagePixelFormatView);
+     int rb_shift = rb_packed_shift(t->d.format);   // the RGB565 family is repacked into Metal's order on the CPU (rb_packed_shift)
+     uint32_t bc_pf = 0; int bc_bpp = 0;
+     int bc_cpu = g_bc_cpu && nvn_bc_unpacked(t->d.format, &bc_pf, &bc_bpp);
+     int linear = (t->d.flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET)) != 0;   // linear storage no view could take (linear_fit): its rows are copied on the CPU
+-    int direct = !bc_cpu && !linear && !rb_shift && stamp && direct_upload_on() && g_nvn_deswz_gpu && !(t->pool && nvn_sparse_pool(t->pool)) && nvn_deswz_gpu_direct_supported(&t->d);
++    int direct = !skip && !bc_cpu && !linear && !rb_shift && stamp && direct_upload_on() && g_nvn_deswz_gpu && !(t->pool && nvn_sparse_pool(t->pool)) && nvn_deswz_gpu_direct_supported(&t->d);
+     if (direct) d.usage |= MTLTextureUsageShaderWrite | MTLTextureUsagePixelFormatView;
+     id<MTLTexture> mt = reuse && reuse.pixelFormat == d.pixelFormat && reuse.width == d.width && reuse.height == d.height && reuse.mipmapLevelCount == d.mipmapLevelCount && reuse.textureType == d.textureType
+                         && (reuse.usage & d.usage) == d.usage
+@@ -4087,16 +4123,17 @@ static int tex_cpu_wait(const tex_t *t) {
+         if (sparse) nvn_sparse_protect(t->pool, (uint64_t)(uintptr_t)t->mem, t->L.size); else nvn_dirty_protect(t->mem, t->L.size); }
+     int bw, bh, bpb = nvn_fmt_bpb(t->d.format, &bw, &bh);
+     unsigned layers = (t->d.target == 4 || t->d.target == 9) ? t->d.depth : t->d.target == 8 ? 6 : t->d.target == 3 ? t->d.height : 1;   // a cube array's depth counts layer-faces (tex_desc)
++    if (skip && mt != reuse) nvn_mip_skip_record_upload(nvn_mip_skip_saved_bytes(nvn_tex_level_offset(&t->d, skip), layers));
+     // Taken after the stamp and the protect: a write that lands from here on faults and is found at the next look
+     uint8_t *need = NULL; unsigned nimg = (unsigned)d.mipmapLevelCount * layers, nup = 0;
+-    if (prev && prev != mt && stamp && !sparse && !linear && bpb && d.sampleCount <= 1 && prev.pixelFormat == mt.pixelFormat && prev.textureType == mt.textureType && prev.sampleCount == mt.sampleCount
++    if (!skip && prev && prev != mt && stamp && !sparse && !linear && bpb && d.sampleCount <= 1 && prev.pixelFormat == mt.pixelFormat && prev.textureType == mt.textureType && prev.sampleCount == mt.sampleCount
+         && prev.width == mt.width && prev.height == mt.height && prev.depth == mt.depth && prev.arrayLength == mt.arrayLength && prev.mipmapLevelCount == mt.mipmapLevelCount)
+         need = pkg_written(t, span, since, (unsigned)d.mipmapLevelCount, layers, &nup);
+     if (need && nup == nimg) { free(need); need = NULL; }
+     if (need && taken) *taken = nimg - nup;
+     size_t total = 0;
+     for (unsigned l = 0; l < d.mipmapLevelCount; l++) {
+-        uint32_t w, h, z; tex_lsize(t, l, &w, &h, &z);
++        uint32_t w, h, z; tex_lsize(t, l + skip, &w, &h, &z);
+         unsigned n = layers; if (need) { n = 0; for (unsigned y = 0; y < layers; y++) n += need[l * layers + y]; }
+         total += (size_t)((w + bw - 1) / bw) * bpb * ((h + bh - 1) / bh) * z * n;
+     }
+@@ -4151,12 +4188,13 @@ static int tex_cpu_wait(const tex_t *t) {
+         }
+         size_t off = 0; int enc_ok = g_up_ce != nil && mb != NULL, nb0 = g_nup_blits;
+         for (unsigned l = 0; enc_ok && l < d.mipmapLevelCount; l++) {
+-            uint32_t w, h, z; tex_lsize(t, l, &w, &h, &z);
++            unsigned sl = l + skip;
++            uint32_t w, h, z; tex_lsize(t, sl, &w, &h, &z);
+             size_t pitch = (size_t)((w + bw - 1) / bw) * bpb, rows = (h + bh - 1) / bh;
+             for (unsigned y = 0; y < layers; y++) {
+                 if (need && !need[l * layers + y]) { up_copy_add(prev, MTLSizeMake(w, h, z), mt, y, l); continue; }
+                 size_t poff; id<MTLBuffer> params = up_param_alloc(&poff);   // Metal 4 has no setBytes: the parameter block of each deswizzle is cut from a shared block (no new GPU buffer each time)
+-                if (nvn_deswz_gpu_encode_m4(g_up_ce, g_up_ct, params, poff, (__bridge id<MTLBuffer>)mb, mo, &t->d, l, y, stg, stg_off + off, pitch)) { enc_ok = 0; break; }
++                if (nvn_deswz_gpu_encode_m4(g_up_ce, g_up_ct, params, poff, (__bridge id<MTLBuffer>)mb, mo, &t->d, sl, y, stg, stg_off + off, pitch)) { enc_ok = 0; break; }
+                 up_blit_add(stg, stg_off + off, pitch, pitch * rows, MTLSizeMake(w, h, z), mt, y, l);
+                 off += pitch * rows * z;
+             }
+@@ -4194,7 +4232,8 @@ static int tex_cpu_wait(const tex_t *t) {
+     if (bc_cpu) {
+         total_bc = 0;
+         for (unsigned l = 0; l < d.mipmapLevelCount; l++) {
+-            uint32_t w = MAX(t->d.width >> l, 1u), h = MAX(t->d.height >> l, 1u), z = t->d.target == 2 ? MAX(t->d.depth >> l, 1u) : 1;
++            unsigned sl = l + skip;
++            uint32_t w = MAX(t->d.width >> sl, 1u), h = MAX(t->d.height >> sl, 1u), z = t->d.target == 2 ? MAX(t->d.depth >> sl, 1u) : 1;
+             unsigned n = layers; if (need) { n = 0; for (unsigned y = 0; y < layers; y++) n += need[l * layers + y]; }
+             total_bc += (size_t)w * h * z * n * (size_t)bc_bpp;
+         }
+@@ -4207,14 +4246,15 @@ static int tex_cpu_wait(const tex_t *t) {
+     // CPU-side scratch for the compressed block data when bc_cpu (one level-slice at a time)
+     uint8_t *bc_tmp = NULL; size_t bc_tmp_sz = 0;
+     for (unsigned l = 0; l < d.mipmapLevelCount; l++) {
+-        uint32_t w, h, z; tex_lsize(t, l, &w, &h, &z);
++        unsigned sl = l + skip;
++        uint32_t w, h, z; tex_lsize(t, sl, &w, &h, &z);
+         size_t pitch = (size_t)((w + bw - 1) / bw) * bpb, rows = (h + bh - 1) / bh;
+         for (unsigned y = 0; y < layers; y++) {
+             if (need && !need[l * layers + y]) { up_copy_add(prev, MTLSizeMake(w, h, z), mt, y, l); continue; }
+             if (bc_cpu) {
+                 size_t bc_need = pitch * rows * z;
+                 if (bc_need > bc_tmp_sz) { free(bc_tmp); bc_tmp = malloc(bc_need); bc_tmp_sz = bc_need; if (!bc_tmp) MDIE("BC decode scratch of %zu bytes failed", bc_need); }
+-                if (nvn_deswizzle(&t->d, l, y, src, bc_tmp, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
++                if (nvn_deswizzle(&t->d, sl, y, src, bc_tmp, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
+                 size_t dst_pitch = (size_t)w * bc_bpp;
+                 for (uint32_t zz = 0; zz < z; zz++)
+                     nvn_bc_decode_par(t->d.format, bc_tmp + (size_t)zz * pitch * rows, pitch, w, h,
+@@ -4227,7 +4267,7 @@ static int tex_cpu_wait(const tex_t *t) {
+                 size_t srow = tex_linear_row(t);
+                 if (l || y || z != 1 || srow < pitch || srow * rows > t->L.size) { RED_ONCE(153, "linear texture upload: %ux%u format %#x target %d levels %u is not one 2D level of rows (stride %zu)", t->d.width, t->d.height, t->d.format, t->d.target, t->d.levels, srow); break; }
+                 for (size_t r = 0; r < rows; r++) memcpy((uint8_t *)stg.contents + off + r * pitch, src + r * srow, pitch);
+-            } else if (nvn_deswizzle(&t->d, l, y, src, (uint8_t *)stg.contents + off, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
++            } else if (nvn_deswizzle(&t->d, sl, y, src, (uint8_t *)stg.contents + off, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
+             if (rb_shift) rb_swap_rows((uint8_t *)stg.contents + off, pitch, rows, z, pitch, pitch * rows, rb_shift);
+             if (zb && l < 16) { const uint64_t *q = (const uint64_t *)((const uint8_t *)stg.contents + off); size_t nb = pitch * rows * z / 16;
+                 for (size_t i = 0; i < nb; i++) g_zb[l] += !(q[2 * i] | q[2 * i + 1]);
+@@ -4699,7 +4739,7 @@ static int tex_init_fill(const tex_t *t, id<MTLTexture> mt) {
+     static int flush_fill = -1; if (flush_fill < 0) { const char *e = getenv("DM_NVN_FLUSH_FILL"); flush_fill = !e || atoi(e) != 0; }
+     if (!no_cpu && !uncached && (!flush_fill || !nvn_flushed(t->mem, t->L.size))) return 0;
+     if (!atomic_load(&g_sub_thread_set) || !on_sub_thread() || !mem_any(t->mem, t->L.size)) return 0;   // the upload batch belongs to the submit thread
+-    if (pkg_upload(t, NULL, mt, 0, nil, NULL, 0, NULL) != mt) return 0;
++    if (pkg_upload(t, NULL, mt, 0, nil, NULL, 0, NULL, NULL) != mt) return 0;
+     int why = no_cpu ? 0 : uncached ? 1 : 2;
+     static uint64_t n[3]; if (n[why]++ < 4) MLOG("initial content: ser=%llu %ux%ux%u format %#x filled from its storage, %s (%llu so far)", (unsigned long long)t->serial, t->d.width, t->d.height, t->d.depth, t->d.format,
+                                                  (const char *[]){"a CPU_NO_ACCESS pool's", "a CPU_UNCACHED pool's", "flushed by the CPU before its first use"}[why], (unsigned long long)n[why]);
+@@ -5363,12 +5403,44 @@ static int pair_layout_ok(MTLTextureDescriptor *a, MTLTextureDescriptor *b, uint
+ static unsigned tex_level_shift(const tex_t *t, id<MTLTexture> base) {
+     id have = tex_get(t->serial);
+     if (![have isKindOfClass:[NvPkg class]]) return 0;
+-    NvPkg *pk = have; return pk->view && pk->view == base ? (unsigned)pk->vbase : 0;
++    NvPkg *pk = have;
++    if (pk->mip_skip && pk->tex == base) return pk->mip_skip;
++    return pk->view && pk->view == base ? (unsigned)pk->vbase : 0;
++}
++// Promote a mip-skipped packaged texture back to full size before any GPU copy or clear accesses its NVN levels directly.
++static void tex_mip_skip_harden(const tex_t *t) {
++    if (!nvn_mip_skip_mode() || !t || !t->mem) return;
++    nvn_mip_skip_mark_hardened((uint64_t)(uintptr_t)t->mem);
++    id have = tex_get(t->serial);
++    if (![have isKindOfClass:[NvPkg class]]) return;
++    NvPkg *pk = have;
++    if (!pk->mip_skip || pk->sparse) return;
++    if (atomic_load(&g_sub_thread_set) && !on_sub_thread()) return;
++    uint64_t st = 0; unsigned new_skip = 0;
++    id<MTLTexture> nt = pkg_upload(t, &st, nil, pk->tex.usage, nil, NULL, 0, NULL, &new_skip);
++    if (!nt) return;
++    id<MTLTexture> old = pk->tex;
++    pk->tex = nt;
++    pk->mip_skip = (uint8_t)new_skip;
++    pk->stored = 0;
++    pk->part = 0;
++    pk->lost_gen = atomic_load(&g_up_lost_gen);
++    if (pk->spare) { defer_obj_release(pk->spare); pk->spare = nil; pk->spare_fence = 0; }
++    defer_obj_release(old);
++    pk->stamp = pk->seen = st;
++    pk->span = nvn_dirty_span(t->mem, t->L.size);
++    pkg_hash_take(pk, t);
++    pkg_edges_take(pk, t);
++    own_note(t->serial);
++    own_epoch();
++    nvn_mip_skip_record_harden();
++    static int nl;
++    if (nl++ < 6) MLOG("mip-skip harden: ser=%llu %ux%u format %#x rebuilt at full size", (unsigned long long)t->serial, t->d.width, t->d.height, t->d.format);
+ }
+ // The host texture for a copy or a clear, which names its levels as NVN does: a sparse texture bound from a coarser level (sparse_view) is copied through the texture its view is of, all
+ // of its levels. Through the view, a copy into level 0 of a texture bound from level 1 went to level 1, and gsb_store found a host texture narrower than the texture (Densha de GO!!
+ // Hashiro Yamanote Line streams the finer levels of its sparse ASTC textures in by copies, GitHub #2350)
+-static id<MTLTexture> tex_mtl_all(const tex_t *t) { id<MTLTexture> mt = tex_mtl_replay(t); return mt && tex_level_shift(t, mt) ? mt.parentTexture : mt; }
++static id<MTLTexture> tex_mtl_all(const tex_t *t) { tex_mip_skip_harden(t); id<MTLTexture> mt = tex_mtl_replay(t); return mt && tex_level_shift(t, mt) && mt.parentTexture ? mt.parentTexture : mt; }
+ // NVN formats whose Metal format is the other one of an sRGB / linear pair (g_pfv_srgb) of a format's Metal format: up to 4, zero-terminated (an RGBA8 texture has RGBA8_SRGB and RGBX8_SRGB)
+ static const uint8_t *srgb_twins(uint32_t f) {
+     static uint8_t tw[256][5] __attribute__((section("__DATA,__dm_keep")));
+@@ -5520,14 +5592,15 @@ static MTLTextureUsage tbuf_usage(MTLPixelFormat pf) {
+             id<MTLTexture> reuse = nil;
+             if (pk->spare) { pthread_mutex_lock(&g_mu); uint64_t done = g_done; pthread_mutex_unlock(&g_mu); if (pk->spare_fence <= done && pk->spare.usage == pk->tex.usage) reuse = pk->spare; }
+             if (reuse && !own_object_free(reuse)) reuse = nil;   // serials that took it over (cpu_unc_drop) still draw it
+-            uint64_t st, vg = nvn_sparse_gen(), b0 = g_bp_up_bytes, lg = atomic_load(&g_up_lost_gen), t0 = bp_now(); unsigned taken = 0;
+-            id<MTLTexture> nt = pkg_upload(t, &st, reuse, pk->tex.usage, whole ? nil : pk->tex, pk->span, pk->stamp, &taken);
++            uint64_t st, vg = nvn_sparse_gen(), b0 = g_bp_up_bytes, lg = atomic_load(&g_up_lost_gen), t0 = bp_now(); unsigned taken = 0, new_skip = 0;
++            id<MTLTexture> nt = pkg_upload(t, &st, reuse, pk->tex.usage, whole ? nil : pk->tex, pk->span, pk->stamp, &taken, &new_skip);
+             reup_note(pk, t, taken, g_bp_up_bytes - b0, bp_now() - t0);
+-            if (nt) { id<MTLTexture> old = pk->tex; pk->tex = nt; pk->stored = 0; pk->part = taken != 0; if (!taken) pk->lost_gen = lg;
++            if (nt) { id<MTLTexture> old = pk->tex; uint8_t old_skip = pk->mip_skip; pk->tex = nt; pk->mip_skip = (uint8_t)new_skip; pk->stored = 0; pk->part = taken != 0; if (!taken) pk->lost_gen = lg;
+                 if (pk->spare && pk->spare != nt) defer_obj_release(pk->spare);   // still in use, or of another shape: retired as before
+                 if (pk->sparse) sparse_view(pk, t);
+                 zb_report(t, pk->sparse ? (unsigned)pk->vbase : 0, "re-upload");
+-                pk->spare = old; pk->spare_fence = g_fence + 1; own_note(t->serial); pk->stamp = st; pk->vgen = pk->vseen = vg; pk->span = nvn_dirty_span(t->mem, t->L.size); pk->seen = st; g_pkg_reuploads++; pkg_hash_take(pk, t); pkg_edges_take(pk, t); }
++                if (old_skip != pk->mip_skip) { defer_obj_release(old); pk->spare = nil; pk->spare_fence = 0; } else { pk->spare = old; pk->spare_fence = g_fence + 1; }
++                own_note(t->serial); pk->stamp = st; pk->vgen = pk->vseen = vg; pk->span = nvn_dirty_span(t->mem, t->L.size); pk->seen = st; g_pkg_reuploads++; pkg_hash_take(pk, t); pkg_edges_take(pk, t); }
+             if (nt && !pk->sparse) bcp_up_follow(t, nt);   // the CPU's bytes reach the other side of a compressed-alias pair too
+             return tex_mtl_result(pk->view ? pk->view : pk->tex, owned);
+         }
+@@ -5535,7 +5608,9 @@ static MTLTextureUsage tbuf_usage(MTLPixelFormat pf) {
+         pk->sparse = t->pool && nvn_sparse_pool(t->pool); pk->vgen = pk->vseen = nvn_sparse_gen();
+         pk->lost_gen = atomic_load(&g_up_lost_gen);
+         pk->sub = g_sub_serial; pk->own = nvn_dirty_own_writes();
+-        pk->tex = pkg_upload(t, &pk->stamp, nil, 0, nil, NULL, 0, NULL);
++        unsigned first_skip = 0;
++        pk->tex = pkg_upload(t, &pk->stamp, nil, 0, nil, NULL, 0, NULL, &first_skip);
++        pk->mip_skip = (uint8_t)first_skip;
+         if (!pk->tex) return NULL;
+         pk->span = nvn_dirty_span(t->mem, t->L.size);
+         pk->seen = pk->stamp; g_pkg_uploads++; pkg_hash_take(pk, t);   // "nothing written since" starts at the stamp: a write that faulted during the upload moved "now" past it
+@@ -5664,6 +5739,8 @@ void mtl_mem_stat(unsigned long long frame, unsigned long long rss_mb) {
+       MLOG("texture views by Metal texture (vc_get): %u textures hold cached views; %llu views reused, %llu made in total; texture buffers bound as 2D rows for wrapped 1D fetches %llu times, %llu made, %llu failed, %llu copied into aligned rows (%llu MB) "
+            "(tbuf_as_2d); texture type mismatches no view bridges %llu in total (tex_mis_note)",
+            vn, (unsigned long long)vh, (unsigned long long)vm, (unsigned long long)tb, (unsigned long long)tm, (unsigned long long)tf, (unsigned long long)tc, (unsigned long long)(tcb >> 20), (unsigned long long)mtl_tex_mis_count()); }
++    if (nvn_mip_skip_mode() > 0) { uint64_t ms_n = 0, ms_h = 0, ms_b = 0; nvn_mip_skip_stats(&ms_n, &ms_h, &ms_b);
++        MLOG("texture mip-skip (mode %u): %llu textures skipped, %llu hardened, %llu MB estimated storage skipped", nvn_mip_skip_mode(), (unsigned long long)ms_n, (unsigned long long)ms_h, (unsigned long long)(ms_b >> 20)); }
+     if (g_allocprof > 0) { char ab[256]; int o = 0; for (int i = 0; i < g_alloc_n && o < 200; i++) o += snprintf(ab + o, sizeof ab - o, " #%d %llu MB", i, (unsigned long long)(g_alloc4[i].allocatedSize >> 20));
+         for (int i = 0; i < 3 && o < 240; i++) o += snprintf(ab + o, sizeof ab - o, " up%d %llu pres%d %llu", i, (unsigned long long)(g_up_alloc4[i].allocatedSize >> 20), i, (unsigned long long)(g_present_alloc4[i].allocatedSize >> 20));
+         MLOG("command allocator usage:%s", ab);
+@@ -17350,6 +17427,7 @@ static void bcp_after_to(const tex_t *t, const tex_t *op, unsigned level, const
+     tex_t o = *op;
+     id<MTLTexture> m = bcp_have(t); if (!m) return;
+     int to_bc = bcp_kind(&o) < 0;
++    if (to_bc) tex_mip_skip_harden(&o);
+     id<MTLTexture> om = to_bc ? tex_mtl_replay(&o) : bcp_have(&o);   // the compressed side is made (shaders sample it); an uncompressed one follows only a texture it has
+     while (om.parentTexture) om = om.parentTexture;
+     if (!om || om == m) return;
+@@ -17416,6 +17494,7 @@ static int bc_alias_copy(const p_copy_t2t *c, id<MTLTexture> s, unsigned sl, uns
+     if (c->sr.width != c->dr.width || c->sr.height != c->dr.height || (c->sr.depth ? c->sr.depth : 1) != 1 || c->sr.width <= 0 || c->sr.height <= 0 || c->sr.xoffset < 0 || c->sr.yoffset < 0
+         || c->dr.xoffset < 0 || c->dr.yoffset < 0) return 0;
+     if (bcp_kind(dt) <= 0 || !bcp_find(dt, &o) || bcp_have(dt)) return 0;   // an uncompressed side with a texture takes the copy, and its pair follows (bcp_after)
++    tex_mip_skip_harden(&o);
+     id<MTLTexture> bc = tex_mtl_replay(&o); while (bc.parentTexture) bc = bc.parentTexture;
+     bcp_geo g;
+     if (!bc || !bcp_geom(s, sl, (NSUInteger)c->sr.xoffset, (NSUInteger)c->sr.yoffset, (NSUInteger)c->sr.width, (NSUInteger)c->sr.height, bc, dl, (NSUInteger)c->dr.xoffset, (NSUInteger)c->dr.yoffset, &g)
+@@ -20378,6 +20457,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+     g_mdi_waits = 0; g_mdi_epoch = ~0ull; g_mdi_sub = 0; g_mdi_addr = 0; g_mdi_count = 0;   // the indirect-count multi-draw's last count (mdi_count)
+     g_q4 = nil; g_q = nil; g_dev = nil;
+     g_feedback_q = nil;
++    nvn_mip_skip_teardown();
+     atomic_fetch_add(&g_defer_gen, 1);
+ }
+     atomic_store(&g_gfx_teardown, 0);
+diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
+index e486d92..3390f88 100644
+--- a/dm/gfx/tests/Makefile
++++ b/dm/gfx/tests/Makefile
+@@ -948,3 +948,7 @@ check_t_sparse_copy: RUN_ENV = MTL_DEBUG_LAYER=1
+ t_bc_cpu: t_bc_cpu.m $(MTL_T_DEP)
+ 	clang $(CFLAGS) -fobjc-arc -o $@ t_bc_cpu.m $(MTL_T_SRC) $(FW)
+ check_t_bc_cpu: RUN_ENV = MTL_DEBUG_LAYER=1
++
++t_mip_skip: t_mip_skip.m $(MTL_T_DEP)
++	clang $(CFLAGS) -fobjc-arc -o $@ t_mip_skip.m $(MTL_T_SRC) $(FW)
++check_t_mip_skip: RUN_ENV = MTL_DEBUG_LAYER=1
+diff --git a/dm/gfx/tests/t_mip_skip.m b/dm/gfx/tests/t_mip_skip.m
+new file mode 100644
+index 0000000..7b4af50
+--- /dev/null
++++ b/dm/gfx/tests/t_mip_skip.m
+@@ -0,0 +1,272 @@
++// Exercise DM_NVN_TEX_MIP_SKIP=0|1|2 on the production Metal upload, registered-view,
++// CPU BC decode, harden-on-copy, and teardown paths.
++#include "../nvn/nvn_mtl.m"
++void *front_metal_layer(void) { return NULL; }
++module_t *module_of(const void *p) { (void)p; return NULL; }
++module_t *g_mod; int g_nmod;
++void svc_thread_dump(void) {}
++uint64_t now_ns(void) { return bp_now(); }
++
++static int checks, failed;
++#define CHECK(label, c) do { checks++; if (!(c)) { failed++; fprintf(stderr, "FAIL: %s\n", label); } } while (0)
++
++static void finish(void) {
++    CHECK("submission completes", mtl_wait(mtl_sub_commit(), 5000000000ull));
++    CHECK("submission has no GPU error", !mtl_last_commit_error());
++}
++
++static void set_mode(const char *val) {
++    if (val) setenv("DM_NVN_TEX_MIP_SKIP", val, 1);
++    else unsetenv("DM_NVN_TEX_MIP_SKIP");
++    nvn_mip_skip_reset_env();
++}
++
++static void policy_tests(void) {
++    CHECK("parse empty/0", nvn_mip_skip_parse(NULL) == 0 && nvn_mip_skip_parse("") == 0 && nvn_mip_skip_parse("0") == 0);
++    CHECK("parse negative/text", nvn_mip_skip_parse("-1") == 0 && nvn_mip_skip_parse("abc") == 0);
++    CHECK("parse 1/2/clamp", nvn_mip_skip_parse("1") == 1 && nvn_mip_skip_parse("2") == 2 && nvn_mip_skip_parse("9") == 2);
++
++    nvn_mip_skip_desc base = {
++        .width = 512, .height = 512, .levels = 10, .samples = 1,
++        .block_w = 4, .block_h = 4,
++        .has_layout = 1, .has_mem = 1, .is_2d = 1, .sparse_pool = 0, .linear = 0,
++    };
++    CHECK("mode 0 skips 0", nvn_mip_skip_calc(&base, 0) == 0);
++    CHECK("512x512 BC4x4 mode 1 skips 1", nvn_mip_skip_calc(&base, 1) == 1);
++    CHECK("512x512 BC4x4 mode 2 skips 2", nvn_mip_skip_calc(&base, 2) == 2);
++
++    nvn_mip_skip_desc rect = base;
++    rect.width = 512; rect.height = 256; rect.levels = 9;
++    CHECK("512x256 mode 1 skips 1 (256x128)", nvn_mip_skip_calc(&rect, 1) == 1);
++    CHECK("512x256 mode 2 falls back to 1 (avoid 64px short edge)", nvn_mip_skip_calc(&rect, 2) == 1);
++
++    nvn_mip_skip_desc few = base;
++    few.levels = 3;
++    CHECK("3 levels mode 1 skips 1 (2 left)", nvn_mip_skip_calc(&few, 1) == 1);
++    CHECK("3 levels mode 2 falls back to 1 (2 left)", nvn_mip_skip_calc(&few, 2) == 1);
++    few.levels = 2;
++    CHECK("2 levels exempt", nvn_mip_skip_calc(&few, 1) == 0);
++
++    nvn_mip_skip_desc uncomp = base;
++    uncomp.block_w = 1; uncomp.block_h = 1;
++    CHECK("uncompressed UI/RT exempt", nvn_mip_skip_calc(&uncomp, 2) == 0);
++
++    nvn_mip_skip_desc small = base;
++    small.width = 256; small.height = 256;
++    CHECK("256x256 exempt", nvn_mip_skip_calc(&small, 2) == 0);
++
++    nvn_mip_skip_desc sparse = base;
++    sparse.sparse_pool = 1;
++    CHECK("sparse pool exempt", nvn_mip_skip_calc(&sparse, 2) == 0);
++
++    nvn_mip_skip_desc lin = base;
++    lin.linear = 1;
++    CHECK("linear exempt", nvn_mip_skip_calc(&lin, 2) == 0);
++
++    nvn_mip_skip_desc non2d = base;
++    non2d.is_2d = 0;
++    CHECK("non-2D exempt", nvn_mip_skip_calc(&non2d, 2) == 0);
++
++    nvn_mip_skip_desc astc8 = base;
++    astc8.block_w = 8; astc8.block_h = 8;
++    astc8.width = 516; astc8.height = 516;
++    CHECK("misaligned ASTC 8x8 falls back to 0", nvn_mip_skip_calc(&astc8, 2) == 0);
++    astc8.width = 512; astc8.height = 512;
++    CHECK("aligned ASTC 8x8 mode 2 skips 2", nvn_mip_skip_calc(&astc8, 2) == 2);
++}
++
++static void fill_bc1_levels(const tex_t *t, void *mem, size_t poolsize) {
++    dm_guest_write_prepare(mem, poolsize);
++    for (unsigned l = 0; l < t->d.levels; l++) {
++        unsigned w = MAX(t->d.width >> l, 1u), h = MAX(t->d.height >> l, 1u);
++        unsigned bw = (w + 3u) / 4u, bh = (h + 3u) / 4u, nb = bw * bh;
++        uint8_t *blocks = calloc(nb, 8);
++        if (!blocks) abort();
++        for (unsigned i = 0; i < nb; i++) {
++            uint8_t *b = blocks + (size_t)i * 8;
++            // Distinct uniform RGB565 colour and tag byte per mip level so readback proves which level was uploaded.
++            b[0] = (uint8_t)(0x10u + l * 0x11u);
++            b[1] = (uint8_t)(0x20u + l * 0x09u);
++            b[2] = b[0];
++            b[3] = b[1];
++            b[4] = b[5] = b[6] = b[7] = 0;
++        }
++        CHECK("BC1 swizzle succeeds", !nvn_swizzle(&t->d, l, 0, blocks, (size_t)bw * 8u, t->mem));
++        free(blocks);
++    }
++}
++
++static void readback_block0(id<MTLTexture> tex, unsigned level, uint8_t out[8]) {
++    id<MTLBuffer> buf = [g_dev newBufferWithLength:256 options:MTLResourceStorageModeShared];
++    id<MTLCommandBuffer> cb = q_cb();
++    id<MTLBlitCommandEncoder> enc = [cb blitCommandEncoder];
++    [enc copyFromTexture:tex sourceSlice:0 sourceLevel:level sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(4, 4, 1)
++                toBuffer:buf destinationOffset:0 destinationBytesPerRow:8 destinationBytesPerImage:8];
++    [enc endEncoding];
++    [cb commit];
++    [cb waitUntilCompleted];
++    CHECK("block readback completes", cb.status == MTLCommandBufferStatusCompleted);
++    memcpy(out, buf.contents, 8);
++}
++
++static void upload_views_and_harden(unsigned mode, int force_bc_cpu) {
++    nvn_mip_skip_teardown();
++    char mbuf[8];
++    snprintf(mbuf, sizeof mbuf, "%u", mode);
++    set_mode(mbuf);
++    g_bc_cpu = force_bc_cpu;
++
++    static uint64_t serial = 950000;
++    tex_t t = {.magic = MAGIC('T', 'E', 'X', 0), .serial = serial++, .has_layout = 1};
++    t.d = (nvn_texdesc){.target = NVN_TEXTURE_TARGET_2D, .format = 0x41, .width = 512, .height = 512, .depth = 1, .levels = 10, .samples = 1};
++    nvn_tex_layout(&t.d, &t.L);
++    size_t poolsize = (t.L.size + 4096 + (size_t)getpagesize() - 1) & ~((size_t)getpagesize() - 1);
++    void *mem = NULL;
++    if (posix_memalign(&mem, (size_t)getpagesize(), poolsize)) abort();
++    memset(mem, 0, poolsize);
++    pool_t pool = {.magic = MAGIC('P', 'O', 'O', 'L'), .mem = mem, .size = poolsize,
++                   .flags = NVN_MEMORY_POOL_FLAGS_CPU_UNCACHED | NVN_MEMORY_POOL_FLAGS_GPU_CACHED};
++    t.pool = &pool;
++    t.mem = (uint8_t *)mem + 4096;
++    mtl_pool_add(mem, poolsize);
++    nvn_dirty_add_range(mem, poolsize);
++    fill_bc1_levels(&t, mem, poolsize);
++
++    mtl_sub_begin();
++    id<MTLTexture> mt = tex_mtl(&t);
++    CHECK("uploaded texture exists", mt != nil);
++    finish();
++
++    unsigned expect_w = 512u >> mode;
++    unsigned expect_levels = 10u - mode;
++    CHECK("uploaded width matches skip mode", mt && mt.width == expect_w && mt.height == expect_w);
++    CHECK("uploaded mip count matches skip mode", mt && mt.mipmapLevelCount == expect_levels);
++    CHECK("tex_level_shift matches skip mode", mt && tex_level_shift(&t, mt) == mode);
++
++    uint64_t s_up = 0, s_hard = 0, s_saved = 0;
++    nvn_mip_skip_stats(&s_up, &s_hard, &s_saved);
++    if (mode > 0) {
++        CHECK("stats recorded skipped upload", s_up == 1 && s_hard == 0 && s_saved > 0);
++    } else {
++        CHECK("stats zero when mode 0", s_up == 0 && s_hard == 0 && s_saved == 0);
++    }
++
++    if (!force_bc_cpu && mt) {
++        uint8_t b0[8] = {0};
++        readback_block0(mt, 0, b0);
++        CHECK("level 0 holds guest level <mode> compressed block",
++              b0[0] == (uint8_t)(0x10u + mode * 0x11u) && b0[1] == (uint8_t)(0x20u + mode * 0x09u));
++    }
++
++    // Registered views over skipped textures clamp fine levels and shift coarser ones.
++    int tid0 = 400 + (int)mode * 10 + force_bc_cpu * 3;
++    view_t v0 = {.set_levels = 1, .base_level = 0, .nlevels = 1};
++    mtl_reg_tex(tid0, &t, &v0);
++    view_t v1 = {.set_levels = 1, .base_level = 0, .nlevels = 10};
++    mtl_reg_tex(tid0 + 1, &t, &v1);
++    view_t v2 = {.set_levels = 1, .base_level = 3, .nlevels = 4};
++    mtl_reg_tex(tid0 + 2, &t, &v2);
++    os_unfair_lock_lock(&g_rmu);
++    id<MTLTexture> rv0 = tex_by_id(tid0);
++    id<MTLTexture> rv1 = tex_by_id(tid0 + 1);
++    id<MTLTexture> rv2 = tex_by_id(tid0 + 2);
++    CHECK("view [0,1) clamps to finest resident level", rv0 && rv0.width == expect_w && rv0.mipmapLevelCount == 1);
++    CHECK("view [0,10) spans all resident levels", rv1 && rv1.width == expect_w && rv1.mipmapLevelCount == expect_levels);
++    CHECK("view [3,7) lands on 64x64 with 4 levels", rv2 && rv2.width == 64 && rv2.mipmapLevelCount == 4);
++    os_unfair_lock_unlock(&g_rmu);
++
++    // Accessing through tex_mtl_all (copy_b2t / copy_t2t / copy_t2b / clear_tex) hardens to full 512x512.
++    if (mode > 0) {
++        mtl_sub_begin();
++        id<MTLTexture> full = tex_mtl_all(&t);
++        CHECK("tex_mtl_all hardens back to full 512x512", full && full.width == 512 && full.height == 512 && full.mipmapLevelCount == 10);
++        CHECK("hardened texture has zero level shift", full && tex_level_shift(&t, full) == 0);
++        finish();
++        if (!force_bc_cpu && full) {
++            uint8_t bfull[8] = {0};
++            readback_block0(full, 0, bfull);
++            CHECK("hardened level 0 holds guest level 0 block", bfull[0] == 0x10u && bfull[1] == 0x20u);
++        }
++        os_unfair_lock_lock(&g_rmu);
++        id<MTLTexture> rv0_after = tex_by_id(tid0);
++        CHECK("cached texture ID refreshes to full size after harden", rv0_after && rv0_after.width == 512 && rv0_after.mipmapLevelCount == 1);
++        os_unfair_lock_unlock(&g_rmu);
++
++        nvn_mip_skip_stats(&s_up, &s_hard, &s_saved);
++        CHECK("harden counter incremented", s_hard == 1);
++        CHECK("storage address stays hardened", nvn_mip_skip_is_hardened((uint64_t)(uintptr_t)t.mem) == 1);
++
++        // A new serial over the same hardened storage stays full size.
++        tex_t t2 = t;
++        t2.serial = serial++;
++        mtl_sub_begin();
++        id<MTLTexture> mt2 = tex_mtl(&t2);
++        CHECK("new serial on hardened storage stays full 512x512", mt2 && mt2.width == 512 && mt2.mipmapLevelCount == 10);
++        finish();
++        mtl_tex_release(&t2);
++    }
++
++    mtl_tex_release(&t);
++    mtl_drain();
++    mtl_alias_drop_pool(&pool);
++    nvn_dirty_remove_range(mem);
++    mtl_pool_del(mem);
++    mtl_drain();
++    free(mem);
++    g_bc_cpu = 0;
++}
++
++static void cpu_written_without_layout(void) {
++    // Games that upload compressed textures through a CPU-visible pool without setting a packaged layout
++    // (tex_cpu_content -> mtl_tex_cpu_written) must also participate in mip-skipping.
++    nvn_mip_skip_teardown();
++    set_mode("1");
++    g_bc_cpu = 0;
++
++    static uint64_t serial = 960000;
++    tex_t t = {.magic = MAGIC('T', 'E', 'X', 0), .serial = serial++, .has_layout = 0};
++    t.d = (nvn_texdesc){.target = NVN_TEXTURE_TARGET_2D, .format = 0x41, .width = 512, .height = 512, .depth = 1, .levels = 10, .samples = 1};
++    nvn_tex_layout(&t.d, &t.L);
++    size_t poolsize = (t.L.size + 4096 + (size_t)getpagesize() - 1) & ~((size_t)getpagesize() - 1);
++    void *mem = NULL;
++    if (posix_memalign(&mem, (size_t)getpagesize(), poolsize)) abort();
++    memset(mem, 0, poolsize);
++    pool_t pool = {.magic = MAGIC('P', 'O', 'O', 'L'), .mem = mem, .size = poolsize,
++                   .flags = NVN_MEMORY_POOL_FLAGS_CPU_UNCACHED | NVN_MEMORY_POOL_FLAGS_GPU_CACHED};
++    t.pool = &pool;
++    t.mem = (uint8_t *)mem + 4096;
++    mtl_pool_add(mem, poolsize);
++    nvn_dirty_add_range(mem, poolsize);
++    fill_bc1_levels(&t, mem, poolsize);
++
++    mtl_sub_begin();
++    id<MTLTexture> mt = tex_mtl(&t);
++    CHECK("cpu-written compressed texture skips top mip", mt && mt.width == 256 && mt.height == 256 && mt.mipmapLevelCount == 9);
++    CHECK("cpu-written compressed texture has level shift 1", mt && tex_level_shift(&t, mt) == 1);
++    finish();
++
++    mtl_tex_release(&t);
++    mtl_drain();
++    mtl_alias_drop_pool(&pool);
++    nvn_dirty_remove_range(mem);
++    mtl_pool_del(mem);
++    mtl_drain();
++    free(mem);
++}
++
++int main(void) { @autoreleasepool {
++    mtl_init();
++    policy_tests();
++    upload_views_and_harden(0, 0);
++    upload_views_and_harden(1, 0);
++    upload_views_and_harden(2, 0);
++    upload_views_and_harden(1, 1);   // CPU BC decode path (iOS without hardware BC)
++    cpu_written_without_layout();
++    nvn_mip_skip_teardown();
++    uint64_t s_up = 9, s_hard = 9, s_saved = 9;
++    nvn_mip_skip_stats(&s_up, &s_hard, &s_saved);
++    CHECK("teardown clears counters", s_up == 0 && s_hard == 0 && s_saved == 0);
++    CHECK("teardown clears hardened set", g_nvn_mip_skip_hardened.count == 0 && g_nvn_mip_skip_hardened.keys == NULL);
++    printf("mip-skip: %d checks, %d failed\n", checks, failed);
++    return failed != 0;
++} }
+diff --git a/dm/ios/tests/launcher_storage_check.swift b/dm/ios/tests/launcher_storage_check.swift
+index e3a38a1..8bf78df 100644
+--- a/dm/ios/tests/launcher_storage_check.swift
++++ b/dm/ios/tests/launcher_storage_check.swift
+@@ -65,7 +65,7 @@ import Foundation
+         setenv("DM_ENV_FILE_KEYS", "", 1); unsetenv("DM_FULLSCREEN"); unsetenv("DM_OPMODE")
+         let mm = LauncherModel(mac.settings, defaults: d)
+         expect(mm.sections(basic: true) == ["Game", "Controls"] && mm.sections(basic: false) == ["Game", "Controls", "Performance"], "Basic and Advanced keep the list's sections")
+-        expect(mm.rows(in: "Game", basic: true).map(\.env) == ["DM_FPS_TARGET", "DM_RENDER_SCALE", "DM_OPMODE", "DM_LANG", "DM_FULLSCREEN"], "Basic rows in the list's order")
++        expect(mm.rows(in: "Game", basic: true).map(\.env) == ["DM_NVN_TEX_MIP_SKIP", "DM_FPS_TARGET", "DM_RENDER_SCALE", "DM_OPMODE", "DM_LANG", "DM_FULLSCREEN"], "Basic rows in the list's order")
+         expect(!file.settings.contains { $0.env == "DM_FULLSCREEN" } && mm.values["DM_FULLSCREEN"] == "0", "Display mode is the Mac's, Window by default")
+         mm.values["DM_FULLSCREEN"] = "1"; mm.apply()
+         expect(String(cString: getenv("DM_FULLSCREEN")) == "1" && d.string(forKey: "launcher.DM_FULLSCREEN") == "1", "Fullscreen goes into the environment and is saved")
+diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
+index 03d7a4b..8697e29 100644
+--- a/dm/tools/tests/test_launcher_settings.py
++++ b/dm/tools/tests/test_launcher_settings.py
+@@ -145,7 +145,7 @@ class LauncherSettingsTests(unittest.TestCase):
+             listed = settings.build(BOTW, tmp, Path(tmp) / 'control.nacp')
+         rows = {s['env']: s for s in listed['settings']}
+         self.assertEqual(listed['schema'], 1)
+-        self.assertEqual([e for e, s in rows.items() if s.get('level') == 'basic'], ['DM_FPS_TARGET', 'DM_RENDER_SCALE', 'DM_OPMODE', 'DM_LANG', 'DM_RUMBLE'])
++        self.assertEqual([e for e, s in rows.items() if s.get('level') == 'basic'], ['DM_NVN_TEX_MIP_SKIP', 'DM_FPS_TARGET', 'DM_RENDER_SCALE', 'DM_OPMODE', 'DM_LANG', 'DM_RUMBLE'])
+         self.assertEqual(rows['DM_RUMBLE_GAIN']['needs'], 'DM_RUMBLE=1')
+         self.assertFalse({'level', 'needs'} & set(rows['DM_METAL_HUD']), 'a row without meta has no optional fields')
+ 
