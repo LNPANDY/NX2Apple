@@ -82,3 +82,18 @@ public func localizeEngineLaunchError(_ raw: String) -> String {
         return raw
     }
 }
+
+/// Localized copy for the iOS in-game controller disconnect auto-pause overlay.
+public struct ControllerDisconnectOverlayStrings: Equatable, Sendable {
+    public let title: String
+    public let message: String
+    public let resumeTitle: String
+
+    public static func localized() -> ControllerDisconnectOverlayStrings {
+        ControllerDisconnectOverlayStrings(
+            title: hostText("Controller Disconnected"),
+            message: hostText("Game paused. Reconnect your controller or tap Resume to continue with touch controls."),
+            resumeTitle: hostText("Resume")
+        )
+    }
+}

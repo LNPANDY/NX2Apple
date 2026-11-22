@@ -6,7 +6,11 @@
 // framework's dm_glue_present_game(), which shows front_ios.m's game view and starts dm_main on the big-stack thread.
 // When the player quits from the in-game prompt, dm_shell_return_to_library() restores the framework's writable data segments and returns the window to the library.
 #import <UIKit/UIKit.h>
+@import GameController;
 #include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#include <os/proc.h>
+#endif
 #include <arpa/inet.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -49,6 +53,240 @@ static const void *g_active_fbase;
 static DmFwSnap g_fw_snaps[64];
 static int g_nfw_snaps;
 static int g_boot_ok;
+
+// Orthogonal foreground/background and Bluetooth controller disconnect auto-pause state (main thread only).
+// g_engine_level tracks the exact focus tier already delivered to front_ios.m: 0 = active, 1 = resigned, 2 = suspended.
+static int g_app_resigned;
+static int g_app_bg;
+static int g_engine_level;
+static int g_had_pad;
+static int g_dc_paused;
+static int g_dc_enabled = 1;
+static uint64_t g_dc_gen;
+static id g_dc_conn_obs;
+static id g_dc_disc_obs;
+static UIView *g_dc_overlay;
+
+static void shell_sync_focus(void) {
+    if (!g_boot_ok || !g_focus) return;
+    int want = (g_dc_paused || g_app_bg) ? 2 : (g_app_resigned ? 1 : 0);
+    if (g_engine_level < want) {
+        if (g_engine_level == 0 && want >= 1) { g_focus(0); g_engine_level = 1; }
+        if (g_engine_level == 1 && want >= 2) { g_focus(1); g_engine_level = 2; }
+    } else if (g_engine_level > want) {
+        if (g_engine_level == 2 && want <= 1) { g_focus(2); g_engine_level = 1; }
+        if (g_engine_level == 1 && want <= 0) { g_focus(3); g_engine_level = 0; }
+    }
+}
+
+static UIWindow *shell_key_window(void) {
+    UIWindow *window = nil;
+    for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
+        if ([s isKindOfClass:UIWindowScene.class]) {
+            for (UIWindow *w in ((UIWindowScene *)s).windows) {
+                if (w.isKeyWindow || !window) window = w;
+            }
+        }
+    }
+    return window;
+}
+
+static int is_physical_pad(GCController *c) {
+    return c && (c.extendedGamepad != nil || c.microGamepad != nil);
+}
+
+static int active_physical_pad_count(GCController *including, GCController *excluding) {
+    int count = 0;
+    int saw_including = 0;
+    for (GCController *c in GCController.controllers) {
+        if (excluding && c == excluding) continue;
+        if (is_physical_pad(c)) count++;
+        if (including && c == including) saw_including = 1;
+    }
+    if (including && !saw_including && including != excluding && is_physical_pad(including)) count++;
+    return count;
+}
+
+static void dc_remove_overlay(void) {
+    if (!g_dc_overlay) return;
+    UIView *overlay = g_dc_overlay;
+    g_dc_overlay = nil;
+    [overlay removeFromSuperview];
+}
+
+static void dc_resume_game(const char *why) {
+    if (!g_dc_paused) return;
+    g_dc_paused = 0;
+    g_dc_gen++;
+    dc_remove_overlay();
+    fprintf(stderr, "shell: controller disconnect pause ended (%s)\n", why);
+    shell_sync_focus();
+}
+
+static void dc_show_overlay(void) {
+    dc_remove_overlay();
+    UIWindow *window = shell_key_window();
+    if (!window) return;
+
+    UIView *scrim = [[UIView alloc] initWithFrame:window.bounds];
+    scrim.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    scrim.backgroundColor = [UIColor colorWithWhite:0 alpha:0.62];
+    scrim.alpha = 0;
+
+    UIBlurEffect *blur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterialDark];
+    UIVisualEffectView *card = [[UIVisualEffectView alloc] initWithEffect:blur];
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    card.layer.cornerRadius = 24;
+    card.layer.masksToBounds = YES;
+    card.layer.borderWidth = 1;
+    card.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.14].CGColor;
+
+    UIImageSymbolConfiguration *iconCfg = [UIImageSymbolConfiguration configurationWithPointSize:34 weight:UIImageSymbolWeightMedium];
+    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"gamecontroller.fill" withConfiguration:iconCfg]];
+    icon.tintColor = [UIColor colorWithWhite:1 alpha:0.92];
+    icon.contentMode = UIViewContentModeScaleAspectFit;
+
+    UILabel *title = [UILabel new];
+    title.text = [ShellRuntimeBridge controllerDisconnectTitle];
+    title.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
+    title.textColor = UIColor.whiteColor;
+    title.textAlignment = NSTextAlignmentCenter;
+    title.numberOfLines = 2;
+
+    UILabel *message = [UILabel new];
+    message.text = [ShellRuntimeBridge controllerDisconnectMessage];
+    message.font = [UIFont systemFontOfSize:14 weight:UIFontWeightRegular];
+    message.textColor = [UIColor colorWithWhite:1 alpha:0.78];
+    message.textAlignment = NSTextAlignmentCenter;
+    message.numberOfLines = 0;
+
+    UIButtonConfiguration *btnCfg = [UIButtonConfiguration filledButtonConfiguration];
+    btnCfg.title = [ShellRuntimeBridge controllerDisconnectResumeTitle];
+    btnCfg.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    btnCfg.baseBackgroundColor = [UIColor colorWithRed:0.96 green:0.93 blue:0.86 alpha:1.0];
+    btnCfg.baseForegroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
+    btnCfg.contentInsets = NSDirectionalEdgeInsetsMake(12, 28, 12, 28);
+    UIButton *resumeBtn = [UIButton buttonWithConfiguration:btnCfg primaryAction:[UIAction actionWithHandler:^(__kindof UIAction *action) {
+        (void)action;
+        dc_resume_game("Resume tapped");
+    }]];
+    resumeBtn.translatesAutoresizingMaskIntoConstraints = NO;
+
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[icon, title, message, resumeBtn]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.alignment = UIStackViewAlignmentCenter;
+    stack.spacing = 12;
+    [stack setCustomSpacing:18 afterView:message];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+
+    [card.contentView addSubview:stack];
+    [scrim addSubview:card];
+    [window addSubview:scrim];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [card.centerXAnchor constraintEqualToAnchor:scrim.centerXAnchor],
+        [card.centerYAnchor constraintEqualToAnchor:scrim.centerYAnchor],
+        [card.widthAnchor constraintLessThanOrEqualToConstant:360],
+        [card.leadingAnchor constraintGreaterThanOrEqualToAnchor:scrim.safeAreaLayoutGuide.leadingAnchor constant:24],
+        [card.trailingAnchor constraintLessThanOrEqualToAnchor:scrim.safeAreaLayoutGuide.trailingAnchor constant:-24],
+        [stack.topAnchor constraintEqualToAnchor:card.contentView.topAnchor constant:24],
+        [stack.bottomAnchor constraintEqualToAnchor:card.contentView.bottomAnchor constant:-24],
+        [stack.leadingAnchor constraintEqualToAnchor:card.contentView.leadingAnchor constant:24],
+        [stack.trailingAnchor constraintEqualToAnchor:card.contentView.trailingAnchor constant:-24],
+        [resumeBtn.widthAnchor constraintGreaterThanOrEqualToConstant:160],
+    ]];
+
+    g_dc_overlay = scrim;
+    [UIView animateWithDuration:0.18 animations:^{ scrim.alpha = 1; }];
+}
+
+static void dc_teardown(void) {
+    NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+    if (g_dc_conn_obs) { [nc removeObserver:g_dc_conn_obs]; g_dc_conn_obs = nil; }
+    if (g_dc_disc_obs) { [nc removeObserver:g_dc_disc_obs]; g_dc_disc_obs = nil; }
+    g_dc_gen++;
+    g_dc_paused = 0;
+    g_had_pad = 0;
+    dc_remove_overlay();
+}
+
+static void dc_arm_observers(void) {
+    dc_teardown();
+    const char *env = getenv("DM_DISCONNECT_PAUSE");
+    g_dc_enabled = !(env && !strcmp(env, "0"));
+    if (!g_dc_enabled) {
+        fprintf(stderr, "shell: controller disconnect auto-pause disabled (DM_DISCONNECT_PAUSE=0)\n");
+        return;
+    }
+    g_had_pad = active_physical_pad_count(nil, nil) > 0 ? 1 : 0;
+    NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+    g_dc_conn_obs = [nc addObserverForName:GCControllerDidConnectNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+        if (!g_boot_ok) return;
+        GCController *joined = [n.object isKindOfClass:GCController.class] ? (GCController *)n.object : nil;
+        if (active_physical_pad_count(joined, nil) <= 0) return;
+        g_had_pad = 1;
+        g_dc_gen++;
+        if (g_dc_paused) dc_resume_game("controller reconnected");
+    }];
+    g_dc_disc_obs = [nc addObserverForName:GCControllerDidDisconnectNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+        if (!g_boot_ok || !g_dc_enabled || !g_had_pad || g_dc_paused) return;
+        GCController *gone = [n.object isKindOfClass:GCController.class] ? (GCController *)n.object : nil;
+        if (active_physical_pad_count(nil, gone) > 0) return;
+        uint64_t gen = ++g_dc_gen;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (gen != g_dc_gen || !g_boot_ok || g_app_bg || g_app_resigned || g_dc_paused) return;
+            if (active_physical_pad_count(nil, nil) > 0) return;
+            g_dc_paused = 1;
+            fprintf(stderr, "shell: all physical controllers disconnected for 3 s, pausing game\n");
+            shell_sync_focus();
+            dc_show_overlay();
+        });
+    }];
+}
+
+void dm_shell_purge_memory(int limit_mb) {
+#if TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    if (limit_mb <= 0) return;
+    const size_t reserve_bytes = 1200ULL * 1024ULL * 1024ULL;
+    const size_t chunk_bytes = 64ULL * 1024ULL * 1024ULL;
+    const size_t max_chunks = 128;
+    size_t want_chunks = ((size_t)limit_mb * 1024ULL * 1024ULL) / chunk_bytes;
+    if (want_chunks > max_chunks) want_chunks = max_chunks;
+    if (want_chunks == 0) return;
+
+    size_t before = os_proc_available_memory();
+    if (before <= reserve_bytes + chunk_bytes) {
+        fprintf(stderr, "shell: memory purge skipped (available %zu MB <= 1264 MB headroom)\n", before >> 20);
+        return;
+    }
+
+    void *chunks[128];
+    size_t nchunks = 0;
+    uint64_t seed = 0x9e3779b97f4a7c15ULL ^ (uint64_t)before ^ (uint64_t)(uintptr_t)&chunks;
+    while (nchunks < want_chunks) {
+        size_t avail = os_proc_available_memory();
+        if (avail <= reserve_bytes + chunk_bytes) break;
+        void *p = mmap(NULL, chunk_bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+        if (p == MAP_FAILED) break;
+        uint64_t *w = (uint64_t *)p;
+        size_t nwords = chunk_bytes / sizeof(uint64_t);
+        for (size_t i = 0; i < nwords; i++) {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            w[i] = seed;
+        }
+        chunks[nchunks++] = p;
+        if (os_proc_available_memory() <= reserve_bytes) break;
+    }
+    for (size_t i = 0; i < nchunks; i++) munmap(chunks[i], chunk_bytes);
+    size_t after = os_proc_available_memory();
+    fprintf(stderr, "shell: memory purge reclaimed with %zu MB touched (%zu chunks), available %zu MB -> %zu MB\n",
+            (nchunks * chunk_bytes) >> 20, nchunks, before >> 20, after >> 20);
+#else
+    (void)limit_mb;
+#endif
+}
 
 static NSString *documents(void) { return NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0]; }
 
@@ -105,6 +343,8 @@ static void restore_framework_data(const void *fbase) {
 __attribute__((used, visibility("default")))
 void dm_shell_return_to_library(void) {
     dispatch_block_t work = ^{
+        dc_teardown();
+        [ShellRuntimeBridge didReturnToLibrary];
         char finished_exe[1024];
         strlcpy(finished_exe, g_active_exe, sizeof finished_exe);
         const void *fbase = g_active_fbase;
@@ -114,10 +354,9 @@ void dm_shell_return_to_library(void) {
         g_focus = NULL;
         g_present = NULL;
         g_boot_ok = 0;
+        g_engine_level = 0;
         if (fbase) restore_framework_data(fbase);
-        UIWindow *window = nil;
-        for (UIScene *s in UIApplication.sharedApplication.connectedScenes)
-            if ([s isKindOfClass:UIWindowScene.class]) for (UIWindow *w in ((UIWindowScene *)s).windows) if (w.isKeyWindow || !window) window = w;
+        UIWindow *window = shell_key_window();
         if (window && g_library_vc) {
             window.traitOverrides.preferredContentSizeCategory = UIContentSizeCategoryUnspecified;
             window.rootViewController = g_library_vc;
@@ -348,11 +587,12 @@ const char *dm_shell_start_game(const char *const *keys, const char *const *valu
 }
 
 void dm_shell_present_game(void) {
-    UIWindow *window = nil;
-    for (UIScene *s in UIApplication.sharedApplication.connectedScenes)
-        if ([s isKindOfClass:UIWindowScene.class]) for (UIWindow *w in ((UIWindowScene *)s).windows) if (w.isKeyWindow || !window) window = w;
+    UIWindow *window = shell_key_window();
     if (!window || !g_present) { fprintf(stderr, "[RED] shell: no window for the game view\n"); return; }
+    g_engine_level = 0;
     g_present((__bridge void *)window);
+    dc_arm_observers();
+    shell_sync_focus();
 }
 
 const char *dm_shell_active_game_id(void) {
@@ -420,11 +660,11 @@ static NSURL *shell_pick_launch_url(NSSet<UIOpenURLContext *> *contexts) {
         if (ctx.URL && [ShellLibrary handleOpenURL:ctx.URL]) break;
     }
 }
-// Forwarded to the running game framework's front_ios.m once a game has started
-- (void)sceneWillResignActive:(UIScene *)s { (void)s; if (g_focus) g_focus(0); }
-- (void)sceneDidEnterBackground:(UIScene *)s { (void)s; if (g_focus) g_focus(1); }
-- (void)sceneWillEnterForeground:(UIScene *)s { (void)s; if (g_focus) g_focus(2); }
-- (void)sceneDidBecomeActive:(UIScene *)s { (void)s; if (g_focus) g_focus(3); }
+// Forwarded to the running game framework's front_ios.m once a game has started; orthogonal to controller-disconnect pause.
+- (void)sceneWillResignActive:(UIScene *)s { (void)s; g_app_resigned = 1; shell_sync_focus(); }
+- (void)sceneDidEnterBackground:(UIScene *)s { (void)s; g_app_bg = 1; shell_sync_focus(); }
+- (void)sceneWillEnterForeground:(UIScene *)s { (void)s; g_app_bg = 0; shell_sync_focus(); }
+- (void)sceneDidBecomeActive:(UIScene *)s { (void)s; g_app_resigned = 0; shell_sync_focus(); }
 @end
 
 // The performance HUD (the per-game setting DM_METAL_HUD) needs MTL_HUD_ENABLED in the environment before Metal starts in this

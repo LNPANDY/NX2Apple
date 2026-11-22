@@ -1473,6 +1473,70 @@
         }
       }
     },
+    "Controller Disconnected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controller getrennt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controller Disconnected"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mando desconectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manette déconnectée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controller disconnesso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントローラーが切断されました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨트롤러 연결 끊김"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controle desconectado"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handkontroll frånkopplad"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手柄已断开"
+          }
+        }
+      }
+    },
     "Controller layout": {
       "localizations": {
         "de": {
@@ -2045,6 +2109,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "游戏清单缺失"
+          }
+        }
+      }
+    },
+    "Game paused. Reconnect your controller or tap Resume to continue with touch controls.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiel pausiert. Verbinde deinen Controller erneut oder tippe auf Fortsetzen, um per Touch weiterzuspielen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Game paused. Reconnect your controller or tap Resume to continue with touch controls."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Juego en pausa. Vuelve a conectar el mando o pulsa Reanudar para seguir con controles táctiles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeu en pause. Reconnectez votre manette ou touchez Reprendre pour continuer en mode tactile."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gioco in pausa. Riconnetti il controller o tocca Riprendi per continuare con i controlli touch."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームを一時停止しました。コントローラーを再接続するか、「再開」をタップしてタッチ操作で続行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임이 일시 정지되었습니다. 컨트롤러를 다시 연결하거나 계속하기를 탭해 터치 조작으로 진행하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jogo pausado. Reconecte o controle ou toque em Retomar para continuar nos controles por toque."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelet är pausat. Återanslut handkontrollen eller tryck på Återuppta för att fortsätta med pekkontroller."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏已自动暂停。请重新连接蓝牙手柄，或点击「继续游戏」切换触屏继续。"
           }
         }
       }
@@ -3645,6 +3773,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "已恢复 %@ 的存档备份，恢复前的存档也已先行备份。"
+          }
+        }
+      }
+    },
+    "Resume": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanudar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprendre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprendi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계속하기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retomar"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Återuppta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续游戏"
           }
         }
       }

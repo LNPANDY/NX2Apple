@@ -9,6 +9,8 @@
 const char *dm_shell_start_game(const char *const *keys, const char *const *values, int n, const char *const *argv, int argc,
                                 const char *executable, const char *marker, const char *log_path, const char *cwd,
                                 const char *game_id);
+// Runs off the main thread before loading a game framework to push compressed background apps out of physical RAM while preserving headroom.
+void dm_shell_purge_memory(int limit_mb);
 // After a successful start: the window shows front_ios.m's game view, which starts the game.
 void dm_shell_present_game(void);
 // Title ID of the currently running game, or NULL when back in the library.

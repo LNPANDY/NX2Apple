@@ -31,6 +31,28 @@ struct EngineGameLauncher: GameLauncher {
             throw Failure.engine(refusal)
         }
         try plan.createFolders()
+        let purgeLimitMB: Int32 = {
+            if let raw = plan.environment["DM_MEM_PURGE_MB"], let parsed = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return max(0, parsed)
+            }
+            return 4096
+        }()
+        let cheatsDir = plan.gameDirectory.appendingPathComponent("cheats", isDirectory: true)
+        let buildID = CheatFuseGuard.buildID(frameworkURL: game.frameworkURL)
+        await Task.detached(priority: .userInitiated) {
+            if purgeLimitMB > 0 {
+                dm_shell_purge_memory(purgeLimitMB)
+            }
+        }.value
+        let fuseOutcome = ShellRuntimeBridge.cheatFuseSession.beginSession(
+            titleID: game.titleID,
+            cheatsFolder: cheatsDir,
+            buildID: buildID
+        )
+        if let tripped = fuseOutcome.tripped {
+            let what = tripped.disabledMaster ? "master switch" : tripped.disabled.joined(separator: ", ")
+            fputs("shell: cheat crash guard tripped for \(game.titleID) (\(tripped.buildID)): disabled \(what)\n", stderr)
+        }
         let pairs = plan.environment.sorted { $0.key < $1.key }
         let failure = withCStrings(pairs.map(\.key)) { keys in
             withCStrings(pairs.map(\.value)) { values in
@@ -40,7 +62,10 @@ struct EngineGameLauncher: GameLauncher {
                 }
             }
         }
-        if let failure { throw Failure.engine(localizeEngineLaunchError(String(cString: failure))) }
+        if let failure {
+            ShellRuntimeBridge.cheatFuseSession.abortBeforeRun()
+            throw Failure.engine(localizeEngineLaunchError(String(cString: failure)))
+        }
         dm_shell_present_game()
     }
 }
@@ -113,5 +138,26 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
         guard DeepLinkRouter.isLaunchURL(url) else { return false }
         pendingOpenURL = url
         return true
+    }
+}
+
+/// Objective-C bridge for ShellMain.m: localized disconnect-pause labels and 30 s cheat fuse teardown.
+@objc(ShellRuntimeBridge) final class ShellRuntimeBridge: NSObject {
+    static let cheatFuseSession = CheatFuseSession()
+
+    @objc static func controllerDisconnectTitle() -> String {
+        ControllerDisconnectOverlayStrings.localized().title
+    }
+
+    @objc static func controllerDisconnectMessage() -> String {
+        ControllerDisconnectOverlayStrings.localized().message
+    }
+
+    @objc static func controllerDisconnectResumeTitle() -> String {
+        ControllerDisconnectOverlayStrings.localized().resumeTitle
+    }
+
+    @objc static func didReturnToLibrary() {
+        cheatFuseSession.endSessionCleanly()
     }
 }
