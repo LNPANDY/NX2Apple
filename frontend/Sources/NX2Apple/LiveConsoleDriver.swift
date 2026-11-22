@@ -217,12 +217,20 @@ struct ConsolePadSnapshot: Equatable {
         let store = SavedChoices(app: game.appPath, titleID: game.titleID)
         var values: [String: String] = [:]
         for s in settings { values[s.env] = s.storeBacked ? store.current(s) : game.launchValue(s) }
-        return withHistory(of: game, ConsoleGame(id: game.id.uuidString, title: game.displayName(lang()), version: version(of: game),
-                           platforms: Self.platforms(of: game), artwork: cover(game), artworkFocus: game.artwork.focus(for: .thumbnail),
-                           status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values,
-                           mapsButtons: game.isReady && SavedChoices.appReadsControllerMappings(app: game.appPath)
-                               && game.controllerSavingEnabled(environment: game.launchOptions),
-                           isMacNativeGames: game.playableMacBundle?.upstream == .macNativeGames))
+        var console = ConsoleGame(id: game.id.uuidString, title: game.displayName(lang()), version: version(of: game),
+                                  platforms: Self.platforms(of: game), artwork: cover(game), artworkFocus: game.artwork.focus(for: .thumbnail),
+                                  status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values,
+                                  mapsButtons: game.isReady && SavedChoices.appReadsControllerMappings(app: game.appPath)
+                                      && game.controllerSavingEnabled(environment: game.launchOptions),
+                                  isMacNativeGames: game.playableMacBundle?.upstream == .macNativeGames)
+        // built by nxkit without a game profile (v0lumehi/nxkit#54): read here, the views never touch the file
+        if game.isReady, let app = game.playableMacBundle, app.upstream == .nxkit, let profile = NxkitBuildProfile.read(app: game.appPath) {
+            console.genericBuild = profile
+            console.genericReport = NxkitFeedback.genericBuildReportURL(gameName: game.displayName(lang()), titleID: game.titleID,
+                                                                        gameVersion: app.version ?? "",
+                                                                        nxkitVersion: profile.nxkitVersion ?? nxkitVersion(game.titleID) ?? "")
+        }
+        return withHistory(of: game, console)
     }
 
     /// The library's game behind a console game (LiveConsoleDriver+Mapping.swift reads its own button mapping).
@@ -542,6 +550,10 @@ struct ConsolePadSnapshot: Equatable {
     weak var builds: BuildStore?
     weak var buildQueue: BuildQueueStore?
     var buildEngineID: () -> String = { "" }
+    /// The nxkit version that built a game, by title id (BuildStore.nxkitRecord), for the report of a build without a game profile.
+    var nxkitVersion: (String) -> String? = { _ in nil }
+    /// Opens a page in the browser (the report of a build without a game profile). Tests replace it.
+    var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
     /// Controllers that have no player take the next free one, in the order they are listed, as a console does. A fifth has none.
     static func autoAssigned(_ pads: [ConsolePadSnapshot], remembered: [String: Int] = [:]) -> [ConsolePadSnapshot] {

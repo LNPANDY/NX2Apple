@@ -81,6 +81,19 @@ extension GalleryFixtures {
             build.stages = [Stage(id: 1, name: "Extract", state: .done), Stage(id: 2, name: "Shaders", state: .failed, detail: "exit code 1")]
             build.nxkitFeedback = prompt(.failed, exit: 1)
             return launcher(.builds, 1, .general)
+        case .nxkitGeneric:   // the hero of a game nxkit built without a game profile (v0lumehi/nxkit#54), already answered
+            let id = makeNxkitApp(for: 0, in: library)
+            if let app = library.games.first(where: { $0.id == id })?.appPath {
+                try? Data(#"{"schema":1,"settings":[],"build":{"profile":"generic","engine":"unreal","graphics":"vulkan","evidence":["UnrealEngine"],"nxkit_version":"0.10.3"}}"#.utf8)
+                    .write(to: NxkitBuildProfile.listURL(app: app))
+            }
+            var records = build.nxkitRecords
+            let buildID = "gallery-" + UUID().uuidString
+            records[game.titleID.uppercased()] = NxkitBuildRecord(version: "0.10.3", hostBuild: "e01c6312144767845a60021bc69fb597",
+                                                                  buildID: buildID, date: Date(timeIntervalSince1970: 1_789_000_000))
+            build.nxkitRecords = records
+            build.markNxkitFeedbackAsked(buildID + "." + NxkitFeedbackPrompt.Moment.firstLaunch.rawValue)
+            return launcher(.library, 0, .general)
         default:   // .nxkitLibrary: the hero of a game nxkit built, after its first start
             _ = makeNxkitApp(for: 0, in: library)
             var records = build.nxkitRecords

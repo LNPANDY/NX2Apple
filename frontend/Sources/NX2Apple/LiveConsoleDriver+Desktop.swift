@@ -155,6 +155,12 @@ extension LiveConsoleDriver {
         state.exitToDesktop()
     }
 
+    /// Report for a game nxkit built without a game profile: the prefilled issue in the browser, nothing is sent by itself.
+    func openGenericBuildReport(_ gameID: String) {
+        guard let url = state.games.first(where: { $0.id == gameID })?.genericReport else { return }
+        openURL(url)
+    }
+
     // MARK: The launcher's switches
 
     func setPref(_ pref: ConsolePref, on: Bool) {

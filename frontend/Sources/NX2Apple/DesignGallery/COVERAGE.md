@@ -4,9 +4,9 @@ Written by `GalleryCoverageTests` from `GalleryCoverage.swift`: every View type 
 popover and alert, every notice and every case of the state enums the views switch on, with the gallery's scenes
 (`GalleryScene.id`) that show it, or the reason none can. After a change:
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
-331 scenes.
+332 scenes.
 
-## Views: 223 of 233 in a scene
+## Views: 224 of 234 in a scene
 
 | View | Scenes |
 |---|---|
@@ -197,6 +197,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `MissingImgGuideSheet` | `imgGuide` |
 | `MissingToolRow` | `desktop-missingTool` |
 | `NxkitFeedbackRow` | `nxkitFinished`, `nxkitLibrary` |
+| `NxkitGenericBuildRow` | `nxkitGeneric` |
 | `OnboardingCheck` | `onboarding-done` |
 | `OnboardingDemoHost` | `onboarding-fresh` |
 | `OnboardingDropZone` | `onboarding-gamesEmpty` |

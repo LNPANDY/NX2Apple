@@ -38,6 +38,8 @@ final class LibraryArtworkStateCache {
         let sourceFolder: String
         let titleID: String
         let building: Bool
+        /// nxkit's launcher.json (its date and size): a rebuild into the same app path changes the No game profile tag.
+        let nxkitList: NxkitBuildProfile.Stamp?
 
         init(_ game: LibraryGame, building: Bool) {
             appPath = game.appPath
@@ -52,6 +54,7 @@ final class LibraryArtworkStateCache {
             sourceFolder = game.sourceFolder
             titleID = game.titleID
             self.building = building
+            nxkitList = NxkitBuildProfile.stamp(app: game.appPath)
         }
     }
 
@@ -93,6 +96,8 @@ struct LibraryArtworkState: Equatable {
     let attention: Attention
     let macUpstream: EngineUpstreamKind?
     var isMacNativeGames: Bool { mac && macUpstream == .macNativeGames }
+    /// nxkit built the Mac app without a game profile (NxkitBuildProfile, v0lumehi/nxkit#54): the card says so in a quiet tag.
+    var isNxkitGeneric = false
     /// The art is dimmed a little, never grey (#1458): the chip says why.
     var monochrome: Bool { attention != .none }
     var chipKey: String? {
@@ -132,6 +137,7 @@ struct LibraryArtworkState: Equatable {
             catch { mac = false }
         }
         macUpstream = detectedUpstream
+        isNxkitGeneric = detectedUpstream == .nxkit && NxkitBuildProfile.read(app: game.appPath) != nil
         ios = game.hasIOSBuild
         if mac { attention = .none }
         else if building { attention = .building }

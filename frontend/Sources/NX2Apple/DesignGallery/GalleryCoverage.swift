@@ -54,7 +54,7 @@ enum GalleryCoverage {
         "LauncherNotice": [.buildsSetupHint], "DSSpinner": [.libraryEngineSyncing], "EngineSyncBanner": [.libraryNoticeError, .settingsEngineError],
         "ManageMenuPanel": [.desktop(D.manageMenu), .desktop(D.manageMenuPad)], "ArtworkPanel": [.desktop(D.artworkHero), .desktop(D.artworkThumbnail)],
         "SkeletonTile": [.desktop(D.artworkLoading)], "ConsoleConnectionPrompt": [.desktop(D.consolePrompt)],
-        "ConsoleToastView": [.desktop(D.controllerToast), .console(C.homeToast)], "NxkitFeedbackRow": [.nxkitFinished, .nxkitLibrary],
+        "ConsoleToastView": [.desktop(D.controllerToast), .console(C.homeToast)], "NxkitFeedbackRow": [.nxkitFinished, .nxkitLibrary], "NxkitGenericBuildRow": [.nxkitGeneric],
         "BuildActivityFooter": [.buildsRunning, .desktop(D.footerExporting)], "BuildProgressRevealMask": [.buildsRunning, .motion(.iconReveal)],
         "BuildCompletionTimerStroke": [.desktop(D.buildJustFinished), .motion(.buildFinishing)], "LauncherWordmark": [.onboarding(.fresh)],
         // the build page

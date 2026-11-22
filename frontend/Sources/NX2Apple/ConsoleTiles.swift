@@ -58,8 +58,12 @@ struct ConsoleGameTile: View {
     var launchNamespace: Namespace.ID? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var artworkState: LibraryArtworkState { LibraryArtworkState(game) }
+    /// nxkit built it without a game profile (v0lumehi/nxkit#54): a quiet neutral chip, before Different tools, since the game may not
+    /// start at all.
+    private var generic: Bool { !paused && game.status == .ready && game.genericBuild != nil }
     private var badgeKey: String? {
         if paused { return "console.paused" }
+        if generic { return "nxkit.generic.badge" }
         if game.status == .ready, game.olderTools { return "library.olderToolsShort" }
         return artworkState.chipKey
     }
@@ -76,9 +80,10 @@ struct ConsoleGameTile: View {
             .overlay(alignment: .topLeading) {
                 if let key = badgeKey {
                     ArtworkStatusChip(title: L10n.string(key, lang),
-                                      symbol: paused || game.olderTools ? nil : artworkState.symbol,
-                                      color: paused ? LauncherPalette.cream : (game.olderTools ? LauncherPalette.building : artworkState.color),
-                                      fontSize: compact ? 14 : 15)
+                                      symbol: paused || generic || game.olderTools ? nil : artworkState.symbol,
+                                      color: paused ? LauncherPalette.cream : (generic ? ArtworkStatusChip.neutralColor
+                                          : (game.olderTools ? LauncherPalette.building : artworkState.color)),
+                                      fontSize: compact ? 14 : 15, showsIndicator: !generic)
                         .padding(8)
                 }
             }

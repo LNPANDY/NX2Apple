@@ -61,6 +61,10 @@ struct ConsoleGame: Identifiable {
     var olderTools = false
     var isMacNativeGames = false
     var lastSave: Date?
+    /// nxkit built the app without a game profile (NxkitBuildProfile, v0lumehi/nxkit#54), read by the driver: the tile and the page say so.
+    var genericBuild: NxkitBuildProfile?
+    /// The prefilled report for such a build (NxkitFeedback.genericBuildReportURL), opened only when the player chooses Report.
+    var genericReport: URL?
 
     /// The console's order: the games this Mac can play first, then the rest, each group in the order it came in.
     static func readyFirst(_ games: [ConsoleGame]) -> [ConsoleGame] {
@@ -467,6 +471,8 @@ struct ConsoleState {
     func askResetOptions(_ gameID: String)
     func resetOptions(_ gameID: String)
     func openOnDesktop(_ gameID: String)
+    /// Report on the page of a game nxkit built without a game profile: its prefilled issue (ConsoleGame.genericReport) in the browser.
+    func openGenericBuildReport(_ gameID: String)
     func buildGame(_ gameID: String, queueOnly: Bool)
     /// A launcher switch (on the Library, Controllers or Settings page), and the app's update (checked, or asked about and then installed or restarted into).
     func setPref(_ pref: ConsolePref, on: Bool)
@@ -557,6 +563,7 @@ extension ConsoleDriver {
     func askResetOptions(_ gameID: String) {}
     func resetOptions(_ gameID: String) {}
     func openOnDesktop(_ gameID: String) { exitToDesktop() }
+    func openGenericBuildReport(_ gameID: String) {}
     func buildGame(_ gameID: String, queueOnly: Bool) {}
     func setPref(_ pref: ConsolePref, on: Bool) {}
     func appUpdateAction() {}

@@ -126,6 +126,27 @@ package enum NxkitFeedback {
         return URL(string: url) ?? URL(string: newIssueURL)!
     }
 
+    /// "Report" for an app nxkit built without a game profile (NxkitBuildProfile): the same issue form, prefilled only with what this
+    /// launcher knows, the title "[Game] <name>" as issueURL writes it. An empty value is left out, the player fills in the rest and the
+    /// result in the form.
+    package static func genericBuildReportURL(gameName: String, titleID: String, gameVersion: String, nxkitVersion: String,
+                                              macModel: String = NxkitFeedback.macModel,
+                                              macOSVersion: String = NxkitFeedback.macOSVersion,
+                                              home: String = NSHomeDirectory(), user: String = NSUserName()) -> URL {
+        let name = scrub(gameName, home: home, user: user)
+        let fields: [(String, String)] = [
+            (Field.template, Field.templateName),
+            (Field.title, name.isEmpty ? "" : "[Game] " + name),
+            (Field.titleID, titleID.uppercased()),
+            (Field.gameVersion, gameVersion),
+            (Field.nxkitVersion, nxkitVersion),
+            (Field.macModel, macModel),
+            (Field.macOSVersion, macOSVersion),
+        ].filter { !$0.1.isEmpty }
+        let url = newIssueURL + "?" + fields.map { $0.0 + "=" + encode($0.1) }.joined(separator: "&")
+        return URL(string: url) ?? URL(string: newIssueURL)!
+    }
+
     /// The new-issue URL. The log is cut from the top until the whole URL is under `maxURLLength`.
     package static func issueURL(_ r: Report, home: String = NSHomeDirectory(), user: String = NSUserName()) -> URL {
         let name = scrub(r.gameName, home: home, user: user)

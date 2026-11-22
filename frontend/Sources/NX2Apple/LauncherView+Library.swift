@@ -158,6 +158,11 @@ extension LauncherView {
                                 }
                             }
                             heroActions(game, compact: width < 760)
+                            if let generic = nxkitGenericBuild(game) {
+                                // built without a game profile (v0lumehi/nxkit#54): it may not start or render wrong, said every time
+                                NxkitGenericBuildRow(profile: generic.profile, reportURL: generic.report)
+                                    .frame(maxWidth: 620, alignment: .leading)
+                            }
                             if let prompt = nxkitLaunchPrompt(game) {
                                 // "Did it work?" after the first start of an app nxkit built, once (#1460)
                                 NxkitFeedbackRow(prompt: prompt) { m.markNxkitFeedbackAsked(prompt.id) }
@@ -207,6 +212,13 @@ extension LauncherView {
               let app = game.playableMacBundle, app.upstream == .nxkit else { return nil }
         return NxkitFeedbackPrompt(buildID: record.buildID, moment: .firstLaunch, titleID: game.titleID, gameName: game.displayName(loc.lang),
                                    gameVersion: app.version ?? "", nxkitVersion: record.version, engineBuild: record.hostBuild)
+    }
+
+    /// An app nxkit built without a game profile (NxkitBuildProfile), and its prefilled report: only what this launcher knows.
+    func nxkitGenericBuild(_ game: LibraryGame) -> (profile: NxkitBuildProfile, report: URL)? {
+        guard let app = game.playableMacBundle, app.upstream == .nxkit, let profile = NxkitBuildProfile.read(app: game.appPath) else { return nil }
+        return (profile, NxkitFeedback.genericBuildReportURL(gameName: game.displayName(loc.lang), titleID: game.titleID, gameVersion: app.version ?? "",
+                                                             nxkitVersion: profile.nxkitVersion ?? m.nxkitRecord(game.titleID)?.version ?? ""))
     }
 
     private func heroBadges(_ game: LibraryGame) -> some View {
@@ -308,6 +320,13 @@ extension LauncherView {
                 DSTag(loc.t("library.chip.mng"), emphasized: true)
                     .help(loc.t("library.mng.help"))
                     .accessibilityLabel(loc.t("library.mng.help"))
+            }
+            if game.playableMacBundle?.upstream == .nxkit, NxkitBuildProfile.read(app: game.appPath) != nil {
+                // built without a game profile (v0lumehi/nxkit#54): a quiet tag, the row under the actions says what it means
+                DSTag(loc.t("nxkit.generic.badge"), emphasized: true)
+                    .help(loc.t("nxkit.generic.help"))
+                    .accessibilityLabel(loc.t("nxkit.generic.help"))
+                    .accessibilityIdentifier("hero.nxkitGeneric")
             }
             if GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {   // #445
                 ArtworkStatusChip(title: loc.t("switch2.badge"), color: LauncherPalette.notice, showsIndicator: false)

@@ -233,7 +233,8 @@ enum ConsoleInput: Equatable {
     private func gameLine(_ game: ConsoleGame) -> String {
         let status = state.pausedGameID == game.id ? t("console.paused")
             : game.status == .ready && game.olderTools ? t("library.olderTools") : t(game.status.labelKey)
-        let engine = game.isMacNativeGames ? [t("library.chip.mng")] : []   // built with MacNativeGames
+        let engine = game.isMacNativeGames ? [t("library.chip.mng")]   // built with MacNativeGames
+            : game.genericBuild != nil ? [t("nxkit.generic.badge")] : []   // built by nxkit without a game profile
         let version = game.version.isEmpty ? [] : [String(format: t("console.version"), game.version)]
         return (game.platforms.map { t($0.labelKey) } + [status] + engine + version).joined(separator: " \u{00b7} ")
     }
