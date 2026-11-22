@@ -1213,6 +1213,7 @@
   "ios.host.shadersIncomplete": "该游戏的着色器文件（msl）不完整或仍在传输。请等待传输完成，或从 NX2Apple 重新发送游戏数据。",
   "ios.host.shadersVersionMismatch": "此游戏数据中的着色器文件与本 App 的版本不匹配。请从 NX2Apple 发送或复制更新后的游戏数据。",
   "ios.host.shadersVersionMismatchNamed": "此游戏数据中的着色器文件（%@）与本 App 的版本（%@）不匹配。请从 NX2Apple 发送或复制更新后的游戏数据。",
+  "ios.host.shellDataFolderEmpty": "在“%@”中未找到任何已安装游戏的数据。请选择包含游戏 romfs.img 的文件夹。",
   "ios.host.shellName": "NX2Apple",
   "ios.host.sideloadCert.emptyFile": "所选证书文件为空。",
   "ios.host.sideloadCert.fileTooLarge": "所选证书文件过大。",

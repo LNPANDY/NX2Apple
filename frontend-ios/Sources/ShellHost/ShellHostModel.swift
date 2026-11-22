@@ -215,6 +215,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var joiningProgress: [String: DataParts.Progress] = [:]
     @ObservationIgnored nonisolated(unsafe) private var directoryWatcher: GameDirectoryWatcher?
     @ObservationIgnored private var pickGeneration: [String: UInt64] = [:]
+    @ObservationIgnored private var shellDataPickGeneration: UInt64 = 0
     @ObservationIgnored private var pickedDataNotes: [String: String] = [:]
     @ObservationIgnored private var cloudCheckGeneration: UInt64 = 0
     @ObservationIgnored private var pendingCloudLaunch: PendingCloudLaunch?
@@ -1015,6 +1016,8 @@ public struct ShellHostConfig: Sendable {
             sideloadCertificate = summary
             return nil
         case .failure(let error):
+            // Keep the staged .p12 bytes while the password sheet stays open for retry; cancelSideloadCertificateImport clears them.
+            pendingPKCS12Data = data
             return error.localizedDescription
         }
     }
@@ -1157,18 +1160,20 @@ public struct ShellHostConfig: Sendable {
         guard let url = await pickedFolder() else { return }
         let generation = (pickGeneration[id] ?? 0) &+ 1
         pickGeneration[id] = generation
-        pickedDataNotes.removeValue(forKey: id)
-        guard dataStore(id).store(url) else {
-            notice = hostText("That location could not be remembered. Try a different one.")
-            return
-        }
-        forgetCheckedRomfsImages()
         guard let currentEntry = entry(id) else { return }
-        let resolved = await verifiedData(for: currentEntry)
-        guard pickGeneration[id] == generation else { return }
-        refresh(id)
-        if resolved.source != .picked {
-            if let manifest = currentEntry.manifest, currentEntry.problem == nil {
+
+        if let manifest = currentEntry.manifest, currentEntry.problem == nil {
+            let folderMatchesGame = await Task.detached(priority: .userInitiated) {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard FileManager.default.fileExists(atPath: url.path) else { return false }
+                let appFallback = FileManager.default.temporaryDirectory.appendingPathComponent("nx-unused-\(UUID().uuidString)", isDirectory: true)
+                let check = DataLocator.locate(manifest: manifest, picked: .url(url), appFolder: appFallback)
+                return check.source == .picked
+            }.value
+            guard pickGeneration[id] == generation, let latestEntry = entry(id) else { return }
+            if !folderMatchesGame {
+                // Keep any previously working folder bookmark intact when the newly picked folder has no data for this game.
                 let knownTitles = Dictionary(uniqueKeysWithValues: entries.map { ($0.id.uppercased(), $0.title) })
                 var identityOwners: [RomfsIdentity: String] = [:]
                 var ambiguousIdentities = Set<RomfsIdentity>()
@@ -1185,23 +1190,39 @@ public struct ShellHostConfig: Sendable {
                 }
                 let knownIdentities = identityOwners
                 let finding = await Task.detached(priority: .userInitiated) {
-                    DataFolderDiagnostics.diagnose(folder: url, manifest: manifest, knownTitles: knownTitles, knownIdentities: knownIdentities)
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    return DataFolderDiagnostics.diagnose(folder: url, manifest: manifest, knownTitles: knownTitles, knownIdentities: knownIdentities)
                 }.value
-                guard pickGeneration[id] == generation, let latestEntry = entry(id) else { return }
+                guard pickGeneration[id] == generation, let refreshedEntry = entry(id) else { return }
                 let message = DataFolderDiagnostics.message(
                     for: finding,
-                    gameTitle: latestEntry.title,
+                    gameTitle: refreshedEntry.title,
                     gameID: id,
                     folderName: url.lastPathComponent
                 )
-                if !data(for: latestEntry).found {
+                if !data(for: refreshedEntry).found {
                     pickedDataNotes[id] = message
                     refresh(id)
                 }
                 notice = message
-            } else if let game = details.first(where: { $0.id == id })?.game, Self.isMissingOrNeedsUpdate(game.state) {
-                notice = hostText("No game data for \(game.title) was found in that folder.")
+                return
             }
+        }
+
+        pickedDataNotes.removeValue(forKey: id)
+        guard dataStore(id).store(url) else {
+            notice = hostText("That location could not be remembered. Try a different one.")
+            return
+        }
+        forgetCheckedRomfsImages()
+        guard let latestEntry = entry(id) else { return }
+        let resolved = await verifiedData(for: latestEntry)
+        guard pickGeneration[id] == generation else { return }
+        refresh(id)
+        if resolved.source != .picked,
+           let game = details.first(where: { $0.id == id })?.game, Self.isMissingOrNeedsUpdate(game.state) {
+            notice = hostText("No game data for \(game.title) was found in that folder.")
         }
     }
 
@@ -1226,8 +1247,62 @@ public struct ShellHostConfig: Sendable {
         refresh(id)
     }
 
+    private enum ShellDataFolderCheck: Sendable {
+        case unreadable
+        case noGameData
+        case matched
+    }
+
     func pickShellDataNow() async {
         guard let url = await pickedFolder() else { return }
+        shellDataPickGeneration &+= 1
+        let generation = shellDataPickGeneration
+        let manifests = entries.compactMap { entry in
+            entry.problem == nil ? entry.manifest : nil
+        }
+        let check = await Task.detached(priority: .userInitiated) { () -> ShellDataFolderCheck in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
+                return .unreadable
+            }
+            let index = ShellDataIndex(folder: url)
+            if manifests.isEmpty {
+                return index.hasAnyImage ? .matched : .noGameData
+            }
+            let appFallback = FileManager.default.temporaryDirectory.appendingPathComponent("nx-unused-\(UUID().uuidString)", isDirectory: true)
+            for manifest in manifests {
+                let shellMatch: URL?
+                if let ident = RomfsIdentity.parse(manifest.romfsIdentity) {
+                    shellMatch = index.imageURL(matching: ident, preferredChain: manifest.chain, explicitGfxAPI: manifest.gfxAPI)
+                } else {
+                    shellMatch = nil
+                }
+                let resolved = DataLocator.locate(
+                    manifest: manifest,
+                    picked: .none,
+                    appFolder: appFallback,
+                    global: .url(url),
+                    shellMatch: shellMatch
+                )
+                if resolved.source == .shell {
+                    return .matched
+                }
+            }
+            return .noGameData
+        }.value
+        guard shellDataPickGeneration == generation else { return }
+        switch check {
+        case .unreadable:
+            notice = hostText("That folder could not be remembered. Try a different one.")
+            return
+        case .noGameData:
+            notice = hostText("No game data for your installed games was found in “\(url.lastPathComponent)”. Choose a folder containing a game's romfs.img.")
+            return
+        case .matched:
+            break
+        }
         guard shellData.store(url) else { notice = hostText("That folder could not be remembered. Try a different one."); return }
         forgetCheckedRomfsImages()
         shellSettings.storeDataFolderName(url.lastPathComponent)
@@ -1256,6 +1331,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     func clearShellData() {
+        shellDataPickGeneration &+= 1
         shellData.clear()
         shellSettings.clearDataFolderName()
         refreshAll()

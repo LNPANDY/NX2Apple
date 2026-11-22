@@ -4,14 +4,44 @@ import ShellUI
 /// `LibraryView` on a `ShellHostModel`: the real shell screen, plus the read-only log sheet and the notice alert. The
 /// launch arguments of the demo (initial selection and so on) are not part of it.
 public struct ShellHostView: View {
+    private enum HostSheet: Identifiable {
+        case cloudConflict(CloudSavePrompt)
+        case log(LogPresentation)
+
+        var id: String {
+            switch self {
+            case .cloudConflict(let prompt): "cloudConflict.\(prompt.id)"
+            case .log(let log): "log.\(log.id)"
+            }
+        }
+    }
+
     @Bindable private var model: ShellHostModel
     private let initialSelection: String?
     private let initialDetailOpen: Bool
+    @State private var libraryModalPresented: Bool
 
     public init(model: ShellHostModel, initialSelection: String? = nil, initialDetailOpen: Bool = false) {
         self.model = model
         self.initialSelection = initialSelection
         self.initialDetailOpen = initialDetailOpen
+        _libraryModalPresented = State(initialValue: initialDetailOpen)
+    }
+
+    private var activeHostSheet: HostSheet? {
+        guard !libraryModalPresented else { return nil }
+        if let prompt = model.cloudConflict { return .cloudConflict(prompt) }
+        if let log = model.log { return .log(log) }
+        return nil
+    }
+
+    private var activeNoticeHost: ShellNoticeHost {
+        ShellNoticeHost.resolve(
+            menuSheetPresented: libraryModalPresented,
+            coverCropPresented: false,
+            touchEditorPresented: false,
+            hostSheetPresented: activeHostSheet != nil
+        )
     }
 
     public var body: some View {
@@ -26,7 +56,12 @@ public struct ShellHostView: View {
                             signingWarning: model.signingWarning,
                             onDismissSigningWarning: { model.dismissSigningWarning() },
                             sideloadCertificate: model.sideloadCertificate,
-                            canOpenHomeButtonSettings: model.canOpenHomeButtonSettings)
+                            canOpenHomeButtonSettings: model.canOpenHomeButtonSettings,
+                            notice: model.notice,
+                            noticeTitle: hostText("NX2Apple"),
+                            noticeDismissTitle: hostText("OK"),
+                            onDismissNotice: { model.notice = nil },
+                            onModalPresentedChange: { libraryModalPresented = $0 })
                     .disabled(model.launchingGame)
                     .overlay {
                         if model.launchingGame {
@@ -41,19 +76,49 @@ public struct ShellHostView: View {
                     }
             }
         }
-            .sheet(item: $model.cloudConflict, onDismiss: {
-                model.cancelCloudConflictIfPending()
-            }) { prompt in
-                ScrollView {
-                    CloudSaveConflictView(prompt: prompt) { decision in
-                        model.resolveCloudConflict(decision)
+            .sheet(item: Binding(
+                get: { activeHostSheet },
+                set: { newSheet in
+                    guard newSheet == nil else { return }
+                    if model.cloudConflict != nil {
+                        model.cancelCloudConflictIfPending()
+                        model.cloudConflict = nil
+                    } else if model.log != nil {
+                        model.log = nil
                     }
                 }
-                .presentationDetents([.medium, .large])
-                .presentationBackground(ShellPalette.background)
+            )) { sheet in
+                Group {
+                    switch sheet {
+                    case .cloudConflict(let prompt):
+                        ScrollView {
+                            CloudSaveConflictView(prompt: prompt) { decision in
+                                model.resolveCloudConflict(decision)
+                            }
+                        }
+                        .presentationDetents([.medium, .large])
+                        .presentationBackground(ShellPalette.background)
+                    case .log(let log):
+                        LogView(log: log)
+                    }
+                }
+                .alert(
+                    Text(verbatim: hostText("NX2Apple")),
+                    isPresented: Binding(
+                        get: { model.notice != nil && activeNoticeHost == .hostSheet },
+                        set: { if !$0 { model.notice = nil } }
+                    )
+                ) {
+                    Button(hostText("OK")) { model.notice = nil }
+                } message: { Text(model.notice ?? "") }
             }
-            .sheet(item: $model.log) { LogView(log: $0) }
-            .alert(Text(verbatim: hostText("NX2Apple")), isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
+            .alert(
+                Text(verbatim: hostText("NX2Apple")),
+                isPresented: Binding(
+                    get: { model.notice != nil && (model.isDeepLinkLaunching || activeNoticeHost == .root) },
+                    set: { if !$0 { model.notice = nil } }
+                )
+            ) {
                 Button(hostText("OK")) { model.notice = nil }
             } message: { Text(model.notice ?? "") }
             .onAppear { model.startControllers() }

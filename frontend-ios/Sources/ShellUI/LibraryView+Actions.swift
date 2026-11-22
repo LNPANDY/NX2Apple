@@ -250,7 +250,18 @@ extension LibraryView {
         .tint(ShellPalette.cream)
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled()
-        .modifier(ShellKeyboardNavigation(active: true) { handle($0, from: .keyboard) })
+        .alert(
+            Text(verbatim: noticeTitle),
+            isPresented: Binding(
+                get: { coverCropShowsNotice },
+                set: { if !$0 { onDismissNotice() } }
+            )
+        ) {
+            Button(noticeDismissTitle) { onDismissNotice() }
+        } message: {
+            Text(notice ?? "")
+        }
+        .modifier(ShellKeyboardNavigation(active: !coverCropShowsNotice) { handle($0, from: .keyboard) })
     }
     /// The question starts on Cancel, with the saves kept.
     func openDelete(_ id: String) { guard noteTouch() else { return }; returnFocus = focus.id; deleteSaves = false; deleteGameID = id; focus.id = "del.cancel" }
@@ -258,10 +269,7 @@ extension LibraryView {
     func confirmDelete(_ id: String) {
         guard !fromSystemEcho else { return }
         let saves = deleteSaves
-        deleteGameID = nil
-        settingsOpen = false
-        focus.id = nil
-        actions.onDeleteGame(id, saves)
+        handOffMenu { actions.onDeleteGame(id, saves) }
     }
     func openChoice(_ request: ChoiceRequest) {
         guard noteTouch() else { return }

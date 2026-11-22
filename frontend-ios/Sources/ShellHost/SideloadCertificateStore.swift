@@ -739,9 +739,15 @@ public struct DocumentCertificatePicker: SideloadCertificatePicker {
         nonisolated(unsafe) static var key = 0
         private let answer: FolderPickAnswer<URL>
         init(answer: FolderPickAnswer<URL>) { self.answer = answer }
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { answer.finish(urls.first) }
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentAt url: URL) { answer.finish(url) }
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { answer.finish(nil) }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            DocumentPickerDismissWaiter.finishAfterDismiss(controller: controller, value: urls.first, answer: answer)
+        }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentAt url: URL) {
+            DocumentPickerDismissWaiter.finishAfterDismiss(controller: controller, value: url, answer: answer)
+        }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            DocumentPickerDismissWaiter.finishAfterDismiss(controller: controller, value: nil, answer: answer)
+        }
         func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { answer.finish(nil) }
     }
 }

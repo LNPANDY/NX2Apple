@@ -226,6 +226,8 @@ public final class ShellDataIndex: @unchecked Sendable {
     private var trailers: [URL: RomfsTrailer?] = [:]
     private var identities: [URL: RomfsIdentity?] = [:]
 
+    public var hasAnyImage: Bool { !images.isEmpty }
+
     public init(folder: URL, fileManager: FileManager = .default) {
         self.folder = folder
         fm = fileManager

@@ -45,6 +45,11 @@ public struct LibraryView: View {
     public let signingWarning: SigningWarning?
     public let sideloadCertificate: SideloadCertificateSummary?
     public let canOpenHomeButtonSettings: Bool
+    public let notice: String?
+    public let noticeTitle: String
+    public let noticeDismissTitle: String
+    public var onDismissNotice: () -> Void
+    public var onModalPresentedChange: ((Bool) -> Void)?
     public var onDismissSigningWarning: () -> Void
     public var actions: ShellActions
     public var input: ShellInputLog
@@ -85,6 +90,8 @@ public struct LibraryView: View {
     @State var buttonTestOpen: Bool
     /// The touch controls' layout editor, while open (over the shell settings).
     @State var touchLayout: TouchLayoutEditorModel?
+    /// True while a child modal inside the menu sheet (such as the certificate password sheet) is presented.
+    @State var childModalPresented = false
     @State var focus: FocusAppearance
     @State var focusRefresh = 0
     @State var targets = FocusTargetBuffer()
@@ -113,7 +120,10 @@ public struct LibraryView: View {
                 signingWarning: SigningWarning? = nil, onDismissSigningWarning: @escaping () -> Void = {},
                 sideloadCertificate: SideloadCertificateSummary? = nil,
                 initialPadMapping: String? = nil, initialButtonTestOpen: Bool = false,
-                canOpenHomeButtonSettings: Bool = false) {
+                canOpenHomeButtonSettings: Bool = false,
+                notice: String? = nil, noticeTitle: String = "NX2Apple", noticeDismissTitle: String = "OK",
+                onDismissNotice: @escaping () -> Void = {},
+                onModalPresentedChange: ((Bool) -> Void)? = nil) {
         ShellPalette.configureNativeAppearance()
         self.games = games
         self.controllers = controllers
@@ -123,6 +133,11 @@ public struct LibraryView: View {
         self.signingWarning = signingWarning
         self.sideloadCertificate = sideloadCertificate
         self.canOpenHomeButtonSettings = canOpenHomeButtonSettings
+        self.notice = notice
+        self.noticeTitle = noticeTitle
+        self.noticeDismissTitle = noticeDismissTitle
+        self.onDismissNotice = onDismissNotice
+        self.onModalPresentedChange = onModalPresentedChange
         self.onDismissSigningWarning = onDismissSigningWarning
         _padMapping = State(initialValue: initialPadMapping.map { PadMappingState(gameID: $0) })
         _buttonTestOpen = State(initialValue: initialButtonTestOpen)
@@ -220,7 +235,18 @@ public struct LibraryView: View {
                     .presentationContentInteraction(touchLayout != nil ? .scrolls : .automatic)
                     .interactiveDismissDisabled(touchLayout != nil)
                     .modifier(MenuPlacement(divided: divisionAxis == .vertical, secondary: controllersOpen || shellSettingsOpen))
-                    .modifier(ShellKeyboardNavigation(active: touchLayout == nil && padMapping?.row == nil && coverCropInSheetSession == nil) { handle($0, from: .keyboard) })
+                    .alert(
+                        Text(verbatim: noticeTitle),
+                        isPresented: Binding(
+                            get: { menuShowsNotice },
+                            set: { if !$0 { onDismissNotice() } }
+                        )
+                    ) {
+                        Button(noticeDismissTitle) { onDismissNotice() }
+                    } message: {
+                        Text(notice ?? "")
+                    }
+                    .modifier(ShellKeyboardNavigation(active: touchLayout == nil && padMapping?.row == nil && coverCropInSheetSession == nil && !childModalPresented && !menuShowsNotice) { handle($0, from: .keyboard) })
             }
 
             .environment(\.shellOpenTouchLayout, { openTouchLayout(whole, insets) })
@@ -289,8 +315,14 @@ public struct LibraryView: View {
             inputSeen = log.last
         }
         .onAnyTouch { gate.touch() }
-        .modifier(ShellKeyboardNavigation(active: !menuPresented && activeCoverCrop == nil) { handle($0, from: .keyboard) })
-        .onAppear { focusRefresh &+= 1 }
+        .modifier(ShellKeyboardNavigation(active: !menuPresented && activeCoverCrop == nil && notice == nil) { handle($0, from: .keyboard) })
+        .onAppear {
+            focusRefresh &+= 1
+            onModalPresentedChange?(libraryModalPresented)
+        }
+        .onChange(of: libraryModalPresented) { _, presented in
+            onModalPresentedChange?(presented)
+        }
         .onDisappear { targets.values.removeAll(); targets.libraryValues.removeAll() }
         .onChange(of: settingsOpen) { _, open in
             settingsArrived = false
@@ -315,6 +347,27 @@ public struct LibraryView: View {
     var menuPresented: Bool {
         touchLayout != nil || settingsOpen || controllersOpen || shellSettingsOpen || helpGameID != nil
             || restoreBackupGameID != nil || homeScreenGameID != nil || deleteGameID != nil || choice != nil || padMapping != nil || buttonTestOpen
+    }
+
+    var libraryModalPresented: Bool {
+        menuPresented || activeCoverCrop != nil
+    }
+
+    var activeNoticeHost: ShellNoticeHost {
+        ShellNoticeHost.resolve(
+            menuSheetPresented: menuPresented,
+            coverCropPresented: activeCoverCrop != nil,
+            touchEditorPresented: touchLayout != nil,
+            hostSheetPresented: false
+        )
+    }
+
+    var menuShowsNotice: Bool {
+        notice != nil && activeNoticeHost == .menuSheet && !childModalPresented
+    }
+
+    var coverCropShowsNotice: Bool {
+        notice != nil && activeNoticeHost == .coverCrop
     }
 
     // Host-owned alerts and sheets must wait until the menu presentation finishes closing.
@@ -433,7 +486,8 @@ public struct LibraryView: View {
                         .allowsHitTesting(!retention.isLeaving(.controllers, open: controllersOpen))
                 }
                 if retention.draws(.shellSettings, open: shellSettingsOpen) {
-                    ShellSettingsView(actions: menuActions, sideloadCertificate: sideloadCertificate, onClose: closeShellSettings)
+                    ShellSettingsView(actions: menuActions, sideloadCertificate: sideloadCertificate, onClose: closeShellSettings,
+                                      onModalPresentedChange: { childModalPresented = $0 })
                         .background(ShellPalette.background)
                         .accessibilityHidden(choice != nil || retention.isLeaving(.shellSettings, open: shellSettingsOpen))
                         .allowsHitTesting(!retention.isLeaving(.shellSettings, open: shellSettingsOpen))
