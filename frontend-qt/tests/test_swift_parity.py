@@ -1633,7 +1633,9 @@ class ParityWindowTests(unittest.TestCase):
                 hero_label = window.hero.primary_btn.text()
                 self.assertEqual(hero_label, model.t('library.setUpBuild'))
                 self.assertNotEqual(hero_label, model.t('library.newBuild'))
-                self.assertIn(model.t('library.newBuild'), window.new_build_btn.text())
+                self.assertFalse(hasattr(window, 'new_build_btn'))
+                seg_labels = [lbl for _k, lbl in window.nav_seg._items]
+                self.assertIn(model.t('nav.builds'), seg_labels)
             window.hero.primary_btn.click()
             self.assertEqual(window._current_page, 'builds')
             self.assertEqual(model.base_path, 'example.xci')

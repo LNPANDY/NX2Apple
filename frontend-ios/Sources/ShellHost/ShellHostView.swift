@@ -19,12 +19,14 @@ public struct ShellHostView: View {
     @Bindable private var model: ShellHostModel
     private let initialSelection: String?
     private let initialDetailOpen: Bool
+    private let initialActivityLogOpen: Bool
     @State private var libraryModalPresented: Bool
 
-    public init(model: ShellHostModel, initialSelection: String? = nil, initialDetailOpen: Bool = false) {
+    public init(model: ShellHostModel, initialSelection: String? = nil, initialDetailOpen: Bool = false, initialActivityLogOpen: Bool = false) {
         self.model = model
         self.initialSelection = initialSelection
         self.initialDetailOpen = initialDetailOpen
+        self.initialActivityLogOpen = initialActivityLogOpen
         _libraryModalPresented = State(initialValue: initialDetailOpen)
     }
 
@@ -61,7 +63,9 @@ public struct ShellHostView: View {
                             noticeTitle: hostText("NX2Apple"),
                             noticeDismissTitle: hostText("OK"),
                             onDismissNotice: { model.notice = nil },
-                            onModalPresentedChange: { libraryModalPresented = $0 })
+                            onModalPresentedChange: { libraryModalPresented = $0 },
+                            activityLog: model.activityLog,
+                            initialActivityLogOpen: initialActivityLogOpen)
                     .disabled(model.launchingGame)
                     .overlay {
                         if model.launchingGame {

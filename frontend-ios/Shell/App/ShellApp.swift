@@ -80,6 +80,23 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
 /// The library's root controller, for ShellMain.m's scene delegate.
 @objc(ShellLibrary) final class ShellLibrary: NSObject {
     @MainActor private static weak var activeModel: ShellHostModel?
+
+    @MainActor @objc static func gameWillPause() {
+        activeModel?.pauseActiveSession()
+    }
+
+    @MainActor @objc static func gameDidCheckpoint() {
+        activeModel?.checkpointActiveSession()
+    }
+
+    @MainActor @objc static func gameDidResume() {
+        activeModel?.resumeActiveSession()
+    }
+
+    @MainActor @objc static func gameDidEnd() {
+        activeModel?.endActiveSession()
+    }
+
     @MainActor private static var pendingOpenURL: URL?
 
     @MainActor @objc static func makeController() -> UIViewController {

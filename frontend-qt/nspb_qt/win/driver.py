@@ -1352,6 +1352,11 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     check_cli(argv)
     repo = repo_dir()
+    if __package__:
+        from .. import engine
+    else:                                       # pragma: no cover - script mode
+        from nspb_qt import engine
+    engine.prune_stale_bundled_engine_files(repo)
     if os.name != 'nt' and not os.environ.get('NSPB_ALLOW_NON_WINDOWS'):
         raise SystemExit('nspb_qt.win.driver runs the Windows build; on macOS use '
                          'scripts/build_ipa_from_nsp.py')

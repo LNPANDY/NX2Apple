@@ -256,6 +256,7 @@ extension LauncherView {
                 LauncherGlassGroup {
                     HStack(spacing: 12) {
                         if !library.games.isEmpty { collectionBatchRefreshButton(compact: compactHeader) }
+                        activityLogButton()
                         Button(loc.t("supported.title"), action: openSupportedGames)
                             .buttonStyle(LauncherSecondaryButtonStyle())
                             .padTarget("library.supported", scope: "main", activate: openSupportedGames)
@@ -310,6 +311,11 @@ extension LauncherView {
 
     @ViewBuilder private func metadataBadgeContent(_ game: LibraryGame) -> some View {
         Group {
+            if let played = heroPlayTime(for: game) {
+                DSTag(played)
+                    .help(loc.t("activity.totalTime"))
+                    .accessibilityLabel("\(loc.t("activity.totalTime")) \(played)")
+            }
             if game.playableMacBundle?.upstream == .macNativeGames {   // built with MacNativeGames: a property, a quiet tag
                 DSTag(loc.t("library.chip.mng"), emphasized: true)
                     .help(loc.t("library.mng.help"))

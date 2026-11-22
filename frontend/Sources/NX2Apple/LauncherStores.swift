@@ -33,6 +33,8 @@ import NXModel
     let players: PlayerProfileStore
     let saveSettings: SaveSettingsStore
     let sticks: StickDeadzoneStore
+    /// Per-title play sessions (#816, #1161), shared by the desktop launcher and console mode.
+    let playSessions: PlaySessionStore
     /// The defaults the stores were made with: the launcher keeps its own view settings there too (the library's filter and
     /// sort), so a test's window never writes them into the shared defaults.
     let defaults: UserDefaults
@@ -132,6 +134,7 @@ import NXModel
         self.saveSettings = SaveSettingsStore(defaults: defaults)
         self.sticks = StickDeadzoneStore(defaults: defaults)
         self.players = PlayerProfileStore(defaults: defaults, defaultName: { localizer.t("players.default") })
+        self.playSessions = PlaySessionStore(file: defaults === UserDefaults.standard ? PlaySessionStore.defaultFile : nil)
         // A build that ended settles the queue's running entry and starts the next. The hop lets the install step that follows a
         // build raise `running` again first (the BuildRecorder waits the same way).
         queueWatch = build.$running.removeDuplicates().sink { [weak self, weak build, weak queue] running in

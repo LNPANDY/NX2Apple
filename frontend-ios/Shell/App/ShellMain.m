@@ -356,6 +356,7 @@ void dm_shell_return_to_library(void) {
         g_boot_ok = 0;
         g_engine_level = 0;
         if (fbase) restore_framework_data(fbase);
+        [ShellLibrary gameDidEnd];
         UIWindow *window = shell_key_window();
         if (window && g_library_vc) {
             window.traitOverrides.preferredContentSizeCategory = UIContentSizeCategoryUnspecified;
@@ -661,10 +662,10 @@ static NSURL *shell_pick_launch_url(NSSet<UIOpenURLContext *> *contexts) {
     }
 }
 // Forwarded to the running game framework's front_ios.m once a game has started; orthogonal to controller-disconnect pause.
-- (void)sceneWillResignActive:(UIScene *)s { (void)s; g_app_resigned = 1; shell_sync_focus(); }
-- (void)sceneDidEnterBackground:(UIScene *)s { (void)s; g_app_bg = 1; shell_sync_focus(); }
+- (void)sceneWillResignActive:(UIScene *)s { (void)s; g_app_resigned = 1; if (g_boot_ok) [ShellLibrary gameWillPause]; shell_sync_focus(); }
+- (void)sceneDidEnterBackground:(UIScene *)s { (void)s; g_app_bg = 1; if (g_boot_ok) [ShellLibrary gameDidCheckpoint]; shell_sync_focus(); }
 - (void)sceneWillEnterForeground:(UIScene *)s { (void)s; g_app_bg = 0; shell_sync_focus(); }
-- (void)sceneDidBecomeActive:(UIScene *)s { (void)s; g_app_resigned = 0; shell_sync_focus(); }
+- (void)sceneDidBecomeActive:(UIScene *)s { (void)s; g_app_resigned = 0; if (g_boot_ok) [ShellLibrary gameDidResume]; shell_sync_focus(); }
 @end
 
 // The performance HUD (the per-game setting DM_METAL_HUD) needs MTL_HUD_ENABLED in the environment before Metal starts in this

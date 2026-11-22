@@ -511,7 +511,7 @@ class OnboardingDialog(QDialog):
         self.step = 0
         self._step1_sig: tuple | None = None
         self._step1_widgets: dict = {}
-        self.setWindowTitle('NX2Apple Setup')
+        self.setWindowTitle(self.m.t('onboarding.welcome.title'))
         self.setMinimumSize(640, 480)
         self.resize(640, 560)
         self.setStyleSheet(style.STYLESHEET)
@@ -1252,7 +1252,7 @@ class DriveSelectDialog(QDialog):
             t_func=self.m.t,
         )
         if err is not None:
-            self.space_lbl.setStyleSheet(f'color: {style.DANGER}; font-size: 12.5px;')
+            self.space_lbl.setStyleSheet(f'color: {style.DANGER}; font-size: 9.5pt;')
             self.space_lbl.setText(err)
             self.confirm_btn.setEnabled(False)
             return
@@ -1260,6 +1260,8 @@ class DriveSelectDialog(QDialog):
         fs_name = lib.DriveCopy.filesystem_type(self.dest_root).upper() or 'DISK'
         self.space_lbl.setStyleSheet('')
         self.space_lbl.setObjectName('muted')
+        self.space_lbl.style().unpolish(self.space_lbl)
+        self.space_lbl.style().polish(self.space_lbl)
         self.space_lbl.setText(
             self.m.t(
                 'shell.driveNote',

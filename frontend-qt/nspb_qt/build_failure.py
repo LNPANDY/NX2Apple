@@ -32,6 +32,7 @@ CLOUD_FOLDER = 'cloudFolder'
 VOLUME_FORMAT = 'volumeFormat'
 STALE_PROFILE = 'staleProfile'
 METAL_TOOLCHAIN = 'metalToolchain'
+PROFILE_TABLES_MISMATCH = 'profileTablesMismatch'
 PROFILE_UPDATE_MISMATCH = 'profileUpdateMismatch'
 APP_ID_LIMIT = 'appIDLimit'
 FREE_APPLE_ID_LIMIT = 'freeAppleIdLimit'
@@ -95,7 +96,7 @@ _APP_ID_RESET = re.compile(
 )
 
 EXTRA_KINDS = [
-    WIN_PREREQ, METAL_TOOLCHAIN, PROFILE_UPDATE_MISMATCH, APP_ID_LIMIT, FREE_APPLE_ID_LIMIT, NO_IOS_SHADERS
+    WIN_PREREQ, METAL_TOOLCHAIN, PROFILE_TABLES_MISMATCH, PROFILE_UPDATE_MISMATCH, APP_ID_LIMIT, FREE_APPLE_ID_LIMIT, NO_IOS_SHADERS
 ]
 EXTRA_TABLE: list[tuple[str, str, str]] = [
     (
@@ -107,6 +108,11 @@ EXTRA_TABLE: list[tuple[str, str, str]] = [
         'metal.toolchain',
         METAL_TOOLCHAIN,
         r'(?:downloadComponent MetalToolchain|missing Metal Toolchain|cannot execute tool [\'"]?metal[\'"]?|the Metal compiler does not run)',
+    ),
+    (
+        'profile.tablesMismatch',
+        PROFILE_TABLES_MISMATCH,
+        r'the split shader tables differ from game profile',
     ),
     (
         'profile.updateMismatch',

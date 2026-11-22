@@ -281,7 +281,8 @@ struct PadMappingCard: View {
             .onChange(of: focus.id) { _, id in
                 guard focus.visible, shown == nil, let id,
                       id.hasPrefix("map.row.") || id == "map.swap.toggle" else { return }
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) }
+                let scrollID = id.hasPrefix("map.row.pad.") ? String(id.dropFirst("map.row.pad.".count)) : id
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { proxy.scrollTo(scrollID, anchor: .center) }
             }
         }
     }

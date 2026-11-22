@@ -76,4 +76,57 @@ final class PlaySessionsTests: XCTestCase {
         XCTAssertEqual(memory["A"]?.sessions, 1)
         XCTAssertTrue(PlaySessionStore.defaultFile.path.hasSuffix("Application Support/NS Port Builder/play-sessions.json"), "beside library.json")
     }
+
+    func testSchemaOneMigrationPreservesExistingRecords() throws {
+        let legacy = #"""
+        {
+          "schema": 1,
+          "games": {
+            "0100aa0000010000": {
+              "lastStart": "2026-11-10T10:00:00Z",
+              "lastEnd": "2026-11-10T11:30:00Z",
+              "seconds": 5400,
+              "sessions": 3,
+              "endedUnexpectedly": false
+            }
+          }
+        }
+        """#
+        let decoded = PlaySessions.decode(Data(legacy.utf8))
+        let record = try XCTUnwrap(decoded["0100AA0000010000"])
+        XCTAssertEqual(record.seconds, 5400)
+        XCTAssertEqual(record.sessions, 3)
+        XCTAssertEqual(record.averageSeconds, 1800)
+        XCTAssertEqual(record.firstPlayed, record.lastStart)
+        XCTAssertNil(record.title)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        XCTAssertTrue(record.playedDays(calendar: utc).contains("2026-11-10"))
+    }
+
+    func testMidnightSessionSplitsAcrossDailyBucketsAndKeepsTitle() throws {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let night = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 11, day: 12, hour: 23, minute: 0)))
+        let morning = night.addingTimeInterval(7200)
+
+        var sessions = PlaySessions()
+        sessions.start(titleID: "0100aa0000010000", title: "Starlight Odyssey", at: night, calendar: utc)
+        sessions.end(titleID: "0100AA0000010000", at: morning, calendar: utc)
+
+        sessions.start(titleID: "0100AA0000010000", title: nil, at: morning.addingTimeInterval(3600), calendar: utc)
+        sessions.end(titleID: "0100AA0000010000", at: morning.addingTimeInterval(5400), calendar: utc)
+
+        let record = try XCTUnwrap(sessions["0100AA0000010000"])
+        XCTAssertEqual(record.title, "Starlight Odyssey", "stored title stays intact when removed from library")
+        XCTAssertEqual(record.firstPlayed, night)
+        XCTAssertEqual(record.sessions, 2)
+        XCTAssertEqual(record.seconds, 9000, accuracy: 0.01)
+        XCTAssertEqual(record.dailySeconds["2026-11-12"] ?? 0, 3600, accuracy: 0.01)
+        XCTAssertEqual(record.dailySeconds["2026-11-13"] ?? 0, 5400, accuracy: 0.01)
+        XCTAssertEqual(sessions.totalSeconds, 9000, accuracy: 0.01)
+        XCTAssertEqual(sessions.totalSessions, 2)
+        XCTAssertEqual(sessions.gamesPlayedCount, 1)
+        XCTAssertEqual(sessions.activeDays(calendar: utc), ["2026-11-12", "2026-11-13"])
+    }
 }

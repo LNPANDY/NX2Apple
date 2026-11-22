@@ -215,9 +215,13 @@ extension LauncherView {
                                 return
                             }
                             library.recordPlayed(currentGame.id)
+                            let startedTitleID = currentGame.titleID
+                            playSessions.started(titleID: startedTitleID, title: currentGame.displayName(loc.lang))
                             if let pid {   // and the cloud's send an engine leaves to the launcher (SaveEngine)
                                 CheatFuseMonitor.shared.didStart(pid: pid, pending: armedCheats)
+                                let sessionStore = playSessions
                                 GameReturnWatcher.shared.didStart(pid: pid) {
+                                    sessionStore.ended(titleID: startedTitleID)
                                     CheatFuseMonitor.shared.didExit(pid: pid)
                                     CloudSaveSend.afterExit(app: currentGame.appPath, environment: withRecording, engine: SaveEngines.forApp(currentGame.appPath))
                                 }

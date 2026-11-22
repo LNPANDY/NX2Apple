@@ -1498,4 +1498,42 @@ import XCTest
         waitForExpectations(timeout: 5)
         XCTAssertEqual(prevKey.frame.midX, initialKeyX, accuracy: 4)
     }
+
+    func testGameSettingsDownArrowScrollsPastInitialViewportToDeleteInPortraitAndLandscape() {
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            extraArguments = ["--samples"]
+            launch("settings")
+            let topControl = app.segmentedControls["setting.DM_OPERATION_MODE"]
+            XCTAssertTrue(topControl.waitForExistence(timeout: 5) && topControl.isHittable)
+            let initialTopY = topControl.frame.midY
+            let deleteButton = app.buttons["set.delete"]
+            XCTAssertFalse(deleteButton.isHittable, "Delete button should start below the initial viewport (\(orientation))")
+
+            // Pressing down through the first few setting rows must scroll the Form itself (ForEach row IDs).
+            for _ in 0..<6 {
+                app.typeKey(.downArrow, modifierFlags: [])
+            }
+            if topControl.exists {
+                XCTAssertLessThan(topControl.frame.midY, initialTopY - 20,
+                                  "Down arrow across ForEach setting rows must scroll the Form upward (\(orientation))")
+            }
+
+            // Continue pressing down until the bottom Delete button scrolls into the viewport and becomes hittable.
+            for _ in 0..<20 {
+                if deleteButton.exists && deleteButton.isHittable { break }
+                app.typeKey(.downArrow, modifierFlags: [])
+            }
+            XCTAssertTrue(deleteButton.waitForExistence(timeout: 3) && deleteButton.isHittable,
+                          "Down arrow must scroll game settings past lazy Form rows to Delete game (\(orientation))")
+
+            // Pressing up must scroll all the way back to the first setting row.
+            for _ in 0..<24 {
+                if topControl.exists && topControl.isHittable { break }
+                app.typeKey(.upArrow, modifierFlags: [])
+            }
+            XCTAssertTrue(topControl.waitForExistence(timeout: 3) && topControl.isHittable,
+                          "Up arrow must scroll game settings back to the top row (\(orientation))")
+        }
+    }
 }

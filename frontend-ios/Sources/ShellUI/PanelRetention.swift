@@ -5,7 +5,7 @@ import Foundation
 /// The closed panel stays drawn until the sheet is dismissed. It is only drawn: it takes no touch, no focus and no accessibility while it leaves.
 /// A panel that closes while the sheet stays (Controllers closed from Game settings) is not retained, so it never covers what is under it.
 struct PanelRetention: Equatable {
-    enum Panel: Equatable { case controllers, shellSettings }
+    enum Panel: Equatable { case controllers, shellSettings, activityLog }
     private(set) var retained: Panel?
 
     /// A panel closed. `sheetStaysOpen`: another panel is still open, so nothing slides away.
