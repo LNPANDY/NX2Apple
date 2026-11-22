@@ -80,19 +80,22 @@ package extension DSSheetButtonRow where Leading == EmptyView {
 /// short content tightly, and caps tall content at `max(120, limit - chrome)` without cross-frame `onGeometryChange` feedback.
 /// `limit` is `maxHeight`, or the height the sheet's window offers when that is less: a sheet whose content grows after it opened
 /// (another part of Launch options, a list read later) keeps its window, and the content then scrolls instead of the whole stack
-/// overflowing the window and losing its header and button row.
+/// overflowing the window and losing its header and button row. With `fill` the sheet is always `limit` high and the content gets
+/// all the room between the header and the button row, so the sheet keeps one size whatever its content.
 package struct DSSheetStackLayout: Layout {
     package let width: CGFloat
     package let maxHeight: CGFloat
+    package let fill: Bool
 
     private func limit(_ offered: CGFloat?) -> CGFloat {
         guard let offered, offered.isFinite, offered > 0 else { return maxHeight }
         return min(maxHeight, offered)
     }
 
-    package init(width: CGFloat, maxHeight: CGFloat) {
+    package init(width: CGFloat, maxHeight: CGFloat, fill: Bool = false) {
         self.width = width
         self.maxHeight = maxHeight
+        self.fill = fill
     }
 
     package func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -104,7 +107,7 @@ package struct DSSheetStackLayout: Layout {
         let h0 = subviews[0].sizeThatFits(ProposedViewSize(width: w, height: nil)).height
         let h2 = subviews[2].sizeThatFits(ProposedViewSize(width: w, height: nil)).height
         let cap = max(120, limit(proposal.height) - h0 - h2)
-        let h1 = min(subviews[1].sizeThatFits(ProposedViewSize(width: w, height: cap)).height, cap)
+        let h1 = fill ? cap : min(subviews[1].sizeThatFits(ProposedViewSize(width: w, height: cap)).height, cap)
         return CGSize(width: w, height: h0 + h1 + h2)
     }
 
@@ -122,7 +125,7 @@ package struct DSSheetStackLayout: Layout {
         let h0 = subviews[0].sizeThatFits(ProposedViewSize(width: w, height: nil)).height
         let h2 = subviews[2].sizeThatFits(ProposedViewSize(width: w, height: nil)).height
         let cap = max(120, limit(bounds.height) - h0 - h2)
-        let h1 = min(subviews[1].sizeThatFits(ProposedViewSize(width: w, height: cap)).height, cap)
+        let h1 = fill ? cap : min(subviews[1].sizeThatFits(ProposedViewSize(width: w, height: cap)).height, cap)
         subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.minY), proposal: ProposedViewSize(width: w, height: h0))
         subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + h0), proposal: ProposedViewSize(width: w, height: h1))
         subviews[2].place(at: CGPoint(x: bounds.minX, y: bounds.minY + h0 + h1), proposal: ProposedViewSize(width: w, height: h2))
