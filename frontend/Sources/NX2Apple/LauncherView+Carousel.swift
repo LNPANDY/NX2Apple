@@ -98,6 +98,7 @@ extension LauncherView {
                 LauncherGlassGroup {
                     HStack(spacing: 8) {
                         if !library.games.isEmpty { collectionBatchRefreshButton(compact: compact) }
+                        activityLogButton()
                         Button(loc.t("supported.title"), action: openSupportedGames)
                             .buttonStyle(LauncherSecondaryButtonStyle())
                             .padTarget("library.supported", scope: "main", activate: openSupportedGames)
@@ -203,7 +204,7 @@ extension LauncherView {
             }
             .onChange(of: padFocus.focused) { id in
                 if let id, id.hasPrefix("card.") { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo(id) } }
-                else if ["library.sort", "library.filter", "library.supported", "allGames.back", "hero.rebuildAll"].contains(id ?? "") {
+                else if ["library.sort", "library.filter", "library.activity", "library.supported", "allGames.back", "hero.rebuildAll"].contains(id ?? "") {
                     withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo("library.collection.header", anchor: .top) }
                 }
             }

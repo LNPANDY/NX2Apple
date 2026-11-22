@@ -65,6 +65,7 @@ struct ShellSettingsView: View {
     var store: ShellSettingsStore = .current
     var actions: ShellActions
     var sideloadCertificate: SideloadCertificateSummary? = nil
+    var onOpenActivityLog: (() -> Void)? = nil
     var onClose: () -> Void
     var onModalPresentedChange: ((Bool) -> Void)? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -91,6 +92,25 @@ struct ShellSettingsView: View {
                                 .shellTarget("shs.close", action: onClose)
                         }
                     }.id("shs.top")
+                }
+
+                if let onOpenActivityLog {
+                    Section {
+                        Button(action: onOpenActivityLog) {
+                            LabeledContent {
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            } label: {
+                                Label(ShellStrings.text("Activity log"), systemImage: "chart.bar.xaxis")
+                                    .labelStyle(SettingsRowLabelStyle())
+                            }
+                        }
+                        .accessibilityIdentifier("shellSettings.activityLog")
+                        .shellTarget("shs.activityLog", action: onOpenActivityLog)
+                    } footer: {
+                        Text(ShellStrings.text("See play time, sessions and active days across your games."))
+                    }
                 }
 
                 Section {

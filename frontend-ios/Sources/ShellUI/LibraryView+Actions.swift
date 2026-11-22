@@ -133,6 +133,19 @@ extension LibraryView {
     func openControllers() { guard !shellSettingsOpen else { return }; guard noteTouch() else { return }; retention.reset(); controllersOpen = true; focus.id = "ctl.close" }
     func openShellSettings() { guard noteTouch() else { return }; retention.reset(); shellSettingsOpen = true; focus.id = "shs.close" }
     func closeShellSettings() { guard !fromSystemEcho else { return }; shellSettingsOpen = false; retention.closed(.shellSettings, sheetStaysOpen: menuPresented); focus.id = settingsOpen ? "set.back" : "lib.shellSettings" }
+    func openActivityLog() { guard noteTouch() else { return }; retention.reset(); activityLogOpen = true; focus.id = "act.close" }
+    func closeActivityLog() { guard !fromSystemEcho else { return }; activityLogOpen = false; retention.closed(.activityLog, sheetStaysOpen: menuPresented); focus.id = settingsOpen ? "set.back" : "lib.activityLog" }
+    func selectFromActivityLog(_ id: String) {
+        guard !fromSystemEcho else { return }
+        activityLogOpen = false
+        shellSettingsOpen = false
+        controllersOpen = false
+        settingsOpen = false
+        retention.closed(.activityLog, sheetStaysOpen: false)
+        selectedID = id
+        actions.onSelect(id)
+        focus.id = "lib.tile.\(id)"
+    }
     /// Where the Options button opens the shell's settings: over the library and over a game's settings, never over another panel or dialog.
     static func optionsOpensShellSettings(under top: FocusLayer?) -> Bool { top == nil || top == .settings }
     func openTouchLayout(_ window: CGSize, _ insets: EdgeInsets) {
@@ -356,6 +369,7 @@ extension LibraryView {
         else if restoreBackupGameID != nil { closeRestoreBackup() }
         else if homeScreenGameID != nil { closeHomeScreen() }
         else if deleteGameID != nil { closeDelete() }
+        else if activityLogOpen { closeActivityLog() }
         else if controllersOpen { controllersOpen = false; retention.closed(.controllers, sheetStaysOpen: menuPresented); focus.id = settingsOpen ? "set.back" : "lib.controllers" }
         else if shellSettingsOpen { closeShellSettings() }
         else if settingsOpen { closeSettings() }
@@ -448,6 +462,7 @@ extension LibraryView {
         if padMapping != nil { return .padMapping }
         if choice != nil { return .choice }
         if touchLayout != nil { return .touchLayout }
+        if activityLogOpen { return .activityLog }
         if controllersOpen { return .controllers }
         if shellSettingsOpen { return .shellSettings }
         if helpGameID != nil { return .help }
@@ -510,6 +525,7 @@ extension LibraryView {
         if restoreBackupGameID != nil { return "rst.cancel" }
         if homeScreenGameID != nil { return "hsc.save" }
         if deleteGameID != nil { return "del.cancel" }
+        if activityLogOpen { return "act.close" }
         if controllersOpen { return "ctl.close" }
         if shellSettingsOpen { return "shs.close" }
         if settingsOpen { return "set.back" }
