@@ -192,8 +192,13 @@ class ShellBuild(unittest.TestCase):
         self.assertEqual(set(info['UISupportedInterfaceOrientations~ipad']),
                          landscape | {'UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown'})
         self.assertEqual('b-' + info['DMChain'], chain)
-        self.assertEqual(info['CFBundleIcons']['CFBundlePrimaryIcon']['CFBundleIconName'], 'AppIcon')
-        self.assertTrue((app / 'Assets.car').is_file())
+        if 'Gen/LegacyIcons' in (shell / 'project.yml').read_text():
+            self.assertEqual(info['CFBundleIcons']['CFBundlePrimaryIcon']['CFBundleIconFiles'], ['AppIcon60x60'])
+            self.assertTrue((app / 'AppIcon60x60@3x.png').is_file())
+            self.assertFalse((app / 'Assets.car').exists())
+        else:
+            self.assertEqual(info['CFBundleIcons']['CFBundlePrimaryIcon']['CFBundleIconName'], 'AppIcon')
+            self.assertTrue((app / 'Assets.car').is_file())
         self.assertEqual(info['UIApplicationSceneManifest']['UISceneConfigurations']['UIWindowSceneSessionRoleApplication'][0]['UISceneDelegateClassName'], 'SceneDelegate')
         self.assertTrue((app / f'Frameworks/{fw.name}/{fw.stem}').is_file())
         self.assertTrue((app / f'Frameworks/{fw.name}/game.manifest.json').is_file())

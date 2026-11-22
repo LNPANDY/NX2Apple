@@ -87,6 +87,9 @@ def build_template(out_app: Path, engine: Path | None = None) -> Path:
             DM_APP_VERSION='1.0',
             DM_FORK_PATCHES=fork_patches,
         )
+        subprocess.run([sys.executable, '-I', str(shell_root / 'prepare_icons.py'),
+                        str(s / 'project.yml'), str(pkg_dir)], env=env, check=True)
+
         r_xg = subprocess.run(['xcodegen', 'generate', '-q'], cwd=s, env=env,
                               capture_output=True, text=True)
         if r_xg.returncode != 0:
@@ -103,10 +106,11 @@ def build_template(out_app: Path, engine: Path | None = None) -> Path:
         cmd = [
             'xcodebuild',
             '-project', str(s / 'DmShell.xcodeproj'),
-            '-scheme', 'DmShell',
+            '-target', 'DmShell',
             '-configuration', 'Release',
-            '-destination', 'generic/platform=iOS',
-            '-derivedDataPath', str(dd),
+            '-sdk', 'iphoneos',
+            f'SYMROOT={dd}/Build/Products',
+            f'OBJROOT={dd}/Build/Intermediates.noindex',
             'CODE_SIGNING_ALLOWED=NO',
             'CODE_SIGNING_REQUIRED=NO',
             'CODE_SIGN_IDENTITY=',
