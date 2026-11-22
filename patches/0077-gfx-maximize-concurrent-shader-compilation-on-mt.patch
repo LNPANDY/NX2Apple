@@ -1,0 +1,149 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sun, 22 Nov 2026 19:36:14 +0800
+Subject: [PATCH] gfx: maximize concurrent shader compilation on MTLDevice
+
+Upstream-Status: pending
+Reason: Enable MTLDevice.shouldMaximizeConcurrentCompilation by default (controllable via DM_MTL_MAX_CONCURRENT_COMPILE) across NVN and Metal backends
+Issue: none
+---
+ dm/gfx/metal/mtl_backend.m              | 10 +++++
+ dm/gfx/nvn/nvn_mtl.m                    |  8 ++++
+ dm/gfx/tests/Makefile                   |  8 ++++
+ dm/gfx/tests/t_mtl_concurrent_compile.m | 60 +++++++++++++++++++++++++
+ 4 files changed, 86 insertions(+)
+ create mode 100644 dm/gfx/tests/t_mtl_concurrent_compile.m
+
+diff --git a/dm/gfx/metal/mtl_backend.m b/dm/gfx/metal/mtl_backend.m
+index b9f6f68..f3339ab 100644
+--- a/dm/gfx/metal/mtl_backend.m
++++ b/dm/gfx/metal/mtl_backend.m
+@@ -7,7 +7,9 @@
+ 
+ #import <Foundation/Foundation.h>
+ #import <Metal/Metal.h>
++#include <TargetConditionals.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include "mtl_backend.h"
+ 
+ // ---- Internal objects (held in ObjC classes, ARC manages Metal object lifetimes; exposed as opaque C pointers) ----
+@@ -49,6 +51,14 @@ static void err(const char *where, NSError *e) {
+         id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+         if (!dev) { err("MTLCreateSystemDefaultDevice", nil); return NULL; }
+         if (!dev.hasUnifiedMemory) { err("unified-memory device check (needed for Shared render targets)", nil); return NULL; }
++#if TARGET_OS_OSX
++        if (@available(macOS 13.3, *)) {
++            if ([dev respondsToSelector:@selector(setShouldMaximizeConcurrentCompilation:)]) {
++                const char *mc = getenv("DM_MTL_MAX_CONCURRENT_COMPILE");
++                dev.shouldMaximizeConcurrentCompilation = (!mc || !*mc || atoi(mc) != 0);
++            }
++        }
++#endif
+         MTLBCtx *c = [MTLBCtx new];
+         c.dev = dev;
+         c.queue = [dev newCommandQueue];
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 02e5230..593e03c 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -955,6 +955,14 @@ static void mtl_init_once(void) {
+     g_dev = MTLCreateSystemDefaultDevice();
+     if (!g_dev) MDIE("no Metal device");
+     if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");
++#if TARGET_OS_OSX
++    if (@available(macOS 13.3, *)) {
++        if ([g_dev respondsToSelector:@selector(setShouldMaximizeConcurrentCompilation:)]) {
++            const char *mc = getenv("DM_MTL_MAX_CONCURRENT_COMPILE");
++            g_dev.shouldMaximizeConcurrentCompilation = (!mc || !*mc || atoi(mc) != 0);
++        }
++    }
++#endif
+     g_bc_gpu = [g_dev supportsBCTextureCompression];
+     g_bc_cpu = !g_bc_gpu && dm_prof()->tex_bc_cpu;
+     if (g_bc_cpu) MLOG("BC textures: this GPU has no BC support, decoding them on the CPU (profile tex_bc_cpu)");
+diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
+index 0daa1dc..0535c47 100644
+--- a/dm/gfx/tests/Makefile
++++ b/dm/gfx/tests/Makefile
+@@ -87,6 +87,14 @@ t_mtl_init: t_mtl_init.m $(MTL_T_DEP)
+ check_t_mtl_init: t_mtl_init
+ 	./t_mtl_init
+ 	DM_TEST_NO_METAL4=1 ./t_mtl_init
++t_mtl_concurrent_compile: t_mtl_concurrent_compile.m ../metal/mtl_backend.m ../metal/mtl_backend.h $(MTL_T_DEP)
++	clang $(CFLAGS) -fobjc-arc -o $@ t_mtl_concurrent_compile.m ../metal/mtl_backend.m $(MTL_T_SRC) $(FW)
++.PHONY: check_t_mtl_concurrent_compile
++check_t_mtl_concurrent_compile: t_mtl_concurrent_compile
++	env -u DM_MTL_MAX_CONCURRENT_COMPILE ./t_mtl_concurrent_compile
++	DM_MTL_MAX_CONCURRENT_COMPILE=0 ./t_mtl_concurrent_compile
++	env -u DM_MTL_MAX_CONCURRENT_COMPILE ./t_mtl_concurrent_compile --backend
++	DM_MTL_MAX_CONCURRENT_COMPILE=0 ./t_mtl_concurrent_compile --backend
+ t_nvn: t_nvn.c ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c t_host_stubs.c $(GFX) $(GFX_H)
+ 	clang $(CFLAGS) -DDM_TEST_NVN_SDK -fobjc-arc -o $@ t_nvn.c ../../host/crash.c ../../host/hle_bigstack.c t_host_stubs.c $(GFX) $(FW)
+ t_nvn_accel: t_nvn_accel.m $(MTL_T_DEP)
+diff --git a/dm/gfx/tests/t_mtl_concurrent_compile.m b/dm/gfx/tests/t_mtl_concurrent_compile.m
+new file mode 100644
+index 0000000..2533661
+--- /dev/null
++++ b/dm/gfx/tests/t_mtl_concurrent_compile.m
+@@ -0,0 +1,60 @@
++// Verify DM_MTL_MAX_CONCURRENT_COMPILE enables MTLDevice.shouldMaximizeConcurrentCompilation by default and disables it when set to 0.
++#include "../nvn/nvn_mtl.m"
++#include "../metal/mtl_backend.h"
++#include <stdlib.h>
++#include <string.h>
++
++module_t *g_mod;
++int g_nmod;
++module_t *module_of(const void *p) { (void)p; return NULL; }
++void *front_metal_layer(void) { return NULL; }
++void svc_thread_dump(void) {}
++uint64_t now_ns(void) { return bp_now(); }
++
++static int g_checks, g_failed;
++#define EXPECT_EQ(name, want, got) do { \
++    int w_ = (int)(want), g_ = (int)(got); g_checks++; \
++    printf("%s expected %d -> got %d %s\n", name, w_, g_, w_ == g_ ? "OK" : "FAIL"); \
++    g_failed += w_ != g_; \
++} while (0)
++
++int main(int argc, char **argv) { @autoreleasepool {
++    int backend = argc > 1 && !strcmp(argv[1], "--backend");
++    const char *mc = getenv("DM_MTL_MAX_CONCURRENT_COMPILE");
++    int want = (!mc || !*mc || atoi(mc) != 0);
++
++    if (backend) {
++        mtlb_ctx *ctx = mtlb_init();
++        if (!ctx) { fputs("FAIL: mtlb_init returned NULL\n", stderr); return 1; }
++#if TARGET_OS_OSX
++        id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
++        if (@available(macOS 13.3, *)) {
++            if ([dev respondsToSelector:@selector(shouldMaximizeConcurrentCompilation)]) {
++                EXPECT_EQ("mtl_backend initial shouldMaximizeConcurrentCompilation", want, dev.shouldMaximizeConcurrentCompilation);
++                // Re-init with opposite env on the singleton device to prove explicit toggle in both directions.
++                setenv("DM_MTL_MAX_CONCURRENT_COMPILE", "0", 1);
++                mtlb_ctx *off_ctx = mtlb_init();
++                EXPECT_EQ("mtl_backend explicit disable (=0)", 0, dev.shouldMaximizeConcurrentCompilation);
++                mtlb_shutdown(off_ctx);
++                setenv("DM_MTL_MAX_CONCURRENT_COMPILE", "1", 1);
++                mtlb_ctx *on_ctx = mtlb_init();
++                EXPECT_EQ("mtl_backend explicit enable (=1)", 1, dev.shouldMaximizeConcurrentCompilation);
++                mtlb_shutdown(on_ctx);
++            }
++        }
++#endif
++        mtlb_shutdown(ctx);
++    } else {
++        void *raw = mtl_device_classic();
++        if (!raw || !g_dev) { fputs("FAIL: mtl_device_classic returned NULL\n", stderr); return 1; }
++#if TARGET_OS_OSX
++        if (@available(macOS 13.3, *)) {
++            if ([g_dev respondsToSelector:@selector(shouldMaximizeConcurrentCompilation)])
++                EXPECT_EQ("nvn_mtl shouldMaximizeConcurrentCompilation", want, g_dev.shouldMaximizeConcurrentCompilation);
++        }
++#endif
++        dm_gfx_teardown();
++    }
++    printf("%d checks, %d failed\n", g_checks, g_failed);
++    return g_failed != 0;
++} }
