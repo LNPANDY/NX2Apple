@@ -191,8 +191,7 @@ private struct ShellKeyCommands: UIViewRepresentable {
     func updateUIView(_ view: CommandView, context: Context) {
         view.active = active
         view.handle = handle
-        if active, view.window != nil, !view.isFirstResponder { view.becomeFirstResponder() }
-        else if !active, view.isFirstResponder { view.resignFirstResponder() }
+        view.syncFirstResponder()
     }
     final class CommandView: UIView {
         var active = false
@@ -202,16 +201,62 @@ private struct ShellKeyCommands: UIViewRepresentable {
             (UIKeyCommand.inputUpArrow, .up), (UIKeyCommand.inputDownArrow, .down),
             ("\r", .activate), (UIKeyCommand.inputEscape, .back), ("o", .settings), ("y", .controllers), (",", .shellSettings)
         ]
-        override var canBecomeFirstResponder: Bool { active }
+        override var canBecomeFirstResponder: Bool {
+            active && !hostHasPresentedModal && !windowHasTextInputFirstResponder
+        }
         override var keyCommands: [UIKeyCommand]? {
-            active ? Self.actions.map { UIKeyCommand(input: $0.0, modifierFlags: [], action: #selector(command(_:))) } : nil
+            canBecomeFirstResponder ? Self.actions.map { UIKeyCommand(input: $0.0, modifierFlags: [], action: #selector(command(_:))) } : nil
         }
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            if active, window != nil { becomeFirstResponder() }
+            syncFirstResponder()
+        }
+        func syncFirstResponder() {
+            let hostModal = hostHasPresentedModal
+            if ShellKeyboardCommandPolicy.shouldResignFirstResponder(
+                active: active,
+                alreadyFirstResponder: isFirstResponder,
+                hostHasPresentedModal: hostModal
+            ) {
+                resignFirstResponder()
+                return
+            }
+            if ShellKeyboardCommandPolicy.shouldBecomeFirstResponder(
+                active: active,
+                inWindow: window != nil,
+                alreadyFirstResponder: isFirstResponder,
+                hostHasPresentedModal: hostModal,
+                windowHasTextInputFirstResponder: windowHasTextInputFirstResponder
+            ) {
+                becomeFirstResponder()
+            }
+        }
+        private var hostHasPresentedModal: Bool {
+            var responder: UIResponder? = next
+            while let current = responder {
+                if let vc = current as? UIViewController {
+                    return vc.presentedViewController != nil
+                }
+                responder = current.next
+            }
+            return false
+        }
+        private var windowHasTextInputFirstResponder: Bool {
+            guard let window else { return false }
+            let windows = window.windowScene?.windows ?? [window]
+            return windows.contains { Self.containsTextInputFirstResponder(in: $0) }
+        }
+        private static func containsTextInputFirstResponder(in view: UIView) -> Bool {
+            if view.isFirstResponder {
+                return view is UITextInput || view is UITextField || view is UITextView || view is UISearchBar
+            }
+            for subview in view.subviews where containsTextInputFirstResponder(in: subview) {
+                return true
+            }
+            return false
         }
         @objc private func command(_ command: UIKeyCommand) {
-            guard active, let action = Self.actions.first(where: { $0.0 == command.input })?.1 else { return }
+            guard canBecomeFirstResponder, let action = Self.actions.first(where: { $0.0 == command.input })?.1 else { return }
             handle?(action)
         }
     }

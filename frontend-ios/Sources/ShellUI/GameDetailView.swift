@@ -16,8 +16,17 @@ public struct GameDetailView: View {
     @Environment(\.shellAskHomeScreen) private var askHomeScreen
     @Environment(\.shellAskChangeCover) private var askChangeCover
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var localRestoreBackup = false
-    @State private var localHomeScreen = false
+    private enum LocalSheet: Identifiable {
+        case restoreBackup
+        case homeScreen
+        var id: String {
+            switch self {
+            case .restoreBackup: "restoreBackup"
+            case .homeScreen: "homeScreen"
+            }
+        }
+    }
+    @State private var localSheet: LocalSheet?
     public init(detail: GameDetail, actions: ShellActions = ShellActions(), showsPrimaryAction: Bool = true, showsHeader: Bool = true, nativeSections: Bool = false) {
         self.detail = detail
         self.actions = actions
@@ -36,37 +45,39 @@ public struct GameDetailView: View {
         }
         .foregroundStyle(.white)
         .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: sectionRowIDs)
-        .sheet(isPresented: $localRestoreBackup) {
-            if let backup = detail.latestSaveBackup {
-                RestoreSaveBackupView(game: detail.game, backup: backup, restore: {
-                    localRestoreBackup = false
-                    actions.onRestoreSaveBackup(detail.id)
-                }, cancel: {
-                    localRestoreBackup = false
-                })
-                .presentationDetents([.medium])
+        .sheet(item: $localSheet) { sheet in
+            switch sheet {
+            case .restoreBackup:
+                if let backup = detail.latestSaveBackup {
+                    RestoreSaveBackupView(game: detail.game, backup: backup, restore: {
+                        localSheet = nil
+                        actions.onRestoreSaveBackup(detail.id)
+                    }, cancel: {
+                        localSheet = nil
+                    })
+                    .presentationDetents([.medium])
+                    .presentationBackground(ShellPalette.background)
+                }
+            case .homeScreen:
+                ScrollView {
+                    AddToHomeScreenView(
+                        game: detail.game,
+                        supportsFloatingGuide: actions.onAddToHomeScreenWithGuide != nil,
+                        prepareFloatingGuide: { actions.onPrepareHomeScreenGuide?(detail.id) },
+                        cancelPreparedFloatingGuide: { actions.onCancelPreparedHomeScreenGuide?() },
+                        saveAndOpen: { floatingGuide in
+                            if let withGuide = actions.onAddToHomeScreenWithGuide {
+                                return await withGuide(detail.id, floatingGuide)
+                            }
+                            return await actions.onAddToHomeScreen?(detail.id) ?? false
+                        },
+                        copyURL: { actions.onCopyShortcutURL?(detail.id) },
+                        close: { localSheet = nil }
+                    )
+                }
+                .presentationDetents([.medium, .large])
                 .presentationBackground(ShellPalette.background)
             }
-        }
-        .sheet(isPresented: $localHomeScreen) {
-            ScrollView {
-                AddToHomeScreenView(
-                    game: detail.game,
-                    supportsFloatingGuide: actions.onAddToHomeScreenWithGuide != nil,
-                    prepareFloatingGuide: { actions.onPrepareHomeScreenGuide?(detail.id) },
-                    cancelPreparedFloatingGuide: { actions.onCancelPreparedHomeScreenGuide?() },
-                    saveAndOpen: { floatingGuide in
-                        if let withGuide = actions.onAddToHomeScreenWithGuide {
-                            return await withGuide(detail.id, floatingGuide)
-                        }
-                        return await actions.onAddToHomeScreen?(detail.id) ?? false
-                    },
-                    copyURL: { actions.onCopyShortcutURL?(detail.id) },
-                    close: { localHomeScreen = false }
-                )
-            }
-            .presentationDetents([.medium, .large])
-            .presentationBackground(ShellPalette.background)
         }
     }
     @ViewBuilder private var contents: some View {
@@ -185,7 +196,7 @@ public struct GameDetailView: View {
         if let askHomeScreen {
             askHomeScreen(detail.game)
         } else {
-            localHomeScreen = true
+            localSheet = .homeScreen
         }
     }
 
@@ -269,7 +280,7 @@ public struct GameDetailView: View {
         if let askRestoreBackup {
             askRestoreBackup(detail.game, backup)
         } else {
-            localRestoreBackup = true
+            localSheet = .restoreBackup
         }
     }
 }

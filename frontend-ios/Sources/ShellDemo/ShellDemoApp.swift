@@ -27,6 +27,7 @@ struct DemoScreen: View {
     @State private var padSnapshot: PadSnapshot?
     @State private var games = SampleData.games
     @State private var notice: String?
+    @State private var libraryModalPresented = false
     @State private var input = ShellInputLog()
     @State private var unfolded = ProcessInfo.processInfo.arguments.contains("--unfolded")
     /// Real controllers, through the reusable adapter in ShellControllers.
@@ -83,7 +84,7 @@ struct DemoScreen: View {
                 .padding(.bottom, 2)
             }
         }
-        .alert("Demo action", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+        .alert("Demo action", isPresented: Binding(get: { notice != nil && !libraryModalPresented }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
         .onAppear {
@@ -107,7 +108,10 @@ struct DemoScreen: View {
                     padSnapshot: padSnapshot ?? (scenario == "controllers-test"
                         ? PadSnapshot(name: "Demo", pressed: [.a, .leftBumper, .up], leftStick: CGPoint(x: 0.6, y: 0.5), rightTrigger: 0.7) : nil),
                     initialPadMapping: scenario == "controllers-mapping" ? ControllersView.mappingID : nil,
-                    initialButtonTestOpen: scenario == "controllers-test")
+                    initialButtonTestOpen: scenario == "controllers-test",
+                    notice: notice, noticeTitle: "Demo action", noticeDismissTitle: "OK",
+                    onDismissNotice: { notice = nil },
+                    onModalPresentedChange: { libraryModalPresented = $0 })
     }
 
     /// A stand-in for the foldable while no Simulator runtime for it is installed: the same running shell in a frame

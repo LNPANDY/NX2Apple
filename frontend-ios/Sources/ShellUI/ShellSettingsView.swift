@@ -66,16 +66,18 @@ struct ShellSettingsView: View {
     var actions: ShellActions
     var sideloadCertificate: SideloadCertificateSummary? = nil
     var onClose: () -> Void
+    var onModalPresentedChange: ((Bool) -> Void)? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.shellFocus) private var focus
     /// Counts the changes in the defaults, so the rows read the store again.
     @State private var revision = 0
     @State private var pendingCertFileName: String?
     @State private var certPromptPresented = false
-    @State private var certConfirming = false
     @State private var certPassword = ""
+    @State private var certPromptError: String?
     @State private var certImportError: String?
     @State private var certBusy = false
+    @FocusState private var certPasswordFocused: Bool
 
     var body: some View {
         let _ = revision
@@ -203,31 +205,14 @@ struct ShellSettingsView: View {
         .tint(ShellPalette.cream)
         .preferredColorScheme(.dark)
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in revision += 1 }
-        .alert(
-            Text(verbatim: ShellStrings.text("Enter certificate password")),
-            isPresented: Binding(
-                get: { certPromptPresented },
-                set: { presented in
-                    certPromptPresented = presented
-                    if !presented {
-                        scheduleCancelIfNotConfirmed()
-                    }
-                }
-            )
-        ) {
-            SecureField(ShellStrings.text("Certificate password"), text: $certPassword)
-                .accessibilityIdentifier("shellSettings.sideloadCert.passwordField")
-            Button(ShellStrings.text("Import")) {
-                confirmCertificatePassword()
-            }
-            .accessibilityIdentifier("shellSettings.sideloadCert.passwordConfirm")
-            Button(ShellStrings.text("Cancel"), role: .cancel) {
-                cancelCertificatePasswordPrompt()
-            }
-        } message: {
-            if let fileName = pendingCertFileName {
-                Text(verbatim: ShellStrings.text("Enter the password for \(fileName). Leave it blank if the certificate has no password."))
-            }
+        .onChange(of: certPromptPresented || certImportError != nil) { _, presented in
+            onModalPresentedChange?(presented)
+        }
+        .onDisappear {
+            onModalPresentedChange?(false)
+        }
+        .sheet(isPresented: $certPromptPresented, onDismiss: handleCertificateSheetDismiss) {
+            certificatePasswordSheet
         }
         .alert(
             Text(verbatim: ShellStrings.text("Certificate import failed")),
@@ -239,6 +224,68 @@ struct ShellSettingsView: View {
             Button(ShellStrings.text("Close")) { certImportError = nil }
         } message: {
             Text(verbatim: certImportError ?? "")
+        }
+    }
+
+    private var certificatePasswordSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    SecureField(ShellStrings.text("Certificate password"), text: $certPassword)
+                        .focused($certPasswordFocused)
+                        .submitLabel(.done)
+                        .onSubmit { confirmCertificatePassword() }
+                        .disabled(certBusy)
+                        .accessibilityIdentifier("shellSettings.sideloadCert.passwordField")
+                } header: {
+                    if let fileName = pendingCertFileName {
+                        Text(verbatim: ShellStrings.text("Enter the password for \(fileName). Leave it blank if the certificate has no password."))
+                            .textCase(nil)
+                    }
+                } footer: {
+                    if let certPromptError, !certPromptError.isEmpty {
+                        Text(verbatim: certPromptError)
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("shellSettings.sideloadCert.passwordError")
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .background(ShellPalette.background)
+            .navigationTitle(Text(verbatim: ShellStrings.text("Enter certificate password")))
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(ShellStrings.text("Cancel"), role: .cancel) {
+                        cancelCertificatePasswordPrompt()
+                    }
+                    .disabled(certBusy)
+                    .accessibilityIdentifier("shellSettings.sideloadCert.passwordCancel")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(ShellStrings.text("Import")) {
+                        confirmCertificatePassword()
+                    }
+                    .disabled(certBusy)
+                    .accessibilityIdentifier("shellSettings.sideloadCert.passwordConfirm")
+                }
+            }
+        }
+        .tint(ShellPalette.cream)
+        .preferredColorScheme(.dark)
+        .presentationDetents([.height(280), .medium])
+        .presentationBackground(ShellPalette.background)
+        .interactiveDismissDisabled(certBusy)
+        .onAppear {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(120))
+                if certPromptPresented {
+                    certPasswordFocused = true
+                }
+            }
         }
     }
 
@@ -330,7 +377,7 @@ struct ShellSettingsView: View {
             switch outcome {
             case .picked(let fileName):
                 certPassword = ""
-                certConfirming = false
+                certPromptError = nil
                 pendingCertFileName = fileName
                 certPromptPresented = true
             case .cancelled:
@@ -346,38 +393,36 @@ struct ShellSettingsView: View {
             cancelCertificatePasswordPrompt()
             return
         }
-        // Mark confirming before clearing prompt state so SwiftUI's `isPresented.set(false)` can never race
-        // and discard the entered password or the host's staged `.p12` bytes.
-        certConfirming = true
         let password = certPassword
-        certPassword = ""
-        pendingCertFileName = nil
-        certPromptPresented = false
+        certPromptError = nil
         certBusy = true
         Task {
             let failure = await confirm(password)
             certBusy = false
-            certConfirming = false
             if let failure, !failure.isEmpty {
-                certImportError = failure
+                certPromptError = failure
+                certPassword = ""
+                certPasswordFocused = true
+            } else {
+                certPassword = ""
+                pendingCertFileName = nil
+                certPromptError = nil
+                certPromptPresented = false
             }
         }
     }
 
-    private func scheduleCancelIfNotConfirmed() {
-        // Defer one MainActor turn so if SwiftUI toggles `isPresented` before firing the `Import` button action,
-        // `confirmCertificatePassword()` sets `certConfirming = true` before any cleanup runs.
-        Task { @MainActor in
-            await Task.yield()
-            if !certConfirming && !certPromptPresented && pendingCertFileName != nil {
-                cancelCertificatePasswordPrompt()
-            }
+    private func handleCertificateSheetDismiss() {
+        certPasswordFocused = false
+        if pendingCertFileName != nil {
+            cancelCertificatePasswordPrompt()
         }
     }
 
     private func cancelCertificatePasswordPrompt() {
-        certConfirming = false
+        certPasswordFocused = false
         certPassword = ""
+        certPromptError = nil
         pendingCertFileName = nil
         certPromptPresented = false
         actions.onCancelSideloadCertificateImport?()

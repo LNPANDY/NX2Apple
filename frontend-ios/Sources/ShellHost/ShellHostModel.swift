@@ -1015,6 +1015,8 @@ public struct ShellHostConfig: Sendable {
             sideloadCertificate = summary
             return nil
         case .failure(let error):
+            // Keep the staged .p12 bytes while the password sheet stays open for retry; cancelSideloadCertificateImport clears them.
+            pendingPKCS12Data = data
             return error.localizedDescription
         }
     }

@@ -49,12 +49,30 @@ struct HostDemoScreen: View {
                                      updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"),
                                      defaults: { UserDefaults(suiteName: suite + $0) ?? .standard },
                                      sideloadCertBacking: InMemoryCertBacking())
-        #if canImport(UIKit)
-        _model = State(initialValue: ShellHostModel(config: config, picker: DocumentFolderPicker(),
-                                                    certificatePicker: DocumentCertificatePicker()))
-        #else
-        _model = State(initialValue: ShellHostModel(config: config))
-        #endif
+        let folderPicker: any FolderPicker
+        if args.contains("--mock-bad-folder") {
+            let emptyFolder = fm.temporaryDirectory.appendingPathComponent("shell-demo-empty-folder", isDirectory: true)
+            try? fm.removeItem(at: emptyFolder)
+            try? fm.createDirectory(at: emptyFolder, withIntermediateDirectories: true)
+            folderPicker = DemoFixedFolderPicker(url: emptyFolder)
+        } else {
+            #if canImport(UIKit)
+            folderPicker = DocumentFolderPicker()
+            #else
+            folderPicker = NoFolderPicker()
+            #endif
+        }
+        let certPicker: any SideloadCertificatePicker
+        if args.contains("--mock-cert-picker") {
+            certPicker = DemoFixedCertificatePicker(data: Data("not-a-valid-pkcs12".utf8), fileName: "demo.p12")
+        } else {
+            #if canImport(UIKit)
+            certPicker = DocumentCertificatePicker()
+            #else
+            certPicker = NoSideloadCertificatePicker()
+            #endif
+        }
+        _model = State(initialValue: ShellHostModel(config: config, picker: folderPicker, certificatePicker: certPicker))
     }
 
     private static let suite = "dev.nx2apple.shell.demo."
@@ -66,4 +84,15 @@ struct HostDemoScreen: View {
             .flatMap { ProcessInfo.processInfo.arguments.indices.contains($0 + 1) ? ProcessInfo.processInfo.arguments[$0 + 1] : nil } == "settings")
             .background(ShellPalette.background)
     }
+}
+
+private struct DemoFixedFolderPicker: FolderPicker {
+    let url: URL
+    func pickFolder() async -> URL? { url }
+}
+
+private struct DemoFixedCertificatePicker: SideloadCertificatePicker {
+    let data: Data
+    let fileName: String
+    func pickCertificateOutcome() async -> CertificatePickOutcome { .picked(data: data, fileName: fileName) }
 }

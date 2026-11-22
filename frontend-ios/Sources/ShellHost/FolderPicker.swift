@@ -49,7 +49,67 @@ public final class FolderPickAnswer<Value: Sendable> {
     }
 }
 
+/// Decides how a picker delegate should hand its result back so follow-up modals never collide with a still-dismissing picker.
+public enum DocumentPickerDismissStrategy: Equatable, Sendable {
+    case finishImmediately
+    case waitForTransitionCoordinator
+    case waitForDismissCompletion
+    case dismissExplicitly
+
+    public static func resolve(
+        hasPresentingViewController: Bool,
+        isBeingDismissed: Bool,
+        hasTransitionCoordinator: Bool
+    ) -> DocumentPickerDismissStrategy {
+        guard hasPresentingViewController else { return .finishImmediately }
+        if hasTransitionCoordinator { return .waitForTransitionCoordinator }
+        if isBeingDismissed { return .waitForDismissCompletion }
+        return .dismissExplicitly
+    }
+}
+
 #if canImport(UIKit)
+@MainActor enum DocumentPickerDismissWaiter {
+    static func finishAfterDismiss<Value: Sendable>(
+        controller: UIViewController,
+        value: Value?,
+        answer: FolderPickAnswer<Value>
+    ) {
+        let strategy = DocumentPickerDismissStrategy.resolve(
+            hasPresentingViewController: controller.presentingViewController != nil,
+            isBeingDismissed: controller.isBeingDismissed,
+            hasTransitionCoordinator: controller.transitionCoordinator != nil
+        )
+        switch strategy {
+        case .finishImmediately:
+            answer.finish(value)
+        case .waitForTransitionCoordinator:
+            if let coordinator = controller.transitionCoordinator {
+                coordinator.animate(alongsideTransition: nil) { _ in
+                    Task { @MainActor in
+                        answer.finish(value)
+                    }
+                }
+            } else {
+                answer.finish(value)
+            }
+        case .waitForDismissCompletion:
+            Task { @MainActor in
+                for _ in 0..<24 where controller.presentingViewController != nil {
+                    try? await Task.sleep(for: .milliseconds(25))
+                }
+                answer.finish(value)
+            }
+        case .dismissExplicitly:
+            controller.dismiss(animated: true) {
+                Task { @MainActor in
+                    answer.finish(value)
+                }
+            }
+        }
+    }
+}
+
 /// `UIDocumentPickerViewController` for a folder, opened in place (not copied) as the per-game app does, so the
 /// bookmark keeps pointing at the player's drive or iCloud Drive folder.
 public struct DocumentFolderPicker: FolderPicker {
@@ -89,7 +149,7 @@ public struct DocumentFolderPicker: FolderPicker {
         for scene in ordered {
             let window = scene.keyWindow ?? scene.windows.first { $0.isKeyWindow } ?? scene.windows.first { !$0.isHidden }
             var top = window?.rootViewController
-            while let next = top?.presentedViewController { top = next }
+            while let next = top?.presentedViewController, !next.isBeingDismissed { top = next }
             if let top { return top }
         }
         return nil
@@ -99,9 +159,15 @@ public struct DocumentFolderPicker: FolderPicker {
         nonisolated(unsafe) static var key = 0
         private let answer: FolderPickAnswer<URL>
         init(answer: FolderPickAnswer<URL>) { self.answer = answer }
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { answer.finish(urls.first) }
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentAt url: URL) { answer.finish(url) }
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { answer.finish(nil) }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            DocumentPickerDismissWaiter.finishAfterDismiss(controller: controller, value: urls.first, answer: answer)
+        }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentAt url: URL) {
+            DocumentPickerDismissWaiter.finishAfterDismiss(controller: controller, value: url, answer: answer)
+        }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            DocumentPickerDismissWaiter.finishAfterDismiss(controller: controller, value: nil, answer: answer)
+        }
         func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { answer.finish(nil) }
     }
 }
