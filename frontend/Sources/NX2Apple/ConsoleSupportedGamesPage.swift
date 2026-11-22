@@ -177,8 +177,8 @@ import NXLauncher
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .center, spacing: 10) {
                             Text(game.name).font(.manrope(compact ? 19 : 23, .semibold)).lineLimit(2)
-                            if SupportedGamesSheet.isMacNativeGamesSupported(game) {   // one of the titles MacNativeGames maintains
-                                tag(EngineUpstreamKind.macNativeGames.displayName, emphasized: true)
+                            ForEach(SupportedGamesSheet.tunedEngines(for: game), id: \.self) { engine in
+                                tag(engine.displayName, emphasized: true)
                             }
                             if let improved { tag(improved) }   // Widescreen is in the subtitle, a property, not a tag (#1458)
                         }

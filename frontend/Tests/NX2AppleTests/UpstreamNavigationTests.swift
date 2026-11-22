@@ -36,16 +36,15 @@ private struct OfflineUpstreamTransport: EngineTransport {
         pad.show(default: "set.build.engine"); pad.activate()
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         XCTAssertEqual(pad.scope, "engineDropdown")
-        for id in ["nxnative", "download.macnativegames", "download.s2arm"] {
+        for id in ["nxnative", "download.macnativegames", "download.s2arm", "download.kidwithsword", "download.nolagkart"] {
             XCTAssertNotNil(pad.frame(of: "set.build.engine." + id))
         }
         let current = try XCTUnwrap(pad.frame(of: "set.build.engine.nxnative"))
-        for id in ["macnativegames", "s2arm"] {
-            let download = try XCTUnwrap(pad.frame(of: "set.build.engine.download." + id))
-            XCTAssertLessThan(download.maxY - current.minY, 260, "Engine dropdown rows must remain compact")
-        }
+        let expectedNextAfterNxnative = build.nxkitSelectable ? "set.build.engine.nxkit" : "set.build.engine.download.s2arm"
+        let s2Download = try XCTUnwrap(pad.frame(of: "set.build.engine.download.s2arm"))
+        XCTAssertLessThan(s2Download.maxY - current.minY, 260, "General engine rows must remain compact")
         XCTAssertTrue(PadKeyboardInput.handle(125, focus: pad, back: dropdowns.close))
-        XCTAssertEqual(pad.focused, "set.build.engine.download.macnativegames")
+        XCTAssertEqual(pad.focused, expectedNextAfterNxnative)
         pad.move(dx: 0, dy: -1)
         XCTAssertEqual(pad.focused, "set.build.engine.nxnative")
         dropdowns.close()
@@ -80,6 +79,10 @@ private struct OfflineUpstreamTransport: EngineTransport {
             XCTAssertNotNil(pad.frame(of: id))
         }
         pad.focused = "set.upstream"; pad.horizontal(1)
+        XCTAssertEqual(build.buildUpstream, .nxnative)
+        pad.horizontal(-1)
+        XCTAssertEqual(build.buildUpstream, .macNativeGames)
+        pad.horizontal(-1)
         XCTAssertEqual(build.buildUpstream, .s2arm)
     }
 
@@ -170,12 +173,14 @@ private struct OfflineUpstreamTransport: EngineTransport {
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         XCTAssertEqual(pad.scope, "engineDropdown")
         XCTAssertNil(pad.frame(of: "set.build.engine.macnativegames"), "Disabled MacNativeGames row must not register active padTarget")
-        XCTAssertTrue(PadKeyboardInput.handle(125, focus: pad, back: dropdowns.close))
-        XCTAssertEqual(pad.focused, "set.build.engine.download.s2arm", "Down arrow must skip disabled MacNativeGames row")
+        XCTAssertNil(pad.frame(of: "set.build.engine.download.kidwithsword"), "Disabled Kid with Sword row must not register active padTarget")
+        XCTAssertNil(pad.frame(of: "set.build.engine.download.nolagkart"), "Disabled No Lag Kart row must not register active padTarget")
         if build.nxkitSelectable {
             XCTAssertTrue(PadKeyboardInput.handle(125, focus: pad, back: dropdowns.close))
             XCTAssertEqual(pad.focused, "set.build.engine.nxkit")
         }
+        XCTAssertTrue(PadKeyboardInput.handle(125, focus: pad, back: dropdowns.close))
+        XCTAssertEqual(pad.focused, "set.build.engine.download.s2arm", "Down arrow must skip disabled game-tuned rows")
         XCTAssertTrue(PadKeyboardInput.handle(125, focus: pad, back: dropdowns.close))
         XCTAssertEqual(pad.focused, "set.build.engine.nxnative")
         dropdowns.close()

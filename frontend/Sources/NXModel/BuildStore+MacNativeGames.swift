@@ -49,10 +49,14 @@ extension BuildStore {
         let trimmed = titleID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         hintedTitleID = trimmed.isEmpty ? nil : trimmed
         if !running,
-           buildUpstream == .macNativeGames,
-           !trimmed.isEmpty,
-           !MacNativeGamesBuilder.supportsInput(titleID: trimmed, isNUP: isCurrentInputNUP, tree: macNativeGamesPath) {
-            buildUpstream = .nxnative
+           buildUpstream.enforcedTitleIDs != nil,
+           !trimmed.isEmpty {
+            let supported = buildUpstream == .macNativeGames
+                ? MacNativeGamesBuilder.supportsInput(titleID: trimmed, isNUP: isCurrentInputNUP, tree: macNativeGamesPath)
+                : buildUpstream.supportsTitleID(trimmed)
+            if !supported {
+                buildUpstream = .nxnative
+            }
         }
     }
 
@@ -192,9 +196,7 @@ extension BuildStore {
             }
         }
         guard !running else { return }
-        if buildUpstream == .macNativeGames && isMNGBlockedByCurrentGame {
-            buildUpstream = .nxnative
-        }
+        enforceSpecializedUpstreamsForCurrentGame()
         refreshSeenShadersInfo()
     }
 
@@ -215,7 +217,10 @@ extension BuildStore {
     }
 
     package var usesExternalUpstreamRepo: Bool {
-        (isMacNativeGamesSelected && target == BuildTarget.mac && macNativeGamesInstalled) || (isS2ArmSelected && s2armInstalled) || (isNxkitSelected && nxkitInstalled)
+        (isMacNativeGamesSelected && target == BuildTarget.mac && macNativeGamesInstalled)
+            || (isS2ArmSelected && s2armInstalled)
+            || (isNxkitSelected && nxkitInstalled)
+            || (isNxnativeVariantSelected && isUpstreamInstalled(buildUpstream))
     }
 
     func macNativeGamesProblem() -> String? {

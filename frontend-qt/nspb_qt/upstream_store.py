@@ -28,12 +28,54 @@ from . import s2arm_builder
 ARCHIVE_URLS: dict[str, str] = {
     's2arm': 'https://codeload.github.com/jhaizhou-ops/S2Arm/zip/refs/heads/main',
     'macnativegames': 'https://codeload.github.com/ly05010419/MacNativeGames/zip/refs/heads/main',
+    'kidwithsword': 'https://codeload.github.com/cheemu21/kid-with-sword-remake/zip/refs/heads/L',
+    'nolagkart': 'https://codeload.github.com/kingbumi31/no-lag-kart/zip/refs/heads/main',
 }
 
 INFO_REFS_URLS: dict[str, str] = {
     's2arm': 'https://github.com/jhaizhou-ops/S2Arm/info/refs?service=git-upload-pack',
     'macnativegames': 'https://github.com/ly05010419/MacNativeGames/info/refs?service=git-upload-pack',
+    'kidwithsword': 'https://github.com/cheemu21/kid-with-sword-remake/info/refs?service=git-upload-pack',
+    'nolagkart': 'https://github.com/kingbumi31/no-lag-kart/info/refs?service=git-upload-pack',
 }
+
+BRANCH_NAMES: dict[str, str] = {
+    's2arm': 'main',
+    'macnativegames': 'main',
+    'kidwithsword': 'L',
+    'nolagkart': 'main',
+}
+
+TUNED_TITLE_ALLOWLISTS: dict[str, frozenset[str]] = {
+    'kidwithsword': frozenset({'0400486024DEC000'}),
+    'nolagkart': frozenset({'0400C3F00006E000'}),
+    'macnativegames': frozenset({
+        '0100F2C0115B6000',
+        '01007EF00011E000',
+        '0400486024DEC000',
+        '040074A01BF12000',
+        '0400A3A01EE4C000',
+        '010093801237C000',
+        '01002DA013484000',
+        '010048900CF64000',
+        '0100FE701475A000',
+        '01006F8002326000',
+        '01008CF01BAAC000',
+        '0100000000010000',
+    }),
+}
+
+
+def tuned_engines_for_title_id(title_id: str) -> tuple[str, ...]:
+    """Return all game-tuned upstream kinds matching a 16-hex Switch title ID."""
+    cleaned = str(title_id or '').strip().upper()
+    if len(cleaned) != 16 or not all(c in '0123456789ABCDEF' for c in cleaned):
+        return ()
+    ordered: list[str] = []
+    for kind in ('kidwithsword', 'nolagkart', 'macnativegames'):
+        if cleaned in TUNED_TITLE_ALLOWLISTS[kind]:
+            ordered.append(kind)
+    return tuple(ordered)
 
 RECEIPT_FILENAME = '.upstream-version.json'
 REMOTE_CACHE_TTL_SECONDS = 600.0
@@ -214,7 +256,12 @@ def read_local_receipt(
     receipt = read_version_receipt(tree_path)
     if receipt is not None:
         return receipt
-    entry = Path(tree_path, 'build_app.py') if kind == 'macnativegames' else Path(tree_path, 'pack', 'jobs', 'main.py')
+    if kind == 'macnativegames':
+        entry = Path(tree_path, 'build_app.py')
+    elif kind in ('kidwithsword', 'nolagkart'):
+        entry = Path(tree_path, 'scripts', 'build_ipa_from_nsp.py')
+    else:
+        entry = Path(tree_path, 'pack', 'jobs', 'main.py')
     try:
         mtime = entry.stat().st_mtime
     except OSError:
@@ -283,6 +330,8 @@ def parse_info_refs(
     else:
         return None
 
+    target_branch_ref = f"refs/heads/{BRANCH_NAMES.get(kind, 'main')}"
+    target_branch_sha: str | None = None
     main_sha: str | None = None
     head_sha: str | None = None
     tag_commits: dict[str, str] = {}
@@ -303,7 +352,9 @@ def parse_info_refs(
         if not sha:
             continue
         ref = parts[1].strip()
-        if ref == 'refs/heads/main':
+        if ref == target_branch_ref:
+            target_branch_sha = sha
+        elif ref == 'refs/heads/main':
             main_sha = sha
         elif ref == 'HEAD':
             head_sha = sha
@@ -316,7 +367,7 @@ def parse_info_refs(
             elif raw_tag not in deref_tags:
                 tag_commits[raw_tag] = sha
 
-    resolved_main = main_sha or head_sha
+    resolved_main = target_branch_sha or main_sha or head_sha
     if not resolved_main:
         return None
     if kind == 's2arm':
@@ -325,6 +376,8 @@ def parse_info_refs(
     if kind == 'macnativegames':
         ver, date_str = _resolve_mng_version(resolved_main, tag_commits, now=now)
         return UpstreamRemoteInfo(kind=kind, commit=resolved_main, version=ver, date=date_str)
+    if kind in ('kidwithsword', 'nolagkart'):
+        return UpstreamRemoteInfo(kind=kind, commit=resolved_main, version=resolved_main[:7], date='')
     return None
 
 
@@ -402,6 +455,16 @@ UPSTREAM_META: dict[str, dict[str, object]] = {
         'note_key': 'upstream.s2armCardNote',
         'builtin': False,
     },
+    'kidwithsword': {
+        'display_name': 'Kid with Sword',
+        'note_key': 'upstream.kwsCardNote',
+        'builtin': False,
+    },
+    'nolagkart': {
+        'display_name': 'No Lag Kart',
+        'note_key': 'upstream.noLagKartCardNote',
+        'builtin': False,
+    },
 }
 
 MAX_UPSTREAM_ENTRIES = 80_000
@@ -460,6 +523,11 @@ def is_usable_upstream(path: str, kind: str, *, is_windows: bool | None = None) 
         return s2arm_builder.is_usable_tree(path, is_windows=is_windows)
     if kind == 'macnativegames':
         return engine.is_upstream_tree(path, 'macnativegames')
+    if kind in ('kidwithsword', 'nolagkart'):
+        base = Path(path)
+        return (base / 'dm' / 'tools' / 'nx_extract' / 'Program.cs').is_file() and (
+            base / 'scripts' / 'build_ipa_from_nsp.py'
+        ).is_file()
     return False
 
 

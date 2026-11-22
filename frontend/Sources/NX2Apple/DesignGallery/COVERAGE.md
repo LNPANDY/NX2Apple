@@ -146,6 +146,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `EngineDropdownPanel` | `desktop-engineDropdown` |
 | `EngineExperimentalBadge` | `desktop-engineDropdown` |
 | `EngineFootnote` | Reason: Not used by the launcher: no view creates it, only tests host it. |
+| `EnginePlatformBadge` | `desktop-engineDropdown` |
 | `EngineSwitcherCard` | `buildsIdle`, `nxkitFailed`, `desktop-mngRecommend`, `desktop-mngRecommendInstalled` |
 | `EngineSyncBanner` | `libraryNoticeError`, `settingsEngineError` |
 | `ExportSteps` | `desktop-completionExported`, `desktop-sendSent` |

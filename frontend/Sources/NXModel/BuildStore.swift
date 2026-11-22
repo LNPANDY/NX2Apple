@@ -213,7 +213,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     @Published package var buildUpstream: EngineUpstreamKind {
         didSet {
-            if !running && MacNativeGamesBuilder.featureEnabled && buildUpstream == .macNativeGames && isMNGBlockedByCurrentGame {
+            if !running && buildUpstream.enforcedTitleIDs != nil && isUpstreamBlockedByCurrentGame(buildUpstream) {
                 buildUpstream = .nxnative
                 return
             }
@@ -243,6 +243,24 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     @Published package internal(set) var macNativeGamesInstalled = false
     package var mngRun = false
+    @Published package var kidWithSwordPath: String {
+        didSet {
+            defaults.set(kidWithSwordPath, forKey: Self.kidWithSwordPathKey)
+            kidWithSwordInstalled = UpstreamEngineStore.isUsableTree(kidWithSwordPath, kind: .kidWithSword)
+            refreshUpstreamLocalVersion(for: .kidWithSword)
+        }
+    }
+    @Published package internal(set) var kidWithSwordInstalled = false
+    @Published package var noLagKartPath: String {
+        didSet {
+            defaults.set(noLagKartPath, forKey: Self.noLagKartPathKey)
+            noLagKartInstalled = UpstreamEngineStore.isUsableTree(noLagKartPath, kind: .noLagKart)
+            refreshUpstreamLocalVersion(for: .noLagKart)
+        }
+    }
+    @Published package internal(set) var noLagKartInstalled = false
+    /// Engine kind used by the active or most recently completed build run.
+    package var activeBuildUpstream: EngineUpstreamKind = .nxnative
     @Published package var s2armPath: String {
         didSet {
             defaults.set(s2armPath, forKey: Self.s2armPathKey)
@@ -499,15 +517,21 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
         let savedMNGPath = defaults.string(forKey: Self.macNativeGamesPathKey) ?? ""
         let savedS2ArmPath = defaults.string(forKey: Self.s2armPathKey) ?? ""
+        let savedKWSPath = defaults.string(forKey: Self.kidWithSwordPathKey) ?? ""
+        let savedNLKPath = defaults.string(forKey: Self.noLagKartPathKey) ?? ""
         macNativeGamesPath = savedMNGPath
         s2armPath = savedS2ArmPath
+        kidWithSwordPath = savedKWSPath
+        noLagKartPath = savedNLKPath
         macNativeGamesInstalled = MacNativeGamesBuilder.isUsableTree(savedMNGPath)
         s2armInstalled = S2ArmBuilder.isUsableTree(savedS2ArmPath)
+        kidWithSwordInstalled = UpstreamEngineStore.isUsableTree(savedKWSPath, kind: .kidWithSword)
+        noLagKartInstalled = UpstreamEngineStore.isUsableTree(savedNLKPath, kind: .noLagKart)
         if let rawUpstream = defaults.string(forKey: Self.buildUpstreamKey),
            let parsedUpstream = EngineUpstreamKind(rawValue: rawUpstream) {
             switch parsedUpstream {
-            case .nxnative:
-                buildUpstream = .nxnative
+            case .nxnative, .kidWithSword, .noLagKart:
+                buildUpstream = parsedUpstream
             case .macNativeGames:
                 buildUpstream = MacNativeGamesBuilder.featureEnabled ? .macNativeGames : .nxnative
             case .s2arm:
@@ -532,9 +556,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     /// This iPhone build goes straight to a device.
     /// An iPhone or iPad build that makes the shared app as an unsigned IPA (#416): no device, no team.
-    package var exportsShell: Bool { target != BuildTarget.mac && (queuedExportIPA ?? devices.exportIPA) }
+    package var exportsShell: Bool { target != BuildTarget.mac && (buildUpstream.buildsIOSStandaloneOnly || (queuedExportIPA ?? devices.exportIPA)) }
     /// An export of one game's own IPA with the game data inside (#540): the engine's one-game app, no shared app, nothing to send.
-    package var exportsOneGame: Bool { exportsShell && (queuedExportOneGame ?? devices.exportOneGame) }
+    package var exportsOneGame: Bool { target != BuildTarget.mac && (buildUpstream.buildsIOSStandaloneOnly || (exportsShell && (queuedExportOneGame ?? devices.exportOneGame))) }
     /// An export of a standalone `.framework` for the shared app: no shell IPA build or repack, game data still sent separately.
     package var exportsFramework: Bool { exportsShell && !exportsOneGame && (queuedExportFramework ?? devices.exportFramework) }
     package var installsDirectly: Bool { target != BuildTarget.mac && !devices.installDevice.isEmpty && !devices.signingTeam.isEmpty }

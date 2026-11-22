@@ -25,6 +25,7 @@ struct SupportedGamesSheet: View {
     /// Filter scope for the supported games list.
     enum UpstreamFilter: String, Equatable {
         case all
+        case tuned
         case macNativeGames
     }
 
@@ -64,6 +65,16 @@ struct SupportedGamesSheet: View {
         MacNativeGamesBuilder.featureEnabled && MacNativeGamesBuilder.supportsTitleID(game.titleID)
     }
 
+    /// All game-tuned engines available for `game` (e.g., Kid with Sword, No Lag Kart, MacNativeGames).
+    static func tunedEngines(for game: SupportedGame) -> [EngineUpstreamKind] {
+        EngineUpstream.tunedEngines(forTitleID: game.titleID, macNativeGamesEnabled: MacNativeGamesBuilder.featureEnabled)
+    }
+
+    /// True when `game` has at least one dedicated game-tuned engine.
+    static func isTunedSupported(_ game: SupportedGame) -> Bool {
+        !tunedEngines(for: game).isEmpty
+    }
+
     /// The release as the tag says it: "1.5" for 1.5.0, a patch release in full.
     static func shortVersion(_ version: String) -> String {
         let parts = version.split(separator: ".")
@@ -91,9 +102,17 @@ struct SupportedGamesSheet: View {
                 fields.append(improvedName)
             }
         }
-        if isMacNativeGamesSupported(game) {   // "MacNativeGames" or "MNG" finds the titles it maintains
-            fields.append(EngineUpstreamKind.macNativeGames.displayName)
-            fields.append("MNG")
+        let tuned = tunedEngines(for: game)
+        if !tuned.isEmpty {
+            fields.append("tuned")
+            fields.append("特调")
+            fields.append(contentsOf: Lang.all.map { L10n.string("library.chip.tuned", $0) })
+            for engine in tuned {
+                fields.append(engine.displayName)
+                if engine == .macNativeGames {
+                    fields.append("MNG")
+                }
+            }
         }
         return fields.contains {
             $0.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
@@ -123,6 +142,7 @@ struct SupportedGamesSheet: View {
                             ownedName: (SupportedGame) -> String, improvedName: (SupportedGame) -> String,
                             appVersion: String = AppUpdateStore.appVersion) -> [SupportedGame] {
         games.filter { game in
+            if upstreamFilter == .tuned && !isTunedSupported(game) { return false }
             if upstreamFilter == .macNativeGames && !isMacNativeGamesSupported(game) { return false }
             return matchesSearch(game, needle: needle, ownedName: ownedName(game),
                                  improvedName: improvedName(game), appVersion: appVersion)
@@ -133,14 +153,28 @@ struct SupportedGamesSheet: View {
         games.filter(Self.isMacNativeGamesSupported).count
     }
 
+    var tunedGamesCount: Int {
+        games.filter(Self.isTunedSupported).count
+    }
+
     var hasMacNativeGames: Bool {
         MacNativeGamesBuilder.featureEnabled && macNativeGamesCount > 0
     }
 
+    var hasTunedGames: Bool {
+        tunedGamesCount > 0
+    }
+
     var shown: [SupportedGame] {
-        Self.filterGames(games, upstreamFilter: hasMacNativeGames ? upstreamFilter : .all, needle: search,
-                         ownedName: { owned($0.titleID)?.displayName(loc.lang) ?? "" },
-                         improvedName: { improvedTag($0) ?? "" }, appVersion: appVersion)
+        let effectiveFilter: UpstreamFilter
+        switch upstreamFilter {
+        case .all: effectiveFilter = .all
+        case .tuned: effectiveFilter = hasTunedGames ? .tuned : .all
+        case .macNativeGames: effectiveFilter = hasMacNativeGames ? .macNativeGames : .all
+        }
+        return Self.filterGames(games, upstreamFilter: effectiveFilter, needle: search,
+                                ownedName: { owned($0.titleID)?.displayName(loc.lang) ?? "" },
+                                improvedName: { improvedTag($0) ?? "" }, appVersion: appVersion)
     }
 
     /// This row's Improved tag.
@@ -164,7 +198,7 @@ struct SupportedGamesSheet: View {
         if let current = selected, !visible.contains(where: { $0.titleID == current }) {
             selected = nil
         }
-        focus.focused = Self.reconciledFocus(focused: focus.focused, shown: visible, hasMacNativeGames: hasMacNativeGames)
+        focus.focused = Self.reconciledFocus(focused: focus.focused, shown: visible, hasMacNativeGames: hasTunedGames)
     }
 
     func detail(_ game: SupportedGame) -> String {
@@ -173,13 +207,14 @@ struct SupportedGamesSheet: View {
 
     private var upstreamFilterControl: some View {
         let allLabel = loc.t("console.filter.all")
-        let mngLabel = "\(EngineUpstreamKind.macNativeGames.displayName) (\(macNativeGamesCount))"
+        let tunedLabel = "\(loc.t("library.chip.tuned")) (\(tunedGamesCount))"
+        let activeSelection = upstreamFilter == .all ? UpstreamFilter.all.rawValue : UpstreamFilter.tuned.rawValue
         return LauncherSegmented(
             options: [
                 (UpstreamFilter.all.rawValue, allLabel),
-                (UpstreamFilter.macNativeGames.rawValue, mngLabel)
+                (UpstreamFilter.tuned.rawValue, tunedLabel)
             ],
-            selection: upstreamFilter.rawValue
+            selection: activeSelection
         ) { value in
             upstreamFilter = UpstreamFilter(rawValue: value) ?? .all
         }
@@ -187,8 +222,8 @@ struct SupportedGamesSheet: View {
         .padTarget(
             "supported.filter",
             scope: "supported",
-            activate: { upstreamFilter = upstreamFilter == .all ? .macNativeGames : .all },
-            adjust: { upstreamFilter = $0 > 0 ? .macNativeGames : .all }
+            activate: { upstreamFilter = upstreamFilter == .all ? .tuned : .all },
+            adjust: { upstreamFilter = $0 > 0 ? .tuned : .all }
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(loc.t("engine.title"))
@@ -206,7 +241,7 @@ struct SupportedGamesSheet: View {
                 .padding(.horizontal, DS.Space.s).frame(height: DS.Control.height)
                 .background(DS.Color.surfaceRaised, in: Capsule())
                 .overlay(DSPill().strokeBorder(searchFocused ? DS.Color.accent : DS.Color.separator))
-                if hasMacNativeGames {
+                if hasTunedGames {
                     upstreamFilterControl
                 }
             }
@@ -304,8 +339,8 @@ private struct SupportedGameRow: View {
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         HStack(alignment: .center, spacing: DS.Space.xs) {
                             Text(game.name).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
-                            if SupportedGamesSheet.isMacNativeGamesSupported(game) {
-                                DSTag(EngineUpstreamKind.macNativeGames.displayName, emphasized: true)
+                            ForEach(SupportedGamesSheet.tunedEngines(for: game), id: \.self) { engine in
+                                DSTag(engine.displayName, emphasized: true)
                             }
                             if let improved { DSTag(improved) }
                         }

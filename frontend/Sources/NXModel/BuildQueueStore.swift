@@ -133,6 +133,11 @@ import NXCore
                 tree: mngTreePath()
             )
             return (isMac && supported) ? .macNativeGames : .nxnative
+        case .kidWithSword:
+            return EngineUpstreamKind.kidWithSword.supportsTitleID(entry.titleID) ? .kidWithSword : .nxnative
+        case .noLagKart:
+            let isMac = BuildTarget.normalized(entry.target) == BuildTarget.mac
+            return (isMac && EngineUpstreamKind.noLagKart.supportsTitleID(entry.titleID)) ? .noLagKart : .nxnative
         case .nxkit:
             return BuildTarget.normalized(entry.target) == BuildTarget.mac ? .nxkit : .nxnative
         case .nxnative, .s2arm:

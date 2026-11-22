@@ -7,7 +7,9 @@ extension BuildStore {
     package func resolveBuildPython(includeS2Arm: Bool = false) -> String {
         let expected: EngineUpstreamKind = includeS2Arm ? .s2arm : .nxnative
         let cached = deps.pythonPath
-        let upstreamMatches = deps.pythonUpstream == nil || deps.pythonUpstream == expected
+        let upstreamMatches = deps.pythonUpstream == nil
+            || deps.pythonUpstream == expected
+            || (!includeS2Arm && deps.pythonUpstream?.isNxnativeVariant == true)
         let isManagedMNG = MacNativeGamesBuilder.isManagedUVPython(cached, home: home)
             || MacNativeGamesBuilder.isManagedUVPython(cached)
         if deps.checked, !cached.isEmpty, upstreamMatches, !isManagedMNG {

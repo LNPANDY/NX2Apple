@@ -10,8 +10,23 @@ package enum OneGameIPA {
     /// `<folder>/<title ID>.ipa`, next to the game's build folder.
     package static func path(folder: String, titleID: String) -> String { folder + "/" + titleID + ".ipa" }
 
+    /// Team-scoped bundle ID (`org.nxnative.<tid>.<teamID>`) matching patch 0047 for personal Apple developer teams
+    /// when driving an external `nxnative` fork without NX2Apple's private patches.
+    package static func personalBundleID(titleID: String, teamID: String) -> String? {
+        let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let team = teamID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !tid.isEmpty, !team.isEmpty else { return nil }
+        return "org.nxnative.\(tid).\(team)"
+    }
+
     /// The script's arguments for the IPA, in place of the shared app's `--shell-framework`.
-    package static func arguments(ipa: String) -> [String] { ["--platform", "ios", "--romfs", "bundle", "-o", ipa] }
+    package static func arguments(ipa: String, bundleID: String? = nil) -> [String] {
+        var args = ["--platform", "ios", "--romfs", "bundle", "-o", ipa]
+        if let bundleID, !bundleID.isEmpty {
+            args += ["--bundle-id", bundleID]
+        }
+        return args
+    }
 
     /// What build_ipa.sh needs to pack the game data into the IPA.
     package static let environment = ["DM_FULL_ROMFS": "1"]

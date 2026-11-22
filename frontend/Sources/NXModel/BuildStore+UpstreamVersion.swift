@@ -32,6 +32,10 @@ extension BuildStore {
             return macNativeGamesPath
         case .s2arm:
             return s2armPath
+        case .kidWithSword:
+            return kidWithSwordPath
+        case .noLagKart:
+            return noLagKartPath
         }
     }
 

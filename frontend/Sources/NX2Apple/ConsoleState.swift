@@ -60,6 +60,8 @@ struct ConsoleGame: Identifiable {
     var playSeconds: Double = 0
     var olderTools = false
     var isMacNativeGames = false
+    var builtTunedEngineName: String? = nil
+    var tunedEngineNames: [String] = []
     var lastSave: Date?
     /// nxkit built the app without a game profile (NxkitBuildProfile, v0lumehi/nxkit#54), read by the driver: the tile and the page say so.
     var genericBuild: NxkitBuildProfile?

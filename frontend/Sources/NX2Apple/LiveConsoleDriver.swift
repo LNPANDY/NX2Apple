@@ -217,12 +217,20 @@ struct ConsolePadSnapshot: Equatable {
         let store = SavedChoices(app: game.appPath, titleID: game.titleID)
         var values: [String: String] = [:]
         for s in settings { values[s.env] = s.storeBacked ? store.current(s) : game.launchValue(s) }
+        let macUpstream = game.playableMacBundle?.upstream
+        let builtTunedName: String? = {
+            guard let macUpstream, macUpstream.group == .gameTuned else { return nil }
+            return macUpstream == .macNativeGames ? t("library.chip.mng") : macUpstream.displayName
+        }()
+        let tunedNames = EngineUpstream.tunedEngines(forTitleID: game.titleID).map(\.displayName)
         var console = ConsoleGame(id: game.id.uuidString, title: game.displayName(lang()), version: version(of: game),
                                   platforms: Self.platforms(of: game), artwork: cover(game), artworkFocus: game.artwork.focus(for: .thumbnail),
                                   status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values,
                                   mapsButtons: game.isReady && SavedChoices.appReadsControllerMappings(app: game.appPath)
                                       && game.controllerSavingEnabled(environment: game.launchOptions),
-                                  isMacNativeGames: game.playableMacBundle?.upstream == .macNativeGames)
+                                  isMacNativeGames: macUpstream == .macNativeGames,
+                                  builtTunedEngineName: builtTunedName,
+                                  tunedEngineNames: tunedNames)
         // built by nxkit without a game profile (v0lumehi/nxkit#54): read here, the views never touch the file
         if game.isReady, let app = game.playableMacBundle, app.upstream == .nxkit, let profile = NxkitBuildProfile.read(app: game.appPath) {
             console.genericBuild = profile

@@ -36,10 +36,34 @@ package enum RepoLayout {
             let root = EngineLayout.root(dir)
             let prefix = root.hasSuffix("/") ? root : root + "/"
             return descriptor.requiredTools.filter { !fm.fileExists(atPath: prefix + $0) }
-        case .s2arm, .macNativeGames, .nxkit:
+        case .s2arm, .macNativeGames, .nxkit, .kidWithSword, .noLagKart:
             let prefix = dir.hasSuffix("/") ? dir : dir + "/"
             return descriptor.requiredTools.filter { !fm.fileExists(atPath: prefix + $0) }
         }
+    }
+
+    /// Whether the checkout's build script accepts `--progress` (JSON progress events).
+    package static func supportsProgressJson(_ dir: String) -> Bool {
+        let script = EngineLayout.root(dir) + "/" + buildScript
+        if !FileManager.default.fileExists(atPath: script), EngineLayout.hasEngineTool(dir) { return true }
+        guard let text = try? String(contentsOfFile: script, encoding: .utf8) else { return false }
+        return text.contains("'--progress'") || text.contains("\"--progress\"")
+    }
+
+    /// Whether the checkout's build script accepts `--bundle-id` for overriding the iOS app bundle identifier.
+    package static func supportsBundleID(_ dir: String) -> Bool {
+        let script = EngineLayout.root(dir) + "/" + buildScript
+        if !FileManager.default.fileExists(atPath: script), EngineLayout.hasEngineTool(dir) { return true }
+        guard let text = try? String(contentsOfFile: script, encoding: .utf8) else { return false }
+        return text.contains("'--bundle-id'") || text.contains("\"--bundle-id\"")
+    }
+
+    /// Whether the checkout's build script accepts `--env-file`.
+    package static func supportsEnvFile(_ dir: String) -> Bool {
+        let script = EngineLayout.root(dir) + "/" + buildScript
+        if !FileManager.default.fileExists(atPath: script), EngineLayout.hasEngineTool(dir) { return true }
+        guard let text = try? String(contentsOfFile: script, encoding: .utf8) else { return false }
+        return text.contains("'--env-file'") || text.contains("\"--env-file\"")
     }
 
     /// Whether the checkout's build script has this fork's `--work-dir` (issue #5): an upstream

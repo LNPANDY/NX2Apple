@@ -203,6 +203,15 @@ extension BuildStore {
                         tree: macNativeGamesPath
                     )
                 return allowed ? .macNativeGames : .nxnative
+            case .kidWithSword:
+                let allowed = kidWithSwordInstalled
+                    && EngineUpstreamKind.kidWithSword.supportsTitleID(resolvedTitleID)
+                return allowed ? .kidWithSword : .nxnative
+            case .noLagKart:
+                let allowed = noLagKartInstalled
+                    && normalizedTarget == BuildTarget.mac
+                    && EngineUpstreamKind.noLagKart.supportsTitleID(resolvedTitleID)
+                return allowed ? .noLagKart : .nxnative
             case .nxkit:
                 return normalizedTarget == BuildTarget.mac ? .nxkit : .nxnative
             case .nxnative, .s2arm:

@@ -22,14 +22,32 @@ struct BuildSelectedSheet: View {
     var macNativeGamesSelected: Bool = false
     /// Whether the installed MacNativeGames checkout supports generic Switch 2 `.nup` routing (`tools/nup_input.py`).
     var mngSupportsGenericNUP: Bool = false
+    /// Active build engine selected on the Builds page (when nil, falls back to `macNativeGamesSelected`).
+    var activeUpstream: EngineUpstreamKind? = nil
     var added: (String) -> Void = { _ in }
     let close: () -> Void
     @EnvironmentObject var loc: Localizer
     @State private var selectedTarget = BuildTarget.mac
+    @State private var showTunedOnly = false
     @State private var checked: Set<UUID> = []
     @State private var icons: [UUID: NSImage] = [:]
     @EnvironmentObject private var focus: PadFocus
 
+    private var effectiveUpstream: EngineUpstreamKind {
+        activeUpstream ?? (macNativeGamesSelected ? .macNativeGames : .nxnative)
+    }
+    private func isNUPInput(_ game: LibraryGame) -> Bool {
+        MacNativeGamesBuilder.isNUPInputPath(game.inputs[GameLibrary.folderInput]?.first)
+            || MacNativeGamesBuilder.isNUPInputPath(game.inputs["base"]?.first)
+    }
+    private func hasCompatibleTunedEngine(_ game: LibraryGame) -> Bool {
+        !Self.rowAvailableTunedEngines(
+            for: game.titleID,
+            activeUpstream: .nxnative,
+            isNUP: isNUPInput(game),
+            supportsGenericNUP: mngSupportsGenericNUP
+        ).isEmpty
+    }
     private func available(_ game: LibraryGame) -> Bool { targets.contains { queue.canEnqueue(game.titleID, target: $0) } }
     private var canAdd: Bool { candidates.contains { checked.contains($0.id) && available($0) } }
     private var sourceGames: [LibraryGame] { library.games.filter { $0.inputs[GameLibrary.folderInput] != nil || !($0.inputs["base"] ?? []).isEmpty } }
@@ -39,7 +57,12 @@ struct BuildSelectedSheet: View {
         return loc.lang.code + "\n" + entries.joined(separator: "\n")
     }
 
-    private var candidates: [LibraryGame] { sourceGames.filter(available) }
+    private var allCandidates: [LibraryGame] { sourceGames.filter(available) }
+    private var tunedCandidatesCount: Int { allCandidates.filter(hasCompatibleTunedEngine).count }
+    private var candidates: [LibraryGame] {
+        guard showTunedOnly, tunedCandidatesCount > 0 else { return allCandidates }
+        return allCandidates.filter(hasCompatibleTunedEngine)
+    }
 
     var body: some View {
         DSScrollingSheet(width: 680, height: min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80),
@@ -61,6 +84,17 @@ struct BuildSelectedSheet: View {
             if let macOnlyNoteKey {
                 Text(loc.t(macOnlyNoteKey)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            if tunedCandidatesCount > 0 {
+                LauncherSegmented(
+                    options: [
+                        ("all", loc.t("console.filter.all")),
+                        ("tuned", "\(loc.t("library.chip.tuned")) (\(tunedCandidatesCount))")
+                    ],
+                    selection: showTunedOnly ? "tuned" : "all"
+                ) { showTunedOnly = $0 == "tuned" }
+                .compactFrame(minWidth: 240)
+                .padTarget("batch.filter", scope: "batch", activate: { showTunedOnly.toggle() }, adjust: { showTunedOnly = $0 > 0 })
             }
             if candidates.isEmpty {
                 Text(loc.t(sourceGames.isEmpty ? "queue.selectEmpty" : "queue.noApplicable")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
@@ -134,16 +168,40 @@ struct BuildSelectedSheet: View {
     /// Returns nil when another engine is active so standard nxnative batch builds stay uncluttered.
     static func rowEngineTag(for titleID: String, selectedTarget: String, macNativeGamesSelected: Bool, isNUP: Bool = false, supportsGenericNUP: Bool = false) -> EngineUpstreamKind? {
         guard macNativeGamesSelected, MacNativeGamesBuilder.featureEnabled else { return nil }
+        return rowEngineTag(for: titleID, selectedTarget: selectedTarget, activeUpstream: .macNativeGames, isNUP: isNUP, supportsGenericNUP: supportsGenericNUP)
+    }
+
+    /// Resolves the actual engine tag a row will build with when a specialized game-tuned engine is selected.
+    static func rowEngineTag(for titleID: String, selectedTarget: String, activeUpstream: EngineUpstreamKind, isNUP: Bool = false, supportsGenericNUP: Bool = false) -> EngineUpstreamKind? {
+        guard activeUpstream.group == .gameTuned else { return nil }
         let buildsMac = selectedTarget == BuildTarget.mac || selectedTarget == "both"
-        let allowed = MacNativeGamesBuilder.supportsTitleID(titleID) && (!isNUP || supportsGenericNUP || MacNativeGamesBuilder.nupSupportedTitleIDs.contains(MacNativeGamesBuilder.normalizedHex16(titleID) ?? ""))
-        return (buildsMac && allowed) ? .macNativeGames : .nxnative
+        if activeUpstream == .macNativeGames {
+            guard MacNativeGamesBuilder.featureEnabled else { return nil }
+            let allowed = MacNativeGamesBuilder.supportsTitleID(titleID)
+                && (!isNUP || supportsGenericNUP || MacNativeGamesBuilder.nupSupportedTitleIDs.contains(MacNativeGamesBuilder.normalizedHex16(titleID) ?? ""))
+            return (buildsMac && allowed) ? .macNativeGames : .nxnative
+        }
+        if activeUpstream.buildsMacOnly {
+            return (buildsMac && activeUpstream.supportsTitleID(titleID)) ? activeUpstream : .nxnative
+        }
+        return activeUpstream.supportsTitleID(titleID) ? activeUpstream : .nxnative
+    }
+
+    /// Lists available tuned engines for a row when building with a general engine.
+    static func rowAvailableTunedEngines(for titleID: String, activeUpstream: EngineUpstreamKind, isNUP: Bool = false, supportsGenericNUP: Bool = false) -> [EngineUpstreamKind] {
+        guard activeUpstream.group == .general else { return [] }
+        return EngineUpstream.tunedEngines(forTitleID: titleID, macNativeGamesEnabled: MacNativeGamesBuilder.featureEnabled).filter { kind in
+            guard kind == .macNativeGames, isNUP, !supportsGenericNUP else { return true }
+            return MacNativeGamesBuilder.nupSupportedTitleIDs.contains(MacNativeGamesBuilder.normalizedHex16(titleID) ?? "")
+        }
     }
 
     /// A game of the checklist: the check (the accent when chosen), its icon, its name and the platforms it already waits for.
     private func row(_ game: LibraryGame) -> some View {
         let on = checked.contains(game.id)
-        let isNUP = MacNativeGamesBuilder.isNUPInputPath(game.inputs[GameLibrary.folderInput]?.first)
-            || MacNativeGamesBuilder.isNUPInputPath(game.inputs["base"]?.first)
+        let isNUP = isNUPInput(game)
+        let upstream = effectiveUpstream
+        let availableTuned = Self.rowAvailableTunedEngines(for: game.titleID, activeUpstream: upstream, isNUP: isNUP, supportsGenericNUP: mngSupportsGenericNUP)
         return Button { toggle(game.id) } label: {
             HStack(spacing: DS.Space.s) {
                 Image(systemName: on ? "checkmark.square.fill" : "square").font(.system(size: 17))
@@ -161,8 +219,12 @@ struct BuildSelectedSheet: View {
                 .accessibilityHidden(true)
                 Text(game.displayName(loc.lang)).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
                 Spacer(minLength: DS.Space.xs)
-                if let engineTag = Self.rowEngineTag(for: game.titleID, selectedTarget: selectedTarget, macNativeGamesSelected: macNativeGamesSelected, isNUP: isNUP, supportsGenericNUP: mngSupportsGenericNUP) {
-                    DSTag(engineTag.displayName, emphasized: engineTag == .macNativeGames)
+                if let engineTag = Self.rowEngineTag(for: game.titleID, selectedTarget: selectedTarget, activeUpstream: upstream, isNUP: isNUP, supportsGenericNUP: mngSupportsGenericNUP) {
+                    DSTag(engineTag.displayName, emphasized: engineTag.group == .gameTuned)
+                } else if !availableTuned.isEmpty {
+                    let label = "\(loc.t("library.chip.tuned")) \u{00b7} \(availableTuned[0].displayName)"
+                    DSTag(label, emphasized: true)
+                        .help(String(format: loc.t("library.tuned.help"), availableTuned.map(\.displayName).joined(separator: ", ")))
                 }
                 if let existing = queue.games.first(where: { $0.titleID.caseInsensitiveCompare(game.titleID) == .orderedSame }), existing.waiting || existing.running || existing.entries.contains(where: { $0.packagePending != nil }) {
                     BuildPlatformChip(targets: existing.entries.map(\.target))

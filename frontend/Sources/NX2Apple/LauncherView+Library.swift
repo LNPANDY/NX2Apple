@@ -316,10 +316,22 @@ extension LauncherView {
                     .help(loc.t("activity.totalTime"))
                     .accessibilityLabel("\(loc.t("activity.totalTime")) \(played)")
             }
-            if game.playableMacBundle?.upstream == .macNativeGames {   // built with MacNativeGames: a property, a quiet tag
-                DSTag(loc.t("library.chip.mng"), emphasized: true)
-                    .help(loc.t("library.mng.help"))
-                    .accessibilityLabel(loc.t("library.mng.help"))
+            if let built = game.playableMacBundle?.upstream, built.group == .gameTuned {
+                let label = built == .macNativeGames ? loc.t("library.chip.mng") : built.displayName
+                let help = built == .macNativeGames
+                    ? loc.t("library.mng.help")
+                    : String(format: loc.t("library.tunedBuilt.help"), built.displayName)
+                DSTag(label, emphasized: true)
+                    .help(help)
+                    .accessibilityLabel(help)
+            } else {
+                let tuned = EngineUpstream.tunedEngines(forTitleID: game.titleID)
+                if !tuned.isEmpty {
+                    let help = String(format: loc.t("library.tuned.help"), tuned.map(\.displayName).joined(separator: ", "))
+                    DSTag(loc.t("library.chip.tuned"), emphasized: true)
+                        .help(help)
+                        .accessibilityLabel(help)
+                }
             }
             if game.playableMacBundle?.upstream == .nxkit, NxkitBuildProfile.read(app: game.appPath) != nil {
                 // built without a game profile (v0lumehi/nxkit#54): a quiet tag, the row under the actions says what it means

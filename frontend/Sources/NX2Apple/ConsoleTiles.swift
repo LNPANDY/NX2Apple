@@ -87,6 +87,15 @@ struct ConsoleGameTile: View {
                         .padding(8)
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if let built = game.builtTunedEngineName ?? (game.isMacNativeGames ? L10n.string("library.chip.mng", lang) : nil) {
+                    DSTag(built, emphasized: true)
+                        .padding(8)
+                } else if !game.tunedEngineNames.isEmpty {
+                    DSTag(L10n.string("library.chip.tuned", lang), emphasized: true)
+                        .padding(8)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: DS.Console.Radius.art))
             .overlay(RoundedRectangle(cornerRadius: DS.Console.Radius.art).strokeBorder(selected && showsSelection ? DS.Color.accent : DS.Color.separator,
                                                                                     lineWidth: selected && showsSelection ? DS.Console.Control.focusRing : 1))
