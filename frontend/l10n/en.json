@@ -1271,7 +1271,7 @@
   "ios.ui.activityLastPlayed": "Last played %@",
   "ios.ui.activityLog": "Activity log",
   "ios.ui.activityMostPlayed": "Most played",
-  "ios.ui.activityMostSessions": "Most played count",
+  "ios.ui.activityMostSessions": "Times played",
   "ios.ui.activityNextMonth": "Next month",
   "ios.ui.activityPlayHistory": "Play history",
   "ios.ui.activityPlaySessions": "Play sessions",

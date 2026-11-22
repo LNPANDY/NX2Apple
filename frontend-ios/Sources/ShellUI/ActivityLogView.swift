@@ -1,7 +1,9 @@
 import SwiftUI
 
 /// Nintendo 3DS-style Activity Log view for iPhone and iPad (#1161).
-/// Purely presentation-only over `ActivityLogSnapshot` so `ShellUI` performs zero file I/O.
+/// Purely presentation-only over `ActivityLogSnapshot` so `ShellUI` performs zero file I/O. Built from the shell's type roles,
+/// cards and segmented control: two columns of totals and the panels stacked on a phone, the totals in one row and the chart
+/// beside the calendar where the width allows.
 public struct ActivityLogView: View {
     public enum SortOrder: String, CaseIterable, Sendable {
         case mostPlayed
@@ -13,9 +15,17 @@ public struct ActivityLogView: View {
     public var onSelectGame: (String) -> Void
     public var onClose: () -> Void
     @Environment(\.shellNativeBars) private var nativeBars
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sort: SortOrder = .mostPlayed
     @State private var monthOffset = 0
     @State private var expandedID: String?
+
+    /// The width from which the totals sit in one row and the chart beside the calendar.
+    static let wideWidth: CGFloat = 640
+    private static let chartHeight: CGFloat = 96
+    private static let coverSize = CGSize(width: 64, height: 36)
+    private static let secondary = Color.white.opacity(0.62)
+    private static let tertiary = Color.white.opacity(0.4)
 
     public init(
         snapshot: ActivityLogSnapshot,
@@ -48,32 +58,32 @@ public struct ActivityLogView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                if !nativeBars {
-                    HStack {
-                        Text(ShellStrings.text("Activity log"))
-                            .shellText(26, .heavy, relativeTo: .title)
-                            .tracking(-0.6)
-                        Spacer()
-                        Button(ShellStrings.text("Done"), action: onClose)
-                            .buttonStyle(.borderedProminent)
-                            .tint(ShellPalette.cream)
-                            .foregroundStyle(.black)
-                            .accessibilityIdentifier("activityLog.close")
-                            .shellTarget("act.close", action: onClose)
+        GeometryReader { proxy in
+            let wide = proxy.size.width >= Self.wideWidth
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    if !nativeBars { header }
+                    if snapshot.entries.isEmpty {
+                        emptyState
+                    } else {
+                        summary(wide: wide)
+                        if wide {
+                            HStack(alignment: .top, spacing: 12) {
+                                dailyChartCard(fills: true).frame(maxHeight: .infinity)
+                                monthCalendarCard.frame(width: 300)
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            dailyChartCard(fills: false)
+                            monthCalendarCard
+                        }
+                        gamesListSection
                     }
                 }
-                if snapshot.entries.isEmpty {
-                    emptyState
-                } else {
-                    summaryGrid
-                    dailyChartCard
-                    monthCalendarCard
-                    gamesListSection
-                }
+                .padding(.horizontal, 20).padding(.vertical, 20)
+                .frame(maxWidth: 960)
+                .frame(maxWidth: .infinity)
             }
-            .padding(20)
         }
         .background(ShellPalette.background)
         .foregroundStyle(.white)
@@ -81,87 +91,118 @@ public struct ActivityLogView: View {
         .accessibilityIdentifier("activityLog.view")
     }
 
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(ShellStrings.text("Activity log"))
+                .shellType(ShellType.pageTitle)
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            Button(ShellStrings.text("Done"), action: onClose)
+                .buttonStyle(PrimaryPillStyle())
+                .accessibilityIdentifier("activityLog.close")
+                .shellTarget("act.close", action: onClose)
+        }
+    }
+
     private var emptyState: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             Image(systemName: "chart.bar.xaxis")
-                .font(.system(size: 36, weight: .light))
-                .foregroundStyle(ShellPalette.cream)
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(Self.secondary)
+                .padding(.bottom, 4)
+                .accessibilityHidden(true)
             Text(ShellStrings.text("No play history yet"))
-                .shellText(18, .bold)
+                .shellType(ShellType.cardTitle)
             Text(ShellStrings.text("Start any game to track play time, sessions and active days here."))
-                .shellText(14)
-                .foregroundStyle(.white.opacity(0.65))
+                .shellType(ShellType.body)
+                .foregroundStyle(Self.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
         }
-        .frame(maxWidth: .infinity, minHeight: 260)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+        .shellCard()
     }
 
-    private var summaryGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-            metricTile(title: ShellStrings.text("Total time"), value: snapshot.totalTime, symbol: "clock.fill")
-            metricTile(title: ShellStrings.text("Play sessions"), value: "\(snapshot.totalSessions)", symbol: "play.circle.fill")
-            metricTile(title: ShellStrings.text("Days played"), value: "\(snapshot.activeDaysCount)", symbol: "calendar")
-            metricTile(title: ShellStrings.text("Games played"), value: "\(snapshot.gamesPlayedCount)", symbol: "gamecontroller.fill")
+    // MARK: Totals
+
+    @ViewBuilder private func summary(wide: Bool) -> some View {
+        let tiles = [
+            (ShellStrings.text("Total time"), snapshot.totalTime, "clock"),
+            (ShellStrings.text("Play sessions"), snapshot.totalSessions.formatted(), "play.circle"),
+            (ShellStrings.text("Days played"), snapshot.activeDaysCount.formatted(), "calendar"),
+            (ShellStrings.text("Games played"), snapshot.gamesPlayedCount.formatted(), "gamecontroller"),
+        ]
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: wide ? 4 : 2), spacing: 12) {
+            ForEach(tiles, id: \.0) { tile in metricTile(title: tile.0, value: tile.1, symbol: tile.2) }
         }
     }
 
     private func metricTile(title: String, value: String, symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            Label {
+                Text(title).lineLimit(1).minimumScaleFactor(0.85)
+            } icon: {
                 Image(systemName: symbol)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(ShellPalette.cream)
-                Text(title)
-                    .shellText(12, .medium)
-                    .foregroundStyle(.white.opacity(0.65))
-                    .lineLimit(1)
             }
+            .shellType(ShellType.status)
+            .foregroundStyle(Self.secondary)
             Text(value)
-                .shellText(20, .bold)
+                .shellText(22, .bold, relativeTo: .title2)
+                .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.10)))
+        .shellCard(padding: 16)
+        .accessibilityElement(children: .combine)
     }
 
-    private var dailyChartCard: some View {
+    // MARK: Last 14 days
+
+    /// `fills`: beside the calendar the bars take the card's height, so both cards end on one line.
+    private func dailyChartCard(fills: Bool) -> some View {
         let peak = max(snapshot.recentDays.map(\.seconds).max() ?? 0, 600)
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(ShellStrings.text("Last 14 days"))
-                    .shellText(14, .bold)
-                Spacer()
-                if let maxSeconds = snapshot.recentDays.map(\.seconds).max(), maxSeconds >= 60 {
-                    Text(ShellFormat.duration(maxSeconds))
-                        .shellText(12)
-                        .foregroundStyle(.white.opacity(0.6))
-                }
-            }
-            HStack(alignment: .bottom, spacing: 6) {
-                ForEach(snapshot.recentDays) { bar in
-                    VStack(spacing: 5) {
-                        Spacer(minLength: 0)
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(bar.seconds > 0 ? ShellPalette.cream : .white.opacity(0.10))
-                            .frame(height: bar.seconds > 0 ? max(6, CGFloat(bar.seconds / peak) * 80) : 4)
-                        Text(bar.label)
-                            .shellText(10, .medium)
-                            .foregroundStyle(.white.opacity(0.6))
-                            .lineLimit(1)
+        let today = snapshot.recentDays.last?.id
+        return VStack(alignment: .leading, spacing: 14) {
+            Text(ShellStrings.text("Last 14 days"))
+                .shellType(ShellType.cardTitle)
+                .accessibilityAddTraits(.isHeader)
+            VStack(spacing: 6) {
+                GeometryReader { bars in
+                    HStack(alignment: .bottom, spacing: 5) {
+                        ForEach(snapshot.recentDays) { bar in
+                            let played = bar.seconds > 0
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(played ? ShellPalette.cream : ShellPalette.hairline)
+                                .frame(height: played ? max(4, CGFloat(bar.seconds / peak) * bars.size.height) : 2)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                                .accessibilityElement()
+                                .accessibilityLabel(bar.label)
+                                .accessibilityValue(played ? ShellFormat.duration(bar.seconds) : "")
+                        }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: 106)
                 }
+                .frame(minHeight: Self.chartHeight, maxHeight: fills ? .infinity : Self.chartHeight)
+                Rectangle().fill(ShellPalette.hairline).frame(height: 1)
+                HStack(spacing: 5) {
+                    ForEach(snapshot.recentDays) { bar in
+                        Text(bar.label)
+                            .shellText(11, bar.id == today ? .semibold : .regular, relativeTo: .caption2)
+                            .monospacedDigit()
+                            .foregroundStyle(bar.id == today ? .white : Self.tertiary)
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .accessibilityHidden(true)
             }
-            .frame(height: 106)
         }
-        .padding(16)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.10)))
+        .frame(maxWidth: .infinity, maxHeight: fills ? .infinity : nil, alignment: .topLeading)
+        .shellCard(padding: 16)
     }
+
+    // MARK: Calendar
 
     private var monthCalendarCard: some View {
         let activeLocale = ShellFormat.activeLocale
@@ -179,49 +220,74 @@ public struct ActivityLogView: View {
         let firstWeekday = calendar.component(.weekday, from: monthStart)
         let leading = (firstWeekday - calendar.firstWeekday + 7) % 7
         let symbols = weekdaySymbols(calendar: calendar, locale: activeLocale)
+        let todayKey = Self.dayKey(snapshot.referenceDate, calendar: calendar)
+        let canGoForward = monthOffset < 0
+        let back = { monthOffset -= 1 }
+        let forward = { if monthOffset < 0 { monthOffset += 1 } }
+        // One kind of cell per id prefix: the weekday letters, the blanks before the first and the days share one grid.
+        let cells: [(id: String, day: Int?)] = (0..<leading).map { ("blank.\($0)", nil) } + range.map { ("day.\($0)", $0) }
 
         return VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(monthTitle).shellText(14, .bold)
-                Spacer()
-                Button { monthOffset -= 1 } label: {
-                    Image(systemName: "chevron.left").frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(ShellStrings.text("Previous month"))
-                .shellTarget("act.month.prev") { monthOffset -= 1 }
-                Button { if monthOffset < 0 { monthOffset += 1 } } label: {
-                    Image(systemName: "chevron.right").frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .disabled(monthOffset >= 0)
-                .opacity(monthOffset >= 0 ? 0.35 : 1)
-                .accessibilityLabel(ShellStrings.text("Next month"))
-                .shellTarget("act.month.next", enabled: monthOffset < 0) { if monthOffset < 0 { monthOffset += 1 } }
+            HStack(spacing: 4) {
+                Text(monthTitle)
+                    .shellType(ShellType.cardTitle)
+                    .lineLimit(1).minimumScaleFactor(0.85)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 8)
+                monthButton("chevron.left", label: ShellStrings.text("Previous month"), target: "act.month.prev", enabled: true, action: back)
+                monthButton("chevron.right", label: ShellStrings.text("Next month"), target: "act.month.next", enabled: canGoForward, action: forward)
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 7), spacing: 6) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
                 ForEach(Array(symbols.enumerated()), id: \.offset) { _, sym in
-                    Text(sym).shellText(10, .semibold).foregroundStyle(.white.opacity(0.55))
+                    Text(sym)
+                        .shellText(11, .semibold, relativeTo: .caption2)
+                        .foregroundStyle(Self.tertiary)
+                        .accessibilityHidden(true)
                 }
-                ForEach(0..<leading, id: \.self) { idx in
-                    Color.clear.frame(height: 24).id("cal-lead-\(idx)")
-                }
-                ForEach(Array(range), id: \.self) { day in
-                    let cellDate = calendar.date(byAdding: .day, value: day - 1, to: monthStart) ?? monthStart
-                    let comps = calendar.dateComponents([.year, .month, .day], from: cellDate)
-                    let key = String(format: "%04d-%02d-%02d", comps.year ?? 1970, comps.month ?? 1, comps.day ?? 1)
-                    let active = snapshot.activeDayKeys.contains(key)
-                    Text("\(day)")
-                        .shellText(11, active ? .bold : .regular)
-                        .foregroundStyle(active ? .black : .white.opacity(0.72))
-                        .frame(maxWidth: .infinity, minHeight: 24)
-                        .background(active ? ShellPalette.cream : .white.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+            }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
+                ForEach(cells, id: \.id) { cell in
+                    if let day = cell.day {
+                        let cellDate = calendar.date(byAdding: .day, value: day - 1, to: monthStart) ?? monthStart
+                        let key = Self.dayKey(cellDate, calendar: calendar)
+                        let active = snapshot.activeDayKeys.contains(key)
+                        let today = key == todayKey
+                        Text(day.formatted())
+                            .shellText(13, active ? .bold : .regular, relativeTo: .footnote)
+                            .monospacedDigit()
+                            .foregroundStyle(active ? .black : (today ? .white : Self.secondary))
+                            .frame(maxWidth: .infinity, minHeight: 30)
+                            .background(active ? ShellPalette.cream : .clear, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(today && !active ? Self.secondary : .clear, lineWidth: 1))
+                            .accessibilityLabel(cellDate.formatted(Date.FormatStyle(date: .long, time: .omitted, locale: activeLocale)))
+                            .accessibilityValue(active ? ShellStrings.text("Days played") : "")
+                    } else {
+                        Color.clear.frame(minHeight: 30).accessibilityHidden(true)
+                    }
                 }
             }
         }
-        .padding(16)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.10)))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .shellCard(padding: 16)
+    }
+
+    private func monthButton(_ symbol: String, label: String, target: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.body.weight(.semibold))
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled ? .white : Self.tertiary)
+        .disabled(!enabled)
+        .accessibilityLabel(label)
+        .shellTarget(target, enabled: enabled, action: action)
+    }
+
+    private static func dayKey(_ date: Date, calendar: Calendar) -> String {
+        let comps = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", comps.year ?? 1970, comps.month ?? 1, comps.day ?? 1)
     }
 
     private func weekdaySymbols(calendar: Calendar, locale: Locale) -> [String] {
@@ -233,122 +299,153 @@ public struct ActivityLogView: View {
         return Array(raw[start...]) + Array(raw[..<start])
     }
 
-    private var sortBar: some View {
-        HStack(spacing: 4) {
-            sortButton(.mostPlayed, title: ShellStrings.text("Most played"))
-            sortButton(.mostSessions, title: ShellStrings.text("Most played count"))
-            sortButton(.recent, title: ShellStrings.text("Recent"))
+    // MARK: Games
+
+    private func sortLabel(_ order: SortOrder) -> String {
+        switch order {
+        case .mostPlayed: ShellStrings.text("Most played")
+        case .mostSessions: ShellStrings.text("Times played")
+        case .recent: ShellStrings.text("Recent")
         }
-        .padding(3)
-        .background(.white.opacity(0.07), in: Capsule())
+    }
+
+    private func cycleSort() {
+        let all = SortOrder.allCases
+        sort = all[((all.firstIndex(of: sort) ?? 0) + 1) % all.count]
+    }
+
+    private var sortControl: some View {
+        NativeCreamSegmentedControl(options: SortOrder.allCases.map { SettingOption(id: $0.rawValue, verbatimLabel: sortLabel($0)) },
+                                    value: sort.rawValue,
+                                    accessibilityLabel: ShellStrings.text("Play history"),
+                                    accessibilityIdentifier: "activityLog.sort") { sort = SortOrder(rawValue: $0) ?? .mostPlayed }
+            .shellTarget("act.sort", action: cycleSort)
     }
 
     private var gamesListSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let entries = sortedEntries
+        return VStack(alignment: .leading, spacing: 12) {
             ViewThatFits(in: .horizontal) {
-                HStack {
-                    Text(ShellStrings.text("Play history")).shellText(15, .bold)
-                    Spacer()
-                    sortBar
+                HStack(alignment: .center, spacing: 12) {
+                    SectionHeading(title: ShellStrings.text("Play history"))
+                    Spacer(minLength: 8)
+                    sortControl.frame(width: 360)
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(ShellStrings.text("Play history")).shellText(15, .bold)
-                    sortBar
-                }
-            }
-            VStack(spacing: 10) {
-                ForEach(Array(sortedEntries.enumerated()), id: \.element.id) { index, item in
-                    entryCard(rank: index + 1, item: item)
+                VStack(alignment: .leading, spacing: 12) {
+                    SectionHeading(title: ShellStrings.text("Play history"))
+                    sortControl
                 }
             }
+            VStack(spacing: 0) {
+                ForEach(Array(entries.enumerated()), id: \.element.id) { index, item in
+                    entryRow(rank: index + 1, item: item)
+                    if index + 1 < entries.count {
+                        Rectangle().fill(ShellPalette.hairline).frame(height: 1)
+                            .padding(.leading, 16 + 20 + 12 + Self.coverSize.width + 12)
+                    }
+                }
+            }
+            .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(ShellPalette.hairline, lineWidth: 1))
         }
     }
 
-    private func sortButton(_ option: SortOrder, title: String) -> some View {
-        Button { sort = option } label: {
-            Text(title)
-                .shellText(11.5, sort == option ? .bold : .medium)
-                .foregroundStyle(sort == option ? .black : .white.opacity(0.85))
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(sort == option ? ShellPalette.cream : .clear, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .shellTarget("act.sort.\(option.rawValue)") { sort = option }
-    }
-
-    private func entryCard(rank: Int, item: ActivityGameEntry) -> some View {
+    private func entryRow(rank: Int, item: ActivityGameEntry) -> some View {
         let expanded = expandedID == item.id
         let summary = ShellFormat.metaLine(
             ShellStrings.text("Played \(item.sessions) times"),
             ShellStrings.text("Average \(item.averageTime)"),
             ShellStrings.text("\(item.daysPlayed) days")
         )
-        return VStack(alignment: .leading, spacing: 10) {
-            Button {
-                expandedID = expanded ? nil : item.id
-            } label: {
+        let toggle = {
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { expandedID = expanded ? nil : item.id }
+        }
+        return VStack(alignment: .leading, spacing: 0) {
+            Button(action: toggle) {
                 HStack(spacing: 12) {
-                    Text("\(rank)")
-                        .shellText(12, .bold)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .frame(width: 18, alignment: .trailing)
-                    if let tile = item.game {
-                        CoverView(game: tile, radius: 7).frame(width: 68, height: 38)
-                    } else {
-                        RoundedRectangle(cornerRadius: 7)
-                            .fill(.white.opacity(0.06))
-                            .frame(width: 68, height: 38)
-                            .overlay(Image(systemName: "gamecontroller").foregroundStyle(.white.opacity(0.45)))
+                    Text(rank.formatted())
+                        .shellType(ShellType.status)
+                        .monospacedDigit()
+                        .foregroundStyle(Self.tertiary)
+                        .frame(width: 20, alignment: .trailing)
+                    Group {
+                        if let tile = item.game {
+                            CoverView(game: tile, radius: 6)
+                        } else {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.white.opacity(0.06))
+                                .overlay(Image(systemName: "gamecontroller").foregroundStyle(Self.tertiary))
+                        }
                     }
+                    .frame(width: Self.coverSize.width, height: Self.coverSize.height)
+                    .saturation(item.isInstalled ? 1 : 0)
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
-                            Text(item.title).shellText(14.5, .semibold).lineLimit(1)
-                            if !item.isInstalled {
-                                Text(ShellStrings.text("Removed"))
-                                    .shellText(10.5, .medium)
-                                    .foregroundStyle(.white.opacity(0.65))
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(.white.opacity(0.08), in: Capsule())
-                            }
+                            Text(item.title).shellType(ShellType.cardTitle).lineLimit(2)
+                            if !item.isInstalled { RemovedBadge() }
                         }
                         Text(summary)
-                            .shellText(12)
-                            .foregroundStyle(.white.opacity(0.6))
-                            .lineLimit(2)
+                            .shellType(ShellType.meta)
+                            .foregroundStyle(Self.secondary)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 8)
                     Text(item.totalTime)
-                        .shellText(14, .bold)
-                        .foregroundStyle(ShellPalette.cream)
+                        .shellType(ShellType.button)
+                        .monospacedDigit()
                         .fixedSize(horizontal: true, vertical: false)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Self.tertiary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .accessibilityHidden(true)
                 }
+                .padding(.horizontal, 16).padding(.vertical, 12)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .shellTarget("act.row.\(item.id)") { expandedID = expanded ? nil : item.id }
+            .accessibilityValue(item.totalTime)
+            .shellTarget("act.row.\(item.id)", action: toggle)
 
             if expanded {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(ShellStrings.text("First played \(item.firstPlayed)"))
-                            .shellText(12).foregroundStyle(.white.opacity(0.65))
-                        Text(ShellStrings.text("Last played \(item.lastPlayed)"))
-                            .shellText(12).foregroundStyle(.white.opacity(0.65))
-                    }
-                    Spacer()
-                    if item.isInstalled {
-                        GameSettingsGlassButton(title: ShellStrings.text("Show in library")) {
-                            onSelectGame(item.id)
-                        }
-                        .frame(width: 156)
-                        .shellTarget("act.show.\(item.id)") { onSelectGame(item.id) }
-                    }
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 12) { details(item) ; Spacer(minLength: 8); showButton(item) }
+                    VStack(alignment: .leading, spacing: 10) { details(item); showButton(item) }
                 }
-                .padding(.leading, 30)
+                .padding(.leading, 16 + 20 + 12 + Self.coverSize.width + 12)
+                .padding(.trailing, 16).padding(.bottom, 14)
+                .transition(.opacity)
             }
         }
-        .padding(12)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.10)))
+    }
+
+    private func details(_ item: ActivityGameEntry) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(ShellStrings.text("First played \(item.firstPlayed)"))
+            Text(ShellStrings.text("Last played \(item.lastPlayed)"))
+        }
+        .shellType(ShellType.note)
+        .foregroundStyle(Self.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private func showButton(_ item: ActivityGameEntry) -> some View {
+        if item.isInstalled {
+            GameSettingsGlassButton(title: ShellStrings.text("Show in library")) { onSelectGame(item.id) }
+                .fixedSize()
+                .shellTarget("act.show.\(item.id)") { onSelectGame(item.id) }
+        }
+    }
+}
+
+/// "Removed" beside a title: the look of `ConsoleBadge`, a quiet property, not a state colour.
+private struct RemovedBadge: View {
+    var body: some View {
+        Text(ShellStrings.text("Removed")).shellText(11, .semibold, relativeTo: .caption)
+            .foregroundStyle(.white.opacity(0.72)).lineLimit(1).fixedSize()
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(.black, in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.32), lineWidth: 1))
     }
 }
