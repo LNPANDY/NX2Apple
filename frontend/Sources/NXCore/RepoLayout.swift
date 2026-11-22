@@ -73,6 +73,12 @@ package enum RepoLayout {
         return text.contains("'--from-seed'") || text.contains("\"--from-seed\"")
     }
 
+    /// Whether the checkout's build script takes `--seen-shaders` (partial Mac shader builds from `shader_seen.tsv`).
+    package static func supportsSeenShaders(_ dir: String) -> Bool {
+        guard let text = try? String(contentsOfFile: EngineLayout.root(dir) + "/" + buildScript, encoding: .utf8) else { return false }
+        return text.contains("'--seen-shaders'") || text.contains("\"--seen-shaders\"")
+    }
+
     /// Whether the checkout's romfs tool takes `--extract-msl` (PR #3 shader trailer extraction).
     package static func supportsExtractMsl(_ dir: String) -> Bool {
         guard let text = try? String(contentsOfFile: EngineLayout.root(dir) + "/" + romfsImageTool, encoding: .utf8) else { return false }

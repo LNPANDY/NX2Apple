@@ -316,6 +316,10 @@ extension BuildStore {
         } else if let macOutput {
             macAppPath = ""
             args += ["--platform", "mac-app", "-o", macOutput.builderURL.path]
+            if shouldPassSeenShaders(forTitleID: gameTitleID ?? tidHex) {
+                args += ["--seen-shaders"]
+                say(t("msg.seenShadersOn"))
+            }
             if RepoLayout.supportsFallbackIcon(repo.path) { args += macFallbackIconArguments(tidHex) }
         } else {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
