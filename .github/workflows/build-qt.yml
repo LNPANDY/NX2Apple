@@ -281,6 +281,9 @@ jobs:
           cp -r ../wheels "NX2Apple/wheels"
           # The engine tree goes inside the app folder, where the launcher finds it at
           # <exe_dir>/engine (and also at <exe_dir>/../engine) and skips the repo/sync route entirely.
+          # Refresh .engine-files after Windows tools (nx_extract.exe, dmsh_xlate.dll, spirv-cross.exe,
+          # glslangValidator.exe) were added so bundled pruning keeps them and drops stale upgrade files.
+          python ../../tools/engine.py tree-manifest --out ../../engine-tree
           cp -r ../../engine-tree "NX2Apple/engine"
           NSPB_PACKAGED_BUNDLE_DIR="$PWD/NX2Apple/_internal" \
           NSPB_ENGINE_DIR="$PWD/NX2Apple/engine" \

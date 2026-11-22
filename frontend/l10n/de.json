@@ -1019,6 +1019,8 @@
   "fail.otherMetal.risk": "Das baut mit einem Metal-Compiler, mit dem niemand die Shader getestet hat. Das Bild kann falsch aussehen, das Ergebnis ist ungetestet und wird nicht unterstützt. Die Auswahl gilt nur für diesen einen Build und wird nicht gesichert.",
   "fail.otherMetal.what": "Der Metal-Compiler dieses Macs ist nicht der, mit dem die Shader getestet wurden.",
   "fail.override.note": "Trotzdem bauen: Dieser Build ergänzt %@ (bestätigt, nicht gesichert)",
+  "fail.profileTablesMismatch.next": "Entweder weicht die gewählte Spiel- oder Update-Version von den im Profil registrierten Versionen ab, oder ein Drüberinstallieren hat veraltete Engine-Dateien hinterlassen. Prüfe die Update-Version im Build-Protokoll oder entpacke das Release-Archiv in einen neuen leeren Ordner (und lösche zuvor einen alten engine-Ordner), dann starte den Build erneut.",
+  "fail.profileTablesMismatch.what": "Die aufgeteilten Shader-Tabellen stimmen nicht mit diesem Spielprofil überein.",
   "fail.profileUpdateMismatch.next": "Wähle die im Build-Protokoll genannte Update-Version aus oder leere das Update-Feld für das Hauptspiel und starte den Build erneut.",
   "fail.profileUpdateMismatch.what": "Die gewählte Spiel-Update-Version stimmt nicht mit den Anforderungen dieses Spielprofils überein.",
   "fail.psoDiskFull.next": "Gib Speicherplatz auf dem Laufwerk frei, auf dem der Build-Ordner liegt, oder wähle einen Build-Ordner auf einem anderen Laufwerk. Baue dann erneut.",

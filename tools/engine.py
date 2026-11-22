@@ -320,6 +320,7 @@ def cmd_hook(a):
 TREE_PATHS = ('dm', 'scripts', 'docs', 'ref', 'AGENTS.md', 'LICENSE')   # what a player's build reads, of what engine/ tracks
 ENGINE_ID_FILE = '.engine-id'
 UPSTREAM_DATE_FILE = '.upstream-date'
+ENGINE_FILES_FILE = '.engine-files'
 ZIP_TIME = (2020, 1, 1, 0, 0, 0)    # fixed, so the zip's bytes depend on the content only
 
 
@@ -360,6 +361,42 @@ def extract_tree(eng, out):
     proc.stdout.close()
     if proc.wait(): raise Fail(f'git archive failed: {proc.stderr.read().decode(errors="replace").strip()[-500:]}')
     return count
+
+
+def collect_tree_files(tree):
+    """Sorted POSIX relative paths of every managed file (or symlink) inside `tree`, excluding .git and .engine-files."""
+    root = Path(tree)
+    entries = []
+    for dirpath, dirnames, files in os.walk(root, followlinks=False):
+        kept = []
+        for d in sorted(dirnames):
+            if d in ('.git', '__pycache__'):
+                continue
+            full_d = os.path.join(dirpath, d)
+            if os.path.islink(full_d):
+                entries.append(Path(full_d).relative_to(root).as_posix())
+            else:
+                kept.append(d)
+        dirnames[:] = kept
+        for n in sorted(files):
+            if n == '.git' or n.endswith(('.pyc', '.pyo')):
+                continue
+            full_f = os.path.join(dirpath, n)
+            rel = Path(full_f).relative_to(root).as_posix()
+            if rel == ENGINE_FILES_FILE:
+                continue
+            entries.append(rel)
+    entries.sort()
+    return entries
+
+
+def write_files_manifest(tree):
+    """Write deterministic UTF-8 LF `.engine-files` inside `tree` listing all managed files."""
+    root = Path(tree)
+    entries = collect_tree_files(root)
+    payload = ('\n'.join(entries) + '\n') if entries else ''
+    (root / ENGINE_FILES_FILE).write_bytes(payload.encode('utf-8'))
+    return len(entries)
 
 
 def write_zip(tree, zpath):
@@ -412,11 +449,21 @@ def cmd_tree(a):
     if udate:
         (out / UPSTREAM_DATE_FILE).write_bytes((udate + '\n').encode('utf-8'))
     if not (out / P.FORK_PATCHES).is_file(): raise Fail(f'{P.FORK_PATCHES} is missing from engine/: sync again')
+    write_files_manifest(out)
     say(f'engine tree: {eid} ({n} files) in {out}')
     if a.zip:
         k = write_zip(out, a.zip)
         h = hashlib.sha256(Path(a.zip).read_bytes()).hexdigest()
         say(f'engine zip: {a.zip} ({k} entries, {Path(a.zip).stat().st_size} bytes, sha256 {h})')
+    return 0
+
+
+def cmd_tree_manifest(a):
+    out = Path(a.out).resolve()
+    if not out.is_dir() or not (out / ENGINE_ID_FILE).is_file():
+        raise Fail(f'{out} is not an engine tree made by `tools/engine.py tree`')
+    count = write_files_manifest(out)
+    say(f'engine tree manifest: {count} entries in {out / ENGINE_FILES_FILE}')
     return 0
 
 
@@ -664,6 +711,7 @@ def main(argv=None):
     s = sub.add_parser('export'); s.add_argument('rev', nargs='?', help='a commit or a range in engine/ (default: everything after the last sync)')
     s.add_argument('--status', default='pending'); s.add_argument('--reason', default='TODO: why the fork carries this'); s.add_argument('--issue', default='TODO: LNPANDY/NX2Apple#<n>'); s.set_defaults(f=cmd_export)
     s = sub.add_parser('tree'); s.add_argument('--out', required=True, help='the folder for the tree (emptied when it is an earlier tree)'); s.add_argument('--zip', help='also write the deterministic zip of the tree'); s.set_defaults(f=cmd_tree)
+    s = sub.add_parser('tree-manifest'); s.add_argument('--out', required=True, help='refresh .engine-files inside an existing engine tree'); s.set_defaults(f=cmd_tree_manifest)
     sub.add_parser('status').set_defaults(f=cmd_status)
     sub.add_parser('check').set_defaults(f=cmd_check)
     s = sub.add_parser('bump'); s.add_argument('--to', required=True, help='the new upstream commit, or a branch such as main'); s.add_argument('--dry', action='store_true'); s.set_defaults(f=cmd_bump)
