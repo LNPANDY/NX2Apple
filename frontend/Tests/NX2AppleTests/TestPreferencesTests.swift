@@ -22,7 +22,9 @@ final class TestPreferencesTests: XCTestCase {
     /// Only a game app's bundle ID or preferences domain counts: the shell's bundle ID (`library.bundleID`) is no domain.
     func testNoTestBuildsAPlainPerRunBundleID() throws {
         let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let pattern = try NSRegularExpression(pattern: #"(CFBundleIdentifier"\s*:|domain\s*=|(domain|bundleID):\s*String\s*\{)\s*"org\.nxnative\.[^"]*"\s*\+"#)
+        let pattern = try NSRegularExpression(
+            pattern: #"SavedChoices\(\s*domain\s*:\s*"org\.|(CFBundleIdentifier"\s*:|(?<!\.)(domain|bundleID)\s*[:=]|(domain|bundleID):\s*String\s*\{)\s*"org\.(nxnative|macnativegames|nxkit|s2arm)\.(?!game\.\\\(titleID\)|game\.\\\(tid\)|game\."\s*\+\s*titleID\.lowercased\(\))(?:[^"\\]*\\\(|[^"]*"\s*\+)"#
+        )
         var found: [String] = []
         let files = FileManager.default.enumerator(at: tests, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
         for file in files where file.pathExtension == "swift" && file.lastPathComponent != "TestPreferences.swift" {

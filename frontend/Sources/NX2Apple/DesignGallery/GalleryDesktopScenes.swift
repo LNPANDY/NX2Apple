@@ -210,7 +210,7 @@ extension GalleryFixtures {
         func onDevice(_ index: Int) {
             let app = directory.appendingPathComponent("ios-" + UUID().uuidString + "/Game.app")
             try? FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
-            try? PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "org.nxnative.gallery.ios"], format: .xml, options: 0)
+            try? PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": GalleryDefaults.domain("gallery-ios")], format: .xml, options: 0)
                 .write(to: app.appendingPathComponent("Info.plist"))
             stores.deviceStore.devices = [AppleDevice(id: "gallery-iphone", name: "iPhone", model: "iPhone17,1", os: "26.1", reachable: true)]
             edit(index) { $0.iosAppPath = app.path; $0.installedDevice = "gallery-iphone" }

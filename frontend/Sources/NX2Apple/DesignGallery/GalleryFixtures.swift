@@ -8,11 +8,10 @@ import NXLauncher
 /// captures (LauncherDesignCaptureTests), so both show the same views (LNPANDY/NX2Apple#1458, #1459). Nothing here reads or writes the
 /// player's library, settings, engine or artwork, fetches anything or starts a process: each scene gets its own stores on a private
 /// defaults suite, a runner that refuses to start any process, no release source, a library in a temporary folder and generated artwork.
-/// Keep one alive while its views are shown: it owns the temporary folder and the defaults suites and removes them when released.
+/// Keep one alive while its views are shown: it owns the temporary folder and removes it when released.
 @MainActor final class GalleryFixtures {
     let lang: Lang
     let directory: URL
-    private var suites: [String] = []
 
     /// The scenes' games: the player's own (`covers`, copied by GalleryRealCovers into `coverFolder`) first, then the fictional
     /// ones up to the catalogue's size. Their states, badges and notices are the fixtures' in both cases.
@@ -48,7 +47,6 @@ import NXLauncher
 
     deinit {
         try? FileManager.default.removeItem(at: directory)
-        for suite in suites { UserDefaults.standard.removePersistentDomain(forName: suite) }   // the suites' own files, never the app's domain
     }
 
     /// Fictional games, so no title's art or name is shown.
@@ -290,9 +288,7 @@ import NXLauncher
 
     /// Stores with nothing of the player's: a private defaults suite, no process (GalleryProcessRunner), no release source.
     private func makeStores() -> (LauncherStores, UserDefaults) {
-        let suite = "nx.gallery." + UUID().uuidString
-        suites.append(suite)
-        let defaults = UserDefaults(suiteName: suite) ?? UserDefaults()
+        let defaults = GalleryDefaults.make("nx.gallery")
         let runner = GalleryProcessRunner()
         let stores = LauncherStores(localizer: Localizer(lang), runner: runner, gitCheckout: SystemGitCheckout(runner: runner),
                                     releases: GalleryReleases(), xcrun: "/usr/bin/false", volumesRoot: directory.appendingPathComponent("Volumes").path,
@@ -345,7 +341,7 @@ import NXLauncher
             try? fm.createSymbolicLink(at: app.appendingPathComponent("Contents/MacOS/" + exe), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
         }
         let info: [String: Any] = ["DMTitleID": game.titleID, "CFBundleDisplayName": game.name, "CFBundleExecutable": "nxnative",
-                                   "CFBundleShortVersionString": "1.0.0", "CFBundleIdentifier": "org.nxnative.gallery." + UUID().uuidString]
+                                   "CFBundleShortVersionString": "1.0.0", "CFBundleIdentifier": GalleryDefaults.domain("gallery")]
         try? PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
         let settings = [
             #"{"env": "DM_FULLSCREEN", "kind": "toggle", "label": "Full screen", "note": "", "default": "0", "section": "Game", "level": "basic"}"#,

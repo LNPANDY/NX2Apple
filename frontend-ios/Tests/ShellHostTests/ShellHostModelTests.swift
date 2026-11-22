@@ -403,7 +403,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(orbit.dataNote.contains("no longer readable"))
     }
 
-    private func shellSettings() -> ShellSettingsStore { ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!) }
+    private func shellSettings() -> ShellSettingsStore { ShellSettingsStore(defaults: TestDefaults.make("t-shell")) }
 
     /// The orbit fixture with a performance overlay row of its own, like a game whose list has `DM_METAL_HUD`.
     private func giveOrbitAnOverlayRow(_ box: Sandbox) throws {

@@ -45,9 +45,7 @@ final class LaunchCaptureTests: XCTestCase {
             where game.lastPathComponent != Fixtures.orbit {
             try FileManager.default.removeItem(at: game)
         }
-        let suite = "shellhost.capture.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make("shellhost-capture")
         let launcher = HeldLauncher()
         let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: ShellSettingsStore(defaults: defaults))
         let view = ShellHostView(model: model, initialSelection: Fixtures.orbit)

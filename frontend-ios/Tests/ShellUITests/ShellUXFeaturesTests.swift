@@ -16,9 +16,7 @@ import Testing
     }
 
     @Test func padMergePersistsInShellSettingsStoreAndProducesDMPadMerge() {
-        let suite = "shellui.padmerge.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make("shellui-padmerge")
 
         let store = ShellSettingsStore(defaults: defaults)
         #expect(!store.padMerge)
@@ -35,9 +33,7 @@ import Testing
     }
 
     @Test func audioMixPersistsInShellSettingsStoreAndProducesDMAudioMix() {
-        let suite = "shellui.audiomix.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make("shellui-audiomix")
 
         let store = ShellSettingsStore(defaults: defaults)
         #expect(!store.audioMix)
@@ -58,10 +54,7 @@ import Testing
 
     @Test
     func showFPSPersistsInShellSettingsStoreAndProducesDMShowFPS() {
-        let suite = "dev.nx2apple.tests.ux.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make("shellui-ux")
 
         let store = ShellSettingsStore(defaults: defaults)
         #expect(store.showFPS == nil)

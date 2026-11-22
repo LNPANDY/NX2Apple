@@ -8,7 +8,7 @@ import ShellUI
 // MARK: - Helpers for DMSYNC1 archives and synchronized progress gates
 
 private func freshShellSettings() -> ShellSettingsStore {
-    ShellSettingsStore(defaults: UserDefaults(suiteName: "c2-shell-\(UUID().uuidString)")!)
+    ShellSettingsStore(defaults: TestDefaults.make("c2-shell"))
 }
 
 private enum DMSyncTestWriter {

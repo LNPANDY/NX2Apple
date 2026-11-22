@@ -4,7 +4,7 @@ import Testing
 
 /// The touch controls settings (#347): the size row and the preview's geometry.
 @Suite struct TouchControlsTests {
-    private func store() -> ShellSettingsStore { ShellSettingsStore(defaults: UserDefaults(suiteName: "t-touch-\(UUID().uuidString)")!) }
+    private func store() -> ShellSettingsStore { ShellSettingsStore(defaults: TestDefaults.make("t-touch")) }
 
     @MainActor @Test func savedModeReopensAndUsesTheExistingEngineSetting() {
         let store = store()

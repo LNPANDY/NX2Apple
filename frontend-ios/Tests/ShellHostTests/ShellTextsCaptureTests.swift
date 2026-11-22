@@ -74,7 +74,7 @@ final class ShellTextsCaptureTests: XCTestCase {
     /// The fixture games through the real model: playable, needs game data, needs an app update and broken in several ways.
     private func model(_ box: Sandbox) throws -> ShellHostModel {
         try box.giveAppData(Fixtures.orbit)
-        let shell = ShellSettingsStore(defaults: UserDefaults(suiteName: "capture-shell-\(UUID().uuidString)")!)
+        let shell = ShellSettingsStore(defaults: TestDefaults.make("capture-shell"))
         let model = ShellHostModel(config: box.config(), shellSettings: shell)
         model.reload()
         return model

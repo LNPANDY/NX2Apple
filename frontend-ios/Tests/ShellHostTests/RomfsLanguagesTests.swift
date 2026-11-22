@@ -81,7 +81,7 @@ import Testing
         try rejected.write(to: picked.appendingPathComponent("romfs.img"))
         try #require(BookmarkStore(defaults: box.defaults(title), key: BookmarkStore.gameDataKey).store(picked))
 
-        let settings = ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!)
+        let settings = ShellSettingsStore(defaults: TestDefaults.make("t-shell"))
         let host = ShellHostModel(config: box.config(), shellSettings: settings)
         await host.waitForDataChecks()
         let rows = try #require(host.details.first { $0.id == title }).sections.flatMap(\.rows)

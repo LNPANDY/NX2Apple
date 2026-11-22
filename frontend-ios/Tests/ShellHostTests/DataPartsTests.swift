@@ -151,7 +151,7 @@ import ShellUI
         let box = try Sandbox()
         let dir = box.appData.appendingPathComponent(Fixtures.orbit, isDirectory: true)
         try box.write("image", to: dir.appendingPathComponent("romfs.img.nxpart.0000.0001"))   // one part, shorter than a part
-        let model = ShellHostModel(config: box.config(), shellSettings: ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!))
+        let model = ShellHostModel(config: box.config(), shellSettings: ShellSettingsStore(defaults: TestDefaults.make("t-shell")))
         func state() -> GameState? { model.details.first { $0.id == Fixtures.orbit }?.game.state }
         for _ in 0..<500 where state() != .playable { try await Task.sleep(nanoseconds: 10_000_000) }
         #expect(state() == .playable)
