@@ -14,22 +14,23 @@ Issue: none
  dm/gfx/tests/Makefile                     |   4 +
  dm/gfx/tests/t_mip_skip.m                 | 233 ++++++++++++++++++++++
  dm/ios/tests/launcher_storage_check.swift |   2 +-
- dm/tools/tests/test_launcher_settings.py  |   4 +-
- 7 files changed, 519 insertions(+), 25 deletions(-)
+ dm/tools/tests/test_launcher_settings.py  |   2 +-
+ 7 files changed, 518 insertions(+), 24 deletions(-)
  create mode 100644 dm/gfx/nvn/nvn_mip_skip.h
  create mode 100644 dm/gfx/tests/t_mip_skip.m
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 10af37e..b33cfe2 100644
+index 10af37e..284dd83 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
-@@ -44,5 +44,6 @@ DM_PSO_PREBUILD	toggle	-	1	gfxapi:nvn	Performance	Pipeline prebuild	The first st
- DM_NVN_ENC_THREAD	toggle	-	1|DM_GAME_ENC_THREAD	gfxapi:nvn	Performance	Encode thread
- DM_NVN_PREFETCH	toggle	-	DM_GAME_NVN_PREFETCH|1	gfxapi:nvn	Performance	Shader prefetch	Loads each program's shader libraries in the background, whether a draw uses them or not.
- DM_BC6H_RGB9E5	toggle	-	0	DM_GAME_TEX_BC_CPU==1&platform:ios&gfxapi:nvn	Performance	Downsample HDR textures	Saves memory on devices without hardware BC textures, with slightly less precise HDR textures.
-+DM_NVN_TEX_MIP_SKIP	choice	0=Original,1=Recommended,2=Smooth	0	gfxapi:nvn	Performance	Texture quality	Skips top mip levels of large static textures to save GPU memory and reduce heat. Takes effect on next launch.	level=basic
- DM_FPS_HOLD	toggle	on/off	DM_GAME_FPS_HOLD	DM_GAME_FPS_TARGET!=0	Performance	Hold frames when late
- DM_METAL_HUD	toggle	-	0	always	Performance	Performance HUD
+@@ -15,6 +15,7 @@
+ #   label, note  the setting's name and the line under it (may be empty; only for a setting with a cost: latency, memory, heat)
+ #   meta      optional, key=value pairs separated by ; (settings.py META lists the keys; docs/frontends.md, The settings list, describes them):
+ #             level=basic  a setting a front end shows first;  needs=<VAR>=<value>  a sub-setting, drawn only while the row that sets <VAR> has that value
++DM_NVN_TEX_MIP_SKIP	choice	0=Original,1=Recommended,2=Smooth	0	gfxapi:nvn	Game	Texture quality	Skips top mip levels of large static textures to save GPU memory and reduce heat. Takes effect on next launch.	level=basic
+ DM_FPS_TARGET	choice	30=30 fps,60=60 fps,120=120 fps?DM_GAME_FPS_MAX==120	DM_GAME_FPS_TARGET	DM_GAME_FPS_TARGET!=0	Game	Frame rate		level=basic
+ DM_PRESENT_INTERVAL	choice	game=30 fps,display=60 fps	display	DM_GAME_PRESENT_DISPLAY==1&DM_GAME_FPS_TARGET==0	Game	Frame rate		level=basic
+ DM_DYNAMIC_RESOLUTION	toggle	-	0	fixups:DYNAMIC_RESOLUTION	Game	Dynamic resolution	Lets the game lower its resolution under load. Turn off to keep full resolution for the selected console mode.
 diff --git a/dm/gfx/nvn/nvn_mip_skip.h b/dm/gfx/nvn/nvn_mip_skip.h
 new file mode 100644
 index 0000000..c636fba
@@ -753,37 +754,28 @@ index 0000000..0ae3e79
 +    return failed != 0;
 +} }
 diff --git a/dm/ios/tests/launcher_storage_check.swift b/dm/ios/tests/launcher_storage_check.swift
-index e3a38a1..84cc353 100644
+index e3a38a1..8bf78df 100644
 --- a/dm/ios/tests/launcher_storage_check.swift
 +++ b/dm/ios/tests/launcher_storage_check.swift
-@@ -64,7 +64,7 @@ import Foundation
-         let mac = try! JSONDecoder().decode(SettingsFile.self, from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2])))
+@@ -65,7 +65,7 @@ import Foundation
          setenv("DM_ENV_FILE_KEYS", "", 1); unsetenv("DM_FULLSCREEN"); unsetenv("DM_OPMODE")
          let mm = LauncherModel(mac.settings, defaults: d)
--        expect(mm.sections(basic: true) == ["Game", "Controls"] && mm.sections(basic: false) == ["Game", "Controls", "Performance"], "Basic and Advanced keep the list's sections")
-+        expect(mm.sections(basic: true) == ["Game", "Controls", "Performance"] && mm.sections(basic: false) == ["Game", "Controls", "Performance"], "Basic and Advanced keep the list's sections")
-         expect(mm.rows(in: "Game", basic: true).map(\.env) == ["DM_FPS_TARGET", "DM_RENDER_SCALE", "DM_OPMODE", "DM_LANG", "DM_FULLSCREEN"], "Basic rows in the list's order")
+         expect(mm.sections(basic: true) == ["Game", "Controls"] && mm.sections(basic: false) == ["Game", "Controls", "Performance"], "Basic and Advanced keep the list's sections")
+-        expect(mm.rows(in: "Game", basic: true).map(\.env) == ["DM_FPS_TARGET", "DM_RENDER_SCALE", "DM_OPMODE", "DM_LANG", "DM_FULLSCREEN"], "Basic rows in the list's order")
++        expect(mm.rows(in: "Game", basic: true).map(\.env) == ["DM_NVN_TEX_MIP_SKIP", "DM_FPS_TARGET", "DM_RENDER_SCALE", "DM_OPMODE", "DM_LANG", "DM_FULLSCREEN"], "Basic rows in the list's order")
          expect(!file.settings.contains { $0.env == "DM_FULLSCREEN" } && mm.values["DM_FULLSCREEN"] == "0", "Display mode is the Mac's, Window by default")
          mm.values["DM_FULLSCREEN"] = "1"; mm.apply()
+         expect(String(cString: getenv("DM_FULLSCREEN")) == "1" && d.string(forKey: "launcher.DM_FULLSCREEN") == "1", "Fullscreen goes into the environment and is saved")
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 03d7a4b..701379c 100644
+index 03d7a4b..8697e29 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
-@@ -15,7 +15,7 @@ settings = importlib.util.module_from_spec(spec)
- spec.loader.exec_module(settings)
- 
- BOTW, WONDER = '01007EF00011E000', '010015100B514000'
--PERFORMANCE_NVN = ['DM_PRESENT_SNAP', 'DM_PSO_MTL4', 'DM_PSO_PREBUILD', 'DM_NVN_ENC_THREAD', 'DM_NVN_PREFETCH', 'DM_FPS_HOLD', 'DM_METAL_HUD']
-+PERFORMANCE_NVN = ['DM_PRESENT_SNAP', 'DM_PSO_MTL4', 'DM_PSO_PREBUILD', 'DM_NVN_ENC_THREAD', 'DM_NVN_PREFETCH', 'DM_NVN_TEX_MIP_SKIP', 'DM_FPS_HOLD', 'DM_METAL_HUD']
- 
- 
- def build(gid, api, platform=None):
 @@ -145,7 +145,7 @@ class LauncherSettingsTests(unittest.TestCase):
              listed = settings.build(BOTW, tmp, Path(tmp) / 'control.nacp')
          rows = {s['env']: s for s in listed['settings']}
          self.assertEqual(listed['schema'], 1)
 -        self.assertEqual([e for e, s in rows.items() if s.get('level') == 'basic'], ['DM_FPS_TARGET', 'DM_RENDER_SCALE', 'DM_OPMODE', 'DM_LANG', 'DM_RUMBLE'])
-+        self.assertEqual([e for e, s in rows.items() if s.get('level') == 'basic'], ['DM_FPS_TARGET', 'DM_RENDER_SCALE', 'DM_OPMODE', 'DM_LANG', 'DM_RUMBLE', 'DM_NVN_TEX_MIP_SKIP'])
++        self.assertEqual([e for e, s in rows.items() if s.get('level') == 'basic'], ['DM_NVN_TEX_MIP_SKIP', 'DM_FPS_TARGET', 'DM_RENDER_SCALE', 'DM_OPMODE', 'DM_LANG', 'DM_RUMBLE'])
          self.assertEqual(rows['DM_RUMBLE_GAIN']['needs'], 'DM_RUMBLE=1')
          self.assertFalse({'level', 'needs'} & set(rows['DM_METAL_HUD']), 'a row without meta has no optional fields')
  
