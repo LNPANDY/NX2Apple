@@ -9665,6 +9665,70 @@
         }
       }
     },
+    "Frame generation": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildgenerierung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frame generation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generación de fotogramas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Génération d’images"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generazione fotogrammi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレーム生成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프레임 생성"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geração de quadros"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildgenerering"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帧生成"
+          }
+        }
+      }
+    },
     "Frame rate": {
       "localizations": {
         "de": {
@@ -23101,6 +23165,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "显示日志"
+          }
+        }
+      }
+    },
+    "Shows 60 frames a second while the game draws 30. MetalFX makes a frame between each two, with less work and heat than 60 fps, slightly more input delay, and possible smearing on fast motion.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt 60 Bilder pro Sekunde, während das Spiel 30 zeichnet. MetalFX erzeugt zwischen je zwei Bildern ein Zwischenbild, mit weniger Aufwand und Wärme als bei 60 fps, etwas mehr Eingabeverzögerung und möglichen Schlieren bei schnellen Bewegungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows 60 frames a second while the game draws 30. MetalFX makes a frame between each two, with less work and heat than 60 fps, slightly more input delay, and possible smearing on fast motion."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra 60 fotogramas por segundo mientras el juego dibuja 30. MetalFX crea un fotograma entre cada dos, con menos trabajo y calor que a 60 fps, algo más de retraso de entrada y posibles estelas en movimientos rápidos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche 60 images par seconde pendant que le jeu en dessine 30. MetalFX crée une image entre chaque paire, avec moins d’effort et de chauffe qu’à 60 fps, un peu plus de latence d’entrée et un possible flou de traînée sur les mouvements rapides."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra 60 fotogrammi al secondo mentre il gioco ne disegna 30. MetalFX crea un fotogramma tra ogni coppia, con meno lavoro e calore rispetto ai 60 fps, un leggero aumento del ritardo di input e possibili scie nei movimenti rapidi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームが毎秒 30 フレーム描画する間に 60 フレーム表示します。MetalFX が 2 フレームごとに中間フレームを生成し、60 fps より負荷と発熱を抑えられますが、入力遅延がわずかに増え、速い動きで残像が出ることがあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임이 초당 30프레임을 그리는 동안 60프레임을 표시합니다. MetalFX가 두 프레임 사이에 새 프레임을 만들어 60 fps보다 부하와 발열이 적지만, 입력 지연이 약간 늘어나고 빠른 움직임에서 잔상이 생길 수 있습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra 60 quadros por segundo enquanto o jogo desenha 30. O MetalFX cria um quadro entre cada par, com menos trabalho e calor que a 60 fps, um pouco mais de atraso de entrada e possíveis rastros em movimentos rápidos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visar 60 bildrutor per sekund medan spelet ritar 30. MetalFX skapar en bildruta mellan varje par, med mindre arbete och värme än 60 fps, något längre inmatningsfördröjning och möjliga släpspår vid snabba rörelser."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在游戏以 30 帧绘制时输出每秒 60 帧。MetalFX 会在每两帧之间插出一帧，比原生 60 帧更省负载和发热，输入延迟略微增加，高速运动时可能出现拖影。"
           }
         }
       }

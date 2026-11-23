@@ -1794,6 +1794,8 @@
   "launch.set.DM_DYNAMIC_RESOLUTION.note": "Låter spelet sänka upplösningen under belastning. Stäng av för att behålla full upplösning för det valda konsolläget.",
   "launch.set.DM_FPS_HOLD": "Håll bilder när de är sena",
   "launch.set.DM_FPS_TARGET": "Bildfrekvens",
+  "launch.set.DM_FRAMEGEN": "Bildgenerering",
+  "launch.set.DM_FRAMEGEN.note": "Visar 60 bildrutor per sekund medan spelet ritar 30. MetalFX skapar en bildruta mellan varje par, med mindre arbete och värme än 60 fps, något längre inmatningsfördröjning och möjliga släpspår vid snabba rörelser.",
   "launch.set.DM_FULLSCREEN": "Visningsläge",
   "launch.set.DM_LANG": "Spelspråk",
   "launch.set.DM_METAL_HUD": "Prestandaöversikt",

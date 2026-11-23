@@ -27,6 +27,9 @@ struct LaunchOptionsView: View {
     /// The cheats and the saves have sheets of their own: the launcher closes this one and opens them (nil: the row does nothing).
     var openCheats: ((UUID) -> Void)? = nil
     var openSaves: ((UUID) -> Void)? = nil
+    var initialCategory: LaunchCategory = .game
+    var initialAdvancedOpen = false
+    @State private var initializedSelection = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var choicesRevision = 0   // bumped by a change: the values are read from the store again
     @State private var modsRevision = 0   // bumped by Refresh: the folder is read again
@@ -90,7 +93,14 @@ struct LaunchOptionsView: View {
             footer(game, destination: destination, category: shown)
         }
         .padScope("launch", focus)
-        .onAppear { library.migrateLaunchOptions() }
+        .onAppear {
+            if !initializedSelection {
+                initializedSelection = true
+                category = initialCategory
+                advancedOpen = initialAdvancedOpen
+            }
+            library.migrateLaunchOptions()
+        }
         .onChange(of: mappingPresentation.wrappedValue) { open in
             // The launcher owns routing when embedded, while standalone sheets keep the same scope behavior.
             if controllerMappingPresentation == nil { focus.scope = open ? "controls" : "launch" }

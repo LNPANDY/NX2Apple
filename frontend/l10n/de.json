@@ -1795,6 +1795,8 @@
   "launch.set.DM_DYNAMIC_RESOLUTION.note": "Erlaubt dem Spiel, die Auflösung unter Last zu senken. Ausschalten, um die volle Auflösung des gewählten Konsolenmodus zu behalten.",
   "launch.set.DM_FPS_HOLD": "Bilder halten, wenn sie zu spät sind",
   "launch.set.DM_FPS_TARGET": "Bildrate",
+  "launch.set.DM_FRAMEGEN": "Bildgenerierung",
+  "launch.set.DM_FRAMEGEN.note": "Zeigt 60 Bilder pro Sekunde, während das Spiel 30 zeichnet. MetalFX erzeugt zwischen je zwei Bildern ein Zwischenbild, mit weniger Aufwand und Wärme als bei 60 fps, etwas mehr Eingabeverzögerung und möglichen Schlieren bei schnellen Bewegungen.",
   "launch.set.DM_FULLSCREEN": "Anzeigemodus",
   "launch.set.DM_LANG": "Spielsprache",
   "launch.set.DM_METAL_HUD": "Leistungsanzeige",
