@@ -51,7 +51,7 @@ Issue: LNPANDY/NX2Apple#1118
  2 files changed, 275 insertions(+), 60 deletions(-)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index d40bb7e..e5c5cf5 100644
+index 2a3cf68..c7694fd 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -24,9 +24,11 @@
@@ -340,7 +340,7 @@ index d40bb7e..e5c5cf5 100644
      CFArrayRef rules = setting_rules();   // the settings the launch environment already set: the window shows them, fixed
      for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index ef65e4b..a5c8bec 100644
+index 8cd0ec5..eb09ad6 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -1027,17 +1027,42 @@ int main(void) { @autoreleasepool {

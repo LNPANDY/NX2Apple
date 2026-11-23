@@ -376,7 +376,7 @@ index c3d5cd0..77dacdf 100644
  - (void)refresh {   // pressed state → fill, sticks → knob position
      uint64_t all = _faceBits | _dpadBits | _btnBits;
 diff --git a/dm/ios/Sources/DmLayout.h b/dm/ios/Sources/DmLayout.h
-index bb3631f..bfc19b7 100644
+index 8b1ac90..906b5ca 100644
 --- a/dm/ios/Sources/DmLayout.h
 +++ b/dm/ios/Sources/DmLayout.h
 @@ -5,7 +5,11 @@
@@ -390,9 +390,9 @@ index bb3631f..bfc19b7 100644
 +    return hingeClosed && bounds.size.width > bounds.size.height;
 +}
  
- static inline UIEdgeInsets dm_game_safe_insets(CGRect bounds, UIEdgeInsets insets, BOOL duo) {
-     return duo && bounds.size.height > bounds.size.width ? UIEdgeInsetsMake(insets.top, 0, 0, 0) : insets;
-@@ -46,7 +50,7 @@ static inline CGRect dm_horizontal_division(CGRect b, CGRect division) {
+ // Rotation (DM_ROTATION, a launcher and in-game menu setting): auto, landscape or portrait. auto gives `automatic`: every orientation for the view controllers, so the app's own list
+ // decides, and for the app (front_ios_app_orientations) its Info.plist list for the device: the phone's two landscapes, the iPad's four. landscape locks the two landscapes, portrait
+@@ -55,7 +59,7 @@ static inline CGRect dm_horizontal_division(CGRect b, CGRect division) {
  }
  
  static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOpen, CGRect division, CGFloat aspect) {
@@ -401,7 +401,7 @@ index bb3631f..bfc19b7 100644
      if (CGRectIsEmpty(b)) return l;
      division = dm_horizontal_division(b, division);
      BOOL portrait = b.size.height > b.size.width;
-@@ -63,7 +67,7 @@ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOp
+@@ -72,7 +76,7 @@ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOp
  }
  
  // The picture is on a TV (front_ios.m DmTVSceneDelegate): the controls take the whole view and no touch goes to the game's touch screen (the game is docked there).
@@ -874,10 +874,10 @@ index 0000000..d2efd77
 +
 +NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 506ad16..fecf29c 100644
+index e9c5a1d..e763931 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -219,6 +219,11 @@ - (void)viewDidLayoutSubviews {
+@@ -222,6 +222,11 @@ - (void)viewDidLayoutSubviews {
      DmLayout layout = onTV ? dm_layout_pad_only(b) : dm_layout_picture(dm_layout(b, gameInsets, self.partiallyOpen, division, g_picture_aspect), b, self.fill, g_picture_aspect);
      if (!onTV) self.game.frame = layout.game;
      layout.topSafeOnly = duoPortrait;

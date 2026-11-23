@@ -77,7 +77,8 @@ struct CloudSaveSheet: View {
     }
 
     @ViewBuilder private func asking(_ q: CloudSaveQuestion) -> some View {
-        if q.outcome == .unreadable {
+        switch q.outcome {
+        case .unreadable:
             DSSheet(title: loc.t("cloudCheck.unreadable.title"), message: String(format: loc.t("cloudCheck.unreadable.note"), q.gameName)) {
                 if let reason = q.reason { DSInlineWarning(reason) }
                 Text(loc.t("cloudCheck.playLocal.detail")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
@@ -89,7 +90,21 @@ struct CloudSaveSheet: View {
                     .help(loc.t("cloudCheck.retry.detail"))
                     .padTarget("cloudsave.retry", scope: "cloudsave", focusColor: DS.Color.accentOn) { gate.retry() }
             }
-        } else {
+        case .missingCloudSave:
+            DSSheet(title: loc.t("cloudCheck.missing.title"), message: String(format: loc.t("cloudCheck.missing.note"), q.gameName)) {
+                Text(loc.t("cloudCheck.playLocal.detail")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
+            } buttons: {
+                cancel
+                Button(loc.t("cloudCheck.sendLocal")) { gate.choose(.local) }.buttonStyle(DSSecondaryButtonStyle())
+                    .help(loc.t("cloudCheck.sendLocal.detail"))
+                    .padTarget("cloudsave.send", scope: "cloudsave") { gate.choose(.local) }
+                Button(loc.t("cloudCheck.playLocal")) { gate.choose(.offline) }.buttonStyle(DSSecondaryButtonStyle())
+                    .padTarget("cloudsave.local", scope: "cloudsave") { gate.choose(.offline) }
+                DSSheetPrimaryButton(loc.t("cloudCheck.retry")) { gate.retry() }
+                    .help(loc.t("cloudCheck.retry.detail"))
+                    .padTarget("cloudsave.retry", scope: "cloudsave", focusColor: DS.Color.accentOn) { gate.retry() }
+            }
+        default:
             DSSheet(title: loc.t("cloudCheck.choose.title"), message: q.gameName) {
                 DSSection("") {
                     option("cloudCheck.row.cloud", detail: CloudSaveText.cloudDetail(q, loc.t, lang: loc.lang.code), symbol: "icloud", id: "cloudsave.cloud", value: .cloud)

@@ -8,28 +8,28 @@ Upstream-Status: pending
 Reason: Converge iOS DM_NVN_RT_RECYCLE placement heap pool caps under low memory and dispatch pressure while preserving macOS defaults
 Issue: none
 ---
- dm/gfx/nvn/nvn_mtl.m               | 145 +++++++++++++++++++++----
+ dm/gfx/nvn/nvn_mtl.m               | 135 ++++++++++++++++++-----
  dm/gfx/nvn/nvn_rt_recycle.h        |  60 ++++++++++
  dm/gfx/tests/Makefile              |   2 +
  dm/gfx/tests/t_rt_recycle.m        |  89 +++++++++++++++
  dm/gfx/tests/t_rt_recycle_policy.c | 169 +++++++++++++++++++++++++++++
- 5 files changed, 444 insertions(+), 21 deletions(-)
+ 5 files changed, 425 insertions(+), 30 deletions(-)
  create mode 100644 dm/gfx/nvn/nvn_rt_recycle.h
  create mode 100644 dm/gfx/tests/t_rt_recycle_policy.c
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 155f0cc..c34fcaf 100644
+index 45f05d5..d0f020c 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -40,6 +40,7 @@
- #include "nvn_link_drain.h"
+@@ -42,6 +42,7 @@
  #include "nvn_link_latch.h"
+ #include "nvn_present_history.h"
  #include "nvn_timestamp.h"
 +#include "nvn_rt_recycle.h"
  #include "msl_image.h"
  #include "../msl_mount.h"
  #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
-@@ -485,22 +486,90 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
+@@ -581,22 +582,94 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
  // added (resource_vis). Heaps idle for RH_IDLE_NS, and the oldest past
  // RH_CAP bytes waiting, leave the residency set when a submission begins (rh_trim). DM_NVN_RT_RECYCLE=0 makes each texture its own allocation and each family heap exact and freed
  // with its last texture, as before; ab alternates it with the DM_AB phases
@@ -42,8 +42,6 @@ index 155f0cc..c34fcaf 100644
 +static _Atomic int g_rh_pressure;
 +static _Atomic int g_rh_test_override, g_rh_test_is_ios, g_rh_test_pressure;
 +static _Atomic uint64_t g_rh_test_avail_bytes;
-+static dispatch_queue_t g_rh_mem_q;
-+static dispatch_source_t g_rh_mem_src;
  static int sw_mode(const char *name, int dflt); static inline int sw_on(int m);
 -static int rh_mode(void) { static int m = -1; if (m < 0) m = sw_mode("DM_NVN_RT_RECYCLE", 1); return m; }
 +static int rh_mode(void) { if (g_rh_mode < 0) g_rh_mode = sw_mode("DM_NVN_RT_RECYCLE", 1); return g_rh_mode; }
@@ -67,9 +65,11 @@ index 155f0cc..c34fcaf 100644
 +    }
 +    *out = rh_policy_for_platform(is_ios, avail, pressure);
 +}
-+// Evict expired or over-budget entries in 64-entry batches, releasing and calling res_remove outside g_rh_lk
-+static void rh_evict_to_budget(uint64_t now, const rh_policy *p) {
-+    if (!p) return;
++// Evict expired or over-budget entries in 64-entry batches, releasing and calling res_remove outside g_rh_lk. → bytes freed
++static uint64_t rh_evict_to_budget(uint64_t now, const rh_policy *p, unsigned *n_out) {
++    uint64_t bytes = 0;
++    unsigned total = 0;
++    if (!p) { if (n_out) *n_out = 0; return 0; }
 +    for (;;) {
 +        void *drop[64];
 +        unsigned nd = 0;
@@ -81,6 +81,7 @@ index 155f0cc..c34fcaf 100644
 +            }
 +            if (!rh_needs_evict(g_rh_bytes, now, g_rh[old].t, p)) break;
 +            drop[nd++] = g_rh[old].heap;
++            bytes += g_rh[old].size;
 +            g_rh_bytes = g_rh_bytes >= g_rh[old].size ? g_rh_bytes - g_rh[old].size : 0;
 +            g_rh[old] = g_rh[--g_rh_n];
 +        }
@@ -91,9 +92,12 @@ index 155f0cc..c34fcaf 100644
 +            id<MTLHeap> h = CFBridgingRelease(drop[i]);
 +            res_remove(h);
 +        }
++        total += nd;
 +        atomic_fetch_add(&g_rh_trimmed, nd);
 +        if (!more) break;
 +    }
++    if (n_out) *n_out = total;
++    return bytes;
 +}
  // A heap whose texture was freed waits for the next texture it fits (with the switch off it is freed). Runs where the texture's last reference goes (defer_drain: the submit thread or a
  // completion handler)
@@ -107,13 +111,13 @@ index 155f0cc..c34fcaf 100644
 +    if (!sw_on(rh_mode())) {
 +        res_remove(heap);
 +        rh_policy zero = {0, 0, 0, 1};
-+        rh_evict_to_budget(now, &zero);
++        rh_evict_to_budget(now, &zero, NULL);
 +        return;
 +    }
 +    uint64_t sz = (uint64_t)heap.size;
 +    if (!rh_should_pool_entry(&p, sz)) {
 +        res_remove(heap);
-+        rh_evict_to_budget(now, &p);
++        rh_evict_to_budget(now, &p, NULL);
 +        return;
 +    }
 +    rh_ent e = {(void *)CFBridgingRetain(heap), sz, now};
@@ -121,11 +125,11 @@ index 155f0cc..c34fcaf 100644
      if (g_rh_n == g_rh_cap) { g_rh_cap = g_rh_cap ? 2 * g_rh_cap : 64; g_rh = realloc_or_die(g_rh, g_rh_cap * sizeof *g_rh, "the recycled texture heaps"); }
      g_rh[g_rh_n++] = e; g_rh_bytes += e.size;
      os_unfair_lock_unlock(&g_rh_lk);
-+    rh_evict_to_budget(now, &p);
++    rh_evict_to_budget(now, &p, NULL);
  }
  @interface NvRecycledHeap : NSObject { @public id<MTLHeap> heap; } @end
  @implementation NvRecycledHeap
-@@ -511,13 +580,14 @@ @implementation NvImageHeap
+@@ -607,13 +680,14 @@ @implementation NvImageHeap
  - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
  @end
  static char g_image_heap_owner_key, g_rh_owner_key;
@@ -143,7 +147,7 @@ index 155f0cc..c34fcaf 100644
      void *got = NULL;
      if (on) {
          os_unfair_lock_lock(&g_rh_lk);
-@@ -528,11 +598,11 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
+@@ -624,11 +698,11 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
              if (h.storageMode != sm || h.cpuCacheMode != cm) continue;   // (a placed texture takes its heap's hazard tracking: a placement heap reports untracked, a descriptor default)
              best = i;
          }
@@ -157,79 +161,65 @@ index 155f0cc..c34fcaf 100644
      hd.storageMode = sm; hd.cpuCacheMode = cm; hd.hazardTrackingMode = hm;
      id<MTLHeap> h = [g_dev newHeapWithDescriptor:hd];
      if (h && on) atomic_fetch_add(&g_rh_made, 1);
-@@ -589,19 +659,18 @@ static void tu_register(id<MTLTexture> t, uint64_t serial) {
+@@ -685,27 +759,17 @@ static void tu_register(id<MTLTexture> t, uint64_t serial) {
      if (g_tu_gone.n && nvn_hm_del(&g_tu_gone, &serial)) g_tu_remade++;
      os_unfair_lock_unlock(&g_tu_lk);
  }
--// When a submission begins: heaps that waited RH_IDLE_NS, and the oldest past RH_CAP bytes, leave the residency set and are freed
-+// When a submission begins: heaps past the platform idle or budget policy leave the residency set and are freed
- static void rh_trim(void) {
--    if (!g_rh_n) return;
--    uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC); void *drop[64]; unsigned nd = 0;
--    os_unfair_lock_lock(&g_rh_lk);
--    while (g_rh_n && nd < 64) {
--        unsigned old = 0; for (unsigned i = 1; i < g_rh_n; i++) if (g_rh[i].t < g_rh[old].t) old = i;
--        if (now - g_rh[old].t < RH_IDLE_NS && g_rh_bytes <= RH_CAP) break;
--        drop[nd++] = g_rh[old].heap; g_rh_bytes -= g_rh[old].size; g_rh[old] = g_rh[--g_rh_n];
-+    if (atomic_load(&g_gfx_teardown)) return;
+-// When a submission begins: heaps that waited RH_IDLE_NS, and the oldest past RH_CAP bytes, leave the residency set and are freed; all of them when memory is short (mem_trim). → bytes freed
++// When a submission begins: heaps past the platform idle or budget policy leave the residency set and are freed; all of them when memory is short (mem_trim). → bytes freed
+ static uint64_t rh_trim_n(int all, unsigned *n_out) {
+-    if (!g_rh_n) { if (n_out) *n_out = 0; return 0; }
+-    uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC), bytes = 0; unsigned n = 0;
+-    for (;;) {
+-        void *drop[64]; unsigned nd = 0;
+-        os_unfair_lock_lock(&g_rh_lk);
+-        while (g_rh_n && nd < 64) {
+-            unsigned old = 0; for (unsigned i = 1; i < g_rh_n; i++) if (g_rh[i].t < g_rh[old].t) old = i;
+-            if (!all && now - g_rh[old].t < RH_IDLE_NS && g_rh_bytes <= RH_CAP) break;
+-            drop[nd++] = g_rh[old].heap; bytes += g_rh[old].size; g_rh_bytes -= g_rh[old].size; g_rh[old] = g_rh[--g_rh_n];
+-        }
+-        int more = all && g_rh_n;
+-        os_unfair_lock_unlock(&g_rh_lk);
+-        for (unsigned i = 0; i < nd; i++) { id<MTLHeap> h = CFBridgingRelease(drop[i]); res_remove(h); }
+-        n += nd;
+-        if (!more || !nd) break;
++    if (atomic_load(&g_gfx_teardown)) { if (n_out) *n_out = 0; return 0; }
 +    uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC);
-+    if (!sw_on(rh_mode())) {
++    if (all || !sw_on(rh_mode())) {
 +        rh_policy zero = {0, 0, 0, 1};
-+        rh_evict_to_budget(now, &zero);
-+        return;
++        return rh_evict_to_budget(now, &zero, n_out);
      }
--    os_unfair_lock_unlock(&g_rh_lk);
--    for (unsigned i = 0; i < nd; i++) { id<MTLHeap> h = CFBridgingRelease(drop[i]); res_remove(h); }
--    if (nd) atomic_fetch_add(&g_rh_trimmed, nd);
+-    if (n) atomic_fetch_add(&g_rh_trimmed, n);
+-    if (n_out) *n_out = n;
+-    return bytes;
 +    rh_policy p;
 +    rh_cur_policy(&p);
-+    rh_evict_to_budget(now, &p);
++    return rh_evict_to_budget(now, &p, n_out);
  }
- // The R32 storage under a 32-bit colour texture that takes image atomics (tex_upgrade): resident as long as the colour view over it lives, which is what the game's names hold
- @interface NvAtomicRaw : NSObject { @public id<MTLTexture> raw; } @end
-@@ -964,6 +1033,28 @@ static void mtl_init_once(void) {
-     if (!g_nvn_deswz_gpu) MLOG("[RED] GPU deswizzle init failed; swizzled textures fall back to the CPU");
-     MLOG("Metal device %s", g_dev.name.UTF8String);
-     udc_selftest();
+ static void rh_trim(void) { rh_trim_n(0, NULL); }
+ // The whole system's memory (host_statistics64), in MB: what the per-app headroom misses. An iPhone 17 ended the app for proc-thrashing in Ocarina of Time with 67 MB free and 5.56 GB of its
+@@ -738,6 +802,7 @@ static void mem_pressure_said(char *b, size_t n) {
+              (unsigned long long)atomic_load(&g_sweep_n), (unsigned long long)(atomic_load(&g_sweep_bytes) >> 20));
+ }
+ static void mem_pressure_event(int lv) {   // lv: 0 normal, 1 warn, 2 critical (the source's handler; a test calls it directly)
++    atomic_store_explicit(&g_rh_pressure, lv > 0 ? 1 : 0, memory_order_release);
+     atomic_fetch_add(&g_mp_n[lv], 1);
+     sys_mem_t m = sys_mem(); char room[32] = "none";
+ #if TARGET_OS_IPHONE
+@@ -764,7 +829,11 @@ static void mem_pressure_start(void) {
+     dispatch_source_set_event_handler(src, ^{ @autoreleasepool {
+         if (g_mp_src != src || atomic_load(&g_gfx_teardown)) return;
+         unsigned long d = dispatch_source_get_data(src);
+-        mem_pressure_event(d & DISPATCH_MEMORYPRESSURE_CRITICAL ? 2 : d & DISPATCH_MEMORYPRESSURE_WARN ? 1 : 0);
++        int lv = d & DISPATCH_MEMORYPRESSURE_CRITICAL ? 2 : d & DISPATCH_MEMORYPRESSURE_WARN ? 1 : 0;
++        mem_pressure_event(lv);
 +#if TARGET_OS_IPHONE
-+    if (!g_rh_mem_q) g_rh_mem_q = dispatch_queue_create("dm.nvn.rh-mem", DISPATCH_QUEUE_SERIAL);
-+    if (!g_rh_mem_src) {
-+        dispatch_source_t src = dispatch_source_create(DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0,
-+            DISPATCH_MEMORYPRESSURE_NORMAL | DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL,
-+            g_rh_mem_q);
-+        __weak dispatch_source_t wsrc = src;
-+        dispatch_source_set_event_handler(src, ^{ @autoreleasepool {
-+            dispatch_source_t s = wsrc;
-+            if (!s || atomic_load(&g_gfx_teardown)) return;
-+            unsigned long flags = dispatch_source_get_data(s);
-+            if (flags & (DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL)) {
-+                atomic_store_explicit(&g_rh_pressure, 1, memory_order_release);
-+                rh_trim();
-+            } else if (flags & DISPATCH_MEMORYPRESSURE_NORMAL) {
-+                atomic_store_explicit(&g_rh_pressure, 0, memory_order_release);
-+            }
-+        } });
-+        g_rh_mem_src = src;
-+        dispatch_resume(src);
-+    }
++        if (lv >= 1) rh_trim();
 +#endif
+     } });
+     dispatch_resume(src);
  }
- 
- void mtl_init(void) {
-@@ -19949,6 +20040,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
-     atomic_fetch_add(&g_defer_gen, 1);
-     mtl_present_discard(1);
-     dispatch_group_wait(bg_group(), DISPATCH_TIME_FOREVER);
-+    dispatch_source_t msrc = g_rh_mem_src;
-+    dispatch_queue_t mq = g_rh_mem_q;
-+    if (msrc) dispatch_source_cancel(msrc);
-+    if (mq) dispatch_sync(mq, ^{});
-+    g_rh_mem_src = nil;
-+    g_rh_mem_q = nil;
- 
-     if (g_q) {
-         if (on_sub_thread()) { up_flush(); rec_drain(); }
-@@ -20200,6 +20297,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -21322,6 +21391,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      for (unsigned i = 0; i < g_rh_n; i++) if (g_rh[i].heap) CFRelease(g_rh[i].heap);
      free(g_rh); g_rh = NULL; g_rh_n = g_rh_cap = 0; g_rh_bytes = 0;
      os_unfair_lock_unlock(&g_rh_lk);
@@ -309,10 +299,10 @@ index 0000000..3691763
 +
 +#endif
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 2518bf2..e486d92 100644
+index ab35431..ff26683 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -688,6 +688,8 @@ t_image_alias: t_image_alias.m $(MTL_T_DEP)
+@@ -713,6 +713,8 @@ t_image_alias: t_image_alias.m $(MTL_T_DEP)
  check_t_image_alias: t_image_alias
  	DM_NVN_ENC_THREAD=0 MTL_DEBUG_LAYER=1 ./t_image_alias
  	DM_NVN_ENC_THREAD=1 MTL_DEBUG_LAYER=1 ./t_image_alias
@@ -322,10 +312,10 @@ index 2518bf2..e486d92 100644
  	clang $(CFLAGS) -fobjc-arc -o $@ t_rt_recycle.m $(MTL_T_SRC) $(FW)
  .PHONY: check_t_rt_recycle
 diff --git a/dm/gfx/tests/t_rt_recycle.m b/dm/gfx/tests/t_rt_recycle.m
-index 61d3310..12116ab 100644
+index e135058..da9cc03 100644
 --- a/dm/gfx/tests/t_rt_recycle.m
 +++ b/dm/gfx/tests/t_rt_recycle.m
-@@ -172,6 +172,93 @@ int main(void) { @autoreleasepool {
+@@ -198,6 +198,93 @@ int main(void) { @autoreleasepool {
          CHECK(tbig && tbig.heap && tbig.heap.size >= nb.size && tbig.heap.size <= nb.size + RH_SLACK + 65536, "a large target's new heap is at most RH_SLACK larger than it");
          tbig = nil; mtl_tex_release(&big); mtl_alias_drop_pool(&pool); settle();
      }
@@ -419,7 +409,7 @@ index 61d3310..12116ab 100644
      {
          unsigned w0 = waiting();
          tex_t g = target(&pool, 95009, 0, 1024, 576); mtl_tex_init(&g);
-@@ -185,6 +272,8 @@ int main(void) { @autoreleasepool {
+@@ -211,6 +298,8 @@ int main(void) { @autoreleasepool {
      mtl_sub_commit(); mtl_drain();
      dm_gfx_teardown();
      CHECK(waiting() == 0 && g_rh == NULL && g_rh_bytes == 0, "dm_gfx_teardown frees waiting and live recycled heaps");

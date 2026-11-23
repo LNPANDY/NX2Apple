@@ -1,8 +1,10 @@
 120 fps
 16:9 (Switch)
 30 fps
+40 fps
 60 fps
 American English
+Automatic
 Brazilian Portuguese
 British English
 Canadian French
@@ -38,12 +40,14 @@ Italian
 Japanese
 Keeps a pipeline archive; uses more memory.
 Korean
+Landscape
 Large
 Latin American Spanish
 Left stick
 Lets the game hear your microphone. macOS asks for access when you launch with this enabled.
 Lets the game lower its resolution under load. Turn off to keep full resolution for the selected console mode.
 Loads each program's shader libraries in the background, whether a draw uses them or not.
+MacBook (16:10)
 Match screen
 Medium
 Metal 4 pipelines
@@ -60,11 +64,12 @@ Pipeline prebuild
 Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access.
 Plays game audio alongside other apps instead of stopping them.
 Polish
+Portrait
 Portuguese
 Press a button to join
 Recommended
 Render scale
-Renders about a quarter more pixels: a little slower and warmer.
+Rotation
 Rumble cutoff
 Rumble strength
 Russian
@@ -79,6 +84,7 @@ Smooth
 Spanish
 Standard
 Switch 2 controllers
+Taller shapes render more pixels and can increase GPU time and heat.
 Texture quality
 Thai
 The first start waits a few minutes for it, once.

@@ -165,7 +165,7 @@ index 8fa01c0..bb1aac6 100644
      IOHIDDeviceClose(hid->device,kIOHIDOptionsTypeNone); hid->opened=NO;
  }
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index fde8888..fc0ef34 100644
+index befd752..5a8ee6f 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1,7 +1,7 @@
@@ -177,7 +177,7 @@ index fde8888..fc0ef34 100644
  // Cheats (hle_cheats.c): the Cheats menu's rows toggle, reload (⌘R) and open the cheats folder; its first item "Show Cheats
  // Window" (⌘⇧C, or DM_CHEATS_WINDOW=1 at launch) opens a Cheats panel beside the game: sections, search, the master switch,
  // safe mode, values, details and the import of cheat files (see the code below).
-@@ -151,8 +151,10 @@ static int fn_shortcut(NSEvent *e) {
+@@ -238,8 +238,10 @@ static int fn_shortcut(NSEvent *e) {
  }
  static ctrl_prompt g_cp; static int g_cp_confirm, g_cp_cancel;   // the controller applet's prompt (front_ctrl_support) and a key pressed in it since its last step
  int front_cp_poll(void);
@@ -188,7 +188,7 @@ index fde8888..fc0ef34 100644
      if (cp_blocks_input(g_cp.phase)) {   // the prompt has the keyboard: Return or J (A) is done, Escape or K (B) closes it, no key reaches the game
          unsigned short c = e.keyCode;
          if (down && g_cp.phase == CP_OPEN) { if (c == 53 || c == 40) g_cp_cancel = 1; else if (c == 36 || c == 38) g_cp_confirm = 1; front_cp_poll(); }
-@@ -193,19 +195,36 @@ static void input_resume(void) {
+@@ -280,19 +282,36 @@ static void input_resume(void) {
  
  // Quit with the Home button (home_quit.h, LNPANDY/NX2Apple#336): held for 2 s it opens the prompt (home_quit_mac.h) over the game's view, A quits through the same path as ⌘Q
  // (NSApp terminate, so the save writer and the other exit handlers run as there), B or Home closes it. While the prompt is open the game is told it lost the focus, as the
@@ -231,7 +231,7 @@ index fde8888..fc0ef34 100644
  }
  // The Home button setting for apps (macOS 27), once, when the first controller is there (GameController reads it only while one is connected): "system" in the log
  // explains a hold that does nothing, since the system keeps Home whatever the host asks. A front end reads the setting itself (GCControllerHomeButtonSettingsManager)
-@@ -229,58 +248,335 @@ static void hq_fade(NSView *v, int in) {
+@@ -316,58 +335,335 @@ static void hq_fade(NSView *v, int in) {
      [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) { ctx.duration = 0.18; v.animator.alphaValue = in ? 1 : 0; }
                          completionHandler:^{ if (!in) [v removeFromSuperview]; }];
  }
@@ -578,7 +578,7 @@ index fde8888..fc0ef34 100644
  // The controller applet's prompt (front.h front_ctrl_support, ctrl_prompt.h; GitHub issue #1640): the game asked for more players than it sees, and the game's thread waits while
  // the prompt is up over the game, as the Switch's player screen. A controller that joins meanwhile is a player at once (its first button with DM_PAD_PRESS_TO_JOIN, its
  // connection without), and the count on the card follows. A and B are the physical buttons A and B on any controller (controllers_mac.m front_controllers_applet_buttons, as the Home
-@@ -1357,7 +1653,9 @@ void front_run(void (*guest)(void)) {
+@@ -1447,7 +1743,9 @@ void front_run(void (*guest)(void)) {
          NSString *keys = input_preference_map(input_preferences_domain(), "DM_KEYMAP", 0);
          if (keys) key_map_parse(&g_keys, keys.UTF8String);
          hq_start();
@@ -588,7 +588,7 @@ index fde8888..fc0ef34 100644
          hq_log_setting();
          [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil queue:NSOperationQueue.mainQueue
                                                     usingBlock:^(NSNotification *n) { (void)n; hq_log_setting(); }];
-@@ -1383,10 +1681,10 @@ void front_run(void (*guest)(void)) {
+@@ -1475,10 +1773,10 @@ void front_run(void (*guest)(void)) {
          // DM_FOCUS_KEEP (on by default, =0 turns it off): the game stays in focus while its window is up, whichever app is active. Tears of the Kingdom and Ocarina of Time
          // stop presenting out of focus, so clicking into another app read as a hang (no frame and no sound after the last focus change)
          static int keep = -1; if (keep < 0) keep = !getenv("DM_FOCUS_KEEP") || atoi(getenv("DM_FOCUS_KEEP"));
@@ -659,7 +659,7 @@ index ddab115..e7b8eba 100644
  static inline int hq_enabled(const char *env) { return !(env && !strcmp(env, "0")); }
 +// Whether the launcher asked for Back to console mode: DM_HOME_MENU_LAUNCHER=1 only
 +static inline int hq_launcher(const char *env) { return env && !strcmp(env, "1"); }
-
+ 
 -// One step with the buttons as they are now (pressed on any controller) at time now. Called on every change of a button and, while Home is held, from a timer.
 -static inline hq_phase hq_step(home_quit *q, double now, int home, int a, int b) {
 -    int pressed = home && !q->home;
@@ -1176,10 +1176,10 @@ index 0b716c4..0aa2164 100644
      }
      printf("t_home_quit_mac: %d checks, %d failed\n", checks, fails);
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 27e008c..a67690e 100644
+index 12b5001..20aa8cd 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
-@@ -57,7 +57,9 @@ A built app carries the settings its game supports, as the iPhone app's settings
+@@ -59,7 +59,9 @@ A built app carries the settings its game supports, as the iPhone app's settings
  
  A Mac app shows its own settings window before the game, drawn from its `launcher.json` and keeping its choices in the same store ([Saved choices](#saved-choices), [The Mac settings window](settings.md#the-mac-settings-window)). It shows a variable the launch environment or an `env.txt` sets as fixed. A front end that draws the settings itself starts the app with `DM_LAUNCHER=0` in its environment (or `--no-launcher` on its command line) to skip the window. The saved choices still apply, so a front end that writes them gets the same game as the window would. With `DM_PREFLIGHT` set in its environment the app exits at once, before it reads anything, rolls its log or touches the saves: a front end opens a new build that way (through LaunchServices, `NSWorkspace.openApplication`), so macOS runs its first-start check of the bundle then, not when the player starts the game. The check scans every file of an ad hoc signed app and takes minutes with a RomFS of several GB, and macOS remembers it until the app changes.
  
@@ -1191,10 +1191,10 @@ index 27e008c..a67690e 100644
  Settings a player chose in a front end and wants kept, also for a start from Finder or the Dock, go in the app's saved choices ([Saved choices](#saved-choices)), not in its environment.
  
 diff --git a/docs/playing.md b/docs/playing.md
-index 9b99136..63a0191 100644
+index 626a9bf..7e00943 100644
 --- a/docs/playing.md
 +++ b/docs/playing.md
-@@ -57,7 +57,7 @@ Two identical controllers that Apple's controller support lists as one, such as
+@@ -59,7 +59,7 @@ Two identical controllers that Apple's controller support lists as one, such as
  
  With [Press a button to join](settings.md#press-a-button-to-join) on in the settings (`DM_PAD_PRESS_TO_JOIN=1` in `env.txt`), on the Mac and on iOS, a controller becomes a player only when one of its buttons is pressed, as the lowest player free: the players choose their order and how many play, over Bluetooth or USB, identical pads included, and a controller connected while the game runs joins at its first press. The log says `press a button to play`, then `a button pressed: player N`. The press that joins also reaches the game. When a game asks for more players than it sees, a prompt over the game says how many are wanted and joined and waits for the others: a controller that presses a button (or connects, with the setting off) joins, A finishes once enough are in, and B or Escape closes it, as on a Switch.
  

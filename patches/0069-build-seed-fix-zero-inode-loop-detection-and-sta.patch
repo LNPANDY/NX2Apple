@@ -782,10 +782,10 @@ index 0000000..1a5e311
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 5c211d5..dd3910d 100755
+index b54091d..828d7d6 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -3785,12 +3785,14 @@ def report_fix_coverage(patched, mods, reg):
+@@ -3940,12 +3940,14 @@ def report_fix_coverage(patched, mods, reg):
  
  def report_profile_status(g, reg, pkg_ver, derived, provisional, artifact='IPA', patched=None):
      """Keep build-specific warnings visible for the IPA, the Xcode project and a Mac-only build"""
@@ -804,7 +804,7 @@ index 5c211d5..dd3910d 100755
              say(f'this {artifact} uses the registered {pkg_ver} ({disp}) builds and every fix for them, with derived shader tables ({derived})')
          elif g.title_id != reg.title_id and not other and pkg_ver in reg.builds():   # a registered build under another title ID (same_build): every fix applies
              say(f'this {artifact} is game profile {reg.id}\'s {pkg_ver} ({disp}) under title ID {g.title_id:016X}: its settings and every fix for its builds, with shaders split from this title\'s own files')
-@@ -3930,6 +3932,19 @@ def _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_na
+@@ -4085,6 +4087,19 @@ def _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_na
              control_path=ctrl_p,
              icon_path=icon_p,
          )
@@ -824,7 +824,7 @@ index 5c211d5..dd3910d 100755
      except (OSError, ValueError, TypeError) as e:
          say(f'[RED] build seed cache skipped: {e}')
  
-@@ -4056,16 +4071,43 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+@@ -4211,16 +4226,43 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
      own = own_profile_folders(args, nsp_dir, app)
      repo_g = gamemod.by_title(app, own)
      staged_prof = staged.get('profile_dir')

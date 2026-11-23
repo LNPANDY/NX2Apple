@@ -608,9 +608,21 @@ void dm_shell_request_stop_game(void) {
 
 @interface App : UIResponder <UIApplicationDelegate>
 @end
-// Browsing may be portrait; phone gameplay stays landscape. UIKit manages unrestricted rotation on the Duo inner display.
+// Browsing may be portrait. Phone gameplay honors DM_ROTATION (defaulting to landscape). UIKit manages unrestricted rotation on the Duo inner display.
 static UIInterfaceOrientationMask shell_orientations(UITraitCollection *traits) {
-    if (traits.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return UIInterfaceOrientationMaskAll;
+    BOOL isPhone = (traits && traits.userInterfaceIdiom != UIUserInterfaceIdiomUnspecified)
+        ? (traits.userInterfaceIdiom == UIUserInterfaceIdiomPhone)
+        : (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone);
+    if (g_boot_ok) {
+        const char *rot = getenv("DM_ROTATION");
+        if (rot && strcmp(rot, "portrait") == 0) {
+            return isPhone
+                ? UIInterfaceOrientationMaskPortrait
+                : (UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskPortraitUpsideDown);
+        }
+        if (rot && strcmp(rot, "landscape") == 0) return UIInterfaceOrientationMaskLandscape;
+    }
+    if (!isPhone) return UIInterfaceOrientationMaskAll;
     return g_boot_ok ? UIInterfaceOrientationMaskLandscape : UIInterfaceOrientationMaskAllButUpsideDown;
 }
 @implementation App

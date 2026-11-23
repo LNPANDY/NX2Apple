@@ -21,16 +21,16 @@ Reason: Mac front ends show the game's name in their own language (DMTitleNames 
 Issue: LNPANDY/NX2Apple#895
 ---
  dm/mac/pack_app.py                 | 14 ++++--
- dm/tools/fuzz/fuzz_nacp.py         |  5 ++-
+ dm/tools/fuzz/fuzz_nacp.py         |  6 ++-
  dm/tools/nacp.py                   | 30 +++++++++----
  dm/tools/tests/test_nacp.py        | 69 ++++++++++++++++++++++++++++++
  dm/tools/tests/test_nsp_mac_app.py | 20 +++++++--
  scripts/build_ipa_from_nsp.py      |  3 +-
- 6 files changed, 123 insertions(+), 18 deletions(-)
+ 6 files changed, 124 insertions(+), 18 deletions(-)
  create mode 100644 dm/tools/tests/test_nacp.py
 
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 82fe659..a97db94 100755
+index 38fe911..70a8ea0 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -5,7 +5,8 @@
@@ -51,7 +51,7 @@ index 82fe659..a97db94 100755
  import romfs as rfs
  import shader_lib
  import vol_space   # the space a build may write, with what APFS frees on demand
-@@ -142,6 +144,10 @@ def info_plist(a, minos, icon):
+@@ -143,6 +145,10 @@ def info_plist(a, minos, icon):
          p['DMSettings'] = settings_rules(listed)
          lang = next((s['default'] for s in listed if s['env'] == 'DM_LANG'), None)
          if lang: p['DMLanguage'] = lang   # the Game language row's default: --lang, or the game's first language when it lacks that one (settings.py), with or without the window
@@ -62,7 +62,7 @@ index 82fe659..a97db94 100755
      return p
  
  
-@@ -405,7 +411,7 @@ def pack(a):
+@@ -439,7 +445,7 @@ def pack(a):
              if key_file.is_file(): os.replace(key_file, set_aside)
      try:
          a = argparse.Namespace(**vars(a))
@@ -70,8 +70,8 @@ index 82fe659..a97db94 100755
 +        for name in ('out', 'host', 'patched', 'romfs', 'msl', 'tables', 'font', 'aoc', 'pso', 'pso_pairs', 'env_file', 'settings', 'icon', 'html', 'control', 'control_nacp'):
              if getattr(a, name): setattr(a, name, str(Path(getattr(a, name)).resolve()))
          mods, msls, pso, tables, pairs, fonts, files = selected_inputs(a)
-         # --program: the other programs of a game of several programs (index, rewritten modules, RomFS, shader libraries, tables, offline pages; tab-separated), which go in beside the first's as one app
-@@ -415,6 +421,7 @@ def pack(a):
+         runtime_python = getattr(a, 'runtime_python', None)
+@@ -463,6 +469,7 @@ def pack(a):
              pa = argparse.Namespace(**{**vars(a), 'patched': patched, 'romfs': prom, 'msl': pmsl, 'tables': ptab, 'pso': None, 'pso_pairs': None, 'aoc': None, 'marker': None})
              pmods, pmsls, _, ptables, _, _, pfiles = selected_inputs(pa)
              programs.append((n, Path(prom), Path(pmsl), Path(phtml), pmods, pmsls, ptables)); files += pfiles
@@ -79,7 +79,7 @@ index 82fe659..a97db94 100755
          clang = Path(run(['xcrun', '--find', 'clang']).strip()).resolve()
          swiftc = Path(run(['xcrun', '--find', 'swiftc']).strip())   # not resolved: the driver is a link to swift-frontend, which acts by its name
          sdk = Path(run(['xcrun', '--sdk', 'macosx', '--show-sdk-path']).strip()).resolve()
-@@ -423,7 +430,7 @@ def pack(a):
+@@ -471,7 +478,7 @@ def pack(a):
          if not codesign: raise SystemExit('codesign is not available')
          codesign = Path(codesign).resolve()
          minos = min_os(a.host)
@@ -88,7 +88,7 @@ index 82fe659..a97db94 100755
          large = {*msls, *pso, *(p for x in programs for p in x[5])}   # the shader libraries and pipeline archives (13.5 GB for Ocarina of Time): by stat, as the RomFS trees below
          def tree(p):   # a folder's entries; a RomFS image's one row as a large file's (as_packed)
              rows = inventory(Path(p))
-@@ -573,6 +580,7 @@ def parse(argv):
+@@ -626,6 +633,7 @@ def parse(argv):
      ap.add_argument('--title-id', required=True); ap.add_argument('--name', required=True)
      ap.add_argument('--version'); ap.add_argument('--bundle-id'); ap.add_argument('--category'); ap.add_argument('--lang'); ap.add_argument('--marker', help='the profile\'s romfs_marker')
      ap.add_argument('--icon', help='the game icon (icon.jpg from the control data)')
@@ -97,7 +97,7 @@ index 82fe659..a97db94 100755
      return ap.parse_args(argv)
  
 diff --git a/dm/tools/fuzz/fuzz_nacp.py b/dm/tools/fuzz/fuzz_nacp.py
-index 2400cab..48e9bae 100644
+index d11803f..2093219 100644
 --- a/dm/tools/fuzz/fuzz_nacp.py
 +++ b/dm/tools/fuzz/fuzz_nacp.py
 @@ -1,7 +1,7 @@
@@ -109,19 +109,21 @@ index 2400cab..48e9bae 100644
  result of another type. Usage: see fuzzlib.py"""
  import struct
  import sys
-@@ -34,8 +34,9 @@ _file = fuzzlib.InputFile('control.nacp')
+@@ -34,9 +34,11 @@ _file = fuzzlib.InputFile('control.nacp')
  
  def check(data):
      p = _file.write(data)
--    n, v, langs = nacp.name(p), nacp.version(p), nacp.languages(p)
-+    n, v, langs, names = nacp.name(p), nacp.version(p), nacp.languages(p), nacp.names(p)
-     if not isinstance(n, str) or not isinstance(v, str) or not isinstance(langs, list): raise fuzzlib.broken('nacp.py', f'unexpected result types {n!r} {v!r} {langs!r}')
-+    if not isinstance(names, dict) or not all(isinstance(t, str) and t.isprintable() for t in names.values()): raise fuzzlib.broken('nacp.py', f'unexpected names {names!r}')
+-    n, v, dv, langs = nacp.name(p), nacp.version(p), nacp.display_version(p), nacp.languages(p)
++    n, v, dv, langs, names = nacp.name(p), nacp.version(p), nacp.display_version(p), nacp.languages(p), nacp.names(p)
+     if not isinstance(n, str) or not isinstance(v, str) or not isinstance(dv, str) or not isinstance(langs, list):
+         raise fuzzlib.broken('nacp.py', f'unexpected result types {n!r} {v!r} {dv!r} {langs!r}')
++    if not isinstance(names, dict) or not all(isinstance(t, str) and t.isprintable() for t in names.values()):
++        raise fuzzlib.broken('nacp.py', f'unexpected names {names!r}')
  
  
  if __name__ == '__main__':
 diff --git a/dm/tools/nacp.py b/dm/tools/nacp.py
-index 830a85e..64716f5 100644
+index b900c8a..c80d71d 100644
 --- a/dm/tools/nacp.py
 +++ b/dm/tools/nacp.py
 @@ -2,7 +2,7 @@
@@ -177,7 +179,7 @@ index 830a85e..64716f5 100644
 +    return {c: n for (c, _), n in zip(LANGUAGES, titles(path)) if n}
  
  
- def version(path):
+ def display_version(path):
 diff --git a/dm/tools/tests/test_nacp.py b/dm/tools/tests/test_nacp.py
 new file mode 100644
 index 0000000..e49f785
@@ -254,7 +256,7 @@ index 0000000..e49f785
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index 912d8b2..f7ea7ed 100644
+index e79f194..bc42ece 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -135,7 +135,7 @@ class PackReuse(unittest.TestCase):
@@ -327,13 +329,13 @@ index 912d8b2..f7ea7ed 100644
          self.assertEqual((self.settings_env['SETTINGS_PLATFORM'], self.settings_env['GFXAPI'], self.settings_env['DM_LANG']), ('mac', 'nvn', 'en-US'))
          o, tmp = self.pack_cmd('vulkan', aoc=Path('/x/aoc'), sign='Developer ID Application: X (T)')
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 7091381..ffbb0fb 100755
+index de5aa8a..433cb45 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -3341,7 +3341,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+@@ -3480,7 +3480,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
      for opt, v in (('--version', version), ('--category', g.get('app_category')), ('--marker', g.get('romfs_marker')), ('--aoc', aoc), ('--icon', icon),
                     ('--pso', pso), ('--pso-pairs', split_pairs if gfx == 'nvn' and not g.table('pso_pairs.tsv').is_file() and split_pairs.is_file() else None),
-                    ('--env-file', Path(os.path.expanduser(env_file)).resolve() if env_file else None), ('--settings', settings),
+                    ('--env-file', Path(os.path.expanduser(env_file)).resolve() if env_file else None), ('--settings', settings), ('--runtime-python', runtime_python),
 -                   ('--control-nacp', next((p for p in (control, game / 'control.nacp') if p and Path(p).is_file()), None))):
 +                   ('--control-nacp', next((p for p in (control, game / 'control.nacp') if p and Path(p).is_file()), None)),
 +                   ('--control', control or game / 'control.nacp')):   # the game's name in each language (DMTitleNames), from the same control data as its languages

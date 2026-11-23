@@ -105,7 +105,7 @@ package enum CloudSaveNow {
                 return .onlyCloudChanged(local: local, cloud: cloud)
             case .onlyLocalChanged, .noCloudSave:
                 return .onlyLocalChanged(local: local, cloud: cloud.hash == nil ? nil : cloud)
-            case .bothChanged:
+            case .bothChanged, .missingCloudSave:
                 return .conflict(local: local, cloud: cloud)
             case .unreadable:
                 return .unreadable(local: local, reason: .cloudDamaged)
@@ -161,7 +161,7 @@ package enum CloudSaveNow {
                     isRunning: isRunning,
                     fileManager: fm
                 )
-            case .bothChanged:
+            case .bothChanged, .missingCloudSave:
                 return .failure(.conflict(local: local, cloud: cloud))
             case .unreadable:
                 return .failure(.cloudDamaged)

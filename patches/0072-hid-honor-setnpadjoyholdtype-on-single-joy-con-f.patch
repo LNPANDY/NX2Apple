@@ -13,19 +13,18 @@ Add t_joy_hold_type regression assertions covering Vertical, Horizontal, mode tr
 Upstream-Status: pending
 Reason: Honor SetNpadJoyHoldType on single Joy-Con whole-controller fallback reads across Joy-Con 1 and 2
 Issue: none
-
 ---
- dm/host/hle_hid.c     | 56 ++++++++++++++++++++++++++----
+ dm/host/hle_hid.c     | 58 +++++++++++++++++++++++++++----
  dm/host/tests/t_hid.c | 81 +++++++++++++++++++++++++++++++++++++++++++
- 2 files changed, 130 insertions(+), 7 deletions(-)
+ 2 files changed, 132 insertions(+), 7 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index b747547..d0c5a6b 100644
+index 5557c89..85d971d 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -613,6 +613,52 @@ static void fill_joy(NpadState *s, npad_ref r) {
-     s->buttons = (b & 0x0f00ffffull) | stick_dirs(a);
-     s->attributes = ATTR_CONNECTED | (left ? ATTR_LEFT_CONN : 0) | (right ? ATTR_RIGHT_CONN : 0);
+@@ -653,6 +653,52 @@ static uint64_t single_joy_fold(uint32_t style, uint64_t buttons, int32_t a[4])
+     a[2 * !side] = 0; a[2 * !side + 1] = 0;
+     return folded;
  }
 +static _Atomic uint32_t g_hold_type;   // NpadJoyHoldType: 0 = Vertical (default), 1 = Horizontal
 +// Sideways mapping for a single Joy-Con shown as a whole controller (KIND_PAD) when NpadJoyHoldType is Horizontal: match jc1_sideways_buttons / jc1_sideways_stick across Joy-Con 1 and 2
@@ -41,7 +40,7 @@ index b747547..d0c5a6b 100644
 +    if (b & (DM_BTN_LS | DM_BTN_RS)) m |= DM_BTN_LS;
 +    return m;
 +}
-+static void fill_pad_slot(int p, uint64_t *b, int32_t a[4]) {
++static void fill_pad_slot(int p, uint64_t *b, int32_t a[4], uint32_t shown) {
 +    uint64_t pb = atomic_load(&g_pad_btn[p]) | atomic_exchange(&g_pad_latch[p], 0);
 +    if (!joy_active(p)) {
 +        *b |= pb;
@@ -63,7 +62,7 @@ index b747547..d0c5a6b 100644
 +    uint64_t jb = atomic_load(&g_joy_btn[p][side]) | atomic_exchange(&g_joy_latch[p][side], 0);
 +    uint64_t v = atomic_load(&g_joy_axes[p][side]);
 +    int32_t jx = ax(v, 0), jy = ax(v, 1);
-+    if (atomic_load(&g_hold_type) == 1) {
++    if (!single_joy_style(shown) && atomic_load(&g_hold_type) == 1) {
 +        *b |= joy_sideways_buttons(jb, side);
 +        a[0] = pick(a[0], side ? jy : -jy);
 +        a[1] = pick(a[1], side ? -jx : jx);
@@ -76,7 +75,7 @@ index b747547..d0c5a6b 100644
  static void fill(NpadState *s, uint32_t id, uint32_t style) {
      memset(s, 0, sizeof *s);
      s->sampling = atomic_fetch_add(&g_sampling, 1) + 1;
-@@ -628,10 +674,7 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
+@@ -669,10 +715,7 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
          b = atomic_load(&g_btn) | atomic_exchange(&g_latch, 0);
          uint64_t k = atomic_load(&g_axes); for (int i = 0; i < 4; i++) a[i] = ax(k, i);
      }
@@ -84,11 +83,11 @@ index b747547..d0c5a6b 100644
 -        b |= atomic_load(&g_pad_btn[p]) | atomic_exchange(&g_pad_latch[p], 0);
 -        uint64_t v = atomic_load(&g_pad_axes[p]); for (int i = 0; i < 4; i++) a[i] = pick(a[i], ax(v, i));
 -    }
-+    for (int p = 0; p < DM_PLAYERS; p++) if (src >> p & 1) fill_pad_slot(p, &b, a);
++    for (int p = 0; p < DM_PLAYERS; p++) if (src >> p & 1) fill_pad_slot(p, &b, a, shown);
      if (!pl) {   // the physical sources so far (DM_REC records them, DM_BTN_SHAKE only from player 1's own controller and the keyboard, as shake_note), then the scripted path
          if (atomic_load_explicit(&g_rec_on, memory_order_relaxed)) rec_read((b & 0xffffull) | ((atomic_load(&g_btn) | atomic_load(&g_pad_btn[0])) & DM_BTN_SHAKE), a);
          b |= atomic_load(&g_sc_btn) | atomic_exchange(&g_sc_latch, 0);
-@@ -712,8 +755,7 @@ HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyDualStateEiRKj", "dual Joy-Co
+@@ -751,8 +794,7 @@ HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyDualStateEiRKj", "dual Joy-Co
  HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyLeftStateEiRKj", "left Joy-Con states (not connected on the host)", int, h_hid_StatesJoyLeft, NpadState *s, int n, const uint32_t *id) { return states(s, n, *id, STYLE_JOYLEFT); }
  HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_17NpadJoyRightStateEiRKj", "right Joy-Con states (not connected on the host)", int, h_hid_StatesJoyRight, NpadState *s, int n, const uint32_t *id) { return states(s, n, *id, STYLE_JOYRIGHT); }
  HLE_FORCE("_ZN2nn3hid14DisconnectNpadERKj", "disconnect a controller; ignored by the host", void, h_hid_Disconnect, const uint32_t *id) { (void)id; }
@@ -98,7 +97,7 @@ index b747547..d0c5a6b 100644
  // The game's choice of how the Joy-Cons of a pad are used (npad_resolve): single, left or right staying on the npad, or dual. NpadJoyDeviceType: Left 0, Right 1; NpadJoyAssignmentMode: Dual 0, Single 1
  static void joy_assign(uint32_t id, int single, int keep) {
      if (id >= DM_PLAYERS) return;
-@@ -1749,7 +1791,7 @@ HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyLeftStateERKj", "left Joy-Con
+@@ -1792,7 +1834,7 @@ HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyLeftStateERKj", "left Joy-Con
  HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadJoyRightStateERKj", "right Joy-Con current state (not connected on the host)", void, h_hid_StateJoyRight, NpadState *s, const uint32_t *id) { fill(s, *id, STYLE_JOYRIGHT); }
  
  static uint32_t g_comm_mode, g_hh_mode;
@@ -107,11 +106,20 @@ index b747547..d0c5a6b 100644
  HLE_FORCE("_ZN2nn3hid24GetSupportedNpadStyleSetEv", "supported controller styles: all", uint32_t, h_hid_GetStyles, void) { return atomic_load(&g_styles_supported); }
  HLE_FORCE("_ZN2nn3hid24GetNpadCommunicationModeEv", "wireless communication mode: returns the value that was set", int, h_hid_GetComm, void) { return (int)g_comm_mode; }
  HLE_FORCE("_ZN2nn3hid24SetNpadCommunicationModeENS0_21NpadCommunicationModeE", "wireless communication mode; the host only records it", void, h_hid_SetComm, int m) { g_comm_mode = (uint32_t)m; }
+@@ -1873,6 +1915,8 @@ static int touch_read(void *s, int N, int want) {
+     return cnt;
+ }
+ void dm_hid_touch_teardown(void) {
++    atomic_store(&g_hold_type, 0);
++    memset(g_single_joy_rumble, 0, sizeof g_single_joy_rumble);
+     pthread_mutex_lock(&g_touch_mu);
+     memset(g_touch_hist, 0, sizeof g_touch_hist);
+     g_touch_kept = g_touch_newest = g_touch_points = 0;
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 2d6527a..fd239cb 100644
+index 6748e35..022c586 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
-@@ -1903,6 +1903,86 @@ static void t_bind_gap(void) {
+@@ -1973,6 +1973,86 @@ static void t_bind_gap(void) {
      dm_pad_players(0x1); g_signals = 0; g_signalled = NULL;
  }
  
@@ -198,7 +206,7 @@ index 2d6527a..fd239cb 100644
  int main(void) {
      CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");
      setenv("DM_IMU_DELAY", "0", 1);   // the tests of the live history read it at the present; t_live_delay checks the playout delay
-@@ -2033,6 +2113,7 @@ int main(void) {
+@@ -2105,6 +2185,7 @@ int main(void) {
      }
      t_bind_gap();
      t_applet_input();

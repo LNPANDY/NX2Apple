@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#303
  3 files changed, 23 insertions(+), 7 deletions(-)
 
 diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index a6941d9..12ff865 100644
+index 1f56b3f..379446c 100644
 --- a/dm/games/0100F2C0115B6000/README.md
 +++ b/dm/games/0100F2C0115B6000/README.md
 @@ -25,6 +25,13 @@ Render conditions, which the host evaluates for every game ([Conditional renderi
@@ -54,7 +54,7 @@ index a6941d9..12ff865 100644
 +
  ## Memory
  
- - **Current (issue #147): confirmed transient upload-memory bug on the Mac; iOS validation pending.** With update 1.4.3, the corrected issue #70 SDK module, shader chain `dec5ee141a9f` and 30 fps, walking from the Great Sky Island save produced 10.70 GiB peak footprint after about 474 s; a shorter repeat reached 12.81 GiB after about 150 s. Live staging peaked at 4.48 / 5.82 GiB and the open batch at 4.41 / 5.75 GiB, then memory fell back near 4 GiB. The shorter burst logged 3,084.2 MB of uploads in one frame. A temporary 50 ms sampler and the kernel footprint-peak ledger caught peaks missed by the periodic reports and the 8 GiB sampled watchdog. With [bounded batches and upload-completion retirement](../../../docs/reference/memory.md#upload-staging-grows-within-one-rendering-submission), the 220 s shortened route with deferred encoding enabled peaked at 4.24 GiB footprint and 216 MiB live staging, without GPU errors. A 520 s replay of the original input timings peaked at 4.23 GiB / 200 MiB, but landed differently and reached Game Over earlier, so it is not an equivalent traversal comparison. These local results do not establish the cause of the reporter's full-device reboot or rule out longer-term cache growth; the requested save/route, full logs and Jetsam/panic reports are still needed for that comparison.
+ - **Current (issue #2965): host mapping ownership corrected; iPhone retest pending.** On an iPhone 17 Pro Max (A19 Pro, iOS 27.2.1), 1.4.3 packed with `--romfs separate --shader-files` aborted during a 26,456-line startup prewarm. Disabling manifest prewarm reached play but still aborted around 27 minutes. Reporter crash census: startup 257 mmap failures, 449.93 GiB VA / 11,824 regions, 0.82 GiB footprint; later play 25,996 regions and 1.86 GiB footprint. The reported host was `82c354b`, shader chain `5ea15f2c8240`, OS build 24B156. The general fix and its remaining validation are in [Shader library mappings exhaust a restricted task map](../../../docs/reference/memory.md#shader-library-mappings-exhaust-a-restricted-task-map); neither startup nor sustained play has been rechecked on this phone.
 diff --git a/dm/games/0100F2C0115B6000/game.tsv b/dm/games/0100F2C0115B6000/game.tsv
 index 81c54eb..742aba2 100644
 --- a/dm/games/0100F2C0115B6000/game.tsv

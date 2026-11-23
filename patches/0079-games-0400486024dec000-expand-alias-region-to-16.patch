@@ -13,18 +13,18 @@ Issue: none
  2 files changed, 22 insertions(+), 3 deletions(-)
 
 diff --git a/dm/games/0400486024DEC000/game.tsv b/dm/games/0400486024DEC000/game.tsv
-index 45ccc5e..878f126 100644
+index 5fe097d..0439148 100644
 --- a/dm/games/0400486024DEC000/game.tsv
 +++ b/dm/games/0400486024DEC000/game.tsv
 @@ -24,9 +24,10 @@ zip_store	.zs:.bwav:.webm:.metallib
  
  # ---- Memory ----
  # The Switch 2 leaves games 9 GB of its 12 GB (Donkey Kong Bananza's figure). The NPDM declares 48 MB of system resource, so virtual address memory is on.
--# nninitStartup asks SetHeapSize 0x18ce00000 (6.2 GB) with the 9 GB pool, as Mario Kart World. 256 MB in front + 4 GB alias region + 256 MB stack region + 8 GB heap region: a starting split, to be measured
--mem_reserve	0x320000000
--mem_alias	0x100000000
+-# 256 MiB in front + 8 GiB heap + 256 MiB stacks + 8 GiB alias region. At 4 GiB the Chamber of Sages transition runs out of room for a 50.03 MiB address region (#3103).
+-mem_reserve	0x420000000
+-mem_alias	0x200000000
 +# nninitStartup asks SetHeapSize 0x18ce00000 (6.2 GB) with the 9 GB pool, as Mario Kart World.
-+# 256 MB in front + 16 GB alias region + 256 MB stack region + 8 GB heap region: addresses cost nothing until mapped (sparse guest files), preventing Master Sword cutscene crashes from exhausting alias space after long sessions.
++# 256 MB in front + 16 GB alias region + 256 MB stack region + 8 GB heap region: addresses cost nothing until mapped (sparse guest files), preventing Chamber of Sages (#3103) and Master Sword cutscene crashes from exhausting alias space after long sessions.
 +mem_reserve	0x620000000
 +mem_alias	0x400000000
  mem_map_limit	on

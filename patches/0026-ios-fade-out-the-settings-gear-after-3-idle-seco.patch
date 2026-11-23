@@ -145,7 +145,7 @@ index 985140a..b65b280 100644
  - (void)padsChanged:(NSNotification *)note {
      GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 846b8ec..989f95a 100644
+index 49a9c9a..6b9ab99 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 @@ -94,6 +94,7 @@ void dm_motion_clear(int player) {
@@ -157,10 +157,10 @@ index 846b8ec..989f95a 100644
  static int g_opmode;   // handheld, until a test or the in-game menu docks it
  int dm_opmode(void) { return g_opmode; }
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index beefab5..0b52a7c 100644
+index 81b0dd0..d1d912c 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-@@ -112,6 +112,13 @@ - (GCExtendedGamepad *)extendedGamepad { return nil; }
+@@ -113,6 +113,13 @@ - (GCExtendedGamepad *)extendedGamepad { return nil; }
  - (GCMotion *)motion { return nil; }
  @end
  
@@ -174,7 +174,7 @@ index beefab5..0b52a7c 100644
  #if DUO_HARNESS_HAS_NATIVE_POSE_API
  @interface DuoFakeHinge : NSObject
  @property (nonatomic) NSInteger status;
-@@ -168,6 +175,35 @@ static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(io
+@@ -169,6 +176,35 @@ static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(io
  
  #endif
  
@@ -210,7 +210,7 @@ index beefab5..0b52a7c 100644
  @interface DuoHarnessTests : XCTestCase
  @property (nonatomic, strong) id savedLayout;
  @property (nonatomic) BOOL controllerListOverridden;
-@@ -1319,7 +1355,8 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
+@@ -1320,7 +1356,8 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
      GCController *controller = [GCController controllerWithExtendedGamepad];
      @try {
          // The TV scene moves the same game view into its own view hierarchy.
@@ -220,7 +220,7 @@ index beefab5..0b52a7c 100644
          XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu, @"A touch-only player still has the menu on TV");
          [self setHarnessControllers:@[controller] notification:GCControllerDidConnectNotification];
          [self waitForView:menu hidden:YES];
-@@ -1327,10 +1364,79 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
+@@ -1328,10 +1365,79 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
          [self deliverSnapshotChangeFor:controller button:controller.extendedGamepad.buttonB value:1];
          XCTAssertEqual(duo_harness_state().players[0].buttons, DM_BTN_A);
  
@@ -303,15 +303,15 @@ index beefab5..0b52a7c 100644
          [self setHarnessControllers:@[] notification:GCControllerDidDisconnectNotification];
          [self waitForView:menu hidden:NO];
 diff --git a/docs/settings.md b/docs/settings.md
-index 0a3aeb4..8bcc053 100644
+index 2bedb93..efb4871 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
-@@ -254,7 +254,7 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
+@@ -260,7 +260,7 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
  
  ## In-game menu
  
--On the iPhone and iPad the gear at the top centre of the touch controls opens a menu while the game runs. It holds **Console mode**, **Picture** and the **Frame-rate counter**, then **Controller layout** (**2D**, **3D**, and **Tap**, no controls and every touch to the game, in handheld mode), **Touch feedback** and **Game rumble**: the settings that take effect at once. A choice opens to show its options, the current one ticked. The menu's text keeps one size whatever the system text size, so it stays short over the game. A change is remembered as on the settings screen, which shows it at the next start; a setting `Documents/env.txt` fixes is shown, not changed. The other settings need the game to start again, so they are only on the settings screen: close the app fully and open it again.
-+On the iPhone and iPad the gear at the top centre of the touch controls opens a menu while the game runs. With a physical controller connected on the device screen, the gear fades out after 3 idle seconds and returns for 3 seconds when you touch the screen. It holds **Console mode**, **Picture** and the **Frame-rate counter**, then **Controller layout** (**2D**, **3D**, and **Tap**, no controls and every touch to the game, in handheld mode), **Touch feedback** and **Game rumble**: the settings that take effect at once. A choice opens to show its options, the current one ticked. The menu's text keeps one size whatever the system text size, so it stays short over the game. A change is remembered as on the settings screen, which shows it at the next start; a setting `Documents/env.txt` fixes is shown, not changed. The other settings need the game to start again, so they are only on the settings screen: close the app fully and open it again.
+-On the iPhone and iPad the gear at the top centre of the touch controls opens a menu while the game runs. It holds **Console mode**, **Picture**, **Rotation** and the **Frame-rate counter**, then **Controller layout** (**2D**, **3D**, and **Tap**, no controls and every touch to the game, in handheld mode), **Touch feedback** and **Game rumble**: the settings that take effect at once. A choice opens to show its options, the current one ticked. The menu's text keeps one size whatever the system text size, so it stays short over the game. A change is remembered as on the settings screen, which shows it at the next start; a setting `Documents/env.txt` fixes is shown, not changed. The other settings need the game to start again, so they are only on the settings screen: close the app fully and open it again.
++On the iPhone and iPad the gear at the top centre of the touch controls opens a menu while the game runs. With a physical controller connected on the device screen, the gear fades out after 3 idle seconds and returns for 3 seconds when you touch the screen. It holds **Console mode**, **Picture**, **Rotation** and the **Frame-rate counter**, then **Controller layout** (**2D**, **3D**, and **Tap**, no controls and every touch to the game, in handheld mode), **Touch feedback** and **Game rumble**: the settings that take effect at once. A choice opens to show its options, the current one ticked. The menu's text keeps one size whatever the system text size, so it stays short over the game. A change is remembered as on the settings screen, which shows it at the next start; a setting `Documents/env.txt` fixes is shown, not changed. The other settings need the game to start again, so they are only on the settings screen: close the app fully and open it again.
  
  Console mode changes as on a Switch put in or taken out of its dock. While a TV shows the game it stays **Docked**, and the mode you pick applies when the TV is disconnected. **Docked** removes the Tap layout, as a docked Switch reads no touch screen.
  

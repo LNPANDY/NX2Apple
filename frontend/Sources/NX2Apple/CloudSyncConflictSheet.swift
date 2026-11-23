@@ -27,52 +27,74 @@ struct CloudSyncConflictSheet: View {
     }
 
     var body: some View {
-        let cloudDetail = String(
-            format: loc.t("cloudCheck.useCloud.detail"),
-            CloudSaveText.device(prompt.cloud.device),
-            CloudSaveText.time(prompt.cloud.saved, lang: loc.lang.code, unknown: loc.t("cloudCheck.unknownTime"))
-        )
-        let localDetail = String(
-            format: loc.t("cloudCheck.useLocal.detail"),
-            CloudSaveText.time(prompt.local.saved, lang: loc.lang.code, unknown: loc.t("cloudCheck.unknownTime"))
-        )
+        if prompt.cloud.hash == nil {
+            DSSheet(
+                title: loc.t("cloudCheck.missing.title"),
+                message: String(format: loc.t("cloudCheck.missing.note"), prompt.plan.gameName)
+            ) {
+                EmptyView()
+            } buttons: {
+                Button(loc.t("cloudCheck.cancel"), action: cancel)
+                    .buttonStyle(DSSecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                    .padTarget("cloudsync.cancel", scope: "cloudsync", activate: cancel)
+                DSSheetPrimaryButton(loc.t("cloudCheck.sendLocal")) {
+                    choose(.local)
+                }
+                .help(loc.t("cloudCheck.sendLocal.detail"))
+                .padTarget("cloudsync.use", scope: "cloudsync", focusColor: DS.Color.accentOn) {
+                    choose(.local)
+                }
+            }
+            .padScope("cloudsync", focus)
+        } else {
+            let cloudDetail = String(
+                format: loc.t("cloudCheck.useCloud.detail"),
+                CloudSaveText.device(prompt.cloud.device),
+                CloudSaveText.time(prompt.cloud.saved, lang: loc.lang.code, unknown: loc.t("cloudCheck.unknownTime"))
+            )
+            let localDetail = String(
+                format: loc.t("cloudCheck.useLocal.detail"),
+                CloudSaveText.time(prompt.local.saved, lang: loc.lang.code, unknown: loc.t("cloudCheck.unknownTime"))
+            )
 
-        DSSheet(title: loc.t("cloudCheck.choose.title"), message: prompt.plan.gameName) {
-            DSSection("") {
-                optionRow(
-                    titleKey: "cloudCheck.row.cloud",
-                    detail: cloudDetail,
-                    symbol: "icloud",
-                    id: "cloudsync.cloud",
-                    value: .cloud
-                )
-                DSRowDivider()
-                optionRow(
-                    titleKey: "cloudCheck.row.local",
-                    detail: localDetail,
-                    symbol: "desktopcomputer",
-                    id: "cloudsync.local",
-                    value: .local
-                )
+            DSSheet(title: loc.t("cloudCheck.choose.title"), message: prompt.plan.gameName) {
+                DSSection("") {
+                    optionRow(
+                        titleKey: "cloudCheck.row.cloud",
+                        detail: cloudDetail,
+                        symbol: "icloud",
+                        id: "cloudsync.cloud",
+                        value: .cloud
+                    )
+                    DSRowDivider()
+                    optionRow(
+                        titleKey: "cloudCheck.row.local",
+                        detail: localDetail,
+                        symbol: "desktopcomputer",
+                        id: "cloudsync.local",
+                        value: .local
+                    )
+                }
+                Text(loc.t("cloudCheck.kept"))
+                    .font(DS.Font.callout)
+                    .foregroundStyle(DS.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } buttons: {
+                Button(loc.t("cloudCheck.cancel"), action: cancel)
+                    .buttonStyle(DSSecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                    .padTarget("cloudsync.cancel", scope: "cloudsync", activate: cancel)
+                DSSheetPrimaryButton(loc.t("cloudCheck.useSelected"), takesReturn: false) {
+                    if let picked { choose(picked) }
+                }
+                .disabled(picked == nil)
+                .padTarget("cloudsync.use", scope: "cloudsync", focusColor: DS.Color.accentOn, enabled: picked != nil) {
+                    if let picked { choose(picked) }
+                }
             }
-            Text(loc.t("cloudCheck.kept"))
-                .font(DS.Font.callout)
-                .foregroundStyle(DS.Color.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        } buttons: {
-            Button(loc.t("cloudCheck.cancel"), action: cancel)
-                .buttonStyle(DSSecondaryButtonStyle())
-                .keyboardShortcut(.cancelAction)
-                .padTarget("cloudsync.cancel", scope: "cloudsync", activate: cancel)
-            DSSheetPrimaryButton(loc.t("cloudCheck.useSelected"), takesReturn: false) {
-                if let picked { choose(picked) }
-            }
-            .disabled(picked == nil)
-            .padTarget("cloudsync.use", scope: "cloudsync", focusColor: DS.Color.accentOn, enabled: picked != nil) {
-                if let picked { choose(picked) }
-            }
+            .padScope("cloudsync", focus)
         }
-        .padScope("cloudsync", focus)
     }
 
     private func optionRow(

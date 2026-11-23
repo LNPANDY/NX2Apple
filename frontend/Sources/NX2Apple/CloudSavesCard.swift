@@ -265,7 +265,7 @@ struct CloudSavesCard: View {
         case .inStep: return loc.t("cloud.sync.inStep")
         case .onlyCloudChanged: return loc.t("cloud.sync.pullAvailable")
         case .onlyLocalChanged: return loc.t("cloud.sync.pushAvailable")
-        case .conflict: return loc.t("cloud.sync.conflict")
+        case .conflict(_, let cloud): return loc.t(cloud.hash == nil ? "cloudCheck.missing.title" : "cloud.sync.conflict")
         case .unreadable(_, let failure): return failureMessage(failure)
         case .pendingPullRecovery: return loc.t("cloud.sync.pendingPull")
         case .nonDefaultPlayer: return loc.t("cloud.sync.nonDefaultPlayer")
@@ -298,6 +298,9 @@ struct CloudSavesCard: View {
                 String(format: loc.t("cloud.sync.localDetail"), CloudSaveText.time($0, lang: loc.lang.code, unknown: loc.t("cloudCheck.unknownTime")))
             }
         case .conflict(let local, let cloud):
+            if cloud.hash == nil {
+                return String(format: loc.t("cloudCheck.missing.note"), game.displayName(loc.lang))
+            }
             return String(
                 format: loc.t("cloud.sync.conflictDetail"),
                 CloudSaveText.device(cloud.device),
@@ -331,7 +334,7 @@ struct CloudSavesCard: View {
         case .cloudUnreachable(let why): return why
         case .cloudWrongGame: return loc.t("cloud.sync.wrongGame")
         case .cloudDamaged: return loc.t("cloud.sync.damaged")
-        case .conflict: return loc.t("cloud.sync.conflict")
+        case .conflict(_, let cloud): return loc.t(cloud.hash == nil ? "cloudCheck.missing.title" : "cloud.sync.conflict")
         case .changedDuringOperation: return loc.t("cloud.sync.changed")
         case .packFailed, .unpackFailed, .writeFailed: return loc.t("cloud.sync.writeFailed")
         }
