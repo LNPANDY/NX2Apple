@@ -402,7 +402,7 @@ final class MutablePicker: FolderPicker, @unchecked Sendable {
 @MainActor @Suite struct ShellDataFolderModelTests {
     private func model(_ box: Sandbox, picker: MutablePicker) -> ShellHostModel {
         ShellHostModel(config: box.config(), picker: picker,
-                       shellSettings: ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!))
+                       shellSettings: ShellSettingsStore(defaults: TestDefaults.make("t-shell")))
     }
 
     private func giveOrbitAnIdentity(in box: Sandbox) throws {
@@ -430,7 +430,7 @@ final class MutablePicker: FolderPicker, @unchecked Sendable {
         try #require(bookmark.store(picked))
 
         let launcher = RecordingLauncher()
-        let settings = ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!)
+        let settings = ShellSettingsStore(defaults: TestDefaults.make("t-shell"))
         let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: settings)
         await model.playNow(title)
         #expect(launcher.launched.last?.dataURL.resolvingSymlinksInPath() == picked.resolvingSymlinksInPath())
@@ -597,7 +597,6 @@ final class MutablePicker: FolderPicker, @unchecked Sendable {
         let box = try Sandbox()
         let fm = FileManager.default
         let hexTitle = "0100ABCDEF000000"
-        defer { UserDefaults().removePersistentDomain(forName: box.suite + hexTitle) }
         let oldDir = box.games.appendingPathComponent(Fixtures.orbit, isDirectory: true)
         let hexDir = box.games.appendingPathComponent(hexTitle, isDirectory: true)
         try fm.moveItem(at: oldDir, to: hexDir)
@@ -617,7 +616,7 @@ final class MutablePicker: FolderPicker, @unchecked Sendable {
         try images.place(Data("dlc".utf8), at: titleFolder.appendingPathComponent("aoc/0.img"))
 
         let launcher = RecordingLauncher()
-        let settings = ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!)
+        let settings = ShellSettingsStore(defaults: TestDefaults.make("t-shell"))
         let picker = MutablePicker(drive)
         let host = ShellHostModel(config: box.config(), launcher: launcher, picker: picker, shellSettings: settings)
 
@@ -658,7 +657,6 @@ final class MutablePicker: FolderPicker, @unchecked Sendable {
         let box = try Sandbox()
         let fm = FileManager.default
         let chainHex = "0100ABCDEF112233"
-        defer { UserDefaults().removePersistentDomain(forName: box.suite + chainHex) }
 
         // Give Orbit (indexA) and a second playable game (indexB) distinct identities of the same base size (61 B).
         try giveOrbitAnIdentity(in: box)
@@ -694,7 +692,7 @@ final class MutablePicker: FolderPicker, @unchecked Sendable {
         #expect(index.folder(matching: identA)?.resolvingSymlinksInPath().path == shared.resolvingSymlinksInPath().path)
 
         let launcher = RecordingLauncher()
-        let settings = ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!)
+        let settings = ShellSettingsStore(defaults: TestDefaults.make("t-shell"))
         let host = ShellHostModel(config: box.config(), launcher: launcher, picker: MutablePicker(shared), shellSettings: settings)
         await host.pickShellDataNow()
         await host.waitForDataChecks()

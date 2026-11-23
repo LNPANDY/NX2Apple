@@ -111,4 +111,18 @@ import NXModel
         XCTAssertFalse(runner.capture(ProcessLaunch(["/usr/bin/true"])).started)
         XCTAssertThrowsError(try runner.start(ProcessLaunch(["/usr/bin/true"]), onOutput: { _ in }, onExit: { _ in }))
     }
+
+    func testGalleryDefaultsStayOutOfPreferences() throws {
+        let prefs = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Preferences")
+        let before = Set((try? FileManager.default.contentsOfDirectory(atPath: prefs.path)) ?? [])
+        let defaults = GalleryDefaults.make("nx.gallery.probe")
+        defaults.set("kept", forKey: "key")
+        _ = defaults.synchronize()
+        XCTAssertTrue(GalleryDefaults.folder.hasPrefix(NSTemporaryDirectory()))
+        let created = try FileManager.default.contentsOfDirectory(atPath: GalleryDefaults.folder)
+        XCTAssertFalse(created.isEmpty, "gallery defaults plist lives in the temporary folder")
+        let after = Set((try? FileManager.default.contentsOfDirectory(atPath: prefs.path)) ?? [])
+        let leaked = after.subtracting(before).filter { $0.hasPrefix("nx.gallery") }
+        XCTAssertEqual(leaked, [], "gallery defaults must not leak into ~/Library/Preferences")
+    }
 }

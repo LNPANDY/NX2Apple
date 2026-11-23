@@ -73,9 +73,7 @@ import ShellUI
     @Test func twoWayPersistenceCancellationAndReturnNotification() async throws {
         let box = try Sandbox()
         try box.giveAppData()
-        let shellSuite = "t-shell-\(UUID().uuidString)"
-        let shellDefaults = UserDefaults(suiteName: shellSuite)!
-        defer { shellDefaults.removePersistentDomain(forName: shellSuite) }
+        let shellDefaults = TestDefaults.make("t-shell")
         let shell = ShellSettingsStore(defaults: shellDefaults)
         shell.storeShowFPS(true)
 

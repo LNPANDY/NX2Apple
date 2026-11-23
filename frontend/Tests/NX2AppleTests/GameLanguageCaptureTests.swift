@@ -18,11 +18,8 @@ final class GameLanguageCaptureTests: IsolatedDefaultsTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-language-" + UUID().uuidString)
-        let bundleID = "org.nxnative.frontendtests.language." + temporary.lastPathComponent
+        let bundleID = TestPreferences.domain(in: temporary, "language")
         defer {
-            for key in (CFPreferencesCopyKeyList(bundleID as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String]) ?? [] {
-                CFPreferencesSetAppValue(key as CFString, nil, bundleID as CFString)
-            }
             CFPreferencesAppSynchronize(bundleID as CFString)
             try? FileManager.default.removeItem(at: temporary)
         }

@@ -38,9 +38,7 @@ final class TouchControlsCaptureTests: XCTestCase {
 
     /// A store of its own, so the capture never reads or writes the Mac's settings.
     private func store(_ values: [String: String] = [:]) -> ShellSettingsStore {
-        let name = "touch-capture-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
+        let defaults = TestDefaults.make("touch-capture")
         for (key, value) in values { defaults.set(value, forKey: key) }
         return ShellSettingsStore(defaults: defaults)
     }

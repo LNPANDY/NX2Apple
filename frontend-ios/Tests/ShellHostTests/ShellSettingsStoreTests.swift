@@ -4,7 +4,7 @@ import Testing
 import ShellUI
 
 @Suite struct ShellSettingsStoreTests {
-    private func shell() -> ShellSettingsStore { ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!) }
+    private func shell() -> ShellSettingsStore { ShellSettingsStore(defaults: TestDefaults.make("t-shell")) }
 
     @Test func padMapPersistsAndResetsWithoutChangingOtherSettings() {
         let store = shell()
@@ -116,7 +116,7 @@ import ShellUI
         let profile = try LauncherProfile.parse(Data("""
         {"schema":1,"game":"0100000000010000","settings":[{"env":"DM_PROF_PAD_LAYOUT","kind":"choice","section":"Touch","label":"Layout","note":"","default":"2","options":[["0","2D"],["1","3D"],["2","Tap"]]}]}
         """.utf8))
-        let defaults = UserDefaults(suiteName: "t-game-touch-\(UUID().uuidString)")!
+        let defaults = TestDefaults.make("t-game-touch")
         let shell = shell()
         shell.storeTouchMode("3d")
         let game = GameSettingsStore(profile: profile, defaults: defaults, shell: shell.gameDefaults)

@@ -232,9 +232,7 @@ import ShellUI
         try box.giveAppData()
         try installModeAndFPSSettings(in: box)
 
-        let shellSuite = "dev.nx2apple.shell.test.envsync.\(UUID().uuidString)"
-        let shellDefaults = try #require(UserDefaults(suiteName: shellSuite))
-        defer { UserDefaults().removePersistentDomain(forName: shellSuite) }
+        let shellDefaults = TestDefaults.make("shell-test-envsync")
         let shell = ShellSettingsStore(defaults: shellDefaults)
         shell.storeShowFPS(true)
 

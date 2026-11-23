@@ -127,12 +127,11 @@ private struct FixedCheatPicker: CheatFilePicker {
         try Data("{\"sections\":[]}".utf8).write(to: gameDir.appendingPathComponent("launcher.json"))
 
         let appData = root.appendingPathComponent("appData", isDirectory: true)
-        let suite = "cheats-host-test-\(UUID().uuidString)."
         let config = ShellHostConfig(
             gamesRoot: gamesRoot,
             appDataRoot: appData,
             environment: HostEnvironment(chain: "b-3f9a2c"),
-            defaults: { UserDefaults(suiteName: suite + $0) ?? .standard },
+            defaults: TestDefaults.keyed("cheats-host-test"),
             sideloadCertBacking: InMemoryCertBacking()
         )
         let payload = Data("[HP]\n04000000 00180020 000003E7\n[Speed]\n04000000 00000800 1E202800\n".utf8)
@@ -140,7 +139,8 @@ private struct FixedCheatPicker: CheatFilePicker {
         // 1. Mismatched filename prompts buildMismatch, then confirms and archives under current buildID.
         let mismatchModel = ShellHostModel(
             config: config,
-            cheatPicker: FixedCheatPicker(outcome: .picked(data: payload, fileName: "AABBCCDDEEFF0011.txt"))
+            cheatPicker: FixedCheatPicker(outcome: .picked(data: payload, fileName: "AABBCCDDEEFF0011.txt")),
+            shellSettings: ShellSettingsStore(defaults: TestDefaults.make("cheats-shell"))
         )
         let outcome = await mismatchModel.importCheatFileNow(for: titleID)
         guard case .buildMismatch(let fileBID, let expectedBID, let name, let token) = outcome else {

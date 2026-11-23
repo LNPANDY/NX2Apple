@@ -282,6 +282,163 @@ class PushedPaths(unittest.TestCase):
         with mock.patch.object(H, 'sh', side_effect=AssertionError('nothing may run')), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(H.pre_push([f'refs/heads/feature {head} refs/heads/feature {H.ZERO}']), 0)
 
+    def _make_three_layer_stack(self):
+        self.commit('.upstream-ref', 'abc123\n')
+        self.commit('patches/series', '# base\n')
+        git(self.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+
+        git(self.repo, 'checkout', '-q', '-b', 'l1')
+        l1 = self.commit('tools/l1.py', 'x = 1\n')
+
+        git(self.repo, 'checkout', '-q', '-b', 'l2')
+        (self.repo / 'patches/0001-a.patch').write_text('patch 1\n')
+        l2 = self.commit('patches/series', '0001-a.patch\n')
+
+        git(self.repo, 'checkout', '-q', '-b', 'l3')
+        (self.repo / 'patches/0002-b.patch').write_text('patch 2\n')
+        l3 = self.commit('patches/series', '0001-a.patch\n0002-b.patch\n')
+        return l1, l2, l3
+
+    def test_linear_stack_push_at_tip_runs_checks_once(self):
+        l1, l2, l3 = self._make_three_layer_stack()
+        lines = [
+            f'refs/heads/l1 {l1} refs/heads/l1 {H.ZERO}',
+            f'refs/heads/l2 {l2} refs/heads/l2 {H.ZERO}',
+            f'refs/heads/l3 {l3} refs/heads/l3 {H.ZERO}',
+        ]
+        with mock.patch.object(H, 'sh', return_value=0) as run, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(H.pre_push(lines), 0)
+        cmds = [c.args[0] for c in run.call_args_list]
+        self.assertEqual(cmds, [H.SYNC, 'python3 tools/engine.py check', 'python3 -m unittest discover tools/tests'])
+
+    def test_linear_stack_push_from_lower_worktree_is_rejected(self):
+        _, l2, l3 = self._make_three_layer_stack()
+        git(self.repo, 'checkout', '-q', 'l2')
+        lines = [
+            f'refs/heads/l2 {l2} refs/heads/l2 {H.ZERO}',
+            f'refs/heads/l3 {l3} refs/heads/l3 {H.ZERO}',
+        ]
+        err = io.StringIO()
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('no check may run')), contextlib.redirect_stderr(err):
+            self.assertEqual(H.pre_push(lines), 1)
+        self.assertIn('patches/0002-b.patch', err.getvalue())
+
+    def test_diverged_branches_with_patches_are_rejected(self):
+        self.commit('.upstream-ref', 'abc123\n')
+        git(self.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+        git(self.repo, 'checkout', '-q', '-b', 'b1')
+        (self.repo / 'patches').mkdir(exist_ok=True)
+        (self.repo / 'patches/0001-a.patch').write_text('patch a\n')
+        b1 = self.commit('patches/series', '0001-a.patch\n')
+
+        git(self.repo, 'checkout', '-q', '-b', 'b2', 'origin/main')
+        (self.repo / 'patches').mkdir(exist_ok=True)
+        (self.repo / 'patches/0001-b.patch').write_text('patch b\n')
+        b2 = self.commit('patches/series', '0001-b.patch\n')
+
+        lines = [
+            f'refs/heads/b1 {b1} refs/heads/b1 {H.ZERO}',
+            f'refs/heads/b2 {b2} refs/heads/b2 {H.ZERO}',
+        ]
+        err = io.StringIO()
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('no check may run')), contextlib.redirect_stderr(err):
+            self.assertEqual(H.pre_push(lines), 1)
+        self.assertIn('linear ancestor chain', err.getvalue())
+
+    def test_stack_rejects_modified_or_dropped_lower_patch_in_tip(self):
+        _, l2, _ = self._make_three_layer_stack()
+        # Tip modifies 0001-a.patch
+        l3_mod = self.commit('patches/0001-a.patch', 'modified patch 1\n')
+        lines = [
+            f'refs/heads/l2 {l2} refs/heads/l2 {H.ZERO}',
+            f'refs/heads/l3 {l3_mod} refs/heads/l3 {H.ZERO}',
+        ]
+        err = io.StringIO()
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('no check may run')), contextlib.redirect_stderr(err):
+            self.assertEqual(H.pre_push(lines), 1)
+        self.assertIn('patches/0001-a.patch', err.getvalue())
+
+        # Tip drops 0001-a.patch from series
+        git(self.repo, 'rm', '-q', 'patches/0001-a.patch')
+        l3_drop = self.commit('patches/series', '0002-b.patch\n')
+        lines = [
+            f'refs/heads/l2 {l2} refs/heads/l2 {H.ZERO}',
+            f'refs/heads/l3 {l3_drop} refs/heads/l3 {H.ZERO}',
+        ]
+        err = io.StringIO()
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('no check may run')), contextlib.redirect_stderr(err):
+            self.assertEqual(H.pre_push(lines), 1)
+        self.assertIn('patches/series', err.getvalue())
+
+    def test_stack_rejects_changed_upstream_ref_or_stray_lower_patch(self):
+        _, l2, _ = self._make_three_layer_stack()
+        # Stray patch on l2 added to series only on l3
+        git(self.repo, 'checkout', '-q', 'l2')
+        l2_stray = self.commit('patches/0003-stray.patch', 'stray\n')
+        l3_clean = self.commit('patches/series', '0001-a.patch\n0003-stray.patch\n')
+        lines = [
+            f'refs/heads/l2 {l2_stray} refs/heads/l2 {H.ZERO}',
+            f'refs/heads/l3 {l3_clean} refs/heads/l3 {H.ZERO}',
+        ]
+        err = io.StringIO()
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('no check may run')), contextlib.redirect_stderr(err):
+            self.assertEqual(H.pre_push(lines), 1)
+        self.assertIn('patches/0003-stray.patch', err.getvalue())
+
+        # Different .upstream-ref between lower and tip
+        git(self.repo, 'checkout', '-q', 'l2')
+        l3_bump = self.commit('.upstream-ref', 'def456\n')
+        lines = [
+            f'refs/heads/l2 {l2} refs/heads/l2 {H.ZERO}',
+            f'refs/heads/l3 {l3_bump} refs/heads/l3 {H.ZERO}',
+        ]
+        err = io.StringIO()
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('no check may run')), contextlib.redirect_stderr(err):
+            self.assertEqual(H.pre_push(lines), 1)
+        self.assertIn('.upstream-ref', err.getvalue())
+
+    def test_stack_rejects_missing_lower_series_or_symlink_mode(self):
+        self.commit('.upstream-ref', 'abc123\n')
+        self.commit('patches/series', '# base\n')
+        git(self.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+
+        # Lower commit accidentally deletes patches/series while tip restores it
+        git(self.repo, 'checkout', '-q', '-b', 'no-series')
+        git(self.repo, 'rm', '-q', 'patches/series')
+        git(self.repo, 'commit', '-q', '-m', 'drop series')
+        l_missing = git(self.repo, 'rev-parse', 'HEAD')
+        l_restored = self.commit('patches/series', '# restored\n')
+        lines = [
+            f'refs/heads/no-series {l_missing} refs/heads/no-series {H.ZERO}',
+            f'refs/heads/restored {l_restored} refs/heads/restored {H.ZERO}',
+        ]
+        err = io.StringIO()
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('no check may run')), contextlib.redirect_stderr(err):
+            self.assertEqual(H.pre_push(lines), 1)
+        self.assertIn('patches/series', err.getvalue())
+
+        # Lower commit has a symlink (mode 120000) under patches/ with the same blob bytes as tip's regular file
+        git(self.repo, 'checkout', '-q', '-b', 'sym-layer', 'origin/main')
+        (self.repo / 'patches/0001-a.patch').symlink_to('target.txt')
+        (self.repo / 'patches/series').write_text('0001-a.patch\n')
+        git(self.repo, 'add', '-A')
+        git(self.repo, 'commit', '-q', '-m', 'symlink patch')
+        l_sym = git(self.repo, 'rev-parse', 'HEAD')
+
+        (self.repo / 'patches/0001-a.patch').unlink()
+        (self.repo / 'patches/0001-a.patch').write_text('target.txt')
+        git(self.repo, 'add', '-A')
+        git(self.repo, 'commit', '-q', '-m', 'regular patch with identical blob')
+        l_reg = git(self.repo, 'rev-parse', 'HEAD')
+        lines = [
+            f'refs/heads/sym-layer {l_sym} refs/heads/sym-layer {H.ZERO}',
+            f'refs/heads/reg-layer {l_reg} refs/heads/reg-layer {H.ZERO}',
+        ]
+        err = io.StringIO()
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('no check may run')), contextlib.redirect_stderr(err):
+            self.assertEqual(H.pre_push(lines), 1)
+        self.assertIn('patches/0001-a.patch', err.getvalue())
+
 
 class InstallHooks(unittest.TestCase):
     def setUp(self):

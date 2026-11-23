@@ -31,4 +31,24 @@ final class TestDefaultsTests: XCTestCase {
         }
         XCTAssertEqual(offenders, [], "use TestDefaults.make or TestDefaults.suite, a suite with a plain name stays in ~/Library/Preferences")
     }
+
+    func testDesignGalleryMakesNoSuiteAnotherWay() throws {
+        let gallery = tests.deletingLastPathComponent().appendingPathComponent("Sources/NX2Apple/DesignGallery")
+        let files = try XCTUnwrap(FileManager.default.enumerator(at: gallery, includingPropertiesForKeys: nil))
+        let bundlePattern = try NSRegularExpression(pattern: #""CFBundleIdentifier"\s*:\s*"(org\.(nxnative|macnativegames|nxkit|s2arm)\.|[^/])"#)
+        var offenders: [String] = []
+        var plainDomains: [String] = []
+        for case let url as URL in files where url.pathExtension == "swift" && url.lastPathComponent != "GalleryDefaults.swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if text.contains("UserDefaults(suiteName:") { offenders.append(url.lastPathComponent) }
+            if bundlePattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+                plainDomains.append(url.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(offenders, [], "use GalleryDefaults.make so gallery suites stay out of ~/Library/Preferences")
+        XCTAssertEqual(plainDomains, [], "use GalleryDefaults.domain so gallery CFBundleIdentifiers stay out of ~/Library/Preferences")
+        let helper = try String(contentsOf: gallery.appendingPathComponent("GalleryDefaults.swift"), encoding: .utf8)
+        XCTAssertTrue(helper.contains("NSTemporaryDirectory()") && helper.contains("atexit"),
+                      "GalleryDefaults must place suites in a temporary directory cleaned up at exit")
+    }
 }

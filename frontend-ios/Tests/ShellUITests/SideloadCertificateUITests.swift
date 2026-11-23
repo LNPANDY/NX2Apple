@@ -19,7 +19,7 @@ import Testing
     }
 
     @Test func shellSettingsViewBuildsUnconfiguredActiveAndExpiredCertificateStates() {
-        let store = ShellSettingsStore(defaults: UserDefaults(suiteName: "sideload-ui-\(UUID().uuidString)")!)
+        let store = ShellSettingsStore(defaults: TestDefaults.make("sideload-ui"))
         let actions = ShellActions(
             onPickSideloadCertificateFile: { .cancelled },
             onConfirmSideloadCertificatePassword: { _ in nil },

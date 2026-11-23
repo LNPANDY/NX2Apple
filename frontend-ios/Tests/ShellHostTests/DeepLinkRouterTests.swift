@@ -84,14 +84,14 @@ private final class LockedBox<Value>: @unchecked Sendable {
     }
 
     private func makeModel(box: FrameworkBox, hotRoot: URL? = nil, harness: DeepLinkHarness = DeepLinkHarness(),
-                           launcher: DeepLinkRecordingLauncher = DeepLinkRecordingLauncher(),
-                           suitePrefix: String = "deeplink.tests.\(UUID().uuidString).") -> ShellHostModel {
+                           launcher: DeepLinkRecordingLauncher = DeepLinkRecordingLauncher()) -> ShellHostModel {
+        let defaultsProvider = TestDefaults.keyed("deeplink")
         let config = ShellHostConfig(
             gamesRoot: box.frameworks,
             appDataRoot: box.documents.appendingPathComponent("games", isDirectory: true),
             hotFrameworksRoot: hotRoot,
             environment: HostEnvironment(chain: "b-3f9a2c"),
-            defaults: { UserDefaults(suiteName: suitePrefix + $0)! },
+            defaults: defaultsProvider,
             openURL: { harness.openedURLs.append($0) },
             copyToPasteboard: { harness.copiedStrings.append($0) },
             saveImageToPhotos: { data in
@@ -102,7 +102,7 @@ private final class LockedBox<Value>: @unchecked Sendable {
             activeRunningGameID: { harness.activeGameID },
             requestStopRunningGame: { harness.stopRequestCount += 1 }
         )
-        let shell = ShellSettingsStore(defaults: UserDefaults(suiteName: suitePrefix + "shell")!)
+        let shell = ShellSettingsStore(defaults: defaultsProvider("shell"))
         return ShellHostModel(config: config, launcher: launcher, shellSettings: shell)
     }
 
@@ -523,13 +523,11 @@ private final class LockedBox<Value>: @unchecked Sendable {
         let bgCompletionQueue = DispatchQueue(label: "test.photokit.completion")
         let recorded = LockedBox<[Data]>([])
         let ranOffMain = LockedBox<Bool>(false)
-        let suitePrefix = "shortcut.bg.\(UUID().uuidString)."
-
         let harness = DeepLinkHarness()
         let cfg = ShellHostConfig(
             gamesRoot: box.frameworks,
             appDataRoot: box.documents.appendingPathComponent("games", isDirectory: true),
-            defaults: { UserDefaults(suiteName: suitePrefix + $0)! },
+            defaults: TestDefaults.keyed("shortcut-bg"),
             openURL: { harness.openedURLs.append($0) },
             copyToPasteboard: { harness.copiedStrings.append($0) },
             saveImageToPhotos: { pngData in
@@ -596,8 +594,7 @@ private final class LockedBox<Value>: @unchecked Sendable {
             in: box.frameworks, folder: "DmGame\(secondTitleID).framework", titleID: secondTitleID,
             title: "Alpha Fixture", bundleID: "org.nxnative.alpha", box: box
         )
-        let suitePrefix = "shortcut.catalog.\(UUID().uuidString)."
-        let defaultsFn: @Sendable (String) -> UserDefaults = { UserDefaults(suiteName: suitePrefix + $0)! }
+        let defaultsFn = TestDefaults.keyed("shortcut-catalog")
 
         let all = HomeScreenShortcutSupport.availableGames(
             gamesRoot: box.frameworks,

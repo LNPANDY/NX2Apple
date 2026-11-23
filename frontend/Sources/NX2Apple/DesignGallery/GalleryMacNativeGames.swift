@@ -97,7 +97,7 @@ extension GalleryFixtures {
         try? fm.createSymbolicLink(at: app.appendingPathComponent("Contents/MacOS/Game"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
         let info: [String: Any] = ["DMTitleID": game.titleID, "DMUpstream": "macnativegames", "CFBundleDisplayName": game.name,
                                    "CFBundleName": game.name, "CFBundleExecutable": "Game", "CFBundleShortVersionString": "1.0.0",
-                                   "CFBundleIdentifier": "org.macnativegames.gallery." + UUID().uuidString.lowercased()]
+                                   "CFBundleIdentifier": GalleryDefaults.domain("gallery-mng")]
         try? PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
         guard var entry = library.games.first(where: { $0.titleID == game.titleID }) else { return nil }
         entry.appPath = app.path
