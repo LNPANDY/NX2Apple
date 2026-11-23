@@ -91,21 +91,31 @@ final class GameUpdateCatalogTests: XCTestCase {
     }
 
     func testCatalogVersionCountsDefaultsAndReleaseBaseStripping() {
-        XCTAssertEqual(GameUpdateCatalog.updatedVersions.count, 102)
+        XCTAssertEqual(GameUpdateCatalog.updatedVersions.count, 123)
         let grouped = Dictionary(grouping: GameUpdateCatalog.updatedVersions.values, by: { $0 }).mapValues(\.count)
-        XCTAssertEqual(grouped["1.5.0"], 80)
+        XCTAssertEqual(grouped["1.5.1"], 35)
+        XCTAssertEqual(grouped["1.5.0"], 66)
         XCTAssertEqual(grouped["1.4.0"], 16)
         XCTAssertEqual(grouped["1.3.0"], 6)
         XCTAssertNil(grouped["1.2.2"])
 
+        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "0400A3A01EE4C000"), "1.5.1")
+        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "0400C76024710000"), "1.5.1")
+        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "0400486024DEC000"), "1.5.1")
+        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "010099801C4FA000"), "1.5.1")
         XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "01007A2027548000"), "1.5.0")
-        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "0400C76024710000"), "1.5.0")
-        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "01001C8016B4E000"), "1.5.0")
+        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "01001C8016B4E000"), "1.5.1")
         XCTAssertNil(GameUpdateCatalog.catalogVersion(for: tidUnlisted))
 
+        XCTAssertEqual(GameUpdateCatalog.releaseBaseVersion(" v1.5.1-local "), "1.5.1")
+        XCTAssertEqual(GameUpdateCatalog.releaseBaseVersion("1.5.1-rc1"), "1.5.1")
         XCTAssertEqual(GameUpdateCatalog.releaseBaseVersion(" v1.5.0-local "), "1.5.0")
         XCTAssertEqual(GameUpdateCatalog.releaseBaseVersion("1.5.0-rc2"), "1.5.0")
         XCTAssertEqual(GameUpdateCatalog.releaseBaseVersion("1.4.0"), "1.4.0")
+
+        let listed151 = GameUpdateCatalog.hasSpecificUpdate(titleID: "0400A3A01EE4C000", appVersion: "1.5.1-rc1", gitSpecificChanged: nil)
+        XCTAssertTrue(listed151.hasSpecific)
+        XCTAssertEqual(listed151.versionLabel, "1.5.1")
 
         let unlisted = GameUpdateCatalog.hasSpecificUpdate(titleID: tidUnlisted, appVersion: "1.5.0", gitSpecificChanged: nil)
         XCTAssertFalse(unlisted.hasSpecific)
