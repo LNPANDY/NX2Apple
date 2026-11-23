@@ -10,9 +10,10 @@ import Testing
     /// Texts a language writes exactly as English does, by English text, with the languages that do. Names, units and words that are
     /// the same in that language. Anything else equal to English is a text nobody translated. Reviewed with each new entry.
     private static let cognates: [String: Set<String>] = [
-        "30 fps": ["de", "sv", "it", "ja"], "60 fps": ["de", "sv", "it", "ja"],   // a unit
+        "30 fps": ["de", "sv", "it", "ja"], "40 fps": ["de", "sv", "it", "ja"], "60 fps": ["de", "sv", "it", "ja"],   // a unit
         "120 fps": ["de", "sv", "it", "ja"],                              // a unit
         "16:9 (Switch)": ["de", "sv", "fr", "it"],                 // aspect ratio and console name
+        "MacBook (16:10)": ["de", "sv", "fr", "it"],               // aspect ratio and device name
         "MetalFX": ["de", "sv", "fr", "it", "ja"],                          // a name
         "Standard": ["de", "sv", "fr", "it"],                         // launch.opt: the game's standard mode, a word in each
         "Original": ["de", "sv", "fr"],                               // launch.opt: original texture quality, a word in each

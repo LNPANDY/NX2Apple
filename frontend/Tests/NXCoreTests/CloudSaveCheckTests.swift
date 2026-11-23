@@ -40,10 +40,14 @@ final class CloudSaveCheckTests: XCTestCase {
         XCTAssertTrue(CloudSaveCheck.Outcome.bothChanged.asks)
     }
 
-    func testNoSaveInTheCloudStartsTheGame() {
+    func testNoSaveInTheCloudStartsTheGameWhenNeverSynced() {
         XCTAssertEqual(CloudSaveCheck.decide(local: save("L"), base: nil, cloud: .empty), .noCloudSave)
-        XCTAssertEqual(CloudSaveCheck.decide(local: save("L"), base: "A", cloud: .empty), .noCloudSave)
         XCTAssertFalse(CloudSaveCheck.Outcome.noCloudSave.asks)
+    }
+
+    func testMissingCloudSaveAfterPriorSyncAsks() {
+        XCTAssertEqual(CloudSaveCheck.decide(local: save("L"), base: "A", cloud: .empty), .missingCloudSave)
+        XCTAssertTrue(CloudSaveCheck.Outcome.missingCloudSave.asks)
     }
 
     func testTheCloudUnreadableAsks() {
@@ -83,6 +87,8 @@ final class CloudSaveCheckTests: XCTestCase {
         XCTAssertEqual(CloudSaveCheck.report(line(chash: l))?.outcome, .same)
         XCTAssertEqual(CloudSaveCheck.report(line(chash: "-"))?.outcome, .noCloudSave)
         XCTAssertEqual(CloudSaveCheck.report(line(cloud: "0", chash: "-"))?.outcome, .noCloudSave)
+        XCTAssertEqual(CloudSaveCheck.report(line(cloud: "0", chash: "-", conflict: "1"))?.outcome, .missingCloudSave)
+        XCTAssertTrue(try XCTUnwrap(CloudSaveCheck.report(line(cloud: "0", chash: "-", conflict: "1"))).outcome.asks)
         XCTAssertEqual(CloudSaveCheck.report(line(cloud: "0", local: "-", chash: "-"))?.outcome, .same)
         XCTAssertFalse(try XCTUnwrap(CloudSaveCheck.report(line(pull: "1"))).outcome.asks)
     }

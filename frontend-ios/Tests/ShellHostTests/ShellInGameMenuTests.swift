@@ -17,6 +17,7 @@ import ShellUI
         {"env":"DM_SHOW_FPS","kind":"toggle","section":"Graphics","label":"Frame-rate counter","note":"","default":"0","on":"1","off":"0"},
         {"env":"DM_OPMODE","kind":"choice","section":"Game","label":"Console mode","note":"","default":"1","options":[["1","Docked"],["0","Handheld"]]},
         {"env":"DM_PICTURE_FIT","kind":"choice","section":"Graphics","label":"Picture","note":"","default":"fit","options":[["fit","Fit"],["fill","Fill"]]},
+        {"env":"DM_ROTATION","kind":"choice","section":"Game","label":"Rotation","note":"","default":"auto","options":[["auto","Automatic"],["landscape","Landscape"],["portrait","Portrait"]]},
         {"env":"DM_AUDIO_MIX","kind":"toggle","section":"Audio","label":"Mix with other audio","note":"","default":"0","on":"1","off":"0"},
         {"env":"DM_LANG","kind":"choice","section":"Game","label":"Game language","note":"","default":"en-US","options":[["en-US","American English"],["ja","Japanese"]]},
         {"env":"DM_RENDER_SCALE","kind":"range","section":"Performance","label":"Render scale","note":"","default":"1.0","min":0.5,"max":1.5,"step":0.05}
@@ -28,7 +29,7 @@ import ShellUI
         let profile = try LauncherProfile.parse(Data(Self.mixedProfileJSON.utf8))
         let payload = ShellInGameMenu.build(profile: profile, titleID: Fixtures.orbit, shellDefaults: [:])
         #expect(payload.suiteName == GameDefaults.suitePrefix + Fixtures.orbit)
-        #expect(payload.items.map(\.env) == ["DM_OPMODE", "DM_PICTURE_FIT", "DM_SHOW_FPS", "DM_AUDIO_MIX", "DM_METAL_HUD"])
+        #expect(payload.items.map(\.env) == ["DM_OPMODE", "DM_PICTURE_FIT", "DM_ROTATION", "DM_SHOW_FPS", "DM_AUDIO_MIX", "DM_METAL_HUD"])
 
         let excluded: Set<String> = ["DM_TOUCH_HAPTICS", "DM_RUMBLE", "DM_TOUCH_SIZE", "DM_TOUCH_STICK", "DM_LANG", "DM_RENDER_SCALE"]
         #expect(Set(payload.items.map(\.env)).isDisjoint(with: excluded))

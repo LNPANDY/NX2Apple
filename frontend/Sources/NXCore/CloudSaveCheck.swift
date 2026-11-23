@@ -26,12 +26,13 @@ package enum CloudSaveCheck {
         case same                 // both the same (or no save anywhere): the game starts
         case onlyCloudChanged     // the cloud's changed since the last sync, or this Mac has none: the game starts, the engine brings it in
         case onlyLocalChanged     // this Mac's changed since the last sync: the game starts, the engine sends it
-        case noCloudSave          // the cloud has none: the game starts, the engine sends this Mac's
+        case noCloudSave          // the cloud has none and this Mac never synced: the game starts, the engine sends this Mac's
+        case missingCloudSave     // the cloud has none though this Mac synced one before: the player chooses
         case bothChanged          // both changed, or this Mac never synced and both have a save: the player chooses
         case unreadable           // the cloud's file could not be read: the player chooses
 
         /// The player is asked before the start.
-        package var asks: Bool { self == .bothChanged || self == .unreadable }
+        package var asks: Bool { self == .bothChanged || self == .unreadable || self == .missingCloudSave }
     }
 
     /// The comparison of `ss_decide`, with the launcher's rule for asking: only when both changed. When one side is still the one
@@ -39,7 +40,10 @@ package enum CloudSaveCheck {
     package static func decide(local: Save, base: String?, cloud: Save?) -> Outcome {
         guard let cloud else { return .unreadable }
         let l = local.hash ?? "", r = cloud.hash ?? "", b = base ?? ""
-        if r.isEmpty { return l.isEmpty ? .same : .noCloudSave }
+        if r.isEmpty {
+            if l.isEmpty { return .same }
+            return b.isEmpty ? .noCloudSave : .missingCloudSave
+        }
         if l == r { return .same }
         if l.isEmpty { return .onlyCloudChanged }
         if !b.isEmpty && l == b { return .onlyCloudChanged }
@@ -95,7 +99,9 @@ package enum CloudSaveCheck {
         case "1" where f["sametitle"] == "0":
             return Report(outcome: .unreadable, local: local, cloud: nil, reason: "The file in the cloud is another game’s save.")
         case "1": break
-        default: return Report(outcome: local.hash == nil ? .same : .noCloudSave, local: local, cloud: .empty, reason: nil)
+        default:
+            let outcome: Outcome = f["conflict"] == "1" ? .missingCloudSave : (local.hash == nil ? .same : .noCloudSave)
+            return Report(outcome: outcome, local: local, cloud: .empty, reason: nil)
         }
         let outcome: Outcome
         if f["conflict"] == "1" { outcome = .bothChanged }

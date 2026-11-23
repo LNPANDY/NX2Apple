@@ -46,17 +46,13 @@
 0053-build-add-persistent-build-seeds-and-fast-refres.patch
 0054-mac-host-join-the-default-preferences-domain-at.patch
 0055-gfx-adaptive-ios-memory-pressure-convergence-for.patch
-0056-tools-shader-lib-a-failed-write-removes-its-part.patch
 0058-test-native-controller-motion-primes-the-adapter.patch
 0061-build-seed-infer-and-self-heal-gl-and-vulkan-gfx.patch
 0062-mac-launcher-bring-the-last-played-save-along-al.patch
 0063-nvn-decode-cpu-bc-buffer-to-texture-copies-and-r.patch
 0064-older-devices-decode-bc-textures-across-the-cpu.patch
 0067-ios-a-game-framework-s-copies-are-clones-of-the.patch
-0068-game-resplit-nintendo-switch-sports-resort-shade.patch
 0069-build-seed-fix-zero-inode-loop-detection-and-sta.patch
-0070-packing-nsp-derive-shader-map-when-only-main-dup.patch
-0071-packing-shaders-refresh-stardew-valley-animal-cr.patch
 0072-hid-honor-setnpadjoyholdtype-on-single-joy-con-f.patch
 0073-games-0400a3a01ee4c000-add-5-pokopia-pokedex-and.patch
 0074-gfx-nvn-add-dm-nvn-tex-mip-skip-static-texture-m.patch

@@ -44,10 +44,10 @@ index b9f6f68..f3339ab 100644
          c.dev = dev;
          c.queue = [dev newCommandQueue];
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 02e5230..593e03c 100644
+index 329c40f..77e824d 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -955,6 +955,14 @@ static void mtl_init_once(void) {
+@@ -1143,6 +1143,14 @@ static void mtl_init_once(void) {
      g_dev = MTLCreateSystemDefaultDevice();
      if (!g_dev) MDIE("no Metal device");
      if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");
@@ -59,14 +59,14 @@ index 02e5230..593e03c 100644
 +        }
 +    }
 +#endif
+     mem_pressure_start();
      g_bc_gpu = [g_dev supportsBCTextureCompression];
      g_bc_cpu = !g_bc_gpu && dm_prof()->tex_bc_cpu;
-     if (g_bc_cpu) MLOG("BC textures: this GPU has no BC support, decoding them on the CPU (profile tex_bc_cpu)");
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 0daa1dc..0535c47 100644
+index 70cebcb..afb7992 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -87,6 +87,14 @@ t_mtl_init: t_mtl_init.m $(MTL_T_DEP)
+@@ -92,6 +92,14 @@ t_mtl_init: t_mtl_init.m $(MTL_T_DEP)
  check_t_mtl_init: t_mtl_init
  	./t_mtl_init
  	DM_TEST_NO_METAL4=1 ./t_mtl_init

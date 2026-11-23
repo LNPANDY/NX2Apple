@@ -9,7 +9,6 @@ Add the five shaders observed in Pokemon Pokopia first-area and Pokedex 3D previ
 Upstream-Status: forwarded seedds/nxnative#3171
 Reason: Include Pokopia Pokedex and first-area shaders in --seen-shaders builds
 Issue: none
-
 ---
  dm/games/0400A3A01EE4C000/shader_seen.tsv | 5 +++++
  1 file changed, 5 insertions(+)

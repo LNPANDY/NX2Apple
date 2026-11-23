@@ -8,6 +8,7 @@ public enum ShellInGameMenu {
     public static let allowedEnvs: [String] = [
         "DM_OPMODE",
         "DM_PICTURE_FIT",
+        "DM_ROTATION",
         "DM_SHOW_FPS",
         "DM_AUDIO_MIX",
         "DM_METAL_HUD",

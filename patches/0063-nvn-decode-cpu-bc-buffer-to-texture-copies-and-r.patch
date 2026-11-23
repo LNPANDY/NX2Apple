@@ -18,15 +18,15 @@ Upstream-Status: fork-only (fixes the fork-only CPU BC decode, declined seedds/n
 Reason: Decode BC blocks during buffer-to-texture copies into unpacked textures and reject BC readbacks on GPUs without native BC support.
 Issue: LNPANDY/NX2Apple#446
 ---
- dm/gfx/nvn/nvn_mtl.m    | 29 +++++++++++++++--
+ dm/gfx/nvn/nvn_mtl.m    | 32 +++++++++++++++++--
  dm/gfx/tests/t_bc_cpu.m | 69 +++++++++++++++++++++++++++++++++++++++++
- 2 files changed, 96 insertions(+), 2 deletions(-)
+ 2 files changed, 99 insertions(+), 2 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index c34fcaf..2171e17 100644
+index d0f020c..b4b5814 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -16861,6 +16861,10 @@ static void copy_t2b(const p_copy_b2t *c, uint32_t size) {
+@@ -17741,6 +17741,10 @@ static void copy_t2b(const p_copy_b2t *c, uint32_t size) {
      int is3d = c->tex->d.target == 2, nz = c->r.depth ? c->r.depth : 1;
      void *mb; uint64_t mo;
      if (!mtl_addr(c->src, img * nz, &mb, &mo)) { RED_ONCE(31, "texture→buffer copy destination is in no memory pool"); return; }
@@ -37,7 +37,7 @@ index c34fcaf..2171e17 100644
      sbw_note(c->src, img * nz, SBW_GPU);
      id<MTL4ComputeCommandEncoder> b = blit();
      if (is3d)
-@@ -16934,7 +16938,10 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
+@@ -17814,7 +17818,10 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
      int in_storage = 0; AP_B;
      id<MTLTexture> mt = tex_mtl_(t, &in_storage); AP_E(4);
      if (in_storage) { read_texels_storage(t, level, layer0, r, dst, row, img); return; }
@@ -49,23 +49,26 @@ index c34fcaf..2171e17 100644
      mtl_finish_gpu_at(WS_READTEX);
      id<MTLBuffer> buf = [g_dev newBufferWithLength:wb * hb * nz options:MTLResourceStorageModeShared];
      id<MTLCommandBuffer> cb = q_cb(); id<MTLBlitCommandEncoder> b = enc_b_begin(cb);
-@@ -16996,7 +17003,25 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
+@@ -17887,7 +17894,28 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
      // Into Metal's order (rb_copy_shift): converted on the GPU into a staging area of the frame arena, which the blit copies from
-     id<MTLBuffer> sb = (__bridge id<MTLBuffer>)mb; int shift = rb_copy_shift(c->tex, t);
+     int shift = rb_copy_shift(c->tex, t);
      uint64_t gsrc = sb.gpuAddress + mo; size_t grow = row, gimg = img;   // the guest's bytes, the storage's order (gsb_store_buf)
 -    if (shift) {
 +    uint32_t bc_pf = 0; int bc_bpp = 0;
 +    int bc_cpu = g_bc_cpu && nvn_bc_unpacked(c->tex->d.format, &bc_pf, &bc_bpp);
 +    if (bc_cpu) {
-+        if (g_cb && (pend_hits(c->src, img * nz) || sbw_hits(c->src, c->src + img * nz) || g_sbw_over)) {
-+            uint64_t fence = mtl_sub_commit();
-+            mtl_wait(fence, UINT64_MAX);
-+            mtl_sub_begin();
-+            mtl_addr(c->src, img * nz, &mb, &mo);
-+            sb = (__bridge id<MTLBuffer>)mb;
-+            gsrc = sb.gpuAddress + mo;
-+        } else if (gw_live(c->src, c->src + img * nz)) {
-+            mtl_finish_gpu_at(WS_FINISH);
++        if (!(c->flags & DM_COPY_SNAPSHOT)) {
++            if (g_cb && (pend_hits(c->src, img * nz) || sbw_hits(c->src, c->src + img * nz) || g_sbw_over)) {
++                uint64_t fence = mtl_sub_commit();
++                mtl_wait(fence, UINT64_MAX);
++                mtl_sub_begin();
++                void *mb;
++                if (!mtl_addr(c->src, img * nz, &mb, &mo)) { RED_ONCE(23, "buffer→texture copy source is in no memory pool"); return; }
++                sb = (__bridge id<MTLBuffer>)mb;
++                gsrc = sb.gpuAddress + mo;
++            } else if (gw_live(c->src, c->src + img * nz)) {
++                mtl_finish_gpu_at(WS_FINISH);
++            }
 +        }
 +        size_t urow = (size_t)c->r.width * (size_t)bc_bpp, uimg = urow * (size_t)c->r.height;
 +        id<MTLBuffer> ab; size_t ao = arena_alloc(uimg * (size_t)nz, &ab);

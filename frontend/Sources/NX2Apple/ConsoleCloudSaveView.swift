@@ -15,7 +15,9 @@ struct ConsoleCloudSaveView: View {
 
     static let scope = "console.cloudSave"
     /// The button the controller starts on: the cloud's save, or Try again.
-    static func firstFocus(_ question: CloudSaveQuestion) -> String { question.outcome == .unreadable ? "console.cloudSave.retry" : "console.cloudSave.cloud" }
+    static func firstFocus(_ question: CloudSaveQuestion) -> String {
+        (question.outcome == .unreadable || question.outcome == .missingCloudSave) ? "console.cloudSave.retry" : "console.cloudSave.cloud"
+    }
 
     private func t(_ key: String) -> String { L10n.string(key, lang) }
 
@@ -27,6 +29,11 @@ struct ConsoleCloudSaveView: View {
                 if let reason = question.reason { Text(reason).font(.manrope(compact ? 14 : 17)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                 button("arrow.clockwise", t("cloudCheck.retry"), t("cloudCheck.retry.detail"), id: "console.cloudSave.retry", primary: true, action: retry)
                 button("desktopcomputer", t("cloudCheck.playLocal"), t("cloudCheck.playLocal.detail"), id: "console.cloudSave.offline") { choose(.offline) }
+            } else if question.outcome == .missingCloudSave {
+                note(String(format: t("cloudCheck.missing.note"), question.gameName))
+                button("arrow.clockwise", t("cloudCheck.retry"), t("cloudCheck.retry.detail"), id: "console.cloudSave.retry", primary: true, action: retry)
+                button("desktopcomputer", t("cloudCheck.playLocal"), t("cloudCheck.playLocal.detail"), id: "console.cloudSave.offline") { choose(.offline) }
+                button("icloud.and.arrow.up", t("cloudCheck.sendLocal"), t("cloudCheck.sendLocal.detail"), id: "console.cloudSave.send") { choose(.local) }
             } else {
                 note(t("cloudCheck.differ.note"))
                 button("icloud", t("cloudCheck.useCloud"), CloudSaveText.cloudDetail(question, t, lang: lang.code), id: "console.cloudSave.cloud", primary: true) { choose(.cloud) }

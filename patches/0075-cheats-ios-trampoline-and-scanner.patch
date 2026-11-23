@@ -26,18 +26,18 @@ Issue: none
  create mode 100644 dm/tools/tests/test_cheat_bake.py
 
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index e6ec611..b19d504 100644
+index 6becc99..99aa018 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
-@@ -77,6 +77,7 @@ typedef struct {
+@@ -78,6 +78,7 @@ typedef struct {
      uint64_t unity_qs_ptr;     // Unity's QualitySettings (main's offset of the global pointer); the current level's vSyncCount, an int32, is at
      uint32_t unity_qs_idx, unity_qs_arr, unity_qs_size, unity_qs_vsync;   // [obj + arr] + (int32)[obj + idx] * size + vsync; 0 = none
      uint64_t fps_state_off;    // frame step state page (patch_nso.py FRAME_STEP: Tears of the Kingdom 1.4.3 and Breath of the Wild 1.9.0 main); 0 = none
 +    uint64_t cheat_state_off;  // 16 KB writable cheat state page (patch_nso.py / cheat_bake.py: 4 KB slot bytes + 12 KB Code Cave mirror); 0 = none
      uint32_t step_max;         // the largest step the frame step stubs give the game (the fixups table's STEP_MAX, patch_nso.py ctx.step_max); 0 = FSTEP_MAX
      uint32_t render_scale_max; // a render-scale stub's largest scale (the fixups table's RENDER_SCALE, patch_nso.py): DM_RENDER_SCALE is held to it; 0 = no such stub
-     int movie_native_color_keys; // the movie SDK's MediaData uses the native buffer's colour index directly (MOVIE_NATIVE_COLOR_KEYS)
-@@ -238,6 +239,33 @@ const char *dm_cheats_skipped_name(int i);
+     int fstep_t120;            // the frame step stub takes its step in ticks of 1/120 s (the FRAME_STEP_120 capability: state +0x38 120, and 40 fps)
+@@ -241,6 +242,33 @@ const char *dm_cheats_skipped_name(int i);
  const char *dm_cheats_skipped_why(int i);
  int dm_cheats_nsources(void);         // anchored sources (*.cheats.toml) in the cheats folder
  const char *dm_cheats_source(int i);
@@ -69,13 +69,13 @@ index e6ec611..b19d504 100644
 +int dm_cheat_scan_append_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw);
 +void dm_cheat_scan_reset(void);
  void dm_cheats_exit(void);            // a clean exit (hle_lifecycle.c, atexit): removes the safe-mode flag
- // Graphics lifecycle (hle_nvn.c): on=1 suspends (afterwards submit / present block, and in-flight GPU work is drained before returning), on=0 resumes; called by the iOS front end when entering and leaving the background
+ // Graphics lifecycle (hle_nvn.c): on=1 closes submission and waits up to three seconds for the drain, on=0 requests reopening once the drain completes.
  void dm_gfx_suspend(int on);
 diff --git a/dm/host/front.h b/dm/host/front.h
-index 7f3b230..0a65314 100644
+index 8365fc7..2bf2e3c 100644
 --- a/dm/host/front.h
 +++ b/dm/host/front.h
-@@ -100,3 +100,29 @@ void dm_web_failed(const char *why);
+@@ -104,3 +104,29 @@ void dm_web_failed(const char *why);
  // again, when the player allowed notifications (else it asks on screen to open the app again); it returns when the notification is scheduled. With no DM_EXEC_OUT (an app of one program, which asks to start itself again) it asks the player on
  // screen to open the app again. The default (hle_oe.c, weak) returns at once
  void front_program_handoff(int index, const char *name);
@@ -1129,10 +1129,10 @@ index 26199b3..9a00d4e 100644
 +    pthread_mutex_unlock(&g_scan_lock);
 +}
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 5c70da5..b122571 100644
+index c29d0b6..a7608da 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
-@@ -316,6 +316,7 @@ static void read_layout(module_t *m, const char *dir) {
+@@ -330,6 +330,7 @@ static void read_layout(module_t *m, const char *dir) {
          else if (!strcmp(key, "RO_OFF")) m->ro_off = v;
          else if (!strcmp(key, "DATA_OFF")) m->data_off = v;
          else if (!strcmp(key, "FPS_STATE_OFF")) m->fps_state_off = v;
@@ -1140,7 +1140,7 @@ index 5c70da5..b122571 100644
          else if (!strcmp(key, "RENDER_SCALE")) m->render_scale_max = (uint32_t)v;
          else if (!strcmp(key, "MOVIE_NATIVE_COLOR_KEYS")) m->movie_native_color_keys = v == 1;
          else if (!strcmp(key, "STEP_MAX")) m->step_max = (uint32_t)v;
-@@ -433,6 +434,13 @@ static void install_key_page(module_t *m) {
+@@ -457,6 +458,13 @@ static void install_key_page(module_t *m) {
      for (int k = 0; k < KEY_N; k++) if (!page[m->key_idx[k]]) die("%s: key page entry %d is 0 (host key not created) -- the game would read TSD slot 0", m->name, k);
      if (mprotect(m->base + m->key_page_off, m->key_page_size, PROT_READ)) die("%s key page mprotect", m->name);
      if (m->fps_state_off) install_fps_state(m);
@@ -2949,19 +2949,19 @@ index 0000000..cd8ac3a
 +        emit_fn(bx_fn(here_fn(), orig_pc + 4))
 +    return start
 diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
-index 54a8009..a6dfab0 100644
+index a7ab05c..d34d38a 100644
 --- a/dm/tools/patch_nso.py
 +++ b/dm/tools/patch_nso.py
 @@ -23,7 +23,7 @@ if capstone.cs_version()[0] != 5:   # the rewriter uses Capstone 5's names (CS_A
      sys.exit(f'[RED] Capstone {capstone.__version__} is unsupported; the rewriter requires Capstone 5.x. Run: {shlex.join([sys.executable, "-m", "pip", "install", "capstone>=5,<6"])}')
  from capstone import *
  from capstone.arm64 import ARM64_OP_IMM, ARM64_OP_MEM, ARM64_OP_REG
--import nso, nso_asm, nso_syms
-+import nso, nso_asm, nso_syms, cheat_bake
+-import mod_layout, nso, nso_asm, nso_syms
++import mod_layout, nso, nso_asm, nso_syms, cheat_bake
  from nso_asm import *   # the instruction encoders (B, ADRP, LDRX, ...), shared with the per-build patch files
  
  # The NSP script terminates a failed or cancelled rewrite with SIGTERM. Exit through the pool's context manager so it reaps the workers too.
-@@ -33,10 +33,24 @@ except ValueError: sys.exit('[RED] DM_REWRITE_J must be a positive integer')
+@@ -33,6 +33,15 @@ except ValueError: sys.exit('[RED] DM_REWRITE_J must be a positive integer')
  if WORKERS < 1: sys.exit('[RED] DM_REWRITE_J must be a positive integer')
  
  src, outdir, NAME = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -2977,6 +2977,9 @@ index 54a8009..a6dfab0 100644
  # An NSO, or an NRO (a module the game loads at run time with nn::ro, Super Smash Bros. Ultimate's fighter code), rewritten as an NSO of the same layout would be. nso.py checks the file
  # against its header before anything is allocated (a damaged module stops here with a [RED] line)
  MOD = nso.cli_read(src)
+@@ -42,6 +51,11 @@ try: MOD, _relayout_D, _relayout_notes = mod_layout.relayout_module(MOD)
+ except mod_layout.Error as e: sys.exit(f'[RED] {NAME}: {e}')
+ if _relayout_D: print(f'{NAME}: ' + '; '.join(_relayout_notes))
  bss = MOD.bss
 +CHEAT_PATH = cheat_bake.resolve_cheat_file(MOD.build_id[:0x10].hex(), CHEAT_FILE_ARG, CHEAT_DIR_ARG) if NAME == 'main' and (CHEAT_FILE_ARG or CHEAT_DIR_ARG) else None
 +CHEAT_PRE_PLAN = None
@@ -2986,7 +2989,7 @@ index 54a8009..a6dfab0 100644
  # Every jump between the patch area and the code is a B (±128 MB). A patch area appended after the image (with bss) cannot reach the code when it would start beyond 112 MB (leaving 16 MB for the patch area): Metroid Dread's main has about 1.8 GB of bss (the engine's static heap); Engage's main starts its patch area at about 103 MB and keeps it after the image.
  # The patch area then sits FRONT bytes before the module base (PATCH_OFF is negative), and the output file holds only text + ro + data (FILE_IMAGE_LEN) followed by the patch area; the loader supplies zero pages for bss and the key page (IMAGE_SIZE is the whole image).
  # The key page stays after bss (the patch area reaches it through ADRP, ±4 GB). Modules below the limit produce output byte-identical to before
-@@ -56,8 +70,9 @@ TWO = BIG_TEXT and MOD.text_end > 0x8000000 - 0x10000
+@@ -61,8 +75,9 @@ TWO = BIG_TEXT and MOD.text_end > 0x8000000 - 0x10000
  # When BACK_MIN is beyond the front area's reach too (GAP: Resident Evil 4 v131072), branches that cannot reach their area go through a hop in function alignment padding.
  # The gap's sites are split between the two areas according to how many hop locations each area can reach. Putting them all at the back exhausts its padding on Minecraft 1.26.62.
  BACK_MIN, GAP = 0, False   # TWO: BACK_OFF (set below) less the reach, plus the margin
@@ -2997,7 +3000,7 @@ index 54a8009..a6dfab0 100644
      GAP = BACK_MIN >= 0x8000000 - 0x200000
      FRONT = int(os.environ.get('DM_PATCH_FRONT', '0'), 0) or (0x1000000 if GAP else min(0x1000000, (0x8000000 - 0x100000 - BACK_MIN) & ~0xFFFF))
  elif BIG_TEXT: FRONT = int(os.environ.get('DM_PATCH_FRONT', '0'), 0) or (0x8000000 - 0x10000 - MOD.text_end) & ~0xFFFF
-@@ -71,7 +86,7 @@ if FAR:
+@@ -75,7 +90,7 @@ if FAR:
      FILE_IMAGE_LEN = (len(IMG) + 0x3FFF) & ~0x3FFF
      KEY_PAGE_OFF = (len(IMG) + bss + 0x3FFF) & ~0x3FFF
      IMAGE_SIZE, PATCH_OFF = KEY_PAGE_OFF + 0x4000, -FRONT
@@ -3006,7 +3009,7 @@ index 54a8009..a6dfab0 100644
      assert not TWO or BACK_OFF - 0x8000000 + 0x100000 == BACK_MIN, 'BACK_MIN and BACK_OFF disagree'
  else:
      KEY_PAGE_OFF = (len(IMG) + 0x3FFF) & ~0x3FFF
-@@ -189,6 +204,20 @@ for off, ob, nb, why in cuts:
+@@ -193,6 +208,20 @@ for off, ob, nb, why in cuts:
  # Key page indices are fixed; the key page content is written by the loader as "actual key number × 8".
  KEYS = {'K18': 508, 'KTLS': 509, 'KTLR': 510, 'KGATE': 511}
  KEY_INDEX = {k: i for i, k in enumerate(('K18', 'KTLS', 'KTLR', 'KGATE'))}
@@ -3027,7 +3030,7 @@ index 54a8009..a6dfab0 100644
  
  # ---- Unreal console variables in main (dm/tools/ue_cvar.py finds them by their registered names, without a build ID) ----
  # The fixups table names each one's TAutoConsoleVariable (UE_CVAR:<name>); the host writes those the profile decides on (hle_fpslock.c, hle_uecvar.c)
-@@ -1481,7 +1510,7 @@ if (BUILD_ID in FRAME_STEP or FS_MATCH) and NAME == 'main':
+@@ -1486,7 +1515,7 @@ if (BUILD_ID in FRAME_STEP or FS_MATCH) and NAME == 'main':
      if FAR:
          # The loader supplies zero-filled BSS/key pages for a front patch area.
          # Reserve the frame state after the key page there too; stubs reach it by ADRP.
@@ -3036,7 +3039,7 @@ index 54a8009..a6dfab0 100644
      assert FS_STATE_OFF % 0x1000 == 0 and (FAR or FS_STATE_OFF + 0x40 <= PATCH_OFF) and not any(IMG[FS_STATE_OFF:]), 'frame step state page'
  # What frame step and stub code (STUBS below) may write: a site whose original bytes match and that holds no rewrite site, the cuts list (<name>.cuts.tsv) that names it, and
  # data addresses read from the original text
-@@ -1850,6 +1879,52 @@ for g in spin_regions: spin_emit(g)
+@@ -1855,6 +1884,52 @@ for g in spin_regions: spin_emit(g)
  if os.environ.get('DM_SPIN_LIST'):
      for T, bes, n in spin_sites: print(f'{NAME} spin wait {T:#x} ({n} instructions), back-edges ' + ' '.join(f'{b:#x}' for b in bes))
  
@@ -3089,7 +3092,7 @@ index 54a8009..a6dfab0 100644
  os.makedirs(outdir, exist_ok=True)
  P = lambda ext: os.path.join(outdir, f'{NAME}.{ext}')
  patch = patch_front
-@@ -1861,7 +1936,7 @@ if FAR:   # patch area before the base: file = text + ro + data (padded to 16K)
+@@ -1866,7 +1941,7 @@ if FAR:   # patch area before the base: file = text + ro + data (padded to 16K)
          os.execve(sys.executable, [sys.executable] + sys.argv, dict(os.environ, DM_PATCH_FRONT=hex(need)))
      assert len(patch) <= FRONT - 0x4000, f'patch area of {len(patch):#x} bytes does not fit in the {FRONT:#x} before the base'
      if TWO:
@@ -3098,12 +3101,12 @@ index 54a8009..a6dfab0 100644
          IMAGE_SIZE = BACK_OFF + BACK_LEN
          patch = patch + bytearray(-len(patch) & 0x3FFF) + patch_back + bytearray(BACK_LEN - len(patch_back))
      open(P('patched.bin'), 'wb').write(IMG + bytearray(FILE_IMAGE_LEN - len(IMG)) + patch)
-@@ -1893,13 +1968,15 @@ def movie_native_color_keys():
+@@ -1898,13 +1973,15 @@ def movie_native_color_keys():
      return RO_OFF <= target < DATA_OFF and IMG[target:target + len(key)] == key
  
  with open(os.path.join(outdir, 'build_src.sha256'), 'w') as f:   # the same for every module: the rewriter and every patch file, by path from dm/tools
 -    for src_ in (os.path.abspath(__file__), nso.__file__, nso_code.__file__, nso_asm.__file__, nso_syms.__file__, ue_cvar.__file__, ue_malloc.__file__, fps_target.__file__, monolith_fps.__file__, ue_fixed_rate.__file__, unity_fps.__file__, unity_bucket.__file__, ue_region.__file__, ue_ring.__file__, snowdrop_pools.__file__, os.path.join(os.path.dirname(ue_malloc.__file__), 'loader_census.py'), *PATCH_FILES): f.write(hashlib.sha256(open(src_, 'rb').read()).hexdigest() + f'  {os.path.relpath(os.path.abspath(src_), os.path.dirname(os.path.abspath(__file__)))}\n')
-+    for src_ in (os.path.abspath(__file__), nso.__file__, nso_code.__file__, nso_asm.__file__, nso_syms.__file__, cheat_bake.__file__, ue_cvar.__file__, ue_malloc.__file__, fps_target.__file__, monolith_fps.__file__, ue_fixed_rate.__file__, unity_fps.__file__, unity_bucket.__file__, ue_region.__file__, ue_ring.__file__, snowdrop_pools.__file__, os.path.join(os.path.dirname(ue_malloc.__file__), 'loader_census.py'), *PATCH_FILES): f.write(hashlib.sha256(open(src_, 'rb').read()).hexdigest() + f'  {os.path.relpath(os.path.abspath(src_), os.path.dirname(os.path.abspath(__file__)))}\n')
++    for src_ in (os.path.abspath(__file__), mod_layout.__file__, nso.__file__, nso_code.__file__, nso_asm.__file__, nso_syms.__file__, cheat_bake.__file__, ue_cvar.__file__, ue_malloc.__file__, fps_target.__file__, monolith_fps.__file__, ue_fixed_rate.__file__, unity_fps.__file__, unity_bucket.__file__, ue_region.__file__, ue_ring.__file__, snowdrop_pools.__file__, os.path.join(os.path.dirname(ue_malloc.__file__), 'loader_census.py'), *PATCH_FILES): f.write(hashlib.sha256(open(src_, 'rb').read()).hexdigest() + f'  {os.path.relpath(os.path.abspath(src_), os.path.dirname(os.path.abspath(__file__)))}\n')
  with open(P('fixups.tsv'), 'w') as f:
      f.write(f'# PATCH_OFF\t{PATCH_OFF:#x}\n# KEY_PAGE_OFF\t{KEY_PAGE_OFF:#x}\n# KEY_PAGE_SIZE\t0x4000\n# TEXT_END\t{TEXT_END:#x}\n# RO_OFF\t{RO_OFF:#x}\n# DATA_OFF\t{DATA_OFF:#x}\n')
 +    if NAME == 'main': f.write(f'# MAIN_RX_END\t{(TEXT_END + 0x3FFF) & ~0x3FFF:#x}\n')   # 16 KB page-rounded read+execute boundary for offline iOS cheat classification
@@ -3729,10 +3732,10 @@ index 121294c..5fa02d4 100644
  
  if __name__ == '__main__': unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 7224b8d..b7bddc7 100755
+index 18261ff..57af675 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1862,12 +1862,13 @@ def provisional_modules(g, exe_dir, nros):
+@@ -1956,12 +1956,13 @@ def provisional_modules(g, exe_dir, nros):
      return set_keys(g, {'modules': (' '.join(mods), f'the NROs the game loads at run time import from {why}, which main does not')} if add else {}, 'After the NRO collection', edit=row)
  
  
@@ -3747,7 +3750,7 @@ index 7224b8d..b7bddc7 100755
      try: workers = int(env['DM_REWRITE_J']) if env.get('DM_REWRITE_J') else None
      except ValueError: raise BuildError('DM_REWRITE_J must be a positive integer') from None
      if workers is not None and workers < 1: raise BuildError('DM_REWRITE_J must be a positive integer')
-@@ -1880,14 +1881,18 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+@@ -1974,14 +1975,18 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
      src = {m: exe_dir / m for m in mods} | nros
      names = list(src)
      kf = out.with_name(out.name + '.key')
@@ -3757,10 +3760,10 @@ index 7224b8d..b7bddc7 100755
      # the repository profile's build rows decide which builds the rewriter treats as the game's own (SDK-wide function patches skip those), and its snowdrop_pools the sizes of those cuts, so they are inputs too
      try: own = [l for l in (repo / 'dm/games' / Path(env.get('DM_GAME') or '-').name / 'game.tsv').read_text(encoding='utf-8').splitlines() if l.startswith(('build\t', 'snowdrop_pools\t'))]
      except OSError: own = []
--    key = fingerprint(('files', [repo / 'dm/tools' / f for f in ('patch_nso.py', 'jump_solver.py', 'nso.py', 'nso_code.py', 'nso_asm.py', 'nso_syms.py', 'nso_match.py', 'ue_cvar.py', 'ue_malloc.py', 'ue_region.py', 'ue_ring.py', 'snowdrop_pools.py', 'loader_census.py', 'fps_target.py', 'monolith_fps.py', 'ue_fixed_rate.py', 'unity_fps.py', 'unity_bucket.py')] + patch_files(repo, exe_dir, mods, env.get('DM_GAME')) + list(src.values()) + ([manifest] if manifest.is_file() else [])), names, capstone.__version__,
+-    key = fingerprint(('files', [repo / 'dm/tools' / f for f in ('patch_nso.py', 'jump_solver.py', 'nso.py', 'mod_layout.py', 'nso_code.py', 'nso_asm.py', 'nso_syms.py', 'nso_match.py', 'ue_cvar.py', 'ue_malloc.py', 'ue_region.py', 'ue_ring.py', 'snowdrop_pools.py', 'loader_census.py', 'fps_target.py', 'monolith_fps.py', 'ue_fixed_rate.py', 'unity_fps.py', 'unity_bucket.py')] + patch_files(repo, exe_dir, mods, env.get('DM_GAME')) + list(src.values()) + ([manifest] if manifest.is_file() else [])), names, capstone.__version__,
 -                      {k: env.get(k) for k in ('DM_PATCH_FRONT', 'DM_GAME')}, own)
 -    if all((out / f'{m}.patched.bin').is_file() for m in names) and reused(kf, key) is not None:
-+    key = fingerprint(('files', [repo / 'dm/tools' / f for f in ('patch_nso.py', 'cheat_bake.py', 'jump_solver.py', 'nso.py', 'nso_code.py', 'nso_asm.py', 'nso_syms.py', 'nso_match.py', 'ue_cvar.py', 'ue_malloc.py', 'ue_region.py', 'ue_ring.py', 'snowdrop_pools.py', 'loader_census.py', 'fps_target.py', 'monolith_fps.py', 'ue_fixed_rate.py', 'unity_fps.py', 'unity_bucket.py')] + patch_files(repo, exe_dir, mods, env.get('DM_GAME')) + list(src.values()) + ([manifest] if manifest.is_file() else []) + ([resolved_cheat] if resolved_cheat is not None else [])), names, capstone.__version__,
++    key = fingerprint(('files', [repo / 'dm/tools' / f for f in ('patch_nso.py', 'cheat_bake.py', 'jump_solver.py', 'nso.py', 'mod_layout.py', 'nso_code.py', 'nso_asm.py', 'nso_syms.py', 'nso_match.py', 'ue_cvar.py', 'ue_malloc.py', 'ue_region.py', 'ue_ring.py', 'snowdrop_pools.py', 'loader_census.py', 'fps_target.py', 'monolith_fps.py', 'ue_fixed_rate.py', 'unity_fps.py', 'unity_bucket.py')] + patch_files(repo, exe_dir, mods, env.get('DM_GAME')) + list(src.values()) + ([manifest] if manifest.is_file() else []) + ([resolved_cheat] if resolved_cheat is not None else [])), names, capstone.__version__,
 +                      {k: env.get(k) for k in ('DM_PATCH_FRONT', 'DM_GAME')}, own, bool(resolved_cheat))
 +    _cheat_kw = {'cheat_file': cheat_file, 'cheat_dir': cheat_dir, 'title_id': title_id} if (cheat_file or cheat_dir) else {}
 +    if all((out / f'{m}.patched.bin').is_file() for m in names) and (resolved_cheat is None or (out / 'cheat_trampolines.tsv').is_file()) and reused(kf, key) is not None:
@@ -3770,7 +3773,7 @@ index 7224b8d..b7bddc7 100755
      tmp = out.with_name(out.name + '.partial'); rmtree(tmp); tmp.mkdir(parents=True); logs.mkdir(parents=True, exist_ok=True)
      if manifest.is_file(): shutil.copyfile(manifest, tmp / 'nro.tsv')   # refused-only manifests preserve the game's offline registration path too
      PROG.set(step=', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''), done=0, total=len(names), unit='modules')
-@@ -1898,7 +1903,10 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+@@ -1992,7 +1997,10 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
          while todo or procs:
              while todo and len(procs) < cores:
                  m = todo.pop(0); logf[m] = open(logs / f'rewrite_{m}.log', 'w')
@@ -3782,7 +3785,7 @@ index 7224b8d..b7bddc7 100755
              for m in [m for m in procs if procs[m].poll() is not None]:
                  p = procs.pop(m); logf[m].close(); PROG.set(done=len(names) - len(todo) - len(procs))
                  if p.returncode:
-@@ -1913,13 +1921,13 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+@@ -2007,13 +2015,13 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
          for f in logf.values(): f.close()
      rmtree(kf); swap_in(tmp, out); kf.write_text(f'{key}\n')
      PROG.end(', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''))
@@ -3798,7 +3801,7 @@ index 7224b8d..b7bddc7 100755
      """An NRO its NRR registers and no file holds (nro_collect.py's missing.tsv): the game decodes it at run time, so boot the rewritten modules with DM_NRO_CAPTURE (dm/host/hle_ro.c), which writes the image
      of the first LoadModule the host has no rewritten copy of, by its SHA-256, and ends the run. That image joins the collected NROs, kept for the next build as they are, and the rewrite runs again with it.
      Mario Tennis Fever: main is a boot stub, and the game's code is one NRO in main's data segment. Returns the profile"""
-@@ -1951,7 +1959,8 @@ def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional):
+@@ -2045,7 +2053,8 @@ def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional):
      missing.write_text(''.join(f'{h}\t{n}\n' for h, n in want.items()))
      rmtree(cap); rmtree(rd)
      PROG.end(f'{name}, {(nro_dir / f"{name}.nro").stat().st_size / 2**20:.1f} MB')
@@ -3808,7 +3811,7 @@ index 7224b8d..b7bddc7 100755
  
  
  def captured_nros(patched):   # the folder of the NROs of a build that captured some (capture_nro): the shader split reads them, as it reads main, and the file table of Camelot's archive is in one
-@@ -3688,6 +3697,8 @@ def parse_args(argv):
+@@ -3749,6 +3758,8 @@ def parse_args(argv):
      ap.add_argument('--from-seed', nargs='?', const='auto', default=None, metavar='SEED_DIR',
                      help='fast refresh from a persistent build seed without NSPs or prod.keys (uses --title-id in --seed-cache-dir, or pass a seed folder directly)')
      ap.add_argument('--seed-cache-dir', help='folder holding persistent build seeds (default: app support build-seeds)')
@@ -3817,7 +3820,7 @@ index 7224b8d..b7bddc7 100755
      ap.add_argument('--prefill-msl', action='append', default=[], metavar='PATH',
                      help='existing .app, .img with a DMMSLTR1 shader trailer, msl folder, or b-<chain>[.img] used for DMSH_PREFILL on shader chain changes (may be given more than once)')
      ap.add_argument('--keep-extracted', action=argparse.BooleanOptionalAction, help='keep the extracted game files after the IPA is built, for the next build (default: the KEEP_EXTRACTED setting, on)')
-@@ -4589,7 +4600,8 @@ def main(args=None):
+@@ -4698,7 +4709,8 @@ def main(args=None):
          + (f'; the game\'s languages: {" ".join(have_langs)}' if have_langs else '; the control data lists no languages (not checked)') + (' (DM_LANG=<code> in the run command changes it)' if mac else ' (DM_LANG=<code> in the app\'s Documents/env.txt changes it)'))
  
      patched = work / f'patched_{pkg_ver}'

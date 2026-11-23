@@ -15,7 +15,7 @@ Issue: LNPANDY/NX2Apple
  dm/gfx/gl/hle_gl.m                   |  95 +++--
  dm/gfx/msl_mount.h                   |  28 ++
  dm/gfx/nvn/msl_mount.c               | 260 ++++++++++++
- dm/gfx/nvn/nvn_mtl.m                 |  46 ++-
+ dm/gfx/nvn/nvn_mtl.m                 |  44 +-
  dm/gfx/tests/t_shmap_warm.m          |  78 ++++
  dm/gfx/vk/hle_vk.m                   |  92 +++--
  dm/host/hle_lifecycle.c              |   2 +
@@ -29,13 +29,13 @@ Issue: LNPANDY/NX2Apple
  dm/tools/romfs.py                    |  69 +++-
  dm/tools/romfs_image.py              | 577 ++++++++++++++++++++++++++-
  dm/tools/tests/test_msl_trailer.py   | 491 +++++++++++++++++++++++
- 17 files changed, 1903 insertions(+), 109 deletions(-)
+ 17 files changed, 1901 insertions(+), 109 deletions(-)
  create mode 100644 dm/gfx/msl_mount.h
  create mode 100644 dm/gfx/nvn/msl_mount.c
  create mode 100644 dm/tools/tests/test_msl_trailer.py
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index 67a9b3c..b38b575 100644
+index 0462d44..651fca6 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
 @@ -27,8 +27,11 @@
@@ -58,7 +58,7 @@ index 67a9b3c..b38b575 100644
  
  int mtl_fps_target(void);
  int mtl_link_active(void); int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns);   // nvn_mtl.m
-@@ -174,14 +178,12 @@
+@@ -179,14 +183,12 @@
  typedef struct { char key[17]; int frag, ub_slot, ub_size, arg_slot, nargs, na, nu, nt, nb; shattr *a; shuni *u; shsamp *t; shblk *b; } shinfo;
  static shinfo *g_sh; static int g_nsh;
  static int sh_cmp(const void *a, const void *b) { int c = memcmp(((const shinfo *)a)->key, ((const shinfo *)b)->key, 16); return c ? c : ((const shinfo *)a)->frag - ((const shinfo *)b)->frag; }
@@ -77,7 +77,7 @@ index 67a9b3c..b38b575 100644
      if (!key || !stage || strlen(key) != 16 || (strcmp(stage, "vert") && strcmp(stage, "frag"))) return 0;
      *s = (shinfo){.frag = !strcmp(stage, "frag"), .ub_slot = -1, .arg_slot = -1, .nargs = -1};
      memcpy(s->key, key, 16);
-@@ -191,10 +193,10 @@ static int sh_read_row(char *line, shinfo *s) {
+@@ -196,10 +198,10 @@ static int sh_read_row(char *line, shinfo *s) {
      }
      int na = 0, nu = 0, nt = 0, nb = 0;
      for (const char *c = res; *c; c++) if (c == res || c[-1] == ' ') { na += *c == 'a'; nu += *c == 'u'; nt += *c == 't'; nb += *c == 'n'; }
@@ -90,7 +90,7 @@ index 67a9b3c..b38b575 100644
          char nm[64], ty[32]; unsigned a1, a2, a3; int sa;
          if (t[0] == 'a' && (unsigned)s->na < (unsigned)na && sscanf(t, "a:%63[^=]=%u:%31s", nm, &a1, ty) == 3 && a1 < 16) {
              shattr *x = &s->a[s->na++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty);
-@@ -222,29 +224,67 @@ static int sh_read_row(char *line, shinfo *s) {
+@@ -231,29 +233,67 @@ static int sh_read_row(char *line, shinfo *s) {
  static id<MTLFunction> sh_function(id<MTLLibrary> lib, const shinfo *s) {
      return [lib newFunctionWithName:[NSString stringWithFormat:@"gl_%s_%c", s->key, s->frag ? 'f' : 'v']];
  }
@@ -176,7 +176,7 @@ index 67a9b3c..b38b575 100644
  }
  static const shinfo *sh_find(const char *key, int frag) { shinfo k; memcpy(k.key, key, 16); k.frag = frag; return g_nsh ? bsearch(&k, g_sh, g_nsh, sizeof *g_sh, sh_cmp) : NULL; }
  
-@@ -3398,7 +3438,7 @@ static void note_miss(const char *name) {
+@@ -3893,7 +3933,7 @@ static void note_miss(const char *name) {
  }
  
  void dm_gl_teardown(void) { @autoreleasepool {
@@ -185,13 +185,13 @@ index 67a9b3c..b38b575 100644
      dm_gl_drain();
      pass_end();
      g_cb = nil;
-@@ -3472,6 +3512,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
+@@ -3973,6 +4013,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
      g_frames = 0;
  
-     g_lib = nil; g_util = nil;
+     g_lib = nil; g_util = nil; g_read_bc_pso = nil;
 +    dm_msl_trailer_teardown();
      g_samp0 = nil;
-     g_tex0 = nil; g_cube0 = nil; g_tex3d0 = nil; g_arr0 = nil;
+     g_tex0 = nil; g_cube0 = nil; g_tex3d0 = nil; g_arr0 = nil; g_uint0 = nil; g_tbuf0 = nil;
      g_ev = nil; g_q = nil; g_dev = nil;
 diff --git a/dm/gfx/msl_mount.h b/dm/gfx/msl_mount.h
 new file mode 100644
@@ -494,18 +494,18 @@ index 0000000..4167f1c
 +    pthread_mutex_unlock(&g_msl_tr_mu);
 +}
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index a4846ad..155f0cc 100644
+index e2118e7..45f05d5 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -41,6 +41,7 @@
- #include "nvn_link_latch.h"
+@@ -43,6 +43,7 @@
+ #include "nvn_present_history.h"
  #include "nvn_timestamp.h"
  #include "msl_image.h"
 +#include "../msl_mount.h"
  #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
  #include "game_profile.h"   // game profile constants (profile id, the profile's switches)
  // Texture slot table per stage: 0-127 the combined handles (nvnCommandBufferBindTexture), 128-255 the separate texture binds (NVN_SEPTEX_SLOT0, nvn_obj.h)
-@@ -6638,13 +6639,25 @@ static int clear_rect_zero(int i) {
+@@ -7088,16 +7089,29 @@ static int clear_rect_zero(int i) {
      *img = m;
      return m ? msl_image_find(m, path.lastPathComponent.UTF8String) : NULL;
  }
@@ -517,9 +517,6 @@ index a4846ad..155f0cc 100644
      NSData *d = [NSData dataWithContentsOfFile:path];
      if (d) return d;
      romfs_img *m; const img_ent *x = msl_image_file(path, &m);
--    if (!x) return nil;
--    NSMutableData *o = [NSMutableData dataWithLength:(NSUInteger)x->b];
--    return romfs_image_read(m->fd, o.mutableBytes, (size_t)x->b, (off_t)x->a) ? o : nil;
 +    if (x) {
 +        NSMutableData *o = [NSMutableData dataWithLength:(NSUInteger)x->b];
 +        if (romfs_image_read(m->fd, o.mutableBytes, (size_t)x->b, (off_t)x->a)) return o;
@@ -530,11 +527,17 @@ index a4846ad..155f0cc 100644
 +        if (!len) { free(buf); return [NSData data]; }
 +        return [NSData dataWithBytesNoCopy:buf length:len freeWhenDone:YES];
 +    }
+     if (!x) {
+         NSString *live = live_artifact(path.lastPathComponent);
+         return live ? [NSData dataWithContentsOfFile:live] : nil;
+     }
+-    NSMutableData *o = [NSMutableData dataWithLength:(NSUInteger)x->b];
+-    return romfs_image_read(m->fd, o.mutableBytes, (size_t)x->b, (off_t)x->a) ? o : nil;
 +    return nil;
  }
  static NSString *exe_rel(const char *rel) {
      char buf[4096]; uint32_t n = sizeof buf;
-@@ -6680,10 +6693,13 @@ static void shmap_read(void) {
+@@ -7133,10 +7147,13 @@ static void shmap_read(void) {
      g_shmap_path = path;
      const char *m = getenv("DM_MSL_DIR");
      // Library directory = <DM_MSL_DIR or default cache>/b-<translation chain version>: the version comes from dm/gfx/nvn/dmsh_chain.h (tools/dmsh_chain.py), one for every game; a host built from an old source tree only accepts libraries of the old version
@@ -549,30 +552,32 @@ index a4846ad..155f0cc 100644
          else MLOG("[RED] shader library %s (a folder or a .img file) does not exist: translation chain version %s of this source tree has not been built yet (dm/gfx/tools/dmsh_build.py)", g_msl_dir.UTF8String, DMSH_CHAIN);
      }
      // The library's stamp (inputs.tsv, written by a full dmsh_build.py run): the game and the digest of the profile inputs it was built from. The chain version is the same for every
-@@ -6881,14 +6897,20 @@ static void pso_user_record(const char *fmt, ...) {
- // The library is tagged with its digest (lib_tag), from the mapped bytes
+@@ -7342,10 +7359,13 @@ static void pso_user_record(const char *fmt, ...) {
+ }
  static id<MTLLibrary> lib_from_file(NSString *path, NSError **err) {
      int fd = open(path.fileSystemRepresentation, O_RDONLY); struct stat st;
 -    if (fd < 0) {   // not in the folder: the library's image, whose one descriptor is shared, and only this file's pages are mapped
 +    if (fd < 0) {   // not in the folder: the library's image or DM_ROMFS shader trailer, whose one descriptor is shared, and only this file's pages are mapped
          int open_errno = errno; romfs_img *img; const img_ent *x = msl_image_file(path, &img); msl_map f;
-         if (x && msl_image_map(img, x, &f)) {
-             void *base = f.base; size_t base_len = f.base_len;
-             dispatch_data_t d = dispatch_data_create(f.data, f.size, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ munmap(base, base_len); });
-             return lib_tag([g_dev newLibraryWithData:d error:err], lib_digest(f.data, f.size));
-         }
--        if (!x) errno = open_errno;
+         if (x && msl_image_map(img, x, &f)) return lib_from_map(f, err);
+-        NSString *live = !x ? live_artifact(path.lastPathComponent) : nil;
 +        NSString *rel = msl_trailer_rel(path);
-+        if (rel && dm_msl_trailer_map(rel.UTF8String, &f)) {
-+            void *base = f.base; size_t base_len = f.base_len;
-+            dispatch_data_t d = dispatch_data_create(f.data, f.size, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ munmap(base, base_len); });
-+            return lib_tag([g_dev newLibraryWithData:d error:err], lib_digest(f.data, f.size));
-+        }
-+        if (!x && (!rel || !dm_msl_trailer_has(rel.UTF8String))) errno = open_errno;
++        if (rel && dm_msl_trailer_map(rel.UTF8String, &f)) return lib_from_map(f, err);
++        int in_trailer = rel && dm_msl_trailer_has(rel.UTF8String);
++        NSString *live = !x && !in_trailer ? live_artifact(path.lastPathComponent) : nil;
+         if (live) {
+             fd = open(live.fileSystemRepresentation, O_RDONLY);
+             if (fd < 0) {
+@@ -7363,7 +7383,7 @@ static void pso_user_record(const char *fmt, ...) {
+                 }
+             }
+         }
+-        else if (!x) errno = open_errno;
++        else if (!x && !in_trailer) errno = open_errno;
      }
      if (fd < 0 || fstat(fd, &st) || st.st_size <= 0) { if (fd >= 0) close(fd); if (err) *err = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"cannot open %@", path]}]; return nil; }
-     size_t len = (size_t)st.st_size; void *m = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0); close(fd);
-@@ -11242,8 +11264,13 @@ static int pre_later_take(PreLater *l, int wait) {
+     size_t len = (size_t)st.st_size; void *m = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0); int map_errno = errno; close(fd);
+@@ -11970,8 +11990,13 @@ static int pre_later_take(PreLater *l, int wait) {
  // their bases cannot be made yet, so the stamp names one such file (pre_device_stamp) and a later start builds them once it is there. g_pre_nolib_file: the first one seen in this
  // run, a name in the library, under g_pre_fail_lock
  static _Atomic int g_pre_nolib; static NSString *g_pre_nolib_file;
@@ -588,7 +593,7 @@ index a4846ad..155f0cc 100644
  // 1 (and the file noted) when the library lacks <key><suffix>
  static int pre_lib_absent(NSString *key, NSString *suffix) {
      NSString *name = [key stringByAppendingString:suffix];
-@@ -20106,10 +20133,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -21230,10 +21255,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
  
      romfs_img *mimg = atomic_exchange(&g_msl_img, NULL);
      if (mimg) romfs_image_close(mimg);
@@ -602,12 +607,12 @@ index a4846ad..155f0cc 100644
      g_pso_user_seen = nil; g_progpf_seen = nil; g_hy_kick_set = nil;
      g_pre_known = nil; g_pre_fails = nil; g_pre_nolib_file = nil; g_pre_nolib = 0;
 diff --git a/dm/gfx/tests/t_shmap_warm.m b/dm/gfx/tests/t_shmap_warm.m
-index 5caa8ab..3935568 100644
+index e37e561..cbd8e67 100644
 --- a/dm/gfx/tests/t_shmap_warm.m
 +++ b/dm/gfx/tests/t_shmap_warm.m
-@@ -48,6 +48,84 @@ int main(void) { @autoreleasepool {
-     mtl_prepare(); shmap_load();   // later calls: nothing starts twice
+@@ -62,6 +62,84 @@ int main(void) { @autoreleasepool {
      EXPECT_EQ("the prewarm starts once", 1, g_warm_started);
+     EXPECT_EQ("later calls do not freeze again", 1, g_freeze_on[3] == 1 && g_freeze_on[4] == 1);
  
 +    // Embedded DMMSLTR1 shader trailer in DM_ROMFS serves shmap_read / msl_data / msl_has when DM_MSL_DIR lacks the files, while DM_MSL_DIR still wins when present
 +    dm_gfx_teardown();
@@ -691,10 +696,10 @@ index 5caa8ab..3935568 100644
      printf("%d checks, %d failed\n", g_checks, g_failed);
      return g_failed != 0;
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 7477a08..79ffa9a 100644
+index 64b2173..37023b1 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
-@@ -25,9 +25,13 @@
+@@ -26,9 +26,13 @@
  #include <CommonCrypto/CommonDigest.h>
  #include <CoreFoundation/CoreFoundation.h>
  #include "../../host/host_image.h"
@@ -708,7 +713,7 @@ index 7477a08..79ffa9a 100644
  
  int mtl_fps_target(void);   // nvn_mtl.m: 60, or 30 when the frame rate is halved
  int mtl_link_active(void); int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns);   // nvn_mtl.m: whether the display link presents, and the wait for its ticks
-@@ -231,44 +235,67 @@ static int sh_read_resources(shinfo *s, char *res) {
+@@ -232,44 +236,67 @@ static int sh_read_resources(shinfo *s, char *res) {
      }
      s->res = entries; return 1;
  }
@@ -807,7 +812,7 @@ index 7477a08..79ffa9a 100644
  }
  static const shinfo *sh_find(const char *key) { shinfo k; memcpy(k.key, key, 16); return g_nsh ? bsearch(&k, g_sh, g_nsh, sizeof *g_sh, sh_cmp) : NULL; }
  
-@@ -3004,7 +3031,7 @@ static void vk_set_free_cb(const void *value, void *context) {
+@@ -3029,7 +3056,7 @@ static void vk_set_free_cb(const void *value, void *context) {
  }
  
  void dm_vk_teardown(void) { @autoreleasepool {
@@ -816,7 +821,7 @@ index 7477a08..79ffa9a 100644
      dm_vk_drain();
  
      pthread_mutex_lock(&g_sets_mu);
-@@ -3043,6 +3070,7 @@ void dm_vk_teardown(void) { @autoreleasepool {
+@@ -3068,6 +3095,7 @@ void dm_vk_teardown(void) { @autoreleasepool {
      atomic_store(&g_n_resume, 0);
      g_fan_ps = nil; g_fan_failed = 0;
      g_lib = nil;
@@ -1285,10 +1290,10 @@ index 105b853..4f03f2a 100644
      data = manifest(args)
      out = Path(args.out)
 diff --git a/dm/tools/romfs.py b/dm/tools/romfs.py
-index 42fbbfe..50644ae 100644
+index c6f19ac..dc83061 100644
 --- a/dm/tools/romfs.py
 +++ b/dm/tools/romfs.py
-@@ -20,20 +20,72 @@ from typing import TYPE_CHECKING
+@@ -24,20 +24,72 @@ from typing import TYPE_CHECKING
  
  HEAD = struct.Struct('<8sQQQ')
  ENT = struct.Struct('<QQIHBB')
@@ -1368,10 +1373,10 @@ index 42fbbfe..50644ae 100644
          if len(self.index) != size: raise ValueError(f'incomplete RomFS image: {path}')
          self.count, self.pool = count, count * ENT.size
          next_child = 1
-@@ -116,7 +168,8 @@ _fd_ranges = {}
- class _File(io.RawIOBase):
-     def __init__(self, image, k):
-         self.fd = _os.open(image.path, _os.O_RDONLY)
+@@ -144,7 +196,8 @@ class _File(io.RawIOBase):
+         descriptors = _scan_descriptors.get()
+         backing = descriptors.get(image.path) if descriptors is not None else None
+         self.fd = _os.dup(backing[1]) if backing is not None and backing[0] == _identity(image.stat) else _os.open(image.path, _os.O_RDONLY)
 -        self.start, self.length = image.entry(k)[:2]
 +        a, self.length = image.entry(k)[:2]
 +        self.start = image.slice_offset + a
@@ -1379,7 +1384,7 @@ index 42fbbfe..50644ae 100644
          _fd_ranges[self.fd] = (self.start, self.length)
      def readable(self): return True
 diff --git a/dm/tools/romfs_image.py b/dm/tools/romfs_image.py
-index c06bf0b..769d0b3 100755
+index 32dd622..4823a73 100755
 --- a/dm/tools/romfs_image.py
 +++ b/dm/tools/romfs_image.py
 @@ -14,12 +14,26 @@
@@ -1410,7 +1415,7 @@ index c06bf0b..769d0b3 100755
  GUEST_NAME = 'org.d2rmobile.guest-name'
  # Files a dump tool leaves in every folder of the game's tree, which are not game files: an FTP dump keeps the server's listing as .listing (as the NUP spec's §6.3 says a producer
  # may). Packed, a game that lists a folder sees one more entry: Nintendo Switch Sports Resort cuts each name at its first '.', loaded "Parameter/<folder>/" with an empty name, got
-@@ -175,15 +189,117 @@ def _clean(text):   # one token of the identity line: no spaces, no newlines
+@@ -189,15 +203,117 @@ def _clean(text):   # one token of the identity line: no spaces, no newlines
      return ''.join(c if c.isalnum() or c in '._-+' else '_' for c in str(text)) or '-'
  
  
@@ -1531,7 +1536,7 @@ index c06bf0b..769d0b3 100755
          h, rest = _FNV_OFFSET, b''
          f.seek(ioff)
          def mix(h, data):
-@@ -200,7 +316,416 @@ def identity(img, title='', version='', build=''):
+@@ -214,7 +330,416 @@ def identity(img, title='', version='', build=''):
              rest = chunk[len(chunk) - keep:]; chunk = chunk[:len(chunk) - keep]
              if not left and len(chunk) % 8: chunk += b'\0' * (8 - len(chunk) % 8)
              h = mix(h, chunk)
@@ -1949,7 +1954,7 @@ index c06bf0b..769d0b3 100755
  
  
  def parse_identity(text):   # {field: value} of an identity line; size is an int
-@@ -216,15 +741,49 @@ def same_identity(a, b):   # two lines name the same image when size and index a
+@@ -230,15 +755,49 @@ def same_identity(a, b):   # two lines name the same image when size and index a
      return (x['size'], x['index']) == (y['size'], y['index'])
  
  

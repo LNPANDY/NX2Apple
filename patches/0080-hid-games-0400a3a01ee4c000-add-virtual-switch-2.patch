@@ -22,7 +22,7 @@ Issue: none
  dm/host/front.h                            |   6 +
  dm/host/front_mac.m                        |  53 ++-
  dm/host/hle_hid.c                          | 379 ++++++++++++++++++---
- dm/host/loader.c                           |  37 +-
+ dm/host/loader.c                           |  39 ++-
  dm/host/pad_switch2_apple.m                |   2 +-
  dm/host/tests/Makefile                     |   7 +
  dm/host/tests/t_hid_nmouse.c               | 169 +++++++++
@@ -37,13 +37,13 @@ Issue: none
  dm/tools/tests/test_nsp_mac_app.py         |  42 ++-
  docs/launcher.schema.json                  |   4 +-
  scripts/build_ipa_from_nsp.py              |  69 ++--
- 25 files changed, 868 insertions(+), 112 deletions(-)
+ 25 files changed, 869 insertions(+), 113 deletions(-)
  create mode 100644 dm/games/0400A3A01EE4C000/app.entitlements
  create mode 100644 dm/games/0400A3A01EE4C000/patches.py
  create mode 100644 dm/host/tests/t_hid_nmouse.c
 
 diff --git a/dm/games/0400A3A01EE4C000/README.md b/dm/games/0400A3A01EE4C000/README.md
-index 6ce540e..e58434c 100644
+index 8be6822..892907a 100644
 --- a/dm/games/0400A3A01EE4C000/README.md
 +++ b/dm/games/0400A3A01EE4C000/README.md
 @@ -10,6 +10,9 @@ A Switch 2 game: update v655360 (the title screen says Ver. 2.0.1), SDK 20.5.25
@@ -163,10 +163,10 @@ index 0000000..656ecf8
 +     'checked': 'v655360 main on the Mac: the controller runs every frame and holds index 20 (1600x900) handheld; DM_RENDER_SCALE runs (2026-11-15)'},
 +]
 diff --git a/dm/games/README.md b/dm/games/README.md
-index c97e06e..3d2f212 100644
+index 1aef824..854128b 100644
 --- a/dm/games/README.md
 +++ b/dm/games/README.md
-@@ -293,6 +293,7 @@ One row per profile; the notes are each profile's `README.md`. Entries marked pr
+@@ -305,6 +305,7 @@ One row per profile; the notes are each profile's `README.md`. Entries marked pr
  | `device_api` | Optional, decided by the SDK version without it: the NVN API version `major.minor` that `nvnDeviceGetInteger` reports, 55.15 for SDK 11 and later (what Mario requires) and 53.313 for SDK 10 and older (`hle_nvn.c` `nvn_api`). Games check it and skip creating their device on a mismatch: Super Mario 3D World + Bowser's Fury (SDK 10) requires major 53 and minor ≥ 313. No profile sets it. `DM_NVN_API` overrides. Not part of the shader chain version (only `shader_*` keys are) |
  | `depth_mode` | `gl` (the default, NVN's near = −w) or `zero` (near = 0): the depth mode the game sets with `nvnDeviceSetDepthMode`, for the pipeline bases made before the game runs: the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) for the iPhone (`main0` or `main0_z` vertex entries; built for a game with `pso_mtl4 on` or with `DM_PSO_GPUS`) and the NSP script's Mac prebuild (`DM_PSO_PREBUILD_DEPTH`). The host itself follows the mode the game sets; a wrong value only costs the device its own prebuild. The heap and address region checks of a provisional or derived profile set it when their boot reaches the game's call; without that call they leave it, as no call means unknown, not GL. Keep the key when the profile moves into `dm/games`: it is no shader input. Great Ace Attorney Chronicles, 13 Sentinels (both releases), Big Brain Academy, Link's Awakening, Engage, ASTRAL CHAIN, Luigi's Mansion 3, Octopath Traveler 0 and Kirby Air Riders set `zero` |
  | `render_base` | The 3D views' base size, docked then handheld (`1600x900 1280x720`): what `DM_RENDER_SCALE` scales. `settings.py` writes it into the render scale's row of `launcher.json` as `base`, so a front end can show the setting in pixels. Only for a game with a render scale stub, and only a size its note documents. The slider's top is the stub's largest scale, which the rewriter writes as `RENDER_SCALE` in the fixups table (1.0, or 3.0 for Hades II, whose stub also raises its 1280x720) |
@@ -200,22 +200,22 @@ index bd17f67..02d1ab3 100644
  
  def rows():
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index b19d504..f6968c1 100644
+index 99aa018..91b9e3a 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
-@@ -79,6 +79,7 @@ typedef struct {
+@@ -80,6 +80,7 @@ typedef struct {
      uint64_t fps_state_off;    // frame step state page (patch_nso.py FRAME_STEP: Tears of the Kingdom 1.4.3 and Breath of the Wild 1.9.0 main); 0 = none
      uint64_t cheat_state_off;  // 16 KB writable cheat state page (patch_nso.py / cheat_bake.py: 4 KB slot bytes + 12 KB Code Cave mirror); 0 = none
      uint32_t step_max;         // the largest step the frame step stubs give the game (the fixups table's STEP_MAX, patch_nso.py ctx.step_max); 0 = FSTEP_MAX
 +    uint32_t no_step;          // NO_FRAME_STEP in its fixups table (patch_nso.py ctx.no_step): the state page holds settings only, no frame step
      uint32_t render_scale_max; // a render-scale stub's largest scale (the fixups table's RENDER_SCALE, patch_nso.py): DM_RENDER_SCALE is held to it; 0 = no such stub
+     int fstep_t120;            // the frame step stub takes its step in ticks of 1/120 s (the FRAME_STEP_120 capability: state +0x38 120, and 40 fps)
      int movie_native_color_keys; // the movie SDK's MediaData uses the native buffer's colour index directly (MOVIE_NATIVE_COLOR_KEYS)
-     int64_t patch_off;         // patch area relative to the base; negative = before the base (image too large, see patch_nso.py FAR), and size does not include it
 diff --git a/dm/host/front.h b/dm/host/front.h
-index 0a65314..4ee6c25 100644
+index 2bf2e3c..ac204db 100644
 --- a/dm/host/front.h
 +++ b/dm/host/front.h
-@@ -68,6 +68,12 @@ void dm_set_game_image_header(const void *mh);
+@@ -72,6 +72,12 @@ void dm_set_game_image_header(const void *mh);
  typedef struct { uint32_t id; float x, y; } dm_touch;
  void dm_touch_set(const dm_touch *t, int n);
  void dm_touch_script(const dm_touch *t, int n);   // scripted touches (DM_KEYS, DM_CTL; hle_hid.c): as dm_touch_set, but never recorded by DM_REC
@@ -229,10 +229,10 @@ index 0a65314..4ee6c25 100644
  // Save not written (called by the host's hle_fs.c; the iOS front end provides a strong implementation of the same name that shows the native prompt "Not enough storage. Progress was not saved"; the default weak implementation only logs).
  // Timing: when a save write fails (disk full etc.) within one of the game's save transactions (between two Commits), so that this Commit is refused and the previously committed save is unchanged, it is called once per refused transaction;
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index f4ce2e2..593771b 100644
+index 5a8ee6f..cd62321 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -178,12 +178,17 @@ static void display_awake(int on) {
+@@ -265,12 +265,17 @@ static void display_awake(int on) {
  }
  // Release only front-end input when the game window loses focus. Controller
  // and mouse ownership lives in controllers_mac.m, keyboard state stays here.
@@ -250,7 +250,7 @@ index f4ce2e2..593771b 100644
      front_controllers_window(0);
      hq_close();
  }
-@@ -634,18 +639,52 @@ int front_ctrl_support(int min, int max) {
+@@ -721,18 +726,52 @@ int front_ctrl_support(int min, int max) {
  void front_picture_shape(int w, int h) { if (w > 0 && h > 0) g_picture_aspect = (double)w / h; }
  @interface DmGameView : NSView @end
  @implementation DmGameView
@@ -309,7 +309,7 @@ index f4ce2e2..593771b 100644
  // The drawable follows the view in pixels: a layer assigned to a layer-backed view kept the drawable at the first window's 1280x720 in fullscreen too, so the game picture was
  // scaled down to it and up again by the compositor
  - (void)fitDrawable {
-@@ -1632,8 +1671,8 @@ void front_run(void (*guest)(void)) {
+@@ -1722,8 +1761,8 @@ void front_run(void (*guest)(void)) {
          // The pointer hides after DM_CURSOR_HIDE seconds (3 by default, 0 keeps it) without movement over the game, and comes back with the next movement, click or scroll. macOS
          // hides it only for a game that asks (a game window does not, and a pointer left over a fullscreen game stays on the picture); it is also shown whenever the window is
          // not key or the pointer is outside the game view, so the title bar and other windows keep theirs
@@ -320,10 +320,10 @@ index f4ce2e2..593771b 100644
              // not flash up until the first idle poll. The not-over rule below waits (armed) until the game window has been under the pointer once, as a new window is not key
              // yet when the timer first runs
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index d0c5a6b..752c326 100644
+index 85d971d..e67b5f3 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -431,6 +431,7 @@ static void styles_sync(void) {
+@@ -452,6 +452,7 @@ static void styles_sync(void) {
  // npad, empty once docked, and took no input again (GitHub issue #2143)
  void dm_hid_opmode_changed(void) { styles_sync(); }
  // Joy-Cons as devices (dm_input.h): which a pad holds, then each one's buttons and stick. The style events tell the game that its npads changed
@@ -331,7 +331,7 @@ index d0c5a6b..752c326 100644
  void dm_joy_attach(int p, uint32_t sides) {
      if (p < 0 || p >= DM_PLAYERS) return;
      atomic_store(&g_joy_two[p], (sides & DM_JOY_2) && (sides & 3) ? 1u : 0u);
-@@ -438,6 +439,7 @@ void dm_joy_attach(int p, uint32_t sides) {
+@@ -459,6 +460,7 @@ void dm_joy_attach(int p, uint32_t sides) {
      if (sides == 3 || !sides) atomic_store(&g_joy_paired[p], sides == 3);
      atomic_fetch_and(&g_joy_reported[p], sides);   // a Joy-Con taken away has reported nothing yet when it comes back
      if (atomic_exchange(&g_joy_sides[p], sides) != sides && !sides) for (int s = 0; s < 2; s++) { atomic_store(&g_joy_btn[p][s], 0); atomic_store(&g_joy_axes[p][s], 0); }
@@ -339,7 +339,7 @@ index d0c5a6b..752c326 100644
      styles_sync();
  }
  void dm_joy_set(int p, int side, uint64_t buttons, int32_t sx, int32_t sy) {
-@@ -1285,14 +1287,28 @@ HLE_FORCE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS
+@@ -1324,14 +1326,28 @@ HLE_FORCE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS
      return k;
  }
  HLE_FORCE("_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE", "six-axis sensor; always sampling on the host", void, h_hid_SixStart, const uint32_t *h) { (void)h; }
@@ -374,7 +374,7 @@ index d0c5a6b..752c326 100644
  
  // Joy-Con 2 mouse sensor (JCMS, Switch 2 SDKs; Donkey Kong Bananza). The SDK opens the hid service itself in InitializeJcms, which the host does not serve. A handle is the npad id in
  // byte 0 and the JcmsType in byte 1 (sdk hid::utility::MakeJcmsHandle); a JcmsState is 32 bytes, and GetJcmsStates returns 0 while its ring holds no samples, as here: no controller
-@@ -1318,9 +1334,25 @@ static float g_nm_pos[DM_PLAYERS][2][2]; static int32_t g_nm_d[DM_PLAYERS][2][2]
+@@ -1357,9 +1373,25 @@ static float g_nm_pos[DM_PLAYERS][2][2]; static int32_t g_nm_d[DM_PLAYERS][2][2]
  static int g_nm_last[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = -1};   // the Joy-Con last used on a surface: the player's pointer, also while it is lifted
  static int g_nmouse_range[2];
  #define NMOUSE_SCALE 0.25f   // pointer pixels per sensor count (a slow 10 cm slide is about 6,000 counts: about 1,500 pixels)
@@ -400,7 +400,7 @@ index d0c5a6b..752c326 100644
      int64_t n = ++g_jcms_n[p][side];
      g_jcms[p][side][(n - 1) % JCMS_RING] = (JcmsState){.sampling = n, .dx = dx, .dy = dy, .attributes = state & 3};
      int w = g_nmouse_range[0] > 0 ? g_nmouse_range[0] : 1920, hgt = g_nmouse_range[1] > 0 ? g_nmouse_range[1] : 1080;
-@@ -1329,6 +1361,7 @@ void dm_joy_mouse(int p, int side, int32_t dx, int32_t dy, uint32_t state) {
+@@ -1368,6 +1400,7 @@ void dm_joy_mouse(int p, int side, int32_t dx, int32_t dy, uint32_t state) {
      xy[0] = fminf((float)(w - 1), fmaxf(0.f, xy[0] + dx * NMOUSE_SCALE)); xy[1] = fminf((float)(hgt - 1), fmaxf(0.f, xy[1] + dy * NMOUSE_SCALE));
      g_nm_d[p][side][0] = (int32_t)lrintf(dx * NMOUSE_SCALE); g_nm_d[p][side][1] = (int32_t)lrintf(dy * NMOUSE_SCALE); g_nm_state[p][side] = state;
      if (state & DM_JOYMOUSE_ON_SURFACE) g_nm_last[p] = side;
@@ -408,7 +408,7 @@ index d0c5a6b..752c326 100644
      pthread_mutex_unlock(&g_jcms_mu);
  }
  // A handle's player and Joy-Con: the player the npad shows (a split pair's other half included), its Joy-Con of the handle's side
-@@ -1596,17 +1629,196 @@ HLE_FORCE("_ZN2nn3hid38StoreSixAxisSensorCalibrationParameterERKNS0_19SixAxisSen
+@@ -1635,17 +1668,196 @@ HLE_FORCE("_ZN2nn3hid38StoreSixAxisSensorCalibrationParameterERKNS0_19SixAxisSen
      pthread_mutex_unlock(&g_six_cal_mu);
      return RES_OK;
  }
@@ -612,7 +612,7 @@ index d0c5a6b..752c326 100644
      // The Joy-Con last used on a surface first, and it stays first while lifted (to press a button): Nintendo Switch 2 Welcome Tour moves its pointer by the first handle only
      uint64_t *o = out; int k = 0;
      for (int pass = 0; pass < 2; pass++)
-@@ -1615,48 +1827,110 @@ HLE_FORCE("_ZN2nn3hid16GetNmouseHandlesEPNS0_12NmouseHandleEij", "Joy-Con mouse
+@@ -1654,48 +1866,110 @@ HLE_FORCE("_ZN2nn3hid16GetNmouseHandlesEPNS0_12NmouseHandleEij", "Joy-Con mouse
              pthread_mutex_lock(&g_jcms_mu); int first = g_nm_last[p] < 0 ? sd == 1 : g_nm_last[p] == sd; pthread_mutex_unlock(&g_jcms_mu);
              if (first == !pass) o[k++] = h;
          }
@@ -754,7 +754,7 @@ index d0c5a6b..752c326 100644
  HLE_FORCE("_ZN2nn3hid13GetNpadIdTypeEPjNS0_12NmouseHandleE", "mouse's controller: none (no device)", bool, h_hid_NmouseNpad, uint32_t *out, uint64_t h) { (void)out; (void)h; return false; }
  HLE_FORCE("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19SixAxisSensorHandleE", "six-axis sensor states: every requested entry, newest first",
            int, h_hid_SixStates, SixAxisState *out, int n, const uint32_t *h) { return six_states(out, n, *h); }
-@@ -1877,6 +2151,23 @@ void dm_hid_touch_teardown(void) {
+@@ -1922,6 +2196,23 @@ void dm_hid_touch_teardown(void) {
      g_touch_kept = g_touch_newest = g_touch_points = 0;
      g_touch_at = 0;
      pthread_mutex_unlock(&g_touch_mu);
@@ -779,20 +779,20 @@ index d0c5a6b..752c326 100644
  HLE_FORCE("_ZN2nn3hid21InitializeTouchScreenEv", "connect to the hid touch screen; the host takes touch points from the front end", void, h_hid_InitTouch, void) {}
  // SDK 18 overload with two ints (Super Mario Galaxy); the SDK's own one opens the hid service and aborts in sm::Initialize
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index b122571..c22722b 100644
+index a7608da..581385d 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
-@@ -320,6 +320,7 @@ static void read_layout(module_t *m, const char *dir) {
-         else if (!strcmp(key, "RENDER_SCALE")) m->render_scale_max = (uint32_t)v;
+@@ -335,6 +335,7 @@ static void read_layout(module_t *m, const char *dir) {
          else if (!strcmp(key, "MOVIE_NATIVE_COLOR_KEYS")) m->movie_native_color_keys = v == 1;
          else if (!strcmp(key, "STEP_MAX")) m->step_max = (uint32_t)v;
+         else if (!strcmp(key, "FRAME_STEP_120")) m->fstep_t120 = v != 0;
 +        else if (!strcmp(key, "NO_FRAME_STEP")) m->no_step = (uint32_t)v;
          else if (!strcmp(key, "UE_MALLOC_VT")) m->ue_malloc_vt = v;
          else if (!strcmp(key, "UE_MALLOC_SLOT")) m->ue_malloc_slot = (unsigned)v;
          else if (!strcmp(key, "FPS_TARGET_PTR")) m->fps_target_ptr = v;
-@@ -361,32 +362,38 @@ static void read_layout(module_t *m, const char *dir) {
- // target, 0 = the game's own interval logic. The profile's fps_target, overridden by DM_FPS_TARGET (0, 30 or 60); the graphics layer decides the steps and paces presents
- // (hle_nvn.c fstep_tick)
+@@ -380,37 +381,43 @@ static void read_layout(module_t *m, const char *dir) {
+ // target, 0 = the game's own interval logic. The profile's fps_target, overridden by DM_FPS_TARGET (0, 30 or 60; 40 for a stub that takes ticks of 1/120 s, FRAME_STEP_120);
+ // the graphics layer decides the steps and paces presents (hle_nvn.c fstep_tick)
  uint8_t *dm_fps_state;
 +// The state page itself, also for a build whose stubs only read its settings (NO_FRAME_STEP: render scale, dynamic resolution), where dm_fps_state stays NULL so the host paces
 +// as without a page (no frame step, no thermal 30 fps cap: hle_nvn.c fps_step_cap); dm_fps_state_apply writes the settings here
@@ -800,6 +800,7 @@ index b122571..c22722b 100644
  int dm_fps_step_max;   // the largest step the stubs give the game (STEP_MAX in its fixups table; 0 = FSTEP_MAX): the frame step holds frames and pays back within it (hle_nvn.c)
  static const char *g_fps_mod;   // the module holding the state page (for the log)
  static float g_render_scale_max = 1.0f;   // the render-scale stub's largest scale (RENDER_SCALE in its fixups table; 1 for a stub that only lowers the game's size)
+ static int g_fstep_t120;                  // the frame step stub takes ticks of 1/120 s (the FRAME_STEP_120 capability): the page's unit (+0x38) is 120, and 40 fps is taken
  static void install_fps_state(module_t *m) {
 -    if (m->fps_state_off + 0x40 > m->size || m->fps_state_off < m->key_page_off + m->key_page_size) die("%s: frame step state page out of range", m->name);
 -    dm_fps_state = m->base + m->fps_state_off; g_fps_mod = m->name; dm_fps_step_max = (int)m->step_max;
@@ -809,6 +810,7 @@ index b122571..c22722b 100644
 +    if (!m->no_step) dm_fps_state = g_state_page;
 +    else LOG("%s: state page for its stubs' settings only (NO_FRAME_STEP): no frame step, the host paces as without one", m->name);
      if (m->render_scale_max > 1) g_render_scale_max = (float)m->render_scale_max;
+     g_fstep_t120 = m->fstep_t120;
  }
  // The settings in the state page, written when the game starts (main.c, after host loading): on iOS the loading runs at app launch, before the launcher has set DM_FPS_TARGET and
  // DM_RENDER_SCALE (Launcher.swift), and nothing reads the page before the game runs
@@ -816,12 +818,16 @@ index b122571..c22722b 100644
 -    if (!dm_fps_state) return;
 +    if (!g_state_page) return;
      const char *e = getenv("DM_FPS_TARGET"); int t = e ? atoi(e) : dm_profile()->fps_target;
-     if (t != 0 && t != 30 && t != 60) { LOG("[RED] DM_FPS_TARGET=%s: must be 0, 30 or 60; using the game's own frame step", e); t = 0; }
--    float f = (float)t; memcpy(dm_fps_state, &f, sizeof f);
-+    float f = (float)t; memcpy(g_state_page, &f, sizeof f);
-     // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880, Hades II's render size): 1.0 keeps the game's own size
-     // and dynamic resolution; another factor fixes the size at that fraction (DM_RENDER_SCALE, 0.5 to the stub's largest scale: 1.0, or above for a stub that also raises it,
-     // Hades II's 3.0). Independent of the frame step: written at target 0 too
+     // The step's unit, before the target: 120 (ticks of 1/120 s) for a stub that takes them, fixed for the run (nvn_fstep.h FSTEP_UNIT_OFF); 0 = vsyncs of 1/60 s
+-    uint32_t unit = g_fstep_t120 ? 120 : 0; __atomic_store_n((uint32_t *)(dm_fps_state + FSTEP_UNIT_OFF), unit, __ATOMIC_RELAXED);
++    uint32_t unit = g_fstep_t120 ? 120 : 0; __atomic_store_n((uint32_t *)(g_state_page + FSTEP_UNIT_OFF), unit, __ATOMIC_RELAXED);
+     if (t == 40 && !g_fstep_t120) { LOG("[RED] DM_FPS_TARGET=40: this build's frame step takes whole vsyncs of 1/60 s only (no FRAME_STEP_120 stub), so 25 ms frames cannot be stepped; using 30"); t = 30; }
+     if (t != 0 && t != 30 && t != 40 && t != 60) { LOG("[RED] DM_FPS_TARGET=%s: must be 0, 30%s or 60; using the game's own frame step", e, g_fstep_t120 ? ", 40" : ""); t = 0; }
+-    nvn_fstep_target_put(dm_fps_state, (float)t);
++    nvn_fstep_target_put(g_state_page, (float)t);
+     // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880, Hades II's render size, Ocarina of Time's view-size
+     // update): 1.0 keeps the game's own size and dynamic resolution; another factor fixes the size at that fraction (DM_RENDER_SCALE, 0.5 to the stub's largest scale: 1.0, or
+     // above for a stub that also raises it, Hades II's 3.0). Independent of the frame step: written at target 0 too
      const char *rs = getenv("DM_RENDER_SCALE"); float sc = 1.0f, hi = g_render_scale_max;
      if (rs) { char *end; sc = strtof(rs, &end); if (end == rs || *end || !(sc >= 0.5f && sc <= hi)) { LOG("[RED] DM_RENDER_SCALE=%s: must be 0.5 to %.1f; keeping the game's size", rs, hi); sc = 1.0f; } else LOG("%s: 3D views rendered at %.2f of the game's size (DM_RENDER_SCALE)", g_fps_mod, sc); }
 -    memcpy(dm_fps_state + 0x10, &sc, sizeof sc);
@@ -835,7 +841,7 @@ index b122571..c22722b 100644
      // Screen shape: DM_SCREEN_ASPECT, the screen's width / height between 1.3 and 1.77, makes the builds with screen-shape stubs
      // (Breath of the Wild 1.9.0's patches.py) render that shape: the output keeps its width (1920) and takes the height that gives the ratio, a multiple of 48 so the
      // 2/3-size layout space (1280 wide) stays whole: 1.43 → 1920x1344 and 1280x896. State +0x48 u32 output height, +0x4c u32 layout height, +0x50 its float; 0 = 16:9
-@@ -396,17 +403,17 @@ void dm_fps_state_apply(void) {
+@@ -420,17 +427,17 @@ void dm_fps_state_apply(void) {
          if (end == as || *end || !(a >= 1.3f && a < 1.77f)) LOG("[RED] DM_SCREEN_ASPECT=%s: a width / height from 1.3 to 1.77; keeping 16:9", as);
          else {
              uint32_t oh = (uint32_t)(1920.0f / a / 48.0f + 0.5f) * 48, lh = oh * 2 / 3; float lf = (float)lh;
@@ -857,7 +863,7 @@ index b122571..c22722b 100644
              // The HUD at the taller edges (patches.py duo_anchor.c, +0x80..+0x98): the shift (half the layout height over 360), the stretch of full-screen panes, the edge rule's
              // distance, the listed corner widgets' distance, a full-screen pane's width and height in the 1280x720 space, and the tallest one still stretched (a menu's
              // background is about 720 tall, the weapon wheel's gradient 1280; the map's tiles are left alone anyway)
-@@ -418,13 +425,15 @@ void dm_fps_state_apply(void) {
+@@ -442,13 +449,15 @@ void dm_fps_state_apply(void) {
              float anc[7] = {(float)lh / 2 - 360.0f, (float)lh / 720.0f, 280.0f, 100.0f, 1270.0f, 710.0f, 1300.0f};
              const char *hv = getenv("DM_SCREEN_HUD");
              if (hv && sscanf(hv, "%f,%f,%f,%f,%f", &anc[2], &anc[3], &anc[4], &anc[5], &anc[6]) < 4) LOG("[RED] DM_SCREEN_HUD=%s: <edge>,<listed>,<full width>,<full height>[,<tallest>]; keeping the rest", hv);
@@ -868,20 +874,21 @@ index b122571..c22722b 100644
          }
      }
 -    char cap[32]; snprintf(cap, sizeof cap, ", capped at %d fps", t);
--    LOG("%s: frame step %s%s (%s)", g_fps_mod, !t ? "as the game sets it" : "in whole vsyncs decided by the host", t ? cap : "", e ? "DM_FPS_TARGET" : "game profile fps_target");
+-    LOG("%s: frame step %s%s (%s)", g_fps_mod, !t ? "as the game sets it" : g_fstep_t120 ? "in ticks of 1/120 s decided by the host" : "in whole vsyncs decided by the host", t ? cap : "", e ? "DM_FPS_TARGET" : "game profile fps_target");
 +    if (dm_fps_state) {
 +        char cap[32]; snprintf(cap, sizeof cap, ", capped at %d fps", t);
-+        LOG("%s: frame step %s%s (%s)", g_fps_mod, !t ? "as the game sets it" : "in whole vsyncs decided by the host", t ? cap : "", e ? "DM_FPS_TARGET" : "game profile fps_target");
++        LOG("%s: frame step %s%s (%s)", g_fps_mod, !t ? "as the game sets it" : g_fstep_t120 ? "in ticks of 1/120 s decided by the host" : "in whole vsyncs decided by the host", t ? cap : "", e ? "DM_FPS_TARGET" : "game profile fps_target");
 +    }
  }
  static void install_key_page(module_t *m) {
      if (m->key_page_off + m->key_page_size > m->size) die("%s: key page out of range", m->name);
-@@ -989,5 +998,5 @@ void dm_modules_teardown(void) {
+@@ -1015,6 +1024,6 @@ void dm_modules_teardown(void) {
      free(g_mod); g_mod = NULL;
      free(g_loaded); g_loaded = NULL;
      g_nmod = 0; g_nloaded = 0; g_mod_capacity = 0;
 -    dm_fps_state = NULL; g_fps_mod = NULL;
-+    g_state_page = NULL; dm_fps_state = NULL; g_fps_mod = NULL; g_render_scale_max = 1.0f; dm_fps_step_max = 0;
++    g_state_page = NULL; dm_fps_state = NULL; g_fps_mod = NULL;
+     dm_fps_step_max = 0; g_render_scale_max = 1.0f; g_fstep_t120 = 0;
  }
 diff --git a/dm/host/pad_switch2_apple.m b/dm/host/pad_switch2_apple.m
 index 3e9520a..9ef8e03 100644
@@ -897,7 +904,7 @@ index 3e9520a..9ef8e03 100644
  static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has the other one alone; anything else starts a pad
      if (pid != S2_PID_PRO)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 4b2d1dd..b0ee87c 100644
+index 67a9b28..c89606b 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -79,6 +79,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
@@ -908,7 +915,7 @@ index 4b2d1dd..b0ee87c 100644
  	$(B)/t_pad_hid
  	$(B)/t_pad_hid_mac
  	$(B)/t_pad_pro
-@@ -325,6 +326,12 @@ $(B)/t_launcher_contract: t_launcher_contract.c ../input_map.h ../dm_input.h | $
+@@ -332,6 +333,12 @@ $(B)/t_launcher_contract: t_launcher_contract.c ../input_map.h ../dm_input.h | $
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. -o $@ t_launcher_contract.c
  $(B)/t_hid: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c ../hle_bigstack.c
@@ -1182,7 +1189,7 @@ index 143828e..5780612 100644
  // ---- Shapes ----
  static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
 diff --git a/dm/ios/Sources/LauncherSettings.swift b/dm/ios/Sources/LauncherSettings.swift
-index c0006c0..2c11933 100644
+index 29e9e73..93c21cb 100644
 --- a/dm/ios/Sources/LauncherSettings.swift
 +++ b/dm/ios/Sources/LauncherSettings.swift
 @@ -8,7 +8,8 @@ struct Setting: Decodable, Identifiable {
@@ -1211,13 +1218,13 @@ index c0006c0..2c11933 100644
      var changed: Bool { settings.contains { !fixed.contains($0.env) && !$0.isDefault(values[$0.env] ?? $0.def) } }
  
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 4a5970d..dcf3a26 100644
+index e4b4cbb..8eb0613 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -134,4 +134,9 @@ void dm_audio_route_changed(void) {}
+@@ -136,4 +136,9 @@ void dm_audio_route_changed(void) {}
+ bool front_ios_hud_enabled_from_saved_choice(void) { return false; }
  void dm_cloud_saves_env(void) {}
  int save_sync_flush(int timeout_ms) { (void)timeout_ms; return 1; }
- bool front_ios_hud_enabled_from_saved_choice(void) { return false; }
 +int dm_joy_mouse_wanted(void) { return 0; }
 +void dm_host_mouse(float nx, float ny, float dx, float dy, int wheel_x, int wheel_y, uint32_t buttons, uint32_t flags) {
 +    (void)nx; (void)ny; (void)dx; (void)dy; (void)wheel_x; (void)wheel_y; (void)buttons; (void)flags;
@@ -1279,23 +1286,23 @@ index 8a21757..a6bc321 100755
    if [ -f "$GD/cb_extent.tsv" ]; then cp "$GD/cb_extent.tsv" $TD/ || die "copy cb_extent.tsv"; else t "no $GD/cb_extent.tsv: the host copies whole uniform bindings"; fi
    # the shader pairs, beside the shader map where the pipeline prebuild reads them (nvn_mtl.m pso_prebuild): without them the app makes no pulling bases, and a hybrid draw has no stand-in
 diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
-index dd8f940..f74711d 100644
+index 12d0cb0..c2e715b 100644
 --- a/dm/tools/docs_patches.py
 +++ b/dm/tools/docs_patches.py
-@@ -185,7 +185,7 @@ def frame_step_sites(fn, base=0, others=(), found=None):   # (offset, reason) of
+@@ -186,7 +186,7 @@ def frame_step_sites(fn, base=0, others=(), found=None):   # (offset, reason) of
      pos, puts = [0x6000000], []                    # render-scale stub, the sites in each of the rule's other functions ({label: [(offset, reason)]}) and the capabilities it declares
      def emit(w): pos[0] += 4
-     at = {label: OTHER_BASE + i * 0x1000000 for i, label in enumerate(others)}
+     at = {label: OTHER_BASE + i * OTHER_STEP for i, label in enumerate(others)}
 -    ctx = types.SimpleNamespace(here=lambda: pos[0], emit=emit, site=lambda off, orig: None, put=lambda off, words, why: puts.append((off, why)), state=0x9000000, render_scale=0, step_max=0, base=base,
 +    ctx = types.SimpleNamespace(here=lambda: pos[0], emit=emit, site=lambda off, orig: None, put=lambda off, words, why: puts.append((off, why)), state=0x9000000, render_scale=0, step_max=0, no_step=False, base=base,
                                  others=at, found=found, capabilities=set(), fps_ready=False, address=lambda off, lo_off=None: 0)
      fn(ctx)
-     in_others = {label: sorted((off - a, why) for off, why in puts if a <= off < a + 0x1000000) for label, a in at.items()}
+     in_others = {label: sorted((off - a, why) for off, why in puts if a <= off < a + OTHER_STEP) for label, a in at.items()}
 diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
-index a6dfab0..a809144 100644
+index d34d38a..27bc3e4 100644
 --- a/dm/tools/patch_nso.py
 +++ b/dm/tools/patch_nso.py
-@@ -1496,6 +1496,8 @@ obs += region_obs
+@@ -1501,6 +1501,8 @@ obs += region_obs
  # stub holds full resolution (DM_DYNAMIC_RESOLUTION, written by the loader; the stub declares the DYNAMIC_RESOLUTION capability). Stub bodies assembled with clang
  # A build's stubs are FRAME_STEP[build ID](ctx) in its patches.py: ctx.here() / ctx.emit(word) assemble into the patch area, ctx.site(offset, original bytes) asserts a site and that it is
  # no rewrite site, ctx.put(offset, words, reason) writes it (listed with the cuts), ctx.state is the state page's offset, ctx.render_scale = n marks a render-scale stub that takes scales up to n (1: it only lowers the game's size),
@@ -1304,7 +1311,7 @@ index a6dfab0..a809144 100644
  # ctx.step_max = n says the stubs hand the game steps of at most n vsyncs (its own interval logic stops there; 0 = FSTEP_MAX, 3), so the host holds frames and pays back at most n,
  # ctx.others the other functions a MATCH_FRAME_STEP rule names, ctx.found what an anchored rule's find returned, ctx.address(offset) the data address an adrp there and the add / load / store after it make (in the original
  # text: the fingerprints mask those pages, so a matched stub reads the globals it needs from its functions), and ctx.capabilities.add(name) declares a launcher capability the
-@@ -1503,6 +1505,7 @@ obs += region_obs
+@@ -1508,6 +1510,7 @@ obs += region_obs
  FRAME_STEP = PATCHES['FRAME_STEP']
  FS_STATE_OFF = 0
  STEP_MAX = 0   # n = the stubs give the game steps of at most n vsyncs (ctx.step_max): the fixups table says so (STEP_MAX n), and the host holds frames at most n vsyncs (nvn_fstep.h smax)
@@ -1312,7 +1319,7 @@ index a6dfab0..a809144 100644
  RENDER_SCALE = 0   # n = the build has a render-scale stub (state +0x10) that takes scales up to n: the fixups table says so (RENDER_SCALE n), the loader holds DM_RENDER_SCALE to it and the launcher offers the setting up to it (dm/games/settings.tsv)
  FS_CAPABILITIES = set()   # capabilities the frame step stubs declare (ctx.capabilities)
  if (BUILD_ID in FRAME_STEP or FS_MATCH) and NAME == 'main':
-@@ -1537,9 +1540,9 @@ def stub_address(off, what, lo_off=None):   # ADRP and its low instruction (adja
+@@ -1542,9 +1545,9 @@ def stub_address(off, what, lo_off=None):   # ADRP and its low instruction (adja
  if FS_STATE_OFF:   # the build's stubs (FRAME_STEP of its patches.py), or those placed by their function (MATCH_FRAME_STEP: ctx.base is its start)
      use_area(0); fs = types.SimpleNamespace(here=here, emit=emit, site=lambda off, orig: stub_site(off, orig, 'frame step'),
                                              put=lambda off, words, why: stub_put(off, words, why + (' [function match]' if FS_MATCH else ''), 'frame_step'),
@@ -1324,7 +1331,7 @@ index a6dfab0..a809144 100644
  
  # ---- Stubs (the modules whose patch file has STUBS of their build) ----
  # A fix of the game's own code that needs more instructions than its sites hold: STUBS[build ID](ctx) in its patches.py assembles them into the patch area and branches there from
-@@ -1976,6 +1979,7 @@ with open(P('fixups.tsv'), 'w') as f:
+@@ -1981,6 +1984,7 @@ with open(P('fixups.tsv'), 'w') as f:
      if TWO: f.write(f'# BACK_OFF\t{BACK_OFF:#x}\n# BACK_LEN\t{BACK_LEN:#x}\n')   # the back patch area (TWO): its offset in the image, and its length, the last bytes of the file
      for k in KEY_INDEX: f.write(f'# KEY_{k}_IDX\t{KEY_INDEX[k]}\n')
      if FS_STATE_OFF: f.write(f'# FPS_STATE_OFF\t{FS_STATE_OFF:#x}\n')   # frame step state page (FRAME_STEP): the loader writes the target fps there
@@ -1373,10 +1380,10 @@ index 5fa02d4..0b52d1e 100644
          (self.profile / 'pso_manifest.tsv').write_text('C\t1234567890abcdef\n')
          # A present seed must not silently disappear when the destination refuses writes.
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 36afd47..137e650 100644
+index 9592888..2153dce 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
-@@ -198,13 +198,17 @@ class LauncherSettingsTests(unittest.TestCase):
+@@ -210,13 +210,17 @@ class LauncherSettingsTests(unittest.TestCase):
  
      def test_render_base_goes_into_the_render_scale_row(self):
          schema = json.loads((ROOT / 'docs/launcher.schema.json').read_text(encoding='utf-8'))
@@ -1396,7 +1403,7 @@ index 36afd47..137e650 100644
              with self.subTest(bad=bad):
                  profile = type('Profile', (), {'id': BOTW, 'get': lambda self, key, default='', bad=bad: bad})()
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index a5c8bec..ea8f82b 100644
+index eb09ad6..b57f996 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -1648,18 +1648,26 @@ class SeenShaders(unittest.TestCase):   # --seen-shaders: the keys, the partial
@@ -1479,10 +1486,10 @@ index 4bb97df..4582c5d 100644
          "needs": {"description": "<VAR>=<value>: a sub-setting, drawn only while the row that sets <VAR> has that value. A row naming a variable this list does not have stays drawn.", "type": "string", "pattern": "^DM_[A-Z0-9_]+=[^;=]+$"}
        },
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index b7bddc7..1cf61c6 100755
+index 57af675..725e21f 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2830,6 +2830,13 @@ def seen_logs(work, app):   # the logs a --seen-shaders build reads: the run com
+@@ -2885,6 +2885,13 @@ def seen_logs(work, app):   # the logs a --seen-shaders build reads: the run com
      return work / 'run/host.log', logs / f'{app:016X}.log', logs / f'{app:016X}.prev.log'
  
  
@@ -1495,8 +1502,8 @@ index b7bddc7..1cf61c6 100755
 +
  def seen_keys(g, sh, logs):
      """The keys of a partial Mac library: the profile's shader_seen.tsv, those of the last partial build (sh/partial-keys.txt) and those the logs report missing. The file keeps what earlier runs added, as a
-     shader that loads no longer shows in the next log. Only keys of the shader map go in: a list or a log of another game version may name others, and the builder knows only the map's. No key at all stops
-@@ -2987,15 +2994,17 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+     shader that loads no longer shows in the next log. Imported play captures also go in on the first rebuild. Only keys of the shader map go in: a list or a log of another game version may name others, and the builder knows only the map's. No key at all stops
+@@ -3045,14 +3052,16 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
      PROG.stage('Mac shaders' if mac else 'iOS shaders')
      chain = chain_of(repo)
      shader_cache.adopt(sh / 'cache/cas', shader_cache.chain_file(sh / 'cache', chain), say)
@@ -1506,11 +1513,10 @@ index b7bddc7..1cf61c6 100755
 +    libs = out / f'b-{chain}'
 +    kf = out / 'key' if (seen and not mac) else ios / f'b-{chain}.key'
 +    kmac = out / 'key' if (seen and mac) else sh / f'mac-b-{chain}.key'
-     pso_pairs = g.table('pso_pairs.tsv')
-     if not pso_pairs.is_file(): pso_pairs = sh / 'pso_pairs.tsv'   # the split's copy is a shader input too (vs_pad)
+     pso_pairs, geo_pairs = (side_table(g, sh / 'pkg', n) for n in SPLIT_SIDE_TABLES)   # the split's copies are shader inputs too (vs_pad, dmsh_chain.mesh_pairs)
      if pkg_key:
          PROG.set(step='checking the inputs')
-         key = fingerprint(pkg_key, ('files', chain_files(repo)), translator_key(xlate), shader_profile_key(py, repo, env, g), ('files', [pso_pairs]), *toolchain(repo, env),
+         key = fingerprint(pkg_key, ('files', chain_files(repo)), translator_key(xlate), shader_profile_key(py, repo, env, g), ('files', [pso_pairs, geo_pairs]), *toolchain(repo, env),
 -                          {k: env.get(k) for k in ('XLATE_DEBUG', 'XLATE_REDUCED')}, *((seen,) if seen else ()), env=env)
 -        note = next((n for k in ((kmac,) if seen else (kmac, kf) if mac else (kf,)) if (n := reused(k, key)) is not None), None)
 +                          {k: env.get(k) for k in ('XLATE_DEBUG', 'XLATE_REDUCED')}, *(('ios_pull', pull),) if (seen and not mac) else (), *((seen,) if seen else ()), env=env)
@@ -1518,7 +1524,7 @@ index b7bddc7..1cf61c6 100755
          if note is None and from_seed and not seen and shader_lib.has_library(libs):
              stamp = shader_lib.read_stamp(libs)
              r = subprocess.run([str(py), str(repo / 'dm/gfx/tools/dmsh_chain.py'), '--inputs'], env=dict(env, DM_GAME=g.id), capture_output=True, text=True)
-@@ -3003,7 +3012,7 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+@@ -3060,7 +3069,7 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
              if stamp.get('game') == g.id and cur_in and stamp.get('inputs') == cur_in:
                  note = 'seeded'
          # the libraries are the last build's, so are tables that name their stamp; a missing or stale one is made from that build's Mac outputs, and without them the step runs again
@@ -1527,7 +1533,7 @@ index b7bddc7..1cf61c6 100755
          if lost_pull: say('the app now needs the pulling vertex libraries, which this image left out: building them')
          if shader_lib.has_library(libs) and note is not None and not lost_pull and (seen or chain_tables(py, repo, sh, env, logs, g, chain)):
              if key and not (kmac if mac else kf).is_file():
-@@ -3012,9 +3021,11 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+@@ -3069,9 +3078,11 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
              if not seen: prune_stale_chains(sh, chain); prune_shader_cache(sh, chain); pack_libraries(sh, chain, None if mac else pull)   # folders from before this become the one file here
              PROG.end(f'{note}, reused (inputs unchanged)'); return out
      else: key = None
@@ -1542,7 +1548,7 @@ index b7bddc7..1cf61c6 100755
      # The Metal work follows from what the build produces: an iPhone build needs only the iOS libraries (the macOS
      # metallibs are about half of the compile and never enter the IPA), a Mac build only the Mac's, and a build that
      # wants both compiles both. The Mac sources and reflection are written either way (c1_full / cb_extent come from them).
-@@ -3022,8 +3033,8 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+@@ -3079,8 +3090,8 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
      # them from there) builds them again too: a full dmsh_build.py run removes every output of the folder first, so that
      # a stale key keeps no old library, and restores only the targets it builds. The Metal compile cache gives back every
      # library whose MSL was compiled before.
@@ -1553,7 +1559,7 @@ index b7bddc7..1cf61c6 100755
      if ALLOW_OTHER_METAL: benv['DM_ALLOW_OTHER_METAL'] = '1'
      if mac: del benv['IOSOUT']   # dmsh_build.py builds the iOS libraries only with IOSOUT
      elif pull is False: benv['DMSH_IOS_PULL'] = '0'   # nothing in this app reads them
-@@ -3039,7 +3050,7 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+@@ -3096,7 +3107,7 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
          PROG.event('shaders_stale', reason=reason, old=old, new=new, count=n)
          say(f'[NOTE] cached shader libraries cannot be reused ({old} -> {new}): ' + ('the translation chain changed' if reason == 'chain' else 'the game profile\'s shader inputs changed')
              + f'; {n:,} base libraries scheduled (including cache restores; later builds reuse as before)')
@@ -1562,7 +1568,7 @@ index b7bddc7..1cf61c6 100755
          say(f'building the whole shader map, {len(shader_keys(g)):,} shaders: hours for a large one the first time. --seen-shaders builds only the {len(seen_listed(g)):,} the profile\'s playtests used, in minutes; areas they do not cover then draw incomplete')
      prefill_tmp = None
      try:
-@@ -3058,7 +3069,10 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+@@ -3115,7 +3126,10 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
          if not seen:   # the run's folder replaces the library: a stopped build keeps no old shaders under the same chain, as dmsh_build.py removes a folder's
              shader_lib.remove_image(sh / 'cache' / f'b-{chain}')
              if not mac: shader_lib.remove_image(ios / f'b-{chain}')
@@ -1574,7 +1580,7 @@ index b7bddc7..1cf61c6 100755
      finally:
          PROG.watch(None)
          if prefill_tmp is not None: rmtree(prefill_tmp)
-@@ -3081,10 +3095,10 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+@@ -3138,10 +3152,10 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
      else: PROG.end()
      if not seen: shader_regressions(py, repo, sh / 'cache', chain, logs)   # before the key: a stopped build is checked again on the next run
      if key:
@@ -1587,16 +1593,16 @@ index b7bddc7..1cf61c6 100755
      return out
  
  
-@@ -3711,7 +3725,7 @@ def parse_args(argv):
+@@ -3772,7 +3786,7 @@ def parse_args(argv):
                      'and bundle them with the app after the pipeline archive, so its first start builds none (Ocarina of Time: about 6,400 bases, 450-475 s on an M5 Max at the first start); minutes to hours when its inputs changed and '
                      'about 1.3 GB more app for such a list, made again only when its inputs change; needs the pipeline archive for this Mac\'s GPU; the other GPUs --gpu names get theirs from the host\'s pipelines scripts through metal-tt; '
                      '--no-prebake: the app builds them on its first start (default: the PREBAKE setting, on)')
 -    ap.add_argument('--seen-shaders', action=argparse.BooleanOptionalAction, help='--platform mac or mac-app: build only the shaders the profile\'s playtests used (its shader_seen.tsv) and those the last runs\' logs reported missing, not the whole map: '
 +    ap.add_argument('--seen-shaders', action=argparse.BooleanOptionalAction, help='--platform mac or mac-app (and iOS profiles with ios_seen_shaders): build only the shaders the profile\'s playtests used (its shader_seen.tsv) and those the last runs\' logs reported missing, not the whole map: '
                      'minutes instead of hours, but areas the list does not cover draw without the rest until this runs again (default: the SEEN_SHADERS setting, off)')
-     ap.add_argument('--show-fps', action=argparse.BooleanOptionalAction, help='show the game\'s frame rate on the iPhone, frames on screen per second at the top left (default: the SHOW_FPS setting, on)')
-     ap.add_argument('--motion', action=argparse.BooleanOptionalAction, help='pass a gyro controller\'s motion (on iOS also the phone\'s own) to games that read it; --no-motion builds with DM_MOTION=0, for when motion misbehaves (default: the MOTION setting, on)')
-@@ -4260,7 +4274,6 @@ def main(args=None):
+     ap.add_argument('--glslc-play', action='append', metavar='DIR', help='NVN games: add outputs saved with DM_GLSLC_CAPTURE while playing this version of the game. May be repeated.')
+     ap.add_argument('--nvn-runtime', action='store_true', help='With --platform mac, translate NVN1 vertex and pixel shaders missing from the shader map on first use.')
+@@ -4336,7 +4350,6 @@ def main(args=None):
      mac = platform in ('mac', 'mac-app')   # the Mac's shaders and host only: no iOS shaders, Xcode project or IPA (mac_run prints the command; mac-app packs a Mac app, mac_app)
      mac_pack = platform == 'mac-app'
      seen_shaders = SEEN_SHADERS if args.seen_shaders is None else args.seen_shaders
@@ -1604,7 +1610,7 @@ index b7bddc7..1cf61c6 100755
      if args.mac_sign and not mac_pack: raise BuildError('--mac-sign signs the Mac app: it needs --platform mac-app')
      if args.prebake and not mac_pack: raise BuildError('--prebake makes the Mac app\'s prewarm pipelines: it needs --platform mac-app')
      if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
-@@ -4330,8 +4343,8 @@ def main(args=None):
+@@ -4409,8 +4422,8 @@ def main(args=None):
          seed_meta = prep['seed']
          seed_romfs_id = prep['seed_romfs_id']
          say(f'game profile: {g.id}{" (provisional: " + str(g.dir) + ")" if provisional else ""}')
@@ -1615,7 +1621,7 @@ index b7bddc7..1cf61c6 100755
          out_ipa = Path(os.path.expanduser(args.out or OUT_IPA)).resolve() if (args.out or OUT_IPA) else work.parent / g.get('ipa')
          if shadowed and not (args.out or OUT_IPA):
              out_ipa = out_ipa.with_name(out_ipa.stem + '-provisional.ipa')
-@@ -4489,7 +4502,7 @@ def main(args=None):
+@@ -4584,7 +4597,7 @@ def main(args=None):
              g, provisional = gamemod.load(f'{app:016X}'), True
              say('[RED] provisional game profile: values guessed from the survey, the game may not boot; bring it up per docs/agents after packing')
          say(f'game profile: {g.id}{" (provisional: " + str(g.dir) + ")" if provisional else ""}')
@@ -1624,68 +1630,68 @@ index b7bddc7..1cf61c6 100755
          builds, need = g.builds(), g.words('shader_versions')
          have, derived = nsp_versions(fam), False
          if provisional:   # Do not silently pin a cached survey to an older input version.
-@@ -4709,13 +4722,17 @@ def main(args=None):
+@@ -4834,13 +4847,17 @@ def main(args=None):
  
      if getattr(args, 'in_programs', None) is not None:   # a program of the game: the app its first program's build packs takes these
          rmtree(work / 'tmp')
--        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
+-        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]), romfs=romfs)
 +        if not seen_shaders:
-+            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
-         return {'row': (PROGRAM_INDEX, g.id, patched, rfs.source(game), ios, gfx), 'ex': ex, 'keep': keep}
++            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, None, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]), romfs=romfs)
+         return {'row': (PROGRAM_INDEX, g.id, patched, romfs, ios, gfx), 'ex': ex, 'keep': keep}
      programs = other_programs(args, g)
      if programs and romfs_mode == 'separate': raise BuildError('a game of several programs keeps its files in the app (ROMFS / --romfs bundle): Documents holds one RomFS image, one program\'s')
      if not prepare_xcode and not shell_fw and free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
      say('preparing the Xcode project' if prepare_xcode else f'building the game framework for the shell → {shell_fw}' if shell_fw else f'building the IPA → {out_ipa}')
-     ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(rfs.source(game)), MSL_IOS=str(ios), GFXAPI=gfx, FONT_PY=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_XCODE_DERIVED_DATA=str(work / 'xcode-derived-data'), DM_TEAM_ID=team_id, DM_LANG=lang, CONTROL=str(control))
+     ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(romfs), MSL_IOS=str(ios), GFXAPI=gfx, FONT_PY=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_XCODE_DERIVED_DATA=str(work / 'xcode-derived-data'), DM_TEAM_ID=team_id, DM_LANG=lang, CONTROL=str(control))
 +    if seen_shaders:
 +        ipa_env['DM_PARTIAL_SHADERS'] = '1'
 +        say('partial iOS shader library (--seen-shaders): skipping full inputs.tsv and c1_full.tsv checks; areas the playtest list does not cover draw incomplete')
      if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)
      if args.framework: ipa_env['DM_FRAMEWORK'] = '1'; say('route C: the game\'s modules go into DmIOS.app/Frameworks/DmGame.framework (DM_FRAMEWORK=1)')
      separate = romfs_mode == 'separate'
-@@ -4760,12 +4777,14 @@ def main(args=None):
+@@ -4886,12 +4903,14 @@ def main(args=None):
          if not (fw / 'game.manifest.json').is_file(): raise BuildError(f'no game framework at {fw}')
          PROG.end(fw.name)
          rmtree(work / 'tmp')
--        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
+-        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]), romfs=romfs)
 +        if not seen_shaders:
-+            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
++            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]), romfs=romfs)
          say(f'game framework: {fw}')
-         if Path(str(rfs.source(game))).exists():
-             say(f'game files: {rfs.source(game)}')
+         if has_local_romfs:
+             say(f'game files: {romfs}')
          else:
              say('game files: cached RomFS identity (no local extraction)')
 +        if seen_shaders: say('a partial iOS shader library: areas the playtest list does not cover draw incomplete. Build again without --seen-shaders for the whole shader map')
          report_profile_status(g, reg, pkg_ver, derived, provisional, 'shell framework', patched)
          return
      if prepare_xcode:
-@@ -4775,12 +4794,14 @@ def main(args=None):
+@@ -4902,12 +4921,14 @@ def main(args=None):
          except ValueError as e: raise BuildError(str(e)) from e
          PROG.end()
          rmtree(work / 'tmp')
--        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
+-        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]), romfs=romfs)
 +        if not seen_shaders:
-+            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
++            _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]), romfs=romfs)
          say(f'ready: {workspace}')
          say(f'game project: {project}')
          say(f'Xcode derived data: {work / "xcode-derived-data"}')
-         if separate: say_push_romfs(rfs.source(game), bundle_id)
+         if separate: say_push_romfs(romfs, bundle_id)
          say('choose the game scheme in Xcode, select your Team and iPhone or iPad, then Run (Release)')
 +        if seen_shaders: say('a partial iOS shader library: areas the playtest list does not cover draw incomplete. Build again without --seen-shaders for the whole shader map')
          report_profile_status(g, reg, pkg_ver, derived, provisional, 'Xcode project', patched)
          return
      watch = IpaWatch(repo, work / 'ipa', out_ipa)
-@@ -4792,11 +4813,13 @@ def main(args=None):
+@@ -4919,11 +4940,13 @@ def main(args=None):
      tree_tar.pack(xcode_data, say)
      PROG.end(f'{out_ipa.name}, {amount(out_ipa.stat().st_size, "B")}')
      rmtree(work / 'tmp')
--    _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
+-    _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]), romfs=romfs)
 +    if not seen_shaders:
-+        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]))
++        _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_name, app_version, bundle_id, lang, have_langs, gfx, repo, work, game, sh, aoc, jit, programs, control, icon, fallback_romfs_id=seed_romfs_id, gl_fixed=bool(src.get('gl_fixed', (False, ''))[0]), romfs=romfs)
      if not keep:
          for d in [ex] + [r['ex'] for r in programs.values()]: say(f'deleting the extracted game files: {d}'); rmtree(d)
      say(f'done: {out_ipa} ({out_ipa.stat().st_size / 2**30:.1f} GB)')
-     if separate: say_push_romfs(rfs.source(game), bundle_id)
+     if separate: say_push_romfs(romfs, bundle_id)
 +    if seen_shaders: say('a partial iOS shader library: areas the playtest list does not cover draw incomplete. Build again without --seen-shaders for the whole shader map')
      report_profile_status(g, reg, pkg_ver, derived, provisional, patched=patched)
  
