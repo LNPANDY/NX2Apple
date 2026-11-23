@@ -2836,6 +2836,7 @@
   "upstream.mngInvalid": "%@ ist kein MacNativeGames-Ordner",
   "upstream.mngMacOnly": "MacNativeGames erstellt nur Mac-Apps",
   "upstream.mngMissing": "Wähle zuerst in den Einstellungen einen MacNativeGames-Ordner aus",
+  "upstream.mngNeedsDumpFolder": "MacNativeGames benötigt für diesen Titel einen entpackten Switch-2-Ordner, nutze NX2Apple für .nup-Dateien",
   "upstream.mngOnlyFiveTitles": "Nur für 12 unterstützte Titel verfügbar",
   "upstream.mngPickMessage": "Wähle den MacNativeGames-Repository-Ordner aus",
   "upstream.mngRecommendNote": "Dieses Spiel unterstützt optimierte Mac-Builds mit MacNativeGames",

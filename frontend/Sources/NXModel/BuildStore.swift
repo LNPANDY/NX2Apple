@@ -236,6 +236,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             defaults.set(macNativeGamesPath, forKey: Self.macNativeGamesPathKey)
             macNativeGamesInstalled = MacNativeGamesBuilder.isUsableTree(macNativeGamesPath)
             refreshUpstreamLocalVersion(for: .macNativeGames)
+            let blocksMNG = queue?.queued.contains { !Self.canQueueEntryUseMNG($0, tree: macNativeGamesPath) } ?? false
+            if queueBlocksMNG != blocksMNG { queueBlocksMNG = blocksMNG }
+            enforceUpstreamForCurrentGame()
         }
     }
     @Published package internal(set) var macNativeGamesInstalled = false
@@ -364,12 +367,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                 readPackageTitleID: { [weak self] path, keys in
                     let reader = self?.readPackageTitleID ?? { PackageHeaderTitleID.readHex16(path: $0, keysPath: $1) }
                     return reader(path, keys)
-                }
+                },
+                mngTreePath: { [weak self] in self?.macNativeGamesPath ?? "" }
             )
             queueHasIOS = queue?.hasIOS ?? false
             let count = queue?.games.filter(\.waiting).count ?? 0
             if queuedCount != count { queuedCount = count }
-            let blocksMNG = queue?.queued.contains { !Self.canQueueEntryUseMNG($0) } ?? false
+            let blocksMNG = queue?.queued.contains { !Self.canQueueEntryUseMNG($0, tree: macNativeGamesPath) } ?? false
             if queueBlocksMNG != blocksMNG { queueBlocksMNG = blocksMNG }
             enforceUpstreamForCurrentGame()
             refreshQueueSeenShadersEligibility(entries: queue?.entries ?? [])
@@ -379,7 +383,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                 self.queueHasIOS = queuedEntries.contains { BuildTarget.normalized($0.target) != BuildTarget.mac }
                 let next = QueueGame.grouped(entries).filter(\.waiting).count
                 if self.queuedCount != next { self.queuedCount = next }
-                let nextBlocksMNG = queuedEntries.contains { !Self.canQueueEntryUseMNG($0) }
+                let nextBlocksMNG = queuedEntries.contains { !Self.canQueueEntryUseMNG($0, tree: self.macNativeGamesPath) }
                 if self.queueBlocksMNG != nextBlocksMNG { self.queueBlocksMNG = nextBlocksMNG }
                 self.enforceUpstreamForCurrentGame()
                 self.refreshQueueSeenShadersEligibility(entries: entries)

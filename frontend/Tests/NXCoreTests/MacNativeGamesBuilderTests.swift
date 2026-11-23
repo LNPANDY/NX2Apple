@@ -572,4 +572,36 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         ).get(), unpackedUpdate)
         XCTAssertEqual(streamCount, 2)
     }
+
+    func testNUPSupportDependsOnTitleAndUpstreamGenericNUPCapability() throws {
+        let oldTree = try makeFakeMNGTree()
+        XCTAssertFalse(MacNativeGamesBuilder.supportsGenericNUP(in: oldTree))
+
+        // Ocarina of Time accepts .nup directly on current MNG checkouts.
+        XCTAssertTrue(MacNativeGamesBuilder.supportsInput(titleID: "0400486024DEC000", isNUP: true, tree: oldTree))
+        // Pokopia and Donkey Kong Bananza require an unpacked dump folder when tools/nup_input.py is absent.
+        XCTAssertFalse(MacNativeGamesBuilder.supportsInput(titleID: "0400A3A01EE4C000", isNUP: true, tree: oldTree))
+        XCTAssertFalse(MacNativeGamesBuilder.supportsInput(titleID: "040074A01BF12000", isNUP: true, tree: oldTree))
+        XCTAssertTrue(MacNativeGamesBuilder.supportsInput(titleID: "0400A3A01EE4C000", isNUP: false, tree: oldTree))
+        XCTAssertTrue(MacNativeGamesBuilder.supportsInput(titleID: "040074A01BF12000", isNUP: false, tree: oldTree))
+
+        // A folder wrapping a single .nup file is also detected as a .nup input.
+        let wrapperDir = temporary.appendingPathComponent("PokopiaWrapper")
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrappedNUP = wrapperDir.appendingPathComponent("Pokopia [0400A3A01EE4C000].nup")
+        try Data([0]).write(to: wrappedNUP)
+        XCTAssertTrue(MacNativeGamesBuilder.isNUPInputPath(wrappedNUP.path))
+        XCTAssertTrue(MacNativeGamesBuilder.isNUPInputPath(wrapperDir.path))
+        XCTAssertFalse(MacNativeGamesBuilder.supportsInput(titleID: "0400A3A01EE4C000", gameFolder: wrapperDir.path, tree: oldTree))
+
+        // Once MNG ships tools/nup_input.py (upstream PR #2339), Pokopia and Bananza .nup inputs unlock automatically,
+        // while titles outside the 12-game allowlist stay blocked.
+        let toolsDir = URL(fileURLWithPath: oldTree).appendingPathComponent("tools")
+        try FileManager.default.createDirectory(at: toolsDir, withIntermediateDirectories: true)
+        try Data("# nup_input\n".utf8).write(to: toolsDir.appendingPathComponent("nup_input.py"))
+        XCTAssertTrue(MacNativeGamesBuilder.supportsGenericNUP(in: oldTree))
+        XCTAssertTrue(MacNativeGamesBuilder.supportsInput(titleID: "0400A3A01EE4C000", isNUP: true, tree: oldTree))
+        XCTAssertTrue(MacNativeGamesBuilder.supportsInput(titleID: "040074A01BF12000", isNUP: true, tree: oldTree))
+        XCTAssertFalse(MacNativeGamesBuilder.supportsInput(titleID: "0400C3F00006E000", isNUP: true, tree: oldTree))
+    }
 }

@@ -712,4 +712,67 @@ import XCTest
         let buildPath = try XCTUnwrap(buildLaunch?.environment?["PATH"])
         XCTAssertTrue(buildPath.hasPrefix(nszVenvDir + "/bin:"), buildPath)
     }
+
+    func testPokopiaNUPBlockedOnLegacyMNGAndUnlocksWhenGenericNUPPresent() throws {
+        let mngTree = try makeFakeMNGTree()
+        let runner = RecordingRunner()
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        store.macNativeGamesPath = mngTree
+        store.target = BuildTarget.mac
+        store.selectUpstream(.macNativeGames)
+        XCTAssertEqual(store.buildUpstream, .macNativeGames)
+
+        let pokopiaNUP = temporary.appendingPathComponent("Pokemon Pokopia [0400A3A01EE4C000].nup")
+        let ootNUP = temporary.appendingPathComponent("Ocarina of Time [0400486024DEC000].nup")
+        let bananzaDump = temporary.appendingPathComponent("BananzaDump")
+        try Data([0]).write(to: pokopiaNUP)
+        try Data([0]).write(to: ootNUP)
+        try FileManager.default.createDirectory(at: bananzaDump, withIntermediateDirectories: true)
+
+        // Legacy MNG (without tools/nup_input.py) blocks Pokopia .nup, reverts to nxnative, hides recommendation,
+        // and reports the dump-folder reason key.
+        store.updateSlot("base") { $0.paths = [pokopiaNUP.path] }
+        XCTAssertEqual(store.buildUpstream, .nxnative)
+        XCTAssertTrue(store.isMNGBlockedByCurrentGame)
+        XCTAssertTrue(store.isCurrentGameNUPBlockedForMNG)
+        XCTAssertFalse(store.shouldRecommendMacNativeGames)
+        XCTAssertEqual(store.mngBlockedReasonKey, "upstream.mngNeedsDumpFolder")
+
+        // Ocarina of Time .nup remains allowed on legacy MNG.
+        store.updateSlot("base") { $0.paths = [ootNUP.path] }
+        XCTAssertFalse(store.isMNGBlockedByCurrentGame)
+        XCTAssertFalse(store.isCurrentGameNUPBlockedForMNG)
+        XCTAssertTrue(store.shouldRecommendMacNativeGames)
+
+        // Batch queue coerces Pokopia .nup to nxnative on legacy MNG while preserving OOT .nup and Bananza dump folder on MNG.
+        let queue = BuildQueueStore(file: nil, engineID: { "main" }, busy: { store.running }, start: { store.startQueued($0) })
+        store.queue = queue
+        store.selectUpstream(.macNativeGames)
+        XCTAssertEqual(store.buildUpstream, .macNativeGames)
+        queue.enqueue([
+            QueueEntry(titleID: "0400A3A01EE4C000", name: "Pokopia NUP", target: BuildTarget.mac,
+                       inputs: ["base": [pokopiaNUP.path]], gameFolder: pokopiaNUP.path, outputDirectory: temporary.path, engineID: "main"),
+            QueueEntry(titleID: "0400486024DEC000", name: "OOT NUP", target: BuildTarget.mac,
+                       inputs: ["base": [ootNUP.path]], gameFolder: ootNUP.path, outputDirectory: temporary.path, engineID: "main"),
+            QueueEntry(titleID: "040074A01BF12000", name: "Bananza Dump", target: BuildTarget.mac,
+                       inputs: ["base": [bananzaDump.path]], gameFolder: bananzaDump.path, outputDirectory: temporary.path, engineID: "main"),
+        ])
+        XCTAssertEqual(queue.entries.count, 3)
+        XCTAssertEqual(queue.entries[0].upstream, .nxnative)
+        XCTAssertEqual(queue.entries[1].upstream, .macNativeGames)
+        XCTAssertEqual(queue.entries[2].upstream, .macNativeGames)
+        XCTAssertTrue(store.isMNGBlockedByQueuedBuilds)
+
+        // Once MNG is updated with tools/nup_input.py, re-assigning macNativeGamesPath immediately unlocks single-game and queue MNG eligibility.
+        let toolsDir = URL(fileURLWithPath: mngTree).appendingPathComponent("tools")
+        try FileManager.default.createDirectory(at: toolsDir, withIntermediateDirectories: true)
+        try Data("# nup_input\n".utf8).write(to: toolsDir.appendingPathComponent("nup_input.py"))
+        store.updateSlot("base") { $0.paths = [pokopiaNUP.path] }
+        store.macNativeGamesPath = mngTree
+        XCTAssertFalse(store.isMNGBlockedByQueuedBuilds)
+        XCTAssertFalse(store.isMNGBlockedByCurrentGame)
+        XCTAssertFalse(store.isCurrentGameNUPBlockedForMNG)
+        XCTAssertTrue(store.shouldRecommendMacNativeGames)
+    }
 }

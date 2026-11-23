@@ -2835,6 +2835,7 @@
   "upstream.mngInvalid": "%@ non è una cartella MacNativeGames",
   "upstream.mngMacOnly": "MacNativeGames crea solo app per Mac",
   "upstream.mngMissing": "Scegli prima una cartella MacNativeGames nelle Impostazioni",
+  "upstream.mngNeedsDumpFolder": "MacNativeGames richiede una cartella Switch 2 decompressa per questo titolo, usa NX2Apple per i file .nup",
   "upstream.mngOnlyFiveTitles": "Disponibile solo per 12 titoli supportati",
   "upstream.mngPickMessage": "Scegli la cartella del repository MacNativeGames",
   "upstream.mngRecommendNote": "Questo gioco supporta build Mac ottimizzate con MacNativeGames",

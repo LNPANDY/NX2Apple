@@ -2835,6 +2835,7 @@
   "upstream.mngInvalid": "%@ 不是 MacNativeGames 仓库文件夹",
   "upstream.mngMacOnly": "MacNativeGames 仅支持构建 Mac 应用",
   "upstream.mngMissing": "请先在设置中选择 MacNativeGames 文件夹",
+  "upstream.mngNeedsDumpFolder": "MacNativeGames 构建此游戏需要解包后的 Switch 2 目录，.nup 单文件请使用 NX2Apple 引擎",
   "upstream.mngOnlyFiveTitles": "仅适用于《王国之泪》等 12 款官方支持游戏",
   "upstream.mngPickMessage": "选择 MacNativeGames 仓库文件夹",
   "upstream.mngRecommendNote": "本作支持 MacNativeGames 专项优化构建",

@@ -283,9 +283,60 @@ package enum MacNativeGamesBuilder {
 
     package static let supportedTitleIDs: Set<String> = unifiedTitleIDs.union(perGameTitleIDs.keys)
 
+    /// Titles whose MacNativeGames builder accepts `.nup` archives directly.
+    /// Upstream `build_app.py` routes every `.nup` input to Ocarina of Time (`build_oot`), so other Switch 2 titles
+    /// such as Pokopia and Donkey Kong Bananza require an unpacked Switch 2 dump folder.
+    package static let nupSupportedTitleIDs: Set<String> = [
+        "0400486024DEC000", // The Legend of Zelda: Ocarina of Time (Switch 2)
+    ]
+
     /// Returns true only when `titleID` normalizes to one of the 12 official MacNativeGames 16-hex IDs.
     package static func supportsTitleID(_ titleID: String?) -> Bool {
         normalizedHex16(titleID).map { supportedTitleIDs.contains($0) } ?? false
+    }
+
+    /// True when `path` is a `.nup` archive file or a folder whose Switch 2 input is a `.nup` file.
+    package static func isNUPInputPath(_ path: String?) -> Bool {
+        guard let raw = path?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return false }
+        if (raw as NSString).pathExtension.lowercased() == "nup" {
+            return true
+        }
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: raw, isDirectory: &isDir), isDir.boolValue {
+            let resolved = GameFolder.resolve(raw)
+            if (resolved as NSString).pathExtension.lowercased() == "nup" {
+                return true
+            }
+            return !GameFolder.nupFiles(in: resolved).isEmpty
+        }
+        return false
+    }
+
+    /// True when the local MacNativeGames checkout includes generic Switch 2 NUP routing (`tools/nup_input.py`, MNG PR #2339).
+    package static func supportsGenericNUP(in tree: String, fileManager fm: FileManager = .default) -> Bool {
+        let root = normalizedPath(tree)
+        guard !root.isEmpty else { return false }
+        return fm.fileExists(atPath: root + "/tools/nup_input.py")
+    }
+
+    /// True when MacNativeGames supports `titleID` with the given input format (`isNUP` distinguishes `.nup` files from dump folders / XCI / NSP).
+    package static func supportsInput(titleID: String?, isNUP: Bool, tree: String = "", fileManager fm: FileManager = .default) -> Bool {
+        guard let tid = normalizedHex16(titleID), supportedTitleIDs.contains(tid) else { return false }
+        if !isNUP || nupSupportedTitleIDs.contains(tid) {
+            return true
+        }
+        return supportsGenericNUP(in: tree, fileManager: fm)
+    }
+
+    package static func supportsInput(
+        titleID: String?,
+        gameFolder: String? = nil,
+        basePath: String? = nil,
+        tree: String = "",
+        fileManager fm: FileManager = .default
+    ) -> Bool {
+        let isNUP = isNUPInputPath(gameFolder) || isNUPInputPath(basePath)
+        return supportsInput(titleID: titleID, isNUP: isNUP, tree: tree, fileManager: fm)
     }
 
     /// Normalizes a 16-character hexadecimal title ID string, returning nil for empty or non-16-hex values.
