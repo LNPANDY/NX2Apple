@@ -236,7 +236,7 @@ struct BatteryChip: View {
         .lineLimit(typeSize.isAccessibilitySize && controller.batteryPercent == nil ? nil : 1)
         .fixedSize(horizontal: !typeSize.isAccessibilitySize || controller.batteryPercent != nil, vertical: true)
         .shellText(12.5, .semibold, relativeTo: .footnote)
-        .foregroundStyle(controller.batteryPercent == nil ? .white.opacity(0.45) : tint)
+        .foregroundStyle(controller.batteryPercent == nil ? .white.opacity(0.62) : tint)
         .padding(.horizontal, 10).padding(.vertical, 4).frame(minHeight: 28)
         .background(.white.opacity(0.06), in: Capsule())
         .accessibilityElement(children: .ignore)

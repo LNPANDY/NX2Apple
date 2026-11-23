@@ -57,7 +57,7 @@ struct ButtonTestView: View {
                             .accessibilityAddTraits(.isHeader).accessibilityIdentifier("buttonTest.title")
                     }
                     Text(controllerName)
-                        .shellType(ShellType.note).foregroundStyle(.white.opacity(0.5))
+                        .shellType(ShellType.note).foregroundStyle(.white.opacity(0.62))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)

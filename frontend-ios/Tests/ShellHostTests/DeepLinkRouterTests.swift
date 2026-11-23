@@ -713,6 +713,49 @@ private final class LockedBox<Value>: @unchecked Sendable {
         let cgImage = try #require(HomeScreenGuideCardRenderer.renderCGImage(stepper: stepper, iconPNG: iconPNG, hintText: hint))
         #expect(cgImage.width == 960)
         #expect(cgImage.height == 540)
+
+        let veryLongHint = String(repeating: "Touchez retour ou avancer pour changer d’étape ", count: 6)
+        let truncatedPB = try #require(HomeScreenGuideCardRenderer.renderPixelBuffer(stepper: stepper, iconPNG: iconPNG, hintText: veryLongHint))
+        let emptyHintPB = try #require(HomeScreenGuideCardRenderer.renderPixelBuffer(stepper: stepper, iconPNG: iconPNG, hintText: ""))
+        #expect(CVPixelBufferGetWidth(truncatedPB) == 960)
+        #expect(CVPixelBufferGetHeight(truncatedPB) == 540)
+
+        // Compare hint band outside horizontal margins (x < 36 and x > 924) against the empty-hint baseline:
+        // truncated hint text must never bleed outside the card margins.
+        let truncatedBytes = pixelBufferBytes(truncatedPB)
+        let baselineBytes = pixelBufferBytes(emptyHintPB)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(truncatedPB)
+        let hintBandYRange = (540 - 72)..<(540 - 30)
+        var marginOverflowPixels = 0
+        var insideHintDiffPixels = 0
+        for y in hintBandYRange {
+            for x in 0..<960 {
+                let offset = y * bytesPerRow + x * 4
+                let dr = abs(Int(truncatedBytes[offset + 2]) - Int(baselineBytes[offset + 2]))
+                let dg = abs(Int(truncatedBytes[offset + 1]) - Int(baselineBytes[offset + 1]))
+                let db = abs(Int(truncatedBytes[offset]) - Int(baselineBytes[offset]))
+                let changed = max(dr, max(dg, db)) > 12
+                if changed {
+                    if x < 36 || x > 924 {
+                        marginOverflowPixels += 1
+                    } else {
+                        insideHintDiffPixels += 1
+                    }
+                }
+            }
+        }
+        #expect(insideHintDiffPixels > 0, "hint text must actually draw inside the horizontal margins")
+        #expect(marginOverflowPixels == 0, "truncated hint text must not overflow outside card margins")
+
+        // Narrowest supported canvas (64x64) and empty hint text must render safely without crashing or negative rects.
+        let narrowImage = try #require(
+            HomeScreenGuideCardRenderer.renderCGImage(stepper: stepper, iconPNG: nil, hintText: veryLongHint, size: CGSize(width: 64, height: 64))
+        )
+        #expect(narrowImage.width == 64)
+        #expect(narrowImage.height == 64)
+        let emptyImage = try #require(HomeScreenGuideCardRenderer.renderCGImage(stepper: stepper, iconPNG: nil, hintText: ""))
+        #expect(emptyImage.width == 960)
+        #expect(emptyImage.height == 540)
     }
 
     @Test func homeScreenGuidePiPToggleAndLifecycleRespectsUserChoice() async throws {

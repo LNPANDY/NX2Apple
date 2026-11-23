@@ -10817,6 +10817,70 @@
         }
       }
     },
+    "Games using this shared folder will no longer find their data until you choose a folder again. Your files on disk are not deleted.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiele, die diesen gemeinsamen Ordner nutzen, finden ihre Daten erst wieder, wenn du erneut einen Ordner auswählst. Deine Dateien werden nicht gelöscht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Games using this shared folder will no longer find their data until you choose a folder again. Your files on disk are not deleted."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los juegos que usan esta carpeta compartida no encontrarán sus datos hasta que elijas otra carpeta. Tus archivos no se eliminarán."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les jeux utilisant ce dossier partagé ne trouveront plus leurs données tant que vous n’en choisirez pas un autre. Vos fichiers sur l’appareil ne sont pas supprimés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I giochi che usano questa cartella condivisa non troveranno più i dati finché non scegli di nuovo una cartella. I file sul dispositivo non vengono eliminati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この共有フォルダを使うゲームは、フォルダを再選択するまでデータを見つけられなくなります。端末上のファイルは削除されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 공유 폴더를 사용하는 게임은 폴더를 다시 선택할 때까지 데이터를 찾을 수 없습니다. 기기의 파일은 삭제되지 않습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jogos que usam esta pasta compartilhada não encontrarão seus dados até você escolher outra pasta. Seus arquivos no dispositivo não são apagados."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spel som använder den här delade mappen hittar inte sina data förrän du väljer en mapp igen. Dina filer på enheten tas inte bort."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用此共享目录的游戏在重新选择目录前将无法找到数据。磁盘上的文件不会被删除。"
+          }
+        }
+      }
+    },
     "Games without a folder of their own save here. Choose the same iCloud Drive folder you use on your Mac.": {
       "localizations": {
         "de": {
@@ -10877,6 +10941,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "没有单独指定文件夹的游戏会把存档保存在这里。请选择与 Mac 相同的 iCloud Drive 文件夹。"
+          }
+        }
+      }
+    },
+    "Games without a folder of their own will stop syncing saves with iCloud Drive. Existing save files are kept.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiele ohne eigenen Ordner synchronisieren keine Spielstände mehr mit iCloud Drive. Vorhandene Spielstände bleiben erhalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Games without a folder of their own will stop syncing saves with iCloud Drive. Existing save files are kept."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los juegos sin carpeta propia dejarán de sincronizar partidas con iCloud Drive. Los archivos guardados existentes se conservarán."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les jeux sans dossier dédié ne synchroniseront plus leurs sauvegardes avec iCloud Drive. Les sauvegardes existantes sont conservées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I giochi senza una cartella dedicata smetteranno di sincronizzare i salvataggi con iCloud Drive. I salvataggi esistenti verranno mantenuti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個別フォルダを持たないゲームは iCloud Drive とのセーブ同期を停止します。既存のセーブファイルは保持されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개별 폴더가 없는 게임은 iCloud Drive와의 저장 데이터 동기화를 중단합니다. 기존 저장 파일은 유지됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jogos sem pasta própria deixarão de sincronizar salvamentos com o iCloud Drive. Os arquivos existentes serão mantidos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spel utan egen mapp slutar synka sparfiler med iCloud Drive. Befintliga sparfiler behålls."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未单独指定目录的游戏将停止与 iCloud 云盘同步存档。已有存档文件会保留。"
           }
         }
       }
@@ -11133,6 +11261,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "掌机模式"
+          }
+        }
+      }
+    },
+    "Hide password": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwort ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide password"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar contraseña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer le mot de passe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi password"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードを隠す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "암호 가리기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar senha"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dölj lösenord"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏密码"
           }
         }
       }
@@ -17665,6 +17857,70 @@
         }
       }
     },
+    "Open Settings": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Impostazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 열기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öppna inställningar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开设置"
+          }
+        }
+      }
+    },
     "Opens the button mapping": {
       "localizations": {
         "de": {
@@ -20417,6 +20673,134 @@
         }
       }
     },
+    "Remove game data folder?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spieldaten-Ordner entfernen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove game data folder?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Quitar carpeta de datos de juegos?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retirer le dossier de données ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovere la cartella dati di gioco?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームデータフォルダを削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 데이터 폴더를 제거할까요?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover pasta de dados dos jogos?"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta bort mappen för speldata?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除游戏数据目录？"
+          }
+        }
+      }
+    },
+    "Remove signing certificate?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signierzertifikat entfernen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove signing certificate?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar certificado de firma?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer le certificat de signature ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovere il certificato di firma?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "署名証明書を削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서명 인증서를 제거할까요?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover certificado de assinatura?"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta bort signeringscertifikat?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除签名证书？"
+          }
+        }
+      }
+    },
     "Removed": {
       "localizations": {
         "de": {
@@ -23165,6 +23549,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "显示日志"
+          }
+        }
+      }
+    },
+    "Show password": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwort einblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show password"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar contraseña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le mot de passe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra password"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "암호 보기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar senha"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visa lösenord"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示密码"
           }
         }
       }
@@ -26369,6 +26817,70 @@
         }
       }
     },
+    "Transfer games from NX2Apple on your Mac or PC, or choose a game data folder in Settings.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übertrage Spiele über NX2Apple auf deinem Mac oder PC oder wähle in den Einstellungen einen Spieldaten-Ordner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transfer games from NX2Apple on your Mac or PC, or choose a game data folder in Settings."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transfiere juegos desde NX2Apple en tu Mac o PC, o elige una carpeta de datos en Ajustes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transférez des jeux depuis NX2Apple sur votre Mac ou PC, ou choisissez un dossier de données dans Réglages."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trasferisci i giochi da NX2Apple sul tuo Mac o PC oppure scegli una cartella dati nelle Impostazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac または PC の NX2Apple からゲームを転送するか、設定でゲームデータフォルダを選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 또는 PC의 NX2Apple에서 게임을 전송하거나 설정에서 게임 데이터 폴더를 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transfira jogos pelo NX2Apple no seu Mac ou PC, ou escolha uma pasta de dados nos Ajustes."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "För över spel från NX2Apple på din Mac eller PC, eller välj en mapp för speldata i Inställningar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 Mac 或 PC 上的 NX2Apple 传输游戏，或在「设置」中选择游戏数据目录。"
+          }
+        }
+      }
+    },
     "Turn off": {
       "localizations": {
         "de": {
@@ -26493,6 +27005,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "关闭云存档"
+          }
+        }
+      }
+    },
+    "Turn off cloud saves?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Spielstände deaktivieren?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn off cloud saves?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Desactivar partidas en la nube?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactiver les sauvegardes iCloud ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivare i salvataggi su iCloud?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドセーブをオフにしますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 저장을 끌까요?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativar salvamentos na nuvem?"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stänga av molnsparningar?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭云存档？"
           }
         }
       }
@@ -26813,6 +27389,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "未知"
+          }
+        }
+      }
+    },
+    "Unsigned game frameworks will not be signed automatically on launch until you import another .p12 certificate.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsignierte Spiele-Frameworks werden beim Start erst wieder automatisch signiert, wenn du ein weiteres .p12-Zertifikat importierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsigned game frameworks will not be signed automatically on launch until you import another .p12 certificate."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los frameworks de juegos sin firmar no se firmarán automáticamente al iniciar hasta que importes otro certificado .p12."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les frameworks de jeu non signés ne seront plus signés automatiquement au lancement tant que vous n’aurez pas importé un autre certificat .p12."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I framework dei giochi non firmati non verranno più firmati automaticamente all’avvio finché non importi un altro certificato .p12."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の .p12 証明書をインポートするまで、未署名のゲームフレームワークは起動時に自動署名されなくなります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 .p12 인증서를 가져올 때까지 서명되지 않은 게임 프레임워크는 실행 시 자동으로 서명되지 않습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frameworks de jogos sem assinatura não serão assinados automaticamente ao iniciar até você importar outro certificado .p12."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osignerade spelramverk signeras inte automatiskt vid start förrän du importerar ett nytt .p12-certifikat."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除后，在重新导入 .p12 证书之前，未签名的游戏框架启动时将不会自动签名。"
           }
         }
       }

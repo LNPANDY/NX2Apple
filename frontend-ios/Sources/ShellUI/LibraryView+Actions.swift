@@ -212,14 +212,14 @@ extension LibraryView {
         touchLayout = TouchLayoutEditorModel.forDevice(window: window, insets: insets)
         focus.id = "lay.options"
     }
-    func closeTouchLayout() { guard !fromSystemEcho else { return }; touchLayout = nil; focus.id = "shs.arrange" }
+    func closeTouchLayout() { guard !fromSystemEcho else { return }; touchLayout = nil; focus.id = "shs.arrange"; focusRefresh &+= 1 }
     func confirmTouchLayout() {
         guard !fromSystemEcho, let touchLayout, !touchLayout.invalidPlacement else { return }
         touchLayout.commit()
         closeTouchLayout()
     }
     func openHelp(_ id: String) { guard !fromSystemEcho else { return }; returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
-    func closeHelp() { guard !fromSystemEcho else { return }; helpGameID = nil; focus.id = returnFocus }
+    func closeHelp() { guard !fromSystemEcho else { return }; helpGameID = nil; focus.id = returnFocus; focusRefresh &+= 1 }
     func openRestoreBackup(_ id: String, label: String) {
         guard noteTouch() else { return }
         returnFocus = focus.id
@@ -231,6 +231,7 @@ extension LibraryView {
         guard !fromSystemEcho else { return }
         restoreBackupGameID = nil
         focus.id = returnFocus
+        focusRefresh &+= 1
     }
     func confirmRestoreBackup(_ id: String) {
         guard !fromSystemEcho else { return }
@@ -247,6 +248,7 @@ extension LibraryView {
         guard !fromSystemEcho else { return }
         homeScreenGameID = nil
         focus.id = returnFocus
+        focusRefresh &+= 1
     }
     func openCheats(_ id: String) {
         guard noteTouch(), actions.supportsCheats else { return }
@@ -258,6 +260,7 @@ extension LibraryView {
         guard !fromSystemEcho else { return }
         cheatsGameID = nil
         focus.id = returnFocus
+        focusRefresh &+= 1
     }
     var activeCoverCrop: CoverCropSession? {
         coverCropInSheetSession ?? coverCropSession
@@ -281,6 +284,7 @@ extension LibraryView {
         coverCropSession = nil
         coverCropInSheetSession = nil
         focus.id = returnFocus
+        focusRefresh &+= 1
         actions.onSaveCustomCover?(gameID, jpegData)
     }
     func closeCoverCrop() {
@@ -288,6 +292,7 @@ extension LibraryView {
         coverCropSession = nil
         coverCropInSheetSession = nil
         focus.id = returnFocus
+        focusRefresh &+= 1
     }
     #if canImport(PhotosUI)
     func handlePickedCoverPhoto(_ item: PhotosPickerItem) {
@@ -348,7 +353,7 @@ extension LibraryView {
     }
     /// The question starts on Cancel, with the saves kept.
     func openDelete(_ id: String) { guard noteTouch() else { return }; returnFocus = focus.id; deleteSaves = false; deleteGameID = id; focus.id = "del.cancel" }
-    func closeDelete() { guard !fromSystemEcho else { return }; deleteGameID = nil; focus.id = returnFocus }
+    func closeDelete() { guard !fromSystemEcho else { return }; deleteGameID = nil; focus.id = returnFocus; focusRefresh &+= 1 }
     func confirmDelete(_ id: String) {
         guard !fromSystemEcho else { return }
         let saves = deleteSaves
@@ -366,6 +371,7 @@ extension LibraryView {
         choice = nil
         let prefix = request.gameID == ShellSettingsRows.gameID ? ShellSettingsRows.targetPrefix : request.gameID == TouchLayoutEditorView.gameID ? "lay.row." : "set.row."
         focus.id = prefix + request.row.id
+        focusRefresh &+= 1
     }
     func pickChoice(_ value: String) {
         guard noteTouch() else { return }
@@ -392,7 +398,7 @@ extension LibraryView {
         padMapping = PadMappingState(gameID: id)
         focus.id = "map.close"
     }
-    func closePadMapping() { guard !fromSystemEcho else { return }; padMapping = nil; focus.id = returnFocus }
+    func closePadMapping() { guard !fromSystemEcho else { return }; padMapping = nil; focus.id = returnFocus; focusRefresh &+= 1 }
     func openPadRow(_ row: String) {
         guard noteTouch() else { return }
         padMapping?.row = row
@@ -424,6 +430,46 @@ extension LibraryView {
         buttonTestOpen = false
         actions.onButtonTest(false)
         focus.id = "ctl.test"
+        focusRefresh &+= 1
+    }
+    /// Unconditionally reconciles secondary route state when NavigationStack pops via edge swipe or system back,
+    /// avoiding `fromSystemEcho` drops that would leave state desynced from the stack.
+    func clearSecondaryMenuRouteFromNavigationPop() {
+        if padMapping != nil {
+            padMapping = nil
+            focus.id = returnFocus
+            focusRefresh &+= 1
+        } else if buttonTestOpen {
+            buttonTestOpen = false
+            actions.onButtonTest(false)
+            focus.id = "ctl.test"
+            focusRefresh &+= 1
+        } else if let request = choice {
+            choice = nil
+            let prefix = request.gameID == ShellSettingsRows.gameID ? ShellSettingsRows.targetPrefix : request.gameID == TouchLayoutEditorView.gameID ? "lay.row." : "set.row."
+            focus.id = prefix + request.row.id
+            focusRefresh &+= 1
+        } else if helpGameID != nil {
+            helpGameID = nil
+            focus.id = returnFocus
+            focusRefresh &+= 1
+        } else if cheatsGameID != nil {
+            cheatsGameID = nil
+            focus.id = returnFocus
+            focusRefresh &+= 1
+        } else if restoreBackupGameID != nil {
+            restoreBackupGameID = nil
+            focus.id = returnFocus
+            focusRefresh &+= 1
+        } else if homeScreenGameID != nil {
+            homeScreenGameID = nil
+            focus.id = returnFocus
+            focusRefresh &+= 1
+        } else if deleteGameID != nil {
+            deleteGameID = nil
+            focus.id = returnFocus
+            focusRefresh &+= 1
+        }
     }
     func back() {
         guard !fromSystemEcho else { return }
@@ -433,7 +479,10 @@ extension LibraryView {
         else if padMapping != nil { closePadMapping() }
         else if choice != nil { closeChoice() }
         else if let touchLayout {
-            if touchLayout.held { touchLayout.putDown() } else if touchLayout.confirmingExit { touchLayout.confirmingExit = false } else if touchLayout.requestExit() { closeTouchLayout() }
+            if touchLayout.held { touchLayout.putDown() }
+            else if touchLayout.confirmingReset { touchLayout.cancelReset() }
+            else if touchLayout.confirmingExit { touchLayout.confirmingExit = false }
+            else if touchLayout.requestExit() { closeTouchLayout() }
         }
         else if helpGameID != nil { closeHelp() }
         else if cheatsGameID != nil { closeCheats() }
@@ -603,6 +652,6 @@ extension LibraryView {
         if controllersOpen { return "ctl.close" }
         if shellSettingsOpen { return "shs.close" }
         if settingsOpen { return "set.back" }
-        return selected.map { "lib.tile.\($0.id)" } ?? "lib.controllers"
+        return selected.map { "lib.tile.\($0.id)" } ?? "lib.empty.settings"
     }
 }

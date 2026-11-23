@@ -106,4 +106,11 @@ final class ChoicePresentationTests: XCTestCase {
         let left = GameLaunchActions.insets(size: size, division: CGRect(x: 100, y: -300, width: 40, height: 900))
         XCTAssertEqual(left, EdgeInsets(top: 0, leading: 140, bottom: 0, trailing: 0))
     }
+
+    func testCoverViewUsesCompactStateDotBelow220pt() {
+        XCTAssertTrue(CoverView.usesCompactStateDot(forWidth: 140))
+        XCTAssertTrue(CoverView.usesCompactStateDot(forWidth: 219.9))
+        XCTAssertFalse(CoverView.usesCompactStateDot(forWidth: 220))
+        XCTAssertFalse(CoverView.usesCompactStateDot(forWidth: 320))
+    }
 }

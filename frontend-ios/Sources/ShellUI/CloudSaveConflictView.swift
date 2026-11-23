@@ -238,14 +238,17 @@ public struct SigningWarningBanner: View {
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.65))
+                    .foregroundStyle(.white.opacity(0.70))
                     .frame(width: 28, height: 28)
                     .background(.white.opacity(0.08), in: Circle())
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .padding(-8)
             .accessibilityLabel(ShellStrings.text("Close"))
             .accessibilityIdentifier("signing.dismiss")
-            .shellTarget("lib.signing.dismiss", radius: 14, action: onDismiss)
+            .shellTarget("lib.signing.dismiss", radius: 22, action: onDismiss)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)

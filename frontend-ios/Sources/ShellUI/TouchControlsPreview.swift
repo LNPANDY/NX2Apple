@@ -57,7 +57,7 @@ struct TouchPadPreviewGeometry: Equatable {
 /// The line under the preview: what the touch controls rows apply to.
 struct TouchControlsNote: View {
     var body: some View {
-        Text(ShellSettingsRows.touchNote).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5))
+        Text(ShellSettingsRows.touchNote).shellType(ShellType.note).foregroundStyle(.white.opacity(0.62))
             .fixedSize(horizontal: false, vertical: true)
     }
 }

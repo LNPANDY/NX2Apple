@@ -28,14 +28,17 @@ struct TouchLayoutEditorView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var idleActivity = 0
     /// The drag in progress: the control, where its offset started, and the spot drawn under the finger when the engine refuses it.
-    @State private var drag: DragState?
-    @State private var bounce: CGSize = .zero
+    @State var drag: DragState?
+    @GestureState private var dragGestureActive = false
+    @State var bounce: CGSize = .zero
     @State private var optionsPresented = false
     @State private var hintVisible = true
     @State private var editorTip = TouchEditorTip()
     @State private var hintHeight: CGFloat = 80
+    @State private var rejectionBannerVisible = false
+    @State private var rejectionDismissTask: Task<Void, Never>?
 
-    private struct DragState: Equatable {
+    struct DragState: Equatable {
         var control: TouchLayout.Control
         var start: TouchLayout.Offset
         var refused: TouchLayout.Offset?
@@ -96,6 +99,42 @@ struct TouchLayoutEditorView: View {
         .foregroundStyle(.white).preferredColorScheme(.dark)
         .onChange(of: model.stepCount) { _, _ in if drag == nil { idleActivity &+= 1 } }
         .onChange(of: model.selected) { _, _ in idleActivity &+= 1 }
+        .onChange(of: model.rejectCount) { _, _ in
+            guard model.rejected else { return }
+            rejectionDismissTask?.cancel()
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                rejectionBannerVisible = true
+            }
+            rejectionDismissTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2.4))
+                guard !Task.isCancelled else { return }
+                withAnimation(reduceMotion ? nil : .easeIn(duration: 0.2)) {
+                    rejectionBannerVisible = false
+                }
+            }
+        }
+        .onChange(of: model.rejected) { _, rejected in
+            if !rejected {
+                rejectionDismissTask?.cancel()
+                rejectionDismissTask = nil
+                withAnimation(reduceMotion ? nil : .easeIn(duration: 0.16)) {
+                    rejectionBannerVisible = false
+                }
+            }
+        }
+        .onDisappear {
+            rejectionDismissTask?.cancel()
+            rejectionDismissTask = nil
+        }
+        .onChange(of: dragGestureActive) { wasActive, isActive in
+            guard wasActive, !isActive else { return }
+            Task { @MainActor in
+                guard drag != nil else { return }
+                drag = nil
+                bounce = .zero
+                model.dragEnded(rejected: false)
+            }
+        }
         .sensoryFeedback(.selection, trigger: model.stepCount)
         .sensoryFeedback(.warning, trigger: model.rejectCount)
         .confirmationDialog(ShellStrings.text("Discard changes?"), isPresented: $model.confirmingExit, titleVisibility: .visible) {
@@ -236,6 +275,19 @@ struct TouchLayoutEditorView: View {
                         model.setKind(.of(full: value == "3d", split: model.kind.split))
                     }
                     TouchControlsNote()
+                    Divider()
+                    Button(role: .destructive) {
+                        if !ignoresPress() { model.askReset() }
+                    } label: {
+                        Label(ShellStrings.text("Reset all controls"), systemImage: "arrow.counterclockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(ShellButtonStyle(fills: true, destructive: true))
+                    .disabled(model.layoutIsBuiltIn || !exactGeometryReady)
+                    .accessibilityIdentifier("touchLayout.resetAll")
+                    .shellTarget("lay.resetAll", enabled: !model.layoutIsBuiltIn && exactGeometryReady) {
+                        model.askReset()
+                    }
                 }
                 .padding(16)
             }
@@ -244,6 +296,26 @@ struct TouchLayoutEditorView: View {
             .accessibilityIdentifier("touchLayout.options.scroll")
         }
         .frame(maxWidth: 320)
+        .confirmationDialog(
+            ShellStrings.text("Reset all controls"),
+            isPresented: Binding(get: { model.confirmingReset }, set: { if !$0 { model.cancelReset() } }),
+            titleVisibility: .visible
+        ) {
+            Button(ShellStrings.text("Reset all controls"), role: .destructive) {
+                if !ignoresPress() {
+                    model.reset()
+                    optionsPresented = false
+                }
+            }
+            .accessibilityIdentifier("touchLayout.resetAll.confirm")
+            Button(ShellStrings.text("Cancel"), role: .cancel) {
+                model.cancelReset()
+            }
+            .accessibilityIdentifier("touchLayout.resetAll.cancel")
+        } message: {
+            let layoutName = Self.layoutTitle(screen: screen, hingeStatus: liveHingeStatus)
+            Text(ShellStrings.text("Put every control of the \(layoutName) layout back in its built-in place?"))
+        }
     }
 
     private var sizeRow: SettingRow {
@@ -264,7 +336,7 @@ struct TouchLayoutEditorView: View {
 
     // MARK: The preview
 
-    private var screen: PadScreen { model.editing.screen }
+    var screen: PadScreen { model.editing.screen }
 
     private var canvas: some View {
         let g = model.geo
@@ -291,25 +363,67 @@ struct TouchLayoutEditorView: View {
                     .offset(x: activeOffset(g).width * k, y: activeOffset(g).height * k)
                     .allowsHitTesting(false)
                 }
+                let optionsPos = Self.optionsButtonPosition(
+                    swap: g.swap,
+                    screenInsets: screen.insets,
+                    canvasSize: proxy.size,
+                    scale: k
+                )
                 accessibilityElements(g, k: k)
                 TouchEditorCogHalo(active: exactGeometryReady && scenePhase == .active && drag == nil && !model.held && !optionsPresented && !model.confirmingExit,
                                    activity: idleActivity)
                     .allowsHitTesting(false)
-                    .position(x: g.swap.x * k, y: g.swap.y * k)
-                editorOptionsButton.position(x: g.swap.x * k, y: g.swap.y * k)
+                    .position(optionsPos)
+                editorOptionsButton.position(optionsPos)
                 if hintVisible && exactGeometryReady {
                     TipView(editorTip, arrowEdge: .top)
                         .accessibilityIdentifier("touchLayout.tip")
                         .frame(width: min(280, proxy.size.width - 32))
                         .fixedSize(horizontal: false, vertical: true)
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { hintHeight = $0 }
-                        .position(x: g.swap.x * k, y: min(g.swap.y * k + 30 + hintHeight / 2, proxy.size.height - hintHeight / 2 - 16))
+                        .position(x: optionsPos.x, y: min(optionsPos.y + 30 + hintHeight / 2, proxy.size.height - hintHeight / 2 - 16))
                 }
                 if drag == nil, let selected = model.selected,
                    let box = g.box(of: model.editing.mover(selected))?.box,
                    let bounds = g.box(of: model.editing.mover(selected))?.within {
                     selectedToolbar(for: selected)
-                        .position(selectionToolsPosition(for: selected, box: box, bounds: bounds, canvasSize: proxy.size, scale: k))
+                        .position(Self.selectionToolsPosition(
+                            toolbarWidth: selectedToolbarWidth(for: selected),
+                            box: box,
+                            bounds: bounds,
+                            division: screen.division,
+                            optionsCenter: optionsPos,
+                            canvasSize: proxy.size,
+                            scale: k
+                        ))
+                }
+                if rejectionBannerVisible && model.rejected {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(ShellPalette.attention)
+                            .accessibilityHidden(true)
+                        Text(ShellStrings.text("No room there. It went back to where it was."))
+                            .shellText(13, .medium, relativeTo: .footnote)
+                            .foregroundStyle(.white.opacity(0.92))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background {
+                        Capsule().fill(.ultraThinMaterial)
+                            .overlay(Capsule().fill(.black.opacity(0.68)))
+                    }
+                    .overlay(Capsule().strokeBorder(ShellPalette.attention.opacity(0.5), lineWidth: 1))
+                    .frame(maxWidth: min(360, proxy.size.width - 32))
+                    .position(
+                        x: proxy.size.width / 2,
+                        y: max(40, proxy.size.height - max(18, screen.insets.bottom * k + 14) - 22)
+                    )
+                    .allowsHitTesting(false)
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                    .accessibilityIdentifier("touchLayout.rejected")
                 }
             }
         }
@@ -320,10 +434,34 @@ struct TouchLayoutEditorView: View {
         .accessibilityIdentifier("touchLayout.preview")
     }
 
-    private func selectionToolsPosition(for selected: TouchLayout.Control, box: CGRect, bounds: CGRect,
-                                        canvasSize: CGSize, scale: CGFloat) -> CGPoint {
+    nonisolated static func optionsButtonPosition(
+        swap: CGPoint,
+        screenInsets: PadScreen.Insets,
+        canvasSize: CGSize,
+        scale: CGFloat
+    ) -> CGPoint {
+        let half: CGFloat = 22
+        let margin: CGFloat = 6
+        let minX = screenInsets.left * scale + half + margin
+        let maxX = max(minX, canvasSize.width - screenInsets.right * scale - half - margin)
+        let minY = screenInsets.top * scale + half + margin
+        let maxY = max(minY, canvasSize.height - screenInsets.bottom * scale - half - margin)
+        let x = min(max(swap.x * scale, minX), maxX)
+        let y = min(max(swap.y * scale, minY), maxY)
+        return CGPoint(x: x, y: y)
+    }
+
+    nonisolated static func selectionToolsPosition(
+        toolbarWidth: CGFloat,
+        box: CGRect,
+        bounds: CGRect,
+        division: CGRect?,
+        optionsCenter: CGPoint,
+        canvasSize: CGSize,
+        scale: CGFloat
+    ) -> CGPoint {
         var bounds = bounds
-        if let division = screen.division, division.height > division.width, division.intersects(bounds) {
+        if let division, division.height > division.width, division.intersects(bounds) {
             if box.midX < division.midX {
                 bounds.size.width = max(0, min(bounds.maxX, division.minX) - bounds.minX)
             } else {
@@ -332,15 +470,41 @@ struct TouchLayoutEditorView: View {
                 bounds.size.width = max(0, right - bounds.minX)
             }
         }
-        let toolbarWidth = selectedToolbarWidth(for: selected)
         let halfWidth = toolbarWidth / 2, halfHeight = 30.0
         let minX = bounds.minX * scale + halfWidth, maxX = bounds.maxX * scale - halfWidth
         let minY = bounds.minY * scale + halfHeight, maxY = bounds.maxY * scale - halfHeight
         let x = minX <= maxX ? min(max(box.midX * scale, minX), maxX) : bounds.midX * scale
         let above = box.minY * scale - halfHeight - 8
         let below = box.maxY * scale + halfHeight + 8
-        let y = minY <= maxY ? (above >= minY ? above : min(max(below, minY), maxY)) : bounds.midY * scale
-        return CGPoint(x: min(max(x, halfWidth), canvasSize.width - halfWidth), y: min(max(y, halfHeight), canvasSize.height - halfHeight))
+        let preferAbove = above >= minY
+        let primaryY = minY <= maxY ? (preferAbove ? above : min(max(below, minY), maxY)) : bounds.midY * scale
+
+        func clamp(_ p: CGPoint) -> CGPoint {
+            CGPoint(
+                x: min(max(p.x, halfWidth), max(halfWidth, canvasSize.width - halfWidth)),
+                y: min(max(p.y, halfHeight), max(halfHeight, canvasSize.height - halfHeight))
+            )
+        }
+        func rect(at p: CGPoint) -> CGRect {
+            CGRect(x: p.x - halfWidth, y: p.y - halfHeight, width: toolbarWidth, height: halfHeight * 2)
+        }
+        let optionsRect = CGRect(x: optionsCenter.x - 28, y: optionsCenter.y - 28, width: 56, height: 56)
+
+        let primary = clamp(CGPoint(x: x, y: primaryY))
+        if !rect(at: primary).intersects(optionsRect) { return primary }
+
+        let alternateY = preferAbove ? below : above
+        let alternate = clamp(CGPoint(x: x, y: alternateY))
+        if !rect(at: alternate).intersects(optionsRect) { return alternate }
+
+        let leftCandidate = clamp(CGPoint(x: optionsRect.minX - halfWidth - 6, y: primary.y))
+        let rightCandidate = clamp(CGPoint(x: optionsRect.maxX + halfWidth + 6, y: primary.y))
+        let sideCandidates = [leftCandidate, rightCandidate]
+            .filter { !rect(at: $0).intersects(optionsRect) }
+            .sorted { abs($0.x - primary.x) < abs($1.x - primary.x) }
+        if let bestSide = sideCandidates.first { return bestSide }
+
+        return clamp(CGPoint(x: primary.x, y: optionsRect.maxY + halfHeight + 6))
     }
 
     private func selectedToolbarWidth(for selected: TouchLayout.Control) -> CGFloat {
@@ -373,95 +537,6 @@ struct TouchLayoutEditorView: View {
 
     }
 
-    /// Where the active control is drawn beyond its kept place: under the finger on a refused spot, or on its way back.
-    private func activeOffset(_ g: PadGeo) -> CGSize {
-        if let drag, let refused = drag.refused {
-            let kept = model.dragOffset(drag.control)
-            return CGSize(width: CGFloat(refused.dx - kept.dx) * g.step + bounce.width, height: CGFloat(refused.dy - kept.dy) * g.step + bounce.height)
-        }
-        return bounce
-    }
-
-    /// The active control and the controls that move with it: the diamond's keys while they move together.
-    private func isActive(_ c: TouchLayout.Control, _ active: TouchLayout.Control?) -> Bool {
-        guard let active else { return false }
-        return model.editing.mover(c) == model.editing.mover(active)
-    }
-
-    private func drawBackdrop(_ g: PadGeo, in context: inout GraphicsContext) {
-        // The picture: the whole screen over which the controls float, or its own area above the controls on a split screen.
-        let picture = g.region.separated ? g.region.game : g.region.game.intersection(CGRect(origin: .zero, size: screen.size))
-        context.fill(Path(roundedRect: picture, cornerRadius: 10), with: .color(.white.opacity(g.region.separated ? 0.07 : 0.03)))
-        if g.region.separated {
-            context.fill(Path(g.region.controls), with: .color(.black.opacity(0.18)))
-        }
-    }
-
-    private func drawGuides(for active: TouchLayout.Control, _ g: PadGeo, k: CGFloat, in context: inout GraphicsContext) {
-        let m = model.editing.mover(active)
-        // The area it may use: a calm cream tint with a dashed edge.
-        if let area = model.editing.allowedArea(active) {
-            let path = Path(roundedRect: area.insetBy(dx: 1, dy: 1), cornerRadius: 14)
-            context.fill(path, with: .color(ShellPalette.cream.opacity(0.06)))
-            context.stroke(path, with: .color(ShellPalette.cream.opacity(0.55)), style: StrokeStyle(lineWidth: 1.5 / k, dash: [8 / k, 6 / k]))
-        }
-        // Its built-in place, dashed, once it has moved.
-        if model.editing.isMoved(m) {
-            var built = model.editing
-            built.putBack(m)
-            let home = built.geo
-            for c in home.drawnControls where model.editing.mover(c) == m {
-                for shape in Self.shapes(c, home) {
-                    context.stroke(PadDrawing.outline(shape), with: .color(ShellPalette.cream.opacity(0.5)), style: StrokeStyle(lineWidth: 1.5 / k, dash: [5 / k, 5 / k]))
-                }
-            }
-        }
-    }
-
-    private enum Highlight { case none, chosen, refused }
-
-    /// The keys in the editor: brighter than in the settings' small preview, with lines of the same width at every preview size. The
-    /// chosen control is filled cream with dark type and a soft halo, a refused spot red, so it reads at a glance.
-    private func draw(_ c: TouchLayout.Control, _ g: PadGeo, k: CGFloat, highlight: Highlight = .none, in context: inout GraphicsContext) {
-        var style = PadDrawing.Style(fill: .white.opacity(0.17), line: .white.opacity(0.62), text: .white.opacity(0.9), ring: .white.opacity(0.07),
-                                     lineWidth: 1.5 / k)
-        var halo: Color?
-        switch highlight {
-        case .none: break
-        case .chosen:
-            style.fill = ShellPalette.cream.opacity(model.held ? 1 : 0.9); style.line = ShellPalette.cream; style.text = .black.opacity(0.85)
-            style.ring = ShellPalette.cream.opacity(0.22); style.lineWidth = 2.5 / k
-            halo = ShellPalette.cream.opacity(model.held ? 0.5 : 0.32)
-        case .refused:
-            style.fill = DeleteStyle.red.opacity(0.9); style.line = DeleteStyle.red; style.text = .white
-            style.ring = DeleteStyle.red.opacity(0.25); style.lineWidth = 2.5 / k
-            halo = DeleteStyle.red.opacity(0.4)
-        }
-        for shape in Self.shapes(c, g) {
-            if let halo { context.stroke(PadDrawing.outline(shape), with: .color(halo), lineWidth: (model.held ? 12 : 9) / k) }
-            PadDrawing.draw(shape, in: &context, style: style)
-        }
-    }
-
-    /// The drawn shapes of one control, in the gamepad's look.
-    static func shapes(_ c: TouchLayout.Control, _ g: PadGeo) -> [TouchPadPreviewGeometry.Shape] {
-        switch c {
-        case .face: (0..<4).map { .circle(g.faceKey[$0], g.faceR, label: ["A", "B", "X", "Y"][$0]) }
-        case .a: [.circle(g.faceKey[0], g.faceR, label: "A")]
-        case .b: [.circle(g.faceKey[1], g.faceR, label: "B")]
-        case .x: [.circle(g.faceKey[2], g.faceR, label: "X")]
-        case .y: [.circle(g.faceKey[3], g.faceR, label: "Y")]
-        case .stick: [.ring(g.stick, g.stickR, knob: g.knobR)]
-        case .dpad: [.dpad(g.dpad, g.dpadR)]
-        case .zl, .l, .zr, .r:
-            [.drop(g.drop[PadGeo.dropIndex(c)], g.dropR[PadGeo.dropIndex(c)], tipRight: c == .zr || c == .r, label: c.title)]
-        case .l3: [.circle(g.click[0], g.clickR, label: "L3")]
-        case .r3: [.circle(g.click[1], g.clickR, label: "R3")]
-        case .minus: [.pill(g.pill[0], label: "−")]
-        case .plus: [.pill(g.pill[1], label: "+")]
-        }
-    }
-
     // MARK: Touch
 
     private func selectionTapGesture(k: CGFloat) -> some Gesture {
@@ -483,6 +558,9 @@ struct TouchLayoutEditorView: View {
 
     private func dragGesture(k: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 8, coordinateSpace: .local)
+            .updating($dragGestureActive) { _, state, _ in
+                state = true
+            }
             .onChanged { value in
                 guard exactGeometryReady else { return }
                 let t = CGSize(width: value.translation.width / k, height: value.translation.height / k)
@@ -629,7 +707,7 @@ extension TouchLayout.Control {
 }
 
 private struct TouchEditorTip: Tip {
-    let id = UUID().uuidString
+    let id = "nx2apple.touchLayoutEditor.optionsTip"
     var title: Text { Text(ShellStrings.text("Edit controls here. Save when finished.")) }
 }
 

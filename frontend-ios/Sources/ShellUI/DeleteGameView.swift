@@ -23,7 +23,7 @@ struct DeleteGameView: View {
                     .shellTarget("del.saves") { saves.toggle() }
                 Text(saves ? ShellStrings.text("Saves are deleted too and cannot be brought back.")
                            : ShellStrings.text("Saves stay unless you choose to delete them too."))
-                    .shellText(12.5).foregroundStyle(saves ? DeleteStyle.red : .white.opacity(0.5))
+                    .shellText(12.5).foregroundStyle(saves ? DeleteStyle.red : .white.opacity(0.62))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(14)

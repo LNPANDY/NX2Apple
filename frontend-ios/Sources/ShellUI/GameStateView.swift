@@ -64,10 +64,10 @@ public struct StateHelpView: View {
             Text(message).shellText(15).foregroundStyle(.white.opacity(0.78)).fixedSize(horizontal: false, vertical: true)
             if case .broken(_, _, let technical) = game.state, !technical.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(ShellStrings.text("Details")).shellText(11.5, .semibold).foregroundStyle(.white.opacity(0.5))
-                    Text(verbatim: ShellStrings.text("Title ID \(game.id)")).font(.system(size: 12, design: .monospaced)).foregroundStyle(.white.opacity(0.5))
+                    Text(ShellStrings.text("Details")).shellText(11.5, .semibold).foregroundStyle(.white.opacity(0.62))
+                    Text(verbatim: ShellStrings.text("Title ID \(game.id)")).font(.system(size: 12, design: .monospaced)).foregroundStyle(.white.opacity(0.62))
                         .textSelection(.enabled).accessibilityIdentifier("help.titleid")
-                    Text(verbatim: technical).font(.system(size: 12, design: .monospaced)).foregroundStyle(.white.opacity(0.5))
+                    Text(verbatim: technical).font(.system(size: 12, design: .monospaced)).foregroundStyle(.white.opacity(0.62))
                         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("help.details")
                 }
@@ -110,25 +110,61 @@ public struct StateHelpView: View {
     }
 }
 
-/// No game in the app yet: an empty shelf, said plainly.
+/// No game in the app yet: an empty shelf with transfer guidance and a direct Settings action.
 public struct EmptyLibraryView: View {
-    public init() {}
+    public var onOpenSettings: (() -> Void)?
+    #if os(iOS)
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    #endif
+
+    public init(onOpenSettings: (() -> Void)? = nil) {
+        self.onOpenSettings = onOpenSettings
+    }
+
+    private var compactVertical: Bool {
+        #if os(iOS)
+        verticalSizeClass == .compact
+        #else
+        false
+        #endif
+    }
+
     public var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 14) {
-                ForEach(0..<3, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(.white.opacity(0.16 - Double(index) * 0.045), style: StrokeStyle(lineWidth: 1.2, dash: [5, 5]))
-                        .frame(width: 76, height: 76)
+        let tileSize: CGFloat = compactVertical ? 48 : 76
+        GeometryReader { geometry in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: compactVertical ? 10 : 18) {
+                    HStack(spacing: compactVertical ? 10 : 14) {
+                        ForEach(0..<3, id: \.self) { index in
+                            RoundedRectangle(cornerRadius: compactVertical ? 9 : 12)
+                                .strokeBorder(.white.opacity(0.16 - Double(index) * 0.045), style: StrokeStyle(lineWidth: 1.2, dash: [5, 5]))
+                                .frame(width: tileSize, height: tileSize)
+                        }
+                    }.padding(.bottom, compactVertical ? 4 : 14).accessibilityHidden(true)
+                    SectionHeading(title: ShellStrings.text("Your games"))
+                    Text(ShellStrings.text("A little room for adventure")).shellType(ShellType.heroTitle(compactVertical ? 24 : 30))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(ShellStrings.text("Your games will appear here when they are included in this app."))
+                        .shellText(compactVertical ? 14 : 15).foregroundStyle(.white.opacity(0.72)).fixedSize(horizontal: false, vertical: true)
+                    Text(ShellStrings.text("Transfer games from NX2Apple on your Mac or PC, or choose a game data folder in Settings."))
+                        .shellText(compactVertical ? 13 : 14).foregroundStyle(.white.opacity(0.62)).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("empty.guide")
+                    if let onOpenSettings {
+                        Button(action: onOpenSettings) {
+                            Label(ShellStrings.text("Open Settings"), systemImage: "gearshape")
+                        }
+                        .buttonStyle(PrimaryPillStyle())
+                        .padding(.top, compactVertical ? 2 : 6)
+                        .accessibilityIdentifier("empty.openSettings")
+                        .shellTarget("lib.empty.settings", radius: ShellFocusTarget.capsule, action: onOpenSettings)
+                    }
                 }
-            }.padding(.bottom, 14).accessibilityHidden(true)
-            SectionHeading(title: ShellStrings.text("Your games"))
-            Text(ShellStrings.text("A little room for adventure")).shellType(ShellType.heroTitle(30))
-                .fixedSize(horizontal: false, vertical: true)
-            Text(ShellStrings.text("Your games will appear here when they are included in this app."))
-                .shellText(15).foregroundStyle(.white.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 28)
+                .padding(.vertical, compactVertical ? 12 : 28)
+                .frame(maxWidth: 460, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .center)
+            }
         }
-        .padding(28).frame(maxWidth: 460, alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

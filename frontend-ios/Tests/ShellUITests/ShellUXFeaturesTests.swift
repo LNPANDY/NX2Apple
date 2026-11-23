@@ -102,4 +102,37 @@ import Testing
         #expect(SigningWarning.expiringHours(24) != SigningWarning.expiringSoon)
         #expect(SigningWarning.expiringSoon != SigningWarning.expired)
     }
+
+    @Test func emptyLibraryViewWiresOptionalOpenSettingsCallback() {
+        var opened = false
+        let plain = EmptyLibraryView()
+        #expect(plain.onOpenSettings == nil)
+        let guided = EmptyLibraryView(onOpenSettings: { opened = true })
+        guided.onOpenSettings?()
+        #expect(opened)
+    }
+
+    @Test @MainActor func toolbarFocusBufferOwnerPreventsStaleDisappearFromClearingLiveTarget() {
+        let buffer = FocusTargetBuffer()
+        let outgoingOwner = UUID()
+        let liveOwner = UUID()
+        var liveActivated = false
+        let staleFrame = CGRect(x: 16, y: 16, width: 44, height: 44)
+        let liveFrame = CGRect(x: 20, y: 20, width: 44, height: 44)
+
+        buffer.registerToolbar(FocusTarget(id: "help.done", frame: staleFrame, activate: {}), owner: outgoingOwner)
+        buffer.registerToolbar(FocusTarget(id: "help.done", frame: liveFrame, activate: { liveActivated = true }), owner: liveOwner)
+        // Outgoing transition view disappears after incoming view has already registered the same key.
+        buffer.unregisterToolbar(id: "help.done", owner: outgoingOwner)
+
+        let active = buffer.active(prefix: "help.", toolbarIDs: ["help.done"])
+        #expect(active.count == 1)
+        #expect(active.first?.frame == liveFrame)
+        active.first?.activate()
+        #expect(liveActivated)
+
+        // Live owner disappearing clears the slot cleanly.
+        buffer.unregisterToolbar(id: "help.done", owner: liveOwner)
+        #expect(buffer.active(prefix: "help.", toolbarIDs: ["help.done"]).isEmpty)
+    }
 }

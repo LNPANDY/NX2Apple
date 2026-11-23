@@ -34,6 +34,7 @@ struct CoverFlowView: View, Equatable {
     /// Tracks selection IDs already driven by the scroll view so `onChange(of: selected.id)` does not scroll back.
     @State private var scrollDrivenSelectionID: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// Re-render only for what is drawn: the games' tiles, the selection and the hints. Settings changes elsewhere do
     /// not reach the carousel.
@@ -53,7 +54,7 @@ struct CoverFlowView: View, Equatable {
                     return nil
                 } action: { division = $0 }
         }
-        .ignoresSafeArea(.container)
+        .ignoresSafeArea(.container, edges: .horizontal)
         .sensoryFeedback(.selection, trigger: selected.id)
         .onChange(of: selected.id) { _, id in
             if scrollDrivenSelectionID == id {
@@ -76,63 +77,126 @@ struct CoverFlowView: View, Equatable {
     }
 
     @ViewBuilder private func flow(size: CGSize) -> some View {
-        let short = size.height < 520
+        let safeWidth = max(0, size.width.isFinite ? size.width : 0)
+        let safeHeight = max(0, size.height.isFinite ? size.height : 0)
+        let short = safeHeight < 520
         // Keep the focused card in the leading usable region when a division is active.
-        let height = size.height
-        let primaryWidth = division?.minX ?? size.width
-        let gap: CGFloat = short ? 10 : 24
-        let words = Self.infoHeight(short: short)
-        let footer: CGFloat = short ? 36 : 56
-        let bar = nativeBars ? 0 : Self.barTop(short: short) + Self.barHeight
-        // Use the same usable half-width in both inner-display poses; folding only changes the anchor.
-        let artworkWidth = short ? size.width * 0.64 : max(0, size.width / 2 - 48)
-        let cardHeight = max(90, min(artworkWidth * 9 / 16, height - words - gap - footer - bar - 32) / 1.06)
+        let primaryWidth = max(0, division?.minX ?? safeWidth)
+        let gap: CGFloat = short ? 8 : 20
+        let showsBottomHints = nativeBars || divided || !short
+        let gameState = selected.game.state
+        let hasStatusLabel = gameState != .playable && gameState.artworkWarning == nil
+        let hasExplanation = gameState != .playable && !gameState.explanation.isEmpty
+        let cardHeight = Self.cardHeight(
+            in: CGSize(width: safeWidth, height: safeHeight),
+            short: short,
+            nativeBars: nativeBars,
+            showsBottomHints: showsBottomHints,
+            hasStatusLabel: hasStatusLabel,
+            hasExplanation: hasExplanation,
+            dynamicTypeSize: dynamicTypeSize
+        )
         let cover = cardHeight * 16 / 9
-        ZStack(alignment: .top) {
+        VStack(spacing: 0) {
+            if !nativeBars {
+                topBar(short: short)
+                    .padding(.leading, max(24, screenInsets.leading))
+                    .padding(.trailing, max(24, screenInsets.trailing))
+                    .padding(.top, Self.barTop(short: short))
+            }
+            Spacer(minLength: short ? 2 : 12)
             VStack(spacing: gap) {
-                carousel(width: size.width, cover: cover, primaryWidth: primaryWidth)
+                carousel(width: safeWidth, cover: cover, primaryWidth: primaryWidth)
                     .frame(height: cardHeight * 1.06)
                 info(short: short, width: primaryWidth)
-                    .frame(width: size.width, alignment: divided ? .leading : .center)
-            }
-            .overlay(alignment: .bottom) {
+                    .frame(width: safeWidth, alignment: divided ? .leading : .center)
                 launchActions(width: primaryWidth)
-                    .frame(width: size.width, alignment: divided ? .leading : .center)
-                    .alignmentGuide(.bottom) { $0[.top] - gap }
+                    .frame(width: safeWidth, alignment: divided ? .leading : .center)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            if !nativeBars { topBar(short: short).padding(.horizontal, 24).padding(.top, Self.barTop(short: short)) }
-        }
-        .overlay(alignment: .bottom) {
-            // Hints stay outside the centered cover row without shifting its midpoint.
-            if nativeBars || divided || !short {
+            Spacer(minLength: short ? 2 : 12)
+            if showsBottomHints {
                 hints
                     .opacity(showsHints ? 1 : 0)
-                    .frame(width: divided ? max(0, primaryWidth - 48) : max(0, size.width - 48))
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, short ? 4 : 12)
+                    .frame(width: divided ? max(0, primaryWidth - 48) : max(0, safeWidth - max(24, screenInsets.leading) - max(24, screenInsets.trailing)))
+                    .padding(.leading, max(24, screenInsets.leading))
+                    .padding(.trailing, max(24, screenInsets.trailing))
+                    .padding(.vertical, short ? 2 : 10)
                     .frame(maxWidth: .infinity, alignment: divided ? .leading : .center)
                     .allowsHitTesting(false)
             }
         }
+        .frame(width: safeWidth, height: safeHeight, alignment: .top)
     }
 
-    /// The title and state under the card: two lines of title reserved, then the state line.
-    static func infoHeight(short: Bool) -> CGFloat {
+    /// Computes card height inside the safe-area viewport after reserving space for top bar, title/status/explanation,
+    /// inline launch actions, and optional bottom controller hints so nothing overflows on short landscape screens.
+    nonisolated static func cardHeight(
+        in size: CGSize,
+        short: Bool,
+        nativeBars: Bool,
+        showsBottomHints: Bool,
+        hasStatusLabel: Bool = false,
+        hasExplanation: Bool = false,
+        dynamicTypeSize: DynamicTypeSize = .large
+    ) -> CGFloat {
+        let safeWidth = max(0, size.width.isFinite ? size.width : 0)
+        let safeHeight = max(0, size.height.isFinite ? size.height : 0)
+        let gap: CGFloat = short ? 8 : 20
+        let bar = nativeBars ? 0 : Self.barTop(short: short) + Self.barHeight
+        let infoBlock = Self.infoHeight(
+            short: short,
+            hasStatusLabel: hasStatusLabel,
+            hasExplanation: hasExplanation,
+            dynamicTypeSize: dynamicTypeSize
+        )
+        let actionsHeight: CGFloat = 50
+        let hintsHeight: CGFloat = showsBottomHints ? (short ? 28 : 44) : 0
+        let verticalBreathing: CGFloat = short ? 8 : 24
+        let artworkWidth = short ? safeWidth * 0.64 : max(0, safeWidth / 2 - 48)
+        let availableForCarousel = max(0, safeHeight - bar - infoBlock - actionsHeight - gap * 2 - hintsHeight - verticalBreathing)
+        return max(0, min(artworkWidth * 9 / 16, availableForCarousel / 1.06))
+    }
+
+    /// Approximate typography growth factor clamped to the info block's max Dynamic Type size.
+    nonisolated static func infoTypeScale(for dynamicTypeSize: DynamicTypeSize, short: Bool) -> CGFloat {
+        switch dynamicTypeSize {
+        case .xSmall, .small, .medium, .large:
+            return 1.0
+        case .xLarge:
+            return 1.12
+        case .xxLarge:
+            return 1.24
+        default:
+            return short ? 1.24 : 1.36
+        }
+    }
+
+    /// The title and state under the card: two lines of title plus optional status eyebrow and explanation.
+    nonisolated static func infoHeight(
+        short: Bool,
+        hasStatusLabel: Bool = false,
+        hasExplanation: Bool = false,
+        dynamicTypeSize: DynamicTypeSize = .large
+    ) -> CGFloat {
         let size: CGFloat = short ? 18 : 28
-        return size * 1.3 * 2 + (short ? 52 : 72) + 58
+        let scale = Self.infoTypeScale(for: dynamicTypeSize, short: short)
+        let titleHeight = size * 1.3 * 2 * scale
+        let statusHeight: CGFloat = hasStatusLabel ? (short ? 24 : 30) * scale : 0
+        let explanationHeight: CGFloat = hasExplanation ? (short ? 46 : 56) * scale : 0
+        let basePadding: CGFloat = short ? 8 : 16
+        return titleHeight + statusHeight + explanationHeight + basePadding
     }
 
     /// The distance from the top of the safe area to the top bar. A phone on its side has no status bar, so the chips
     /// need their own air above them there. The bar is one centred row, so the title and the chips share a centre.
-    static func barTop(short: Bool) -> CGFloat { short ? 12 : 16 }
-    static let barHeight: CGFloat = 44
+    nonisolated static func barTop(short: Bool) -> CGFloat { short ? 12 : 16 }
+    nonisolated static let barHeight: CGFloat = 44
 
     private func topBar(short: Bool) -> some View {
         HStack(alignment: .center, spacing: 10) {
             SectionHeading(title: ShellStrings.text("Your games"))
             Text(ShellStrings.text("\(position) of \(games.count)")).shellText(12, .medium, relativeTo: .caption)
-                .monospacedDigit().foregroundStyle(.white.opacity(0.45)).padding(.leading, 4)
+                .monospacedDigit().foregroundStyle(.white.opacity(0.62)).padding(.leading, 4)
             Spacer(minLength: 12)
             if short {
                 // On a phone on its side the hints share the top bar, so the cards keep the height.
@@ -230,6 +294,10 @@ struct CoverFlowView: View, Equatable {
         .contentMargins(.leading, metrics.leadingMargin, for: .scrollContent)
         .contentMargins(.trailing, metrics.trailingMargin, for: .scrollContent)
         .onAppear {
+            scrollPosition.scrollTo(id: selected.id, anchor: anchor)
+        }
+        .onChange(of: metrics) { _, _ in
+            guard !userScrolling else { return }
             scrollPosition.scrollTo(id: selected.id, anchor: anchor)
         }
         .onScrollGeometryChange(for: Int.self) { geometry in

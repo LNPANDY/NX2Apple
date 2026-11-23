@@ -29,12 +29,15 @@ public struct CoverCropView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.shellIgnoresPress) private var ignoresPress
+    #if os(iOS)
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    #endif
 
     @State private var image: CGImage
-    @State private var viewport = CoverCropViewport()
+    @State private var gesture = CoverCropGestureSession()
+    @GestureState private var dragGestureActive = false
+    @GestureState private var pinchGestureActive = false
     @State private var lastCropSize: CGSize = .zero
-    @State private var dragTranslation: CGSize = .zero
-    @State private var pinchScale: CGFloat = 1
     @State private var exporting = false
     @State private var loadError = false
     @State private var decodeGeneration: UInt64 = 0
@@ -86,29 +89,42 @@ public struct CoverCropView: View {
         .accessibilityIdentifier("coverCrop.view")
     }
 
+    private var compactHeight: Bool {
+        #if os(iOS)
+        verticalSizeClass == .compact
+        #else
+        false
+        #endif
+    }
+
     private var topBar: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: compactHeight ? 2 : 4) {
             Text(ShellStrings.text("Adjust Cover"))
-                .shellText(17, .semibold, relativeTo: .headline)
+                .shellText(compactHeight ? 15.5 : 17, .semibold, relativeTo: .headline)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("coverCrop.title")
             if !gameTitle.isEmpty {
                 Text(gameTitle)
                     .shellText(13, .medium, relativeTo: .footnote)
-                    .foregroundStyle(.white.opacity(0.65))
+                    .foregroundStyle(.white.opacity(0.68))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             Text(loadError
                  ? ShellStrings.text("This image could not be opened. Choose a different photo.")
                  : ShellStrings.text("Drag and pinch to fit 16:9. Double-tap to reset."))
-                .shellText(12.5, .regular, relativeTo: .footnote)
-                .foregroundStyle(loadError ? ShellPalette.attention : .white.opacity(0.55))
+                .shellText(compactHeight ? 12 : 12.5, .regular, relativeTo: .footnote)
+                .foregroundStyle(loadError ? ShellPalette.attention : .white.opacity(0.65))
+                .lineLimit(compactHeight ? 1 : 2)
+                .minimumScaleFactor(0.8)
                 .multilineTextAlignment(.center)
-                .padding(.top, 2)
+                .padding(.top, compactHeight ? 0 : 2)
         }
         .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .padding(.bottom, 10)
+        .padding(.top, compactHeight ? 6 : 14)
+        .padding(.bottom, compactHeight ? 4 : 10)
     }
 
     private var cropCanvas: some View {
@@ -138,50 +154,63 @@ public struct CoverCropView: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
+                    .updating($dragGestureActive) { _, state, _ in
+                        state = true
+                    }
                     .onChanged { value in
                         guard !exporting else { return }
-                        dragTranslation = value.translation
+                        gesture.updateDrag(value.translation)
                     }
                     .onEnded { value in
                         guard !exporting else { return }
-                        let committed = viewport.transformed(
-                            magnification: pinchScale,
-                            translation: value.translation,
-                            imageSize: imageSize,
-                            viewportSize: cropSize
-                        )
-                        dragTranslation = .zero
+                        var updated = gesture
+                        updated.endDrag(value.translation, imageSize: imageSize, viewportSize: cropSize)
                         withAnimation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.88)) {
-                            viewport = committed
+                            gesture = updated
                         }
                     }
             )
             .simultaneousGesture(
                 MagnifyGesture()
+                    .updating($pinchGestureActive) { _, state, _ in
+                        state = true
+                    }
                     .onChanged { value in
                         guard !exporting else { return }
-                        pinchScale = value.magnification
+                        gesture.updatePinch(value.magnification)
                     }
                     .onEnded { value in
                         guard !exporting else { return }
-                        let committed = viewport.transformed(
-                            magnification: value.magnification,
-                            translation: dragTranslation,
-                            imageSize: imageSize,
-                            viewportSize: cropSize
-                        )
-                        pinchScale = 1
+                        var updated = gesture
+                        updated.endPinch(value.magnification, imageSize: imageSize, viewportSize: cropSize)
                         withAnimation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.88)) {
-                            viewport = committed
+                            gesture = updated
                         }
                     }
             )
+            .onChange(of: dragGestureActive) { wasActive, isActive in
+                guard wasActive, !isActive else { return }
+                Task { @MainActor in
+                    guard gesture.isDragActive else { return }
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.88)) {
+                        gesture.cancelDrag()
+                    }
+                }
+            }
+            .onChange(of: pinchGestureActive) { wasActive, isActive in
+                guard wasActive, !isActive else { return }
+                Task { @MainActor in
+                    guard gesture.isPinchActive else { return }
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.88)) {
+                        gesture.cancelPinch()
+                    }
+                }
+            }
             .onTapGesture(count: 2) {
                 guard !exporting else { return }
-                dragTranslation = .zero
-                pinchScale = 1
+                let initial = CoverCropViewport.initial(imageSize: imageSize, viewportSize: cropSize)
                 withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.86)) {
-                    viewport = CoverCropViewport.initial(imageSize: imageSize, viewportSize: cropSize)
+                    gesture.reset(to: initial)
                 }
             }
             .onAppear {
@@ -195,13 +224,15 @@ public struct CoverCropView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: compactHeight ? 8 : 12) {
             Button {
                 if !ignoresPress() { onCancel() }
             } label: {
                 Text(ShellStrings.text("Cancel"))
                     .shellType(ShellType.button)
-                    .padding(.horizontal, 16)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .padding(.horizontal, compactHeight ? 14 : 16)
                     .frame(minHeight: 44)
                     .background(.white.opacity(0.10), in: Capsule())
                     .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
@@ -211,7 +242,7 @@ public struct CoverCropView: View {
             .accessibilityIdentifier("coverCrop.cancel")
             .shellTarget("crp.cancel", enabled: !exporting, radius: ShellFocusTarget.capsule) { onCancel() }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: compactHeight ? 6 : 8)
 
             #if canImport(PhotosUI)
             if allowsPhotoRepick {
@@ -222,7 +253,7 @@ public struct CoverCropView: View {
                         .shellType(ShellType.button)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, compactHeight ? 14 : 16)
                         .frame(minHeight: 44)
                         .background(.white.opacity(0.10), in: Capsule())
                         .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
@@ -232,7 +263,7 @@ public struct CoverCropView: View {
                 .accessibilityIdentifier("coverCrop.repick")
                 .shellTarget("crp.repick", enabled: !exporting, radius: ShellFocusTarget.capsule) { repickPresented = true }
 
-                Spacer(minLength: 8)
+                Spacer(minLength: compactHeight ? 6 : 8)
             }
             #endif
 
@@ -247,9 +278,11 @@ public struct CoverCropView: View {
                     }
                     Text(ShellStrings.text("Done"))
                         .shellType(ShellType.button)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
                 .foregroundStyle(.black)
-                .padding(.horizontal, 22)
+                .padding(.horizontal, compactHeight ? 18 : 22)
                 .frame(minHeight: 44)
                 .background(ShellPalette.cream, in: Capsule())
                 .opacity(exporting ? 0.7 : 1)
@@ -260,7 +293,7 @@ public struct CoverCropView: View {
             .shellTarget("crp.done", enabled: !exporting, radius: ShellFocusTarget.capsule) { confirmCrop() }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .padding(.vertical, compactHeight ? 8 : 16)
         .background(
             LinearGradient(
                 colors: [.black.opacity(0), .black.opacity(0.85)],
@@ -279,20 +312,15 @@ public struct CoverCropView: View {
     }
 
     private func liveViewport(for cropSize: CGSize) -> CoverCropViewport {
-        viewport.transformed(
-            magnification: pinchScale,
-            translation: dragTranslation,
-            imageSize: imageSize,
-            viewportSize: cropSize
-        )
+        gesture.liveViewport(imageSize: imageSize, viewportSize: cropSize)
     }
 
     private func syncCropSize(_ newSize: CGSize) {
         guard newSize.width > 0, newSize.height > 0 else { return }
         if lastCropSize == .zero {
-            viewport = CoverCropViewport.initial(imageSize: imageSize, viewportSize: newSize)
+            gesture.reset(to: CoverCropViewport.initial(imageSize: imageSize, viewportSize: newSize))
         } else if lastCropSize != newSize {
-            viewport = viewport.adapted(from: lastCropSize, to: newSize, imageSize: imageSize)
+            gesture.reset(to: gesture.viewport.adapted(from: lastCropSize, to: newSize, imageSize: imageSize))
         }
         lastCropSize = newSize
     }
@@ -341,13 +369,11 @@ public struct CoverCropView: View {
                 return
             }
             image = decoded
-            dragTranslation = .zero
-            pinchScale = 1
             let size = lastCropSize.width > 0 ? lastCropSize : CGSize(width: 320, height: 180)
-            viewport = CoverCropViewport.initial(
+            gesture.reset(to: CoverCropViewport.initial(
                 imageSize: CGSize(width: decoded.width, height: decoded.height),
                 viewportSize: size
-            )
+            ))
         }
     }
     #endif
