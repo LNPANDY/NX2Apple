@@ -742,6 +742,49 @@ def kill_process_tree(proc: subprocess.Popen | None, *, grace_sec: float = 0.2) 
 
 _ORIG_POPEN_INIT = subprocess.Popen.__init__
 
+_COINIT_APARTMENTTHREADED = 0x2
+
+
+def _win_shell_select_item(norm_path: str) -> bool:
+    """Select `norm_path` in Windows Explorer via Shell COM when running an interactive STA session."""
+    if os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
+        return False
+    try:
+        import ctypes
+        ole32 = ctypes.windll.ole32
+        ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        ole32.CoInitializeEx.restype = ctypes.c_long
+        ole32.CoUninitialize.argtypes = []
+        ole32.CoUninitialize.restype = None
+
+        shell32 = ctypes.windll.shell32
+        shell32.ILCreateFromPathW.argtypes = [ctypes.c_wchar_p]
+        shell32.ILCreateFromPathW.restype = ctypes.c_void_p
+        shell32.SHOpenFolderAndSelectItems.argtypes = [
+            ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_ulong
+        ]
+        shell32.SHOpenFolderAndSelectItems.restype = ctypes.c_long
+        shell32.ILFree.argtypes = [ctypes.c_void_p]
+        shell32.ILFree.restype = None
+
+        # SHOpenFolderAndSelectItems requires STA, so skip COM if the thread is MTA (RPC_E_CHANGED_MODE).
+        hr_co = ole32.CoInitializeEx(None, _COINIT_APARTMENTTHREADED)
+        if hr_co not in (0, 1):
+            return False
+        try:
+            pidl = shell32.ILCreateFromPathW(norm_path)
+            if not pidl:
+                return False
+            try:
+                hr = shell32.SHOpenFolderAndSelectItems(pidl, 0, None, 0)
+                return hr == 0
+            finally:
+                shell32.ILFree(pidl)
+        finally:
+            ole32.CoUninitialize()
+    except Exception:
+        return False
+
 
 def reveal(path: str | Path | None) -> bool:
     """Show `path` in the system file manager (Explorer on Windows, Finder on macOS).
@@ -768,34 +811,20 @@ def reveal(path: str | Path | None) -> bool:
     if IS_WIN:
         norm = os.path.normpath(str(target))
         if select_item:
-            try:
-                import ctypes
-                shell32 = ctypes.windll.shell32
-                shell32.ILCreateFromPathW.argtypes = [ctypes.c_wchar_p]
-                shell32.ILCreateFromPathW.restype = ctypes.c_void_p
-                shell32.SHOpenFolderAndSelectItems.argtypes = [
-                    ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_ulong
-                ]
-                shell32.SHOpenFolderAndSelectItems.restype = ctypes.c_long
-                shell32.ILFree.argtypes = [ctypes.c_void_p]
-                shell32.ILFree.restype = None
-                ctypes.windll.ole32.CoInitialize(None)
-                pidl = shell32.ILCreateFromPathW(norm)
-                if pidl:
-                    try:
-                        hr = shell32.SHOpenFolderAndSelectItems(pidl, 0, None, 0)
-                        if hr == 0:
-                            return True
-                    finally:
-                        shell32.ILFree(pidl)
-            except Exception:
-                pass
+            if _win_shell_select_item(norm):
+                return True
             try:
                 subprocess.Popen(['explorer.exe', f'/select,{norm}'])
                 return True
             except OSError:
                 pass
         folder_norm = os.path.normpath(str(target.parent if select_item else target))
+        if os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
+            try:
+                subprocess.Popen(['explorer.exe', folder_norm])
+                return True
+            except OSError:
+                pass
         if hasattr(os, 'startfile'):
             try:
                 os.startfile(folder_norm)  # type: ignore[attr-defined]

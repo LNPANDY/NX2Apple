@@ -229,10 +229,12 @@ class QtUiPolishTests(unittest.TestCase):
             self.app.processEvents()
 
             # 920px readable column centered on 1440px window
-            margins = w.builds_page.body_col.contentsMargins()
-            inner_w = w.builds_page.width() - margins.left() - margins.right()
-            self.assertLessEqual(inner_w, 924)
-            self.assertAlmostEqual(margins.left(), margins.right(), delta=2)
+            col_geom = w.builds_page.column_host.geometry()
+            left_gap = col_geom.left()
+            right_gap = w.builds_page.width() - (col_geom.left() + col_geom.width())
+            self.assertLessEqual(col_geom.width(), 924)
+            self.assertGreaterEqual(col_geom.width(), 880)
+            self.assertAlmostEqual(left_gap, right_gap, delta=2)
 
             # failure_box is a top-level sibling, not nested inside action_group
             self.assertFalse(w.action_group.isAncestorOf(w.failure_box))

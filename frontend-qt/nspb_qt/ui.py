@@ -115,14 +115,19 @@ class TopBarFrame(QFrame):
         self._drag_offset: QPoint | None = None
 
     def recenter_nav(self) -> None:
+        if getattr(self, '_recentering', False):
+            return
         lay = self.layout()
         if lay is not None:
-            lay.invalidate()
-            lay.activate()
+            self._recentering = True
+            try:
+                lay.invalidate()
+                lay.activate()
+            finally:
+                self._recentering = False
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self.recenter_nav()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.LeftButton:
@@ -212,8 +217,8 @@ class MainWindow(QMainWindow):
         self.resize(1080, 800)
         self.setMinimumSize(820, 440)
         self.setAcceptDrops(True)
+        style.ensure_app_theme()
         self.setStyleSheet(style.STYLESHEET)
-        install_keyboard_focus_filter()
 
         self._current_page = 'library'
         self._last_main_page = 'library'
@@ -302,33 +307,35 @@ class MainWindow(QMainWindow):
         # 5. Full-window drag & drop overlay
         self.drop_overlay = DropOverlayWidget(self.m.t('drop.hint'), root)
 
-        # Connect model signals
-        self.m.depsChanged.connect(self._refresh_deps)
-        self.m.repoChanged.connect(self._refresh_all)
-        self.m.stagesChanged.connect(self._refresh_stages)
-        self.m.runningChanged.connect(self._refresh_running)
-        self.m.logAppended.connect(self._append_log)
-        self.m.finished.connect(self._on_finished)
-        self.m.appUpdateFound.connect(self._on_app_update)
-        self.m.appRelaunching.connect(QApplication.quit)
-        self.m.libraryChanged.connect(self._refresh_library)
-        if hasattr(self.m, 'driveCopyStateChanged'):
-            self.m.driveCopyStateChanged.connect(self._refresh_install_card)
-        if hasattr(self.m, 'driveCopyProgress'):
-            self.m.driveCopyProgress.connect(self._on_drive_copy_progress)
-        if hasattr(self.m, 'driveCopyFinished'):
-            self.m.driveCopyFinished.connect(self._on_drive_copy_finished)
-        if hasattr(self.m, 'upstreamStateChanged'):
-            self.m.upstreamStateChanged.connect(self._on_upstream_state_changed)
-        if hasattr(self.m, 'queueChanged'):
-            self.m.queueChanged.connect(self._refresh_queue_card)
-        if hasattr(self.m, 'queueBatchCompleted'):
-            self.m.queueBatchCompleted.connect(self._on_queue_batch_completed)
+        # Connect model signals (tracked so closeEvent breaks Python bound-method cycles cleanly)
+        self._model_connections: list[tuple[object, object]] = []
+        for sig_name, slot in (
+            ('depsChanged', self._refresh_deps),
+            ('repoChanged', self._refresh_all),
+            ('stagesChanged', self._refresh_stages),
+            ('runningChanged', self._refresh_running),
+            ('logAppended', self._append_log),
+            ('finished', self._on_finished),
+            ('appUpdateFound', self._on_app_update),
+            ('appRelaunching', QApplication.quit),
+            ('libraryChanged', self._refresh_library),
+            ('driveCopyStateChanged', self._refresh_install_card),
+            ('driveCopyProgress', self._on_drive_copy_progress),
+            ('driveCopyFinished', self._on_drive_copy_finished),
+            ('upstreamStateChanged', self._on_upstream_state_changed),
+            ('queueChanged', self._refresh_queue_card),
+            ('queueBatchCompleted', self._on_queue_batch_completed),
+        ):
+            sig = getattr(self.m, sig_name, None)
+            if sig is not None:
+                sig.connect(slot)
+                self._model_connections.append((sig, slot))
 
         if self.m.log_path:
             self._append_log(self.m.t('log.at', str(self.m.log_path)) + '\n\n')
 
         self._setup_shortcuts()
+        install_keyboard_focus_filter(self)
         self._switch_page('library')
 
         self._refresh_all()
@@ -523,12 +530,16 @@ class MainWindow(QMainWindow):
         self.scroll.verticalScrollBar().setValue(0)
         self.nav_seg.set_selected(page_id if page_id in ('library', 'builds') else '')
         is_settings = page_id == 'settings'
-        self.settings_btn.setObjectName('iconBtnActive' if is_settings else 'iconBtn')
+        target_btn_name = 'iconBtnActive' if is_settings else 'iconBtn'
         self.settings_btn.setIcon(
             render_svg_icon(svg_settings(style.ACCENT if is_settings else style.MUTED), 18)
         )
-        self.settings_btn.style().unpolish(self.settings_btn)
-        self.settings_btn.style().polish(self.settings_btn)
+        if self.settings_btn.objectName() != target_btn_name:
+            self.settings_btn.setObjectName(target_btn_name)
+            st = self.settings_btn.style()
+            if st is not None:
+                st.unpolish(self.settings_btn)
+                st.polish(self.settings_btn)
         self.search_input.setVisible(page_id == 'library')
         self.top_bar.recenter_nav()
         self._refresh_activity_bar()
@@ -1775,6 +1786,7 @@ class MainWindow(QMainWindow):
 
         scroll.setWidget(inner)
         outer.addWidget(scroll)
+        install_keyboard_focus_filter(popup)
         self._eng_popup = popup
         return popup
 
@@ -3459,6 +3471,12 @@ class MainWindow(QMainWindow):
         self._maybe_show_onboarding()
 
     def _open_onboarding(self) -> None:
+        if getattr(self, '_window_closed', False):
+            return
+        try:
+            _ = self.isVisible()
+        except RuntimeError:
+            return
         if self._onboarding_dialog is not None and self._onboarding_dialog.isVisible():
             self._onboarding_dialog.raise_()
             self._onboarding_dialog.activateWindow()
@@ -3882,6 +3900,7 @@ class MainWindow(QMainWindow):
         for d in self.m.deps:
             self.deps_rows.addWidget(make_divider())
             self.deps_rows.addWidget(self._make_dep_row(d))
+        install_keyboard_focus_filter(self.deps_rows_host)
 
         self._refresh_running()
         self._maybe_show_onboarding()
@@ -4217,9 +4236,11 @@ class MainWindow(QMainWindow):
             if self._current_page != 'builds':
                 self._switch_page('builds')
             self._set_log_expanded(True)
+            self.body_col.activate()
+            if self.builds_page.layout() is not None:
+                self.builds_page.layout().activate()
             if self.scroll.widget() is not None:
                 self.scroll.widget().adjustSize()
-            self.body_col.activate()
             self.scroll.ensureWidgetVisible(self.log, 0, 0)
         self._show_failure()
         self.reveal_ipa_btn.hide()
@@ -4258,6 +4279,7 @@ class MainWindow(QMainWindow):
                 button.setProperty('titleID', title)
                 button.clicked.connect(lambda checked=False, tid=title: self._build_clicked(title_id=tid))
                 self.title_buttons.addWidget(button)
+            install_keyboard_focus_filter(self.failure_box)
         folder = self.m.failure_folder(f)
         self.failure_folder_btn.setText(t('fail.showFolder'))
         self.failure_folder_btn.setVisible(
@@ -4472,21 +4494,62 @@ class MainWindow(QMainWindow):
 
     # ================================================================ Full-Window Drag & Drop
 
-    def closeEvent(self, event) -> None:
+    def _teardown_window_bindings(self) -> None:
         self._window_closed = True
         self._img_probing = False
         self._seed_compress_scanning = False
         self._assess_gen += 1
         self._img_probe_gen += 1
         self._seed_compress_scan_gen += 1
+        if hasattr(self, '_init_timer') and self._init_timer is not None:
+            try:
+                self._init_timer.stop()
+            except RuntimeError:
+                pass
+        if getattr(self, '_eng_popup', None) is not None:
+            try:
+                self._eng_popup.close()
+                self._eng_popup.deleteLater()
+            except RuntimeError:
+                pass
+            self._eng_popup = None
+            self._eng_popup_rows.clear()
+        if hasattr(self, '_log_highlighter') and self._log_highlighter is not None:
+            try:
+                self._log_highlighter.setDocument(None)
+            except RuntimeError:
+                pass
+            self._log_highlighter = None
+        for sc in getattr(self, '_shortcuts', ()):
+            try:
+                sc.setEnabled(False)
+                sc.activated.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        if hasattr(self, '_shortcuts'):
+            self._shortcuts.clear()
+        for sig, slot in getattr(self, '_model_connections', ()):
+            try:
+                sig.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
+        if hasattr(self, '_model_connections'):
+            self._model_connections.clear()
         if hasattr(self, '_assess_bridge'):
             self._assess_bridge.mark_dead()
+        if hasattr(self, 'refresh_queue'):
+            self.refresh_queue.unbind()
+        if hasattr(self, 'm') and getattr(self.m, 'ask_folder', None) is not None:
+            self.m.ask_folder = None
+            self.m.ask_file = None
+            self.m.ask_sdk_archive = None
+
+    def closeEvent(self, event) -> None:
+        self._teardown_window_bindings()
         super().closeEvent(event)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        if hasattr(self, 'top_bar'):
-            self.top_bar.recenter_nav()
         if hasattr(self, 'drop_overlay') and self.centralWidget():
             self.drop_overlay.setGeometry(self.centralWidget().rect())
 

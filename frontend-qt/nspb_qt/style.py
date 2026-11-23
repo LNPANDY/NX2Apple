@@ -133,6 +133,23 @@ def build_dark_palette():
     return pal
 
 
+def ensure_app_theme(app=None) -> None:
+    """Idempotently apply the cross-platform Fusion base style and Dark Glass palette.
+
+    `__main__.py` configures Fusion before creating windows, whereas headless tests instantiate
+    a bare `QApplication([])`. Applying Fusion here keeps widget metrics and dark palette roles
+    consistent across production launches and offscreen test runs on all platforms.
+    """
+    from PySide6.QtWidgets import QApplication
+
+    target = app if app is not None else QApplication.instance()
+    if target is None or getattr(target, '_nspb_fusion_applied', False):
+        return
+    target.setStyle('Fusion')
+    target.setPalette(build_dark_palette())
+    setattr(target, '_nspb_fusion_applied', True)
+
+
 STYLESHEET = f"""
 QMainWindow, QWidget#root {{
     background: {BG};
@@ -673,14 +690,14 @@ QComboBox#launcherDropdown[kbFocus="true"]:focus {{
     border: 2px solid {ACCENT};
 }}
 QComboBox#launcherDropdown::drop-down {{
-    subcontrol-origin: padding;
-    subcontrol-position: center right;
     border: none;
     width: 26px;
 }}
 QComboBox#launcherDropdown::down-arrow {{
-    width: 10px;
-    height: 10px;
+    image: none;
+    border: none;
+    width: 0px;
+    height: 0px;
 }}
 QComboBox QAbstractItemView {{
     background: {SURFACE_RAISED};

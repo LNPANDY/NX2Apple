@@ -21,6 +21,7 @@ from PySide6.QtGui import (
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -37,6 +38,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+try:
+    import shiboken6
+except ImportError:  # pragma: no cover - headless stub environments
+    shiboken6 = None  # type: ignore[assignment]
+
 from . import style
 
 _KEYBOARD_FOCUS_REASONS = (
@@ -45,47 +51,125 @@ _KEYBOARD_FOCUS_REASONS = (
     Qt.ShortcutFocusReason,
 )
 
+_FOCUS_FILTER_EVENTS = (
+    QEvent.Type.FocusIn,
+    QEvent.Type.FocusOut,
+    QEvent.Type.MouseButtonPress,
+)
+
+
+def _is_valid_qobject(obj: object) -> bool:
+    if obj is None:
+        return False
+    if shiboken6 is not None:
+        try:
+            return bool(shiboken6.isValid(obj))
+        except Exception:
+            return False
+    return True
+
 
 class KeyboardFocusFilter(QObject):
-    """Application-level event filter providing CSS :focus-visible semantics via dynamic property `kbFocus`."""
+    """Widget-scoped event filter providing CSS :focus-visible semantics via dynamic property `kbFocus`."""
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        if isinstance(watched, QWidget) and not isinstance(watched, (QLineEdit, QPlainTextEdit)):
-            etype = event.type()
-            if etype == QEvent.Type.FocusIn:
-                is_kb = getattr(event, 'reason', lambda: None)() in _KEYBOARD_FOCUS_REASONS
-                self._set_kb_focus(watched, is_kb)
-            elif etype in (QEvent.Type.FocusOut, QEvent.Type.MouseButtonPress):
-                if watched.property('kbFocus'):
-                    self._set_kb_focus(watched, False)
+        if event is None:
+            return False
+        etype = event.type()
+        if etype not in _FOCUS_FILTER_EVENTS:
+            return False
+        if not _is_valid_qobject(watched) or not isinstance(watched, QWidget):
+            return False
+        if isinstance(watched, (QLineEdit, QPlainTextEdit)):
+            return False
+        if etype == QEvent.Type.FocusIn:
+            reason_fn = getattr(event, 'reason', None)
+            reason = reason_fn() if callable(reason_fn) else None
+            is_kb = reason in _KEYBOARD_FOCUS_REASONS
+            self._set_kb_focus(watched, is_kb, repolish=True)
+        elif etype == QEvent.Type.FocusOut:
+            try:
+                had_kb = bool(watched.property('kbFocus'))
+            except RuntimeError:
+                return False
+            if had_kb:
+                # On FocusOut, skip unpolish/polish to avoid touching half-destroyed widgets
+                # during ~QWidget(), and mark _kbPolishDirty so a subsequent pointer FocusIn
+                # or MouseButtonPress repolishes away the cached cream border.
+                self._set_kb_focus(watched, False, repolish=False)
+        elif etype == QEvent.Type.MouseButtonPress:
+            try:
+                had_kb = bool(watched.property('kbFocus'))
+                dirty = bool(watched.property('_kbPolishDirty'))
+            except RuntimeError:
+                return False
+            if had_kb or dirty:
+                self._set_kb_focus(watched, False, repolish=True)
         return False
 
     @staticmethod
-    def _set_kb_focus(widget: QWidget, active: bool) -> None:
-        if bool(widget.property('kbFocus')) == active:
+    def _set_kb_focus(widget: QWidget, active: bool, *, repolish: bool = True) -> None:
+        if not _is_valid_qobject(widget):
             return
         try:
+            cur_kb = bool(widget.property('kbFocus'))
+            dirty = bool(widget.property('_kbPolishDirty'))
+            if cur_kb == active and (not repolish or not dirty):
+                return
             widget.setProperty('kbFocus', active)
-            st = widget.style()
-            if st is not None:
-                st.unpolish(widget)
-                st.polish(widget)
-            widget.update()
+            if not repolish:
+                if cur_kb != active:
+                    widget.setProperty('_kbPolishDirty', True)
+            else:
+                did_repolish = False
+                if widget.isVisible():
+                    win = widget.window()
+                    if _is_valid_qobject(win) and win.isVisible() and not getattr(win, '_window_closed', False):
+                        st = widget.style()
+                        if _is_valid_qobject(st):
+                            st.unpolish(widget)
+                            st.polish(widget)
+                            did_repolish = True
+                if did_repolish or not dirty:
+                    widget.setProperty('_kbPolishDirty', False)
+            if widget.isVisible():
+                widget.update()
         except RuntimeError:
             pass
 
 
-def install_keyboard_focus_filter(app: QObject | None = None) -> KeyboardFocusFilter | None:
-    """Idempotently install KeyboardFocusFilter on the QApplication so mouse clicks never leave sticky focus rings."""
-    target = app if app is not None else QApplication.instance()
-    if target is None:
+def install_keyboard_focus_filter(target: QObject | None = None) -> KeyboardFocusFilter | None:
+    """Install `KeyboardFocusFilter` on interactive child controls under a `QWidget` subtree.
+
+    Never installs an application-wide filter on `QApplication` because routing every internal C++
+    `QObject` event (`ChildRemoved`, `Destroy`, `DeferredDelete`, platform backing stores) through a
+    Shiboken Python wrapper triggers polymorphic RTTI / half-destroyed vtable crashes on Windows MSVC.
+    """
+    if target is None or not isinstance(target, QWidget) or not _is_valid_qobject(target):
         return None
-    existing = getattr(target, '_nspb_kb_focus_filter', None)
-    if isinstance(existing, KeyboardFocusFilter):
-        return existing
-    flt = KeyboardFocusFilter(target)
-    target.installEventFilter(flt)
-    setattr(target, '_nspb_kb_focus_filter', flt)
+    win = target.window()
+    host = win if isinstance(win, QWidget) and _is_valid_qobject(win) else target
+    existing = getattr(host, '_nspb_kb_focus_filter', None)
+    if isinstance(existing, KeyboardFocusFilter) and _is_valid_qobject(existing):
+        flt = existing
+    else:
+        flt = KeyboardFocusFilter(host)
+        setattr(host, '_nspb_kb_focus_filter', flt)
+
+    candidates: list[QWidget] = []
+    if isinstance(target, (QAbstractButton, QComboBox)):
+        candidates.append(target)
+    candidates.extend(target.findChildren(QAbstractButton))
+    candidates.extend(target.findChildren(QComboBox))
+
+    for w in candidates:
+        if not _is_valid_qobject(w):
+            continue
+        if w.objectName().startswith('qt_') or isinstance(w.parentWidget(), (QLineEdit, QPlainTextEdit)):
+            continue
+        if not getattr(w, '_nspb_kb_flt_attached', False):
+            w.installEventFilter(flt)
+            setattr(w, '_nspb_kb_flt_attached', True)
     return flt
 
 
@@ -189,7 +273,14 @@ def svg_chevron_down(color: str = style.MUTED) -> str:
 
 
 class CenteredColumnWidget(QWidget):
-    """Host page widget that centers its layout within a readable max width (920px)."""
+    """Host page widget that centers its layout within a readable max width (920px).
+
+    Uses a pure Qt `QHBoxLayout` with balanced side stretches and a `maxWidth`-capped
+    column container rather than mutating `contentsMargins` inside `resizeEvent`.
+    Mutating layout margins during `resizeEvent` inside `QScrollArea(widgetResizable=True)`
+    inflates `minimumSizeHint()` by `2 * side`, triggering a positive-feedback resize loop
+    that overflows the 1 MB Win32 main-thread stack (`0xC00000FD`).
+    """
 
     def __init__(
         self,
@@ -206,18 +297,28 @@ class CenteredColumnWidget(QWidget):
         self._min_h_margin = min_h_margin
         self._top_margin = top_margin
         self._bottom_margin = bottom_margin
-        self.body_col = QVBoxLayout(self)
-        self.body_col.setContentsMargins(min_h_margin, top_margin, min_h_margin, bottom_margin)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(min_h_margin, top_margin, min_h_margin, bottom_margin)
+        outer.setSpacing(0)
+
+        self.column_host = QWidget(self)
+        self.column_host.setMaximumWidth(max_width)
+        self.column_host.setMinimumWidth(0)
+        self.column_host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+        self.body_col = QVBoxLayout(self.column_host)
+        self.body_col.setContentsMargins(0, 0, 0, 0)
         self.body_col.setSpacing(spacing)
 
-    def _sync_margins(self) -> None:
-        w = self.width()
-        side = max(self._min_h_margin, (w - self.max_width) // 2) if w > 0 else self._min_h_margin
-        self.body_col.setContentsMargins(side, self._top_margin, side, self._bottom_margin)
+        outer.addStretch(1)
+        outer.addWidget(self.column_host, 1000)
+        outer.addStretch(1)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._sync_margins()
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, super().minimumSizeHint().height())
 
 
 class LauncherCheckBox(QCheckBox):
@@ -241,6 +342,7 @@ class LauncherCheckBox(QCheckBox):
         cy = float(ind.center().y())
         p.drawLine(QPointF(cx - 3.6, cy + 0.2), QPointF(cx - 1.0, cy + 3.0))
         p.drawLine(QPointF(cx - 1.0, cy + 3.0), QPointF(cx + 4.0, cy - 2.8))
+        p.end()
 
 
 class LauncherComboBox(QComboBox):
@@ -280,6 +382,7 @@ class LauncherComboBox(QComboBox):
         p.setPen(pen)
         p.drawLine(QPointF(cx - 4.0, cy - 2.0), QPointF(cx, cy + 2.5))
         p.drawLine(QPointF(cx, cy + 2.5), QPointF(cx + 4.0, cy - 2.0))
+        p.end()
 
 
 class BuildLogHighlighter(QSyntaxHighlighter):
@@ -383,6 +486,7 @@ class ElidedLabel(QLabel):
             elided,
             self.foregroundRole(),
         )
+        p.end()
 
 
 class LauncherSwitch(QWidget):
@@ -550,7 +654,12 @@ class LauncherSegmented(QWidget):
 
     def changeEvent(self, event) -> None:
         super().changeEvent(event)
-        self.updateGeometry()
+        if event is not None and event.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.StyleChange,
+            QEvent.Type.ApplicationFontChange,
+        ):
+            self.updateGeometry()
 
     def _segment_rects(self) -> list[tuple[str, str, QRectF]]:
         widths, total = self._measure_segments()
@@ -1221,21 +1330,27 @@ class HorizontalStripViewport(QWidget):
         return QSize(200, self._fixed_h)
 
     def _layout_strip(self) -> tuple[int, int]:
-        for i in range(self.strip_layout.count()):
-            w = self.strip_layout.itemAt(i).widget()
-            if w is not None and not w.isVisibleTo(self.strip):
-                w.show()
-        self.strip_layout.invalidate()
-        self.strip_layout.activate()
-        content_w = self.strip_layout.sizeHint().width()
-        vw = max(1, self.width())
-        self.strip.resize(max(vw, content_w), self._fixed_h)
-        self.strip_layout.activate()
-        overflow = content_w > vw + 1
-        if overflow != self._last_overflow:
-            self._last_overflow = overflow
-            self.overflowChanged.emit(overflow)
-        return content_w, vw
+        if getattr(self, '_laying_out_strip', False):
+            return self.strip_layout.sizeHint().width(), max(1, self.width())
+        self._laying_out_strip = True
+        try:
+            for i in range(self.strip_layout.count()):
+                w = self.strip_layout.itemAt(i).widget()
+                if w is not None and not w.isVisibleTo(self.strip):
+                    w.show()
+            self.strip_layout.invalidate()
+            self.strip_layout.activate()
+            content_w = self.strip_layout.sizeHint().width()
+            vw = max(1, self.width())
+            self.strip.resize(max(vw, content_w), self._fixed_h)
+            self.strip_layout.activate()
+            overflow = content_w > vw + 1
+            if overflow != self._last_overflow:
+                self._last_overflow = overflow
+                self.overflowChanged.emit(overflow)
+            return content_w, vw
+        finally:
+            self._laying_out_strip = False
 
     def has_overflow(self) -> bool:
         return self.max_scroll() > 0
