@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import SwiftUI
 import XCTest
 @testable import NX2Apple
@@ -76,6 +77,28 @@ import XCTest
             BuildSelectedSheet.rowAvailableTunedEngines(for: "0100152000022000", activeUpstream: .nxnative),
             []
         )
+        // Switch 2 .nup guard in BuildSelectedSheet: Pokopia .nup falls back to nxnative and hides MNG tuned pill
+        // until generic NUP routing (tools/nup_input.py) is available, while Ocarina of Time .nup stays enabled.
+        XCTAssertEqual(
+            BuildSelectedSheet.rowEngineTag(for: "0400A3A01EE4C000", selectedTarget: BuildTarget.mac, activeUpstream: .macNativeGames, isNUP: true, supportsGenericNUP: false),
+            .nxnative
+        )
+        XCTAssertEqual(
+            BuildSelectedSheet.rowEngineTag(for: "0400A3A01EE4C000", selectedTarget: BuildTarget.mac, activeUpstream: .macNativeGames, isNUP: true, supportsGenericNUP: true),
+            .macNativeGames
+        )
+        XCTAssertEqual(
+            BuildSelectedSheet.rowAvailableTunedEngines(for: "0400A3A01EE4C000", activeUpstream: .nxnative, isNUP: true, supportsGenericNUP: false),
+            []
+        )
+        XCTAssertEqual(
+            BuildSelectedSheet.rowAvailableTunedEngines(for: "0400A3A01EE4C000", activeUpstream: .nxnative, isNUP: true, supportsGenericNUP: true),
+            [.macNativeGames]
+        )
+        XCTAssertEqual(
+            BuildSelectedSheet.rowAvailableTunedEngines(for: "0400486024DEC000", activeUpstream: .nxnative, isNUP: true, supportsGenericNUP: false),
+            [.kidWithSword, .macNativeGames]
+        )
     }
 
     func testLibraryArtworkStateDistinguishesBuiltTunedEngineFromAvailableTunedEngine() {
@@ -111,10 +134,86 @@ import XCTest
         let candidates = BuildFolder.candidates(for: sampleGame)
         XCTAssertTrue(candidates.contains("/tmp/out/0400C3F00006E000_build"))
         XCTAssertTrue(candidates.contains("/tmp/out/0400C3F00006E000_nolagkart_build"))
+
+        // LiveConsoleDriver exposes full "MacNativeGames" name (never "MNG") for built MNG bundles.
+        let mngApp = temporary.appendingPathComponent("TOTK.app")
+        try? FileManager.default.createDirectory(at: mngApp.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+        try? FileManager.default.createSymbolicLink(at: mngApp.appendingPathComponent("Contents/MacOS/totk"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+        let plist: [String: Any] = [
+            "DMTitleID": "0100F2C0115B6000",
+            "DMUpstream": "macnativegames",
+            "CFBundleExecutable": "totk",
+            "CFBundleIdentifier": "org.macnativegames.totk",
+            "CFBundlePackageType": "APPL",
+        ]
+        if let data = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0) {
+            try? data.write(to: mngApp.appendingPathComponent("Contents/Info.plist"))
+        }
+        let libFile = temporary.appendingPathComponent("console-mng-lib.json")
+        let lib = GameLibrary(file: libFile)
+        var mngGame = LibraryGame(titleID: "0100F2C0115B6000", name: "Tears of the Kingdom")
+        mngGame.appPath = mngApp.path
+        lib.upsert(mngGame)
+        let d = TestDefaults.make("console-mng-driver")
+        let driver = LiveConsoleDriver(
+            library: lib,
+            controls: ControlLayout(defaults: d),
+            repo: { "" },
+            lang: { .en },
+            labels: { L10n.string($0, .en) },
+            observeSystem: false
+        )
+        XCTAssertEqual(driver.state.games.first?.builtTunedEngineName, EngineUpstreamKind.macNativeGames.displayName)
+        XCTAssertNotEqual(driver.state.games.first?.builtTunedEngineName, "MNG")
+    }
+
+    func testFixedPillWidthsFitAllEnginesAndLocalizedLabels() throws {
+        func measure(_ text: String, size: CGFloat, weight: Font.Weight) throws -> CGFloat {
+            let font = try XCTUnwrap(Typography.manropeFont(size: size, weight: weight))
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
+            return CTLineGetTypographicBounds(line, nil, nil, nil)
+        }
+
+        let engineLabels = [
+            EngineUpstreamKind.macNativeGames.displayName,
+            EngineUpstreamKind.kidWithSword.displayName,
+            EngineUpstreamKind.noLagKart.displayName,
+        ] + Lang.all.map { L10n.string("library.chip.tuned", $0) }
+        let platformLabels = Lang.all.flatMap { lang in
+            [L10n.string("switch2.badge", lang), L10n.string("console.platform.mac", lang), L10n.string("console.platform.iphone", lang)]
+        }
+
+        let dsEngineRoom = DSTag.engineWidth - 2 * DS.Space.xs
+        for label in engineLabels {
+            let w = try measure(label, size: DS.Font.footnoteSize, weight: .regular)
+            XCTAssertLessThanOrEqual(w, dsEngineRoom, "DSTag.engineWidth too narrow for \(label): \(w) > \(dsEngineRoom)")
+        }
+        let dsPlatformRoom = DSTag.platformWidth - 2 * DS.Space.xs
+        for label in platformLabels {
+            let w = try measure(label, size: DS.Font.footnoteSize, weight: .regular)
+            XCTAssertLessThanOrEqual(w, dsPlatformRoom, "DSTag.platformWidth too narrow for \(label): \(w) > \(dsPlatformRoom)")
+        }
+
+        for compact in [false, true] {
+            let size: CGFloat = compact ? 12 : 13
+            let pad: CGFloat = compact ? 8 : 10
+            let engineRoom = ConsoleTag.engineWidth(compact: compact) - 2 * pad
+            for label in engineLabels {
+                let w = try measure(label, size: size, weight: .semibold)
+                XCTAssertLessThanOrEqual(w, engineRoom, "ConsoleTag.engineWidth(compact: \(compact)) too narrow for \(label): \(w) > \(engineRoom)")
+            }
+            let platformRoom = ConsoleTag.platformWidth(compact: compact) - 2 * pad
+            for label in platformLabels {
+                let w = try measure(label, size: size, weight: .semibold)
+                XCTAssertLessThanOrEqual(w, platformRoom, "ConsoleTag.platformWidth(compact: \(compact)) too narrow for \(label): \(w) > \(platformRoom)")
+            }
+        }
     }
 
     func testCaptureEngineHubScreenshotsWhenRequested() throws {
-        guard let outDir = ProcessInfo.processInfo.environment["NX_CAPTURE_ENGINE_HUB"], !outDir.isEmpty else {
+        let env = ProcessInfo.processInfo.environment
+        guard let outDir = (env["NX_CAPTURE_ENGINE_HUB"].flatMap { $0.isEmpty ? nil : $0 })
+            ?? (env["NX_LAUNCHER_CAPTURE_DIR"].flatMap { $0.isEmpty ? nil : $0 }) else {
             return
         }
         let outURL = URL(fileURLWithPath: outDir, isDirectory: true)
@@ -194,7 +293,7 @@ import XCTest
         try PropertyListSerialization.data(fromPropertyList: kwsPlist, format: .xml, options: 0)
             .write(to: kwsApp.appendingPathComponent("Contents/Info.plist"))
 
-        for lang in [Lang.en, Lang.zh] {
+        for lang in CaptureLanguage.all([Lang.en, Lang.zh]) {
             let suffix = lang.code
             let pad = PadFocus()
             let loc = Localizer(lang)
@@ -256,15 +355,15 @@ import XCTest
                 file: "02_builds_recommend_and_ios_standalone_\(suffix).png"
             )
 
-            // 3. LibraryGameCard badges: built with Kid with Sword / built with No Lag Kart / general build with Tuned badge
+            // 3. LibraryGameCard badges: built with Kid with Sword / built with No Lag Kart / unbuilt multi-tuned / built with MacNativeGames
             try renderPNG(
-                HStack(spacing: 20) {
+                HStack(spacing: 18) {
                     LibraryGameCard(
                         title: lang == .zh ? "塞尔达传说：时之笛" : "Ocarina of Time (Switch 2)",
                         image: nil,
                         focus: .center,
                         state: LibraryArtworkState(mac: true, ios: false, attention: .none, macUpstream: .kidWithSword, tunedEngines: [.kidWithSword, .macNativeGames]),
-                        width: 240,
+                        width: 220,
                         selected: true,
                         select: {}
                     )
@@ -273,7 +372,16 @@ import XCTest
                         image: nil,
                         focus: .center,
                         state: LibraryArtworkState(mac: true, ios: false, attention: .none, macUpstream: .noLagKart, tunedEngines: [.noLagKart]),
-                        width: 240,
+                        width: 220,
+                        selected: false,
+                        select: {}
+                    )
+                    LibraryGameCard(
+                        title: lang == .zh ? "时之笛（通用构建）" : "Ocarina of Time",
+                        image: nil,
+                        focus: .center,
+                        state: LibraryArtworkState(mac: true, ios: false, attention: .none, macUpstream: .nxnative, tunedEngines: [.kidWithSword, .macNativeGames]),
+                        width: 220,
                         selected: false,
                         select: {}
                     )
@@ -281,17 +389,17 @@ import XCTest
                         title: lang == .zh ? "塞尔达传说：旷野之息" : "Breath of the Wild",
                         image: nil,
                         focus: .center,
-                        state: LibraryArtworkState(mac: true, ios: false, attention: .none, macUpstream: .nxnative, tunedEngines: [.macNativeGames]),
-                        width: 240,
+                        state: LibraryArtworkState(mac: true, ios: false, attention: .none, macUpstream: .macNativeGames, tunedEngines: [.macNativeGames]),
+                        width: 220,
                         selected: false,
                         select: {}
                     )
                 }
-                .padding(28)
+                .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(LauncherPalette.background)
                 .environmentObject(loc),
-                size: CGSize(width: 840, height: 240),
+                size: CGSize(width: 1020, height: 230),
                 file: "03_library_tuned_cards_\(suffix).png"
             )
 
@@ -367,7 +475,7 @@ import XCTest
                 file: "05_library_hero_badges_\(suffix).png"
             )
 
-            // 6. Console Mode Game Library Tiles & Detail Subtitles
+            // 6. Console Mode Game Library Tiles & Detail Subtitles (ConsoleArtColumn with platform + engine pills)
             let cKWS = ConsoleGame(
                 id: "c-kws",
                 title: lang == .zh ? "塞尔达传说：时之笛" : "Ocarina of Time (Switch 2)",
@@ -395,11 +503,12 @@ import XCTest
                 builtTunedEngineName: nil,
                 tunedEngineNames: [EngineUpstreamKind.macNativeGames.displayName]
             )
-            func consoleSubtitle(_ g: ConsoleGame) -> String {
-                let engine = g.builtTunedEngineName.map { [$0] } ?? (!g.tunedEngineNames.isEmpty ? [loc.t("library.chip.tuned")] : [])
-                return (g.platforms.map { loc.t($0.labelKey) } + [loc.t(g.status.labelKey)] + engine + [String(format: loc.t("console.version"), g.version)])
-                    .joined(separator: " \u{00b7} ")
-            }
+            let consoleDetailContext = ConsolePageContext(
+                title: cKWS.title,
+                subtitle: [L10n.string(cKWS.status.labelKey, lang), String(format: L10n.string("console.version", lang), cKWS.version)].joined(separator: " \u{00b7} "),
+                tags: cKWS.platforms.map { ConsoleContextTag(title: L10n.string($0.labelKey, lang), emphasized: false, width: .platform) }
+                    + [ConsoleContextTag(title: EngineUpstreamKind.kidWithSword.displayName, emphasized: true, width: .engine)]
+            )
             try renderPNG(
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 18) {
@@ -407,24 +516,19 @@ import XCTest
                         ConsoleGameTile(game: cNLK, selected: false, compact: false, lang: lang)
                         ConsoleGameTile(game: cTuned, selected: false, compact: false, lang: lang)
                     }
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(cKWS.title).font(DS.Console.Font.title).foregroundStyle(DS.Color.textPrimary)
-                        Text(consoleSubtitle(cKWS)).font(DS.Console.Font.body).foregroundStyle(DS.Color.textSecondary)
-                        Text(consoleSubtitle(cTuned)).font(DS.Console.Font.callout).foregroundStyle(DS.Color.textSecondary)
-                    }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+                    ConsoleArtColumn(context: consoleDetailContext)
+                        .frame(height: 240)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 .padding(24)
                 .background(LauncherPalette.background)
                 .environmentObject(loc),
-                size: CGSize(width: 900, height: 380),
+                size: CGSize(width: 900, height: 520),
                 fitHeight: true,
                 file: "06_console_tiles_and_detail_\(suffix).png"
             )
 
-            // 7. BuildSelectedSheet (batch build selector with Tuned filter & per-row Tuned labels)
+            // 7. BuildSelectedSheet (batch build selector with Tuned filter & split Tuned + engine pills)
             let batchLib = GameLibrary(file: temporary.appendingPathComponent("batch-lib-\(suffix).json"))
             batchLib.upsert(LibraryGame(titleID: "0400486024DEC000", name: "The Legend of Zelda: Ocarina of Time", inputs: ["base": [ootFile.path]]))
             batchLib.upsert(LibraryGame(titleID: "0400C3F00006E000", name: "Mario Kart World", inputs: ["base": [mkwFile.path]]))
@@ -448,6 +552,17 @@ import XCTest
                 .environmentObject(pad),
                 size: CGSize(width: 680, height: 560),
                 file: "07_build_selected_sheet_tuned_\(suffix).png"
+            )
+
+            // 8. ConsoleSupportedGamesPage (console mode supported games with platform + engine pills, no Improved in 1.5 pill)
+            let consoleDriver = MockConsoleDriver(scenario: .full, animated: false)
+            consoleDriver.state.openSupportedGames(sampleSupported, owned: [:])
+            try renderPNG(
+                ConsoleSupportedGamesPage(driver: consoleDriver, lang: lang, glyphs: .current(), compact: true, embedded: true)
+                    .environmentObject(pad)
+                    .environmentObject(loc),
+                size: CGSize(width: 720, height: 860),
+                file: "08_console_supported_games_\(suffix).png"
             )
         }
     }

@@ -41,8 +41,8 @@ package struct BuildFilesCard: View {
     }
 
     private func row(_ entry: BuildFilesStore.Entry, index: Int) -> some View {
-        let building = entry.id == buildingID
-        let removing = store.removing == entry.id
+        let building = entry.ownerID == buildingID
+        let removing = store.removing == entry.id || store.removing == entry.ownerID
         let detail = building ? loc.t("buildfiles.building") : removing ? loc.t("buildfiles.removing") : Self.bytes(entry.bytes)
         return CardRow(entry.name, detail: detail, help: entry.folder) {
             if removing { DSSpinner() }
@@ -79,8 +79,9 @@ package struct BuildFilesRemoveSheet: View {
                              cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("buildfiles.remove"), destructive: true,
                              scope: "buildfiles", cancel: cancel, confirm: confirm) {
             DSSection("") {
+                let paths = entry.folder.split(separator: "\n").map { (String($0) as NSString).abbreviatingWithTildeInPath }.joined(separator: ", ")
                 DSRow(String(format: loc.t("buildfiles.frees"), BuildFilesCard.bytes(entry.bytes)), detail: loc.t("buildfiles.stays"),
-                      detail2: (entry.folder as NSString).abbreviatingWithTildeInPath, help: entry.folder) { EmptyView() }
+                      detail2: paths, help: entry.folder) { EmptyView() }
             }
         }
     }

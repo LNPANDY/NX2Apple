@@ -40,23 +40,23 @@ struct LibraryGameCard: View {
                 // the chip above the clip, inset from the top and leading edge, clear of the corner radius
                 .overlay(alignment: .topLeading) { LibraryArtworkChip(state: state).padding(DS.Interaction.chipInset) }
                 .overlay(alignment: .topTrailing) {
-                    // Built with a game-tuned engine, or has a game-tuned engine available: a quiet tag in the other corner.
+                    // Built with a game-tuned engine, or lists each available game-tuned engine by full name.
                     if let built = state.builtTunedEngine {
-                        let label = built == .macNativeGames ? loc.t("library.chip.mng") : built.displayName
-                        let help = built == .macNativeGames
-                            ? loc.t("library.mng.help")
-                            : String(format: loc.t("library.tunedBuilt.help"), built.displayName)
-                        DSTag(label, emphasized: true)
+                        let help = String(format: loc.t("library.tunedBuilt.help"), built.displayName)
+                        DSTag(built.displayName, emphasized: true, width: DSTag.engineWidth)
                             .help(help)
                             .accessibilityLabel(help)
                             .padding(DS.Interaction.chipInset)
                     } else if state.hasTunedEngine {
-                        let names = state.tunedEngines.map(\.displayName).joined(separator: ", ")
-                        let help = String(format: loc.t("library.tuned.help"), names)
-                        DSTag(loc.t("library.chip.tuned"), emphasized: true)
-                            .help(help)
-                            .accessibilityLabel(help)
-                            .padding(DS.Interaction.chipInset)
+                        VStack(alignment: .trailing, spacing: DS.Space.xxs) {
+                            ForEach(state.tunedEngines, id: \.self) { engine in
+                                let help = String(format: loc.t("library.tuned.help"), engine.displayName)
+                                DSTag(engine.displayName, emphasized: true, width: DSTag.engineWidth)
+                                    .help(help)
+                                    .accessibilityLabel(help)
+                            }
+                        }
+                        .padding(DS.Interaction.chipInset)
                     } else if state.isNxkitGeneric {
                         // nxkit built it without a game profile (v0lumehi/nxkit#54): the same quiet tag in the same corner
                         DSTag(loc.t("nxkit.generic.badge"), emphasized: true)

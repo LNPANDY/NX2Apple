@@ -72,13 +72,16 @@ struct GameDeletion: Equatable {
             let mirror = ShellInstall.mirroredFramework(root: shellRoot, titleID: game.titleID)
             items.append(Item(kind: .shellFramework, paths: exists(mirror) ? [mirror] : []))
         }
-        let build = BuildFolder.location(for: game)
+        let builds = BuildFolder.locations(for: game)
         let sources = Set(game.inputs.values.flatMap { $0 }.map(BuildFolder.resolved))
-        if let build {
+        var buildPaths: [String] = []
+        for build in builds {
             // Everything in it but the Mac development build's save (run/), which goes with the saves.
             let names = ((try? fm.contentsOfDirectory(atPath: build)) ?? []).filter { $0 != "run" }.sorted()
-            let paths = names.map { build + "/" + $0 }.filter { path in !sources.contains { $0 == path || $0.hasPrefix(path + "/") } }
-            items.append(Item(kind: .buildFolder, paths: paths))
+            buildPaths += names.map { build + "/" + $0 }.filter { path in !sources.contains { $0 == path || $0.hasPrefix(path + "/") } }
+        }
+        if !buildPaths.isEmpty {
+            items.append(Item(kind: .buildFolder, paths: buildPaths))
         }
         let logs = GameLog.folders(appPath: game.appPath, home: home).flatMap { folder in
             [game.titleID + ".log", game.titleID + ".prev.log"].map { folder.appendingPathComponent($0).path }
@@ -89,7 +92,7 @@ struct GameDeletion: Equatable {
         var saves = [mac.save, mac.legacy ?? SaveTransfer.legacyMacSave(titleID: game.titleID, support: support)].flatMap { save in
             [save.path, save.path + "_device", save.path + "-backups"] + SaveUsers.userPaths(save: save)
         }
-        if let build { saves.append(build + "/run") }
+        for build in builds { saves.append(build + "/run") }
         saves = Array(Set(saves)).sorted().filter(exists)
         var plan = GameDeletion(titleID: game.titleID, items: items, saves: saves.isEmpty ? nil : Item(kind: .saves, paths: saves), shellRoot: root)
         if measure {
@@ -109,9 +112,13 @@ struct GameDeletion: Equatable {
         for path in all.flatMap(\.paths) where FileManager.default.fileExists(atPath: path) {
             do { try trash(URL(fileURLWithPath: path)) } catch { failed.append(path) }
         }
-        // The build folder itself, once nothing is left in it (its run/ stays with the saves).
-        if let folder = items.first(where: { $0.kind == .buildFolder })?.paths.first.map({ ($0 as NSString).deletingLastPathComponent }),
-           (try? FileManager.default.contentsOfDirectory(atPath: folder))?.isEmpty == true {
+        // Each build folder itself, once nothing is left in it (its run/ stays with the saves).
+        let buildFolders = Set(
+            (items.first(where: { $0.kind == .buildFolder })?.paths ?? [])
+                .map { ($0 as NSString).deletingLastPathComponent }
+            + (saves ? (self.saves?.paths ?? []).filter { ($0 as NSString).lastPathComponent == "run" }.map { ($0 as NSString).deletingLastPathComponent } : [])
+        )
+        for folder in buildFolders where (try? FileManager.default.contentsOfDirectory(atPath: folder))?.isEmpty == true {
             try? FileManager.default.removeItem(atPath: folder)
         }
         if let shellRoot {

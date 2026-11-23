@@ -81,11 +81,42 @@ enum BuildFolder {
         return result
     }
 
-    nonisolated static func location(for game: LibraryGame) -> String? {
-        candidates(for: game).first { path in
+    nonisolated static func locations(for game: LibraryGame) -> [String] {
+        candidates(for: game).filter { path in
             var dir: ObjCBool = false
             return FileManager.default.fileExists(atPath: path, isDirectory: &dir) && dir.boolValue
         }
+    }
+
+    nonisolated static func location(for game: LibraryGame) -> String? {
+        locations(for: game).first
+    }
+
+    /// Parses a `<TitleID>_build` or `<TitleID>_<variant>_build` folder name into its 16-hex TitleID and engine kind.
+    nonisolated static func parseFolderName(_ folderName: String) -> (titleID: String, upstream: EngineUpstreamKind)? {
+        guard folderName.hasSuffix("_build") else { return nil }
+        var prefix = String(folderName.dropLast("_build".count))
+        var detected: EngineUpstreamKind = .nxnative
+        for kind in EngineUpstreamKind.allCases {
+            guard let suffix = kind.workDirSuffix else { continue }
+            let token = "_" + suffix
+            if prefix.hasSuffix(token) {
+                prefix = String(prefix.dropLast(token.count))
+                detected = kind
+                break
+            }
+        }
+        guard prefix.count == 16,
+              prefix.unicodeScalars.allSatisfy({
+                  ($0.value >= 0x30 && $0.value <= 0x39)
+                      || ($0.value >= 0x41 && $0.value <= 0x46)
+                      || ($0.value >= 0x61 && $0.value <= 0x66)
+              }) else { return nil }
+        return (prefix.uppercased(), detected)
+    }
+
+    nonisolated static func upstream(forFolder folder: String) -> EngineUpstreamKind {
+        parseFolderName((folder as NSString).lastPathComponent)?.upstream ?? .nxnative
     }
 
     /// What this sheet never removes, wherever it lies: the finished Mac app, the IPA, the app installed on a device (its
@@ -131,6 +162,24 @@ enum BuildFolder {
     /// the NSP script's chain_of() does (`#define DMSH_CHAIN "(.*)"`). nil when the header is missing or has none, and then no
     /// shader version counts as old.
     nonisolated static func currentChain(repo: String) -> String? { EngineLayout.shaderChain(repo: repo) }
+
+    /// Resolves the shader chain matching `folder`'s engine (`nxnative` vs specialized fork).
+    /// Returns nil when the matching fork is unconfigured or has no `dmsh_chain.h`, preventing false old-shader flags.
+    nonisolated static func currentChain(
+        forFolder folder: String,
+        repo: String,
+        kidWithSwordPath: String = "",
+        noLagKartPath: String = ""
+    ) -> String? {
+        switch upstream(forFolder: folder) {
+        case .nxnative, .s2arm, .macNativeGames, .nxkit:
+            return EngineLayout.shaderChain(repo: repo)
+        case .kidWithSword:
+            return EngineLayout.shaderChain(repo: kidWithSwordPath)
+        case .noLagKart:
+            return EngineLayout.shaderChain(repo: noLagKartPath)
+        }
+    }
 
     /// The entries of the build folder that hold the libraries of chain versions other than `chain`, relative to it:
     /// shader/cache/b-<old> (Mac) and shader/ios/b-<old> (iPhone) with shader/ios/b-<old>.key and shader/mac-b-<old>.key, the
@@ -247,6 +296,7 @@ struct FreeSpaceView: View {
     @ObservedObject var m: BuildStore
     @EnvironmentObject var loc: Localizer
     let game: LibraryGame
+    private let explicitFolder: String?
     /// Off only for the gallery's "measuring" state, which keeps the spinner.
     private let measures: Bool
     @Environment(\.dismiss) private var dismiss
@@ -257,19 +307,27 @@ struct FreeSpaceView: View {
     @State private var working = false
     @State private var outcome: String?
 
-    init(m: BuildStore, game: LibraryGame, survey: BuildFolderSurvey? = nil, chosen: Set<BuildFolderPart> = [], measures: Bool = true,
+    init(m: BuildStore, game: LibraryGame, folder: String? = nil, survey: BuildFolderSurvey? = nil, chosen: Set<BuildFolderPart> = [], measures: Bool = true,
          outcome: String? = nil) {
         _outcome = State(initialValue: outcome)   // the state gallery: what the last removal said
         self.measures = measures
         self.m = m
         self.game = game
+        self.explicitFolder = folder
         _survey = State(initialValue: survey)   // visual QA: a measured folder without one on disk
         _chosen = State(initialValue: chosen)
     }
 
     /// The old shader versions are part of the shader output, so choosing both counts them once.
     private var chosenBytes: Int64 { chosen.reduce(0) { $0 + ($1 == .oldShaders && chosen.contains(.shaders) ? 0 : survey?.sizes[$1] ?? 0) } }
-    private var chain: String? { BuildFolder.currentChain(repo: m.repo.path) }
+    private func chain(for folder: String) -> String? {
+        BuildFolder.currentChain(
+            forFolder: folder,
+            repo: m.repo.path,
+            kidWithSwordPath: m.kidWithSwordPath,
+            noLagKartPath: m.noLagKartPath
+        )
+    }
 
     var body: some View {
         DSScrollingSheet(width: 560, height: 690, title: loc.t("free.title"), message: game.displayName(loc.lang)) {
@@ -350,8 +408,9 @@ struct FreeSpaceView: View {
     nonisolated static func bytes(_ n: Int64) -> String { ByteCountFormatter.string(fromByteCount: n, countStyle: .file) }
 
     private func measure() {
-        let protected = BuildFolder.protectedPaths(for: game), chain = chain
-        guard let folder = BuildFolder.location(for: game) else { survey = BuildFolderSurvey(folder: ""); return }
+        let protected = BuildFolder.protectedPaths(for: game)
+        guard let folder = explicitFolder ?? BuildFolder.location(for: game) else { survey = BuildFolderSurvey(folder: ""); return }
+        let chain = chain(for: folder)
         DispatchQueue.global(qos: .userInitiated).async {
             let result = BuildFolder.survey(folder, protecting: protected, chain: chain)
             DispatchQueue.main.async { survey = result; chosen = chosen.filter { (result.sizes[$0] ?? 0) > 0 } }
@@ -360,7 +419,7 @@ struct FreeSpaceView: View {
 
     private func removeChosen() {
         guard let folder = survey?.folder, !folder.isEmpty else { return }
-        let parts = chosen, protected = BuildFolder.protectedPaths(for: game), running = m.running, chain = chain
+        let parts = chosen, protected = BuildFolder.protectedPaths(for: game), running = m.running, chain = chain(for: folder)
         working = true
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try BuildFolder.remove(parts, in: folder, protecting: protected, buildRunning: running, chain: chain) }

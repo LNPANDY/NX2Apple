@@ -422,8 +422,8 @@ struct LauncherView: View {
         }
         .sheet(isPresented: $controlsOpen) { ControlsView(layout: controls, cancelRequest: controlsCancelRequest).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
-            if let id = freeSpaceFor, let game = BuildFiles.freeSpaceGame(id: id, in: library.games, store: stores.buildFiles) {
-                FreeSpaceView(m: m, game: game).environmentObject(padFocus)
+            if let id = freeSpaceFor, let target = BuildFiles.freeSpaceTarget(id: id, in: library.games, store: stores.buildFiles) {
+                FreeSpaceView(m: m, game: target.game, folder: target.folder).environmentObject(padFocus)
             }
         }
         .onChange(of: freeSpaceFor) { id in
@@ -762,7 +762,7 @@ struct LauncherView: View {
     /// The Manage menu's rows for a game, wired to the launcher's sheets and actions (ManageItem.list).
     private func manageItems(_ game: LibraryGame) -> [ManageItem] {
         ManageItem.list(game: game, labels: loc.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
-                        hasBuildFolder: BuildFolder.location(for: game) != nil,
+                        hasBuildFolder: !BuildFolder.locations(for: game).isEmpty,
                         buildFilesTitle: BuildFiles.menuTitle(stores.buildFiles, game: game.id, t: loc.t),
                         hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
                         deviceName: devices.deviceName(game.installedDevice), launching: launching,
@@ -771,7 +771,7 @@ struct LauncherView: View {
                             changeArtwork: { page = .library; openArtwork(game) }, rename: { renaming = game },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
-                            removeBuildFiles: { stores.buildFiles.ask(game.id, building: m.running && activeBuildID == game.id) }, remove: { removing = game }, delete: { deleting = game }))
+                            removeBuildFiles: { stores.buildFiles.askForGame(game.id, building: m.running && activeBuildID == game.id) }, remove: { removing = game }, delete: { deleting = game }))
     }
 
     private func manageItems(for game: LibraryGame?) -> [ManageItem] { game.map(manageItems) ?? [] }

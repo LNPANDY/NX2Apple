@@ -370,4 +370,123 @@ import XCTest
         )
         XCTAssertEqual(store.gameFolderEngineProblem(otherContents), localizer.t("upstream.kwsOnlyTitle"))
     }
+
+    func testFastRefreshAfterVariantBuildResetsActiveUpstreamToNxnative() throws {
+        let nlkTree = try makeVariantTree(name: "nlk-fast", flags: "\"--progress\" \"--work-dir\"")
+        let nxRepo = temporary.appendingPathComponent("nx-repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: nxRepo.appendingPathComponent("dm/tools/nx_extract"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: nxRepo.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        try Data("// cs\n".utf8).write(to: nxRepo.appendingPathComponent("dm/tools/nx_extract/Program.cs"))
+        try Data("# \"--from-seed\" \"--work-dir\" \"--progress\"\n".utf8).write(to: nxRepo.appendingPathComponent("scripts/build_ipa_from_nsp.py"))
+        let dmGame = nxRepo.appendingPathComponent("dm/games/0400C3F00006E000", isDirectory: true)
+        try FileManager.default.createDirectory(at: dmGame, withIntermediateDirectories: true)
+        try Data("title_id\t0400C3F00006E000\nname\tMario Kart World\n".utf8).write(to: dmGame.appendingPathComponent("game.tsv"))
+        repo.path = nxRepo.path
+        repo.isRepo = true
+
+        let runner = RecordingRunner()
+        let outDir = temporary.appendingPathComponent("out-fast", isDirectory: true)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        defaults.set(false, forKey: MacPreflight.defaultsKey)
+        store.home = temporary.path
+        store.noLagKartPath = nlkTree
+        store.outDir = outDir.path
+
+        let mkw = temporary.appendingPathComponent("MKW [0400C3F00006E000].nsp")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: mkw)
+        try Data([0]).write(to: keys)
+        store.updateSlot("base") { $0.paths = [mkw.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+        store.target = BuildTarget.mac
+        store.selectUpstream(.noLagKart)
+
+        func writeSyntheticMacApp(at appURL: URL) {
+            let macos = appURL.appendingPathComponent("Contents/MacOS")
+            try? FileManager.default.createDirectory(at: macos, withIntermediateDirectories: true)
+            try? FileManager.default.createSymbolicLink(at: macos.appendingPathComponent("Game"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+            try? FileManager.default.createSymbolicLink(at: macos.appendingPathComponent("dmhost"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+            let info: [String: Any] = [
+                "CFBundlePackageType": "APPL",
+                "CFBundleExecutable": "Game",
+                "CFBundleIdentifier": "org.nxnative.0400c3f00006e000",
+                "CFBundleName": "Mario Kart World",
+                "DMTitleID": "0400C3F00006E000",
+            ]
+            if let data = try? PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0) {
+                try? data.write(to: appURL.appendingPathComponent("Contents/Info.plist"))
+            }
+        }
+
+        runner.onStart = { launch in
+            guard let idx = launch.arguments.firstIndex(of: "-o"), idx + 1 < launch.arguments.count else { return }
+            writeSyntheticMacApp(at: URL(fileURLWithPath: launch.arguments[idx + 1]))
+        }
+
+        // 1. Build with No Lag Kart -> MacGameBundle reads .noLagKart from BuiltUpstreamRegistry.
+        store.startBuild()
+        XCTAssertTrue(waitUntil { store.done && !store.macAppPath.isEmpty })
+        let builtAppPath = store.macAppPath
+        XCTAssertEqual(store.activeBuildUpstream, .noLagKart)
+        XCTAssertEqual(try MacGameBundle.read(URL(fileURLWithPath: builtAppPath)).upstream, .noLagKart)
+
+        // 2. Next, perform a Fast Refresh on the same title (even with buildUpstream still on .nxnative or .noLagKart):
+        // activeBuildUpstream MUST reset to .nxnative and clear the stale .noLagKart attribution.
+        runner.launches.removeAll()
+        let seedDir = URL(fileURLWithPath: store.seedCacheRoot).appendingPathComponent("0400C3F00006E000", isDirectory: true)
+        try FileManager.default.createDirectory(at: seedDir, withIntermediateDirectories: true)
+        try Data("seed".utf8).write(to: seedDir.appendingPathComponent("seed.json"))
+        // Rewrite plist timestamp/size when refreshing so BuiltUpstreamRegistry must be updated by finishMacApp.
+        runner.onStart = { launch in
+            guard let idx = launch.arguments.firstIndex(of: "-o"), idx + 1 < launch.arguments.count else { return }
+            let appURL = URL(fileURLWithPath: launch.arguments[idx + 1])
+            writeSyntheticMacApp(at: appURL)
+            let res = appURL.appendingPathComponent("Contents/Resources")
+            try? FileManager.default.createDirectory(at: res, withIntermediateDirectories: true)
+            try? Data("refreshed".utf8).write(to: res.appendingPathComponent("marker.txt"))
+        }
+
+        store.startFastRefresh(
+            titleID: "0400C3F00006E000",
+            targetName: BuildTarget.mac,
+            outDir: outDir.path,
+            gameName: "Mario Kart World",
+            existingMacAppPath: builtAppPath
+        )
+        XCTAssertTrue(waitUntil { !runner.launches.isEmpty && store.done && !store.running })
+        XCTAssertEqual(store.activeBuildUpstream, .nxnative, "Fast refresh must reset activeBuildUpstream to .nxnative")
+        let refreshedBundle = try MacGameBundle.read(URL(fileURLWithPath: builtAppPath))
+        XCTAssertEqual(refreshedBundle.upstream, .nxnative, "Fast refresh must not keep previous No Lag Kart attribution")
+    }
+
+    func testUnifiedRecommendationAndBlockedReasonRespectMNGNUPGuard() throws {
+        let mngTree = temporary.appendingPathComponent("mng-legacy", isDirectory: true)
+        try FileManager.default.createDirectory(at: mngTree.appendingPathComponent("games/totk"), withIntermediateDirectories: true)
+        try Data("#!/usr/bin/env python3\n".utf8).write(to: mngTree.appendingPathComponent("build_app.py"))
+
+        let runner = RecordingRunner()
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        store.macNativeGamesPath = mngTree.path
+        store.target = BuildTarget.mac
+
+        let pokopiaNUP = temporary.appendingPathComponent("Pokemon Pokopia [0400A3A01EE4C000].nup")
+        try Data([0]).write(to: pokopiaNUP)
+        store.updateSlot("base") { $0.paths = [pokopiaNUP.path] }
+
+        // Legacy MNG blocks Pokopia .nup: unified recommendation must stay nil and blockedReasonKey(.macNativeGames) must report the dump-folder reason.
+        XCTAssertNil(store.recommendedTunedEngine)
+        XCTAssertEqual(store.tunedEnginesForCurrentGame, [])
+        XCTAssertEqual(store.blockedReasonKey(for: .macNativeGames), "upstream.mngNeedsDumpFolder")
+
+        // Installing tools/nup_input.py unlocks unified MNG recommendation immediately.
+        let toolsDir = mngTree.appendingPathComponent("tools", isDirectory: true)
+        try FileManager.default.createDirectory(at: toolsDir, withIntermediateDirectories: true)
+        try Data("# nup_input\n".utf8).write(to: toolsDir.appendingPathComponent("nup_input.py"))
+        store.macNativeGamesPath = mngTree.path
+        XCTAssertEqual(store.recommendedTunedEngine, .macNativeGames)
+        XCTAssertEqual(store.tunedEnginesForCurrentGame, [.macNativeGames])
+    }
 }

@@ -97,12 +97,46 @@ extension ConsoleGlyphs {
 
 // MARK: Two columns
 
-/// What the left column of a page shows: the game's artwork, its title and one secondary line.
+/// A pill displayed in console mode's art column and supported-games list.
+struct ConsoleContextTag: Equatable {
+    enum Width: Equatable { case auto, platform, engine }
+    var title: String
+    var emphasized: Bool = false
+    var width: Width = .auto
+}
+
+/// A console-scaled quiet tag matching `DSTag` geometry for across-the-room readability.
+struct ConsoleTag: View {
+    static func platformWidth(compact: Bool) -> CGFloat { compact ? 80 : 90 }
+    static func engineWidth(compact: Bool) -> CGFloat { compact ? 130 : 152 }
+
+    let title: String
+    var emphasized: Bool = false
+    var compact: Bool = false
+    var width: CGFloat? = nil
+
+    var body: some View {
+        Text(title)
+            .font(compact ? DS.Font.callout.weight(.semibold) : DS.Font.bodyStrong)
+            .foregroundStyle(emphasized ? DS.Color.textPrimary : DS.Color.textSecondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .fixedSize(horizontal: width == nil, vertical: true)
+            .padding(.horizontal, compact ? 8 : 10)
+            .padding(.vertical, 3)
+            .frame(width: width)
+            .background(DS.Color.surfaceRaised, in: DSPill())
+            .overlay(DSPill().strokeBorder(emphasized ? DS.Color.textTertiary : DS.Color.separator))
+    }
+}
+
+/// What the left column of a page shows: the game's artwork, its title, optional pills and one secondary line.
 struct ConsolePageContext {
     var image: NSImage?
     var focus: UnitPoint = .center
     var title: String
     var subtitle: String = ""
+    var tags: [ConsoleContextTag] = []
     /// A progress bar under the subtitle (the build page's running build), 0 to 1.
     var progress: Double?
 }
@@ -128,6 +162,24 @@ struct ConsoleArtColumn: View {
                     Text(context.title).font(DS.Console.Font.largeTitle).tracking(DS.Console.Font.largeTitleTracking)
                         .foregroundStyle(DS.Color.textPrimary).lineLimit(3).minimumScaleFactor(0.7)
                         .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
+                    if !context.tags.isEmpty {
+                        DSFlowRow(spacing: DS.Space.xs) {
+                            ForEach(Array(context.tags.enumerated()), id: \.offset) { _, tag in
+                                ConsoleTag(
+                                    title: tag.title,
+                                    emphasized: tag.emphasized,
+                                    compact: false,
+                                    width: {
+                                        switch tag.width {
+                                        case .auto: return nil
+                                        case .platform: return ConsoleTag.platformWidth(compact: false)
+                                        case .engine: return ConsoleTag.engineWidth(compact: false)
+                                        }
+                                    }()
+                                )
+                            }
+                        }
+                    }
                     if !context.subtitle.isEmpty {
                         Text(context.subtitle).font(DS.Console.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
                     }

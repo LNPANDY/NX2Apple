@@ -317,18 +317,14 @@ extension LauncherView {
                     .accessibilityLabel("\(loc.t("activity.totalTime")) \(played)")
             }
             if let built = game.playableMacBundle?.upstream, built.group == .gameTuned {
-                let label = built == .macNativeGames ? loc.t("library.chip.mng") : built.displayName
-                let help = built == .macNativeGames
-                    ? loc.t("library.mng.help")
-                    : String(format: loc.t("library.tunedBuilt.help"), built.displayName)
-                DSTag(label, emphasized: true)
+                let help = String(format: loc.t("library.tunedBuilt.help"), built.displayName)
+                DSTag(built.displayName, emphasized: true, width: DSTag.engineWidth)
                     .help(help)
                     .accessibilityLabel(help)
             } else {
-                let tuned = EngineUpstream.tunedEngines(forTitleID: game.titleID)
-                if !tuned.isEmpty {
-                    let help = String(format: loc.t("library.tuned.help"), tuned.map(\.displayName).joined(separator: ", "))
-                    DSTag(loc.t("library.chip.tuned"), emphasized: true)
+                ForEach(EngineUpstream.tunedEngines(forTitleID: game.titleID), id: \.self) { engine in
+                    let help = String(format: loc.t("library.tuned.help"), engine.displayName)
+                    DSTag(engine.displayName, emphasized: true, width: DSTag.engineWidth)
                         .help(help)
                         .accessibilityLabel(help)
                 }

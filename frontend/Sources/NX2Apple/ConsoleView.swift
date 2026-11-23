@@ -208,7 +208,7 @@ enum ConsoleInput: Equatable {
     private func pageContext(_ sheet: ConsoleSheet) -> ConsolePageContext {
         if let game = panelGame(sheet) {
             return ConsolePageContext(image: game.hero ?? game.artwork, focus: game.hero != nil ? game.heroFocus : game.artworkFocus,
-                                      title: game.title, subtitle: gameLine(game))
+                                      title: game.title, subtitle: gameLine(game), tags: gameTags(game))
         }
         let backdrop = state.focusedGame
         func around(_ title: String, _ subtitle: String = "") -> ConsolePageContext {
@@ -229,24 +229,26 @@ enum ConsoleInput: Equatable {
         }
     }
 
-    /// The secondary line under a game's title: where it plays and how it stands.
+    /// Platform and engine pills shown beneath the game's title in console details.
+    private func gameTags(_ game: ConsoleGame) -> [ConsoleContextTag] {
+        var tags = game.platforms.map { ConsoleContextTag(title: t($0.labelKey), emphasized: false, width: .platform) }
+        if let built = game.builtTunedEngineName ?? (game.isMacNativeGames ? EngineUpstreamKind.macNativeGames.displayName : nil) {
+            tags.append(ConsoleContextTag(title: built, emphasized: true, width: .engine))
+        } else {
+            tags.append(contentsOf: game.tunedEngineNames.map { ConsoleContextTag(title: $0, emphasized: true, width: .engine) })
+        }
+        if game.genericBuild != nil {
+            tags.append(ConsoleContextTag(title: t("nxkit.generic.badge"), emphasized: true, width: .auto))
+        }
+        return tags
+    }
+
+    /// The short status line under a game's pills: readiness and game version.
     private func gameLine(_ game: ConsoleGame) -> String {
         let status = state.pausedGameID == game.id ? t("console.paused")
             : game.status == .ready && game.olderTools ? t("library.olderTools") : t(game.status.labelKey)
-        let engine: [String] = {
-            var items: [String] = []
-            if let built = game.builtTunedEngineName ?? (game.isMacNativeGames ? t("library.chip.mng") : nil) {
-                items.append(built)
-            } else if !game.tunedEngineNames.isEmpty {
-                items.append(t("library.chip.tuned"))
-            }
-            if game.genericBuild != nil {
-                items.append(t("nxkit.generic.badge"))
-            }
-            return items
-        }()
         let version = game.version.isEmpty ? [] : [String(format: t("console.version"), game.version)]
-        return (game.platforms.map { t($0.labelKey) } + [status] + engine + version).joined(separator: " \u{00b7} ")
+        return ([status] + version).joined(separator: " \u{00b7} ")
     }
 
     private func hint(_ role: ConsoleGlyphs.Role, _ key: String, _ action: @escaping () -> Void) -> ConsoleHintItem {

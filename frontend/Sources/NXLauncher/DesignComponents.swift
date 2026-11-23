@@ -224,13 +224,29 @@ package struct DSPill: InsettableShape {
 /// build, Widescreen, why a file was skipped. Footnote text in text.secondary (text.primary when `emphasized`) on the raised
 /// surface, in a DSPill with a hairline.
 package struct DSTag: View {
-    package init(_ title: String, emphasized: Bool = false) { self.title = title; self.emphasized = emphasized }
+    /// Fixed width sized to comfortably hold "MacNativeGames", "Kid with Sword", and "No Lag Kart".
+    package static let engineWidth: CGFloat = 116
+    /// Fixed width sized for short platform and edition labels ("Switch 2", "Mac", "iOS").
+    package static let platformWidth: CGFloat = 76
+
+    package init(_ title: String, emphasized: Bool = false, width: CGFloat? = nil) {
+        self.title = title
+        self.emphasized = emphasized
+        self.width = width
+    }
     let title: String
     let emphasized: Bool
+    let width: CGFloat?
     package var body: some View {
-        Text(title).font(DS.Font.footnote).foregroundStyle(emphasized ? DS.Color.textPrimary : DS.Color.textSecondary)
-            .lineLimit(1).fixedSize()
-            .padding(.horizontal, DS.Space.xs).padding(.vertical, 2)
+        Text(title)
+            .font(DS.Font.footnote)
+            .foregroundStyle(emphasized ? DS.Color.textPrimary : DS.Color.textSecondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .fixedSize(horizontal: width == nil, vertical: true)
+            .padding(.horizontal, DS.Space.xs)
+            .padding(.vertical, 2)
+            .frame(width: width)
             .background(DS.Color.surfaceRaised, in: DSPill())
             .overlay(DSPill().strokeBorder(DS.Color.separator))
     }

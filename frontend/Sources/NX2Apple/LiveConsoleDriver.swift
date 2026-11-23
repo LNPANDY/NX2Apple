@@ -218,10 +218,7 @@ struct ConsolePadSnapshot: Equatable {
         var values: [String: String] = [:]
         for s in settings { values[s.env] = s.storeBacked ? store.current(s) : game.launchValue(s) }
         let macUpstream = game.playableMacBundle?.upstream
-        let builtTunedName: String? = {
-            guard let macUpstream, macUpstream.group == .gameTuned else { return nil }
-            return macUpstream == .macNativeGames ? t("library.chip.mng") : macUpstream.displayName
-        }()
+        let builtTunedName = (macUpstream?.group == .gameTuned) ? macUpstream?.displayName : nil
         let tunedNames = EngineUpstream.tunedEngines(forTitleID: game.titleID).map(\.displayName)
         var console = ConsoleGame(id: game.id.uuidString, title: game.displayName(lang()), version: version(of: game),
                                   platforms: Self.platforms(of: game), artwork: cover(game), artworkFocus: game.artwork.focus(for: .thumbnail),

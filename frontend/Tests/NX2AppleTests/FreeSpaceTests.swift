@@ -99,6 +99,71 @@ final class FreeSpaceTests: IsolatedDefaultsTestCase {
         XCTAssertNil(BuildFolder.location(for: beside))
     }
 
+    @MainActor func testVariantBuildFoldersAreListedSeparatelyAndUseMatchingShaderChain() throws {
+        let tid = "0400C3F00006E000"
+        let baseBuild = out.appendingPathComponent(tid + "_build")
+        let variantBuild = out.appendingPathComponent(tid + "_nolagkart_build")
+        try file("extract/v0/RomFS/data.bin", in: baseBuild, kb: 64)
+        try file("shader/cache/b-111122223333/k_b.metallib", in: baseBuild, kb: 64)
+        try file("extract/v0/RomFS/data.bin", in: variantBuild, kb: 128)
+        try file("shader/cache/b-aaaa11112222/k_b.metallib", in: variantBuild, kb: 96)
+        try file("shader/cache/b-000099998888/k_b.metallib", in: variantBuild, kb: 48)
+
+        var game = LibraryGame(titleID: tid, name: "Mario Kart World")
+        game.outputDirectory = out.path
+
+        // 1. Both existing folders must be returned by BuildFolder.locations and BuildFiles.games.
+        let foundLocations = BuildFolder.locations(for: game)
+        XCTAssertEqual(Set(foundLocations.map(BuildFolder.resolved)), Set([baseBuild.path, variantBuild.path].map(BuildFolder.resolved)))
+
+        let entries = BuildFiles.games([game], lang: .en, extraRoots: [out.path])
+        XCTAssertEqual(entries.count, 2, "Both default and variant build folders must be listed as separate BuildFiles entries")
+        let baseEntry = try XCTUnwrap(entries.first { $0.folder == baseBuild.path })
+        let variantEntry = try XCTUnwrap(entries.first { $0.folder == variantBuild.path })
+        XCTAssertEqual(baseEntry.ownerID, game.id)
+        XCTAssertEqual(variantEntry.ownerID, game.id)
+        XCTAssertNotEqual(baseEntry.id, variantEntry.id)
+        XCTAssertTrue(variantEntry.name.contains("No Lag Kart"), variantEntry.name)
+        XCTAssertFalse(entries.contains { $0.name.contains("Unlisted build") }, "Known variant folder must not appear as an orphan")
+
+        // 2. Removing build files from the variant entry cleans only the variant folder and updates BuildFilesStore.
+        let store = BuildFilesStore(measure: { BuildFiles.measure($0) }, remove: { try BuildFiles.remove($0) })
+        let exp = expectation(description: "refresh build files")
+        let task = store.refresh(entries)
+        Task { await task.value; exp.fulfill() }
+        wait(for: [exp], timeout: 3.0)
+        let target = BuildFiles.freeSpaceTarget(id: variantEntry.id, in: [game], store: store)
+        XCTAssertEqual(target?.game.id, game.id)
+        XCTAssertEqual(target?.folder, variantBuild.path)
+
+        // 3. Matching shader chain: nxnative chain must NOT mark No Lag Kart's current chain as old.
+        let nxRepo = temporary.appendingPathComponent("nx-repo")
+        let nlkRepo = temporary.appendingPathComponent("nlk-repo")
+        try file("dm/tools/nx_extract/Program.cs", in: nxRepo, kb: 1)
+        try file("dm/gfx/nvn/dmsh_chain.h", in: nxRepo, kb: 1)
+        try "// chain\n#define DMSH_CHAIN \"111122223333\"\n".write(
+            to: nxRepo.appendingPathComponent("dm/gfx/nvn/dmsh_chain.h"), atomically: true, encoding: .utf8
+        )
+        // First without No Lag Kart configured -> chain is nil -> nothing in variant folder marked as oldShaders.
+        XCTAssertNil(BuildFolder.currentChain(forFolder: variantBuild.path, repo: nxRepo.path, noLagKartPath: ""))
+        let noForkSurvey = BuildFolder.survey(
+            variantBuild.path,
+            protecting: [],
+            chain: BuildFolder.currentChain(forFolder: variantBuild.path, repo: nxRepo.path, noLagKartPath: "")
+        )
+        XCTAssertEqual(noForkSurvey.oldShaders, [], "Missing fork chain must not fall back to nxnative chain and flag variant shaders as old")
+
+        // With No Lag Kart's own dmsh_chain.h configured -> matches aaaa11112222 and flags only 000099998888 as old.
+        try file("dm/gfx/nvn/dmsh_chain.h", in: nlkRepo, kb: 1)
+        try "// nlk\n#define DMSH_CHAIN \"aaaa11112222\"\n".write(
+            to: nlkRepo.appendingPathComponent("dm/gfx/nvn/dmsh_chain.h"), atomically: true, encoding: .utf8
+        )
+        let variantChain = BuildFolder.currentChain(forFolder: variantBuild.path, repo: nxRepo.path, noLagKartPath: nlkRepo.path)
+        XCTAssertEqual(variantChain, "aaaa11112222")
+        let variantSurvey = BuildFolder.survey(variantBuild.path, protecting: [], chain: variantChain)
+        XCTAssertEqual(variantSurvey.oldShaders.map(\.name), ["b-000099998888"])
+    }
+
     func testThePartsAreSizedAndWhatStaysIsNotOffered() throws {
         let game = try fixture()
         let survey = BuildFolder.survey(build.path, protecting: BuildFolder.protectedPaths(for: game))

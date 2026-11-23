@@ -128,7 +128,7 @@ enum GalleryCoverage {
         "ConsoleSectionHeading": [.consoleOptions], "ConsoleFocused": [.consoleOptionsStepperFocus], "ConsoleMenuRow": [.console(C.menu)],
         "ConsoleAdvancedList": [.console(C.advanced)], "ConsoleGamePadPage": [.console(C.gamePad)], "ConsoleLibraryList": [.console(C.menuLibrary)],
         "ConsoleSettingsList": [.console(C.menuSettings)], "ConsolePageHeader": [.console(C.supportedGames), .console(C.cloudSaves)],
-        "ConsoleSupportedGamesPage": [.console(C.supportedGames)], "ConsoleCloudSavesPage": [.console(C.cloudSaves)],
+        "ConsoleSupportedGamesPage": [.console(C.supportedGames)], "ConsoleTag": [.consoleOptions, .console(C.supportedGames)], "ConsoleCloudSavesPage": [.console(C.cloudSaves)],
         "ConsolePadMappingSheet": [.console(C.mappingStandard), .console(C.mappingCustom)], "ConsolePadDiagram": [.console(C.mappingCustom)],
         "ConsolePadGlyph": [.console(C.mappingCustom)], "ChangedDot": [.console(C.mappingCustom)],
         "ConsoleBuildsPage": [.consoleBuilds], "ConsoleProgressBar": [.consoleBuilds], "ConsoleGroupedList": [.consoleBuilds, .consoleGamePage],

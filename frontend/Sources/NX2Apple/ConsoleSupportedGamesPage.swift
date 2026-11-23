@@ -151,36 +151,28 @@ import NXLauncher
         SupportedGamesSheet.detailText(for: game, t: t)
     }
 
-    /// A quiet tag as on the desktop (DSTag): cream is for the selected and the primary only.
-    private func tag(_ text: String, emphasized: Bool = false) -> some View {
-        Text(text)
-            .font(.manrope(compact ? 12 : 14, .semibold))
-            .foregroundStyle(emphasized ? DS.Color.textPrimary : DS.Color.textSecondary)
-            .lineLimit(1)
-            .fixedSize()
-            .padding(.horizontal, compact ? 8 : 10)
-            .padding(.vertical, 3)
-            .background(DS.Color.surfaceRaised, in: DSPill())
-            .overlay(DSPill().strokeBorder(emphasized ? DS.Color.textTertiary : DS.Color.separator))
-    }
-
     private func row(_ game: SupportedGame) -> some View {
         let id = "console.supported.row." + game.titleID
         let open = expanded == game.titleID
         let owned = state.ownedGameID(game)
         let toggle = { expanded = open ? nil : game.titleID }
+        let platforms = SupportedGamesSheet.platformTags(for: game, t: t)
+        let tuned = SupportedGamesSheet.tunedEngines(for: game)
         return VStack(alignment: .leading, spacing: 14) {
             Button(action: toggle) {
                 HStack(spacing: 18) {
                     cover(game)
-                    let improved = SupportedGamesSheet.improvedTag(for: game.titleID, t: t)
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack(alignment: .center, spacing: 10) {
-                            Text(game.name).font(.manrope(compact ? 19 : 23, .semibold)).lineLimit(2)
-                            ForEach(SupportedGamesSheet.tunedEngines(for: game), id: \.self) { engine in
-                                tag(engine.displayName, emphasized: true)
+                        Text(game.name).font(.manrope(compact ? 19 : 23, .semibold)).lineLimit(2)
+                        if !platforms.isEmpty || !tuned.isEmpty {
+                            DSFlowRow(spacing: 8) {
+                                ForEach(platforms, id: \.self) { platform in
+                                    ConsoleTag(title: platform, emphasized: false, compact: compact, width: ConsoleTag.platformWidth(compact: compact))
+                                }
+                                ForEach(tuned, id: \.self) { engine in
+                                    ConsoleTag(title: engine.displayName, emphasized: true, compact: compact, width: ConsoleTag.engineWidth(compact: compact))
+                                }
                             }
-                            if let improved { tag(improved) }   // Widescreen is in the subtitle, a property, not a tag (#1458)
                         }
                         Text(detail(game)).font(.manrope(compact ? 14 : 17)).foregroundStyle(LauncherPalette.secondaryText)
                     }

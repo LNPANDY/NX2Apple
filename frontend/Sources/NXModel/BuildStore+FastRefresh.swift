@@ -192,6 +192,12 @@ extension BuildStore {
             updatedImgPath = ""
         }
         send = .idle
+        activeBuildUpstream = .nxnative
+        mngRun = false
+        s2armRun = false
+        s2armEventsPath = ""
+        nxkitRun = false
+        nxkitFeedback = nil
 
         if let message = preflightSpaceProblem() {
             doneNote = message

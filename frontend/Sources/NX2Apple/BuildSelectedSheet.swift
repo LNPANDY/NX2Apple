@@ -202,6 +202,7 @@ struct BuildSelectedSheet: View {
         let isNUP = isNUPInput(game)
         let upstream = effectiveUpstream
         let availableTuned = Self.rowAvailableTunedEngines(for: game.titleID, activeUpstream: upstream, isNUP: isNUP, supportsGenericNUP: mngSupportsGenericNUP)
+        let engineTag = Self.rowEngineTag(for: game.titleID, selectedTarget: selectedTarget, activeUpstream: upstream, isNUP: isNUP, supportsGenericNUP: mngSupportsGenericNUP)
         return Button { toggle(game.id) } label: {
             HStack(spacing: DS.Space.s) {
                 Image(systemName: on ? "checkmark.square.fill" : "square").font(.system(size: 17))
@@ -217,15 +218,22 @@ struct BuildSelectedSheet: View {
                 .frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail)
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.chip))
                 .accessibilityHidden(true)
-                Text(game.displayName(loc.lang)).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
-                Spacer(minLength: DS.Space.xs)
-                if let engineTag = Self.rowEngineTag(for: game.titleID, selectedTarget: selectedTarget, activeUpstream: upstream, isNUP: isNUP, supportsGenericNUP: mngSupportsGenericNUP) {
-                    DSTag(engineTag.displayName, emphasized: engineTag.group == .gameTuned)
-                } else if !availableTuned.isEmpty {
-                    let label = "\(loc.t("library.chip.tuned")) \u{00b7} \(availableTuned[0].displayName)"
-                    DSTag(label, emphasized: true)
-                        .help(String(format: loc.t("library.tuned.help"), availableTuned.map(\.displayName).joined(separator: ", ")))
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text(game.displayName(loc.lang)).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
+                    if let engineTag {
+                        DSTag(engineTag.displayName, emphasized: engineTag.group == .gameTuned, width: DSTag.engineWidth)
+                    } else if !availableTuned.isEmpty {
+                        let help = String(format: loc.t("library.tuned.help"), availableTuned.map(\.displayName).joined(separator: ", "))
+                        DSFlowRow(spacing: DS.Space.xs) {
+                            DSTag(loc.t("library.chip.tuned"), width: DSTag.engineWidth)
+                            ForEach(availableTuned, id: \.self) { engine in
+                                DSTag(engine.displayName, emphasized: true, width: DSTag.engineWidth)
+                            }
+                        }
+                        .help(help)
+                    }
                 }
+                Spacer(minLength: DS.Space.xs)
                 if let existing = queue.games.first(where: { $0.titleID.caseInsensitiveCompare(game.titleID) == .orderedSame }), existing.waiting || existing.running || existing.entries.contains(where: { $0.packagePending != nil }) {
                     BuildPlatformChip(targets: existing.entries.map(\.target))
                         .help(loc.t("queue.alreadyQueued"))

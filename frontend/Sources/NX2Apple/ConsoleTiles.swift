@@ -88,12 +88,16 @@ struct ConsoleGameTile: View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if let built = game.builtTunedEngineName ?? (game.isMacNativeGames ? L10n.string("library.chip.mng", lang) : nil) {
-                    DSTag(built, emphasized: true)
+                if let built = game.builtTunedEngineName ?? (game.isMacNativeGames ? EngineUpstreamKind.macNativeGames.displayName : nil) {
+                    DSTag(built, emphasized: true, width: DSTag.engineWidth)
                         .padding(8)
                 } else if !game.tunedEngineNames.isEmpty {
-                    DSTag(L10n.string("library.chip.tuned", lang), emphasized: true)
-                        .padding(8)
+                    VStack(alignment: .trailing, spacing: DS.Space.xxs) {
+                        ForEach(game.tunedEngineNames, id: \.self) { name in
+                            DSTag(name, emphasized: true, width: DSTag.engineWidth)
+                        }
+                    }
+                    .padding(8)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: DS.Console.Radius.art))
