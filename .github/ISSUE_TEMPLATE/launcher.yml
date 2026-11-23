@@ -4,7 +4,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        For a game that crashes, freezes, runs slowly or looks wrong, report it at https://github.com/seedds/nxnative/issues. For a failing build, use the Build problem form.
+        For a game that crashes, freezes, runs slowly or looks wrong, or a failure inside the nxnative build tools (extract, rewrite, Pipeline or shader tools), report it at https://github.com/seedds/nxnative/issues. For a launcher-side build, signing or install problem, use the Build problem form.
         Never attach keys, game files or anything extracted from a game.
   - type: dropdown
     id: kind

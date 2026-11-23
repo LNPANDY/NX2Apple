@@ -3,6 +3,9 @@ contact_links:
   - name: Questions and ideas
     url: https://github.com/LNPANDY/NX2Apple/discussions
     about: Ask how something works in Q&A, or suggest and talk over an idea in Ideas. Bugs stay as issues, with the forms here.
+  - name: An nxnative build tool fails — extract, rewrite, Pipeline or shader tools (seedds/nxnative)
+    url: https://github.com/seedds/nxnative/issues
+    about: The nxnative build tools (nx_extract, the rewriter and Pipeline, the dmsh shader tools, build_app_from_nsp.py and build_ipa_from_nsp.py) belong to seedds/nxnative and cannot be fixed here. Report failures inside those tools or on unsupported games there. Keep launcher-side failures (key check, dependencies, paths, signing, device install) in Build problem above.
   - name: A game crashes, freezes, runs slowly or looks wrong (seedds/nxnative)
     url: https://github.com/seedds/nxnative/issues
     about: NX2Apple packs and starts games with the nxnative engine. Go there for a game that crashes, freezes, hangs, runs slowly, looks or sounds wrong, or whose controls misbehave once it runs. Also go there for how the engine itself works. Engine fixes and game profiles are submitted there as a pull request, we take no engine patches here.

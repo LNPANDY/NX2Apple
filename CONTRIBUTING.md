@@ -4,15 +4,15 @@ Issues and pull requests are welcome. NX2Apple is the launcher (`frontend/`, `fr
 
 ## Reporting a problem
 
-Everything about the launcher belongs here: the app, a build that fails, an install to a device. Build problems and launcher problems each have an issue form (`.github/ISSUE_TEMPLATE/`). The form asks for what a report needs, such as versions, device, Copy diagnostics and the Build log. Use it from the Issues page. A report without those is usually unactionable.
+Everything about the launcher belongs here: the app, its dependency and key checks, NSZ decompression, queuing, signing, app or IPA packaging, and installing to a device. Build problems and launcher problems each have an issue form (`.github/ISSUE_TEMPLATE/`). The form asks for what a report needs, such as versions, device, Copy diagnostics and the Build log. Use it from the Issues page. A report without those is usually unactionable.
 
-A game that crashes, freezes, hangs, runs slowly, looks or sounds wrong, or whose controls misbehave once it runs goes to [seedds/nxnative](https://github.com/seedds/nxnative/issues), not here.
+Failures inside the nxnative build tools (`nx_extract`, the rewriter and `Pipeline`, the `dmsh` shader tools, `build_app_from_nsp.py` and `build_ipa_from_nsp.py`, or unsupported games) cannot be fixed here and go to [seedds/nxnative](https://github.com/seedds/nxnative/issues). A game that crashes, freezes, hangs, runs slowly, looks or sounds wrong, or whose controls misbehave once it runs also goes to [seedds/nxnative](https://github.com/seedds/nxnative/issues), not here.
 
 ## Where an issue goes
 
-- **Here:** the launcher (the Mac app, the Windows app, the iOS shell), its settings, library and updates, translations, a build or install that fails, and this repository's docs and CI.
+- **Here:** the launcher (the Mac app, the Windows app, the iOS shell), its settings, library and updates, translations, launcher-side build setup, signing, packaging or device install that fails, and this repository's docs and CI.
 - **[Discussions](https://github.com/LNPANDY/NX2Apple/discussions):** questions (Q&A) and ideas (Ideas). Bugs stay issues.
-- **[seedds/nxnative](https://github.com/seedds/nxnative/issues):** a game that crashes, freezes, hangs, runs slowly, looks or sounds wrong, or whose controls misbehave once it runs. Also how the engine works and porting a new game. Engine fixes and game profiles go there as a pull request, see "Helping with games".
+- **[seedds/nxnative](https://github.com/seedds/nxnative/issues):** failures inside the nxnative build tools (`nx_extract`, rewriter or `Pipeline`, `dmsh` shader tools, upstream NSP/IPA build scripts, unsupported games), or a game that crashes, freezes, hangs, runs slowly, looks or sounds wrong, or whose controls misbehave once it runs. Also how the engine works and porting a new game. Engine fixes and game profiles go there as a pull request, see "Helping with games".
 
 ## What a report needs
 
@@ -116,7 +116,7 @@ Issue forms and the PR template apply in the browser only. `gh issue create`, th
   - Keep the main text under 150 words. Put evidence in `<details><summary>Details</summary> ... </details>` below it: the full cause analysis, logs and traces, the list of tests run, the commands.
   - Say once and plainly what you did not check or could not run.
   - A PR does not repeat its issue. Link it and add only what is new.
-- **Problem reports.** Write the body as `###` headings with the same names as the form's fields (for example `### Which step failed`, `### Copy diagnostics`, `### Build log`) and fill every required field from [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). A game that crashes, freezes or looks wrong is not a report here, it goes to seedds/nxnative. Ask the user for what you cannot read yourself: the Copy diagnostics output, the log, the versions. If a required field is missing, do not open the issue.
+- **Problem reports.** Write the body as `###` headings with the same names as the form's fields (for example `### Which step failed`, `### Copy diagnostics`, `### Build log`) and fill every required field from [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). Failures inside the nxnative build tools (`nx_extract`, rewriter or `Pipeline`, `dmsh` shader tools, upstream build scripts or unsupported games) and games that crash, freeze or look wrong once they run are not reports here, they go to seedds/nxnative. Ask the user for what you cannot read yourself: the Copy diagnostics output, the log, the versions. If a required field is missing, do not open the issue.
 - **Ideas and plans.** These have no form. Write plain sections that fit the content, for example `### Idea`, `### Plan` and `### Done when`. Leave out the problem fields (`This is`, `NX2Apple version`, `Computer and OS`, `Copy diagnostics`). Open it with the labels `idea` and `no-triage`.
 - **Before you build.** If you work for an outside contributor, a feature or a proposal needs an issue in a milestone (see "Fixes, features and ideas"). Check that it exists or ask the user. A new game profile or an engine fix is not a PR here. It goes to seedds/nxnative (see "Helping with games").
 - **Pull requests.** Use the sections of [.github/pull_request_template.md](.github/pull_request_template.md): `gh pr create --template .github/pull_request_template.md`, or the same headings in `--body`. Answer each section and remove the `<!-- -->` hints. Under Fix or feature, tick one box. A feature from outside links the issue with the go. A change to the engine does not belong in a PR here, see "A pull request".
