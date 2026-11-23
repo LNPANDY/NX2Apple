@@ -675,13 +675,17 @@ import NXModel
         [Movement & Combat End]
         20000001
         [--SectionStart:Extras--]
+        00000000 00000000 00000000
         {Always unlimited stamina}
         04000000 00180010 00000001
+        {Broken Master}
+        FF000000 00000001
         [Always sunny]
         04000000 00180060 00000006
         [Broken by hand]
         04000000 00180060 0006 junk
         [--SectionEnd:Extras--]
+        00000000 00000000 00000000
         """, "CD57B23FA4BBAD65.txt", under: folder)
         try write("[Other]\n04000000 00180001 00000001\n", "FF773E90972D5440.txt", under: folder)
         try write("Infinite health\nMoon Jump\nAlways sunny\n", "CD57B23FA4BBAD65.enabled", under: folder)

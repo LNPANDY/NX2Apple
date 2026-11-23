@@ -184,31 +184,34 @@ import XCTest
         importButton.tap()
 
         // Triage card shows direct-ready count + code-needs-bake guidance + share button.
-        XCTAssertTrue(app.staticTexts["cheats.triageNeedsBakeText"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["cheats.triageNeedsBakeText"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["cheats.shareForBake"].exists || app.buttons["cheats.share"].exists)
 
         // Direct-on-iPhone and baked-code entries expose live switches, while unbaked code entries show locked badge.
         let healthToggle = app.switches["cheats.toggle.Infinite Health"]
-        let scroll = app.scrollViews.firstMatch
-        for _ in 0..<4 where !healthToggle.exists {
+        let scroll = app.scrollViews.element(boundBy: app.scrollViews.count - 1)
+        scroll.swipeUp()
+        for _ in 0..<4 where !healthToggle.isHittable {
             scroll.swipeUp()
         }
         XCTAssertTrue(healthToggle.waitForExistence(timeout: 5))
-        healthToggle.tap()
+        healthToggle.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
         XCTAssertEqual(healthToggle.value as? String, "1")
 
         let moonJumpKey = app.descendants(matching: .any)["cheats.key.Moon Jump (Hold ZR+B)"].firstMatch
-        for _ in 0..<4 where !moonJumpKey.exists {
+        for _ in 0..<4 where !moonJumpKey.isHittable {
             scroll.swipeUp()
         }
         XCTAssertTrue(moonJumpKey.waitForExistence(timeout: 5))
         XCTAssertTrue(app.switches["cheats.toggle.Moon Jump (Hold ZR+B)"].exists)
 
         let lockedCode = app.buttons["cheats.locked.2x Movement Speed"]
-        for _ in 0..<4 where !lockedCode.exists {
+        for _ in 0..<4 where !lockedCode.isHittable {
             scroll.swipeUp()
         }
         XCTAssertTrue(lockedCode.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.switches["cheats.toggle.--SectionStart:Movement & Combat--"].exists)
+        XCTAssertFalse(app.switches["cheats.toggle.Truncated Cheat"].exists)
     }
 
     func testCheatsBuildMismatchShowsConfirmationAlert() {

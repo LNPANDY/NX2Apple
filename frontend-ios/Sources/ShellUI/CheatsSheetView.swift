@@ -447,15 +447,16 @@ public struct CheatsSheetView: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("cheats.locked.\(entry.key)")
                 } else {
-                    Toggle("", isOn: Binding(
+                    let toggleBinding = Binding(
                         get: { entry.enabled },
                         set: { newValue in toggleEntry(entry.key, newValue) }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(NativeCreamToggleStyle())
-                    .accessibilityLabel(entry.name)
-                    .accessibilityIdentifier("cheats.toggle.\(entry.key)")
-                    .shellTarget("cht.row.\(entry.key)") { toggleEntry(entry.key, !entry.enabled) }
+                    )
+                    Toggle("", isOn: toggleBinding)
+                        .labelsHidden()
+                        .toggleStyle(NativeCreamToggleStyle())
+                        .accessibilityLabel(entry.name)
+                        .accessibilityIdentifier("cheats.toggle.\(entry.key)")
+                        .shellTarget("cht.row.\(entry.key)") { toggleEntry(entry.key, !entry.enabled) }
                 }
             }
             .padding(.vertical, 4)
@@ -473,30 +474,34 @@ public struct CheatsSheetView: View {
     }
 
     private func entryTitleColumn(_ entry: GameCheatEntry) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
+        let showBadge = !entry.isBroken && !entry.isOnce
+        let triggerCombo = entry.isBroken ? nil : entry.triggerCombo
+        return VStack(alignment: .leading, spacing: 5) {
             Text(entry.name)
                 .shellType(ShellType.settingLabel)
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
 
-            CheatsTagFlowLayout(spacing: 6) {
-                if !entry.isBroken && !entry.isOnce {
-                    rowCapabilityBadge(entry.capability)
-                }
-                if let combo = entry.triggerCombo {
-                    HStack(spacing: 4) {
-                        Image(systemName: "gamecontroller.fill")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(ShellPalette.cream)
-                            .accessibilityHidden(true)
-                        Text(ShellStrings.text("Hold \(combo)"))
-                            .shellText(11.5, .semibold, relativeTo: .caption)
-                            .foregroundStyle(ShellPalette.cream)
+            if showBadge || triggerCombo != nil {
+                CheatsTagFlowLayout(spacing: 6) {
+                    if showBadge {
+                        rowCapabilityBadge(entry.capability)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(ShellPalette.cream.opacity(0.14), in: Capsule())
-                    .accessibilityIdentifier("cheats.key.\(entry.key)")
+                    if let combo = triggerCombo {
+                        HStack(spacing: 4) {
+                            Image(systemName: "gamecontroller.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(ShellPalette.cream)
+                                .accessibilityHidden(true)
+                            Text(ShellStrings.text("Hold \(combo)"))
+                                .shellText(11.5, .semibold, relativeTo: .caption)
+                                .foregroundStyle(ShellPalette.cream)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(ShellPalette.cream.opacity(0.14), in: Capsule())
+                        .accessibilityIdentifier("cheats.key.\(entry.key)")
+                    }
                 }
             }
         }

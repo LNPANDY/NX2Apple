@@ -9,8 +9,14 @@ import ShellUI
 /// stub. Choices go to throwaway defaults suites that are cleared at every start.
 struct HostDemoScreen: View {
     @State private var model: ShellHostModel
+    @MainActor private static let sharedModel: ShellHostModel = makeModel()
 
     init() {
+        _model = State(initialValue: Self.sharedModel)
+    }
+
+    @MainActor
+    private static func makeModel() -> ShellHostModel {
         let args = ProcessInfo.processInfo.arguments
         let fm = FileManager.default
         let gamesRoot: URL
@@ -56,6 +62,7 @@ struct HostDemoScreen: View {
         [Player Stats End]
         20000001
         [--SectionStart:Movement & Combat--]
+        00000000 00000000 00000000
         [Moon Jump (Hold ZR+B)]
         80000202
         04000000 00000400 D503201F
@@ -66,7 +73,12 @@ struct HostDemoScreen: View {
         80000040
         04000000 00000C00 D503201F
         20000000
+        {Broken Master}
+        FF000000 00000001
+        [Truncated Cheat]
+        04000000 00001000
         [--SectionEnd:Movement & Combat--]
+        00000000 00000000 00000000
         """
         if args.contains("--mock-cheat-preloaded") || args.contains("--mock-cheat-fuse") {
             let cheatsDir = appData
@@ -142,7 +154,7 @@ struct HostDemoScreen: View {
             cheatPicker = NoCheatFilePicker()
             #endif
         }
-        _model = State(initialValue: ShellHostModel(config: config, picker: folderPicker, certificatePicker: certPicker, cheatPicker: cheatPicker))
+        return ShellHostModel(config: config, picker: folderPicker, certificatePicker: certPicker, cheatPicker: cheatPicker)
     }
 
     private static let suite = "dev.nx2apple.shell.demo."
