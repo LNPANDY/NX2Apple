@@ -19,7 +19,7 @@ extension BuildStore {
         case .success(let contents):
             if !running,
                isMacNativeGamesSelected,
-               (!contents.hasTitleID || !MacNativeGamesBuilder.supportsTitleID(contents.titleIDHex)) {
+               (!contents.hasTitleID || !MacNativeGamesBuilder.supportsInput(titleID: contents.titleIDHex, isNUP: contents.nup != nil, tree: macNativeGamesPath)) {
                 buildUpstream = .nxnative
             }
             if let why = gameFolderEngineProblem(contents) { refuseGameFolder(why); return }
@@ -53,6 +53,9 @@ extension BuildStore {
             if !contents.hasTitleID || MacNativeGamesBuilder.route(forTitleID: contents.titleIDHex, in: macNativeGamesPath) == nil {
                 let label = contents.hasTitleID ? contents.titleIDHex : (contents.scriptInput as NSString).lastPathComponent
                 return String(format: t("upstream.mngUnsupportedGame"), label)
+            }
+            if contents.nup != nil && !MacNativeGamesBuilder.supportsInput(titleID: contents.titleIDHex, isNUP: true, tree: macNativeGamesPath) {
+                return t("upstream.mngNeedsDumpFolder")
             }
             return nil
         }

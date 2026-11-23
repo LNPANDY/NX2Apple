@@ -2835,6 +2835,7 @@
   "upstream.mngInvalid": "%@ är inte en MacNativeGames-mapp",
   "upstream.mngMacOnly": "MacNativeGames bygger bara Mac-appar",
   "upstream.mngMissing": "Välj först en MacNativeGames-mapp i Inställningar",
+  "upstream.mngNeedsDumpFolder": "MacNativeGames kräver en uppackad Switch 2-mapp för den här titeln, använd NX2Apple för .nup-filer",
   "upstream.mngOnlyFiveTitles": "Endast tillgänglig för 12 stödda titlar",
   "upstream.mngPickMessage": "Välj mappen för MacNativeGames-arkivet",
   "upstream.mngRecommendNote": "Detta spel stöder MacNativeGames-optimerade Mac-byggen",

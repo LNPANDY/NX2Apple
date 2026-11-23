@@ -196,7 +196,12 @@ extension BuildStore {
                 let allowed = MacNativeGamesBuilder.featureEnabled
                     && macNativeGamesInstalled
                     && normalizedTarget == BuildTarget.mac
-                    && MacNativeGamesBuilder.supportsTitleID(resolvedTitleID)
+                    && MacNativeGamesBuilder.supportsInput(
+                        titleID: resolvedTitleID,
+                        gameFolder: entry.gameFolder,
+                        basePath: entry.inputs["base"]?.first,
+                        tree: macNativeGamesPath
+                    )
                 return allowed ? .macNativeGames : .nxnative
             case .nxkit:
                 return normalizedTarget == BuildTarget.mac ? .nxkit : .nxnative

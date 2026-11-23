@@ -43,7 +43,7 @@ extension BuildStore {
         return titleID
     }
 
-    /// Applies a known library/queue title ID (hinting 16-hex IDs and reverting MacNativeGames for non-12/non-hex IDs).
+    /// Applies a known library/queue title ID (hinting 16-hex IDs and reverting MacNativeGames for unsupported titles or inputs).
     package func applyKnownTitleID(_ titleID: String?) {
         packageHeaderProbeGeneration &+= 1
         let trimmed = titleID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -51,7 +51,7 @@ extension BuildStore {
         if !running,
            buildUpstream == .macNativeGames,
            !trimmed.isEmpty,
-           !MacNativeGamesBuilder.supportsTitleID(trimmed) {
+           !MacNativeGamesBuilder.supportsInput(titleID: trimmed, isNUP: isCurrentInputNUP, tree: macNativeGamesPath) {
             buildUpstream = .nxnative
         }
     }
@@ -70,11 +70,27 @@ extension BuildStore {
         !basePath.isEmpty || gameFolder != nil
     }
 
-    /// True when a queue entry is eligible for MacNativeGames (Mac target, not fast refresh, in the 12-title allowlist).
-    package static func canQueueEntryUseMNG(_ entry: QueueEntry) -> Bool {
+    /// True when the current single-game input is a `.nup` archive file (directly or wrapped in a folder).
+    package var isCurrentInputNUP: Bool {
+        gameFolder?.nup != nil || MacNativeGamesBuilder.isNUPInputPath(basePath)
+    }
+
+    /// True when the current game is one of the 12 MacNativeGames titles, but its `.nup` archive requires an unpacked dump folder for this MNG tree.
+    package var isCurrentGameNUPBlockedForMNG: Bool {
+        guard isCurrentInputNUP, let tid = detectedGameTitleID16 else { return false }
+        return MacNativeGamesBuilder.supportsTitleID(tid) && !MacNativeGamesBuilder.supportsInput(titleID: tid, isNUP: true, tree: macNativeGamesPath)
+    }
+
+    /// True when a queue entry is eligible for MacNativeGames (Mac target, not fast refresh, supported title and input format).
+    package static func canQueueEntryUseMNG(_ entry: QueueEntry, tree: String = "") -> Bool {
         guard !entry.fastRefresh else { return false }
         guard BuildTarget.normalized(entry.target) == BuildTarget.mac else { return false }
-        return MacNativeGamesBuilder.supportsTitleID(entry.titleID)
+        return MacNativeGamesBuilder.supportsInput(
+            titleID: entry.titleID,
+            gameFolder: entry.gameFolder,
+            basePath: entry.inputs["base"]?.first,
+            tree: tree
+        )
     }
 
     /// True when the staged build queue holds any waiting entry that MacNativeGames cannot build.
@@ -86,30 +102,36 @@ extension BuildStore {
             return true
         }
         guard let queued = queue?.queued, !queued.isEmpty else { return false }
-        return queued.contains { !Self.canQueueEntryUseMNG($0) }
+        return queued.contains { !Self.canQueueEntryUseMNG($0, tree: macNativeGamesPath) }
     }
 
-    /// True when the active game has a recognized 16-hex title ID among the 12 MacNativeGames-supported titles.
+    /// True when the active game has a recognized 16-hex title ID supported by MacNativeGames for its current input format.
     package var isCurrentGameMNGSupported: Bool {
-        detectedGameTitleID16.map { MacNativeGamesBuilder.supportsTitleID($0) } ?? false
+        detectedGameTitleID16.map { MacNativeGamesBuilder.supportsInput(titleID: $0, isNUP: isCurrentInputNUP, tree: macNativeGamesPath) } ?? false
     }
 
     /// Default-Deny: once any single-game input is selected, MNG is allowed only when a recognized 16-hex title ID
-    /// belongs to the 12 supported titles. Any incompatible queued entry also blocks MNG selection.
+    /// belongs to the 12 supported titles and its input format is accepted by MNG. Any incompatible queued entry also blocks MNG selection.
     /// Only pure empty state (no input selected and no incompatible waiting queue entries) permits MNG.
     package var isMNGBlockedByCurrentGame: Bool {
         if isMNGBlockedByQueuedBuilds {
             return true
         }
         if let tid = detectedGameTitleID16 {
-            return !MacNativeGamesBuilder.supportsTitleID(tid)
+            return !MacNativeGamesBuilder.supportsInput(titleID: tid, isNUP: isCurrentInputNUP, tree: macNativeGamesPath)
         }
         return hasSelectedGameInput
     }
 
     /// Localized reason key explaining why MacNativeGames is currently disabled in the engine switcher.
     package var mngBlockedReasonKey: String {
-        isMNGBlockedByQueuedBuilds ? "upstream.mngBlockedByQueue" : "upstream.mngOnlyFiveTitles"
+        if isMNGBlockedByQueuedBuilds {
+            return "upstream.mngBlockedByQueue"
+        }
+        if isCurrentGameNUPBlockedForMNG {
+            return "upstream.mngNeedsDumpFolder"
+        }
+        return "upstream.mngOnlyFiveTitles"
     }
 
     /// True when Builds should show the lightweight MacNativeGames recommendation banner under the engine switcher.
@@ -206,6 +228,9 @@ extension BuildStore {
             let label = gameTitleID.flatMap { $0.isEmpty ? nil : $0 }
                 ?? (basePath.isEmpty ? t("upstream.notSelected") : (basePath as NSString).lastPathComponent)
             return String(format: t("upstream.mngUnsupportedGame"), label)
+        }
+        if isCurrentInputNUP && !MacNativeGamesBuilder.supportsInput(titleID: gameTitleID, isNUP: true, tree: macNativeGamesPath) {
+            return t("upstream.mngNeedsDumpFolder")
         }
         let script = MacNativeGamesBuilder.scriptPath(for: route, in: macNativeGamesPath)
         guard FileManager.default.fileExists(atPath: script) else {

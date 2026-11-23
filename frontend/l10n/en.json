@@ -2834,6 +2834,7 @@
   "upstream.mngInvalid": "%@ is not a MacNativeGames folder",
   "upstream.mngMacOnly": "MacNativeGames builds Mac apps only",
   "upstream.mngMissing": "Choose a MacNativeGames folder in Settings first",
+  "upstream.mngNeedsDumpFolder": "MacNativeGames needs an unpacked Switch 2 folder for this title, use NX2Apple for .nup files",
   "upstream.mngOnlyFiveTitles": "Available only for 12 supported titles",
   "upstream.mngPickMessage": "Choose the MacNativeGames repository folder",
   "upstream.mngRecommendNote": "This game supports MacNativeGames optimized Mac builds",

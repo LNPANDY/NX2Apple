@@ -2835,6 +2835,7 @@
   "upstream.mngInvalid": "%@ 폴더는 MacNativeGames 폴더가 아닙니다",
   "upstream.mngMacOnly": "MacNativeGames는 Mac 앱만 빌드합니다",
   "upstream.mngMissing": "먼저 설정에서 MacNativeGames 폴더를 선택하세요",
+  "upstream.mngNeedsDumpFolder": "MacNativeGames로 이 게임을 빌드하려면 압축을 푼 Switch 2 폴더가 필요하며, .nup 파일은 NX2Apple을 사용하세요",
   "upstream.mngOnlyFiveTitles": "지원되는 12개 타이틀에서만 사용 가능",
   "upstream.mngPickMessage": "MacNativeGames 저장소 폴더 선택",
   "upstream.mngRecommendNote": "이 게임은 MacNativeGames 최적화 Mac 빌드를 지원합니다",

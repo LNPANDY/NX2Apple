@@ -47,6 +47,7 @@ import NXCore
     private var currentUpstream: () -> EngineUpstreamKind
     private var defaultKeysPath: () -> String
     private var readPackageTitleID: (String, String) -> String?
+    private var mngTreePath: () -> String = { "" }
 
     package init(file: URL?, engineID: @escaping () -> String, busy: @escaping () -> Bool,
                  start: @escaping (QueueEntry) -> String?, packageBatch: @escaping ([QueueEntry]) -> Bool = { _ in false },
@@ -110,11 +111,13 @@ import NXCore
     package func bindUpstreamProvider(
         currentUpstream: @escaping () -> EngineUpstreamKind,
         defaultKeysPath: @escaping () -> String,
-        readPackageTitleID: @escaping (String, String) -> String?
+        readPackageTitleID: @escaping (String, String) -> String?,
+        mngTreePath: @escaping () -> String = { "" }
     ) {
         self.currentUpstream = currentUpstream
         self.defaultKeysPath = defaultKeysPath
         self.readPackageTitleID = readPackageTitleID
+        self.mngTreePath = mngTreePath
     }
 
     private func resolvedEntryUpstream(for entry: QueueEntry, batchUpstream: EngineUpstreamKind) -> EngineUpstreamKind {
@@ -123,7 +126,13 @@ import NXCore
         switch desired {
         case .macNativeGames:
             let isMac = BuildTarget.normalized(entry.target) == BuildTarget.mac
-            return (isMac && MacNativeGamesBuilder.supportsTitleID(entry.titleID)) ? .macNativeGames : .nxnative
+            let supported = MacNativeGamesBuilder.supportsInput(
+                titleID: entry.titleID,
+                gameFolder: entry.gameFolder,
+                basePath: entry.inputs["base"]?.first,
+                tree: mngTreePath()
+            )
+            return (isMac && supported) ? .macNativeGames : .nxnative
         case .nxkit:
             return BuildTarget.normalized(entry.target) == BuildTarget.mac ? .nxkit : .nxnative
         case .nxnative, .s2arm:
