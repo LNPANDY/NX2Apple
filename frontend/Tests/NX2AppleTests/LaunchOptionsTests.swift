@@ -250,4 +250,75 @@ final class LaunchOptionsTests: IsolatedDefaultsTestCase {
             try snap("framegen-after-\(lang.code).png", lang)
         }
     }
+
+    @MainActor func testHiddenAdvancedSettingsDoNotRenderEmptyAdvancedCard() throws {
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previousAX = NSApplication.shared.accessibilityAttributeValue(enhanced)
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(previousAX ?? false, forAttribute: enhanced) }
+
+        let fps = #"{"env": "DM_FPS_TARGET", "kind": "choice", "label": "Frame rate", "note": "", "default": "30", "section": "Game", "options": [["30", "30 fps"], ["60", "60 fps"]], "level": "basic"}"#
+        let fg = #"{"env": "DM_FRAMEGEN", "kind": "toggle", "label": "Frame generation", "note": "", "default": "0", "section": "Game", "on": "1", "off": "0", "needs": "DM_FPS_TARGET=30"}"#
+        let (app, repo) = try self.app([fps, fg, scale, opmode].joined(separator: ","))
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: "01007EF00011E000", repo: repo, labels: { L10n.string($0, .en) }))
+        let fpsSetting = try XCTUnwrap(list.first { $0.env == "DM_FPS_TARGET" })
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let bundleURL = URL(fileURLWithPath: app)
+        let macOS = bundleURL.appendingPathComponent("Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: macOS.appendingPathComponent("nxnative"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+        try FileManager.default.createSymbolicLink(at: macOS.appendingPathComponent("dmhost"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+        let domain = TestPreferences.domain(in: temporary, "hidden-adv")
+        let plist: [String: Any] = ["DMTitleID": "01007EF00011E000", "CFBundleDisplayName": "Breath of the Wild",
+                                    "CFBundleExecutable": "nxnative", "CFBundleIdentifier": domain]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: bundleURL.appendingPathComponent("Contents/Info.plist"))
+        defer { CFPreferencesAppSynchronize(domain as CFString) }
+        let game = LibraryGame(titleID: "01007EF00011E000", name: "Breath of the Wild", appPath: app)
+        let choices = SavedChoices(app: app, titleID: "01007EF00011E000")
+        struct Snapshot: Codable { let games: [LibraryGame]; let folder: String }
+        let libFile = temporary.appendingPathComponent("library.json")
+        try JSONEncoder().encode(Snapshot(games: [game], folder: temporary.path)).write(to: libFile)
+        let library = GameLibrary(file: libFile)
+        let stores = LauncherStores(defaults: testDefaults)
+        stores.repo.path = repo
+        stores.build.lang = .en
+        stores.localizer.lang = .en
+
+        func renderedTexts() -> [String] {
+            let view = LaunchOptionsView(m: stores.build, library: library, gameID: library.games[0].id,
+                                         initialCategory: .performance, initialAdvancedOpen: true)
+                .environmentObject(PadFocus())
+                .environmentObject(stores.localizer)
+                .environmentObject(stores.saveSettings)
+                .environmentObject(stores.players)
+                .environment(\.dsSheetMaxHeight, 1080)
+                .launcherDropdownHost()
+            let host = NSHostingView(rootView: view)
+            let window = OffscreenWindow(size: NSSize(width: LauncherSheet.width, height: 1040))
+            window.contentView = host
+            window.orderFront(nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            host.layoutSubtreeIfNeeded()
+            var texts: [String] = []
+            func walk(_ element: AnyObject) {
+                if let label = element.accessibilityLabel?(), !label.isEmpty { texts.append(label) }
+                if let title = element.accessibilityTitle?(), !title.isEmpty { texts.append(title) }
+                if let value = element.accessibilityAttributeValue?(.value) as? String, !value.isEmpty { texts.append(value) }
+                let children = (element.accessibilityChildren?() ?? []) as [AnyObject]
+                for child in children { walk(child) }
+            }
+            walk(host)
+            window.orderOut(nil)
+            return texts
+        }
+
+        choices.set(fpsSetting, "60")
+        let texts60 = renderedTexts()
+        XCTAssertFalse(texts60.contains { $0.contains("Advanced settings") }, "hides Advanced card when all advanced rows are hidden by needs: \(texts60)")
+
+        choices.set(fpsSetting, "30")
+        let texts30 = renderedTexts()
+        XCTAssertTrue(texts30.contains { $0.contains("Advanced settings") }, "shows Advanced card when advanced row becomes visible: \(texts30)")
+        XCTAssertTrue(texts30.contains { $0.contains("Frame generation") }, "shows Frame generation row under 30 fps: \(texts30)")
+    }
 }
