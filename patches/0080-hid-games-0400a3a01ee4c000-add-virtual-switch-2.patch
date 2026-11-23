@@ -1486,7 +1486,7 @@ index 4bb97df..4582c5d 100644
          "needs": {"description": "<VAR>=<value>: a sub-setting, drawn only while the row that sets <VAR> has that value. A row naming a variable this list does not have stays drawn.", "type": "string", "pattern": "^DM_[A-Z0-9_]+=[^;=]+$"}
        },
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 72e1c38..a790c3c 100755
+index 57af675..725e21f 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -2885,6 +2885,13 @@ def seen_logs(work, app):   # the logs a --seen-shaders build reads: the run com

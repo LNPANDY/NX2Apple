@@ -418,7 +418,7 @@ index 0000000..dcfe887
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 74d39bf..b54091d 100755
+index 8b46987..72cc87a 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -4232,6 +4232,21 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env

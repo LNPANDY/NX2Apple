@@ -405,7 +405,7 @@ index 604f9ee..f8ec71c 100755
  export DM_LANG=${DM_LANG:-en-US}
  export DM_FORK_PATCHES=$(paste -sd, "$DM/fork_patches.txt" 2>/dev/null || true)   # DMForkPatches in Info.plist (scripts/patches.py writes the list; empty on a build without fork patches)
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 5fcdc4c..bc1998b 100755
+index ea3467f..a57f6be 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -59,7 +59,7 @@ TITLE_ID = ''                           # the game to pack when the folder holds

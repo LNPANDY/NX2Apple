@@ -1837,7 +1837,7 @@ index cd34db9..7a7fbfe 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 9b11cf1..5fcdc4c 100755
+index 58c6ee4..ea3467f 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -3160,58 +3160,187 @@ def build_gl_shaders(py, repo, roots, sh, env, logs, g, reuse=True, mac=False, p

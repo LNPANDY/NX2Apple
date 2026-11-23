@@ -147,7 +147,7 @@ index 892f936..12b5001 100644
  A Mac app shows its own settings window before the game, drawn from its `launcher.json` and keeping its choices in the same store ([Saved choices](#saved-choices), [The Mac settings window](settings.md#the-mac-settings-window)). It shows a variable the launch environment or an `env.txt` sets as fixed. A front end that draws the settings itself starts the app with `DM_LAUNCHER=0` in its environment (or `--no-launcher` on its command line) to skip the window. The saved choices still apply, so a front end that writes them gets the same game as the window would. With `DM_PREFLIGHT` set in its environment the app exits at once, before it reads anything, rolls its log or touches the saves: a front end opens a new build that way (through LaunchServices, `NSWorkspace.openApplication`), so macOS runs its first-start check of the bundle then, not when the player starts the game. The check scans every file of an ad hoc signed app and takes minutes with a RomFS of several GB, and macOS remembers it until the app changes.
  
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 433cb45..9b11cf1 100755
+index 433cb45..58c6ee4 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -1267,6 +1267,25 @@ def frame_step_builds(path, table='FRAME_STEP'):   # the keys of a table of a pa
@@ -218,7 +218,7 @@ index 433cb45..9b11cf1 100755
          except ValueError as e: raise BuildError(str(e)) from e
 -    app_version = app_version_of(game, None if nup else base, g, pkg_ver, nup_label, nup_base=fam['base'] if nup else None)
 +    # the app version is the packed version's display version (app_display_version): never the base game's when an update is packed (#953)
-+    if picks[pkg_ver][1] is not None:
++    if mac_pack and picks[pkg_ver][1] is not None:
 +        app_version = app_display_version(g, game, base, True) or nacp.bundle_version(g.builds().get(pkg_ver, {}).get('display', '')) or nup_label
 +    else:
 +        app_version = app_version_of(game, None if nup else base, g, pkg_ver, nup_label, nup_base=fam['base'] if nup else None)

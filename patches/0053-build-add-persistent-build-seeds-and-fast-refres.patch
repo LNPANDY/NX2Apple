@@ -2591,7 +2591,7 @@ index 7a7fbfe..b4a8f9c 100644
              )
              with contextlib.ExitStack() as stack:
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index bc1998b..74d39bf 100755
+index a57f6be..8b46987 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -47,6 +47,8 @@ import tree_tar   # one file in place of a build's folders of many small files
@@ -3624,7 +3624,7 @@ index bc1998b..74d39bf 100755
      bundle_id = resolve_bundle_id(app, args, env, saved_signing, team_id, mac=mac, shell_fw=shell_fw)
 @@ -4119,6 +4624,8 @@ def main(args=None):
      # the app version is the packed version's display version (app_display_version): never the base game's when an update is packed (#953)
-     if picks[pkg_ver][1] is not None:
+     if mac_pack and picks[pkg_ver][1] is not None:
          app_version = app_display_version(g, game, base, True) or nacp.bundle_version(g.builds().get(pkg_ver, {}).get('display', '')) or nup_label
 +    elif from_seed_arg is not None:
 +        app_version = app_display_version(g, game, base, False) or seed_meta.get('app_version') or nacp.bundle_version(g.builds().get(pkg_ver, {}).get('display', '')) or ''
