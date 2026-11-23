@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Mon, 23 Nov 2026 21:56:17 +0800
+Subject: [PATCH] gfx/tests: align test_dmsh_meshstage with dual-source main0_u
+
+Upstream c25a8670 moved dual-source blending into main0_u, adding the dm_du guard on colour outputs 1..3. Update IntegerPassThrough.test_material_word_beside_float_bits to match the emitted wrapper lines.
+
+Upstream-Status: pending
+Reason: Upstream c25a8670 moved dual-source blending into main0_u without updating IntegerPassThrough.test_material_word_beside_float_bits
+Issue: none
+
+---
+ dm/gfx/tests/test_dmsh_meshstage.py | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/dm/gfx/tests/test_dmsh_meshstage.py b/dm/gfx/tests/test_dmsh_meshstage.py
+index 38a28e52..34127d71 100644
+--- a/dm/gfx/tests/test_dmsh_meshstage.py
++++ b/dm/gfx/tests/test_dmsh_meshstage.py
+@@ -676,7 +676,13 @@ fragment main0_out main0(main0_in in [[stage_in]])
+         src = self.fs_uint(self.GBUFFER % '8.96831e-44')
+         for n, nm in enumerate(('m_48', 'm_50', 'm_52', 'm_54')):
+             self.assertIn(f'    float4 {nm} [[color({n}), function_constant(dm_uf{n})]];\n    uint4 {nm}_ui [[color({n}), function_constant(dm_ui{n})]];\n', src)
+-            self.assertIn(f'    if (dm_ui{n}) r.{nm}_ui = as_type<uint4>(out.{nm}); else if (dm_si{n}) r.{nm}_si = as_type<int4>(out.{nm}); else r.{nm} = out.{nm};\n', src)
++            body = f'if (dm_ui{n}) r.{nm}_ui = as_type<uint4>(out.{nm}); else if (dm_si{n}) r.{nm}_si = as_type<int4>(out.{nm}); else r.{nm} = out.{nm};'
++            if n == 1:
++                self.assertIn(f'    if (dm_du) r.{nm}_du = out.{nm}; else {body}\n', src)
++            elif n >= 2:
++                self.assertIn(f'    if (!dm_du) {{ {body} }}\n', src)
++            else:
++                self.assertIn(f'    {body}\n', src)
+ 
+     def test_smooth_or_computed_inputs_too(self):   # the code no longer decides: an R8Uint target beside them would have been refused (Kirby and the Forgotten Land, #2760)
+         self.assertIsNotNone(self.fs_uint(self.SRC % ('', '_26')))
