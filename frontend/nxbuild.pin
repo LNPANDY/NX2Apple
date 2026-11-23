@@ -4,6 +4,6 @@
 # against the line below, unpack nxb and nxkit-host, check both against MANIFEST.json and SHA256SUMS, and sign them ad hoc. The launcher updates
 # nxkit itself from newer signed releases (NxkitUpdate.swift), this pair is the baseline and the fallback. `frontend/tools/nxbuild.py bump <version>`
 # writes a new version with its digest from the release's SHA256SUMS. A sha256 of PLACEHOLDER bundles nothing.
-version	0.10.3
-sha256	b33ea345b7fa87ff030fed96cadd2ba93aa45a4fb698f5a2627be1de6e232e2a
+version	0.16.3
+sha256	1007b605c718ca488b6f14016c77a5f31fc6fc9db1127d88454b7d46ab0bd557
 url	https://github.com/v0lumehi/nxkit/releases/download/v{version}/nxb-v{version}-macos-arm64.zip
