@@ -8257,6 +8257,8 @@ class WindowsIosPackagerParityTest(unittest.TestCase):
             for with_manifest in (False, True):
                 with self.subTest(gfx=gfx, with_manifest=with_manifest), tempfile.TemporaryDirectory() as td:
                     fx = self._setup_minimal_fixture(Path(td), gfx=gfx, with_manifest=with_manifest)
+                    if with_manifest:
+                        (fx['gd'] / 'bc3_keep_rgba8.tsv').write_bytes(b'# keep\n0123456789abcdef\n')
                     fake_gm = self._make_fake_game_module(fx['gd'])
                     fw_out = Path(td) / 'fw_out'
 
@@ -8312,10 +8314,16 @@ class WindowsIosPackagerParityTest(unittest.TestCase):
                         rc = build_app.main([])
                     self.assertEqual(rc, 0)
                     dm_manifest = fw_out / 'DmGame0400A3A01EE4C000.framework' / 'dm' / 'pso_manifest.tsv'
+                    dm_keep = fw_out / 'DmGame0400A3A01EE4C000.framework' / 'dm' / 'bc3_keep_rgba8.tsv'
                     if with_manifest:
                         self.assertEqual(dm_manifest.read_bytes(), b'# recorded seed\nS\t1234\tvertex\n')
+                        if gfx == 'nvn':
+                            self.assertEqual(dm_keep.read_bytes(), b'# keep\n0123456789abcdef\n')
+                        else:
+                            self.assertFalse(dm_keep.exists())
                     else:
                         self.assertFalse(dm_manifest.exists())
+                        self.assertFalse(dm_keep.exists())
 
         # Missing required shader_map.tsv must still stop the build
         with tempfile.TemporaryDirectory() as td:

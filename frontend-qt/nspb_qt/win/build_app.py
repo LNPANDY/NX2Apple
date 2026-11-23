@@ -1209,6 +1209,8 @@ def main(argv: list[str] | None = None) -> int:
             shutil.copy2(gd / 'cb_extent.tsv', dmres)
         else:
             t(f'no {gd}/cb_extent.tsv: the host copies whole uniform bindings')
+        if (gd / 'bc3_keep_rgba8.tsv').is_file():
+            shutil.copy2(gd / 'bc3_keep_rgba8.tsv', dmres)
     for f in ('shader_pairs.tsv', 'pso_pairs.tsv'):
         if (gd / f).exists():
             shutil.copy2(gd / f, dmres)

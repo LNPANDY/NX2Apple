@@ -62,3 +62,4 @@
 0078-gfx-keep-shader-cache-directory-resolvable-acros.patch
 0079-games-0400486024dec000-expand-alias-region-to-16.patch
 0080-hid-games-0400a3a01ee4c000-add-virtual-switch-2.patch
+0081-gfx-gpu-bc-to-astc-4x4-transcode.patch
