@@ -4,24 +4,42 @@ Date: Sun, 15 Nov 2026 07:50:52 +0800
 Subject: [PATCH] gfx: adaptive iOS memory-pressure convergence for recycled
  render-target heaps
 
+Expand the single DISPATCH_SOURCE_TYPE_MEMORYPRESSURE listener on iOS so
+WARN/CRITICAL pressure also schedules a submit-thread trim in mtl_sub_begin()
+that drains idle texture ghost entries down to 64 while sparing in-use entries,
+restores NGHOST as soon as g_rh_pressure clears, releases packaged texture
+spare copies, clears the view cache, evicts idle unreferenced shared textures,
+drops idle upload staging slot blocks, and calls malloc_zone_pressure_relief.
+
 Upstream-Status: pending
-Reason: Converge iOS DM_NVN_RT_RECYCLE placement heap pool caps under low memory and dispatch pressure while preserving macOS defaults
+Reason: Converge iOS DM_NVN_RT_RECYCLE placement heap pool caps and texture/staging caches under low memory and dispatch pressure while preserving macOS defaults
 Issue: none
 ---
- dm/gfx/nvn/nvn_mtl.m               | 135 ++++++++++++++++++-----
- dm/gfx/nvn/nvn_rt_recycle.h        |  60 ++++++++++
+ dm/gfx/nvn/nvn_mtl.m               | 230 +++++++++++++++++++++++++----
+ dm/gfx/nvn/nvn_owner.h             |   3 +
+ dm/gfx/nvn/nvn_owner.m             |  48 +++++-
+ dm/gfx/nvn/nvn_rt_recycle.h        |  60 ++++++++
  dm/gfx/tests/Makefile              |   2 +
- dm/gfx/tests/t_rt_recycle.m        |  89 +++++++++++++++
- dm/gfx/tests/t_rt_recycle_policy.c | 169 +++++++++++++++++++++++++++++
- 5 files changed, 425 insertions(+), 30 deletions(-)
+ dm/gfx/tests/t_rt_recycle.m        | 156 +++++++++++++++++++
+ dm/gfx/tests/t_rt_recycle_policy.c | 169 +++++++++++++++++++++
+ dm/gfx/tests/t_serial_owner.m      |  30 ++++
+ 8 files changed, 664 insertions(+), 34 deletions(-)
  create mode 100644 dm/gfx/nvn/nvn_rt_recycle.h
  create mode 100644 dm/gfx/tests/t_rt_recycle_policy.c
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 45f05d5..d0f020c 100644
+index 45f05d5..7914a8f 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -42,6 +42,7 @@
+@@ -19,6 +19,7 @@
+ #include <IOKit/IOKitLib.h>   // the GPU's core count (nvn_geometry.inc mesh_scratch)
+ #endif
+ #include <os/os_sync_wait_on_address.h>   // the uniform copy hand-off (nvn_rec.h ubc_wait)
++#include <malloc/malloc.h>
+ #if TARGET_OS_IPHONE
+ #include <os/proc.h>   // os_proc_available_memory: for the memory readout line
+ #endif
+@@ -42,6 +43,7 @@
  #include "nvn_link_latch.h"
  #include "nvn_present_history.h"
  #include "nvn_timestamp.h"
@@ -29,7 +47,7 @@ index 45f05d5..d0f020c 100644
  #include "msl_image.h"
  #include "../msl_mount.h"
  #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
-@@ -581,22 +582,94 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
+@@ -581,22 +583,103 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
  // added (resource_vis). Heaps idle for RH_IDLE_NS, and the oldest past
  // RH_CAP bytes waiting, leave the residency set when a submission begins (rh_trim). DM_NVN_RT_RECYCLE=0 makes each texture its own allocation and each family heap exact and freed
  // with its last texture, as before; ab alternates it with the DM_AB phases
@@ -40,8 +58,17 @@ index 45f05d5..d0f020c 100644
  static _Atomic uint64_t g_rh_made, g_rh_reused, g_rh_trimmed;   // for the memory readout
 +static int g_rh_mode = -1;
 +static _Atomic int g_rh_pressure;
++static _Atomic int g_rh_tex_trim_req;   // pending texture-cache trim tier (1 = warn, 2 = critical), consumed in mtl_sub_begin
++static int g_rh_tex_pressured;          // ghost table is currently capped at RH_MEM_GHOST_CAP under memory pressure
++enum { RH_MEM_GHOST_CAP = 64 };
 +static _Atomic int g_rh_test_override, g_rh_test_is_ios, g_rh_test_pressure;
 +static _Atomic uint64_t g_rh_test_avail_bytes;
++static void rh_mem_pressure_request(int tier) {
++    if (tier <= 0) return;
++    int cur = atomic_load_explicit(&g_rh_tex_trim_req, memory_order_relaxed);
++    while (tier > cur && !atomic_compare_exchange_weak_explicit(&g_rh_tex_trim_req, &cur, tier, memory_order_release, memory_order_relaxed)) {}
++}
++static void rh_mem_trim_sub_begin(void);
  static int sw_mode(const char *name, int dflt); static inline int sw_on(int m);
 -static int rh_mode(void) { static int m = -1; if (m < 0) m = sw_mode("DM_NVN_RT_RECYCLE", 1); return m; }
 +static int rh_mode(void) { if (g_rh_mode < 0) g_rh_mode = sw_mode("DM_NVN_RT_RECYCLE", 1); return g_rh_mode; }
@@ -129,7 +156,7 @@ index 45f05d5..d0f020c 100644
  }
  @interface NvRecycledHeap : NSObject { @public id<MTLHeap> heap; } @end
  @implementation NvRecycledHeap
-@@ -607,13 +680,14 @@ @implementation NvImageHeap
+@@ -607,13 +690,14 @@ @implementation NvImageHeap
  - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
  @end
  static char g_image_heap_owner_key, g_rh_owner_key;
@@ -147,7 +174,7 @@ index 45f05d5..d0f020c 100644
      void *got = NULL;
      if (on) {
          os_unfair_lock_lock(&g_rh_lk);
-@@ -624,11 +698,11 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
+@@ -624,11 +708,11 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
              if (h.storageMode != sm || h.cpuCacheMode != cm) continue;   // (a placed texture takes its heap's hazard tracking: a placement heap reports untracked, a descriptor default)
              best = i;
          }
@@ -161,7 +188,7 @@ index 45f05d5..d0f020c 100644
      hd.storageMode = sm; hd.cpuCacheMode = cm; hd.hazardTrackingMode = hm;
      id<MTLHeap> h = [g_dev newHeapWithDescriptor:hd];
      if (h && on) atomic_fetch_add(&g_rh_made, 1);
-@@ -685,27 +759,17 @@ static void tu_register(id<MTLTexture> t, uint64_t serial) {
+@@ -685,27 +769,17 @@ static void tu_register(id<MTLTexture> t, uint64_t serial) {
      if (g_tu_gone.n && nvn_hm_del(&g_tu_gone, &serial)) g_tu_remade++;
      os_unfair_lock_unlock(&g_tu_lk);
  }
@@ -198,7 +225,7 @@ index 45f05d5..d0f020c 100644
  }
  static void rh_trim(void) { rh_trim_n(0, NULL); }
  // The whole system's memory (host_statistics64), in MB: what the per-app headroom misses. An iPhone 17 ended the app for proc-thrashing in Ocarina of Time with 67 MB free and 5.56 GB of its
-@@ -738,6 +802,7 @@ static void mem_pressure_said(char *b, size_t n) {
+@@ -738,6 +812,7 @@ static void mem_pressure_said(char *b, size_t n) {
               (unsigned long long)atomic_load(&g_sweep_n), (unsigned long long)(atomic_load(&g_sweep_bytes) >> 20));
  }
  static void mem_pressure_event(int lv) {   // lv: 0 normal, 1 warn, 2 critical (the source's handler; a test calls it directly)
@@ -206,7 +233,7 @@ index 45f05d5..d0f020c 100644
      atomic_fetch_add(&g_mp_n[lv], 1);
      sys_mem_t m = sys_mem(); char room[32] = "none";
  #if TARGET_OS_IPHONE
-@@ -764,7 +829,11 @@ static void mem_pressure_start(void) {
+@@ -764,7 +839,14 @@ static void mem_pressure_start(void) {
      dispatch_source_set_event_handler(src, ^{ @autoreleasepool {
          if (g_mp_src != src || atomic_load(&g_gfx_teardown)) return;
          unsigned long d = dispatch_source_get_data(src);
@@ -214,12 +241,109 @@ index 45f05d5..d0f020c 100644
 +        int lv = d & DISPATCH_MEMORYPRESSURE_CRITICAL ? 2 : d & DISPATCH_MEMORYPRESSURE_WARN ? 1 : 0;
 +        mem_pressure_event(lv);
 +#if TARGET_OS_IPHONE
-+        if (lv >= 1) rh_trim();
++        if (lv >= 1) {
++            rh_mem_pressure_request(lv);
++            rh_trim();
++        }
 +#endif
      } });
      dispatch_resume(src);
  }
-@@ -21322,6 +21391,12 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -1956,6 +2038,7 @@ void mtl_sub_begin(void) {
+     tu_tick();   // the render targets drawn over since their last use go, once a second
+     spare_trim(0, NULL);   // packaged textures' spares no re-upload took
+     mem_trim();   // memory pressure asked for one (mem_pressure_event)
++    rh_mem_trim_sub_begin();
+     pkg_sweep();   // small devices: uploaded textures idle for PKG_IDLE_DS
+     mtl_prepare();   // done by then in the submit entry; the replay tool (nvn_replay) reaches it here
+     warm_claim();
+@@ -8031,6 +8114,85 @@ static void vc_drop_pool(const void *pool) {   // caller holds g_rmu
+         else i++;
+     }
+ }
++// Joint memory-pressure trim on the submit thread (mtl_sub_begin, before a command buffer opens): converges RT heaps together with idle
++// texture ghost entries (down to RH_MEM_GHOST_CAP while sparing in-use entries), packaged texture spare copies, view cache, idle unreferenced
++// shared textures, idle upload staging slot blocks, and malloc pages. Driven by the single g_mp_src memory-pressure source (never a second listener).
++static void rh_mem_trim_sub_begin(void) { @autoreleasepool {
++    if (atomic_load(&g_gfx_teardown)) return;
++    int tier = atomic_exchange_explicit(&g_rh_tex_trim_req, 0, memory_order_acq_rel);
++    if (!tier) {
++        if (g_rh_tex_pressured && !atomic_load_explicit(&g_rh_pressure, memory_order_acquire)) {
++            pthread_mutex_lock(&g_smu);
++            own_ghost_limit_set_locked(NGHOST);
++            pthread_mutex_unlock(&g_smu);
++            g_rh_tex_pressured = 0;
++        }
++        return;
++    }
++    rh_trim();
++    int still_pressured = atomic_load_explicit(&g_rh_pressure, memory_order_acquire) != 0;
++    __block unsigned gn = 0, spn = 0;
++    __block uint64_t spb = 0;
++    uint32_t orn = 0; uint64_t orb = 0;
++    NSMutableArray *spares = [NSMutableArray array];
++    pthread_mutex_lock(&g_smu);
++    own_ghost_limit_set_locked(RH_MEM_GHOST_CAP);
++    gn = own_ghost_enforce_locked(NULL);
++    if (!still_pressured) own_ghost_limit_set_locked(NGHOST);
++    own_each_locked(^(uint64_t serial, id ob, int ghost) {
++        (void)serial;
++        if (ghost || ![ob isKindOfClass:NvPkg.class]) return;
++        NvPkg *pk = ob;
++        if (pk->spare) {
++            spb += pk->spare.heap ? 0 : pk->spare.allocatedSize;
++            spn++;
++            [spares addObject:pk->spare];
++            pk->spare = nil;
++        }
++    });
++    orn = own_alias_evict_idle_locked(tier >= 2 ? 16 : 64, &orb);
++    pthread_mutex_unlock(&g_smu);
++    for (id sp in spares) defer_obj_release(sp);
++    [spares removeAllObjects];
++    spares = nil;
++    unsigned ovn = 0;
++    os_unfair_lock_lock(&g_rmu);
++    ovn = g_vc.n;
++    nvn_hm_clear(&g_vc, vc_set_free);
++    os_unfair_lock_unlock(&g_rmu);
++    unsigned blk_n = 0; uint64_t blkb = 0;
++    int dropped_res = 0;
++    if (!g_up_cb && !g_up_block) {
++        for (unsigned s = 0; s < 3; s++) {
++            int busy = atomic_load(&g_up_alloc_busy[s]);
++            if (!busy) {
++                if (g_up_slot_blk[s]) { blkb += g_up_slot_blk[s].length; blk_n++; up_idle_drop(&g_up_slot_blk[s]); dropped_res = 1; }
++                if (g_up_slot_over[s]) { blkb += g_up_slot_over[s].length; blk_n++; up_idle_drop(&g_up_slot_over[s]); dropped_res = 1; }
++                g_up_slot_want[s] = 0;
++                g_up_idle_slot[s] = (up_idle_slot){0};
++            } else if (tier >= 2) {
++                if (g_up_slot_blk[s]) { blkb += g_up_slot_blk[s].length; blk_n++; id b = g_up_slot_blk[s]; g_up_slot_blk[s] = nil; defer_obj_release(b); }
++                if (g_up_slot_over[s]) { blkb += g_up_slot_over[s].length; blk_n++; id b = g_up_slot_over[s]; g_up_slot_over[s] = nil; defer_obj_release(b); }
++                g_up_slot_want[s] = 0;
++                g_up_idle_slot[s] = (up_idle_slot){0};
++            }
++        }
++    }
++    if (g_dev && g_q4 && !g_up_cb && (tier >= 2 || gn || spn || orn || blk_n)) {
++        mtl_finish_gpu();
++        pthread_mutex_lock(&g_deferred_mu);
++        for (NvDeferredRelease *d in g_deferred) if (d->fence > g_done) d->fence = g_done;
++        pthread_mutex_unlock(&g_deferred_mu);
++        defer_drain();
++        res_commit();
++    } else if (dropped_res) {
++        res_commit();
++    }
++    malloc_zone_pressure_relief(NULL, 0);
++    g_rh_tex_pressured = still_pressured;
++    MLOG("memory pressure trim (tier %d): idle ghost dropped %u (cap %d), spares %u (%llu MB), view cache %u, idle shared %u (%llu MB), staging blocks %u (%llu MB)",
++         tier, gn, still_pressured ? (int)RH_MEM_GHOST_CAP : (int)NGHOST, spn, (unsigned long long)(spb >> 20), ovn, orn, (unsigned long long)(orb >> 20), blk_n, (unsigned long long)(blkb >> 20));
++} }
+ // A texture buffer bound to a slot whose 1D integer fetches the translator made 2D reads of rows of NVN_TBUF_ROW texels (nvn_refl f1d; Program.cs RecordTexelFetch1D): a linear 2D texture of
+ // such rows over the same pool memory, so the shader reads the buffer. Maxwell reads 1D textures and texture buffers with the same instruction and the descriptor decides; without a type
+ // answer the translator read them as 2D, and Age of Calamity's light and decal lists (and Three Houses' lighting) read the dummy texture, zeros. Kept with the texture's views (vc_set),
+@@ -21322,6 +21484,14 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      for (unsigned i = 0; i < g_rh_n; i++) if (g_rh[i].heap) CFRelease(g_rh[i].heap);
      free(g_rh); g_rh = NULL; g_rh_n = g_rh_cap = 0; g_rh_bytes = 0;
      os_unfair_lock_unlock(&g_rh_lk);
@@ -228,10 +352,120 @@ index 45f05d5..d0f020c 100644
 +    atomic_store(&g_rh_reused, 0);
 +    atomic_store(&g_rh_trimmed, 0);
 +    atomic_store(&g_rh_pressure, 0);
++    atomic_store(&g_rh_tex_trim_req, 0);
++    g_rh_tex_pressured = 0;
 +    rh_test_set(0, 0, 0, 0);
  
      pthread_mutex_lock(&g_res_commit_mu);
      pthread_mutex_lock(&g_res_mu);
+diff --git a/dm/gfx/nvn/nvn_owner.h b/dm/gfx/nvn/nvn_owner.h
+index ee9ace0..ec666bb 100644
+--- a/dm/gfx/nvn/nvn_owner.h
++++ b/dm/gfx/nvn/nvn_owner.h
+@@ -112,6 +112,9 @@ void own_alias_at_locked(const void *pool, int64_t off, void (^fn)(const alias_k
+ void own_alias_each_locked(void (^fn)(const alias_key *k, id o));
+ typedef struct { uint32_t n, cap, cells; uint64_t evicted, taken, pool_entries, looks; } own_alias_stats;   // entries, capacity, index cells, evicted with pools / on takeover in total, serial entries that went with their pools, entries takeovers looked at
+ own_alias_stats own_alias_stats_locked(void);
++uint32_t own_alias_evict_idle_locked(uint64_t idle_subs, uint64_t *bytes);   // memory pressure trim: retire unreferenced shared textures with own memory idle for idle_subs submissions
++void own_ghost_limit_set_locked(unsigned limit);                             // memory pressure trim: cap idle ghost entries (NGHOST normal)
++unsigned own_ghost_enforce_locked(void (^each)(id o));                       // drop idle least recently used ghost entries down to the limit, sparing in-use entries; each sees them before removal
+ // The entries only the sharing table keeps: no live or finalized serial, view or pin holds their texture (entry_holds, tex_object_pinned). Bytes count each texture once
+ // (allocatedSize, several keys can name one); writable_bytes is the part made to be drawn into or written by shaders, whose content the pool may not have; oldest_idle is the
+ // longest any of them has gone without a lookup, in submissions (issue #2629: how much of a long session's memory growth they are). A walk: the memory report
+diff --git a/dm/gfx/nvn/nvn_owner.m b/dm/gfx/nvn/nvn_owner.m
+index 7f256c4..0399cb4 100644
+--- a/dm/gfx/nvn/nvn_owner.m
++++ b/dm/gfx/nvn/nvn_owner.m
+@@ -68,6 +68,7 @@ static void pool_tex_del(uint64_t serial) {
+     if (!CFSetGetCount(set)) { nvn_hm_del(&g_pool_tex, &pk); CFRelease(set); }
+ }
+ static nvn_hmap g_ghost = {.klen = 8}; static uint64_t g_ghost_puts;
++static unsigned g_ghost_limit = NGHOST;   // memory pressure trim: NGHOST normally, lowered under pressure so entries drop down to the cap (own_ghost_enforce_locked)
+ typedef struct ghost_use { struct ghost_use *prev, *next; uint64_t serial, frame, sub; } ghost_use;   // a ghost entry's last use
+ static nvn_hmap g_ghost_use = {.klen = 8};    // serial → its ghost_use: the same serials as g_ghost
+ static ghost_use *g_ghost_lru, *g_ghost_mru;  // the list, least recently used first
+@@ -335,16 +336,32 @@ static void ghost_used(uint64_t k) {   // a lookup or a put of k's ghost entry:
+     id old = hm_get_id(&g_ghost, &k); if (!old) return;
+     ghost_held_add((__bridge void *)old, -1); obj_drop(old); hm_del_id(&g_ghost, &k); own_note(k);
+ }
+-// Idle entries past NGHOST go, least recently used first, at most `budget` of them; the first entry in use ends the walk (every one after it was used later)
++static int ghost_is_idle(const ghost_use *u, uint64_t frame, uint64_t sub) {
++    return (frame >= u->frame && frame - u->frame >= GHOST_IDLE) || (sub >= u->sub && sub - u->sub >= GHOST_IDLE_SUBS);
++}
++// Idle entries past g_ghost_limit (NGHOST normally, lowered under memory pressure) go, least recently used first, at most `budget` of them; the first entry in use ends the walk (every one after it was used later)
+ static void ghost_trim(unsigned budget) {
+     uint64_t frame = own_hook_frame(), sub = own_hook_submission();
+-    for (; budget && g_ghost.n > NGHOST && g_ghost_lru; budget--) {
++    for (; budget && g_ghost.n > g_ghost_limit && g_ghost_lru; budget--) {
+         const ghost_use *u = g_ghost_lru;
+-        if (frame - u->frame < GHOST_IDLE && sub - u->sub < GHOST_IDLE_SUBS) break;
++        if (!ghost_is_idle(u, frame, sub)) break;
+         ghost_del_locked(u->serial);
+     }
+ }
+ void own_ghost_trim(void) { pthread_mutex_lock(&g_smu); ghost_trim(GHOST_TRIM); pthread_mutex_unlock(&g_smu); }
++void own_ghost_limit_set_locked(unsigned limit) { g_ghost_limit = limit > NGHOST ? NGHOST : limit; }
++unsigned own_ghost_enforce_locked(void (^each)(id o)) {
++    unsigned dropped = 0;
++    uint64_t frame = own_hook_frame(), sub = own_hook_submission();
++    while (g_ghost.n > g_ghost_limit && g_ghost_lru) {
++        const ghost_use *u = g_ghost_lru;
++        if (!ghost_is_idle(u, frame, sub)) break;
++        uint64_t k = u->serial;
++        if (each) { id ev = hm_get_id(&g_ghost, &k); if (ev) each(ev); }
++        ghost_del_locked(k); dropped++;
++    }
++    return dropped;
++}
+ const void *own_resolve_ref(uint64_t k) {
+     pthread_mutex_lock(&g_smu); const void *o = nvn_hm_get(&g_by_serial, &k);
+     if (!o && g_ghost.n && (o = nvn_hm_get(&g_ghost, &k))) ghost_used(k);
+@@ -359,7 +376,7 @@ static void tex_put_locked(uint64_t k, id o) {   // serials from 2^62 up are ext
+     else if (m == &g_ghost) g_ghost_puts++;
+     hm_put_id(m, &k, o); tex_pin *pin = nvn_hm_get(&g_tex_pins, &k); if (pin) tex_pin_set(pin, o); own_note(k);
+     count_add(m == &g_by_serial ? &g_by_serial_held : &g_ghost_held, (__bridge void *)o, 1);
+-    if (m == &g_ghost) { ghost_used(k); ghost_trim(2); }   // two per put: idle entries drain faster than new ones come
++    if (m == &g_ghost) { ghost_used(k); ghost_trim(2); }   // two per put: idle entries drain faster than new ones come (down to g_ghost_limit); in-use entries always stay
+ }
+ void tex_put(uint64_t k, id o) { pthread_mutex_lock(&g_smu); tex_put_locked(k, o); pthread_mutex_unlock(&g_smu); }
+ 
+@@ -604,6 +621,28 @@ own_alias_unheld own_alias_unheld_locked(void) {
+     }
+     CFRelease(sized); return s;
+ }
++uint32_t own_alias_evict_idle_locked(uint64_t idle_subs, uint64_t *bytes) {
++    CFMutableSetRef held = CFSetCreateMutable(NULL, 0, NULL); uint32_t n = 0; alias_key *ks = NULL; uint64_t now = own_hook_submission(), b = 0;
++    own_each_locked(^(uint64_t serial, id o, int ghost) { (void)serial; (void)ghost; CFSetAddValue(held, (__bridge const void *)o); });
++    for (uint32_t i = 0; i < g_alias.cap; i++) {
++        void *v = g_alias.vals[i];
++        if (!v || CFSetContainsValue(held, v) || entry_holds(v) || tex_object_pinned((__bridge id)v)) continue;
++        alias_key k; memcpy(&k, g_alias.keys + (size_t)i * g_alias.klen, sizeof k);
++        uint64_t seen = (uint64_t)(uintptr_t)nvn_hm_get(&g_alias_seen, &k);
++        if (seen && now >= seen && now - seen < idle_subs) continue;
++        id ot = (__bridge id)v;
++        if ([ot conformsToProtocol:@protocol(MTLTexture)] && ((id<MTLTexture>)ot).buffer) continue;   // over a pool buffer: no memory of its own
++        alias_key *nk = realloc(ks, (n + 1) * sizeof *ks); if (!nk) break;
++        ks = nk; ks[n++] = k;
++    }
++    for (uint32_t j = 0; j < n; j++) {
++        id ob = hm_get_id(&g_alias, &ks[j]);
++        if (ob && [ob respondsToSelector:@selector(allocatedSize)]) b += ((id<MTLResource>)ob).allocatedSize;
++        alias_del(&ks[j]);
++    }
++    if (n) { own_epoch(); g_alias_evicted += n; }
++    CFRelease(held); free(ks); if (bytes) *bytes = b; return n;
++}
+ own_stats own_stats_locked(void) { return (own_stats){.live = g_by_serial.n, .live_cap = g_by_serial.cap, .ghost = g_ghost.n, .retire_wait = g_retire_wait.n, .ghost_puts = g_ghost_puts}; }
+ void own_each_locked(void (^fn)(uint64_t serial, id o, int ghost)) {
+     const nvn_hmap *tables[] = {&g_by_serial, &g_ghost};
+@@ -716,6 +755,7 @@ void own_teardown(void) {
+     nvn_hm_clear(&g_ghost_use, free);
+     g_ghost_lru = g_ghost_mru = NULL;
+     g_ghost_puts = 0;
++    g_ghost_limit = NGHOST;
+     nvn_hm_clear(&g_tex_live, NULL);
+     nvn_hm_clear(&g_tex_pool, NULL);
+     nvn_hm_clear(&g_pool_tex, hm_rel_own);
 diff --git a/dm/gfx/nvn/nvn_rt_recycle.h b/dm/gfx/nvn/nvn_rt_recycle.h
 new file mode 100644
 index 0000000..3691763
@@ -312,10 +546,10 @@ index ab35431..ff26683 100644
  	clang $(CFLAGS) -fobjc-arc -o $@ t_rt_recycle.m $(MTL_T_SRC) $(FW)
  .PHONY: check_t_rt_recycle
 diff --git a/dm/gfx/tests/t_rt_recycle.m b/dm/gfx/tests/t_rt_recycle.m
-index e135058..da9cc03 100644
+index e135058..f447973 100644
 --- a/dm/gfx/tests/t_rt_recycle.m
 +++ b/dm/gfx/tests/t_rt_recycle.m
-@@ -198,6 +198,93 @@ int main(void) { @autoreleasepool {
+@@ -198,6 +198,160 @@ int main(void) { @autoreleasepool {
          CHECK(tbig && tbig.heap && tbig.heap.size >= nb.size && tbig.heap.size <= nb.size + RH_SLACK + 65536, "a large target's new heap is at most RH_SLACK larger than it");
          tbig = nil; mtl_tex_release(&big); mtl_alias_drop_pool(&pool); settle();
      }
@@ -406,15 +640,82 @@ index e135058..da9cc03 100644
 +        CHECK(waiting() == 0, "aged macOS heap drains cleanly");
 +        rh_test_set(0, 0, 0, 0);
 +    }
++    {   // Joint memory-pressure trim on mtl_sub_begin: RT heaps + idle ghost entries (sparing in-use) + NvPkg spare + view cache + idle staging slot blocks,
++        // and unconditional NGHOST restoration on 4-6 GB iOS devices where avail < 768 MiB keeps rh_cur_policy cap_bytes == 0
++        mtl_sub_commit(); mtl_drain();
++        rh_test_set(1, 1, 512ull << 20, 0);   // iOS with 512 MiB available -> rh_cur_policy has cap_bytes == 0
++        atomic_fetch_add(&g_cur_frame, GHOST_IDLE + 1);   // age out any earlier ghost entries
++        pthread_mutex_lock(&g_smu); own_ghost_limit_set_locked(0); own_ghost_enforce_locked(NULL); own_ghost_limit_set_locked(NGHOST); pthread_mutex_unlock(&g_smu);
++        for (unsigned i = 0; i < 60; i++) tex_put(960000 + i, [NSObject new]);
++        atomic_fetch_add(&g_cur_frame, GHOST_IDLE);       // make those 60 entries idle
++        for (unsigned i = 0; i < 80; i++) tex_put(960200 + i, [NSObject new]);   // 80 in-use entries in the current frame
++        MTLTextureDescriptor *ptd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:32 height:32 mipmapped:NO];
++        ptd.usage = MTLTextureUsageShaderRead | MTLTextureUsagePixelFormatView; ptd.storageMode = MTLStorageModePrivate;
++        id<MTLTexture> base_tex = [g_dev newTextureWithDescriptor:ptd];
++        id<MTLTexture> spare_tex = [g_dev newTextureWithDescriptor:ptd];
++        res_add(base_tex); res_add(spare_tex);
++        NvPkg *pkg = [NvPkg new]; pkg->tex = base_tex; pkg->spare = spare_tex;
++        __weak id weak_spare = spare_tex;
++        spare_tex = nil;
++        tex_t dummy_pkg = {.serial = 961000, .pool = &pool};
++        tex_t dummy_base = {.serial = 961001, .pool = &pool};
++        mtl_tex_init(&dummy_pkg);
++        mtl_tex_init(&dummy_base);
++        tex_put(961000, pkg);
++        tex_put(961001, base_tex);
++        vc_key vk = {.pf = MTLPixelFormatRGBA8Unorm_sRGB, .tt = MTLTextureType2D, .l0 = 0, .nl = 1, .s0 = 0, .ns = 1};
++        id<MTLTexture> cached_view = [base_tex newTextureViewWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB];
++        os_unfair_lock_lock(&g_rmu); vc_put(base_tex, &pool, &vk, cached_view); unsigned vc_before = g_vc.n; os_unfair_lock_unlock(&g_rmu);
++        id<MTLBuffer> idle_blk = [g_dev newBufferWithLength:UP_SLOT_BLOCK options:MTLResourceStorageModePrivate];
++        res_add(idle_blk); res_commit();
++        g_up_slot_blk[0] = idle_blk; atomic_store(&g_up_alloc_busy[0], 0);
++        g_up_idle_slot[0].used_ns = 12345;
++        idle_blk = nil;
++
++        pthread_mutex_lock(&g_smu); unsigned ghost_before = own_stats_locked().ghost; pthread_mutex_unlock(&g_smu);
++        CHECK(ghost_before == 140 && pkg->spare != nil && weak_spare != nil && vc_before >= 1 && g_up_slot_blk[0] != nil, "joint pressure trim preconditions populated (60 idle + 80 in-use ghost entries)");
++
++        atomic_store_explicit(&g_rh_pressure, 1, memory_order_release);
++        rh_test_set(1, 1, 512ull << 20, 1);
++        rh_mem_pressure_request(2);
++        mtl_sub_begin();
++        pthread_mutex_lock(&g_smu); unsigned ghost_after = own_stats_locked().ghost; pthread_mutex_unlock(&g_smu);
++        os_unfair_lock_lock(&g_rmu); unsigned vc_after = g_vc.n; os_unfair_lock_unlock(&g_rmu);
++        int all_inuse_kept = 1, any_idle_kept = 0;
++        for (unsigned i = 0; i < 60; i++) if (is_ghost(960000 + i)) any_idle_kept = 1;
++        for (unsigned i = 0; i < 80; i++) if (!is_ghost(960200 + i)) all_inuse_kept = 0;
++        CHECK(ghost_after == 80 && !any_idle_kept && all_inuse_kept, "joint memory pressure drops all 60 idle ghost entries while keeping all 80 in-use entries past cap 64");
++        CHECK(pkg->spare == nil && weak_spare == nil, "joint memory pressure releases packaged texture spare copy immediately under autoreleasepool");
++        CHECK(vc_after == 0, "joint memory pressure clears view cache");
++        CHECK(g_up_slot_blk[0] == nil && g_up_idle_slot[0].used_ns == 0, "joint memory pressure releases idle upload staging slot block and resets idle state");
++        CHECK(g_rh_tex_pressured == 1, "joint memory pressure records active pressure state");
++
++        // Clearing g_rh_pressure must restore NGHOST immediately even when iOS avail < 768 MiB (rh_cur_policy cap_bytes == 0)
++        mtl_sub_commit(); mtl_drain();
++        atomic_store_explicit(&g_rh_pressure, 0, memory_order_release);
++        rh_test_set(1, 1, 512ull << 20, 0);
++        rh_policy check_pol; rh_cur_policy(&check_pol);
++        CHECK(check_pol.cap_bytes == 0, "4-6 GB iOS post-pressure state still has rh_cur_policy cap_bytes == 0 (<768 MiB available)");
++        mtl_sub_begin();
++        CHECK(g_rh_tex_pressured == 0, "clearing g_rh_pressure restores normal ghost cap even when rh_cur_policy cap_bytes == 0");
++        atomic_fetch_add(&g_cur_frame, GHOST_IDLE);
++        for (unsigned i = 0; i < 60; i++) tex_put(960400 + i, [NSObject new]);
++        pthread_mutex_lock(&g_smu); unsigned ghost_restored = own_stats_locked().ghost; pthread_mutex_unlock(&g_smu);
++        CHECK(ghost_restored == 140, "ghost table retains >64 idle entries up to NGHOST once g_rh_pressure clears");
++        rh_test_set(0, 0, 0, 0);
++        mtl_tex_release(&dummy_pkg);
++        mtl_tex_release(&dummy_base);
++        base_tex = nil; spare_tex = nil; cached_view = nil; pkg = nil;
++    }
      {
          unsigned w0 = waiting();
          tex_t g = target(&pool, 95009, 0, 1024, 576); mtl_tex_init(&g);
-@@ -211,6 +298,8 @@ int main(void) { @autoreleasepool {
+@@ -211,6 +365,8 @@ int main(void) { @autoreleasepool {
      mtl_sub_commit(); mtl_drain();
      dm_gfx_teardown();
      CHECK(waiting() == 0 && g_rh == NULL && g_rh_bytes == 0, "dm_gfx_teardown frees waiting and live recycled heaps");
 +    CHECK(g_rh_mode == -1 && atomic_load(&g_rh_made) == 0 && atomic_load(&g_rh_reused) == 0 && atomic_load(&g_rh_trimmed) == 0, "dm_gfx_teardown resets g_rh_mode and recycled heap counters");
-+    CHECK(atomic_load(&g_rh_pressure) == 0 && atomic_load(&g_rh_test_override) == 0, "dm_gfx_teardown resets pressure and test override state");
++    CHECK(atomic_load(&g_rh_pressure) == 0 && atomic_load(&g_rh_tex_trim_req) == 0 && g_rh_tex_pressured == 0 && atomic_load(&g_rh_test_override) == 0, "dm_gfx_teardown resets pressure, texture trim, and test override state");
      free(mem);
      printf("t_rt_recycle: %d checks, %d failed\n", checks, failed); return failed != 0;
  } }
@@ -593,3 +894,44 @@ index 0000000..29ea626
 +    printf("t_rt_recycle_policy: %d checks, %d failed\n", checks, failed);
 +    return failed != 0;
 +}
+diff --git a/dm/gfx/tests/t_serial_owner.m b/dm/gfx/tests/t_serial_owner.m
+index c8cc289..997034b 100644
+--- a/dm/gfx/tests/t_serial_owner.m
++++ b/dm/gfx/tests/t_serial_owner.m
+@@ -156,6 +156,36 @@ int main(void) { @autoreleasepool {
+         CHECK(ghost_n() == NGHOST, "a commit evicts nothing at NGHOST");
+         step("ghost eviction");
+     }
++    {   // memory-pressure trim: lowering the ghost limit drops only idle entries down to the cap while sparing every in-use entry (#2213), and restoring NGHOST lifts the cap
++        enum { BASE = 942000, LIM = 64 };
++        idle(); trim_all();
++        uint32_t baseline = ghost_n();   // clear any prior idle entries down to 0 first
++        if (baseline) { pthread_mutex_lock(&g_smu); own_ghost_limit_set_locked(0); own_ghost_enforce_locked(NULL); own_ghost_limit_set_locked(NGHOST); pthread_mutex_unlock(&g_smu); }
++        NSMutableArray *idle_objs = [NSMutableArray array];
++        for (int i = 0; i < 80; i++) { id o = [NSObject new]; [idle_objs addObject:o]; tex_put(BASE + (uint64_t)i, o); }
++        idle();   // those 80 entries are now idle
++        tex_get(BASE);   // touch BASE in the current frame: now 79 idle (BASE+1..BASE+79) and 1 in-use (BASE)
++        for (int i = 0; i < 80; i++) tex_put(BASE + 200 + (uint64_t)i, [NSObject new]);   // 80 more in-use entries -> 81 in-use + 79 idle = 160 total
++        CHECK(ghost_n() == 160, "pressure case starts with 79 idle + 81 in-use entries");
++        __block unsigned seen = 0; unsigned n;
++        pthread_mutex_lock(&g_smu); own_ghost_limit_set_locked(LIM);
++        n = own_ghost_enforce_locked(^(id o) { (void)o; seen++; }); pthread_mutex_unlock(&g_smu);
++        CHECK(n == 79 && seen == 79 && ghost_n() == 81, "enforcing the lowered ghost cap drops all 79 idle entries and spares all 81 in-use entries past the cap");
++        CHECK(ghost(BASE) && ghost(BASE + 200) && !ghost(BASE + 1) && !holds(idle_objs[1]) && dropped(idle_objs[1], 0), "idle entries go while touched and current-frame entries stay");
++        step("ghost limit spares in-use");
++        for (int i = 0; i < 20; i++) tex_put(BASE + 500 + (uint64_t)i, [NSObject new]);
++        CHECK(ghost_n() == 101, "puts under pressure do not evict in-use entries past the lowered cap");
++        idle();
++        pthread_mutex_lock(&g_smu); n = own_ghost_enforce_locked(NULL); pthread_mutex_unlock(&g_smu);
++        CHECK(ghost_n() == LIM && n == 101 - LIM, "once entries become idle under pressure they drain down to the lowered cap");
++        step("ghost limit drains idle");
++        pthread_mutex_lock(&g_smu); own_ghost_limit_set_locked(NGHOST); pthread_mutex_unlock(&g_smu);
++        for (int i = 0; i < 100; i++) tex_put(BASE + 600 + (uint64_t)i, [NSObject new]);
++        idle(); trim_all();
++        CHECK(ghost_n() == LIM + 100, "restoring NGHOST keeps idle entries below NGHOST instead of capping at 64");
++        step("ghost limit restored");
++        idle(); trim_all();
++    }
+     {   // more finalized serials than NGHOST resolved every frame (Ocarina of Time streaming an area in): none goes while in use and none is put again; once idle they go,
+         // GHOST_TRIM a commit at most, until the table is back at NGHOST
+         enum { BASE = 941000, N = 4 * NGHOST };

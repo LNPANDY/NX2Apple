@@ -1,6 +1,6 @@
 name	class	meaning
 DM_AUDIO_MIX	player	`1` mixes iOS game audio with other apps (`AVAudioSessionCategoryOptionMixWithOthers`), `0` or unset stops other apps while keeping `AVAudioSessionCategoryPlayback` active on the silent switch
-DM_BC6H_RGB9E5	switch	`=1` decodes BC6H (HDR) textures into RGB9E5Float, 4 bytes per pixel, instead of RGBA16Float, 8 bytes, when the BC textures are decoded on the CPU (profile `tex_bc_cpu` on a GPU without BC support): half the memory, negative values become 0 and each colour keeps 9 bits of mantissa. Off by default. The launcher's Downsample HDR textures sets it
+DM_BC6H_RGB9E5	switch	On GPUs without native BC support (`DM_TEST_NO_BC=1` or Apple8 and older), decodes BC6H (HDR) textures into RGB9E5Float, 4 bytes per pixel, instead of RGBA16Float, 8 bytes (on by default, `=0` keeps RGBA16Float): half the memory, negative values become 0 and each colour keeps 9 bits of mantissa
 DM_CHAIN_INDEX	switch	`=<index>` appends `_<index>` to the default shell framework name (`DmGame<title ID>_<index>`) and its Objective-C/Swift namespace tag in `build_ipa.sh` when building chained NRO sub-frameworks for the shared shell
 DM_CURSOR_HIDDEN	player	`=1` (Mac) starts the game with the pointer already hidden, as the launcher sets it when its console had hidden the pointer, so it does not show up for a moment between the two windows. The usual rule of `DM_CURSOR_HIDE` takes over once the pointer is over the game window
 DM_CURSOR_HIDE	player	`=<seconds>` hides the Mac pointer after that many seconds without movement over the game window (3 by default) and shows it again on the next movement, click or scroll; `0` keeps it
@@ -30,6 +30,9 @@ DM_KEYMAP	player	Mac keyboard: `<name>=<key code>,…` puts a button (`A` … `D
 DM_LAUNCHER_BUNDLE_ID	switch	`=<bundle id>`: the launcher the Mac's Home menu shows on Back to console mode (`DM_HOME_MENU_LAUNCHER`): the game hands it the activation before it hides, and opens it when it is not running. Unset, macOS shows the app behind the game
 DM_MEM_PURGE_MB	player	`=<MB>` caps the iOS shared shell's pre-launch physical memory purge (4096 by default; `0` disables it). Stops while leaving at least 1200 MB of `os_proc_available_memory()` headroom and unmaps every chunk before loading the game framework
 DM_MTL_MAX_CONCURRENT_COMPILE	switch	`=0` turns off `MTLDevice.shouldMaximizeConcurrentCompilation` on macOS 13.3+, enabled by default to speed up shader and pipeline compilation (unavailable on iOS)
+DM_NO_BC_ASTC	switch	On GPUs without native BC support (`DM_TEST_NO_BC=1` or Apple8 and older): `all` (default) transcodes BC1-3 to ASTC 4x4 on the GPU (1 B/px), `bc1` transcodes BC1 only, `0` decompresses all BC formats to RGBA8/R8/RG8/RGB9E5/RGBA16F
+DM_NO_BC_ASTC_KEEP	switch	`=0` ignores a game profile's optional `bc3_keep_rgba8.tsv` exemption table so all packaged BC3 textures transcode to ASTC 4x4 on GPUs without native BC support
+DM_NO_BC_ASTC_KEEP_TABLE	path	`=<path>` overrides the path to `bc3_keep_rgba8.tsv` (BC3 textures kept as RGBA8 on GPUs without native BC support), used for A/B runs and tests
 DM_NS_TAG	switch	`=<tag>` overrides the per-framework Objective-C class and Swift module namespace tag (`DmFw_<tag>_*` and `DmGame_<tag>`) passed to `gen_objc_namespace.py` and `xcodebuild` in `build_ipa.sh`
 DM_NVN_TEX_MIP_SKIP	player	`0` (Original, default), `1` (Recommended) or `2` (Smooth): skips the finest 1 or 2 mip levels of large block-compressed static 2D and 2D-array textures at upload time to reduce GPU memory and heat, while hardening any texture used in GPU copies or clears back to full size
 DM_OBSOLETE	path	Directory where the Mac host moves unused pipeline archive files (<DM_OBSOLETE>/<date time> <archive folder>/), and when unset the host deletes them
@@ -46,6 +49,7 @@ DM_STEAM_DEADZONE	switch	`=0..0.9` (exclusive upper bound) sets the radial deadz
 DM_STEAM_HID	switch	`=0` disables the Mac direct Steam Controller HID adapter and leaves input to Apple GameController; enabled otherwise
 DM_STICK_DEADZONE_L	switch	`=1..50` sets a radial deadzone of that many percent of the travel for the left stick of every physical controller (inside it the stick reads centred, outside it the rest of the travel is rescaled to the full range); unset, `0` or anything else leaves the stick as the controller reports it. The Mac launcher's Controls settings write it (Use custom deadzones)
 DM_STICK_DEADZONE_R	switch	`=1..50` the same for the right stick
+DM_TEST_NO_BC	test	`=1` forces the no-hardware-BC texture path (GPU BC1-3 -> ASTC 4x4 transcoding and BC4-7 decompression) on BC-capable GPUs for regression testing
 DM_TOUCH_HINT	player	Localized words for the iOS right-stick hint, shown once per launch when the 3D layout has room and no controller is connected. Empty disables the hint
 DM_TOUCH_LAYOUT	player	The player's per-layout touch-control arrangement, encoded by the shell's touch layout editor. Invalid values keep the built-in positions
 DM_TOUCH_SIZE	player	iOS touch-control size: small, medium (default) or large. Controls move toward medium when the requested size does not fit
