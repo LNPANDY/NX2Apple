@@ -222,29 +222,33 @@ import XCTest
         )
         let allGames = [mngOnlySwitch2, mngOnlySwitch1, mngWithProfileVersion, nxnativeOnly]
 
-        let allFiltered = SupportedGamesSheet.filterGames(allGames, upstreamFilter: .all, needle: "", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.0")
+        let allFiltered = SupportedGamesSheet.filterGames(allGames, upstreamFilter: .all, needle: "", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.1")
         XCTAssertEqual(allFiltered.map(\.titleID), allGames.map(\.titleID))
 
-        let mngFiltered = SupportedGamesSheet.filterGames(allGames, upstreamFilter: .macNativeGames, needle: "", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.0")
+        let mngFiltered = SupportedGamesSheet.filterGames(allGames, upstreamFilter: .macNativeGames, needle: "", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.1")
         XCTAssertEqual(mngFiltered.map(\.titleID), [mngOnlySwitch2.titleID, mngOnlySwitch1.titleID, mngWithProfileVersion.titleID])
 
-        let mngCombinedSearch = SupportedGamesSheet.filterGames(allGames, upstreamFilter: .macNativeGames, needle: "Ocarina", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.0")
+        let mngCombinedSearch = SupportedGamesSheet.filterGames(allGames, upstreamFilter: .macNativeGames, needle: "Ocarina", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.1")
         XCTAssertEqual(mngCombinedSearch.map(\.titleID), [mngOnlySwitch2.titleID])
 
         let en = { (key: String) in L10n.string(key, .en) }
         let zh = { (key: String) in L10n.string(key, .zh) }
         XCTAssertEqual(SupportedGamesSheet.platformTags(for: mngOnlySwitch2, t: en), ["Switch 2"])
         XCTAssertEqual(SupportedGamesSheet.platformTags(for: mngOnlySwitch1, t: en), [])
-        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.0", t: en), "Mac native port engine")
-        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch1, appVersion: "1.5.0", t: en), "Mac native port engine")
-        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.0", t: zh), "Mac 原生移植引擎")
-        XCTAssertFalse(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.0", t: en).contains(en("supported.noVersion")))
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.1", t: en), "Mac native port engine")
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch1, appVersion: "1.5.1", t: en), "Mac native port engine")
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.1", t: zh), "Mac 原生移植引擎")
+        XCTAssertFalse(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.1", t: en).contains(en("supported.noVersion")))
         XCTAssertEqual(SupportedGamesSheet.detailText(for: mngWithProfileVersion, appVersion: "1.5.0", t: en), String(format: en("supported.version"), "1.2.1"))
-        XCTAssertEqual(SupportedGamesSheet.detailText(for: nxnativeOnly, appVersion: "1.5.0", t: en), en("supported.noVersion"))
+        XCTAssertEqual(
+            SupportedGamesSheet.detailText(for: mngWithProfileVersion, appVersion: "1.5.1", t: en),
+            String(format: en("supported.version"), "1.2.1") + " \u{00b7} " + String(format: en("supported.lastUpdated"), "1.5.0")
+        )
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: nxnativeOnly, appVersion: "1.5.1", t: en), en("supported.noVersion"))
 
         MacNativeGamesBuilder.featureEnabled = false
-        XCTAssertTrue(SupportedGamesSheet.filterGames(allGames, upstreamFilter: .macNativeGames, needle: "", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.0").isEmpty)
-        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch1, appVersion: "1.5.0", t: en), en("supported.noVersion"))
+        XCTAssertTrue(SupportedGamesSheet.filterGames(allGames, upstreamFilter: .macNativeGames, needle: "", ownedName: { _ in "" }, improvedName: { _ in "" }, appVersion: "1.5.1").isEmpty)
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch1, appVersion: "1.5.1", t: en), en("supported.noVersion"))
     }
 
     func testSupportedGamesSheetFilterPillPadTargetTogglesRows() throws {

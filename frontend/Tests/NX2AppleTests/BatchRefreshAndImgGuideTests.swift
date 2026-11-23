@@ -403,15 +403,15 @@ import XCTest
         let toolsAge = ToolsAge(older: olderSet, assessments: assessments)
 
         let supported: [SupportedGame] = [
-            SupportedGame(titleID: "0400486024DEC000", name: "The Legend of Zelda: Ocarina of Time", edition: .switch2, version: "1.0.0", notes: "Shader and compatibility improvements updated in 1.5.0."),
+            SupportedGame(titleID: "0400486024DEC000", name: "The Legend of Zelda: Ocarina of Time", edition: .switch2, version: "1.0.0", notes: "Shader and compatibility improvements updated in 1.5.1."),
             SupportedGame(titleID: tidFast, name: "Mario Kart 8 Deluxe", edition: .switch1, version: "3.0.4", notes: "Timing and Metal rendering stability improvements in 1.5.0."),
-            SupportedGame(titleID: "01005CA01580E000", name: "Persona 5 Royal", edition: .switch1, version: "1.0.2", notes: "Rendering and stability improvements updated in 1.5.0."),
+            SupportedGame(titleID: "01005CA01580E000", name: "Persona 5 Royal", edition: .switch1, version: "1.0.2", notes: "Rendering and stability improvements updated in 1.5.1."),
             SupportedGame(titleID: tidFull, name: "Metroid Prime Remastered", edition: .switch1, version: "1.1.0", notes: "Compatibility improvements shipped in 1.4.0."),
             SupportedGame(titleID: "0100E65002BB8000", name: "Stardew Valley", edition: .switch1, version: "1.6.15", notes: "Playable on Mac and iOS."),
         ]
-        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "0400486024DEC000"), "1.5.0")
+        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "0400486024DEC000"), "1.5.1")
         XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: tidFast), "1.5.0")
-        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "01005CA01580E000"), "1.5.0")
+        XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: "01005CA01580E000"), "1.5.1")
         XCTAssertEqual(GameUpdateCatalog.catalogVersion(for: tidFull), "1.4.0")
         XCTAssertNil(GameUpdateCatalog.catalogVersion(for: "0100E65002BB8000"))
         XCTAssertNil(GameUpdateCatalog.catalogVersion(for: "0100D9F01D474000"))
