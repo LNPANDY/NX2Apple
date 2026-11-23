@@ -341,6 +341,7 @@ public struct GameCheatsStore: Sendable {
         var entry: GameCheatEntry
         var wordsCount = 0
         var words: [UInt32] = []
+        var hasNonZeroWord = false
         var junk = false
         var pairName = ""
         var offByMeta = false
@@ -447,6 +448,7 @@ public struct GameCheatsStore: Sendable {
             else if prose || oddhex { current.entry.isBroken = true }
             else {
                 current.wordsCount += gotWords.count
+                if gotWords.contains(where: { $0 != 0 }) { current.hasNonZeroWord = true }
                 let budget = max(0, insMax - current.words.count)
                 if budget > 0 { current.words.append(contentsOf: gotWords.prefix(budget)) }
             }
@@ -456,8 +458,18 @@ public struct GameCheatsStore: Sendable {
         entries.removeAll { $0.wordsCount < 0 }
 
         for i in entries.indices where !entries[i].entry.isBroken {
-            if entries[i].wordsCount == 0 && entries[i].junk { entries[i].entry.isBroken = true }
-            else if entries[i].wordsCount == 0 { entries[i].entry.isLabel = true }
+            if entries[i].wordsCount == 0 && entries[i].junk {
+                entries[i].entry.isBroken = true
+            } else if entries[i].wordsCount == 0
+                || (entries[i].entry.isSectionMarker
+                    && !entries[i].entry.isMaster
+                    && !entries[i].hasNonZeroWord) {
+                entries[i].wordsCount = 0
+                entries[i].words.removeAll()
+                entries[i].entry.isLabel = true
+            } else if !hasValidOpcodes(entries[i].words) {
+                entries[i].entry.isBroken = true
+            }
         }
         if let meta { applyMeta(meta, to: &entries) }
         linkPairs(&entries)
@@ -614,7 +626,14 @@ public struct GameCheatsStore: Sendable {
                     pc += op.length
                 }
 
-                if wantMaster && !failedDecode { masterDirty.formUnion(dirty) }
+                if failedDecode {
+                    entries[idx].entry.isBroken = true
+                    entries[idx].entry.capability = .dataReady
+                    entries[idx].entry.triggerKeys = []
+                    entries[idx].entry.enabled = false
+                    continue
+                }
+                if wantMaster { masterDirty.formUnion(dirty) }
                 let tRec = activeTrampolines?.entries[raw.entry.key]
                 if let tm = tRec?.keyMask, tm != 0 { keyMask |= tm }
 
@@ -651,6 +670,15 @@ public struct GameCheatsStore: Sendable {
     }
 
     private static func widthOK(_ t: Int) -> Bool { t == 1 || t == 2 || t == 4 || t == 8 }
+
+    private static func hasValidOpcodes(_ words: [UInt32]) -> Bool {
+        var pc = 0
+        while pc < words.count {
+            guard let op = decodeOp(words: words, index: pc) else { return false }
+            pc += op.length
+        }
+        return true
+    }
 
     private static func decodeOp(words: [UInt32], index: Int) -> DecodedOp? {
         let remaining = words.count - index

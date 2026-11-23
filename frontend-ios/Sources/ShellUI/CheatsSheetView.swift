@@ -406,12 +406,16 @@ public struct CheatsSheetView: View {
             HStack(alignment: .center, spacing: 10) {
                 entryTitleColumn(entry)
                 Spacer(minLength: 8)
-                Text(ShellStrings.text("Always on"))
-                    .shellText(12, .semibold, relativeTo: .caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .background(.white.opacity(0.08), in: Capsule())
+                if entry.isBroken {
+                    malformedPill
+                } else {
+                    Text(ShellStrings.text("Always on"))
+                        .shellText(12, .semibold, relativeTo: .caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(.white.opacity(0.08), in: Capsule())
+                }
             }
             .padding(.vertical, 4)
         } else {
@@ -419,12 +423,7 @@ public struct CheatsSheetView: View {
                 entryTitleColumn(entry)
                 Spacer(minLength: 8)
                 if entry.isBroken {
-                    Text(ShellStrings.text("Malformed"))
-                        .shellText(11.5, .semibold, relativeTo: .caption)
-                        .foregroundStyle(ShellPalette.attention)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(ShellPalette.attention.opacity(0.14), in: Capsule())
+                    malformedPill
                 } else if entry.isOnce {
                     Text(ShellStrings.text("One-shot"))
                         .shellText(11.5, .semibold, relativeTo: .caption)
@@ -462,6 +461,15 @@ public struct CheatsSheetView: View {
             .padding(.vertical, 4)
             .opacity(entry.capability == .codeNeedsBake ? 0.78 : 1.0)
         }
+    }
+
+    private var malformedPill: some View {
+        Text(ShellStrings.text("Malformed"))
+            .shellText(11.5, .semibold, relativeTo: .caption)
+            .foregroundStyle(ShellPalette.attention)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(ShellPalette.attention.opacity(0.14), in: Capsule())
     }
 
     private func entryTitleColumn(_ entry: GameCheatEntry) -> some View {

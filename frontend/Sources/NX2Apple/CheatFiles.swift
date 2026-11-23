@@ -388,6 +388,7 @@ struct CheatFiles: Sendable {
         var cheat: Cheat
         var words = 0
         var rawWords: [UInt32] = []
+        var hasNonZeroWord = false
         var junk = false
         var pairName = ""
         var offByMeta = false
@@ -498,6 +499,7 @@ struct CheatFiles: Sendable {
             else if prose || oddhex { current.cheat.broken = true }
             else {
                 current.words += gotWords.count
+                if gotWords.contains(where: { $0 != 0 }) { current.hasNonZeroWord = true }
                 let budget = max(0, insMax - current.rawWords.count)
                 if budget > 0 {
                     current.rawWords.append(contentsOf: gotWords.prefix(budget))
@@ -509,8 +511,18 @@ struct CheatFiles: Sendable {
         entries.removeAll { $0.words < 0 }
 
         for i in entries.indices where !entries[i].cheat.broken {
-            if entries[i].words == 0 && entries[i].junk { entries[i].cheat.broken = true }
-            else if entries[i].words == 0 { entries[i].cheat.kind = .label }
+            if entries[i].words == 0 && entries[i].junk {
+                entries[i].cheat.broken = true
+            } else if entries[i].words == 0
+                || (entries[i].cheat.isSectionMarker
+                    && entries[i].cheat.kind != .master
+                    && !entries[i].hasNonZeroWord) {
+                entries[i].words = 0
+                entries[i].rawWords.removeAll()
+                entries[i].cheat.kind = .label
+            } else if !CheatStaticAnalyzer.hasValidOpcodes(entries[i].rawWords) {
+                entries[i].cheat.broken = true
+            }
         }
         if let meta { applyMeta(meta, to: &entries) }
 
@@ -530,6 +542,7 @@ struct CheatFiles: Sendable {
             buildID: buildID
         )
         for i in entries.indices {
+            if analyzed[i].isBroken { entries[i].cheat.broken = true }
             entries[i].cheat.capability = analyzed[i].capability
             entries[i].cheat.keyMask = analyzed[i].keyMask
         }

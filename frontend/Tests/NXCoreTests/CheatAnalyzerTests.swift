@@ -86,6 +86,32 @@ final class CheatAnalyzerTests: XCTestCase {
         XCTAssertEqual(analyzed[2].keyMask, 0x40)
     }
 
+    func testStaticAnalyzerMarksDecodeFailuresAndClearsKeyMask() {
+        let inputs: [CheatStaticAnalyzer.InputEntry] = [
+            // Broken Master with opcode 5 followed by unknown opcode FF0 must not taint subsequent entries.
+            .init(key: "Broken Master", isMaster: true, isLabel: false, isBroken: false, words: [0x580F_0000, 0x0020_0000, 0xFF00_0000]),
+            // Truncated Type 0 write (needs 3 words, only 2 given)
+            .init(key: "Truncated T0", isMaster: false, isLabel: false, isBroken: false, words: [0x0400_0000, 0x0000_1000]),
+            // Unknown opcode FF0 preceded by key mask 0x40
+            .init(key: "Unknown FF0", isMaster: false, isLabel: false, isBroken: false, words: [0x8000_0040, 0xFF00_0000, 0x0000_0001]),
+            // Invalid width 0 (all-zero placeholder in a regular entry)
+            .init(key: "All Zero Regular", isMaster: false, isLabel: false, isBroken: false, words: [0x0000_0000, 0x0000_0000, 0x0000_0000]),
+            // Valid fixed-heap write remains fixedHeapWarning because Broken Master failed decode
+            .init(key: "Fixed Heap", isMaster: false, isLabel: false, isBroken: false, words: [0x041F_0000, 0x0000_4200, 0x000F_423F]),
+        ]
+        let analyzed = CheatStaticAnalyzer.analyze(
+            entries: inputs,
+            rxEnd: 0x100000,
+            trampolines: nil,
+            buildID: "CD57B23FA4BBAD65"
+        )
+        XCTAssertEqual(analyzed.map(\.isBroken), [true, true, true, true, false])
+        XCTAssertEqual(analyzed.map(\.keyMask), [0, 0, 0, 0, 0])
+        XCTAssertEqual(analyzed.map(\.hasCodeWrite), [false, false, false, false, false])
+        XCTAssertEqual(analyzed.map(\.hasFixedHeapOffset), [false, false, false, false, true])
+        XCTAssertEqual(analyzed[4].capability, .fixedHeapWarning)
+    }
+
     func testZingSectionMarkerDetectsStartAndEndSingleWords() {
         XCTAssertEqual(CheatStaticAnalyzer.zingSectionMarker(words: [0x2000_0000], isMaster: false, isBroken: false), true)
         XCTAssertEqual(CheatStaticAnalyzer.zingSectionMarker(words: [0x2000_0001], isMaster: false, isBroken: false), false)

@@ -23,12 +23,14 @@ import Testing
                 GameCheatEntry(name: "Moon Jump", key: "Moon Jump", section: "Movement", capability: .codeBaked, triggerKeys: ["B", "ZR"], enabled: true),
                 GameCheatEntry(name: "2x Speed", key: "2x Speed", section: "Movement", capability: .codeNeedsBake),
                 GameCheatEntry(name: "Max Rupees", key: "Max Rupees", section: "Stats", capability: .fixedHeapWarning),
+                GameCheatEntry(name: "Broken Master", key: "Broken Master", isMaster: true, isBroken: true),
+                GameCheatEntry(name: "Truncated", key: "Truncated", isBroken: true),
             ],
             fuseAlert: GameCheatFuseAlert(disabledItems: ["2x Speed"], disabledMaster: false),
             exportFileURL: URL(fileURLWithPath: "/tmp/CD57B23FA4BBAD65.txt")
         )
 
-        #expect(snapshot.visibleEntries.count == 4)
+        #expect(snapshot.visibleEntries.count == 6)
         #expect(snapshot.dataReadyCount == 1)
         #expect(snapshot.codeBakedCount == 1)
         #expect(snapshot.codeNeedsBakeCount == 1)
@@ -40,6 +42,8 @@ import Testing
         #expect(snapshot.visibleEntries[1].triggerCombo == "B + ZR")
         #expect(!snapshot.visibleEntries[2].switchableOnIOS)
         #expect(snapshot.visibleEntries[3].switchableOnIOS)
+        #expect(!snapshot.visibleEntries[4].switchableOnIOS)
+        #expect(!snapshot.visibleEntries[5].switchableOnIOS)
 
         let view = CheatsSheetView(snapshot: snapshot, actions: ShellActions(), onClose: {})
         _ = view.body
