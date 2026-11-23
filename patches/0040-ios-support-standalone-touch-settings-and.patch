@@ -16,7 +16,7 @@ Issue: LNPANDY/NX2Apple#1110
  5 files changed, 105 insertions(+), 4 deletions(-)
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 8a9ba03..b0f12af 100644
+index 8a9ba03b..b0f12afb 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -28,6 +28,8 @@ DM_PICTURE_FIT	choice	fit=Fit,fill=Fill	fit	platform:ios	Game	Picture	Fill crops
@@ -29,7 +29,7 @@ index 8a9ba03..b0f12af 100644
  DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength		needs=DM_RUMBLE=1
  DM_RUMBLE_MIN	range	0:0.9:0.05	0	always	Controls	Rumble cutoff
 diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
-index 82c284a..f3202c3 100644
+index 82c284aa..f3202c3e 100644
 --- a/dm/ios/Sources/DmGameMenu.h
 +++ b/dm/ios/Sources/DmGameMenu.h
 @@ -12,6 +12,7 @@ bool dm_pad_layout_offered(int layout);   // Tap only in handheld mode
@@ -41,7 +41,7 @@ index 82c284a..f3202c3 100644
  int front_screen_max_fps(void);   // front.h, front_ios.m: the Frame rate row offers 120 only on a 120 Hz screen (LauncherSettings.swift); the shell framework's Swift imports this header, not the app's bridging header
  #ifdef __cplusplus
 diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
-index aeec137..30499c8 100644
+index aeec1372..30499c86 100644
 --- a/dm/ios/Sources/GameMenu.swift
 +++ b/dm/ios/Sources/GameMenu.swift
 @@ -6,9 +6,58 @@ import UIKit
@@ -161,7 +161,7 @@ index aeec137..30499c8 100644
 +    return UIMenu(title: item.label, subtitle: isFixed ? "\(current), set in env.txt" : nil, options: .singleSelection, children: actions)
 +}
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 7a3f929..a87a622 100644
+index 7a3f929e..a87a6221 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -92,6 +92,13 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -188,7 +188,7 @@ index 7a3f929..a87a622 100644
          self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2'})   # the Mac window's Display mode (front_mac.m reads 1 or 0); Switch 2 controllers (pad_switch2_apple.m, wired on the Mac only)
          s = mac['DM_FULLSCREEN']
 diff --git a/docs/settings.md b/docs/settings.md
-index c4472b8..cfe2b49 100644
+index c4472b8c..cfe2b497 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -4,7 +4,7 @@ The screen before the game starts shows the settings the game supports. A settin

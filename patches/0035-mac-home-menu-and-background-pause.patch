@@ -9,7 +9,7 @@ Reason: Open an in-game Home menu on short Home press, pause in background, auto
 Issue: LNPANDY/NX2Apple#1120
 ---
  dm/host/controllers_mac.h         |   5 +
- dm/host/controllers_mac.m         |  50 ++++-
+ dm/host/controllers_mac.m         |  54 ++++-
  dm/host/front_mac.m               | 342 ++++++++++++++++++++++++++++--
  dm/host/home_quit.h               | 163 ++++++++++++--
  dm/host/home_quit_mac.h           |  63 ++++++
@@ -18,10 +18,10 @@ Issue: LNPANDY/NX2Apple#1120
  dm/host/tests/t_home_quit_mac.m   |  43 +++-
  docs/frontends.md                 |   4 +-
  docs/playing.md                   |   2 +-
- 10 files changed, 795 insertions(+), 44 deletions(-)
+ 10 files changed, 798 insertions(+), 45 deletions(-)
 
 diff --git a/dm/host/controllers_mac.h b/dm/host/controllers_mac.h
-index bd852c4..dc7a350 100644
+index bd852c4e..dc7a3509 100644
 --- a/dm/host/controllers_mac.h
 +++ b/dm/host/controllers_mac.h
 @@ -14,6 +14,11 @@ void front_controllers_window(int active);
@@ -37,18 +37,18 @@ index bd852c4..dc7a350 100644
  
  // Called on the main thread when mapped input reaches the game.
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
-index 8fa01c0..bb1aac6 100644
+index e7e0be29..bf68f02f 100644
 --- a/dm/host/controllers_mac.m
 +++ b/dm/host/controllers_mac.m
-@@ -16,6 +16,7 @@
- #include "pad_hid_mac.h"
+@@ -17,6 +17,7 @@
+ #include "pad_gip_mac.h"
  #include "pad_jc1_mac.h"
  #include "pad_switch2_apple.h"
 +#include "home_quit.h"
  #include <math.h>
  
  enum { PAD_OFF, PAD_DPAD, PAD_LEFT_STICK, PAD_RIGHT_STICK, PAD_TOUCH };
-@@ -322,6 +323,42 @@ static void controller_reset_motion(DMController *d) {
+@@ -364,6 +365,42 @@ static void controller_reset_motion(DMController *d) {
      }
      return holder;
  }
@@ -73,7 +73,7 @@ index 8fa01c0..bb1aac6 100644
 +    int n=0;
 +    for(DMController *d in g_devices) {
 +        if(d->slot<0) continue;
-+        if(d.controller || (d->device && d->connected) || d->s2 || d->jc1 || d->generic) n++;
++        if(d.controller || (d->device && d->connected) || d->s2 || d->jc1 || d->generic || d->gip) n++;
 +    }
 +    return n;
 +}
@@ -91,7 +91,7 @@ index 8fa01c0..bb1aac6 100644
  static void controller_update_focus(void) {
      int was_focused=g_focus, listening=controller_listening();
      g_focus=listening && !g_quit_prompt && !g_applet;
-@@ -397,6 +434,7 @@ static void controller_connect(DMController *d) {
+@@ -441,6 +478,7 @@ static void controller_connect(DMController *d) {
      fprintf(stderr, "controller '%s': player %d\n", d.name.UTF8String, g_merge ? 1 : d->slot + 1);
      controller_panel_refresh();
      front_cp_poll();   // a controller joined while the controller applet's prompt is up
@@ -99,7 +99,7 @@ index 8fa01c0..bb1aac6 100644
  }
  static void controller_disconnect(DMController *d) {
      if (d->slot < 0) return;
-@@ -414,6 +452,7 @@ static void controller_disconnect(DMController *d) {
+@@ -458,6 +496,7 @@ static void controller_disconnect(DMController *d) {
      controller_panel_refresh();
      front_cp_poll();   // one controller fewer to wait for, or one player fewer, while the controller applet's prompt is up
      if(controller_listening()) front_home_poll();
@@ -107,15 +107,33 @@ index 8fa01c0..bb1aac6 100644
  }
  // Generic HID uses the same registry, slot table and shared button map as GC
  // and Triton. Its decoder keeps physical state through focus changes.
-@@ -469,6 +508,7 @@ static void hidpad_detach(hid_pad *hid) {
+@@ -513,6 +552,7 @@ static void hidpad_detach(hid_pad *hid) {
      DMController *d=controller_for_hid(hid); if(!d) return;
      controller_disconnect(d); d->generic=NULL; [g_devices removeObject:d];
      controller_panel_refresh();
 +    controller_notify_count();
  }
+ // Xbox One pads over USB that macOS has no driver for (pad_gip_mac.h): a player from its connection, as a GameController controller (a GIP device is a pad, unlike a
+ // raw HID device's GamePad collection), or at its first button press with DM_PAD_PRESS_TO_JOIN. Its Xbox button is Home (front_controllers_quit_buttons)
+@@ -532,14 +572,16 @@ static void gippad_attach(gip_pad *gip) {
+     DMController *d=[DMController new]; d->gip=gip;
+     d.name=@(gip->name); d.model=[@"USB / " stringByAppendingString:d.name];
+     controller_load_map(d); [g_devices addObject:d];
+-    if(g_press_to_join && !g_merge) { fprintf(stderr,"controller '%s' (USB) connected: press a button to play (DM_PAD_PRESS_TO_JOIN)\n",gip->name); front_cp_poll(); return; }
++    if(g_press_to_join && !g_merge) { fprintf(stderr,"controller '%s' (USB) connected: press a button to play (DM_PAD_PRESS_TO_JOIN)\n",gip->name); front_cp_poll(); controller_notify_count(); return; }
+     controller_connect(d);
+     if(d->slot<0) front_cp_poll();
++    controller_notify_count();
+ }
+ static void gippad_detach(gip_pad *gip) {
+     DMController *d=controller_for_gip(gip); if(!d) return;
+     controller_disconnect(d); d->gip=NULL; [g_devices removeObject:d];
+     controller_panel_refresh(); front_cp_poll();
++    controller_notify_count();
+ }
  static int32_t controller_axis(float v) { return (int32_t)(fmaxf(-1, fminf(1, v)) * DM_STICK_MAX); }
  // Switch 2 controllers over Bluetooth LE (pad_switch2_apple.h): the shared registry owns the slot, the mapping and the focus gate, as for the HID and split Joy-Con pads.
-@@ -494,15 +534,17 @@ static void s2pad_read(s2_pad *pad) {
+@@ -565,15 +607,17 @@ static void s2pad_read(s2_pad *pad) {
      DMController *d=[DMController new]; d->s2=pad;
      d.name=@(pad->name); d.model=[@"Nintendo / " stringByAppendingString:d.name];
      controller_load_map(d); [g_devices addObject:d];
@@ -135,7 +153,7 @@ index 8fa01c0..bb1aac6 100644
  }
  // Original Joy-Cons (pad_jc1_mac.h): the shared registry owns the slot, the mapping and the focus gate. A pad is one Joy-Con or a left and a right one, and a player from its first
  // button press (as a raw HID pad, with or without DM_PAD_PRESS_TO_JOIN). The transport sends the npad states and the motion to the game itself (dm_joy_set, dm_motion_set_joy,
-@@ -532,10 +574,12 @@ static void jc1pad_attach(jc1_pad *pad) {
+@@ -603,10 +647,12 @@ static void jc1pad_attach(jc1_pad *pad) {
      controller_load_map(d); [g_devices addObject:d];
      if(!g_merge) { fprintf(stderr,"controller '%s' (HID) connected: press a button to play\n",pad->name); front_cp_poll(); }
      jc1pad_read(pad);
@@ -148,7 +166,7 @@ index 8fa01c0..bb1aac6 100644
  }
  static void jc1_models_changed(void) { controllers_changed(nil); }
  // GameController's controllers of Joy-Cons read from HID stay unread here, with Home and Capture away from macOS
-@@ -634,6 +678,7 @@ static void controllers_reconcile(NSArray<GCController *> *now) {
+@@ -710,6 +756,7 @@ static void controllers_reconcile(NSArray<GCController *> *now) {
      }
      controller_pro_changed();
      controller_panel_refresh();
@@ -156,7 +174,7 @@ index 8fa01c0..bb1aac6 100644
  }
  static void controllers_changed(GCController *gone) {
      // Native notifications can precede the manager's asynchronous HID callback.
-@@ -790,6 +835,7 @@ static void steam_close(DMSteamHID *hid) {
+@@ -866,6 +913,7 @@ static void steam_close(DMSteamHID *hid) {
          IOHIDDeviceRegisterInputReportCallback(hid->device,d->report,sizeof d->report,NULL,NULL);
          IOHIDDeviceUnscheduleFromRunLoop(hid->device,CFRunLoopGetMain(),kCFRunLoopCommonModes);
          controller_disconnect(d); [g_devices removeObject:d]; hid.raw=nil;
@@ -165,7 +183,7 @@ index 8fa01c0..bb1aac6 100644
      IOHIDDeviceClose(hid->device,kIOHIDOptionsTypeNone); hid->opened=NO;
  }
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index befd752..5a8ee6f 100644
+index 4124ca01..958e7097 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1,7 +1,7 @@
@@ -218,9 +236,9 @@ index befd752..5a8ee6f 100644
 +    g_hq.launcher = hq_launcher(getenv("DM_HOME_MENU_LAUNCHER"));
 +    g_hq_on = !g_hq.no_hold || g_hq.menu;
 +    hq_disconnect_init(&g_dc, getenv("DM_DISCONNECT_PAUSE"));
-     char title[256]; snprintf(title, sizeof title, "Quit %s?", DM_GAME_NAME);
+     char title[256]; snprintf(title, sizeof title, "Quit %s?", dm_profile()->name);
 -    const char *def[HQ_TEXTS] = {"Keep holding to quit", title, "Unsaved progress will be lost.", "Quit", "Cancel"};
-+    const char *def[HQ_TEXTS] = {"Keep holding to quit", title, "Unsaved progress will be lost.", "Quit", "Cancel", "Resume", "Back to console mode", DM_GAME_NAME};
++    const char *def[HQ_TEXTS] = {"Keep holding to quit", title, "Unsaved progress will be lost.", "Quit", "Cancel", "Resume", "Back to console mode", dm_profile()->name};
      const char *text = getenv("DM_HOME_QUIT_TEXT");   // a front end's, in the player's language: one line per text, in home_quit.h's order
      for (int i = 0; i < HQ_TEXTS; i++) hq_text_line(text, i, def[i], g_hq_text[i], sizeof g_hq_text[i]);
 -    LOG("front end: hold the Home button to quit %s", g_hq_on ? "is on" : "is off (DM_HOME_QUIT=0)");
@@ -604,7 +622,7 @@ index befd752..5a8ee6f 100644
          // Guest thread: 64 MiB stack (the Switch main thread stack is specified by npdm; the host gives plenty)
          static guest_arg ga; ga.fn = guest;
 diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
-index ddab115..e7b8eba 100644
+index ddab1156..e7b8eba1 100644
 --- a/dm/host/home_quit.h
 +++ b/dm/host/home_quit.h
 @@ -7,13 +7,22 @@
@@ -824,7 +842,7 @@ index ddab115..e7b8eba 100644
      const char *s = text;
      for (int k = 0; s && k < i; k++) { s = strchr(s, '\n'); if (s) s++; }
 diff --git a/dm/host/home_quit_mac.h b/dm/host/home_quit_mac.h
-index ffc3ab5..d071406 100644
+index ffc3ab57..d0714066 100644
 --- a/dm/host/home_quit_mac.h
 +++ b/dm/host/home_quit_mac.h
 @@ -97,6 +97,69 @@ static NSView *hq_prompt_view(NSRect bounds, NSString *title, NSString *note, NS
@@ -898,10 +916,10 @@ index ffc3ab5..d071406 100644
  static NSView *hq_hold_view(NSRect bounds, NSString *label, CAShapeLayer **ring_out) {
      CGFloat k = hq_scale(bounds.size), d = 26 * k, line = 3.5 * k;
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index dfd8fe7..731acbc 100644
+index 5ff9f93d..1dec8fa1 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
-@@ -739,6 +739,8 @@ static void generic_value(hid_pad *pad,int page,int usage,int value,int min,int
+@@ -745,6 +745,8 @@ static void generic_value(hid_pad *pad,int page,int usage,int value,int min,int
  }
  // The real adapter callbacks and prompt state machine, without a window or a
  // wall-clock delay. Only admitted GC/Triton inputs can operate the prompt.
@@ -910,7 +928,7 @@ index dfd8fe7..731acbc 100644
  static void test_home_quit_routing(void) {
      hid_fixture_start();
      DMController *raw=[DMController new]; raw.name=raw.model=@"Triton";
-@@ -797,8 +799,23 @@ static void test_home_quit_routing(void) {
+@@ -803,8 +805,23 @@ static void test_home_quit_routing(void) {
      assert(q.phase==HQ_IDLE && received[gc_slot]);
      report(0,1); now+=HQ_HOLD_S; front_home_poll(); report(1,1);
      assert(q.phase==HQ_QUIT && !received[raw_slot]); // wire A quits, regardless of its guest mapping
@@ -936,7 +954,7 @@ index dfd8fe7..731acbc 100644
  }
  static void test_generic_hid_routing(void) {
 diff --git a/dm/host/tests/t_home_quit.c b/dm/host/tests/t_home_quit.c
-index ff11b7d..b904d9b 100644
+index ff11b7d9..b904d9bb 100644
 --- a/dm/host/tests/t_home_quit.c
 +++ b/dm/host/tests/t_home_quit.c
 @@ -1,5 +1,6 @@
@@ -1110,7 +1128,7 @@ index ff11b7d..b904d9b 100644
      CHECK(!strcmp(small, "Abc"), "a long line is cut to the buffer");
  
 diff --git a/dm/host/tests/t_home_quit_mac.m b/dm/host/tests/t_home_quit_mac.m
-index 0b716c4..0aa2164 100644
+index 0b716c4e..0aa2164d 100644
 --- a/dm/host/tests/t_home_quit_mac.m
 +++ b/dm/host/tests/t_home_quit_mac.m
 @@ -1,5 +1,6 @@
@@ -1176,7 +1194,7 @@ index 0b716c4..0aa2164 100644
      }
      printf("t_home_quit_mac: %d checks, %d failed\n", checks, fails);
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 12b5001..20aa8cd 100644
+index 351ea4fb..8ac1ed4e 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -59,7 +59,9 @@ A built app carries the settings its game supports, as the iPhone app's settings
@@ -1191,10 +1209,10 @@ index 12b5001..20aa8cd 100644
  Settings a player chose in a front end and wants kept, also for a start from Finder or the Dock, go in the app's saved choices ([Saved choices](#saved-choices)), not in its environment.
  
 diff --git a/docs/playing.md b/docs/playing.md
-index 626a9bf..7e00943 100644
+index 93e88126..6b91df1e 100644
 --- a/docs/playing.md
 +++ b/docs/playing.md
-@@ -59,7 +59,7 @@ Two identical controllers that Apple's controller support lists as one, such as
+@@ -63,7 +63,7 @@ On the Mac, if a single Switch Pro-compatible controller has a thumbstick that s
  
  With [Press a button to join](settings.md#press-a-button-to-join) on in the settings (`DM_PAD_PRESS_TO_JOIN=1` in `env.txt`), on the Mac and on iOS, a controller becomes a player only when one of its buttons is pressed, as the lowest player free: the players choose their order and how many play, over Bluetooth or USB, identical pads included, and a controller connected while the game runs joins at its first press. The log says `press a button to play`, then `a button pressed: player N`. The press that joins also reaches the game. When a game asks for more players than it sees, a prompt over the game says how many are wanted and joined and waits for the others: a controller that presses a button (or connects, with the setting off) joins, A finishes once enough are in, and B or Escape closes it, as on a Switch.
  

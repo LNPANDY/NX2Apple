@@ -24,7 +24,7 @@ Issue: LNPANDY/NX2Apple#451
  create mode 100644 dm/host/host_image.h
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index 5c51e15..8939266 100644
+index 5c51e152..8939266f 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
 @@ -26,8 +26,7 @@
@@ -47,7 +47,7 @@ index 5c51e15..8939266 100644
      return NULL;
  }
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 0b5aec2..9ff34ae 100644
+index 7b088e90..a6276db3 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
 @@ -41,8 +41,7 @@
@@ -70,7 +70,7 @@ index 0b5aec2..9ff34ae 100644
      for (unsigned i = 0; i < NVN_NFUNC; i++) nvn_slot[i].fn = (void *)nvn_unimpl_entry;
      for (unsigned k = 0; k < nim; k++) {
 diff --git a/dm/gfx/tests/t_gl_imports.m b/dm/gfx/tests/t_gl_imports.m
-index dbfcd1e..7f96a2b 100644
+index dbfcd1e7..7f96a2b1 100644
 --- a/dm/gfx/tests/t_gl_imports.m
 +++ b/dm/gfx/tests/t_gl_imports.m
 @@ -1482,7 +1482,7 @@ int main(int argc, char **argv) {
@@ -83,7 +83,7 @@ index dbfcd1e..7f96a2b 100644
      for (unsigned long i = 0; i < sz / sizeof *sec; i++)
          if (!strncmp(sec[i].name, "gl", 2)) {
 diff --git a/dm/gfx/tests/t_registration.m b/dm/gfx/tests/t_registration.m
-index 17521a0..47820d2 100644
+index 17521a09..47820d29 100644
 --- a/dm/gfx/tests/t_registration.m
 +++ b/dm/gfx/tests/t_registration.m
 @@ -45,7 +45,7 @@ void thr_svc_leave(void) {}
@@ -96,7 +96,7 @@ index 17521a0..47820d2 100644
      *count = bytes / size; return p;
  }
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 367f107..71087fd 100644
+index 367f1077..71087fd5 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
 @@ -25,8 +25,7 @@
@@ -119,7 +119,7 @@ index 367f107..71087fd 100644
      for (int pass = 0; pass < 2 && !fn; pass++) {
          size_t len = pass ? n - 3 : n;
 diff --git a/dm/host/hle.c b/dm/host/hle.c
-index a43e8a9..d757b4f 100644
+index a43e8a99..d757b4fa 100644
 --- a/dm/host/hle.c
 +++ b/dm/host/hle.c
 @@ -1,7 +1,6 @@
@@ -141,7 +141,7 @@ index a43e8a9..d757b4f 100644
          unsigned cap = 16; while (cap < n * 2) cap <<= 1;
          g_hle_idx = calloc(cap, sizeof *g_hle_idx); g_hle_mask = cap - 1;
 diff --git a/dm/host/hle_jit.c b/dm/host/hle_jit.c
-index fcfb4b2..9643caa 100644
+index fcfb4b21..9643caa6 100644
 --- a/dm/host/hle_jit.c
 +++ b/dm/host/hle_jit.c
 @@ -146,15 +146,14 @@ static const jit_req *jit_find(const char *key) { for (int i = 0; i < g_nreq; i+
@@ -163,7 +163,7 @@ index fcfb4b2..9643caa 100644
      vm_address_t a = (vm_address_t)at; vm_prot_t cur = 0, max = 0;
      if (vm_remap(mach_task_self(), &a, g_img_size, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE, mach_task_self(), (vm_address_t)sec, FALSE, &cur, &max, VM_INHERIT_NONE) != KERN_SUCCESS || a != (vm_address_t)at || !(cur & VM_PROT_EXECUTE))
 diff --git a/dm/host/hle_sf.c b/dm/host/hle_sf.c
-index 5470a99..10dbf91 100644
+index 5470a992..10dbf913 100644
 --- a/dm/host/hle_sf.c
 +++ b/dm/host/hle_sf.c
 @@ -9,8 +9,7 @@
@@ -187,7 +187,7 @@ index 5470a99..10dbf91 100644
  
 diff --git a/dm/host/host_image.h b/dm/host/host_image.h
 new file mode 100644
-index 0000000..9dde850
+index 00000000..9dde8501
 --- /dev/null
 +++ b/dm/host/host_image.h
 @@ -0,0 +1,8 @@
@@ -200,13 +200,13 @@ index 0000000..9dde850
 +extern const struct mach_header_64 __dso_handle;
 +#define DM_HOST_IMAGE (&__dso_handle)
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index e9ed977..b5105ae 100644
+index 22c2db43..ab5078e5 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
-@@ -8,10 +8,9 @@
- #include <sys/stat.h>
+@@ -9,10 +9,9 @@
  #include <unistd.h>
  #include <limits.h>
+ #include <dlfcn.h>
 -#include <mach-o/getsect.h>
 -#include <mach-o/ldsyms.h>
  #include "hle.h"
@@ -215,16 +215,16 @@ index e9ed977..b5105ae 100644
  #if TARGET_OS_IPHONE
  #include <mach/mach.h>
  #endif
-@@ -256,7 +255,7 @@ static const hle_force_ent *g_force; static unsigned g_nforce; static unsigned *
- static unsigned *g_fidx, g_fmask;   // name hash over the table: force_lookup runs for every named relocation, and each lookup used to strcmp its way through all 722 entries (the swhle table's scan is hashed the same way, hle.c)
- static const unsigned k_force_disabled = UINT_MAX;
- static void force_init(void) {
--    unsigned long sz; g_force = (const hle_force_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swforce", &sz);
-+    unsigned long sz; g_force = (const hle_force_ent *)getsectiondata(DM_HOST_IMAGE, "__DATA", "swforce", &sz);
-     g_nforce = g_force ? (unsigned)(sz / sizeof *g_force) : 0;
-     g_force_hits = calloc(g_nforce + 1, sizeof *g_force_hits);
-     unsigned cap = 16; while (cap < g_nforce * 2) cap <<= 1;
-@@ -819,7 +818,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
+@@ -263,7 +262,7 @@ static const char *force_entry_label(const hle_force_ent *e) {
+     return "?";
+ }
+ static int force_build(int abort_on_error) {
+-    unsigned long sz = 0; g_force = (const hle_force_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swforce", &sz);
++    unsigned long sz = 0; g_force = (const hle_force_ent *)getsectiondata(DM_HOST_IMAGE, "__DATA", "swforce", &sz);
+     if (g_force && sz % sizeof *g_force) {
+         if (abort_on_error) die("forced takeover section size %lu is not a multiple of entry size %zu", sz, sizeof *g_force);
+         LOG("forced takeover section size %lu is not a multiple of entry size %zu", sz, sizeof *g_force);
+@@ -884,7 +883,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
  }
  // The image the module sections are read from (front.h dm_set_game_image_header). getsectiondata takes any loaded image's header and applies its slide
  #include "front.h"

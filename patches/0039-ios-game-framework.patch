@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#392
  create mode 100644 dm/ios/tools/gen_manifest.py
 
 diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
-index a7e9c69..82c284a 100644
+index a7e9c692..82c284aa 100644
 --- a/dm/ios/Sources/DmGameMenu.h
 +++ b/dm/ios/Sources/DmGameMenu.h
 @@ -13,6 +13,7 @@ void dm_pad_layout_set(int layout);   // releases every touch first, and is save
@@ -51,7 +51,7 @@ index a7e9c69..82c284a 100644
  #endif
 diff --git a/dm/ios/Sources/FrameworkBootstrap.h b/dm/ios/Sources/FrameworkBootstrap.h
 new file mode 100644
-index 0000000..a2049d4
+index 00000000..a2049d4d
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.h
 @@ -0,0 +1,25 @@
@@ -82,7 +82,7 @@ index 0000000..a2049d4
 +#endif
 diff --git a/dm/ios/Sources/FrameworkBootstrap.m b/dm/ios/Sources/FrameworkBootstrap.m
 new file mode 100644
-index 0000000..663ebe8
+index 00000000..663ebe8d
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.m
 @@ -0,0 +1,47 @@
@@ -134,7 +134,7 @@ index 0000000..663ebe8
 +}
 +#endif
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index e763931..1ecbae9 100644
+index e763931d..1ecbae9d 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -190,7 +190,10 @@ - (void)startGame {
@@ -159,7 +159,7 @@ index e763931..1ecbae9 100644
      if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) list = [NSBundle.mainBundle objectForInfoDictionaryKey:@"UISupportedInterfaceOrientations~ipad"];
      if (![list isKindOfClass:NSArray.class]) list = [NSBundle.mainBundle objectForInfoDictionaryKey:@"UISupportedInterfaceOrientations"];
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 4ea2fc2..f11cd2b 100644
+index 693e0cc0..e1355af0 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -10,7 +10,6 @@
@@ -209,8 +209,8 @@ index 4ea2fc2..f11cd2b 100644
      // Environment switch files (for on-device diagnostics: a sideloaded app cannot be given environment variables from outside): one KEY=VALUE per line, # starts a comment; Documents/env.txt takes precedence over dm/env.txt in the bundle (put there by build_ipa.sh's DM_ENV_FILE)
      NSMutableArray<NSString *> *from_file = [NSMutableArray array], *from_launch = [NSMutableArray array];
      for (char **e = environ; *e; e++) {   // set at launch (Xcode, devicectl): before the env files, and the launcher keeps them
-@@ -305,6 +320,12 @@ static int boot_env(void) {
-         fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\n"); }
+@@ -306,6 +321,12 @@ static int boot_env(void) {
+     setenv("DM_ALBUM_DIR", [doc stringByAppendingPathComponent:@"album"].fileSystemRepresentation, 0);   // local album screenshots (hle_album.c), visible in Files; created lazily on first save
      setenv("DM_SYSTEM_DIR", [doc stringByAppendingPathComponent:@"system"].fileSystemRepresentation, 0);
      setenv("DM_GUEST_FILE_DIR", NSTemporaryDirectory().fileSystemRepresentation, 0);   // DM_GUEST_FILE (hle_svc.c) keeps the guest's memory in files there
 +#if DM_FRAMEWORK_BUILD
@@ -224,7 +224,7 @@ index 4ea2fc2..f11cd2b 100644
      // the app's shared <App>/msl (the program's <App>/msl/p<N> in a game of several programs).
 diff --git a/dm/ios/framework/DmGameMarker.m b/dm/ios/framework/DmGameMarker.m
 new file mode 100644
-index 0000000..c03357d
+index 00000000..c03357d4
 --- /dev/null
 +++ b/dm/ios/framework/DmGameMarker.m
 @@ -0,0 +1,10 @@
@@ -240,7 +240,7 @@ index 0000000..c03357d
 +const char dmgame_image_marker[] = "DmGame";
 diff --git a/dm/ios/framework/ShellGlue.h b/dm/ios/framework/ShellGlue.h
 new file mode 100644
-index 0000000..e5b52e2
+index 00000000..e5b52e21
 --- /dev/null
 +++ b/dm/ios/framework/ShellGlue.h
 @@ -0,0 +1,11 @@
@@ -257,7 +257,7 @@ index 0000000..e5b52e2
 +typedef void (*dm_glue_focus_fn)(int ev);
 diff --git a/dm/ios/framework/ShellGlue.m b/dm/ios/framework/ShellGlue.m
 new file mode 100644
-index 0000000..4bc48ff
+index 00000000..4bc48ff1
 --- /dev/null
 +++ b/dm/ios/framework/ShellGlue.m
 @@ -0,0 +1,76 @@
@@ -339,7 +339,7 @@ index 0000000..4bc48ff
 +bool dm_show_launcher(void *view_controller, void (*done)(void)) { (void)view_controller; (void)done; return false; }
 diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
 new file mode 100644
-index 0000000..89a2df5
+index 00000000..89a2df5f
 --- /dev/null
 +++ b/dm/ios/project-framework.yml
 @@ -0,0 +1,200 @@
@@ -545,7 +545,7 @@ index 0000000..89a2df5
 +      config: Release
 diff --git a/dm/ios/tests/test_bc_device_check.py b/dm/ios/tests/test_bc_device_check.py
 new file mode 100644
-index 0000000..6c443e5
+index 00000000..6c443e5b
 --- /dev/null
 +++ b/dm/ios/tests/test_bc_device_check.py
 @@ -0,0 +1,56 @@
@@ -607,7 +607,7 @@ index 0000000..6c443e5
 +    unittest.main()
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
 new file mode 100644
-index 0000000..f1c8992
+index 00000000..f1c89929
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -0,0 +1,323 @@
@@ -936,7 +936,7 @@ index 0000000..f1c8992
 +    unittest.main()
 diff --git a/dm/ios/tests/test_framework_link.py b/dm/ios/tests/test_framework_link.py
 new file mode 100644
-index 0000000..5c6d3d0
+index 00000000..5c6d3d03
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_link.py
 @@ -0,0 +1,191 @@
@@ -1132,7 +1132,7 @@ index 0000000..5c6d3d0
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
-index 3199b08..e994ec9 100644
+index bf7dbe7e..3c1ef44b 100644
 --- a/dm/ios/tests/test_xcode_workflow.py
 +++ b/dm/ios/tests/test_xcode_workflow.py
 @@ -31,7 +31,12 @@ class XcodePipelineTests(unittest.TestCase):
@@ -1159,8 +1159,8 @@ index 3199b08..e994ec9 100644
              finally:
                  progress.close()
              self.assertEqual(code, 0, output.getvalue())
-@@ -101,6 +107,7 @@ class XcodePipelineTests(unittest.TestCase):
-             self.assertEqual(environment['GFXAPI'], graphics)
+@@ -103,6 +109,7 @@ class XcodePipelineTests(unittest.TestCase):
+             self.assertNotIn('FONT_PY', environment)
              self.assertEqual(environment['DM_BUNDLE_ID'], 'com.example.saved')
              self.assertEqual(environment['DM_TEAM_ID'], 'ABCDEFGHIJ')
 +            self.assertEqual(environment.get('DM_FRAMEWORK'), '1' if framework else None)
@@ -1168,7 +1168,7 @@ index 3199b08..e994ec9 100644
              register.assert_called_once()
              self.assertEqual(mocks['derive_profile'].call_count, int(derived))
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index e9dec16..21397f9 100755
+index c7953be0..c00099a1 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -8,6 +8,12 @@
@@ -1184,7 +1184,7 @@ index e9dec16..21397f9 100755
  #   AOC=add-on content directory (default $W/data/aoc; when it exists it goes to DmIOS.app/aoc/<index>/; an empty string = none), GFXAPI=nvn / vulkan (default: by the shader libraries in MSL_IOS)
  #   The app name is the game name in the base NSP's control data ($W/data/v0/control.nacp, else the one next to the RomFS), the app version is the display version in the packed game's control data (the one next to the RomFS:
  #   nx_extract saves the update's there when an update is packed, else the base game's), the bundle ID is org.nxnative.<base game title ID in lowercase> (DM_DISPLAY_NAME / DM_APP_VERSION / DM_BUNDLE_ID override them);
-@@ -39,6 +45,13 @@ PKG=$(gp package)
+@@ -40,6 +46,13 @@ PKG=$(gp package)
  if [ -z "${ROMFS:-}" ] && [ -f "$W/data/$PKG/RomFS.img" ]; then ROMFS=$W/data/$PKG/RomFS.img; fi
  PATCHED=${PATCHED:-$W/build/patched_$PKG}; ROMFS=${ROMFS:-$W/data/$PKG/RomFS}; MSL_IOS=${MSL_IOS:-$W/build/ios/dmsh_b}; AOC=${AOC-$W/data/aoc}
  PREPARE_XCODE=NO; [ "${1:-}" != --prepare-xcode ] || PREPARE_XCODE=YES
@@ -1198,7 +1198,7 @@ index e9dec16..21397f9 100755
  OUT_IPA=${1:-$(dirname "$W")/$(gp ipa)}; O=$W/build/ios/pkg; DD=$O/dd
  XCODE_DD=${DM_XCODE_DERIVED_DATA:-$W/build/ios/xcode-dd}
  MARKER=$(gp romfs_marker)
-@@ -58,7 +71,10 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -59,7 +72,10 @@ if [ "$PREPARE_XCODE" = YES ]; then
    [ "$IOS" != "$IOS_SOURCE" ] || die "the per-game Xcode project must be outside dm/ios"
    # Source links follow repository edits; generated files and build products belong to this game only. Linked again each time: a project prepared from another checkout (a removed worktree) follows this one
    for item in Sources tools; do ln -sfn "$IOS_SOURCE/$item" "$IOS/$item" || die "link $item"; done
@@ -1210,7 +1210,7 @@ index e9dec16..21397f9 100755
    cd "$IOS" || die "cd $IOS"
    DM_SCHEME_NAME="$(echo "$DM_DISPLAY_NAME" | tr '/:' '__') ($GAME)"   # the scheme file is named after it
  
-@@ -197,6 +213,37 @@ if [ -f "$ICON" ]; then
+@@ -198,6 +214,37 @@ if [ -f "$ICON" ]; then
    echo "DM_APPICON = AppIcon" >> Gen/dm.xcconfig
    t "app icon: $ICON"
  else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
@@ -1229,17 +1229,17 @@ index e9dec16..21397f9 100755
 +  # Keep dm/env.txt with this game: the shell applies its build-time defaults after the player's environment files.
 +  # The one-game app reads its launcher.json from the app's dm/; the shell reads each game's from its framework (manifest key launcher)
 +  [ -n "$FRAMEWORK_ONLY" ] || rm -f Gen/framework/dm/launcher.json
-+  python3 "$DM/games/game.py" profile "$GAME" Gen/framework/profile.tsv > /dev/null || die "game profile"
++  "${DM_PYTHON:-python3}" "$DM/games/game.py" profile "$GAME" Gen/framework/profile.tsv > /dev/null || die "game profile"
 +  # The manifest names the game data this framework was built for: the RomFS image's identity (dm/host/romfs_identity.h), as the
 +  # pack step's romfs.id does. That step's default is repeated here because the manifest is a build resource and has to exist now.
 +  FW_COPY_ROMFS=${DM_COPY_ROMFS:-}
 +  if [ -z "$FW_COPY_ROMFS" ] && [ "$PREPARE_XCODE" != YES ]; then [ -n "${DM_FULL_ROMFS:-}" ] && FW_COPY_ROMFS=YES || FW_COPY_ROMFS=NO; fi
 +  ROMFS_ID=; if [ "$FW_COPY_ROMFS" = NO ] && [ -f "$ROMFS" ]; then
-+    mkdir -p "$O" && ROMFS_ID=$(python3 -I "$DM/tools/romfs_image.py" --identity "$ROMFS" "$GAME" "$DM_APP_VERSION" "${PKG:-}") || die "identity of $ROMFS"
++    mkdir -p "$O" && ROMFS_ID=$("${DM_PYTHON:-python3}" -I "$DM/tools/romfs_image.py" --identity "$ROMFS" "$GAME" "$DM_APP_VERSION" "${PKG:-}") || die "identity of $ROMFS"
 +  fi
 +  NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
 +  FW_LOADER=FR; [ -z "$FRAMEWORK_ONLY" ] || FW_LOADER=FH
-+  python3 tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
++  "${DM_PYTHON:-python3}" tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
 +    --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \
 +    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" --loader "$FW_LOADER" --profile "$GD/game.tsv" > /dev/null || die "game manifest (gen_manifest.py)"
 +  printf 'OTHER_LDFLAGS = $(inherited) %s\n' "$F" > Gen/framework.xcconfig || die "framework link flags"
@@ -1248,7 +1248,7 @@ index e9dec16..21397f9 100755
  # A prepared Xcode project is signed in Xcode, so it asks for the Increased Memory Limit capability the bigger games need (see the README); DM_ENTITLEMENTS=another plist, or empty for none.
  # The unsigned IPA carries the same request in its executable's ad-hoc signature below; the install tool replaces that signature.
  if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
-@@ -208,7 +255,10 @@ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
+@@ -209,7 +256,10 @@ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
  fi
  # DM_COPY_ROMFS=NO also for the prepared project: its Copy game resources phase (stage_resources.sh) then leaves the game files out and writes the image's identity; Gen/dm.xcconfig is made again by every run
  [ "${DM_COPY_ROMFS:-YES}" != NO ] || [ "$PREPARE_XCODE" != YES ] || echo "DM_COPY_ROMFS = NO" >> Gen/dm.xcconfig
@@ -1260,7 +1260,7 @@ index e9dec16..21397f9 100755
  # DMCommit / DMChain: the checkout that built the app (+dirty with uncommitted changes to tracked files) and the shader chain it carries, which the host logs at start (main.c)
  COMMIT=$(git -C "$DM" rev-parse --short=12 HEAD 2> /dev/null) && { [ -z "$(git -C "$DM" status --porcelain --untracked-files=no 2> /dev/null)" ] || COMMIT=$COMMIT+dirty
    /usr/libexec/PlistBuddy -c "Add :DMCommit string $COMMIT" Gen/Info.plist > /dev/null || die "DMCommit"; t "source: $COMMIT"; }
-@@ -227,6 +277,40 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -228,6 +278,40 @@ if [ "$PREPARE_XCODE" = YES ]; then
    exit 0
  fi
  
@@ -1292,7 +1292,7 @@ index e9dec16..21397f9 100755
 +  for old in "$OUTFW/msl/"*; do case "$old" in "$OUTFW/msl/$MSLDIR"|"$OUTFW/msl/$MSLDIR.img") ;; *) rm -rf "$old";; esac; done
 +  if [ -n "$PSO" ]; then mkdir -p "$OUTFW/pso" && rsync -a --delete -- "$PSO/" "$OUTFW/pso/" || die "copy the pipeline archive"; else rm -rf "$OUTFW/pso"; fi
 +  if [ -f "$ICON" ]; then sips -s format png -z 512 512 "$ICON" --out "$OUTFW/icon.png" > /dev/null || die "sips: cannot convert the icon $ICON"; else rm -f "$OUTFW/icon.png"; fi
-+  python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(m["framework_executable"] != sys.argv[2])' "$OUTFW/game.manifest.json" "$FW_NAME" \
++  "${DM_PYTHON:-python3}" -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(m["framework_executable"] != sys.argv[2])' "$OUTFW/game.manifest.json" "$FW_NAME" \
 +    || die "$OUTFW/game.manifest.json does not name $FW_NAME"
 +  t "done: $OUTFW ($(du -sh "$OUTFW" | cut -f1); build_shell.sh embeds it in the shell)"
 +  exit 0
@@ -1301,7 +1301,7 @@ index e9dec16..21397f9 100755
  t "xcodebuild (Release, unsigned, iPhone + iPad)"
  mkdir -p "$O"
  xcodebuild -project DmIOS.xcodeproj -scheme DmIOS -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$DD" \
-@@ -242,6 +326,18 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
+@@ -243,6 +327,18 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
  # the app sets DM_AOC_DIR at launch, the host reports them as owned and mounts them from it) and the RomFS
  rm -rf "$APP/msl" "$O/Payload"   # Payload/: what the copy-and-zip packing left behind, as was out.ipa (and its index) unless it is the IPA packed here, which a repeat pack reuses
  [ "$O/out.ipa" -ef "$OUT_IPA" ] || rm -f "$O/out.ipa"; [ "$O/out.ipa.idx" -ef "$OUT_IPA.idx" ] || rm -f "$O/out.ipa.idx"
@@ -1321,7 +1321,7 @@ index e9dec16..21397f9 100755
  # the entitlements of the signature they replace; the Xcode project gets them through CODE_SIGN_ENTITLEMENTS, above). The executable gets an ad-hoc signature that carries them: the sideloader
  # replaces the signature and keeps the entitlements. Only the executable is signed: the bundle's resources are packed from elsewhere and the signature is replaced anyway
 diff --git a/dm/ios/tools/compile_check.py b/dm/ios/tools/compile_check.py
-index 77299e3..821daaa 100755
+index 77299e3b..821daaa3 100755
 --- a/dm/ios/tools/compile_check.py
 +++ b/dm/ios/tools/compile_check.py
 @@ -4,7 +4,9 @@
@@ -1363,7 +1363,7 @@ index 77299e3..821daaa 100755
  sys.exit(1 if bad else 0)
 diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
 new file mode 100644
-index 0000000..963156f
+index 00000000..963156fd
 --- /dev/null
 +++ b/dm/ios/tools/gen_manifest.py
 @@ -0,0 +1,130 @@
@@ -1498,7 +1498,7 @@ index 0000000..963156f
 +if __name__ == '__main__':
 +    main()
 diff --git a/dm/tools/tests/test_nsp_progress.py b/dm/tools/tests/test_nsp_progress.py
-index cd34db9..7a7fbfe 100644
+index cd34db90..a57b1f33 100644
 --- a/dm/tools/tests/test_nsp_progress.py
 +++ b/dm/tools/tests/test_nsp_progress.py
 @@ -236,5 +236,334 @@ class HumanModes(unittest.TestCase):
@@ -1719,7 +1719,7 @@ index cd34db9..7a7fbfe 100644
 +            fake_g.title_id = tid
 +            fake_g.dir = root / 'profile'
 +            fake_g.builds.return_value = {'v0': {'display': '1.0.0', 'main': 'aa' * 16}}
-+            fake_g.words.side_effect = lambda k: ['v0'] if k == 'shader_versions' else ['main']
++            fake_g.words.side_effect = lambda k, default='': ['v0'] if k == 'shader_versions' else ([] if k == 'shader_covers' else ['main'])
 +            fake_g.get.side_effect = lambda k, d='': {'name': 'Test Game', 'ipa': 'Test.ipa', 'pso_mtl4': 'on'}.get(k, d)
 +            fake_g.modules_in.return_value = ['main']
 +            fake_g.table.side_effect = lambda n: root / 'profile' / n
@@ -1837,10 +1837,10 @@ index cd34db9..7a7fbfe 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 58c6ee4..ea3467f 100755
+index 17c3aea6..2d6134cb 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -3160,58 +3160,187 @@ def build_gl_shaders(py, repo, roots, sh, env, logs, g, reuse=True, mac=False, p
+@@ -3163,58 +3163,187 @@ def build_gl_shaders(py, repo, roots, sh, env, logs, g, reuse=True, mac=False, p
  
  
  class IpaWatch:
@@ -2057,7 +2057,7 @@ index 58c6ee4..ea3467f 100755
  
  
  def env_file_pairs(path):   # an environment file's switches (one KEY=VALUE per line, # starts a comment), read as the iOS app reads them (dm/ios/Sources/main.m)
-@@ -3538,6 +3667,10 @@ def parse_args(argv):
+@@ -3541,6 +3670,10 @@ def parse_args(argv):
      ap.add_argument('--shader-files', action=argparse.BooleanOptionalAction, help='an NVN game\'s shader library goes into the IPA as its separate files, not as one file, for install tools that cannot copy '
                      'a large file (AltServer: 2 GiB; the game files then need --romfs separate too) (default: the SHADER_FILES setting, off)')
      ap.add_argument('--prepare-xcode', action='store_true', help='prepare a per-game Xcode project and add it to the shared workspace instead of packing an IPA (requires keeping extracted files)')
@@ -2068,7 +2068,7 @@ index 58c6ee4..ea3467f 100755
      ap.add_argument('--platform', choices=('ios', 'mac', 'mac-app'), help='ios = the IPA (or the Xcode project); mac = for development: build only what running the game on this Mac needs (the Mac shaders and the Mac host, '
                      'no iOS shaders, Xcode project or IPA), keep the extracted files and print the command that runs the game; mac-app = what mac builds, then a self-contained, double-clickable '
                      'Mac app of the game (default: <game name>.app in the NSP folder, -o names another) (default: the PLATFORM setting, ios)')
-@@ -3705,6 +3838,11 @@ def main(args=None):
+@@ -3735,6 +3868,11 @@ def main(args=None):
      if args.mac_sign and not mac_pack: raise BuildError('--mac-sign signs the Mac app: it needs --platform mac-app')
      if args.prebake and not mac_pack: raise BuildError('--prebake makes the Mac app\'s prewarm pipelines: it needs --platform mac-app')
      if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
@@ -2080,7 +2080,7 @@ index 58c6ee4..ea3467f 100755
      if mac and not apple_silicon(): raise BuildError(f'--platform {platform} runs the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      check_native_python()
      keep = KEEP_EXTRACTED if args.keep_extracted is None else args.keep_extracted
-@@ -4008,10 +4146,11 @@ def main(args=None):
+@@ -4035,11 +4173,12 @@ def main(args=None):
          rmtree(work / 'tmp'); return {'row': (PROGRAM_INDEX, g.id, patched, romfs, ios, gfx), 'ex': ex, 'keep': keep}
      programs = other_programs(args, g)
      if programs and romfs_mode == 'separate': raise BuildError('a game of several programs keeps its files in the app (ROMFS / --romfs bundle): Documents holds one RomFS image, one program\'s')
@@ -2088,13 +2088,14 @@ index 58c6ee4..ea3467f 100755
 -    say('preparing the Xcode project' if prepare_xcode else f'building the IPA → {out_ipa}')
 +    if not prepare_xcode and not shell_fw and free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
 +    say('preparing the Xcode project' if prepare_xcode else f'building the game framework for the shell → {shell_fw}' if shell_fw else f'building the IPA → {out_ipa}')
-     ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(romfs), MSL_IOS=str(ios), GFXAPI=gfx, FONT_PY=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_XCODE_DERIVED_DATA=str(work / 'xcode-derived-data'), DM_TEAM_ID=team_id, DM_LANG=lang, CONTROL=str(control))
+     ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(romfs), MSL_IOS=str(ios), GFXAPI=gfx, DM_PYTHON=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_XCODE_DERIVED_DATA=str(work / 'xcode-derived-data'), DM_TEAM_ID=team_id, DM_LANG=lang, CONTROL=str(control))
+     ipa_env.pop('FONT_PY', None)
      if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)
 +    if args.framework: ipa_env['DM_FRAMEWORK'] = '1'; say('route C: the game\'s modules go into DmIOS.app/Frameworks/DmGame.framework (DM_FRAMEWORK=1)')
      separate = romfs_mode == 'separate'
      if separate: ipa_env['DM_COPY_ROMFS'] = 'NO'; say('game files: separate (DM_COPY_ROMFS=NO), left out of the app; the image stays at ' + str(romfs))
      if shader_files: ipa_env['DM_SHADER_FILES'] = '1'; say('shader library: its separate files (DM_SHADER_FILES=1), for install tools that cannot copy a large file')
-@@ -4032,6 +4171,19 @@ def main(args=None):
+@@ -4060,6 +4199,19 @@ def main(args=None):
          rows = [(0, g.id, patched, romfs, ios, gfx)] + [programs[n]['row'] for n in sorted(programs)]
          tsv.write_text('# program\tprofile\trewritten modules\tRomFS\tiOS shaders\tgraphics API (build_ipa.sh PROGRAMS_TSV)\n' + ''.join('\t'.join(map(str, r)) + '\n' for r in rows))
          say(f'one app holding programs {", ".join(str(r[0]) for r in rows)}')

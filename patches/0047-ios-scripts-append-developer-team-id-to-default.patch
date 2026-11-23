@@ -18,7 +18,7 @@ Issue: LNPANDY/NX2Apple#1143
 
 diff --git a/dm/ios/tests/test_bundle_id.py b/dm/ios/tests/test_bundle_id.py
 new file mode 100644
-index 0000000..6d8fda2
+index 00000000..6d8fda2a
 --- /dev/null
 +++ b/dm/ios/tests/test_bundle_id.py
 @@ -0,0 +1,351 @@
@@ -374,7 +374,7 @@ index 0000000..6d8fda2
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 604f9ee..f8ec71c 100755
+index 9748dc93..5b9ac3dd 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -16,7 +16,7 @@
@@ -385,10 +385,10 @@ index 604f9ee..f8ec71c 100755
 +#   nx_extract saves the update's there when an update is packed, else the base game's), the bundle ID is org.nxnative.<base game title ID in lowercase> (with .$DM_TEAM_ID appended for single-game builds when DM_TEAM_ID is a real team and DM_FRAMEWORK_ONLY is unset) (DM_DISPLAY_NAME / DM_APP_VERSION / DM_BUNDLE_ID override them)
  #   CONTROL=<control.nacp> is the file whose languages the launcher's settings offer (the NSP script's languages_control; default: the packed game's control data as above);
  #   DM_METAL_CAPTURE=1 makes a development build that can write GPU frame captures (MetalCaptureEnabled in Info.plist, for the host's DM_GPU_CAPTURE switch);
- #   DM_SHOW_FPS=1 turns the frame-rate counter on (DMShowFPS in Info.plist; DM_SHOW_FPS in the app's Documents/env.txt overrides it on the phone);
-@@ -63,7 +63,16 @@ NACP=$W/data/v0/control.nacp; [ -f "$NACP" ] || NACP=$(dirname "$ROMFS")/control
+ #   DM_PYTHON=<path> selects Python for build_ipa.sh and its helper tools (default: python3 on PATH; FONT_PY overrides it for make_shared_fonts.py);
+@@ -64,7 +64,16 @@ NACP=$W/data/v0/control.nacp; [ -f "$NACP" ] || NACP=$(dirname "$ROMFS")/control
  VNACP=$(dirname "$ROMFS")/control.nacp; [ -f "$VNACP" ] || VNACP=$W/data/v0/control.nacp
- [ -n "${DM_APP_VERSION:-}" ] || DM_APP_VERSION=$(python3 "$DM/tools/nacp.py" --version "$VNACP") || { t "no display version in $VNACP: the app version is 1.0"; DM_APP_VERSION=1.0; }
+ [ -n "${DM_APP_VERSION:-}" ] || DM_APP_VERSION=$("${DM_PYTHON:-python3}" "$DM/tools/nacp.py" --version "$VNACP") || { t "no display version in $VNACP: the app version is 1.0"; DM_APP_VERSION=1.0; }
  VNACP=${CONTROL:-$VNACP}   # from here on, the file that lists the game's languages for the launcher's settings
 -export LC_ALL=C DM_BUNDLE_ID=${DM_BUNDLE_ID:-org.nxnative.$(echo "$GAME" | tr 'A-Z' 'a-z')} DM_DISPLAY_NAME DM_APP_VERSION DM_APP_CATEGORY=$(gp app_category) DM_TEAM_ID=${DM_TEAM_ID:-0000000000}   # placeholder identity: unsigned, the install tool replaces it
 +DM_TEAM_ID=${DM_TEAM_ID:-0000000000}
@@ -405,7 +405,7 @@ index 604f9ee..f8ec71c 100755
  export DM_LANG=${DM_LANG:-en-US}
  export DM_FORK_PATCHES=$(paste -sd, "$DM/fork_patches.txt" 2>/dev/null || true)   # DMForkPatches in Info.plist (scripts/patches.py writes the list; empty on a build without fork patches)
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index ea3467f..a57f6be 100755
+index 2d6134cb..d304a49b 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -59,7 +59,7 @@ TITLE_ID = ''                           # the game to pack when the folder holds
@@ -426,7 +426,7 @@ index ea3467f..a57f6be 100755
  XCODE_WORKSPACE = ''                    # shared .xcworkspace (empty = NxNative.xcworkspace beside the game's NSP folder)
  LANGUAGE = ''                           # game language, a code or a name: 'ja', 'fr', 'de', 'es', 'zh-Hans', 'zh-Hant', 'ko', 'Japanese', ... (empty = English); it must be one the game supports (the console line lists them);
                                          #   DM_LANG=<code> in the app's Documents/env.txt changes it without a rebuild
-@@ -3661,7 +3661,7 @@ def parse_args(argv):
+@@ -3664,7 +3664,7 @@ def parse_args(argv):
      ap.add_argument('-p', '--package', help='version packed into the IPA, e.g. v327680 / v0 (default: the newest in the folder)')
      ap.add_argument('-o', '--out', help='output IPA, or app with --platform mac-app (default: <the profile\'s ipa>, or <game name>.app, in the NSP folder)')
      ap.add_argument('--app-name', help='app name on the home screen (default: the game name in the base NSP)')
@@ -435,7 +435,7 @@ index ea3467f..a57f6be 100755
      ap.add_argument('--romfs', choices=('bundle', 'separate'), help='bundle = the game files go into the IPA (default: the ROMFS setting, bundle); separate = they stay out of the IPA and the Xcode app: the build is small and fast, and the RomFS image '
                      'is copied to the phone once per game version with the scripts/push_romfs.sh command printed at the end (the app refuses an image of another version)')
      ap.add_argument('--shader-files', action=argparse.BooleanOptionalAction, help='an NVN game\'s shader library goes into the IPA as its separate files, not as one file, for install tools that cannot copy '
-@@ -3678,7 +3678,7 @@ def parse_args(argv):
+@@ -3681,7 +3681,7 @@ def parse_args(argv):
      ap.add_argument('--fallback-icon', help='the app icon only when --icon / ICON is not given and the game has none of its own (a dump, a NUP without one), a JPEG or PNG of any size: a game with its own icon '
                      'keeps it, so a front end can pass a stand-in without knowing what the game carries (default: the FALLBACK_ICON setting, else such an app\'s icon is blank)')
      ap.add_argument('--mac-sign', help='--platform mac-app: the codesign identity for the app, e.g. "Developer ID Application: <name> (<team>)" (default: the MAC_SIGN setting, else ad-hoc)')
@@ -444,7 +444,7 @@ index ea3467f..a57f6be 100755
      ap.add_argument('--xcode-workspace', help='workspace collecting prepared games (default: NxNative.xcworkspace beside the NSP folder; use with --prepare-xcode)')
      ap.add_argument('-l', '--language', help='game language, a code or a name: ja, fr, de, es, it, nl, pt, ru, ko, zh-Hans, zh-Hant, en-GB, fr-CA, es-419, pt-BR, pl, th, Japanese, ... (default: the LANGUAGE setting, else English); '
                      'it must be one the game supports, which the console lists')
-@@ -3716,6 +3716,89 @@ def parse_args(argv):
+@@ -3719,6 +3719,89 @@ def parse_args(argv):
      return ap.parse_args(argv)
  
  
@@ -534,7 +534,7 @@ index ea3467f..a57f6be 100755
  def icon_file(value, option):
      """The image an icon option or setting names, None when it is empty. Checked when the build starts, not after the extraction: build_ipa.sh would only log a missing one"""
      if not value: return None
-@@ -4028,8 +4111,8 @@ def main(args=None):
+@@ -4055,8 +4138,8 @@ def main(args=None):
      # the app name and bundle ID both come from the base NSP: the game name in its control data, and a bundle ID from its title ID; a setting / the command line overrides them
      app_name = args.app_name or APP_NAME or nacp.name(base / 'control.nacp') or (g.get('name') if dump else '')   # a dump has no control data, a NUP may have no NACP
      if not app_name and not (mac and not mac_pack): raise BuildError(f'no game name in the base extraction ({base / "control.nacp"}; an older extraction did not save it: delete extract/ and run again, or give --app-name)')

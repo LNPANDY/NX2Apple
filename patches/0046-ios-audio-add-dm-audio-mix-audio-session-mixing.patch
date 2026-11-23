@@ -27,7 +27,7 @@ Issue: LNPANDY/NX2Apple#1269
  create mode 100644 dm/ios/tests/test_audio_session_policy.py
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index b0f12af..6a5a193 100644
+index b0f12afb..6a5a193b 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -27,6 +27,7 @@ DM_FULLSCREEN	choice	0=Window,1=Fullscreen	0	platform:mac	Game	Display mode		lev
@@ -39,7 +39,7 @@ index b0f12af..6a5a193 100644
  DM_TOUCH_SIZE	choice	small=Small,medium=Medium,large=Large	medium	platform:ios	Controls	Size	The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.
  DM_TOUCH_STICK	choice	corner=Corner,higher=Higher,inward=Inward	corner	platform:ios	Controls	Left stick	Where the left stick of the on-screen controls sits.
 diff --git a/dm/host/hle_audio.c b/dm/host/hle_audio.c
-index dc0a081..49679e3 100644
+index dc0a0814..49679e3e 100644
 --- a/dm/host/hle_audio.c
 +++ b/dm/host/hle_audio.c
 @@ -17,6 +17,8 @@ enum { FMT_PCM16 = 2, STATE_STARTED = 0, STATE_STOPPED = 1, RATE = 48000, STAGED
@@ -388,7 +388,7 @@ index dc0a081..49679e3 100644
      return b;
  }
 diff --git a/dm/host/tests/t_audio_stats.c b/dm/host/tests/t_audio_stats.c
-index 69ae08b..c030abe 100644
+index 69ae08b5..c030abe9 100644
 --- a/dm/host/tests/t_audio_stats.c
 +++ b/dm/host/tests/t_audio_stats.c
 @@ -177,12 +177,228 @@ static void check_staging_limit(unsigned channels) {
@@ -622,7 +622,7 @@ index 69ae08b..c030abe 100644
      uint32_t out[16] = {0}; uint8_t prm[8] = {0}, ev[64] = {0};
 diff --git a/dm/ios/Sources/audio_session_policy.h b/dm/ios/Sources/audio_session_policy.h
 new file mode 100644
-index 0000000..90bbb28
+index 00000000..90bbb287
 --- /dev/null
 +++ b/dm/ios/Sources/audio_session_policy.h
 @@ -0,0 +1,41 @@
@@ -668,7 +668,7 @@ index 0000000..90bbb28
 +#endif
 +#endif
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 88218bf..053bb31 100644
+index 88218bfc..053bb318 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -19,6 +19,7 @@
@@ -735,7 +735,7 @@ index 88218bf..053bb31 100644
  }
  // The channels the route takes now (hle_audio.c decides the output from it: six only when the session has six)
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index d669c43..f29e8b8 100644
+index d669c43a..f29e8b8c 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 @@ -106,6 +106,9 @@ void dm_haptics_apple_init(void) {}
@@ -755,7 +755,7 @@ index d669c43..f29e8b8 100644
 -int front_web_touch(void) { return 0; }
  void dm_host_shutdown(const char *why) { (void)why; }
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index d1d912c..abcedae 100644
+index d1d912cf..abcedae5 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 @@ -1,4 +1,5 @@
@@ -833,7 +833,7 @@ index d1d912c..abcedae 100644
      [root.view layoutIfNeeded];
 diff --git a/dm/ios/tests/test_audio_session_policy.py b/dm/ios/tests/test_audio_session_policy.py
 new file mode 100644
-index 0000000..270855c
+index 00000000..270855c9
 --- /dev/null
 +++ b/dm/ios/tests/test_audio_session_policy.py
 @@ -0,0 +1,108 @@
@@ -946,7 +946,7 @@ index 0000000..270855c
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index a87a622..afa723e 100644
+index a87a6221..afa723ef 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -108,7 +108,11 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -963,7 +963,7 @@ index a87a622..afa723e 100644
          self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2'})   # the Mac window's Display mode (front_mac.m reads 1 or 0); Switch 2 controllers (pad_switch2_apple.m, wired on the Mac only)
          s = mac['DM_FULLSCREEN']
 diff --git a/dm/tools/tests/test_player_env.py b/dm/tools/tests/test_player_env.py
-index a62565e..f0b35ca 100644
+index a62565e4..f0b35cac 100644
 --- a/dm/tools/tests/test_player_env.py
 +++ b/dm/tools/tests/test_player_env.py
 @@ -15,7 +15,7 @@ int main(void) {
@@ -976,7 +976,7 @@ index a62565e..f0b35ca 100644
     "DM_TOUCH_HAPTICS","DM_RUMBLE","DM_SAVE","DM_ROMFS","DM_NVN_ENC_THREAD"};
   for(unsigned i=0;i<sizeof drop/sizeof *drop;i++)assert(dm_player_diagnostic_key(drop[i]));
 diff --git a/docs/settings.md b/docs/settings.md
-index cfe2b49..aee53b0 100644
+index cfe2b497..aee53b07 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -3,7 +3,7 @@

@@ -30,7 +30,7 @@ Issue: LNPANDY/NX2Apple#895
  create mode 100644 dm/tools/tests/test_nacp.py
 
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 38fe911..70a8ea0 100755
+index 79bdc9de..15b5be7e 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -5,7 +5,8 @@
@@ -97,7 +97,7 @@ index 38fe911..70a8ea0 100755
      return ap.parse_args(argv)
  
 diff --git a/dm/tools/fuzz/fuzz_nacp.py b/dm/tools/fuzz/fuzz_nacp.py
-index d11803f..2093219 100644
+index d11803fa..20932194 100644
 --- a/dm/tools/fuzz/fuzz_nacp.py
 +++ b/dm/tools/fuzz/fuzz_nacp.py
 @@ -1,7 +1,7 @@
@@ -123,7 +123,7 @@ index d11803f..2093219 100644
  
  if __name__ == '__main__':
 diff --git a/dm/tools/nacp.py b/dm/tools/nacp.py
-index b900c8a..c80d71d 100644
+index b900c8a6..c80d71d6 100644
 --- a/dm/tools/nacp.py
 +++ b/dm/tools/nacp.py
 @@ -2,7 +2,7 @@
@@ -182,7 +182,7 @@ index b900c8a..c80d71d 100644
  def display_version(path):
 diff --git a/dm/tools/tests/test_nacp.py b/dm/tools/tests/test_nacp.py
 new file mode 100644
-index 0000000..e49f785
+index 00000000..e49f7854
 --- /dev/null
 +++ b/dm/tools/tests/test_nacp.py
 @@ -0,0 +1,69 @@
@@ -256,7 +256,7 @@ index 0000000..e49f785
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index e79f194..bc42ece 100644
+index 6cc8bafa..798646d9 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -135,7 +135,7 @@ class PackReuse(unittest.TestCase):
@@ -320,7 +320,7 @@ index e79f194..bc42ece 100644
  
      def test_library_given_as_its_image(self):
          lib = self.tmp / 'packed/b-0123456789ab'
-@@ -1241,6 +1252,7 @@ class Script(unittest.TestCase):
+@@ -1243,6 +1254,7 @@ class Script(unittest.TestCase):
          self.assertNotIn('--aoc', o); self.assertNotIn('--icon', o)
          self.assertNotIn('--pso', o)   # no shader pairs: no pipeline archive
          self.assertEqual(o['--settings'], str(tmp / 'app/launcher.json'))   # the launcher settings the Mac front end reads, without the iPhone's own switches
@@ -329,10 +329,10 @@ index e79f194..bc42ece 100644
          self.assertEqual((self.settings_env['SETTINGS_PLATFORM'], self.settings_env['GFXAPI'], self.settings_env['DM_LANG']), ('mac', 'nvn', 'en-US'))
          o, tmp = self.pack_cmd('vulkan', aoc=Path('/x/aoc'), sign='Developer ID Application: X (T)')
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index de5aa8a..433cb45 100755
+index 675f50b2..ccc98721 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -3480,7 +3480,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+@@ -3483,7 +3483,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
      for opt, v in (('--version', version), ('--category', g.get('app_category')), ('--marker', g.get('romfs_marker')), ('--aoc', aoc), ('--icon', icon),
                     ('--pso', pso), ('--pso-pairs', split_pairs if gfx == 'nvn' and not g.table('pso_pairs.tsv').is_file() and split_pairs.is_file() else None),
                     ('--env-file', Path(os.path.expanduser(env_file)).resolve() if env_file else None), ('--settings', settings), ('--runtime-python', runtime_python),

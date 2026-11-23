@@ -34,10 +34,10 @@ Issue: LNPANDY/NX2Apple#777
  5 files changed, 67 insertions(+), 10 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index b4b5814..f84fef7 100644
+index 4a32d516..cdd3df0f 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -4578,7 +4578,7 @@ static int tex_cpu_wait(const tex_t *t) {
+@@ -4667,7 +4667,7 @@ static int tex_cpu_wait(const tex_t *t) {
                  if (nvn_deswizzle(&t->d, l, y, src, bc_tmp, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
                  size_t dst_pitch = (size_t)w * bc_bpp;
                  for (uint32_t zz = 0; zz < z; zz++)
@@ -46,7 +46,7 @@ index b4b5814..f84fef7 100644
                                    (uint8_t *)stg.contents + off + (size_t)zz * dst_pitch * h, dst_pitch);
                  up_blit_add(stg, off, dst_pitch, dst_pitch * h, MTLSizeMake(w, h, z), mt, y, l);
                  off += dst_pitch * h * z;
-@@ -17913,7 +17913,7 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
+@@ -18499,7 +18499,7 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
          size_t urow = (size_t)c->r.width * (size_t)bc_bpp, uimg = urow * (size_t)c->r.height;
          id<MTLBuffer> ab; size_t ao = arena_alloc(uimg * (size_t)nz, &ab);
          for (int z = 0; z < nz; z++)
@@ -56,7 +56,7 @@ index b4b5814..f84fef7 100644
      } else if (shift) {
          size_t wb = (size_t)((c->r.width + bw - 1) / bw) * bpb; id<MTLBuffer> ab; size_t ao = arena_alloc(wb * rows * nz, &ab);
 diff --git a/dm/gfx/tests/t_bc_cpu.m b/dm/gfx/tests/t_bc_cpu.m
-index f0e6fc3..bdc08fc 100644
+index f0e6fc3b..bdc08fcd 100644
 --- a/dm/gfx/tests/t_bc_cpu.m
 +++ b/dm/gfx/tests/t_bc_cpu.m
 @@ -12,32 +12,32 @@ static void finish(void) {
@@ -117,7 +117,7 @@ index f0e6fc3..bdc08fc 100644
      copies_and_readback();
      printf("t_bc_cpu: %d checks, %d failed\n",checks,failed); return failed!=0;
 diff --git a/dm/gfx/tex/nvn_bcdec.c b/dm/gfx/tex/nvn_bcdec.c
-index 00ebd5e..1304573 100644
+index 00ebd5e5..13045734 100644
 --- a/dm/gfx/tex/nvn_bcdec.c
 +++ b/dm/gfx/tex/nvn_bcdec.c
 @@ -6,6 +6,8 @@
@@ -151,7 +151,7 @@ index 00ebd5e..1304573 100644
 +    return 0;
 +}
 diff --git a/dm/gfx/tex/nvn_bcdec.h b/dm/gfx/tex/nvn_bcdec.h
-index ac82a27..0e70aa6 100644
+index ac82a275..0e70aa6e 100644
 --- a/dm/gfx/tex/nvn_bcdec.h
 +++ b/dm/gfx/tex/nvn_bcdec.h
 @@ -12,6 +12,9 @@ int nvn_bc_unpacked(uint32_t nvn_fmt, uint32_t *mtl_pf, int *bpp);
@@ -165,7 +165,7 @@ index ac82a27..0e70aa6 100644
  // BC6H (HDR) textures decode into RGBA16Float by default (8 bytes per pixel). Switched on they decode into RGB9E5Float (4 bytes per pixel), which halves their memory: the exponent is shared and unsigned,
  // so negative values become 0 and the mantissa is 9 bits. Set before the first texture is made (DM_BC6H_RGB9E5=1); it changes what nvn_bc_unpacked answers for 0x4f / 0x50.
 diff --git a/dm/gfx/tex/tests/t_bcdec.c b/dm/gfx/tex/tests/t_bcdec.c
-index 5a40608..222630e 100644
+index 5a406084..222630e3 100644
 --- a/dm/gfx/tex/tests/t_bcdec.c
 +++ b/dm/gfx/tex/tests/t_bcdec.c
 @@ -5,6 +5,7 @@

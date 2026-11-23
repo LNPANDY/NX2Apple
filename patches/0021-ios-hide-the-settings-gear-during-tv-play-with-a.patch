@@ -18,7 +18,7 @@ Issue: LNPANDY/NX2Apple#809
  6 files changed, 53 insertions(+), 10 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 77dacdf..985140a 100644
+index 77dacdfc..985140a9 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,6 @@
@@ -72,7 +72,7 @@ index 77dacdf..985140a 100644
  @end
  
 diff --git a/dm/ios/Sources/DmLayout.h b/dm/ios/Sources/DmLayout.h
-index 906b5ca..4045566 100644
+index 906b5ca8..4045566e 100644
 --- a/dm/ios/Sources/DmLayout.h
 +++ b/dm/ios/Sources/DmLayout.h
 @@ -5,7 +5,7 @@
@@ -103,7 +103,7 @@ index 906b5ca..4045566 100644
  // Fill covers the full view only in the overlay layout (landscape). A portrait or tabletop split keeps the picture fitted in its
  // area above the controls, where cropping a small picture would cost more than the bars.
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index c6260b8..49a9c9a 100644
+index c6260b8a..49a9c9a0 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 @@ -104,6 +104,13 @@ void dm_motion_clear(int player) {
@@ -121,7 +121,7 @@ index c6260b8..49a9c9a 100644
  void front_ios_boot(void) {}
  bool dm_show_launcher(void *viewController, void (*done)(void)) { (void)viewController; (void)done; return false; }
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index e136ecd..81b0dd0 100644
+index e136ecda..81b0dd00 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 @@ -1312,6 +1312,36 @@ - (void)testPoseChangeReleasesHeldButtonAndGameTouch {
@@ -162,10 +162,10 @@ index e136ecd..81b0dd0 100644
      if (@available(iOS 17.0, *)) {
          [self setHarnessControllers:nil notification:nil];
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index 3d749e5..9c6699a 100644
+index cdcf5714..5919f37c 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -2782,7 +2782,7 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
+@@ -2783,7 +2783,7 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
  
  - **Symptom:** portrait gameplay overlaps the touch controls, touch coordinates land outside the game picture, or a TV's picture renders at 4K again after a layout pass.
  - **Cause:** the front end assumed a landscape screen with the controls over the whole view, so its picture and touch geometry did not follow a portrait screen (an iPad, an iPhone Duo's inner display) or a Duo's fold. On iPadOS the deprecated `UIRequiresFullScreen` kept the game out of resizable windows, and a native rotation A/B on the iPhone Duo iOS 27.1 simulator showed that it also blocked upside-down portrait.
@@ -175,7 +175,7 @@ index 3d749e5..9c6699a 100644
  - **Found on:** [Pokémon Brilliant Diamond](../../dm/games/0100000011D90000/README.md).
  
 diff --git a/docs/settings.md b/docs/settings.md
-index b24b562..2bedb93 100644
+index b24b562e..2bedb935 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -260,13 +260,13 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t

@@ -19,7 +19,7 @@ Issue: LNPANDY/NX2Apple#1456, LNPANDY/NX2Apple#1478
  create mode 100644 dm/tools/tests/test_build_seed_windows_dir_loop.py
 
 diff --git a/dm/tools/build_seed.py b/dm/tools/build_seed.py
-index 1b77aae..66776f9 100755
+index 1b77aae2..66776f92 100755
 --- a/dm/tools/build_seed.py
 +++ b/dm/tools/build_seed.py
 @@ -60,6 +60,27 @@ _EMPTY_TABLE_HEADERS = {
@@ -210,7 +210,7 @@ index 1b77aae..66776f9 100755
              _validate_rel_path(gid, 'profile_id')
 diff --git a/dm/tools/tests/test_build_seed_profile_version.py b/dm/tools/tests/test_build_seed_profile_version.py
 new file mode 100644
-index 0000000..15d1d1f
+index 00000000..15d1d1f4
 --- /dev/null
 +++ b/dm/tools/tests/test_build_seed_profile_version.py
 @@ -0,0 +1,277 @@
@@ -493,7 +493,7 @@ index 0000000..15d1d1f
 +    unittest.main()
 diff --git a/dm/tools/tests/test_build_seed_windows_dir_loop.py b/dm/tools/tests/test_build_seed_windows_dir_loop.py
 new file mode 100644
-index 0000000..1a5e311
+index 00000000..1a5e3117
 --- /dev/null
 +++ b/dm/tools/tests/test_build_seed_windows_dir_loop.py
 @@ -0,0 +1,284 @@
@@ -782,10 +782,10 @@ index 0000000..1a5e311
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 72cc87a..18261ff 100755
+index d7f829cf..430ac658 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -3940,12 +3940,14 @@ def report_fix_coverage(patched, mods, reg):
+@@ -3969,13 +3969,15 @@ def profile_derivation_reason(g, pkg_ver, have, alias=None, app=None):
  
  def report_profile_status(g, reg, pkg_ver, derived, provisional, artifact='IPA', patched=None):
      """Keep build-specific warnings visible for the IPA, the Xcode project and a Mac-only build"""
@@ -797,14 +797,15 @@ index 72cc87a..18261ff 100755
          known = {(m, b) for row in reg.builds().values() for m, b in row.items() if m != 'display'}
 -        other = [m for m, b in g.builds()[pkg_ver].items() if m != 'display' and (m, b) not in known]
 -        registered_builds = ", ".join(f'{v} {b["display"]}' for v, b in reg.builds().items())
--        if g.title_id == reg.title_id and g.builds() == reg.builds():
 +        other = [m for m, b in build_row.items() if m != 'display' and (m, b) not in known]
 +        registered_builds = ", ".join(f'{v} {b.get("display", "")}' for v, b in reg.builds().items())
-+        if g.title_id == reg.title_id and builds == reg.builds():
+         # Compare the packed version's module build IDs, not the whole build table: a derived profile keeps only pkg_ver's row, so multi-build profiles never matched reg.builds()
+-        if g.title_id == reg.title_id and build_modules_match(g.builds()[pkg_ver], reg.builds().get(pkg_ver)):
++        if g.title_id == reg.title_id and build_modules_match(build_row, reg.builds().get(pkg_ver)):
              say(f'this {artifact} uses the registered {pkg_ver} ({disp}) builds and every fix for them, with derived shader tables ({derived})')
          elif g.title_id != reg.title_id and not other and pkg_ver in reg.builds():   # a registered build under another title ID (same_build): every fix applies
              say(f'this {artifact} is game profile {reg.id}\'s {pkg_ver} ({disp}) under title ID {g.title_id:016X}: its settings and every fix for its builds, with shaders split from this title\'s own files')
-@@ -4085,6 +4087,19 @@ def _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_na
+@@ -4115,6 +4117,19 @@ def _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_na
              control_path=ctrl_p,
              icon_path=icon_p,
          )
@@ -824,7 +825,7 @@ index 72cc87a..18261ff 100755
      except (OSError, ValueError, TypeError) as e:
          say(f'[RED] build seed cache skipped: {e}')
  
-@@ -4211,16 +4226,43 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+@@ -4241,16 +4256,43 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
      own = own_profile_folders(args, nsp_dir, app)
      repo_g = gamemod.by_title(app, own)
      staged_prof = staged.get('profile_dir')

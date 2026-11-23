@@ -34,7 +34,7 @@ Issue: LNPANDY/NX2Apple#1314
  21 files changed, 1171 insertions(+), 129 deletions(-)
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index a3d13f5..0462d44 100644
+index a3d13f59..0462d445 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
 @@ -295,7 +295,12 @@ static void dev_init_once(void) {
@@ -164,10 +164,10 @@ index a3d13f5..0462d44 100644
      g_lib = nil; g_util = nil; g_read_bc_pso = nil;
      g_samp0 = nil;
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 136683a..6becc99 100644
+index 5f4e4e3a..3424aed0 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
-@@ -253,5 +253,10 @@ void dm_gfx_shot_at(long k, const char *path);   // graphics side: screenshot of
+@@ -298,5 +298,10 @@ void dm_gfx_shot_at(long k, const char *path);   // graphics side: screenshot of
  void dm_shot_written(const char *path, int ok);   // The graphics side finished writing a screenshot to disk (diag.c: DM_TICK_HOLD=E:SHOT unfreezes on this)
  void dm_host_shutdown_then(const char *why, void (*then)(void *), void *arg);   // The same, then(arg) in place of the last _exit(0) (oe::ExecuteProgram: execve of the next program)
  void dm_host_shutdown(const char *why);   // Graceful exit (hle_lifecycle.c): stop background threads and audio, stop the pipeline prewarm, drain graphics, write the pipeline archive, then _exit(0); used by SIGTERM and oe::ExecuteProgram
@@ -180,7 +180,7 @@ index 136683a..6becc99 100644
 +int  dm_teardown_is_guest_thread(void);
 +void dm_teardown_park_self(void);
 diff --git a/dm/host/hle_audio.c b/dm/host/hle_audio.c
-index 49679e3..e7a0699 100644
+index 49679e3e..e7a06993 100644
 --- a/dm/host/hle_audio.c
 +++ b/dm/host/hle_audio.c
 @@ -66,6 +66,9 @@ typedef struct {
@@ -819,7 +819,7 @@ index 49679e3..e7a0699 100644
 +    for (int i = 0; i < AOMAX; i++) if (stopped_os[i]) ostream_release(stopped_os[i]);
  }
 diff --git a/dm/host/hle_audren.c b/dm/host/hle_audren.c
-index e808e41..35133bd 100644
+index e808e41b..35133bda 100644
 --- a/dm/host/hle_audren.c
 +++ b/dm/host/hle_audren.c
 @@ -30,6 +30,7 @@ void dm_pcmout_start(void *k);
@@ -997,7 +997,7 @@ index e808e41..35133bd 100644
      g_ar_in_process_v = -1;
  }
 diff --git a/dm/host/hle_bigstack.c b/dm/host/hle_bigstack.c
-index 0aaaf01..7c7ec77 100644
+index 0aaaf016..7c7ec77c 100644
 --- a/dm/host/hle_bigstack.c
 +++ b/dm/host/hle_bigstack.c
 @@ -24,7 +24,57 @@ int dm_guest_as_contains(uintptr_t a);   // hle_svc.c
@@ -1060,7 +1060,7 @@ index 0aaaf01..7c7ec77 100644
  
  // sp inside the guest address block -> the top of this thread's host stack (16-byte aligned); otherwise 0 (no switch)
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index 9300301..902d2b9 100644
+index 19a03767..ac936bdc 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
 @@ -7,6 +7,7 @@
@@ -1127,7 +1127,7 @@ index 9300301..902d2b9 100644
  __attribute__((weak)) void dm_audren_stop_all(void) {}
  __attribute__((weak)) void dm_audren_teardown_post(void) {}
  __attribute__((weak)) void dm_movie_stop_all(void) {}
-@@ -81,8 +113,8 @@ void dm_host_teardown_for_shell(void) {
+@@ -82,8 +114,8 @@ void dm_host_teardown_for_shell(void) {
      dm_cheats_exit();
      dm_vsync_stop_all();
      dm_sf_stop_all();
@@ -1137,7 +1137,7 @@ index 9300301..902d2b9 100644
      dm_movie_stop_all();
      dm_codec_video_stop_all();
      dm_save_sync_stop();
-@@ -91,6 +123,8 @@ void dm_host_teardown_for_shell(void) {
+@@ -92,6 +124,8 @@ void dm_host_teardown_for_shell(void) {
      dm_gfx_quit_begin();
      dm_gfx_suspend(1);
      dm_threads_park_all();
@@ -1147,10 +1147,10 @@ index 9300301..902d2b9 100644
      dm_switch2_teardown();
      dm_audren_teardown_post();
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index af9a852..6949ea7 100644
+index 82cf23b7..a2817ee2 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
-@@ -978,12 +978,22 @@ static void *regions_thread(void *arg) {
+@@ -982,12 +982,22 @@ static void *regions_thread(void *arg) {
  }
  
  int svc_thread(int num, uint64_t *regs);   // hle_thread.c: thread and synchronization kind
@@ -1173,7 +1173,7 @@ index af9a852..6949ea7 100644
      case 0x01: {  // SetHeapSize(out_addr*, size)  → x1 = heap base
          size_t size = regs[1];
          // Larger than the heap region: ResultOutOfMemory (0xD001), as Horizon's KPageTable::SetHeapSize returns. nn::os::SetMemoryHeapSize turns only that, 103 and LimitReached into
-@@ -1262,6 +1272,11 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+@@ -1325,6 +1335,11 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
          LOG("Break#%d reason=%#llx Result=%#x svc at %s+%#llx", ++nb, regs[0], res, mm ? mm->name : "?", orig_addr);
          dm_backtrace(regs[29]);
          if (regs[0] & 0x80000000ull) return 0;   // notification only, can continue
@@ -1184,9 +1184,9 @@ index af9a852..6949ea7 100644
 +        }
          _exit(42);
      }
-     case 0x1E: guest_clock_read_wait(); regs[0] = 0; regs[1] = guest_ticks(); return 0;   // GetSystemTick
+     // GetSystemTick: Horizon returns the 64-bit tick directly in x0 (libnx and the SDK's svc::GetSystemTick read x0). Returning 0 in x0 seeded exlaunch's
 diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
-index 79664e2..4e48c32 100644
+index 8811e966..cf019879 100644
 --- a/dm/host/hle_thread.c
 +++ b/dm/host/hle_thread.c
 @@ -336,6 +336,16 @@ void dm_teardown_check_current_thread(void) {
@@ -1207,7 +1207,7 @@ index 79664e2..4e48c32 100644
      thr_t *b = NULL;
      for (thr_t *t = g_wait; t; t = t->next) {
 diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
-index e7b8eba..f2933a9 100644
+index e7b8eba1..f2933a9c 100644
 --- a/dm/host/home_quit.h
 +++ b/dm/host/home_quit.h
 @@ -219,6 +219,11 @@ static inline void hq_text_line(const char *text, int i, const char *def, char *
@@ -1223,10 +1223,10 @@ index e7b8eba..f2933a9 100644
  // "system" (the system keeps Home whatever the app asks), "app" (the app decides), "off" (the system does nothing with Home in apps),
  // "unavailable" (could not be read)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 848e095..67a9b28 100644
+index 083e29e5..84809751 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -201,7 +201,7 @@ save-sync: $(B)/t_save_sync $(B)/t_save_sync_metadata
+@@ -213,7 +213,7 @@ save-sync: $(B)/t_save_sync $(B)/t_save_sync_metadata
  	TMPDIR="$(abspath $(B))" $(B)/t_save_sync_metadata $(QUIET)
  AUDIO_INPUT_STUB = ../audio_input.c audio_input_platform_stub.c
  AUDIO_INPUT_DEPS = $(AUDIO_INPUT_STUB) ../audio_input.h
@@ -1236,7 +1236,7 @@ index 848e095..67a9b28 100644
  $(B)/t_mii: t_mii.c ../hle_mii.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. $(GINC) -o $@ t_mii.c
 diff --git a/dm/host/tests/t_audio.c b/dm/host/tests/t_audio.c
-index f5190db..3549717 100644
+index f5190dba..3549717b 100644
 --- a/dm/host/tests/t_audio.c
 +++ b/dm/host/tests/t_audio.c
 @@ -1,21 +1,108 @@
@@ -1577,7 +1577,7 @@ index f5190db..3549717 100644
 -
 -void dm_audio_device_changed(void) {}   // renderer notification delivery is checked by t_audren_work
 diff --git a/dm/host/tests/t_audio_spsc.c b/dm/host/tests/t_audio_spsc.c
-index e8c9f42..d3d68f5 100644
+index e8c9f422..d3d68f56 100644
 --- a/dm/host/tests/t_audio_spsc.c
 +++ b/dm/host/tests/t_audio_spsc.c
 @@ -7,10 +7,27 @@ __thread _Atomic int dm_host_work;   // defined by the graphics host in a full b
@@ -1706,7 +1706,7 @@ index e8c9f42..d3d68f5 100644
      test_ctx t = {0};
      t.bufs = calloc(NBUF, sizeof *t.bufs); t.data = calloc(NBUF, sizeof *t.data); t.sizes = calloc(NBUF, sizeof *t.sizes); t.scratch = malloc(512);
 diff --git a/dm/host/tests/t_audren_layout.c b/dm/host/tests/t_audren_layout.c
-index 73354d4..686532c 100644
+index 73354d4b..686532c9 100644
 --- a/dm/host/tests/t_audren_layout.c
 +++ b/dm/host/tests/t_audren_layout.c
 @@ -109,6 +109,7 @@ void dm_pcmout_wait(void *k, int ms) {
@@ -1718,7 +1718,7 @@ index 73354d4..686532c 100644
  uint32_t hle_dup_readable_handle(uint32_t h) { return h; }
  
 diff --git a/dm/host/tests/t_audren_work.c b/dm/host/tests/t_audren_work.c
-index d015725..df43f2c 100644
+index d0157252..df43f2cb 100644
 --- a/dm/host/tests/t_audren_work.c
 +++ b/dm/host/tests/t_audren_work.c
 @@ -125,6 +125,7 @@ void dm_pcmout_start(void *k) { (void)k; }
@@ -1730,7 +1730,7 @@ index d015725..df43f2c 100644
      if (ev == notify_event) { assert(ac == 0); notify_binds++; notify_binding = 0x7000 + (unsigned)notify_binds; return; }
      if (ev == switch_event) { assert(ac == 0); switch_binding++; return; }
 diff --git a/dm/host/tests/t_bigstack.c b/dm/host/tests/t_bigstack.c
-index cc6afc3..b06c734 100644
+index cc6afc31..b06c734b 100644
 --- a/dm/host/tests/t_bigstack.c
 +++ b/dm/host/tests/t_bigstack.c
 @@ -1,6 +1,7 @@
@@ -1791,7 +1791,7 @@ index cc6afc3..b06c734 100644
      return fails != 0;
  }
 diff --git a/dm/host/tests/t_home_quit.c b/dm/host/tests/t_home_quit.c
-index b904d9b..6431357 100644
+index b904d9bb..64313578 100644
 --- a/dm/host/tests/t_home_quit.c
 +++ b/dm/host/tests/t_home_quit.c
 @@ -227,6 +227,15 @@ int main(void) {
@@ -1811,7 +1811,7 @@ index b904d9b..6431357 100644
      return fails != 0;
  }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 1c6e931..143828e 100644
+index 1c6e9319..143828ef 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -169,6 +169,8 @@ @implementation DmGamepad {
@@ -1994,7 +1994,7 @@ index 1c6e931..143828e 100644
          [self wakeMenu];
      }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 053bb31..82633e7 100644
+index 053bb318..82633e78 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -346,6 +346,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
@@ -2096,7 +2096,7 @@ index 053bb31..82633e7 100644
      if (atomic_exchange(&g_quitting, 1)) return;
      dm_shell_return_fn shell_return = (dm_shell_return_fn)dlsym(RTLD_DEFAULT, "dm_shell_return_to_library");
 diff --git a/dm/ios/framework/ShellGlue.h b/dm/ios/framework/ShellGlue.h
-index e5b52e2..d6bfd47 100644
+index e5b52e21..d6bfd476 100644
 --- a/dm/ios/framework/ShellGlue.h
 +++ b/dm/ios/framework/ShellGlue.h
 @@ -5,6 +5,7 @@
@@ -2108,7 +2108,7 @@ index e5b52e2..d6bfd47 100644
  typedef const char *(*dm_glue_start_fn)(const char *const *argv, int argc, const void *game_image);
  typedef void (*dm_glue_present_fn)(void *window);
 diff --git a/dm/ios/framework/ShellGlue.m b/dm/ios/framework/ShellGlue.m
-index 19874f7..fe871b4 100644
+index 19874f77..fe871b4a 100644
 --- a/dm/ios/framework/ShellGlue.m
 +++ b/dm/ios/framework/ShellGlue.m
 @@ -56,8 +56,12 @@ void dm_glue_focus_event(int ev) {
@@ -2125,7 +2125,7 @@ index 19874f7..fe871b4 100644
  }
  void front_ios_boot(void) {   // front_ios.m, once the game view exists
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index f29e8b8..e4b4cbb 100644
+index f29e8b8c..e4b4cbbd 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 @@ -94,7 +94,6 @@ void dm_motion_clear(int player) {
