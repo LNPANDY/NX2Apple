@@ -1,6 +1,6 @@
 # 参与贡献
 
-提 issue 要附什么、提 pull request 的规则和补丁队列见 [CONTRIBUTING.md](CONTRIBUTING.md)。在终端里手动构建（工具、`prod.keys`、IPA）见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。游戏本身出问题（崩溃、卡死、变慢、画面或声音不对、手柄操作异常）请提到 [seedds/nxnative](https://github.com/seedds/nxnative/issues)，不要提在这里。下面是帮忙补充游戏。
+提 issue 要附什么、提 pull request 的规则和补丁队列见 [CONTRIBUTING.md](CONTRIBUTING.md)。在终端里手动构建（工具、`prod.keys`、IPA）见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。`nxnative` 构建工具自身报错（`nx_extract` 解包、代码重编译或 `Pipeline`、`dmsh` 着色器工具、上游构建脚本或未适配游戏）本仓无法修复，以及游戏运行后出问题（崩溃、卡死、变慢、画面或声音不对、手柄操作异常），请直接提到 [seedds/nxnative](https://github.com/seedds/nxnative/issues)，不要提在这里。下面是帮忙补充游戏。
 
 ## 帮忙补充游戏
 

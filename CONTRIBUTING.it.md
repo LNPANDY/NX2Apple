@@ -6,15 +6,15 @@ Segnalazioni (issue) e pull request sono sempre benvenute. NX2Apple costituisce 
 
 ## Segnalare un problema
 
-Tutto ciò che riguarda il launcher appartiene a questo repository: l'app, una compilazione che fallisce, un'installazione su un dispositivo. I problemi di compilazione e i problemi del launcher dispongono ciascuno di un apposito modulo di segnalazione (`.github/ISSUE_TEMPLATE/`). Il modulo richiede le informazioni necessarie per analizzare il caso, come versioni, dispositivo, output di Copia diagnostica e log di compilazione. Compilalo direttamente dalla pagina Issues. Una segnalazione priva di questi dati risulta solitamente impossibile da verificare.
+Tutto ciò che riguarda il launcher appartiene a questo repository: l'app, i controlli di chiavi e dipendenze, la decompressione NSZ, la coda, la firma, il pacchetto app o IPA e l'installazione su un dispositivo. I problemi di compilazione lato launcher e i problemi del launcher dispongono ciascuno di un apposito modulo di segnalazione (`.github/ISSUE_TEMPLATE/`). Il modulo richiede le informazioni necessarie per analizzare il caso, come versioni, dispositivo, output di Copia diagnostica e log di compilazione. Compilalo direttamente dalla pagina Issues. Una segnalazione priva di questi dati risulta solitamente impossibile da verificare.
 
-Un gioco che va in crash, si blocca, rallenta, appare o suona in modo errato o i cui controlli non rispondono correttamente una volta avviato va segnalato su [seedds/nxnative](https://github.com/seedds/nxnative/issues), non qui.
+Gli errori interni agli strumenti di compilazione di nxnative (`nx_extract`, il rewriter e `Pipeline`, gli strumenti shader `dmsh`, `build_app_from_nsp.py`, `build_ipa_from_nsp.py` o i giochi non supportati) non possono essere corretti qui e vanno segnalati su [seedds/nxnative](https://github.com/seedds/nxnative/issues). Anche un gioco che va in crash, si blocca, rallenta, appare o suona in modo errato o i cui controlli non rispondono correttamente una volta avviato va segnalato su [seedds/nxnative](https://github.com/seedds/nxnative/issues), non qui.
 
 ## Dove aprire una segnalazione
 
-- **Qui:** per il launcher (l'app per Mac, l'app per Windows, la shell iOS), le sue impostazioni, la libreria e gli aggiornamenti, le traduzioni, una compilazione o un'installazione non riuscita e la documentazione e la CI di questo repository.
+- **Qui:** per il launcher (l'app per Mac, l'app per Windows, la shell iOS), le sue impostazioni, la libreria e gli aggiornamenti, le traduzioni, un errore di preparazione, firma, pacchettizzazione o installazione su dispositivo lato launcher e la documentazione e la CI di questo repository.
 - **[Discussions](https://github.com/LNPANDY/NX2Apple/discussions):** per domande (Q&A) e proposte o idee (Ideas). I bug restano nelle Issues.
-- **[seedds/nxnative](https://github.com/seedds/nxnative/issues):** per un gioco che va in crash, si blocca, rallenta, appare o suona in modo errato o i cui controlli non rispondono correttamente una volta avviato. Inoltre per il funzionamento interno del motore e il porting di un nuovo gioco. Le correzioni al motore e i profili dei giochi vanno inviati lì tramite pull request, vedi "Aiutare con i giochi".
+- **[seedds/nxnative](https://github.com/seedds/nxnative/issues):** per errori interni agli strumenti di compilazione di nxnative (`nx_extract`, rewriter o `Pipeline`, strumenti shader `dmsh`, script upstream o giochi non supportati), oppure per un gioco che va in crash, si blocca, rallenta, appare o suona in modo errato o i cui controlli non rispondono correttamente una volta avviato. Inoltre per il funzionamento interno del motore e il porting di un nuovo gioco. Le correzioni al motore e i profili dei giochi vanno inviati lì tramite pull request, vedi "Aiutare con i giochi".
 
 ## Cosa serve in una segnalazione
 

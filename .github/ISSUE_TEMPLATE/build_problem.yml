@@ -1,31 +1,26 @@
 name: Build problem
-description: Building a game, or installing it to a device, fails
+description: A launcher-side build, signing or device-install problem (not nxnative extract, rewrite or shader tools)
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. A build fails at one step with one message. The fields below find it.
+        Thanks for the report. This form is for **launcher-side** problems: dependency and key checks, NSZ decompression, file or queue handling, Xcode signing, app or IPA packaging, and installing to a device.
+        **Do not report failures inside the nxnative build tools here** (`nx_extract`, code rewrite or `Pipeline`, `dmsh` shader capture / split / translation, or unsupported games). Those tools live in https://github.com/seedds/nxnative and cannot be fixed in this repository. Report them at https://github.com/seedds/nxnative/issues instead, as well as any game that builds and then crashes, freezes or looks wrong.
         **Never attach game files, keys, title keys or anything extracted from a game.** Logs and screenshots are fine.
-        If the game builds but then crashes, freezes or looks wrong, report it at https://github.com/seedds/nxnative/issues instead.
   - type: dropdown
     id: step
     attributes:
       label: Which step failed
-      description: The stage the Builds page shows in red, or the last stage line in the Build log.
+      description: The launcher, signing or install stage where it stopped. Failures inside nxnative extract, rewrite, Pipeline or shader tools go to https://github.com/seedds/nxnative/issues instead.
       options:
-        - The key check, before the build
-        - Decompress NSZ, or build the extract tool
-        - Extract the game (NSP / XCI, update, DLC)
-        - Rewrite (the game's code)
-        - Shader capture or shader split
-        - Mac shaders or iOS shaders
-        - Mac host (building the Mac player)
-        - Pipeline prebuild or Pipeline archive
-        - Prepare Xcode, app build or IPA pack
-        - Mac app (packing the app)
-        - Install to an iPhone or iPad (Xcode, devicectl)
-        - Updating the build tools
-        - Something else
+        - The key or dependency check, before the build
+        - Decompress NSZ
+        - Starting or queuing the build in the launcher
+        - Prepare Xcode, signing or IPA pack
+        - Mac app (packing or signing the app)
+        - Install to an iPhone or iPad (Xcode, devicectl, local signing)
+        - Updating the engine or the build tools
+        - Something else (launcher-side)
         - Not sure
     validations:
       required: true
@@ -96,6 +91,13 @@ body:
       placeholder: "fork patches: runtime-profile, ios-game-data-folder, ..."
     validations:
       required: false
+  - type: checkboxes
+    id: launcher-scope
+    attributes:
+      label: Launcher scope
+      options:
+        - label: This is a launcher, environment, signing or device-install problem, not a failure inside an nxnative build tool (extract, rewrite, Pipeline or shader tools go to seedds/nxnative).
+          required: true
   - type: checkboxes
     id: no-game-files
     attributes:
