@@ -92,12 +92,10 @@ public struct GameSettingsStore {
         for setting in profile.settings { defaults.removeObject(forKey: setting.defaultsKey) }
     }
 
-    /// Any saved choice or per-game `env.txt` override differing from fallback can be reset.
+    /// Any saved choice or active per-game `env.txt` override can be reset.
     public var hasModifiedSettings: Bool {
         profile.settings.contains { setting in
-            if saved(setting) != nil { return true }
-            if let override = envFileValue(setting) { return override != fallback(setting) }
-            return false
+            saved(setting) != nil || envFileValue(setting) != nil
         }
     }
 }
@@ -127,6 +125,7 @@ public enum SettingsPresenter {
     /// A row with `needs` (`<VAR>=<value>`) is drawn only while the row that sets that variable has that value. A row
     /// naming a variable the list does not have stays drawn. Sections come in the list's order.
     public static func sections(profile: LauncherProfile, values: [String: String], fromShell: Set<String> = [],
+                                fromEnvFile: Set<String> = [],
                                 capabilities: DeviceCapabilities = .current) -> [SettingSection] {
         func visible(_ s: LauncherSetting) -> Bool {
             if capabilities.hides(s.env) { return false }
@@ -137,20 +136,22 @@ public enum SettingsPresenter {
         var titles: [String] = []
         for s in profile.settings where !titles.contains(s.sectionTitle) { titles.append(s.sectionTitle) }
         return titles.compactMap { title in
-            let rows = profile.settings.filter { $0.sectionTitle == title && visible($0) }.map { row($0, value: values[$0.env] ?? $0.def, fromShell: fromShell.contains($0.env)) }
+            let rows = profile.settings.filter { $0.sectionTitle == title && visible($0) }.map {
+                row($0, value: values[$0.env] ?? $0.def, fromShell: fromShell.contains($0.env), fromEnvFile: fromEnvFile.contains($0.env))
+            }
             return rows.isEmpty ? nil : SettingSection(id: title, title: title, rows: rows)
         }
     }
 
-    static func row(_ s: LauncherSetting, value: String, fromShell: Bool = false) -> SettingRow {
+    static func row(_ s: LauncherSetting, value: String, fromShell: Bool = false, fromEnvFile: Bool = false) -> SettingRow {
         let kind: SettingKind
         switch s.kind {
         case "toggle": kind = .toggle(on: s.onValue, off: s.offValue)
         case "range": kind = .range(min: s.min ?? 0, max: s.max ?? 1, step: s.step ?? 0.1, unit: s.env.hasSuffix("SCALE") ? "×" : "")
         default: kind = .choice((s.options ?? []).map { SettingOption($0[0], $0[1]) })
         }
-        var row = SettingRow(id: s.env, label: s.label, note: s.note, kind: kind, value: value, fromShell: fromShell)
-        row.changed = !fromShell && !s.isDefault(value)   // a value the shell's settings give is marked as theirs instead
+        var row = SettingRow(id: s.env, label: s.label, note: s.note, kind: kind, value: value, fromShell: fromShell, fromEnvFile: fromEnvFile)
+        row.changed = !fromShell && !fromEnvFile && !s.isDefault(value)   // shell defaults and env.txt overrides show their own source mark instead
         return row
     }
 }

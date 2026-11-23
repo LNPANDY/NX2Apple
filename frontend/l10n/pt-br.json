@@ -1480,6 +1480,7 @@
   "ios.ui.exit": "Sair",
   "ios.ui.fixGameFilesChip": "Corrigir arquivos do jogo",
   "ios.ui.forBugReport": "Para um relatório de erro",
+  "ios.ui.fromGameEnvFile": "Definida no env.txt deste jogo",
   "ios.ui.fromSettings": "Dos Ajustes",
   "ios.ui.gameData": "Dados do jogo",
   "ios.ui.gameDataNote": "Os jogos procuram aqui os dados. Guarde um romfs.img por jogo em qualquer pasta dentro daqui. Cada jogo é encontrado pela própria imagem, então os nomes das pastas não importam. Cada jogo também pode ter uma pasta própria.",

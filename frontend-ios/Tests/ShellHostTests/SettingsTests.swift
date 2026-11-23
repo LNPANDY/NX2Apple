@@ -105,8 +105,11 @@ import ShellUI
         values["DM_SHOW_FPS"] = "1"
         values["DM_RENDER_SCALE"] = "1.00"   // a slider's 1.00 is the default 1.0
         values["DM_OPMODE"] = "0"
-        let rows = SettingsPresenter.sections(profile: p, values: values, fromShell: ["DM_OPMODE"]).flatMap(\.rows)
+        values["DM_UPSCALER"] = "fsr"
+        let rows = SettingsPresenter.sections(profile: p, values: values, fromShell: ["DM_OPMODE"], fromEnvFile: ["DM_UPSCALER"]).flatMap(\.rows)
         #expect(rows.filter(\.changed).map(\.id) == ["DM_SHOW_FPS"])
+        #expect(rows.filter(\.fromShell).map(\.id) == ["DM_OPMODE"])
+        #expect(rows.filter(\.fromEnvFile).map(\.id) == ["DM_UPSCALER"])
     }
 
     /// #544: the HDR texture downsample only changes the CPU decode of BC textures, so a device that samples them itself does not see the row.

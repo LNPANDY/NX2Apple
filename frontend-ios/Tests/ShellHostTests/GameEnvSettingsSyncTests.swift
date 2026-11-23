@@ -40,10 +40,13 @@ import ShellUI
         try JSONSerialization.data(withJSONObject: json).write(to: url)
     }
 
-    private func rowValue(_ model: ShellHostModel, env: String) throws -> String {
+    private func row(_ model: ShellHostModel, env: String) throws -> SettingRow {
         let detail = try #require(model.details.first { $0.id == Fixtures.orbit })
-        let row = try #require(detail.sections.flatMap(\.rows).first { $0.id == env })
-        return row.value
+        return try #require(detail.sections.flatMap(\.rows).first { $0.id == env })
+    }
+
+    private func rowValue(_ model: ShellHostModel, env: String) throws -> String {
+        try row(model, env: env).value
     }
 
     @Test func perGameEnvFileOverridesUntouchedBuiltInDefaultInUIInGameMenuAndLaunchPlan() async throws {
@@ -264,5 +267,65 @@ import ShellUI
         model.change(Fixtures.orbit, setting: "DM_OPMODE", value: "0")
         #expect(!FileManager.default.fileExists(atPath: envURL.path))
         #expect(try rowValue(model, env: "DM_OPMODE") == "0")
+    }
+
+    @Test func perGameEnvFileMarksRowFromEnvFileUntilChangedOrReset() throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        try installModeAndFPSSettings(in: box)
+        let envURL = box.appData.appendingPathComponent(Fixtures.orbit + "/env.txt")
+        try box.write("DM_OPMODE=0\nDM_FPS_TARGET=0\n", to: envURL)
+
+        let model = ShellHostModel(config: box.config())
+        let modeRow = try row(model, env: "DM_OPMODE")
+        #expect(modeRow.value == "0")
+        #expect(modeRow.fromEnvFile)
+        #expect(!modeRow.fromShell)
+        #expect(!modeRow.changed)
+
+        let fpsRow = try row(model, env: "DM_FPS_TARGET")
+        #expect(fpsRow.value == "0")
+        #expect(fpsRow.fromEnvFile)
+        #expect(!fpsRow.fromShell)
+        #expect(!fpsRow.changed)
+
+        // Manual UI change clears the env.txt origin mark immediately (A5).
+        model.change(Fixtures.orbit, setting: "DM_FPS_TARGET", value: "30")
+        let changedFPS = try row(model, env: "DM_FPS_TARGET")
+        #expect(changedFPS.value == "30")
+        #expect(!changedFPS.fromEnvFile)
+        #expect(changedFPS.changed)
+        #expect(try row(model, env: "DM_OPMODE").fromEnvFile)
+
+        // Reset to defaults comments out both env.txt overrides and clears all origin marks (A6).
+        model.resetDefaults(Fixtures.orbit)
+        let resetMode = try row(model, env: "DM_OPMODE")
+        let resetFPS = try row(model, env: "DM_FPS_TARGET")
+        #expect(!resetMode.fromEnvFile && !resetMode.changed && resetMode.value == "1")
+        #expect(!resetFPS.fromEnvFile && !resetFPS.changed && resetFPS.value == "0")
+        let detail = try #require(model.details.first { $0.id == Fixtures.orbit })
+        #expect(!detail.hasModifiedSettings)
+    }
+
+    @Test func perGameEnvFileEqualToDefaultStillEnablesResetAndClearsOnReset() throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        try installModeAndFPSSettings(in: box)
+        let envURL = box.appData.appendingPathComponent(Fixtures.orbit + "/env.txt")
+        // DM_FPS_TARGET built-in default is "0".
+        try box.write("DM_FPS_TARGET=0\n", to: envURL)
+
+        let model = ShellHostModel(config: box.config())
+        let fpsRow = try row(model, env: "DM_FPS_TARGET")
+        #expect(fpsRow.fromEnvFile)
+        let detail = try #require(model.details.first { $0.id == Fixtures.orbit })
+        #expect(detail.hasModifiedSettings)
+
+        model.resetDefaults(Fixtures.orbit)
+        #expect(try !row(model, env: "DM_FPS_TARGET").fromEnvFile)
+        let afterReset = try #require(model.details.first { $0.id == Fixtures.orbit })
+        #expect(!afterReset.hasModifiedSettings)
+        let updated = try String(contentsOf: envURL, encoding: .utf8)
+        #expect(GameEnvFileSync.parseOverrides(updated).isEmpty)
     }
 }

@@ -1578,4 +1578,55 @@ import XCTest
         XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
         XCTAssertFalse(homeTitle.exists)
     }
+
+    func testPerGameEnvOverrideShowsAndClearsOnManualChangeAndReset() {
+        extraArguments = ["--host", "--mock-env-override", "--select", "0100000000010000", "-AppleLanguages", "(en)"]
+        launch("settings")
+        let sheet = settingsScroll
+        let modeOverride = sheet.staticTexts["setting.DM_OPMODE.envOverride"]
+        let fpsOverride = sheet.staticTexts["setting.DM_SHOW_FPS.envOverride"]
+        let scaleOverride = sheet.staticTexts["setting.DM_RENDER_SCALE.envOverride"]
+        XCTAssertTrue(modeOverride.waitForExistence(timeout: 5))
+        XCTAssertEqual(modeOverride.label, "Set in this game’s env.txt")
+        XCTAssertTrue(fpsOverride.exists)
+        XCTAssertFalse(sheet.staticTexts["setting.DM_UPSCALER.envOverride"].exists)
+        XCTAssertTrue(scaleOverride.exists)
+        capture("env-override-en")
+
+        // Changing DM_OPMODE in the UI clears only its env.txt override mark (A5).
+        let mode = sheet.segmentedControls["setting.DM_OPMODE"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 5))
+        mode.buttons["Docked"].tap()
+        XCTAssertTrue(modeOverride.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(fpsOverride.exists)
+        XCTAssertTrue(scaleOverride.exists)
+
+        // Reset to tested defaults clears all remaining env.txt override marks (A6).
+        let reset = app.buttons["set.reset"]
+        for _ in 0..<8 where !reset.isHittable {
+            sheet.swipeUp()
+        }
+        XCTAssertTrue(reset.isEnabled)
+        reset.tap()
+        expectation(for: NSPredicate(format: "isEnabled == false"), evaluatedWith: reset)
+        waitForExpectations(timeout: 5)
+        for _ in 0..<8 where !mode.isHittable {
+            sheet.swipeDown()
+        }
+        XCTAssertFalse(modeOverride.exists)
+        XCTAssertFalse(fpsOverride.exists)
+        XCTAssertFalse(scaleOverride.exists)
+    }
+
+    func testPerGameEnvOverrideLocalizedChineseScreenshot() {
+        extraArguments = ["--host", "--mock-env-override", "--select", "0100000000010000", "-AppleLanguages", "(zh-Hans)"]
+        launch("settings")
+        let sheet = settingsScroll
+        let modeOverride = sheet.staticTexts["setting.DM_OPMODE.envOverride"]
+        XCTAssertTrue(modeOverride.waitForExistence(timeout: 5))
+        XCTAssertEqual(modeOverride.label, "在这个游戏的 env.txt 中设置")
+        XCTAssertTrue(sheet.staticTexts["setting.DM_SHOW_FPS.envOverride"].exists)
+        XCTAssertTrue(sheet.staticTexts["setting.DM_RENDER_SCALE.envOverride"].exists)
+        capture("env-override-zh")
+    }
 }

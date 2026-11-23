@@ -1480,6 +1480,7 @@
   "ios.ui.exit": "Esci",
   "ios.ui.fixGameFilesChip": "Ripara i file di gioco",
   "ios.ui.forBugReport": "Per una segnalazione di bug",
+  "ios.ui.fromGameEnvFile": "Impostata nel env.txt di questo gioco",
   "ios.ui.fromSettings": "Dalle Impostazioni",
   "ios.ui.gameData": "Dati di gioco",
   "ios.ui.gameDataNote": "I giochi cercano qui i loro dati. Metti un romfs.img per gioco in una cartella qualsiasi al suo interno. Ogni gioco viene riconosciuto dal file stesso, quindi i nomi delle cartelle non contano. Ogni gioco può anche avere una cartella propria.",

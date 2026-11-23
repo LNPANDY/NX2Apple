@@ -606,6 +606,23 @@ struct FromSettingsMark: View {
     }
 }
 
+/// Says that a row shows an active override from this game's `env.txt`, because the UI has no explicit choice.
+struct FromEnvFileMark: View {
+    var rowID: String? = nil
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 11, weight: .semibold))
+                .accessibilityHidden(true)
+            Text(ShellStrings.text("Set in this game’s env.txt"))
+                .shellType(ShellType.note)
+                .accessibilityIdentifier(rowID.map { "setting.\($0).envOverride" } ?? "setting.envOverride")
+        }
+        .foregroundStyle(ShellPalette.cream.opacity(0.82))
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 /// Children side by side in equal widths that fill the row. Its ideal width is the widest child times the count, so
 /// a `ViewThatFits` can fall back when the labels would not fit at equal widths.
 struct EqualRow: Layout {
@@ -663,6 +680,9 @@ struct NativeChoiceControl: View {
                 }
                 if !row.note.isEmpty {
                     Text(row.note).shellType(ShellType.note).foregroundStyle(.secondary)
+                }
+                if row.fromEnvFile {
+                    FromEnvFileMark(rowID: row.id)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
