@@ -79,7 +79,12 @@ import NXModel
             installFailed: { laterBuild.value?.note($0) })
         let engineSync = EngineSyncStore(
             localizer: localizer, runner: runner, repo: repo, python: dependencies, defaults: defaults,
-            setRepoPath: { repo.path = $0; laterBuild.value?.refreshUpstreamLocalVersion(for: .nxnative) },
+            setRepoPath: {
+                repo.path = $0
+                laterBuild.value?.refreshUpstreamLocalVersion(for: .nxnative)
+                laterBuild.value?.refreshSeenShadersInfo()
+                laterBuild.value?.refreshQueueSeenShadersEligibility()
+            },
             buildRunning: { laterBuild.value?.running ?? false },
             autoUpdate: { repo.autoUpdate },
             log: { log.append($0) })
@@ -151,6 +156,8 @@ import NXModel
                     self?.settleFinishedBuild()
                     let outcome = build.queueOutcome
                     build.activeQueuedGameID = nil
+                    build.activeQueueEntryUpstream = nil
+                    build.queuedIOSSeenShaders = nil
                     queue.buildEnded(succeeded: outcome.succeeded, reason: outcome.reason, stopped: outcome.stopped)
                     if queue.running == nil {
                         build.deferShellPackaging = false

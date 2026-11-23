@@ -52,7 +52,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let outputKey = "buildOutputDirectory"
     nonisolated package static let targetKey = "buildTarget"
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
-    nonisolated package static let seenShadersOnlyKey = "seenShadersOnly"
     nonisolated package static let savedKeysKey = "savedKeysPath"
     nonisolated package static let buildUpstreamKey = "buildUpstream"
     nonisolated package static let macNativeGamesPathKey = "macNativeGamesPath"
@@ -114,7 +113,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             if !running {
                 completedOperation = operation?.kind
                 operation = nil
-                activeQueueEntryUpstream = nil
             }
             if !running, oldValue {
                 applyPendingNxkitSwitch()   // an nxkit update waits for the build (BuildStore+Nxkit.swift)
@@ -181,6 +179,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             }
             if !running { runningTarget = target }
             if oldValue != target { targetChanged() }
+            refreshSeenShadersInfo()
         }
     }
     /// The target of the operation currently running (or last run), so an iPhone re-sign, reinstall, export or data copy started while
@@ -196,14 +195,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var bcOnCPU: Bool {
         didSet { defaults.set(bcOnCPU, forKey: Self.bcOnCPUKey) }
     }
-    /// Build only shaders listed in the profile's `shader_seen.tsv` (Mac `nxnative` builds only, `--seen-shaders`).
-    @Published package var seenShadersOnly: Bool {
-        didSet { defaults.set(seenShadersOnly, forKey: Self.seenShadersOnlyKey) }
-    }
-    /// Cached `shader_seen.tsv` counts for the currently selected game when eligible on Mac `nxnative`.
-    @Published package internal(set) var cachedSeenShaders: SeenShadersInfo? = nil
-    var seenShadersGeneration: UInt64 = 0
-    var seenShadersLoadedKey: String = ""
+    @Published package var seenShadersOnly: Bool { didSet { defaults.set(seenShadersOnly, forKey: Self.seenShadersOnlyKey) } }
+    @Published package var iosSeenShadersOnly: Bool { didSet { defaults.set(iosSeenShadersOnly, forKey: Self.iosSeenShadersKey) } }
+    @Published package internal(set) var cachedSeenShaders: SeenShadersInfo?
+    @Published package internal(set) var queueHasIOSSeenShadersEligible = false
+    var seenShadersProbe = SeenShadersProbeState()
     /// The prod.keys chosen once for every game (Settings, "Keys", #996): a build whose keys row is empty or names a file that is gone
     /// takes it (BuildStore+SavedKeys.swift). Empty when none is saved.
     @Published package internal(set) var savedKeys: String {
@@ -231,6 +227,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             if oldValue != buildUpstream {
                 upstreamChanged()
             }
+            refreshSeenShadersInfo()
+            refreshQueueSeenShadersEligibility()
         }
     }
     @Published package var macNativeGamesPath: String {
@@ -374,6 +372,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             let blocksMNG = queue?.queued.contains { !Self.canQueueEntryUseMNG($0) } ?? false
             if queueBlocksMNG != blocksMNG { queueBlocksMNG = blocksMNG }
             enforceUpstreamForCurrentGame()
+            refreshQueueSeenShadersEligibility(entries: queue?.entries ?? [])
             queueSubscription = queue?.$entries.sink { [weak self] entries in
                 guard let self else { return }
                 let queuedEntries = entries.filter { $0.status == .queued }
@@ -383,13 +382,14 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                 let nextBlocksMNG = queuedEntries.contains { !Self.canQueueEntryUseMNG($0) }
                 if self.queueBlocksMNG != nextBlocksMNG { self.queueBlocksMNG = nextBlocksMNG }
                 self.enforceUpstreamForCurrentGame()
+                self.refreshQueueSeenShadersEligibility(entries: entries)
             }
         }
     }
     @Published package private(set) var queueHasIOS = false
     @Published package private(set) var queuedCount = 0
     @Published package private(set) var queueBlocksMNG = false
-    var activeQueueEntryUpstream: EngineUpstreamKind? = nil
+    package var activeQueueEntryUpstream: EngineUpstreamKind? = nil
     var packageHeaderProbeGeneration: UInt64 = 0
     package var readPackageTitleID: @Sendable (_ path: String, _ keysPath: String) -> String? = {
         PackageHeaderTitleID.readHex16(path: $0, keysPath: $1)
@@ -491,6 +491,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         runningTarget = savedTarget
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
         seenShadersOnly = defaults.bool(forKey: Self.seenShadersOnlyKey)
+        iosSeenShadersOnly = defaults.bool(forKey: Self.iosSeenShadersKey)
         savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
         let savedMNGPath = defaults.string(forKey: Self.macNativeGamesPathKey) ?? ""
         let savedS2ArmPath = defaults.string(forKey: Self.s2armPathKey) ?? ""

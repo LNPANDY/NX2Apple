@@ -103,6 +103,28 @@ final class LaunchOptionsTests: IsolatedDefaultsTestCase {
                      "without render_base the row stays in percent")
     }
 
+    func testRenderScaleWithBaseCapDecodesAndClampsPixels() throws {
+        let pokopiaScale = #"{"env": "DM_RENDER_SCALE", "kind": "range", "label": "Render scale", "note": "", "default": "1.0", "section": "Game", "level": "basic", "min": 0.5, "max": 1.0, "step": 0.05, "base": {"docked": [1920, 1080], "handheld": [1920, 1080], "cap": {"docked": [1920, 1080], "handheld": [1600, 900]}}}"#
+        let (app, repo) = try self.app([pokopiaScale, opmode].joined(separator: ","))
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: "0400A3A01EE4C000", repo: repo, labels: { $0 }))
+        let row = try XCTUnwrap(list.first { $0.env == "DM_RENDER_SCALE" }, "base.cap must not cause Lossy decoding to drop DM_RENDER_SCALE")
+        XCTAssertEqual(row.pixels(scale: 0.5, docked: false), "960×540")
+        XCTAssertEqual(row.pixels(scale: 0.75, docked: false), "1440×810")
+        XCTAssertEqual(row.pixels(scale: 0.9, docked: false), "1600×900", "handheld clamps to render_cap 1600x900")
+        XCTAssertEqual(row.pixels(scale: 1.0, docked: false), "1600×900")
+        XCTAssertEqual(row.pixels(scale: 1.0, docked: true), "1920×1080", "docked reaches full 1920x1080")
+
+        // Fallback from game.tsv also parses render_cap beside render_base
+        let profile = temporary.appendingPathComponent("repo/dm/games/0400A3A01EE4C000")
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        try "title_id\t0400A3A01EE4C000\nrender_base\t1920x1080 1920x1080\nrender_cap\t1920x1080 1600x900\n"
+            .write(to: profile.appendingPathComponent("game.tsv"), atomically: true, encoding: .utf8)
+        let (fallbackApp, _) = try self.app(scale)
+        let fallback = try XCTUnwrap(LaunchSetting.forMac(app: fallbackApp, titleID: "0400A3A01EE4C000", repo: repo, labels: { $0 })?.first { $0.env == "DM_RENDER_SCALE" })
+        XCTAssertEqual(fallback.pixels(scale: 1.0, docked: false), "1600×900")
+        XCTAssertEqual(fallback.pixels(scale: 1.0, docked: true), "1920×1080")
+    }
+
     func testModsAreFoundInTheirLayoutsAndPassedInListOrder() throws {
         var game = LibraryGame(titleID: "01007EF00011E000", name: "Zelda")
         let folder = GameMod.folder(for: game, library: temporary.path)

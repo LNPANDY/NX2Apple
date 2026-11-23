@@ -226,6 +226,7 @@ extension BuildStore {
         if deferShellPackaging {
             deferredExportsIPA = entry.exportIPA ?? exportsShell
         }
+        queuedIOSSeenShaders = normalizedTarget != BuildTarget.mac ? entry.iosSeenShaders : nil
 
         if entry.fastRefresh {
             activeQueueEntryUpstream = .nxnative
@@ -259,6 +260,7 @@ extension BuildStore {
             queuedExportIPA = nil
             queuedExportOneGame = nil
             queuedExportFramework = nil
+            queuedIOSSeenShaders = nil
             deferShellPackaging = false
             activeQueuedGameID = nil
             return doneNote.isEmpty ? t("queue.cannotStart") : doneNote
@@ -299,6 +301,7 @@ extension BuildStore {
         queuedExportIPA = nil
         queuedExportOneGame = nil
         queuedExportFramework = nil
+        queuedIOSSeenShaders = nil
         deferShellPackaging = false
         skipStaleCheckForQueuedEntry = false
         activeQueuedGameID = nil

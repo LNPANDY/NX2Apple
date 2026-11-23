@@ -200,4 +200,130 @@ import XCTest
         let launchOnB = try XCTUnwrap(runner.launches.last)
         XCTAssertFalse(launchOnB.arguments.contains("--seen-shaders"))
     }
+
+    func testIOSBuildUsesHintedTitleIDForSeenShadersAndCheatDirWhenFilenameLacksTitleID() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ios-seen-hinted-" + UUID().uuidString)
+        let fm = FileManager.default
+        defer { try? fm.removeItem(at: root) }
+        SeenShadersProfile.clearCacheForTesting()
+
+        let scriptURL = root.appendingPathComponent("scripts/build_ipa_from_nsp.py")
+        try fm.createDirectory(at: scriptURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# stub\n'--work-dir'\n'--from-seed'\n'--seen-shaders'\n'--cheat-dir'\n# ios_seen_shaders DM_PARTIAL_SHADERS\n"
+            .write(to: scriptURL, atomically: true, encoding: .utf8)
+        let romfsTool = root.appendingPathComponent("dm/tools/romfs_image.py")
+        try fm.createDirectory(at: romfsTool.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# stub\n".write(to: romfsTool, atomically: true, encoding: .utf8)
+        let marker = root.appendingPathComponent("dm/tools/nx_extract/Program.cs")
+        try fm.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "// stub\n".write(to: marker, atomically: true, encoding: .utf8)
+
+        let tid = "0400A3A01EE4C000"
+        let gDir = root.appendingPathComponent("dm/games/\(tid)", isDirectory: true)
+        try fm.createDirectory(at: gDir, withIntermediateDirectories: true)
+        try "title_id\t\(tid)\nios_seen_shaders\t1\n".write(to: gDir.appendingPathComponent("game.tsv"), atomically: true, encoding: .utf8)
+        try "0123456789abcdef\tpixel\n".write(to: gDir.appendingPathComponent("shader_seen.tsv"), atomically: true, encoding: .utf8)
+        try "package\tindex\tstage\tkey\tsource\np.bin\t0\tvs\t0123456789abcdef\tsrc\np.bin\t1\tvs\tfedcba9876543210\tsrc\n"
+            .write(to: gDir.appendingPathComponent("shader_map.tsv"), atomically: true, encoding: .utf8)
+
+        let fakeHome = root.appendingPathComponent("home", isDirectory: true)
+        let cheatsDir = fakeHome.appendingPathComponent("Library/Application Support/nxnative/\(tid)/cheats", isDirectory: true)
+        try fm.createDirectory(at: cheatsDir, withIntermediateDirectories: true)
+        try "[Infinite HP]\n04000000 00000000 00000001\n"
+            .write(to: cheatsDir.appendingPathComponent("0123456789ABCDEF.txt"), atomically: true, encoding: .utf8)
+
+        // Base NSP filename intentionally has NO [TitleID] bracket; title ID comes only from hintedTitleID.
+        let inputsDir = root.appendingPathComponent("inputs", isDirectory: true)
+        try fm.createDirectory(at: inputsDir, withIntermediateDirectories: true)
+        let unnamedNSP = inputsDir.appendingPathComponent("pokopia_dump.nsp")
+        let keys = inputsDir.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: unnamedNSP)
+        try Data("master_key_00 = 00\n".utf8).write(to: keys)
+
+        let devices = FakeDevices()
+        devices.exportIPA = true
+        devices.exportOneGame = true
+        let runner = RecordingRunner()
+        let store = BuildStore(
+            localizer: Localizer(),
+            runner: runner,
+            repo: FakeRepo(path: root.path),
+            deps: FakeDeps(),
+            engine: FakeEngine(),
+            devices: devices,
+            defaults: TestDefaults.make("ios-seen-hinted")
+        )
+        store.home = fakeHome.path
+        store.target = BuildTarget.ios
+        store.buildUpstream = EngineUpstreamKind.nxnative
+        store.iosSeenShadersOnly = true
+        store.updateSlot("base") { $0.paths = [unnamedNSP.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+        store.outDir = inputsDir.path
+        store.applyKnownTitleID(tid)
+
+        store.startBuild()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        let launch = try XCTUnwrap(runner.launches.last)
+        XCTAssertTrue(launch.arguments.contains("--seen-shaders"), "Expected --seen-shaders via hintedTitleID when filename omits [TitleID]")
+        XCTAssertTrue(launch.arguments.contains("--cheat-dir"), "Expected --cheat-dir via hintedTitleID when filename omits [TitleID]")
+        XCTAssertTrue(launch.arguments.contains(cheatsDir.path))
+    }
+
+    func testQueuedIOSSeenShadersAndUpstreamSurviveTransientRunningDrop() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ios-seen-reentry-" + UUID().uuidString)
+        let fm = FileManager.default
+        defer { try? fm.removeItem(at: root) }
+        SeenShadersProfile.clearCacheForTesting()
+
+        let scriptURL = root.appendingPathComponent("scripts/build_ipa_from_nsp.py")
+        try fm.createDirectory(at: scriptURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# stub\n'--work-dir'\n'--from-seed'\n'--seen-shaders'\n# ios_seen_shaders DM_PARTIAL_SHADERS\n"
+            .write(to: scriptURL, atomically: true, encoding: .utf8)
+        let romfsTool = root.appendingPathComponent("dm/tools/romfs_image.py")
+        try fm.createDirectory(at: romfsTool.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# stub\n".write(to: romfsTool, atomically: true, encoding: .utf8)
+        let marker = root.appendingPathComponent("dm/tools/nx_extract/Program.cs")
+        try fm.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "// stub\n".write(to: marker, atomically: true, encoding: .utf8)
+
+        let tid = "0400A3A01EE4C000"
+        let gDir = root.appendingPathComponent("dm/games/\(tid)", isDirectory: true)
+        try fm.createDirectory(at: gDir, withIntermediateDirectories: true)
+        try "title_id\t\(tid)\nios_seen_shaders\t1\n".write(to: gDir.appendingPathComponent("game.tsv"), atomically: true, encoding: .utf8)
+        try "0123456789abcdef\tpixel\n".write(to: gDir.appendingPathComponent("shader_seen.tsv"), atomically: true, encoding: .utf8)
+        try "package\tindex\tstage\tkey\tsource\np.bin\t0\tvs\t0123456789abcdef\tsrc\np.bin\t1\tvs\tfedcba9876543210\tsrc\n"
+            .write(to: gDir.appendingPathComponent("shader_map.tsv"), atomically: true, encoding: .utf8)
+
+        let store = BuildStore(
+            localizer: Localizer(),
+            runner: RecordingRunner(),
+            repo: FakeRepo(path: root.path),
+            deps: FakeDeps(),
+            engine: FakeEngine(),
+            devices: FakeDevices(),
+            defaults: TestDefaults.make("ios-seen-reentry")
+        )
+        store.target = BuildTarget.ios
+        store.buildUpstream = .nxnative
+        // Form toggle is ON, while queued entry explicitly snapped OFF (false).
+        store.iosSeenShadersOnly = true
+        store.queuedIOSSeenShaders = false
+        store.activeQueueEntryUpstream = .s2arm
+
+        // Simulate transient `running = true -> false` transition during verifyShellDevice / syncEngine re-entry.
+        store.running = true
+        store.running = false
+
+        XCTAssertEqual(store.queuedIOSSeenShaders, false, "Transient running=false must not wipe queuedIOSSeenShaders before re-entry")
+        XCTAssertEqual(store.activeQueueEntryUpstream, .s2arm, "Transient running=false must not wipe activeQueueEntryUpstream before re-entry")
+        XCTAssertFalse(store.shouldPassIOSSeenShaders(forTitleID: tid, requested: store.queuedIOSSeenShaders))
+
+        // Reverse: form toggle OFF, queued entry snapped ON (true).
+        store.iosSeenShadersOnly = false
+        store.queuedIOSSeenShaders = true
+        store.running = true
+        store.running = false
+        XCTAssertTrue(store.shouldPassIOSSeenShaders(forTitleID: tid, requested: store.queuedIOSSeenShaders))
+    }
 }

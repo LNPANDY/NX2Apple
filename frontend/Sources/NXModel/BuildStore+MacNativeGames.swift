@@ -173,6 +173,7 @@ extension BuildStore {
         if buildUpstream == .macNativeGames && isMNGBlockedByCurrentGame {
             buildUpstream = .nxnative
         }
+        refreshSeenShadersInfo()
     }
 
     /// Switches to MacNativeGames for the current supported game, setting target to Mac automatically.

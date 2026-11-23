@@ -16,6 +16,8 @@ extension BuildStore {
         queuedExportIPA = nil
         queuedExportOneGame = nil
         queuedExportFramework = nil
+        activeQueueEntryUpstream = nil
+        queuedIOSSeenShaders = nil
         runBuild()
     }
 
@@ -328,6 +330,10 @@ extension BuildStore {
         if !macApp, RepoLayout.supportsCheatDir(repo.path),
            let activeCheatsDir = RepoLayout.existingCheatsDir(titleID: gameTitleID ?? tidHex, home: self.home) {
             args += ["--cheat-dir", activeCheatsDir]
+        }
+        if !macApp, shouldPassIOSSeenShaders(forTitleID: gameTitleID ?? tidHex, requested: queuedIOSSeenShaders) {
+            args += ["--seen-shaders"]
+            say(t("msg.iosSeenShadersOn"))
         }
         // The archive step packs whatever folder the build reported, and without --work-dir that is the
         // script's default, which is the same workDir unless a separate output folder was chosen.

@@ -128,6 +128,14 @@ package enum RepoLayout {
         return false
     }
 
+    /// Whether the checkout's build script allows opt-in iOS `--seen-shaders` (`ios_seen_shaders` + `DM_PARTIAL_SHADERS`).
+    package static func supportsIOSSeenShaders(_ dir: String) -> Bool {
+        guard let text = try? String(contentsOfFile: EngineLayout.root(dir) + "/" + buildScript, encoding: .utf8) else { return false }
+        return (text.contains("'--seen-shaders'") || text.contains("\"--seen-shaders\""))
+            && text.contains("ios_seen_shaders")
+            && text.contains("DM_PARTIAL_SHADERS")
+    }
+
     /// The checkout of this repository the app drives. A released .app ships on its own,
     /// so the path is not known at build time: look next to the app bundle, walk up from
     /// it, then fall back to a saved choice. A repository is identified by
