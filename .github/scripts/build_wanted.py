@@ -14,14 +14,14 @@ tag, workflow_dispatch) always builds. A failed lookup builds too (fail open).
 Inputs are environment variables: EVENT_NAME, PR_NUMBER, HEAD_SHA, GH_REPO, DEFAULT_BRANCH, GH_TOKEN. Writes `build=true|false` to
 GITHUB_OUTPUT and the reason to GITHUB_STEP_SUMMARY.
 """
+import json
 import os
 import sys
 
 from stack_tip import gh
 
 LABEL = 'full-build'
-PAGE = 100
-MAX_PAGES = 3   # the compare API lists at most 300 files; a change that big builds
+COMPARE_FILE_LIMIT = 300
 
 # What build-mac-app.yml consumes besides Swift sources: a path ending in / is a folder.
 PACKAGING = (
@@ -40,6 +40,7 @@ PACKAGING = (
     'frontend/AppIcon.icon/',
     'frontend/bundled-python/',
     'frontend/fonts/',
+    'frontend/l10n/',
     'frontend/tools/',
     'frontend-ios/Package.swift',
     'frontend-ios/Shell/',
@@ -51,14 +52,22 @@ def is_packaging(path):
 
 
 def changed_files(repo, default_branch, head_sha):
-    files = []
-    for page in range(1, MAX_PAGES + 1):
-        out = gh('api', f'repos/{repo}/compare/{default_branch}...{head_sha}?per_page={PAGE}&page={page}', '--jq', '.files[].filename')
-        got = [line for line in out.splitlines() if line]
-        files += got
-        if len(got) < PAGE:
-            return files, False
-    return files, True
+    # Pagination is for commits. Only page 1 contains the file list, capped at 300.
+    out = gh('api', f'repos/{repo}/compare/{default_branch}...{head_sha}?per_page=1&page=1')
+    records = json.loads(out)['files']
+    if not isinstance(records, list):
+        raise ValueError('unexpected file list from compare API')
+    if len(records) >= COMPARE_FILE_LIMIT:
+        return [], True
+
+    paths = []
+    for record in records:
+        paths.append(record['filename'])
+        if 'previous_filename' in record:
+            paths.append(record['previous_filename'])
+    if not all(isinstance(path, str) and path for path in paths):
+        raise ValueError('invalid filename from compare API')
+    return paths, False
 
 
 def decide(env):
@@ -70,7 +79,7 @@ def decide(env):
     if not (repo and number and sha):
         return True, 'missing inputs: it builds'
     try:
-        labels = gh('api', f'repos/{repo}/issues/{number}/labels', '--paginate', '--jq', '.[].name').split()
+        labels = gh('api', f'repos/{repo}/issues/{number}/labels', '--paginate', '--jq', '.[].name').splitlines()
         if LABEL in labels:
             return True, f'label {LABEL}'
         files, truncated = changed_files(repo, default_branch, sha)
@@ -78,7 +87,7 @@ def decide(env):
         print(f'::warning::Lookup failed, so the app builds: {e}')
         return True, 'lookup failed: it builds'
     if truncated:
-        return True, 'more than 300 files changed: it builds'
+        return True, f'compare returned at least {COMPARE_FILE_LIMIT} files: it builds'
     hit = [f for f in files if is_packaging(f)]
     if hit:
         return True, 'packaging files changed: ' + ', '.join(hit[:5]) + (' and more' if len(hit) > 5 else '')
