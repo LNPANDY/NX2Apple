@@ -24,7 +24,7 @@ Issue: LNPANDY/NX2Apple#123
 
 diff --git a/dm/ios/Sources/DataBookmark.h b/dm/ios/Sources/DataBookmark.h
 new file mode 100644
-index 0000000..3aef333
+index 00000000..3aef3338
 --- /dev/null
 +++ b/dm/ios/Sources/DataBookmark.h
 @@ -0,0 +1,32 @@
@@ -62,7 +62,7 @@ index 0000000..3aef333
 +void dm_clear_picked_data(void);
 diff --git a/dm/ios/Sources/DataBookmark.m b/dm/ios/Sources/DataBookmark.m
 new file mode 100644
-index 0000000..3dcc383
+index 00000000..3dcc3834
 --- /dev/null
 +++ b/dm/ios/Sources/DataBookmark.m
 @@ -0,0 +1,79 @@
@@ -146,7 +146,7 @@ index 0000000..3dcc383
 +    [NSUserDefaults.standardUserDefaults removeObjectForKey:kPickedData];
 +}
 diff --git a/dm/ios/Sources/DmIOS-Bridging-Header.h b/dm/ios/Sources/DmIOS-Bridging-Header.h
-index c63e36f..7de6a83 100644
+index c63e36f5..7de6a830 100644
 --- a/dm/ios/Sources/DmIOS-Bridging-Header.h
 +++ b/dm/ios/Sources/DmIOS-Bridging-Header.h
 @@ -1,6 +1,11 @@
@@ -163,7 +163,7 @@ index c63e36f..7de6a83 100644
 +// action (re-send the game data as romfs.img from the launcher), or NULL. The launcher's Game data section shows it.
 +const char *dm_old_archive_message(void);
 diff --git a/dm/ios/Sources/Launcher.swift b/dm/ios/Sources/Launcher.swift
-index 6f47ee9..d796e5f 100644
+index 6f47ee95..d796e5fa 100644
 --- a/dm/ios/Sources/Launcher.swift
 +++ b/dm/ios/Sources/Launcher.swift
 @@ -10,6 +10,65 @@ import os
@@ -258,7 +258,7 @@ index 6f47ee9..d796e5f 100644
              CloudSavesSection(checking: checking)
              Section {
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index c6b0de3..5cd1b62 100644
+index c6b0de3d..5cd1b626 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -27,6 +27,7 @@
@@ -303,7 +303,7 @@ index c6b0de3..5cd1b62 100644
  }
  - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 4194e3c..1455f53 100644
+index 5f9b4204..6f61c333 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -9,9 +9,10 @@
@@ -463,7 +463,7 @@ index 4194e3c..1455f53 100644
  static int boot_env(void) {
      NSFileManager *fm = NSFileManager.defaultManager;
      NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
-@@ -191,13 +289,32 @@ static int boot_env(void) {
+@@ -191,14 +289,33 @@ static int boot_env(void) {
      NSString *lang = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMLanguage"];
      if (!getenv("DM_LANG") && [lang isKindOfClass:NSString.class] && lang.length) setenv("DM_LANG", lang.UTF8String, 0);
      fprintf(stderr, "boot: game language %s\n", getenv("DM_LANG") ?: "en-US");
@@ -481,6 +481,7 @@ index 4194e3c..1455f53 100644
 +    BOOL per_game = [romfs hasPrefix:gdir];   // messaging nil is NO here: no data means the shared layout
 +    if (!set_data_env(romfs, NO)) { if (!romfs) romfs_identity_report(doc);   // a slim build says why its romfs.img was not used
 +        fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\n"); }
+     setenv("DM_ALBUM_DIR", [doc stringByAppendingPathComponent:@"album"].fileSystemRepresentation, 0);   // local album screenshots (hle_album.c), visible in Files; created lazily on first save
      setenv("DM_SYSTEM_DIR", [doc stringByAppendingPathComponent:@"system"].fileSystemRepresentation, 0);
      setenv("DM_GUEST_FILE_DIR", NSTemporaryDirectory().fileSystemRepresentation, 0);   // DM_GUEST_FILE (hle_svc.c) keeps the guest's memory in files there
 +    setenv("DM_NVN_SHMAP", [dm stringByAppendingPathComponent:@"shader_map.tsv"].fileSystemRepresentation, 0);
@@ -500,7 +501,7 @@ index 4194e3c..1455f53 100644
      aoc_locate();   // add-on content: Documents/aoc, else <App>/aoc; an empty Documents/aoc explicitly selects no DLC
      NSString *pso = [res stringByAppendingPathComponent:@"pso"];   // the pipeline archive made offline (build_ipa.sh, dm/gfx/tools/pso_offline.py): the shader pairs' bases, which the device then does not build
      if ([fm fileExistsAtPath:pso]) setenv("DM_PSO_BUNDLE", pso.fileSystemRepresentation, 0);
-@@ -212,7 +329,7 @@ static int boot_env(void) {
+@@ -213,7 +330,7 @@ static int boot_env(void) {
  // The host's profile is the program's (DM_PROGRAM, main.c dm_game_cur). oe::ExecuteProgram records the program and its parameters in Documents/program.bin (DM_EXEC_OUT, hle_oe.c), names it on screen, schedules a
  // notification that opens the app (front_ios.m front_program_handoff) and ends; this start reads the record and takes it away, so a later start, after the player quit the game, is at the launcher as on the Switch.
  // Started from the record, the settings screen stays away (DM_LAUNCHER=0): the player is on the way into a game. Returns the program's dm folder (the host's modules folder), nil when its game files are missing
@@ -509,7 +510,7 @@ index 4194e3c..1455f53 100644
      NSFileManager *fm = NSFileManager.defaultManager;
      NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0], *res = NSBundle.mainBundle.resourcePath;
      NSString *dmdir = [res stringByAppendingPathComponent:@"dm"], *msl = [res stringByAppendingPathComponent:@"msl"], *prog = nil;
-@@ -233,18 +350,9 @@ static int boot_env(void) {
+@@ -234,18 +351,9 @@ static int boot_env(void) {
          setenv("DM_APP_DM", dmdir.fileSystemRepresentation, 1);   // the launcher's settings (Launcher.swift)
          fprintf(stderr, "boot: program %d of %s (%zu bytes of launch parameter)\n", n, [[plist stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] stringByReplacingOccurrencesOfString:@"\n" withString:@" "].UTF8String, d.length > 4 ? (size_t)d.length - 4 : 0);
      }
@@ -530,7 +531,7 @@ index 4194e3c..1455f53 100644
  }
  static int g_boot_ok;
 diff --git a/dm/ios/project.yml b/dm/ios/project.yml
-index d89d0ae..4835c62 100644
+index d89d0aed..4835c62e 100644
 --- a/dm/ios/project.yml
 +++ b/dm/ios/project.yml
 @@ -83,7 +83,7 @@ targets:
@@ -544,7 +545,7 @@ index d89d0ae..4835c62 100644
  schemes:
 diff --git a/dm/ios/tests/test_aoc_layouts.py b/dm/ios/tests/test_aoc_layouts.py
 new file mode 100644
-index 0000000..3b042cd
+index 00000000..3b042cd6
 --- /dev/null
 +++ b/dm/ios/tests/test_aoc_layouts.py
 @@ -0,0 +1,92 @@
@@ -641,7 +642,7 @@ index 0000000..3b042cd
 +
 +if __name__ == '__main__': unittest.main()
 diff --git a/dm/ios/tests/test_romfs_startup.py b/dm/ios/tests/test_romfs_startup.py
-index efc36f4..4792b5e 100644
+index efc36f41..4792b5ef 100644
 --- a/dm/ios/tests/test_romfs_startup.py
 +++ b/dm/ios/tests/test_romfs_startup.py
 @@ -24,12 +24,19 @@ class Startup(unittest.TestCase):

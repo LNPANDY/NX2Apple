@@ -13,10 +13,10 @@ Issue: LNPANDY/NX2Apple#221
  3 files changed, 13 insertions(+), 1 deletion(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index c0a7ca7..88c7408 100644
+index 3b670d35..c33d9693 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1703,6 +1703,17 @@ void front_run(void (*guest)(void)) {
+@@ -1772,6 +1772,17 @@ void front_run(void (*guest)(void)) {
          if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) LOG("front end: Metal performance HUD on (DM_METAL_HUD)");
          v.layer = g_layer; [(DmGameView *)v fitDrawable];
          [win center];
@@ -35,7 +35,7 @@ index c0a7ca7..88c7408 100644
          screen_refresh(win.screen ?: NSScreen.mainScreen);
          g_win = win;
 diff --git a/docs/development.md b/docs/development.md
-index 9c9929f..ccb6320 100644
+index 004f1755..e1c64769 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -10,7 +10,7 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -48,7 +48,7 @@ index 9c9929f..ccb6320 100644
  | Known gaps | Conditional render is always drawn; [indirect-count multi-draws](reference/rendering.md#indirect-count-multi-draws) can wait for a GPU-written count when the records need conversion, cannot be GPU-masked, or exceed the mask table capacity; multi-viewport broadcast is not implemented. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
  
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 24f81e7..ae01279 100644
+index c4ccf71e..518d0476 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -87,6 +87,7 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID

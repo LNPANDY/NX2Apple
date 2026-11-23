@@ -19,7 +19,7 @@ Issue: none
  2 files changed, 132 insertions(+), 7 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 5557c89..85d971d 100644
+index 5557c89a..85d971de 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -653,6 +653,52 @@ static uint64_t single_joy_fold(uint32_t style, uint64_t buttons, int32_t a[4])
@@ -116,7 +116,7 @@ index 5557c89..85d971d 100644
      memset(g_touch_hist, 0, sizeof g_touch_hist);
      g_touch_kept = g_touch_newest = g_touch_points = 0;
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 6748e35..022c586 100644
+index 6748e352..022c5868 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
 @@ -1973,6 +1973,86 @@ static void t_bind_gap(void) {

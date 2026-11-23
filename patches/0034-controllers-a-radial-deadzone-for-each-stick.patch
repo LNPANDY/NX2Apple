@@ -28,7 +28,7 @@ Issue: LNPANDY/NX2Apple#1025
  create mode 100644 dm/host/tests/t_stick_deadzone.c
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 01bc8d8..f81b4d4 100644
+index 01bc8d8b..f81b4d48 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -8,6 +8,7 @@
@@ -58,7 +58,7 @@ index 01bc8d8..f81b4d4 100644
  }
 diff --git a/dm/host/stick_deadzone.h b/dm/host/stick_deadzone.h
 new file mode 100644
-index 0000000..36fa9e7
+index 00000000..36fa9e79
 --- /dev/null
 +++ b/dm/host/stick_deadzone.h
 @@ -0,0 +1,27 @@
@@ -90,10 +90,10 @@ index 0000000..36fa9e7
 +    *y = (int32_t)lrintf(fmaxf(-1, fminf(1, fy * scale)) * DM_STICK_MAX);
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index fcceab7..d69db75 100644
+index 81f0a1be..84424531 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -527,7 +527,9 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
+@@ -554,7 +554,9 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
  profile-runtime: $(B)/t_profile_runtime
  	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
  
@@ -106,7 +106,7 @@ index fcceab7..d69db75 100644
  $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
 diff --git a/dm/host/tests/t_stick_deadzone.c b/dm/host/tests/t_stick_deadzone.c
 new file mode 100644
-index 0000000..d9ac75c
+index 00000000..d9ac75c2
 --- /dev/null
 +++ b/dm/host/tests/t_stick_deadzone.c
 @@ -0,0 +1,52 @@

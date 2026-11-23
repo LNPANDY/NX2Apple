@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple
  2 files changed, 229 insertions(+), 29 deletions(-)
 
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index e86c3e9..6cde102 100644
+index e86c3e93..6cde1022 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -7,19 +7,22 @@ Four parts, each on synthetic inputs, no game files or Xcode:
@@ -235,10 +235,10 @@ index e86c3e9..6cde102 100644
  
  if __name__ == '__main__':
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 4c06244..232653d 100755
+index 3dd9fa60..f8964a97 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -296,8 +296,9 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -297,8 +297,9 @@ if [ "$PREPARE_XCODE" = YES ]; then
  fi
  
  # DM_FRAMEWORK_ONLY: the framework target alone, unsigned (build_shell.sh's project embeds it and Xcode signs it with the shell), then the
@@ -250,7 +250,7 @@ index 4c06244..232653d 100755
  if [ -n "$FRAMEWORK_ONLY" ]; then
    t "xcodebuild (Release, unsigned, the game framework $FW_NAME with its own host)"
    mkdir -p "$O" "$FRAMEWORK_ONLY" || die "mkdir $FRAMEWORK_ONLY"
-@@ -310,20 +311,95 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
+@@ -311,20 +312,95 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
    [ -f "$BUILT/$FW_NAME" ] || die "no built framework $BUILT"
    OUTFW=$FRAMEWORK_ONLY/$FW_NAME.framework; mkdir -p "$OUTFW"
    t "copying resources into $FW_NAME.framework"
@@ -279,7 +279,7 @@ index 4c06244..232653d 100755
    fi
 -  for old in "$OUTFW/msl/"*; do case "$old" in "$OUTFW/msl/$MSLDIR"|"$OUTFW/msl/$MSLDIR.img") ;; *) rm -rf "$old";; esac; done
 +  FW_GFX=${FW_GFXAPI:-${GFXAPI:-nvn}}
-+  PROG_DATA="$PROG_DATA" python3 - "$FRAMEWORK_ONLY" "$GAME" "$FW_GFX" "$MSLDIR" "$MSL_IOS" "$LIB" << 'EOF' || die "record shader metadata (.msl-cache)"
++  PROG_DATA="$PROG_DATA" "${DM_PYTHON:-python3}" - "$FRAMEWORK_ONLY" "$GAME" "$FW_GFX" "$MSLDIR" "$MSL_IOS" "$LIB" << 'EOF' || die "record shader metadata (.msl-cache)"
 +import json, os, sys, tempfile, shutil
 +
 +fw_only, game, gfx_api, msldir, msl_root, lib = sys.argv[1:7]
@@ -354,6 +354,6 @@ index 4c06244..232653d 100755
 +  else
 +    rm -f "$OUTFW/icon.png" "$OUTFW/AppIcon.png"
 +  fi
-   python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(m["framework_executable"] != sys.argv[2])' "$OUTFW/game.manifest.json" "$FW_NAME" \
+   "${DM_PYTHON:-python3}" -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(m["framework_executable"] != sys.argv[2])' "$OUTFW/game.manifest.json" "$FW_NAME" \
      || die "$OUTFW/game.manifest.json does not name $FW_NAME"
    t "done: $OUTFW ($(du -sh "$OUTFW" | cut -f1); build_shell.sh embeds it in the shell)"

@@ -35,7 +35,7 @@ Issue: LNPANDY/NX2Apple#1063
  2 files changed, 12 insertions(+)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 81c7be7..01bc8d8 100644
+index 81c7be73..01bc8d8b 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -1712,6 +1712,14 @@ HLE_FORCE("_ZN2nn3hid20IsVibrationPermittedEv", "vibration permission: the app's
@@ -54,7 +54,7 @@ index 81c7be7..01bc8d8 100644
  // Mounting and sending resolve the handle against the current controller and output. For callers passing a style mask, select the connected style in that mask.
  HLE_FORCE("_ZN2nn3hid25GetVibrationDeviceHandlesEPNS0_21VibrationDeviceHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", "vibration handles for an npad ID and style",
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 3965b21..6748e35 100644
+index 3965b214..6748e352 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
 @@ -426,6 +426,10 @@ static void t_vibration(void) {

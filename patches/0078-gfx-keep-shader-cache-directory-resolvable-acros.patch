@@ -15,7 +15,7 @@ Issue: none
  create mode 100644 dm/gfx/tests/t_msl_moved.m
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 77e824d..4e91cac 100644
+index f14dfad8..6d02fdfc 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -13,6 +13,7 @@
@@ -26,7 +26,7 @@ index 77e824d..4e91cac 100644
  #include <sys/file.h>   // flock: the lock beside Metal's build folders (ga_claim)
  #include <TargetConditionals.h>
  #if TARGET_OS_OSX
-@@ -7225,7 +7226,9 @@ static int clear_rect_zero(int i) {
+@@ -7337,7 +7338,9 @@ static int clear_rect_zero(int i) {
  static os_unfair_lock g_rmu = OS_UNFAIR_LOCK_INIT;
  // ---------- Shader mapping table: Switch control section hash → PC metallib (produced by dm/gfx/tools/shader_map.py) ----------
  static NSMutableDictionary<NSString *, NSString *> *g_shmap;
@@ -37,7 +37,7 @@ index 77e824d..4e91cac 100644
  #include "nvn_live.inc"
  // The library may be one file beside its folder, b-<chain>.img (dm/tools/shader_lib.py, msl_image.h), read in place. Each file comes from the folder first: what a partial dmsh_build.py run rebuilt goes
  // over the image, a build folder from before the image works as it did, and a host running from a folder goes on when a build packs it (the image is whole before the folder goes). So the image is
-@@ -7250,9 +7253,27 @@ static int clear_rect_zero(int i) {
+@@ -7362,9 +7365,27 @@ static int clear_rect_zero(int i) {
      if (!g_msl_dir || path.length <= g_msl_dir.length + 1 || ![path hasPrefix:g_msl_dir] || [path characterAtIndex:g_msl_dir.length] != '/') return nil;
      return [NSString stringWithFormat:@"b-%s/%@", DMSH_CHAIN, [path substringFromIndex:g_msl_dir.length + 1]];
  }
@@ -65,7 +65,7 @@ index 77e824d..4e91cac 100644
      romfs_img *m; const img_ent *x = msl_image_file(path, &m);
      if (x) {
          NSMutableData *o = [NSMutableData dataWithLength:(NSUInteger)x->b];
-@@ -7305,6 +7326,14 @@ static void shmap_read(void) {
+@@ -7417,6 +7438,14 @@ static void shmap_read(void) {
      const char *m = getenv("DM_MSL_DIR");
      // Library directory = <DM_MSL_DIR or default cache>/b-<translation chain version>: the version comes from dm/gfx/nvn/dmsh_chain.h (tools/dmsh_chain.py), one for every game; a host built from an old source tree only accepts libraries of the old version
      g_msl_dir = [NSString stringWithFormat:@"%@/b-%s", m ? @(m) : [NSString stringWithFormat:@"%s%s/build/cache/metal_shader_cache", getenv("DM_ROOT") ?: (getenv("HOME") ?: ""), getenv("DM_ROOT") ? "" : "/dm-work"], DMSH_CHAIN];
@@ -80,8 +80,8 @@ index 77e824d..4e91cac 100644
      if (![NSFileManager.defaultManager fileExistsAtPath:g_msl_dir]) {
          NSString *image = [g_msl_dir stringByAppendingString:@".img"];
          dm_msl_footer tf;
-@@ -7515,7 +7544,12 @@ static void pso_user_record(const char *fmt, ...) {
-     return lib_tag([g_dev newLibraryWithData:d error:err], tag);
+@@ -7640,7 +7669,12 @@ static void pso_user_record(const char *fmt, ...) {
+     return lib;
  }
  static id<MTLLibrary> lib_from_file(NSString *path, NSError **err) {
 -    int fd = open(path.fileSystemRepresentation, O_RDONLY); struct stat st;
@@ -94,7 +94,7 @@ index 77e824d..4e91cac 100644
      if (fd < 0) {   // not in the folder: the library's image or DM_ROMFS shader trailer, whose one descriptor is shared, and only this file's pages are mapped
          int open_errno = errno; romfs_img *img; const img_ent *x = msl_image_file(path, &img); msl_map f;
          if (x && msl_image_map(img, x, &f)) return lib_from_map(f, err);
-@@ -7542,9 +7576,9 @@ static void pso_user_record(const char *fmt, ...) {
+@@ -7667,9 +7701,9 @@ static void pso_user_record(const char *fmt, ...) {
          }
          else if (!x && !in_trailer) errno = open_errno;
      }
@@ -106,7 +106,7 @@ index 77e824d..4e91cac 100644
      return lib_from_map((msl_map){.data = m, .size = len, .base = m, .base_len = len}, err);
  }
  // NVN depth mode (nvnDeviceSetDepthMode): every vertex library has two entry points (dmsh_entry.py vs_depth): main0 rewrites z for the GL convention (near = -w, NVN's default),
-@@ -12150,7 +12184,10 @@ static int pre_later_take(PreLater *l, int wait) {
+@@ -12427,7 +12461,10 @@ static int pre_later_take(PreLater *l, int wait) {
  // Whether the library has the file: in its folder, in its image (msl_image_file), or in the DM_ROMFS shader trailer
  static int msl_has(NSString *path) {
      romfs_img *m;
@@ -118,7 +118,7 @@ index 77e824d..4e91cac 100644
      NSString *rel = msl_trailer_rel(path);
      return rel && dm_msl_trailer_has(rel.UTF8String);
  }
-@@ -21472,6 +21509,9 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -22117,6 +22154,9 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      if (mimg) romfs_image_close(mimg);
      dm_msl_trailer_teardown();
  
@@ -129,10 +129,10 @@ index 77e824d..4e91cac 100644
      g_shcache = nil; g_builtin = nil; g_builtin_lib = nil;
      g_c1_banks = nil; g_c1_full = nil; g_c1_full_valid = 0; g_cb_ext = nil;
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index afb7992..877cdc2 100644
+index ac799cfc..05e30938 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -504,6 +504,11 @@ check_t_pso_demand_record: t_pso_demand_record
+@@ -516,6 +516,11 @@ check_t_pso_demand_record: t_pso_demand_record
  	MTL_DEBUG_LAYER=1 ./t_pso_demand_record --cap
  t_shmap_warm: t_shmap_warm.m $(MTL_T_DEP)
  	clang $(CFLAGS) -fobjc-arc -o $@ t_shmap_warm.m $(MTL_T_SRC) $(FW)
@@ -146,7 +146,7 @@ index afb7992..877cdc2 100644
  .PHONY: check_t_pso_bg_look
 diff --git a/dm/gfx/tests/t_msl_moved.m b/dm/gfx/tests/t_msl_moved.m
 new file mode 100644
-index 0000000..e09f1f2
+index 00000000..e09f1f2e
 --- /dev/null
 +++ b/dm/gfx/tests/t_msl_moved.m
 @@ -0,0 +1,105 @@

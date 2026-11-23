@@ -39,7 +39,7 @@ Issue: LNPANDY/NX2Apple#180
  create mode 100644 dm/third_party/bcdec/bcdec.h
 
 diff --git a/dm/games/010015100B514000/README.md b/dm/games/010015100B514000/README.md
-index 98df198..b7f9ac9 100644
+index 98df1989..b7f9ac9d 100644
 --- a/dm/games/010015100B514000/README.md
 +++ b/dm/games/010015100B514000/README.md
 @@ -111,6 +111,7 @@ Game-specific findings; the general host changes they led to are listed under [F
@@ -59,7 +59,7 @@ index 98df198..b7f9ac9 100644
 +
 +With the fork's CPU BC option enabled, an iPhone 13 Pro Max on iOS 27.0.1 showed striped rectangles in version 1.0.0 character selection, followed by an invalid decoded-texture view abort. The equivalent upload and view fix restored that screen in a historical local build. See [CPU-decoded BC uploads and format views](../../../docs/reference/rendering.md#cpu-decoded-bc-uploads-and-format-views) for the mechanism, regression coverage and limits. Current-pin verification is through synthetic GPU tests, not a new full-game phone run.
 diff --git a/dm/games/0100F2C0115B6000/game.tsv b/dm/games/0100F2C0115B6000/game.tsv
-index 742aba2..7a9cbdd 100644
+index 742aba2e..7a9cbddc 100644
 --- a/dm/games/0100F2C0115B6000/game.tsv
 +++ b/dm/games/0100F2C0115B6000/game.tsv
 @@ -41,6 +41,9 @@ app_pool	0xCD500000
@@ -73,7 +73,7 @@ index 742aba2..7a9cbdd 100644
  # 60 fps (30 on the Switch): the host decides each frame's step in whole vsyncs and holds the frame that long (rewriter stubs at FPSLocker's sites, patches.py FRAME_STEP);
  # 30 when 60 does not hold, game time = real time. DM_FPS_TARGET=30 (Documents/env.txt on the iPhone) saves power, 0 = the game's own step. Until the host has decided a step
 diff --git a/dm/games/game.py b/dm/games/game.py
-index 388e604..12a012f 100644
+index 6508b95f..bef17ec0 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
 @@ -206,6 +206,8 @@ def header_one(g):
@@ -85,7 +85,7 @@ index 388e604..12a012f 100644
      tds = g.get('tex_dyn_slots', 'off')   # shaders whose texture handle the translator could not trace to one slot: slot indices in c2, the bound slots in the fallback arrays (nvn_mtl.m): on / off
      if tds not in ('on', 'off'): sys.exit(f'{g.id}: tex_dyn_slots must be on or off: {tds}')
      vcr = g.get('vconv_range', 'off')   # vertex attributes converted on the CPU only over the vertices each draw reads (nvn_mtl.m vc_draw_range): on / off
-@@ -269,6 +271,7 @@ def header_one(g):
+@@ -274,6 +276,7 @@ def header_one(g):
           f'#define DM_GAME_TEX_COPY_STAGING_PC {sc[2] if sc else 0}',
           f'#define DM_GAME_SHADER_KEY_SKIP_OFF {sko:#x}', f'#define DM_GAME_SHADER_KEY_SKIP_LEN {skl:#x}',
           f'#define DM_GAME_TEX_DIRTY_UPLOAD {int(tdu == "on")}',
@@ -94,7 +94,7 @@ index 388e604..12a012f 100644
           f'#define DM_GAME_DRAW_BARRIERS_GAME {int(dbr == "game")}',
           f'#define DM_GAME_UPSCALER_KEYS {q(",".join(ups))}', f'#define DM_GAME_UPSCALER_N {len(ups)}',
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 3fe32ae..8a9ba03 100644
+index 3fe32ae2..8a9ba03b 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -41,5 +41,6 @@ DM_PSO_MTL4	toggle	-	DM_GAME_PSO_MTL4|1	gfxapi:nvn	Performance	Metal 4 pipelines
@@ -105,7 +105,7 @@ index 3fe32ae..8a9ba03 100644
  DM_FPS_HOLD	toggle	on/off	DM_GAME_FPS_HOLD	DM_GAME_FPS_TARGET!=0	Performance	Hold frames when late
  DM_METAL_HUD	toggle	-	0	always	Performance	Performance HUD
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 172088c..4bb92e5 100644
+index 16ff424e..e3338ddf 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -27,6 +27,7 @@
@@ -125,7 +125,7 @@ index 172088c..4bb92e5 100644
  static NSMutableArray *g_l3_gpu_leaks;
  static int g_nvn_deswz_gpu;
  static id<MTLCommandQueue> g_q;
-@@ -1019,6 +1022,11 @@ static void mtl_init_once(void) {
+@@ -1023,6 +1026,11 @@ static void mtl_init_once(void) {
      if (!g_dev) MDIE("no Metal device");
      if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");
      mem_pressure_start();
@@ -137,7 +137,7 @@ index 172088c..4bb92e5 100644
      g_q = [g_dev newCommandQueue];
      g_present_readbacks = dispatch_group_create();
      // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
-@@ -1052,8 +1060,9 @@ static void mtl_init_once(void) {
+@@ -1056,8 +1064,9 @@ static void mtl_init_once(void) {
          return;
      }
      // BC textures are created and uploaded as BC, with no decompression path (dm/gfx/tex/README.md); without BC the first one aborts in Metal's descriptor validation mid-game
@@ -149,7 +149,7 @@ index 172088c..4bb92e5 100644
      { void crash_set_wait_dump(void (*fn)(void)); void mtl_wait_state_dump(void); crash_set_wait_dump(mtl_wait_state_dump); }
      g_alloc_n = 3;
      for (int i = 0; i < 3; i++) {
-@@ -3537,9 +3546,22 @@ static int tex_2d_size_exceeds_limit(const tex_t *t) {
+@@ -3610,9 +3619,22 @@ static int tex_2d_size_exceeds_limit(const tex_t *t) {
      // Apple10 raised the 2D limit to 32768. Keep the existing bounds for other targets.
      return size > 32768 || t->d.target != NVN_TEXTURE_TARGET_2D || ![g_dev supportsFamily:MTLGPUFamilyApple10];
  }
@@ -173,7 +173,7 @@ index 172088c..4bb92e5 100644
      // Catch dimensions that would cause Metal's descriptor validation to abort.
      if (tex_2d_size_exceeds_limit(t) || t->d.depth > 2048) { RED_ONCE(71, "texture size exceeds Metal limits: %u×%u×%u levels %u format %#x target %d (first case ser=%llu)", t->d.width, t->d.height, t->d.depth, t->d.levels, t->d.format, t->d.target, (unsigned long long)t->serial); return nil; }
      MTLTextureDescriptor *d = [MTLTextureDescriptor new];
-@@ -4285,8 +4307,10 @@ static int tex_cpu_wait(const tex_t *t) {
+@@ -4360,8 +4382,10 @@ static int tex_cpu_wait(const tex_t *t) {
      if (!d) return nil;
      d.usage |= keep & (MTLTextureUsageRenderTarget | MTLTextureUsagePixelFormatView);
      int rb_shift = rb_packed_shift(t->d.format);   // the RGB565 family is repacked into Metal's order on the CPU (rb_packed_shift)
@@ -185,7 +185,7 @@ index 172088c..4bb92e5 100644
      if (direct) d.usage |= MTLTextureUsageShaderWrite | MTLTextureUsagePixelFormatView;
      id<MTLTexture> mt = reuse && reuse.pixelFormat == d.pixelFormat && reuse.width == d.width && reuse.height == d.height && reuse.mipmapLevelCount == d.mipmapLevelCount && reuse.textureType == d.textureType
                          && (reuse.usage & d.usage) == d.usage
-@@ -4320,19 +4344,19 @@ static int tex_cpu_wait(const tex_t *t) {
+@@ -4395,19 +4419,19 @@ static int tex_cpu_wait(const tex_t *t) {
      void *mb; uint64_t mo;
      // A texture in a large pool (BIG_MIN) or one that holds only textures is read through a buffer of its own, held by the upload batch: a one-time read must not leave that memory wired for good
      id<MTLBuffer> upsrc = nil; unsigned src_batch = 0;   // the upload batch that holds upsrc (g_up_seq)
@@ -209,7 +209,7 @@ index 172088c..4bb92e5 100644
      if (use_gpu) {
          // The GPU reads the memory pool at execution time, which is closer to a real Switch than a snapshot at CPU upload time; the dirty-page stamp is still taken before encoding, and later writes still trigger a re-upload.
          up_begin();
-@@ -4402,16 +4426,43 @@ static int tex_cpu_wait(const tex_t *t) {
+@@ -4477,16 +4501,43 @@ static int tex_cpu_wait(const tex_t *t) {
          if (!(part = malloc(t->L.size ? t->L.size : 1))) MDIE("sparse texture copy of %llu bytes failed", (unsigned long long)t->L.size);
          sp_store_wait(t); nvn_sparse_copy(t->pool, part, (uint64_t)(uintptr_t)t->mem, t->L.size); src = part;
      }
@@ -254,7 +254,7 @@ index 172088c..4bb92e5 100644
              if (linear) {   // one 2D level (linear_fit): rows of the storage's stride, the same pitch GetStorageSize counts
                  size_t srow = tex_linear_row(t);
                  if (l || y || z != 1 || srow < pitch || srow * rows > t->L.size) { RED_ONCE(153, "linear texture upload: %ux%u format %#x target %d levels %u is not one 2D level of rows (stride %zu)", t->d.width, t->d.height, t->d.format, t->d.target, t->d.levels, srow); break; }
-@@ -4425,6 +4476,7 @@ static int tex_cpu_wait(const tex_t *t) {
+@@ -4500,6 +4551,7 @@ static int tex_cpu_wait(const tex_t *t) {
              off += pitch * rows * z;
          }
      }
@@ -262,7 +262,7 @@ index 172088c..4bb92e5 100644
      free(part); free(need);
      up_flush();
      return mt;
-@@ -6527,7 +6579,7 @@ static int bc_block_bytes(MTLPixelFormat f) {   // bytes per 4x4 block of a BC f
+@@ -6625,7 +6677,7 @@ static int bc_block_bytes(MTLPixelFormat f) {   // bytes per 4x4 block of a BC f
  // The shadow's format: the view's, when the base is BC (or a depth format, above) and the view is an uncompressed colour format with one block's bytes per pixel
  static int bcrt_view(id<MTLTexture> base, const view_t *v, MTLPixelFormat *pf_out) {
      uint32_t pf = 0; uint8_t swz[4]; int bw = 0, bh = 0, side = 0, bb = base ? shrt_block(base.pixelFormat, &side) : 0;
@@ -271,7 +271,7 @@ index 172088c..4bb92e5 100644
      if (nvn_fmt_bpb(v->format, &bw, &bh) != bb || bw != 1 || bh != 1) return 0;
      *pf_out = (MTLPixelFormat)pf; return 1;
  }
-@@ -6581,7 +6633,7 @@ static MTLPixelFormat rt_view_fmt(id<MTLTexture> base, const view_t *v, int has_
+@@ -6679,7 +6731,7 @@ static MTLPixelFormat rt_view_fmt(id<MTLTexture> base, const view_t *v, int has_
      }
      if (!base || !has_v || !v->set_format) return base.pixelFormat;
      uint32_t pf = 0; uint8_t swz[4];
@@ -280,7 +280,7 @@ index 172088c..4bb92e5 100644
      if (tex_need_pfv(base.pixelFormat, (MTLPixelFormat)pf) && !(base.usage & MTLTextureUsagePixelFormatView)) return base.pixelFormat;
      return (MTLPixelFormat)pf;
  }
-@@ -6675,7 +6727,7 @@ static void attach(MTLRenderPassAttachmentDescriptor *a, const tex_t *t, const v
+@@ -6773,7 +6825,7 @@ static void attach(MTLRenderPassAttachmentDescriptor *a, const tex_t *t, const v
              if (vw) { a.texture = vw; defer_obj_unref(vw); }
              else { RED_ONCE(67, "cannot create the render target view: format %#x (base texture Metal format %lu)", v->format, (unsigned long)base.pixelFormat); rtv_note_bad_pair(base.pixelFormat, pf); }
          } else { uint32_t want = 0; uint8_t swz[4];
@@ -289,7 +289,7 @@ index 172088c..4bb92e5 100644
                  RED_ONCE(68, "render target view format %#x cannot be attached (base texture Metal format %lu was created without the format-view usage): drawing in the base format", v->format, (unsigned long)base.pixelFormat); }
      }
  }
-@@ -8177,7 +8229,7 @@ static void treg_pkg_stamp(treg_t *rp, id<MTLTexture> base) {
+@@ -8285,7 +8337,7 @@ static void treg_pkg_stamp(treg_t *rp, id<MTLTexture> base) {
  static int treg_swizzle(const treg_t *r, MTLPixelFormat base_pf, int in_place, uint8_t sw[4], uint32_t *view_pf) {
      uint8_t fsw[4]; int need_sw = 0; *view_pf = 0;
      sw[0] = MTLTextureSwizzleRed; sw[1] = MTLTextureSwizzleGreen; sw[2] = MTLTextureSwizzleBlue; sw[3] = MTLTextureSwizzleAlpha;
@@ -298,7 +298,7 @@ index 172088c..4bb92e5 100644
      if (!in_place) for (int c = 0; c < 4; c++) if (fsw[c] >= MTLTextureSwizzleRed) fsw[c] = (uint8_t)(MTLTextureSwizzleRed + c);
      // Metal cannot cast a depth texture to its single-channel colour equivalent. Use the same depth storage,
      // but present (R, 0, 0, 1) to the NVN swizzle: a float shader reading Metal depth can see depth in G and B too.
-@@ -18434,7 +18486,7 @@ static void clear_tex(const p_clear_tex *c) {
+@@ -18929,7 +18981,7 @@ static void clear_tex(const p_clear_tex *c) {
          t = tex_upgrade(c->tex, t, MTLTextureUsageRenderTarget, t.pixelFormat);   // a clear of a texture made without render-target use (packaged): give it that use
      if (c->has_view && c->view.set_format) {   // View with changed format: the clear value is interpreted in the view format (all 5 of the game's calls are the ui version with an integer view), and the clear is done on a view of the same format
          uint32_t vpf = 0; uint8_t swz[4];
@@ -308,20 +308,20 @@ index 172088c..4bb92e5 100644
          if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf)) {
              id<MTLTexture> v = [t newTextureViewWithPixelFormat:(MTLPixelFormat)vpf];
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 6cfe7dc..ab35431 100644
+index 34cf2b4c..22962fc7 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -982,3 +982,7 @@ t_depth_bounds: t_depth_bounds.m $(MTL_T_DEP)
- check_t_depth_bounds: t_depth_bounds
- 	MTL_DEBUG_LAYER=1 DM_NVN_ENC_THREAD=0 ./$<
- 	MTL_DEBUG_LAYER=1 DM_NVN_ENC_THREAD=1 ./$<
+@@ -1007,3 +1007,7 @@ t_sparse_shadow: t_sparse_shadow.m $(MTL_T_DEP)
+ .PHONY: check_t_sparse_shadow
+ check_t_sparse_shadow: t_sparse_shadow
+ 	MTL_DEBUG_LAYER=1 ./t_sparse_shadow
 +
 +t_bc_cpu: t_bc_cpu.m $(MTL_T_DEP)
 +	clang $(CFLAGS) -fobjc-arc -o $@ t_bc_cpu.m $(MTL_T_SRC) $(FW)
 +check_t_bc_cpu: RUN_ENV = MTL_DEBUG_LAYER=1
 diff --git a/dm/gfx/tests/t_bc_cpu.m b/dm/gfx/tests/t_bc_cpu.m
 new file mode 100644
-index 0000000..b395b55
+index 00000000..b395b557
 --- /dev/null
 +++ b/dm/gfx/tests/t_bc_cpu.m
 @@ -0,0 +1,90 @@
@@ -416,7 +416,7 @@ index 0000000..b395b55
 +    printf("t_bc_cpu: %d checks, %d failed\n",checks,failed); return failed!=0;
 +}}
 diff --git a/dm/gfx/tex/README.md b/dm/gfx/tex/README.md
-index 1968759..5ce8669 100644
+index 1968759d..5ce86696 100644
 --- a/dm/gfx/tex/README.md
 +++ b/dm/gfx/tex/README.md
 @@ -21,7 +21,7 @@ The offsets of each level and layer within the storage, and the block height and
@@ -430,7 +430,7 @@ index 1968759..5ce8669 100644
  
 diff --git a/dm/gfx/tex/nvn_bcdec.c b/dm/gfx/tex/nvn_bcdec.c
 new file mode 100644
-index 0000000..00ebd5e
+index 00000000..00ebd5e5
 --- /dev/null
 +++ b/dm/gfx/tex/nvn_bcdec.c
 @@ -0,0 +1,88 @@
@@ -524,7 +524,7 @@ index 0000000..00ebd5e
 +}
 diff --git a/dm/gfx/tex/nvn_bcdec.h b/dm/gfx/tex/nvn_bcdec.h
 new file mode 100644
-index 0000000..ac82a27
+index 00000000..ac82a275
 --- /dev/null
 +++ b/dm/gfx/tex/nvn_bcdec.h
 @@ -0,0 +1,21 @@
@@ -550,7 +550,7 @@ index 0000000..ac82a27
 +// One RGB triple packed as RGB9E5 (the shared-exponent format of Metal's RGB9E5Float): negative, NaN and out-of-range inputs clamp.
 +uint32_t nvn_rgb9e5_pack(float r, float g, float b);
 diff --git a/dm/gfx/tex/tests/.gitignore b/dm/gfx/tex/tests/.gitignore
-index ad72cd1..15d594e 100644
+index ad72cd17..15d594ea 100644
 --- a/dm/gfx/tex/tests/.gitignore
 +++ b/dm/gfx/tex/tests/.gitignore
 @@ -1,4 +1,5 @@
@@ -560,7 +560,7 @@ index ad72cd1..15d594e 100644
  *.dSYM
  asan/
 diff --git a/dm/gfx/tex/tests/Makefile b/dm/gfx/tex/tests/Makefile
-index feed9f8..af5f698 100644
+index feed9f8e..af5f698f 100644
 --- a/dm/gfx/tex/tests/Makefile
 +++ b/dm/gfx/tex/tests/Makefile
 @@ -6,24 +6,28 @@ O ?=
@@ -600,7 +600,7 @@ index feed9f8..af5f698 100644
  	@$(call cov_export,cov)
 diff --git a/dm/gfx/tex/tests/t_bcdec.c b/dm/gfx/tex/tests/t_bcdec.c
 new file mode 100644
-index 0000000..5a40608
+index 00000000..5a406084
 --- /dev/null
 +++ b/dm/gfx/tex/tests/t_bcdec.c
 @@ -0,0 +1,202 @@
@@ -807,7 +807,7 @@ index 0000000..5a40608
 +    return 0;
 +}
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 18ed767..4ea2fc2 100644
+index 3d3b56be..693e0cc0 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -10,6 +10,7 @@
@@ -829,7 +829,7 @@ index 18ed767..4ea2fc2 100644
      fprintf(stderr, "[RED] boot: %s\n", msg);
 diff --git a/dm/third_party/bcdec/LICENSE b/dm/third_party/bcdec/LICENSE
 new file mode 100644
-index 0000000..78e53f1
+index 00000000..78e53f19
 --- /dev/null
 +++ b/dm/third_party/bcdec/LICENSE
 @@ -0,0 +1,52 @@
@@ -887,7 +887,7 @@ index 0000000..78e53f1
 +For more information, please refer to <https://unlicense.org>
 diff --git a/dm/third_party/bcdec/README.md b/dm/third_party/bcdec/README.md
 new file mode 100644
-index 0000000..baf2d24
+index 00000000..baf2d240
 --- /dev/null
 +++ b/dm/third_party/bcdec/README.md
 @@ -0,0 +1,2 @@
@@ -895,7 +895,7 @@ index 0000000..baf2d24
 +用途：不支持 BC 压缩格式的显卡上，翻译层把 BC 贴图在 CPU 上解压（dm/gfx/tex/nvn_bcdec.c）。
 diff --git a/dm/third_party/bcdec/bcdec.h b/dm/third_party/bcdec/bcdec.h
 new file mode 100644
-index 0000000..553c3ec
+index 00000000..553c3ec5
 --- /dev/null
 +++ b/dm/third_party/bcdec/bcdec.h
 @@ -0,0 +1,1512 @@
@@ -2412,10 +2412,10 @@ index 0000000..553c3ec
 +
 +*/
 diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
-index 1d2b93b..12d0cb0 100644
+index d513404c..213844d9 100644
 --- a/dm/tools/docs_patches.py
 +++ b/dm/tools/docs_patches.py
-@@ -140,6 +140,8 @@ SWITCH_BINDING = [
+@@ -141,6 +141,8 @@ SWITCH_BINDING = [
      ('jit_route', '', {'what': 'a route for the nn::jit capture', 'now': 'game', 'goal': 'game', 'purpose': 'runtime', 'why': "the game's own menus, for the image an iPhone serves"}),
      ('jit_out_code', '', {'what': 'where a nn::jit output lists the code it made', 'now': 'game', 'goal': 'game', 'purpose': 'runtime', 'why': "the layout of the game's own output buffer, for the image an iPhone serves"}),
      ('op_mode', '', {'what': 'the operation mode at start', 'now': 'game', 'goal': 'game', 'purpose': 'runtime', 'why': "the game's controls (handheld: the touch screen instead of a gyro pointer)"}),
@@ -2425,7 +2425,7 @@ index 1d2b93b..12d0cb0 100644
  
  
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 4adfd38..7a3f929 100644
+index 4adfd38e..7a3f929e 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -84,6 +84,14 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -2444,10 +2444,10 @@ index 4adfd38..7a3f929 100644
          s = build(BOTW, 'nvn')['DM_FPS_HOLD']
          self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index 9c6699a..9e9271b 100644
+index 5919f37c..023fb6ea 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -2793,3 +2793,12 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
+@@ -2794,3 +2794,12 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
  - **Fix:** the present reports the shape of the frame it draws ([the layer's](#a-crop-only-picks-texels-the-picture-has-the-layers-shape)) whenever its width / height changes (`nvn_mtl.m` `present_now` → `front.h` `front_picture_shape`; every graphics API presents there). The iOS front end lays the game's view out in that shape (`DmLayout.h` takes it as a parameter: the overlay, the split, Fill and the TV alike), so a 1.43:1 picture fills a 1.43:1 screen in Fit and touches are normalized on the picture as drawn; the Mac maps the mouse on the picture's own rectangle. A 16:9 game reports 16:9 and keeps its layout, and a size change of the same shape (1280x720 handheld, 1920x1080 docked) is not reported.
  - **Check:** the [Duo harness](../../dm/ios/tests/duo/README.md) tests the taller picture in Fit, in Fill and on a wider screen, and the production root view following a reported shape and returning to 16:9. Not yet run on a device.
  - **Found on:** [Breath of the Wild](../../dm/games/01007EF00011E000/README.md#screen-shape-dm_screen_aspect-current) and [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md#screen-shape-dm_screen_aspect-current) with `DM_SCREEN_ASPECT=1.43`.
@@ -2461,7 +2461,7 @@ index 9c6699a..9e9271b 100644
 +- **Limits:** this does not implement raw compressed-block views, GPU BC block encoding, or decoded-to-compressed readback. It keeps the existing compatibility opt-in and does not change the supported-device check.
 +- **Found on:** [Super Mario Bros. Wonder](../../dm/games/010015100B514000/README.md).
 diff --git a/docs/settings.md b/docs/settings.md
-index 31f840a..c4472b8 100644
+index 31f840af..c4472b8c 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -5,7 +5,7 @@ The screen before the game starts shows the settings the game supports. A settin
