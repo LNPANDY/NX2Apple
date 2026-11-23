@@ -36,6 +36,10 @@ package struct UpstreamEngineStore: Sendable {
             return URL(string: "https://codeload.github.com/ly05010419/MacNativeGames/zip/refs/heads/main")
         case .s2arm:
             return URL(string: "https://codeload.github.com/jhaizhou-ops/S2Arm/zip/refs/heads/main")
+        case .kidWithSword:
+            return URL(string: "https://codeload.github.com/cheemu21/kid-with-sword-remake/zip/refs/heads/L")
+        case .noLagKart:
+            return URL(string: "https://codeload.github.com/kingbumi31/no-lag-kart/zip/refs/heads/main")
         case .nxkit:
             return nil   // bundled with the app, updated by NxkitUpdate.swift
         }
@@ -49,6 +53,8 @@ package struct UpstreamEngineStore: Sendable {
             return MacNativeGamesBuilder.isUsableTree(path, fileManager: fm)
         case .s2arm:
             return S2ArmBuilder.isUsableTree(path, fileManager: fm)
+        case .kidWithSword, .noLagKart:
+            return EngineUpstream.isTree(path, kind: kind, fileManager: fm)
         case .nxkit:
             return false   // nxkit is bundled and updated by NxkitUpdate, never unpacked here
         }
@@ -56,11 +62,9 @@ package struct UpstreamEngineStore: Sendable {
 
     package func directory(for kind: EngineUpstreamKind) -> URL? {
         switch kind {
-        case .nxnative:
+        case .nxnative, .nxkit:
             return nil
-        case .nxkit:
-            return nil
-        case .macNativeGames, .s2arm:
+        case .macNativeGames, .s2arm, .kidWithSword, .noLagKart:
             return root.appendingPathComponent(kind.rawValue, isDirectory: true)
         }
     }
@@ -120,6 +124,8 @@ package struct UpstreamEngineStore: Sendable {
             scriptsToMarkExecutable = ["build_app.py"]
         case .s2arm:
             scriptsToMarkExecutable = [S2ArmBuilder.macOneClickScript, "pack/jobs/main.py"]
+        case .kidWithSword, .noLagKart:
+            scriptsToMarkExecutable = [RepoLayout.buildScript]
         case .nxkit:
             scriptsToMarkExecutable = []
         }

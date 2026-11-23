@@ -193,4 +193,44 @@ final class GameDeletionTests: IsolatedDefaultsTestCase {
         XCTAssertTrue(exists("out/NX2Apple.ipa"))
         XCTAssertFalse(exists("out/games/Hades"))
     }
+
+    func testDeletingGameRemovesAllVariantBuildFoldersAndRespectsSavesToggle() throws {
+        let tid = "0400486024DEC000"
+        for f in [
+            "src/OoT [\(tid)].nsp",
+            "out/\(tid)_build/extract/main",
+            "out/\(tid)_build/run/save/0",
+            "out/\(tid)_kidwithsword_build/extract/main",
+            "out/\(tid)_kidwithsword_build/shader/lib",
+            "out/\(tid)_kidwithsword_build/run/save/0",
+        ] {
+            try file(f)
+        }
+        var game = LibraryGame(titleID: tid, name: "Ocarina of Time")
+        game.outputDirectory = path + "/out"
+        game.inputs = ["base": [path + "/src/OoT [\(tid)].nsp"]]
+
+        let p = plan(game)
+        let buildPaths = Set(p.items.first { $0.kind == .buildFolder }?.paths ?? [])
+        XCTAssertTrue(buildPaths.contains(path + "/out/\(tid)_build/extract"))
+        XCTAssertTrue(buildPaths.contains(path + "/out/\(tid)_kidwithsword_build/extract"))
+        XCTAssertTrue(buildPaths.contains(path + "/out/\(tid)_kidwithsword_build/shader"))
+        let savePaths = Set(p.saves?.paths ?? [])
+        XCTAssertTrue(savePaths.contains(path + "/out/\(tid)_build/run"))
+        XCTAssertTrue(savePaths.contains(path + "/out/\(tid)_kidwithsword_build/run"))
+
+        // Deleting without saves removes build parts in both folders while keeping run/ in both.
+        XCTAssertEqual(p.run(saves: false, trash: { try FileManager.default.removeItem(at: $0) }), [])
+        XCTAssertFalse(exists("out/\(tid)_build/extract"))
+        XCTAssertFalse(exists("out/\(tid)_kidwithsword_build/extract"))
+        XCTAssertFalse(exists("out/\(tid)_kidwithsword_build/shader"))
+        XCTAssertTrue(exists("out/\(tid)_build/run/save/0"))
+        XCTAssertTrue(exists("out/\(tid)_kidwithsword_build/run/save/0"))
+
+        // Deleting with saves removes run/ and deletes both empty build directories.
+        XCTAssertEqual(plan(game).run(saves: true, trash: { try FileManager.default.removeItem(at: $0) }), [])
+        XCTAssertFalse(exists("out/\(tid)_build"))
+        XCTAssertFalse(exists("out/\(tid)_kidwithsword_build"))
+        XCTAssertTrue(exists("src/OoT [\(tid)].nsp"))
+    }
 }

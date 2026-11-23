@@ -81,14 +81,24 @@ struct DeleteGameSheet: View {
     private func detail(_ item: GameDeletion.Item) -> String {
         if item.kind == .shellFramework { return loc.t("delete.part.shellFrameworkNote") }
         guard let first = item.paths.first else { return "" }
-        let shown = item.kind == .buildFolder ? (first as NSString).deletingLastPathComponent : first
-        return (shown as NSString).abbreviatingWithTildeInPath
+        if item.kind == .buildFolder {
+            var seen = Set<String>()
+            let folders = item.paths.map { ($0 as NSString).deletingLastPathComponent }.filter { seen.insert($0).inserted }
+            return folders.map { ($0 as NSString).abbreviatingWithTildeInPath }.joined(separator: ", ")
+        }
+        return (first as NSString).abbreviatingWithTildeInPath
+    }
+
+    private func helpText(_ item: GameDeletion.Item) -> String {
+        guard item.kind == .buildFolder else { return item.paths.first ?? "" }
+        var seen = Set<String>()
+        return item.paths.map { ($0 as NSString).deletingLastPathComponent }.filter { seen.insert($0).inserted }.joined(separator: "\n")
     }
 
     /// A part with where it is: the path on one mono line cut in the middle with the whole path as its tooltip (DSRow), the shared
     /// app's note as prose.
     private func row(_ item: GameDeletion.Item) -> some View {
-        DSRow(title(item.kind), detail: detail(item), help: item.paths.first ?? "") {
+        DSRow(title(item.kind), detail: detail(item), help: helpText(item)) {
             if item.bytes > 0 { sizeText(item.bytes) }
             else if item.kind == .shellFramework {   // nothing here to measure: the size column says where it is (#1458)
                 Text(loc.t("delete.part.onDevice")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize()

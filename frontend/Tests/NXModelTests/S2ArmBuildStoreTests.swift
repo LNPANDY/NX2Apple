@@ -135,7 +135,7 @@ import XCTest
         NxkitBuilder.featureEnabled = false
         let store3 = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
         XCTAssertEqual(store3.buildUpstream, .nxnative)
-        XCTAssertEqual(store3.availableUpstreams, [.nxnative])
+        XCTAssertEqual(store3.availableUpstreams, [.nxnative, .kidWithSword, .noLagKart])
         XCTAssertFalse(store3.canSelectUpstream(.s2arm))
         store3.selectUpstream(.s2arm)
         XCTAssertEqual(store3.buildUpstream, .nxnative)
@@ -146,7 +146,7 @@ import XCTest
         defaults.set(EngineUpstreamKind.s2arm.rawValue, forKey: BuildStore.buildUpstreamKey)
         let store4 = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
         XCTAssertEqual(store4.buildUpstream, .nxnative)
-        XCTAssertEqual(store4.availableUpstreams, [.nxnative, .macNativeGames, .nxkit])
+        XCTAssertEqual(store4.availableUpstreams, [.nxnative, .nxkit, .macNativeGames, .kidWithSword, .noLagKart])
         XCTAssertFalse(store4.canSelectUpstream(.s2arm))
         _ = store4.downloadUpstream(.s2arm)
         XCTAssertNil(store4.upstreamDownloads[.s2arm])

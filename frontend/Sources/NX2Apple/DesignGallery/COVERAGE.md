@@ -6,7 +6,7 @@ popover and alert, every notice and every case of the state enums the views swit
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
 332 scenes.
 
-## Views: 228 of 238 in a scene
+## Views: 230 of 240 in a scene
 
 | View | Scenes |
 |---|---|
@@ -117,6 +117,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `ConsoleSupportedGamesPage` | `console-supportedGames` |
 | `ConsoleSwitch` | `consoleOptions`, `console-mappingStandard` |
 | `ConsoleSwitchRow` | `consoleGameCheats` |
+| `ConsoleTag` | `consoleOptions`, `console-supportedGames` |
 | `ConsoleToastView` | `desktop-controllerToast`, `console-homeToast` |
 | `ConsoleToggleListRow` | `consoleControllers` |
 | `ConsoleValueStepper` | `consoleOptions` |
@@ -146,6 +147,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `EngineDropdownPanel` | `desktop-engineDropdown` |
 | `EngineExperimentalBadge` | `desktop-engineDropdown` |
 | `EngineFootnote` | Reason: Not used by the launcher: no view creates it, only tests host it. |
+| `EnginePlatformBadge` | `desktop-engineDropdown` |
 | `EngineSwitcherCard` | `buildsIdle`, `nxkitFailed`, `desktop-mngRecommend`, `desktop-mngRecommendInstalled` |
 | `EngineSyncBanner` | `libraryNoticeError`, `settingsEngineError` |
 | `ExportSteps` | `desktop-completionExported`, `desktop-sendSent` |

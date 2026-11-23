@@ -133,6 +133,11 @@ import NXCore
                 tree: mngTreePath()
             )
             return (isMac && supported) ? .macNativeGames : .nxnative
+        case .kidWithSword:
+            return EngineUpstreamKind.kidWithSword.supportsTitleID(entry.titleID) ? .kidWithSword : .nxnative
+        case .noLagKart:
+            let isMac = BuildTarget.normalized(entry.target) == BuildTarget.mac
+            return (isMac && EngineUpstreamKind.noLagKart.supportsTitleID(entry.titleID)) ? .noLagKart : .nxnative
         case .nxkit:
             return BuildTarget.normalized(entry.target) == BuildTarget.mac ? .nxkit : .nxnative
         case .nxnative, .s2arm:
@@ -169,6 +174,12 @@ import NXCore
                 }
             }
             entry.upstream = resolvedEntryUpstream(for: entry, batchUpstream: batchUpstream)
+            if entry.target != BuildTarget.mac && entry.upstream?.buildsIOSStandaloneOnly == true {
+                entry.packageAfter = false
+                entry.exportIPA = true
+                entry.exportFramework = false
+                entry.destinationName = nil
+            }
             let key = QueueKey(titleID: entry.titleID, target: entry.target)
             let group = entries.filter { QueueKey(titleID: $0.titleID, target: $0.target).titleID == key.titleID }
             if let index = entries.firstIndex(where: { QueueKey(titleID: $0.titleID, target: $0.target) == key }) {
@@ -305,6 +316,13 @@ import NXCore
                     entries[index].destinationName = nil
                     continue
                 }
+                if entries[index].upstream?.buildsIOSStandaloneOnly == true {
+                    entries[index].packageAfter = false
+                    entries[index].exportIPA = true
+                    entries[index].exportFramework = false
+                    entries[index].destinationName = nil
+                    continue
+                }
                 if callerPassedMacOnlyDefaults && entries[index].locksTarget { continue }
                 if let packageAfter { entries[index].packageAfter = packageAfter }
                 if let exportIPA { entries[index].exportIPA = exportIPA }
@@ -344,7 +362,10 @@ import NXCore
         guard let index = entries.firstIndex(where: { $0.status == .running }) else { return }
         entries[index].status = succeeded ? .done : (stopped ? .stopped : .failed)
         entries[index].reason = succeeded || stopped ? nil : reason
-        if succeeded && entries[index].target != BuildTarget.mac && entries[index].packageAfter {
+        if succeeded
+            && entries[index].target != BuildTarget.mac
+            && entries[index].packageAfter
+            && entries[index].upstream?.buildsIOSStandaloneOnly != true {
             entries[index].packagePending = false
         }
         let batch = entries[index].batch

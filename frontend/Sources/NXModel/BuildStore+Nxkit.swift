@@ -72,10 +72,11 @@ extension BuildStore {
         isUpstreamEnabled(buildUpstream) && buildUpstream.buildsMacOnly
     }
 
-    /// An iOS entry that waited in the queue from before a Mac-only engine was chosen is not built and needs no device. MacNativeGames
-    /// hands such an entry to nxnative instead (`startQueued`), so this holds for the other Mac-only engines (nxkit).
+    /// An iOS entry that waited in the queue from before a Mac-only engine was chosen is not built and needs no device.
+    /// Game-tuned Mac-only engines (MacNativeGames, No Lag Kart) fall back incompatible queue entries to nxnative instead (`startQueued`),
+    /// so this holds for general Mac-only engines (nxkit).
     package var skipsQueuedIOS: Bool {
-        isMacOnlyUpstreamSelected && buildUpstream != .macNativeGames
+        isMacOnlyUpstreamSelected && buildUpstream == .nxkit
     }
 
     package var macOnlyNoteKey: String {
@@ -84,7 +85,7 @@ extension BuildStore {
 
     func isUpstreamEnabled(_ kind: EngineUpstreamKind) -> Bool {
         switch kind {
-        case .nxnative: return true
+        case .nxnative, .kidWithSword, .noLagKart: return true
         case .macNativeGames: return MacNativeGamesBuilder.featureEnabled
         case .s2arm: return S2ArmBuilder.featureEnabled
         case .nxkit: return NxkitBuilder.featureEnabled && nxkitAvailability == .available

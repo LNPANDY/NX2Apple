@@ -11,22 +11,26 @@ import Foundation
     /// One game with a build folder, as the app finds it.
     package struct Game: Equatable, Sendable {
         package let id: UUID
+        package let gameID: UUID?
         package let name: String
         package let folder: String
         package let protecting: [String]
-        package init(id: UUID, name: String, folder: String, protecting: [String] = []) {
-            self.id = id; self.name = name; self.folder = folder; self.protecting = protecting
+        package var ownerID: UUID { gameID ?? id }
+        package init(id: UUID, gameID: UUID? = nil, name: String, folder: String, protecting: [String] = []) {
+            self.id = id; self.gameID = gameID; self.name = name; self.folder = folder; self.protecting = protecting
         }
     }
 
     /// A game's removable build files and their size in bytes.
     package struct Entry: Equatable, Identifiable, Sendable {
         package let id: UUID
+        package let gameID: UUID?
         package let name: String
         package let folder: String
         package let bytes: Int64
-        package init(id: UUID, name: String, folder: String, bytes: Int64) {
-            self.id = id; self.name = name; self.folder = folder; self.bytes = bytes
+        package var ownerID: UUID { gameID ?? id }
+        package init(id: UUID, gameID: UUID? = nil, name: String, folder: String, bytes: Int64) {
+            self.id = id; self.gameID = gameID; self.name = name; self.folder = folder; self.bytes = bytes
         }
     }
 
@@ -42,6 +46,7 @@ import Foundation
     /// The games measured at least once: a game with a folder that is not measured yet shows its menu item without a size.
     private(set) var measured: Set<UUID> = []
     private var games: [UUID: Game] = [:]
+    private var confirmingAllForGame = false
     private var generation = 0
 
     private let measure: @Sendable (Game) -> Int64
@@ -57,9 +62,28 @@ import Foundation
 
     package var total: Int64 { entries.reduce(0) { $0 + $1.bytes } }
     package func entry(_ id: UUID) -> Entry? { entries.first { $0.id == id } }
+    /// All build-folder entries belonging to `gameID`.
+    package func entries(forGame gameID: UUID) -> [Entry] { entries.filter { $0.ownerID == gameID } }
     /// Whether the store has a size for this game yet (with or without files to remove).
     package func isMeasured(_ id: UUID) -> Bool { measured.contains(id) }
-    package var confirmingEntry: Entry? { confirming.flatMap(entry) }
+    package func isMeasured(forGame gameID: UUID) -> Bool {
+        measured.contains(gameID) || games.values.contains { $0.ownerID == gameID && measured.contains($0.id) }
+    }
+    package var confirmingEntry: Entry? {
+        guard let confirming else { return nil }
+        if !confirmingAllForGame { return entry(confirming) }
+        let matched = entries(forGame: confirming)
+        guard !matched.isEmpty else { return nil }
+        if matched.count == 1 { return matched[0] }
+        let baseName = matched.first { $0.id == confirming }?.name ?? matched[0].name
+        return Entry(
+            id: confirming,
+            gameID: confirming,
+            name: baseName,
+            folder: matched.map(\.folder).joined(separator: "\n"),
+            bytes: matched.reduce(0) { $0 + $1.bytes }
+        )
+    }
 
     package nonisolated static func sorted(_ entries: [Entry]) -> [Entry] {
         entries.sorted { $0.bytes != $1.bytes ? $0.bytes > $1.bytes : $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -74,38 +98,68 @@ import Foundation
         return Task { @MainActor in
             let sizes = await Task.detached(priority: .utility) { games.map { ($0, measure($0)) } }.value
             guard generation == self.generation else { return }
-            entries = Self.sorted(sizes.filter { $0.1 > 0 }.map { Entry(id: $0.0.id, name: $0.0.name, folder: $0.0.folder, bytes: $0.1) })
+            entries = Self.sorted(sizes.filter { $0.1 > 0 }.map {
+                Entry(id: $0.0.id, gameID: $0.0.gameID, name: $0.0.name, folder: $0.0.folder, bytes: $0.1)
+            })
             measured = Set(games.map(\.id))
             measuring = false
         }
     }
 
-    /// Asks before removing a game's build files (the sheet). Nothing to ask for a game with none, or while that game builds.
+    /// Asks before removing a single build folder entry (the sheet). Nothing to ask for a folder with none, or while that game builds.
     package func ask(_ id: UUID, building: Bool) {
         guard !building, removing == nil, entry(id) != nil else { return }
         failure = nil
+        confirmingAllForGame = false
         confirming = id
     }
 
-    /// The answer to the question: removes the files, then measures that game again. Refused while the game builds.
+    /// Asks before removing all build folders belonging to `gameID` (from the game's Manage menu).
+    package func askForGame(_ gameID: UUID, building: Bool) {
+        let matched = entries(forGame: gameID)
+        guard !building, removing == nil, !matched.isEmpty else { return }
+        if matched.count == 1 {
+            ask(matched[0].id, building: building)
+            return
+        }
+        failure = nil
+        confirmingAllForGame = true
+        confirming = gameID
+    }
+
+    /// The answer to the question: removes the files, then measures that entry (or all folders of that game) again. Refused while the game builds.
     @discardableResult package func remove(_ id: UUID, building: Bool) -> Task<Void, Never>? {
+        let removeAllForGame = confirmingAllForGame && confirming == id
         confirming = nil
-        guard !building, removing == nil, let game = games[id] else { return nil }
+        confirmingAllForGame = false
+        let targets: [Game] = removeAllForGame
+            ? games.values.filter { $0.ownerID == id }
+            : games[id].map { [$0] } ?? []
+        guard !building, removing == nil, !targets.isEmpty else { return nil }
         removing = id
         failure = nil
         let removeFiles = removeFiles, measure = measure
         return Task { @MainActor in
-            let result = await Task.detached(priority: .userInitiated) { () -> (Error?, Int64) in
-                var error: Error?
-                do { _ = try removeFiles(game) } catch let e { error = e }
-                return (error, measure(game))
+            let results = await Task.detached(priority: .userInitiated) { () -> (Error?, [(Game, Int64)]) in
+                var firstError: Error?
+                var after: [(Game, Int64)] = []
+                for target in targets {
+                    do { _ = try removeFiles(target) } catch let e { if firstError == nil { firstError = e } }
+                    after.append((target, measure(target)))
+                }
+                return (firstError, after)
             }.value
             removing = nil
-            if let error = result.0 { failure = error.localizedDescription }
-            var next = entries.filter { $0.id != id }
-            if result.1 > 0 { next.append(Entry(id: game.id, name: game.name, folder: game.folder, bytes: result.1)) }
+            if let error = results.0 { failure = error.localizedDescription }
+            let removedIDs = Set(targets.map(\.id))
+            var next = entries.filter { !removedIDs.contains($0.id) }
+            for (target, remainingBytes) in results.1 {
+                if remainingBytes > 0 {
+                    next.append(Entry(id: target.id, gameID: target.gameID, name: target.name, folder: target.folder, bytes: remainingBytes))
+                }
+                measured.insert(target.id)
+            }
             entries = Self.sorted(next)
-            measured.insert(id)
         }
     }
 }

@@ -58,10 +58,20 @@ extension BuildStore {
         if !s2armInstalled, let dir = store.usableDirectory(for: .s2arm) {
             s2armPath = dir.path
         }
+        if !kidWithSwordInstalled, let dir = store.usableDirectory(for: .kidWithSword) {
+            kidWithSwordPath = dir.path
+        }
+        if !noLagKartInstalled, let dir = store.usableDirectory(for: .noLagKart) {
+            noLagKartPath = dir.path
+        }
         refreshNxkit()
         if buildUpstream == .macNativeGames && !macNativeGamesInstalled {
             buildUpstream = .nxnative
         } else if buildUpstream == .s2arm && !s2armInstalled {
+            buildUpstream = .nxnative
+        } else if buildUpstream == .kidWithSword && !kidWithSwordInstalled {
+            buildUpstream = .nxnative
+        } else if buildUpstream == .noLagKart && !noLagKartInstalled {
             buildUpstream = .nxnative
         } else if buildUpstream == .nxkit && !(isUpstreamEnabled(.nxkit) && nxkitInstalled) {
             buildUpstream = .nxnative
@@ -77,6 +87,10 @@ extension BuildStore {
             return macNativeGamesInstalled
         case .s2arm:
             return s2armInstalled
+        case .kidWithSword:
+            return kidWithSwordInstalled
+        case .noLagKart:
+            return noLagKartInstalled
         case .nxkit:
             return nxkitInstalled
         }
@@ -107,6 +121,14 @@ extension BuildStore {
                 && !isMNGBlockedByCurrentGame
         case .s2arm:
             return S2ArmBuilder.featureEnabled && s2armInstalled && !(upstreamDownloads[.s2arm]?.isBusy ?? false)
+        case .kidWithSword:
+            return kidWithSwordInstalled
+                && !(upstreamDownloads[.kidWithSword]?.isBusy ?? false)
+                && !isUpstreamBlockedByCurrentGame(.kidWithSword)
+        case .noLagKart:
+            return noLagKartInstalled
+                && !(upstreamDownloads[.noLagKart]?.isBusy ?? false)
+                && !isUpstreamBlockedByCurrentGame(.noLagKart)
         case .nxkit:
             return isUpstreamEnabled(.nxkit) && nxkitInstalled
         }
@@ -194,6 +216,10 @@ extension BuildStore {
                     self.macNativeGamesPath = url.path
                 case .s2arm:
                     self.s2armPath = url.path
+                case .kidWithSword:
+                    self.kidWithSwordPath = url.path
+                case .noLagKart:
+                    self.noLagKartPath = url.path
                 case .nxkit:
                     break
                 }

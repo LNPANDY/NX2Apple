@@ -164,6 +164,7 @@ import NXModel
                         build.queuedExportIPA = nil
                         build.queuedExportOneGame = nil
                         build.queuedExportFramework = nil
+                        build.enforceUpstreamForCurrentGame()
                     }
                 }
             }

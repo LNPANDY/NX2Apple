@@ -40,12 +40,23 @@ struct LibraryGameCard: View {
                 // the chip above the clip, inset from the top and leading edge, clear of the corner radius
                 .overlay(alignment: .topLeading) { LibraryArtworkChip(state: state).padding(DS.Interaction.chipInset) }
                 .overlay(alignment: .topTrailing) {
-                    // built with MacNativeGames: a property of the app, a quiet tag in the other corner
-                    if state.isMacNativeGames {
-                        DSTag(loc.t("library.chip.mng"), emphasized: true)
-                            .help(loc.t("library.mng.help"))
-                            .accessibilityLabel(loc.t("library.mng.help"))
+                    // Built with a game-tuned engine, or lists each available game-tuned engine by full name.
+                    if let built = state.builtTunedEngine {
+                        let help = String(format: loc.t("library.tunedBuilt.help"), built.displayName)
+                        DSTag(built.displayName, emphasized: true, width: DSTag.engineWidth)
+                            .help(help)
+                            .accessibilityLabel(help)
                             .padding(DS.Interaction.chipInset)
+                    } else if state.hasTunedEngine {
+                        VStack(alignment: .trailing, spacing: DS.Space.xxs) {
+                            ForEach(state.tunedEngines, id: \.self) { engine in
+                                let help = String(format: loc.t("library.tuned.help"), engine.displayName)
+                                DSTag(engine.displayName, emphasized: true, width: DSTag.engineWidth)
+                                    .help(help)
+                                    .accessibilityLabel(help)
+                            }
+                        }
+                        .padding(DS.Interaction.chipInset)
                     } else if state.isNxkitGeneric {
                         // nxkit built it without a game profile (v0lumehi/nxkit#54): the same quiet tag in the same corner
                         DSTag(loc.t("nxkit.generic.badge"), emphasized: true)

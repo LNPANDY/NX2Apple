@@ -57,31 +57,40 @@ package struct UpstreamBuilderRow: View {
         return EngineUpstreamKind(rawValue: String(value.dropFirst(downloadPrefix.count)))
     }
 
-    /// The external engines this Mac may use that are not there yet and not being fetched: MacNativeGames, and S2Arm only with
-    /// NX2APPLE_ENABLE_S2ARM=1. Each is a "Download" entry in the pop-up. Any title may download MacNativeGames, choosing it stays
-    /// for its five titles.
+    /// The external engines this Mac may use that are not there yet and not being fetched.
     package static func downloadable(_ build: BuildStore) -> [EngineUpstreamKind] {
-        [EngineUpstreamKind.macNativeGames, .s2arm].filter { kind in
-            let enabled = kind == .macNativeGames ? MacNativeGamesBuilder.featureEnabled : S2ArmBuilder.featureEnabled
+        [EngineUpstreamKind.macNativeGames, .kidWithSword, .noLagKart, .s2arm].filter { kind in
+            let enabled: Bool
+            switch kind {
+            case .macNativeGames: enabled = MacNativeGamesBuilder.featureEnabled
+            case .s2arm: enabled = S2ArmBuilder.featureEnabled
+            case .kidWithSword, .noLagKart: enabled = true
+            case .nxnative, .nxkit: enabled = false
+            }
             return enabled && build.availableUpstreams.contains(kind) && !build.isUpstreamInstalled(kind) && build.buildUpstream != kind
                 && !build.upstreamState(kind).isBusy
         }
     }
 
-    /// The engines the pop-up offers: nxnative, and each other one that is set up or chosen. nxkit (Beta) only on a Mac that runs it.
-    /// Then a "Download" entry for each external engine that is not there (`downloadable`).
+    /// The engines the pop-up offers: general engines, installed game-tuned engines, then downloadable external engines.
     package static func options(_ build: BuildStore, _ loc: Localizer) -> [(value: String, label: String)] {
         var opts: [(value: String, label: String)] = [
             (EngineUpstreamKind.nxnative.rawValue, "nxnative")
         ]
-        if MacNativeGamesBuilder.featureEnabled && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames) {
-            opts.append((EngineUpstreamKind.macNativeGames.rawValue, "MacNativeGames"))
+        if build.nxkitSelectable || build.buildUpstream == .nxkit && NxkitBuilder.featureEnabled && build.nxkitAvailability == .available {
+            opts.append((EngineUpstreamKind.nxkit.rawValue, loc.t("nxkit.name")))
         }
         if S2ArmBuilder.featureEnabled && (build.s2armInstalled || build.buildUpstream == .s2arm) {
             opts.append((EngineUpstreamKind.s2arm.rawValue, "S2Arm"))
         }
-        if build.nxkitSelectable || build.buildUpstream == .nxkit && NxkitBuilder.featureEnabled && build.nxkitAvailability == .available {
-            opts.append((EngineUpstreamKind.nxkit.rawValue, loc.t("nxkit.name")))
+        if MacNativeGamesBuilder.featureEnabled && (build.macNativeGamesInstalled || build.buildUpstream == .macNativeGames) {
+            opts.append((EngineUpstreamKind.macNativeGames.rawValue, EngineUpstreamKind.macNativeGames.displayName))
+        }
+        if build.kidWithSwordInstalled || build.buildUpstream == .kidWithSword {
+            opts.append((EngineUpstreamKind.kidWithSword.rawValue, EngineUpstreamKind.kidWithSword.displayName))
+        }
+        if build.noLagKartInstalled || build.buildUpstream == .noLagKart {
+            opts.append((EngineUpstreamKind.noLagKart.rawValue, EngineUpstreamKind.noLagKart.displayName))
         }
         for kind in downloadable(build) {
             opts.append((downloadPrefix + kind.rawValue, kind.displayName + " \u{00b7} " + loc.t("upstream.download")))
@@ -89,9 +98,15 @@ package struct UpstreamBuilderRow: View {
         return opts
     }
 
-    /// The engines the pop-up shows but this game or staged queue cannot take: MacNativeGames outside its 12 supported titles (#1473).
+    /// The engines the pop-up shows but this game or staged queue cannot take.
     package static func disabledValues(_ build: BuildStore) -> Set<String> {
-        build.isMNGBlockedByCurrentGame ? [EngineUpstreamKind.macNativeGames.rawValue] : []
+        var disabled: Set<String> = []
+        for kind in [EngineUpstreamKind.macNativeGames, .kidWithSword, .noLagKart] {
+            if build.isUpstreamBlockedByCurrentGame(kind) {
+                disabled.insert(kind.rawValue)
+            }
+        }
+        return disabled
     }
 
     /// MacNativeGames is in the pop-up and blocked by the current game or staged queue: the row says why it is dimmed.
@@ -138,6 +153,16 @@ package struct UpstreamBuilderRow: View {
             CardDivider()
             folderRow(.macNativeGames, title: loc.t("upstream.mngFolder"), path: build.macNativeGamesPath, usable: build.macNativeGamesInstalled,
                       invalidKey: "upstream.mngInvalid", padID: "set.upstream.mngFolder", pick: pickMNG)
+        }
+        if build.kidWithSwordInstalled || build.buildUpstream == .kidWithSword || Self.fetching(build, .kidWithSword) {
+            CardDivider()
+            folderRow(.kidWithSword, title: loc.t("upstream.kwsFolder"), path: build.kidWithSwordPath, usable: build.kidWithSwordInstalled,
+                      invalidKey: "upstream.kwsInvalid", padID: "set.upstream.kwsFolder", pick: pickKWS)
+        }
+        if build.noLagKartInstalled || build.buildUpstream == .noLagKart || Self.fetching(build, .noLagKart) {
+            CardDivider()
+            folderRow(.noLagKart, title: loc.t("upstream.noLagKartFolder"), path: build.noLagKartPath, usable: build.noLagKartInstalled,
+                      invalidKey: "upstream.noLagKartInvalid", padID: "set.upstream.noLagKartFolder", pick: pickNoLagKart)
         }
         if S2ArmBuilder.featureEnabled && (build.s2armInstalled || build.buildUpstream == .s2arm || Self.fetching(build, .s2arm)) {
             CardDivider()
@@ -219,6 +244,28 @@ package struct UpstreamBuilderRow: View {
         p.message = loc.t("upstream.s2armPickMessage")
         if p.runModal() == .OK, let u = p.url {
             build.s2armPath = u.path
+        }
+    }
+
+    private func pickKWS() {
+        let p = NSOpenPanel()
+        p.canChooseFiles = false
+        p.canChooseDirectories = true
+        p.allowsMultipleSelection = false
+        p.message = loc.t("upstream.kwsPickMessage")
+        if p.runModal() == .OK, let u = p.url {
+            build.kidWithSwordPath = u.path
+        }
+    }
+
+    private func pickNoLagKart() {
+        let p = NSOpenPanel()
+        p.canChooseFiles = false
+        p.canChooseDirectories = true
+        p.allowsMultipleSelection = false
+        p.message = loc.t("upstream.noLagKartPickMessage")
+        if p.runModal() == .OK, let u = p.url {
+            build.noLagKartPath = u.path
         }
     }
 }

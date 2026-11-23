@@ -84,6 +84,7 @@ extension BuildStore {
             updatedImgPath = ""
         }
         send = .idle
+        activeBuildUpstream = buildUpstream
         mngRun = false
         s2armRun = false
         s2armEventsPath = ""
@@ -135,15 +136,25 @@ extension BuildStore {
             startS2ArmBuild()
             return
         }
-        guard repo.isRepo else {
-            fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))
-            return
+        let isVariant = isNxnativeVariantSelected
+        let engineRoot = activeNxnativeEngineRoot()
+        let capabilityDir = isVariant ? engineRoot : repo.path
+        if isVariant {
+            if let problem = validateNxnativeVariantBeforeBuild(engineRoot: engineRoot) {
+                fail(problem)
+                return
+            }
+        } else {
+            guard repo.isRepo else {
+                fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))
+                return
+            }
         }
         // Resolve the interpreter safely while rejecting stale cross-upstream caches and MNG's uv-python.
         let py = resolveBuildPython()
         // engine/ is the only engine and is stale or missing (#214): make it, then start again
-        if EngineLayout.needsSyncBeforeBuild(repo.path) {
-            _ = engine.syncEngine { ok in
+        if !isVariant && EngineLayout.needsSyncBeforeBuild(repo.path) {
+            _ = self.engine.syncEngine { ok in
                 self.running = false
                 if ok && !EngineLayout.needsSyncBeforeBuild(self.repo.path) { self.runBuild() }
                 else { self.fail(String(format: self.t("msg.toolsOld"), "engine/ (python3 tools/engine.py sync, see the log)")) }
@@ -151,7 +162,7 @@ extension BuildStore {
             return
         }
         // The tools this app runs, before a build that takes an hour finds one missing at its last step (#87)
-        let missing = RepoLayout.missingTools(in: repo.path)
+        let missing = RepoLayout.missingTools(in: capabilityDir, for: isVariant ? buildUpstream : .nxnative)
         if !missing.isEmpty {
             fail(String(format: t("msg.toolsOld"), missing.joined(separator: ", ")))
             return
@@ -192,7 +203,7 @@ extension BuildStore {
             }
         }
         let tidHex = buildKey
-        let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+        let workDir = nxnativeWorkDirectory(baseOut: outDir.isEmpty ? baseDir : outDir, tidHex: tidHex)
         // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
@@ -232,7 +243,7 @@ extension BuildStore {
         // option and would stop with "unrecognized arguments" (issue #5), so ask the script. Without
         // it the script's own default (<input>/<title ID>_build) is used and the archive step follows
         // whatever folder the build reports.
-        let hasWorkDir = RepoLayout.supportsWorkDir(repo.path)
+        let hasWorkDir = RepoLayout.supportsWorkDir(capabilityDir)
         if !hasWorkDir {
             say(t("msg.noWorkDir"))
         }
@@ -279,15 +290,17 @@ extension BuildStore {
                 }
             }
         }
-        let engine = EngineLayout.root(repo.path)   // the checkout's engine/ (#214)
         // A game folder's files are not encrypted: the script ignores -k for it, and the launcher does not ask for the keys.
-        var args = [engine + "/" + RepoLayout.buildScript, inputDir] + (folder != nil ? [] : ["-k", keysPath]) + ["--progress", "json"]
+        var args = [engineRoot + "/" + RepoLayout.buildScript, inputDir] + (folder != nil ? [] : ["-k", keysPath])
+        if !isVariant || RepoLayout.supportsProgressJson(capabilityDir) {
+            args += ["--progress", "json"]
+        }
         if let selectedTitleID { args += ["--title-id", selectedTitleID] }
         // A small env file the pipeline copies into the app bundle (main.m sets one variable per line at boot). Only for an iPhone or
         // iPad build: the in-game menu's words in the launcher's language (GameMenuText, #1129), and the CPU decode of BC textures when
         // the player turned that compatibility switch on (a Mac app runs on this Mac's GPU, which always has BC support).
         var tempEnvURL: URL?
-        if target != BuildTarget.mac {
+        if target != BuildTarget.mac, (!isVariant || RepoLayout.supportsEnvFile(capabilityDir)) {
             let envURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("nspb-env-\(UUID().uuidString).txt")
             do {
                 try GameMenuText.envFile(bcOnCPU: bcOnCPU, t).write(to: envURL, atomically: true, encoding: .utf8)
@@ -301,7 +314,7 @@ extension BuildStore {
         if hasWorkDir { args += ["--work-dir", workDir] }
         // The image of this game the other platform's build left (the iPhone build's games/<id>/romfs.img, the Mac app's): the
         // script takes it in place of extracting the RomFS again once it checks out as this version's (#708). A game folder is packed, not extracted.
-        if folder == nil, RepoLayout.supportsRomfsFrom(repo.path) {
+        if folder == nil, RepoLayout.supportsRomfsFrom(capabilityDir) {
             var reusable = RomFSArchive.reusableImages(root: outDir.isEmpty ? baseDir : outDir, key: tidHex)
             if let extImg = fastRefreshExternalImgPath, !reusable.contains(extImg), FileManager.default.fileExists(atPath: extImg) {
                 reusable.append(extImg)
@@ -314,7 +327,10 @@ extension BuildStore {
         if exportsOneGame {
             // One game's own IPA with its game data inside (BuildStore+OneGame.swift, #540)
             oneGameIPAPath = OneGameIPA.path(folder: outDir.isEmpty ? baseDir : outDir, titleID: tidHex)
-            args += OneGameIPA.arguments(ipa: oneGameIPAPath)
+            let variantBundleID = isVariant && RepoLayout.supportsBundleID(capabilityDir)
+                ? OneGameIPA.personalBundleID(titleID: tidHex, teamID: devices.signingTeam)
+                : nil
+            args += OneGameIPA.arguments(ipa: oneGameIPAPath, bundleID: variantBundleID)
         } else if let macOutput {
             macAppPath = ""
             args += ["--platform", "mac-app", "-o", macOutput.builderURL.path]
@@ -322,12 +338,12 @@ extension BuildStore {
                 args += ["--seen-shaders"]
                 say(t("msg.seenShadersOn"))
             }
-            if RepoLayout.supportsFallbackIcon(repo.path) { args += macFallbackIconArguments(tidHex) }
+            if RepoLayout.supportsFallbackIcon(capabilityDir) { args += macFallbackIconArguments(tidHex) }
         } else {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
             args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
         }
-        if !macApp, RepoLayout.supportsCheatDir(repo.path),
+        if !macApp, RepoLayout.supportsCheatDir(capabilityDir),
            let activeCheatsDir = RepoLayout.existingCheatsDir(titleID: gameTitleID ?? tidHex, home: self.home) {
             args += ["--cheat-dir", activeCheatsDir]
         }
@@ -461,14 +477,14 @@ extension BuildStore {
                             launchEnv["PATH"] = finalBinDir + ":" + curPath
                         }
                     }
-                    let launch = ProcessLaunch(executable: py, arguments: immutableArgs, environment: launchEnv, directory: engine, groupPython: py)
+                    let launch = ProcessLaunch(executable: py, arguments: immutableArgs, environment: launchEnv, directory: engineRoot, groupPython: py)
                     self.startBuildProcess(launch: launch, envCleanup: immutableEnvCleanup, macOutput: macOutput)
                 }
             }
             return
         }
 
-        let launch = ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
+        let launch = ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engineRoot, groupPython: py)
         startBuildProcess(launch: launch, envCleanup: tempEnvURL, macOutput: macOutput)
     }
 
@@ -601,6 +617,8 @@ extension BuildStore {
                 }.value
                 guard archiveGeneration == generation, !stopping else { return }
                 macAppPath = app.path
+                let builtTid = (gameTitleID?.isEmpty == false ? gameTitleID! : buildKey)
+                BuiltUpstreamRegistry.record(appPath: app.path, titleID: builtTid, upstream: activeBuildUpstream, home: home)
                 say("✓ " + shortPath(app.path))
                 await preflight(app)
                 guard archiveGeneration == generation else { return }

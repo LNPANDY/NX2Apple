@@ -45,7 +45,7 @@ package struct MacGameBundle {
             return false
         }
         switch upstream {
-        case .nxnative:
+        case .nxnative, .kidWithSword, .noLagKart:
             return fm.isExecutableFile(atPath: bundleURL.appendingPathComponent("Contents/MacOS/dmhost").path)
         case .macNativeGames:
             return true
@@ -143,12 +143,31 @@ package struct MacGameBundle {
             }
             upstream = .nxkit
             upperID = resolvedID
+        } else if explicitUpstream == EngineUpstreamKind.kidWithSword.rawValue {
+            guard let resolvedID = isHexTitleID(info["DMTitleID"] as? String) else {
+                removeCached(bundleKey)
+                throw Invalid.notGame
+            }
+            upstream = .kidWithSword
+            upperID = resolvedID
+        } else if explicitUpstream == EngineUpstreamKind.noLagKart.rawValue {
+            guard let resolvedID = isHexTitleID(info["DMTitleID"] as? String) else {
+                removeCached(bundleKey)
+                throw Invalid.notGame
+            }
+            upstream = .noLagKart
+            upperID = resolvedID
         } else {
             guard let resolvedID = isHexTitleID(info["DMTitleID"] as? String) else {
                 removeCached(bundleKey)
                 throw Invalid.notGame
             }
-            upstream = .nxnative
+            upstream = BuiltUpstreamRegistry.lookup(
+                appPath: bundleKey,
+                titleID: resolvedID,
+                plistSize: plistSize,
+                plistModified: plistModified
+            ) ?? .nxnative
             upperID = resolvedID
         }
 

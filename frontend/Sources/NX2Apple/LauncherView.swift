@@ -422,8 +422,8 @@ struct LauncherView: View {
         }
         .sheet(isPresented: $controlsOpen) { ControlsView(layout: controls, cancelRequest: controlsCancelRequest).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
-            if let id = freeSpaceFor, let game = BuildFiles.freeSpaceGame(id: id, in: library.games, store: stores.buildFiles) {
-                FreeSpaceView(m: m, game: game).environmentObject(padFocus)
+            if let id = freeSpaceFor, let target = BuildFiles.freeSpaceTarget(id: id, in: library.games, store: stores.buildFiles) {
+                FreeSpaceView(m: m, game: target.game, folder: target.folder).environmentObject(padFocus)
             }
         }
         .onChange(of: freeSpaceFor) { id in
@@ -446,8 +446,8 @@ struct LauncherView: View {
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
         .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)
         .sheet(isPresented: $selectingGames) {
-            BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !m.exportsOneGame && !m.exportsFramework, exportsFramework: m.exportsFramework,
-                macOnlyNoteKey: m.isMacOnlyUpstreamSelected ? m.macOnlyNoteKey : nil, macNativeGamesSelected: m.isMacNativeGamesSelected, mngSupportsGenericNUP: MacNativeGamesBuilder.supportsGenericNUP(in: m.macNativeGamesPath),
+            BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !(devices.exportIPA && (devices.exportOneGame || devices.exportFramework)), exportsFramework: devices.exportIPA && !devices.exportOneGame && devices.exportFramework,
+                macOnlyNoteKey: m.isMacOnlyUpstreamSelected ? m.macOnlyNoteKey : nil, macNativeGamesSelected: m.isMacNativeGamesSelected, mngSupportsGenericNUP: MacNativeGamesBuilder.supportsGenericNUP(in: m.macNativeGamesPath), activeUpstream: m.buildUpstream,
                 added: { target in m.target = target; buildEditorOpen = true; page = .builds }) { selectingGames = false }
                 .environmentObject(loc).environmentObject(padFocus)
         }
@@ -762,7 +762,7 @@ struct LauncherView: View {
     /// The Manage menu's rows for a game, wired to the launcher's sheets and actions (ManageItem.list).
     private func manageItems(_ game: LibraryGame) -> [ManageItem] {
         ManageItem.list(game: game, labels: loc.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
-                        hasBuildFolder: BuildFolder.location(for: game) != nil,
+                        hasBuildFolder: !BuildFolder.locations(for: game).isEmpty,
                         buildFilesTitle: BuildFiles.menuTitle(stores.buildFiles, game: game.id, t: loc.t),
                         hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
                         deviceName: devices.deviceName(game.installedDevice), launching: launching,
@@ -771,7 +771,7 @@ struct LauncherView: View {
                             changeArtwork: { page = .library; openArtwork(game) }, rename: { renaming = game },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
-                            removeBuildFiles: { stores.buildFiles.ask(game.id, building: m.running && activeBuildID == game.id) }, remove: { removing = game }, delete: { deleting = game }))
+                            removeBuildFiles: { stores.buildFiles.askForGame(game.id, building: m.running && activeBuildID == game.id) }, remove: { removing = game }, delete: { deleting = game }))
     }
 
     private func manageItems(for game: LibraryGame?) -> [ManageItem] { game.map(manageItems) ?? [] }

@@ -65,6 +65,10 @@ package enum UpstreamVersion {
             return URL(string: "https://github.com/jhaizhou-ops/S2Arm/info/refs?service=git-upload-pack")
         case .macNativeGames:
             return URL(string: "https://github.com/ly05010419/MacNativeGames/info/refs?service=git-upload-pack")
+        case .kidWithSword:
+            return URL(string: "https://github.com/cheemu21/kid-with-sword-remake/info/refs?service=git-upload-pack")
+        case .noLagKart:
+            return URL(string: "https://github.com/kingbumi31/no-lag-kart/info/refs?service=git-upload-pack")
         }
     }
 
@@ -171,7 +175,7 @@ package enum UpstreamVersion {
                 } else {
                     version = String(commit.prefix(7))
                 }
-            case .nxnative, .nxkit:
+            case .nxnative, .nxkit, .kidWithSword, .noLagKart:
                 version = String(commit.prefix(7))
             }
         } else if let remoteInfo, !remoteInfo.version.isEmpty {
@@ -267,6 +271,8 @@ package enum UpstreamVersion {
             entryRel = "build_app.py"
         case .s2arm:
             entryRel = "pack/jobs/main.py"
+        case .kidWithSword, .noLagKart:
+            entryRel = RepoLayout.buildScript
         case .nxnative, .nxkit:
             return nil
         }
@@ -291,10 +297,12 @@ package enum UpstreamVersion {
             return nil
         }
 
+        var targetBranchCommit: String?
         var mainCommit: String?
         var headCommit: String?
         var tagCommits: [String: String] = [:]
         var dereferencedTags: Set<String> = []
+        let targetBranchRef = "refs/heads/" + kind.gitBranch
 
         for rawLine in text.split(whereSeparator: \.isNewline) {
             // Strip NUL capabilities suffix (present on the first HEAD ref line).
@@ -324,7 +332,9 @@ package enum UpstreamVersion {
                 continue
             }
             let ref = String(parts[1])
-            if ref == "refs/heads/main" {
+            if ref == targetBranchRef {
+                targetBranchCommit = sha
+            } else if ref == "refs/heads/main" {
                 mainCommit = sha
             } else if ref == "HEAD" {
                 headCommit = sha
@@ -340,7 +350,7 @@ package enum UpstreamVersion {
             }
         }
 
-        guard let mainSHA = mainCommit ?? headCommit else {
+        guard let mainSHA = targetBranchCommit ?? mainCommit ?? headCommit else {
             return nil
         }
         let shortSHA = String(mainSHA.prefix(7))
@@ -352,6 +362,8 @@ package enum UpstreamVersion {
         case .macNativeGames:
             let (version, dateStr) = resolveMNGVersion(mainSHA: mainSHA, tagCommits: tagCommits, now: now)
             return UpstreamRemoteInfo(kind: kind, commit: mainSHA, version: version, date: dateStr)
+        case .kidWithSword, .noLagKart:
+            return UpstreamRemoteInfo(kind: kind, commit: mainSHA, version: shortSHA, date: "")
         case .nxnative, .nxkit:
             return nil
         }

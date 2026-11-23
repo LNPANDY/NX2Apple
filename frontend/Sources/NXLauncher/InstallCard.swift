@@ -38,12 +38,16 @@ package struct InstallCard: View {
         let needsCertificate = devices.teams.first { $0.id == devices.signingTeam }.map { !$0.hasCertificate } ?? false
         let footnote = devices.exportIPA ? ""
             : devices.installDevice.isEmpty ? "" : (needsCertificate ? loc.t("dev.teamNoCert") + " " : "") + loc.t("dev.note")
+        let standaloneForced = build.forcesStandaloneOneGameIPA
         let modeLabels = [loc.t("shell.modeInstall"), loc.t("shell.modeExport")]
         let modeSwitch = LauncherSegmented(options: [("install", modeLabels[0]), ("export", modeLabels[1])],
-                                           selection: devices.exportIPA ? "export" : "install") { devices.exportIPA = $0 == "export" }
+                                           selection: (standaloneForced || devices.exportIPA) ? "export" : "install") {
+            if !standaloneForced { devices.exportIPA = $0 == "export" }
+        }
             .frame(width: ExportGrid.segmentedWidth(for: modeLabels))
-            .disabled(build.running)
-            .padTarget("set.build.install.mode", scope: "main", enabled: !build.running, activate: { if !build.running { devices.exportIPA.toggle() } }, adjust: { _ in if !build.running { devices.exportIPA.toggle() } })
+            .disabled(build.running || standaloneForced)
+            .opacity(standaloneForced ? 0.65 : 1)
+            .padTarget("set.build.install.mode", scope: "main", enabled: !build.running && !standaloneForced, activate: { if !build.running && !standaloneForced { devices.exportIPA.toggle() } }, adjust: { _ in if !build.running && !standaloneForced { devices.exportIPA.toggle() } })
         return VStack(alignment: .leading, spacing: 10) {
             // The two ways, a switch of their own: exporting is never chosen for the player (#416)
             ViewThatFits(in: .horizontal) {
@@ -61,7 +65,23 @@ package struct InstallCard: View {
                 }
             }
             CardGroup("") {
-                if devices.exportIPA {
+                if standaloneForced {
+                    HStack(spacing: 10) {
+                        Image(systemName: "info.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(LauncherPalette.accent)
+                        Text(loc.t("upstream.kwsIOSStandaloneNote"))
+                            .font(DS.Font.callout)
+                            .foregroundStyle(LauncherPalette.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(LauncherPalette.accent.opacity(0.05))
+                    CardDivider()
+                }
+                if standaloneForced || devices.exportIPA {
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 14) {
                             appKindCard("shared").frame(minWidth: 210)
@@ -74,7 +94,7 @@ package struct InstallCard: View {
                             appKindCard("framework")
                         }
                     }.padding(18)
-                    if !devices.exportOneGame && devices.exportFramework {
+                    if !standaloneForced && !devices.exportOneGame && devices.exportFramework {
                         CardDivider()
                         let selectedFrameworkTeam = devices.effectiveFrameworkSigningTeam
                         let frameworkTeamOptions: [(value: String, label: String)] = {
@@ -245,7 +265,9 @@ package struct InstallCard: View {
 
     private func appKindCard(_ kind: String) -> some View {
         let oneGame = kind == "one", framework = kind == "framework"
-        let selected = kind == (devices.exportOneGame ? "one" : devices.exportFramework ? "framework" : "shared")
+        let standaloneForced = build.forcesStandaloneOneGameIPA
+        let blocked = standaloneForced && !oneGame
+        let selected = standaloneForced ? oneGame : (kind == (devices.exportOneGame ? "one" : devices.exportFramework ? "framework" : "shared"))
         return Button { pickKind(kind) } label: {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
@@ -266,10 +288,10 @@ package struct InstallCard: View {
             .background(selected ? LauncherPalette.selectedFill : LauncherPalette.selectableFill, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.selectedBorder : LauncherPalette.selectableBorder, lineWidth: selected ? 1.5 : 1))
             .contentShape(RoundedRectangle(cornerRadius: 14))
-        }.buttonStyle(.plain).disabled(build.running)
+        }.buttonStyle(.plain).disabled(build.running || blocked).opacity(blocked ? 0.45 : 1)
             .accessibilityAddTraits(selected ? .isSelected : [])
-            .padTarget("set.build.install.kind." + kind, scope: "main", radius: 14, enabled: !build.running,
-                       activate: { if !build.running { pickKind(kind) } })
+            .padTarget("set.build.install.kind." + kind, scope: "main", radius: 14, enabled: !build.running && !blocked,
+                       activate: { if !build.running && !blocked { pickKind(kind) } })
     }
 
     private func openXcode() {

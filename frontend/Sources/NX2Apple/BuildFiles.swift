@@ -18,22 +18,23 @@ enum BuildFiles {
         try BuildFolder.remove(Set(BuildFolderPart.allCases), in: game.folder, protecting: game.protecting, buildRunning: false)
     }
 
-    /// Parses a valid 16-hex-character TitleID from a `<TitleID>_build` directory name, returning uppercase hex or nil.
+    /// Parses a valid 16-hex-character TitleID from a `<TitleID>_build` or `<TitleID>_<variant>_build` directory name.
     nonisolated static func orphanTitleID(folderName: String) -> String? {
-        guard folderName.hasSuffix("_build") else { return nil }
-        let prefix = String(folderName.dropLast("_build".count))
-        guard prefix.count == 16,
-              prefix.unicodeScalars.allSatisfy({
-                  ($0.value >= 0x30 && $0.value <= 0x39)
-                      || ($0.value >= 0x41 && $0.value <= 0x46)
-                      || ($0.value >= 0x61 && $0.value <= 0x66)
-              }) else { return nil }
-        return prefix.uppercased()
+        BuildFolder.parseFolderName(folderName)?.titleID
     }
 
     /// Deterministic UUID derived from a canonicalized orphan build folder path so confirmations and sheets remain stable across refreshes.
     nonisolated static func orphanUUID(forResolvedPath path: String) -> UUID {
-        let bytes = Array(("orphan-build:" + path).utf8)
+        deterministicUUID(seed: "orphan-build:" + path)
+    }
+
+    /// Deterministic UUID for an extra/variant build folder belonging to a known library game.
+    nonisolated static func entryUUID(gameID: UUID, resolvedFolder: String) -> UUID {
+        deterministicUUID(seed: "game-build:\(gameID.uuidString):\(resolvedFolder)")
+    }
+
+    private nonisolated static func deterministicUUID(seed: String) -> UUID {
+        let bytes = Array(seed.utf8)
         var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
         bytes.withUnsafeBytes { ptr in
             _ = CC_SHA256(ptr.baseAddress, CC_LONG(bytes.count), &digest)
@@ -165,20 +166,22 @@ enum BuildFiles {
             }
             var seenProtected = Set<String>()
             let protected = rawProtected.map(BuildFolder.resolved).filter { seenProtected.insert($0).inserted }
-            let displayName: String
+            let baseDisplayName: String
             if let found {
                 if let t {
                     let fmt = t("orphanBuild.named")
-                    displayName = fmt == "orphanBuild.named" ? "\(found) (\(item.titleID))" : String(format: fmt, found, item.titleID)
+                    baseDisplayName = fmt == "orphanBuild.named" ? "\(found) (\(item.titleID))" : String(format: fmt, found, item.titleID)
                 } else {
-                    displayName = "\(found) (\(item.titleID))"
+                    baseDisplayName = "\(found) (\(item.titleID))"
                 }
             } else if let t {
                 let fmt = t("orphanBuild.title")
-                displayName = fmt == "orphanBuild.title" ? "Unlisted build (\(item.titleID))" : String(format: fmt, item.titleID)
+                baseDisplayName = fmt == "orphanBuild.title" ? "Unlisted build (\(item.titleID))" : String(format: fmt, item.titleID)
             } else {
-                displayName = "Unlisted build (\(item.titleID))"
+                baseDisplayName = "Unlisted build (\(item.titleID))"
             }
+            let upstream = BuildFolder.upstream(forFolder: item.resolved)
+            let displayName = upstream.isNxnativeVariant ? "\(baseDisplayName) (\(upstream.displayName))" : baseDisplayName
             return BuildFilesStore.Game(
                 id: orphanUUID(forResolvedPath: item.resolved),
                 name: displayName,
@@ -188,7 +191,7 @@ enum BuildFiles {
         }
     }
 
-    /// The library's games that have a build folder plus any orphaned `<TitleID>_build` directories in candidate output folders.
+    /// The library's games that have build folders (one entry per existing folder) plus any orphaned `<TitleID>_build` directories.
     @MainActor static func games(
         _ games: [LibraryGame],
         lang: Lang,
@@ -196,20 +199,27 @@ enum BuildFiles {
         engineRoot: String = "",
         t: ((String) -> String)? = nil
     ) -> [BuildFilesStore.Game] {
-        let knownList: [BuildFilesStore.Game] = games.compactMap { game in
-            BuildFolder.location(for: game).map {
-                BuildFilesStore.Game(
-                    id: game.id,
-                    name: game.displayName(lang),
-                    folder: $0,
-                    protecting: BuildFolder.protectedPaths(for: game)
-                )
-            }
-        }
-        var claimed = Set(knownList.map { BuildFolder.resolved($0.folder) })
+        var claimed = Set<String>()
+        var knownList: [BuildFilesStore.Game] = []
         for game in games {
-            for candidate in BuildFolder.candidates(for: game) {
-                claimed.insert(BuildFolder.resolved(candidate))
+            let protecting = BuildFolder.protectedPaths(for: game)
+            for (index, folder) in BuildFolder.locations(for: game).enumerated() {
+                let resolved = BuildFolder.resolved(folder)
+                guard claimed.insert(resolved).inserted else { continue }
+                let upstream = BuildFolder.upstream(forFolder: resolved)
+                let entryID = (index == 0 && upstream == .nxnative)
+                    ? game.id
+                    : entryUUID(gameID: game.id, resolvedFolder: resolved)
+                let name = upstream.isNxnativeVariant
+                    ? "\(game.displayName(lang)) (\(upstream.displayName))"
+                    : game.displayName(lang)
+                knownList.append(BuildFilesStore.Game(
+                    id: entryID,
+                    gameID: game.id,
+                    name: name,
+                    folder: folder,
+                    protecting: protecting
+                ))
             }
         }
         let allRoots = extraRoots + games.flatMap { [$0.outputDirectory, $0.sourceFolder] }
@@ -218,28 +228,46 @@ enum BuildFiles {
         return knownList + orphans
     }
 
-    /// Resolves a `LibraryGame` for the Free Space detail sheet — either from the library or synthesized from an orphan entry.
-    @MainActor static func freeSpaceGame(id: UUID, in libraryGames: [LibraryGame], store: BuildFilesStore) -> LibraryGame? {
-        if let known = libraryGames.first(where: { $0.id == id }) {
-            return known
+    /// Resolves a `(LibraryGame, folder)` target for the Free Space detail sheet from a `BuildFilesStore` entry ID.
+    @MainActor static func freeSpaceTarget(
+        id: UUID,
+        in libraryGames: [LibraryGame],
+        store: BuildFilesStore
+    ) -> (game: LibraryGame, folder: String?)? {
+        let entry = store.entry(id)
+        let lookupID = entry?.ownerID ?? id
+        if let known = libraryGames.first(where: { $0.id == lookupID }) {
+            return (known, entry?.folder)
         }
-        guard let entry = store.entry(id),
+        guard let entry,
               let titleID = orphanTitleID(folderName: (entry.folder as NSString).lastPathComponent) else {
             return nil
         }
         let parent = (entry.folder as NSString).deletingLastPathComponent
-        return LibraryGame(
-            id: entry.id,
-            titleID: titleID,
-            name: entry.name,
-            outputDirectory: parent
+        return (
+            LibraryGame(
+                id: entry.id,
+                titleID: titleID,
+                name: entry.name,
+                outputDirectory: parent
+            ),
+            entry.folder
         )
+    }
+
+    /// Resolves a `LibraryGame` for the Free Space detail sheet — either from the library or synthesized from an orphan entry.
+    @MainActor static func freeSpaceGame(id: UUID, in libraryGames: [LibraryGame], store: BuildFilesStore) -> LibraryGame? {
+        freeSpaceTarget(id: id, in: libraryGames, store: store)?.game
     }
 
     /// The Manage menu's row title: "Remove build files (31 GB)" once the size is known.
     @MainActor static func menuTitle(_ store: BuildFilesStore, game: UUID, t: (String) -> String) -> String? {
-        if let entry = store.entry(game) { return String(format: t("buildfiles.menu"), BuildFilesCard.bytes(entry.bytes)) }
-        return store.isMeasured(game) ? nil : t("buildfiles.title")
+        let matched = store.entries(forGame: game)
+        if !matched.isEmpty {
+            let totalBytes = matched.reduce(0) { $0 + $1.bytes }
+            return String(format: t("buildfiles.menu"), BuildFilesCard.bytes(totalBytes))
+        }
+        return store.isMeasured(forGame: game) ? nil : t("buildfiles.title")
     }
 }
 
@@ -265,7 +293,7 @@ private struct BuildFilesWiring: ViewModifier {
             .sheet(item: Binding(get: { store.confirmingEntry }, set: { if $0 == nil { store.confirming = nil } })) { entry in
                 BuildFilesRemoveSheet(
                     entry: entry, cancel: { store.confirming = nil },
-                    confirm: { store.remove(entry.id, building: entry.id == buildingID) }
+                    confirm: { store.remove(entry.id, building: entry.ownerID == buildingID) }
                 )
                 .environmentObject(pad).environmentObject(loc)
             }

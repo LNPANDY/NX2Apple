@@ -17,10 +17,13 @@ extension BuildStore {
         case .failure(let problem):
             refuseGameFolder(gameFolderProblemText(problem))
         case .success(let contents):
-            if !running,
-               isMacNativeGamesSelected,
-               (!contents.hasTitleID || !MacNativeGamesBuilder.supportsInput(titleID: contents.titleIDHex, isNUP: contents.nup != nil, tree: macNativeGamesPath)) {
-                buildUpstream = .nxnative
+            if !running, buildUpstream.enforcedTitleIDs != nil {
+                let supported = isMacNativeGamesSelected
+                    ? (contents.hasTitleID && MacNativeGamesBuilder.supportsInput(titleID: contents.titleIDHex, isNUP: contents.nup != nil, tree: macNativeGamesPath))
+                    : (contents.hasTitleID && buildUpstream.supportsTitleID(contents.titleIDHex))
+                if !supported {
+                    buildUpstream = .nxnative
+                }
             }
             if let why = gameFolderEngineProblem(contents) { refuseGameFolder(why); return }
             gameFolder = contents
@@ -62,7 +65,15 @@ extension BuildStore {
         if isS2ArmSelected || isNxkitSelected {
             return nil   // nxkit says what it lacks itself (nxkitProblem)
         }
-        let engine = EngineLayout.root(repo.path)
+        if isNxnativeVariantSelected {
+            if buildUpstream.buildsMacOnly && target != BuildTarget.mac {
+                return t(macOnlyNoteKey)
+            }
+            if !contents.hasTitleID || !buildUpstream.supportsTitleID(contents.titleIDHex) {
+                return t(blockedReasonKey(for: buildUpstream))
+            }
+        }
+        let engine = isNxnativeVariantSelected ? activeNxnativeEngineRoot() : EngineLayout.root(repo.path)
         guard !engine.isEmpty, FileManager.default.fileExists(atPath: engine + "/dm") else { return nil }
         if contents.nup != nil ? !GameFolder.engineBuildsNUPs(engine) : !GameFolder.engineBuildsFolders(engine) {
             return t(contents.nup != nil ? "folder.engineOldNUP" : "folder.engineOld")
@@ -132,23 +143,25 @@ extension BuildStore {
     /// The chosen game is a Switch 2 game by its engine profile (GameFolder.profileIsSwitch2): the Builds page says how far the engine's support goes.
     package var isSwitch2Game: Bool {
         guard let tid = gameTitleID else { return false }
-        return GameFolder.profileIsSwitch2(tid, engineRoot: EngineLayout.root(repo.path))
+        let engineRoot = isNxnativeVariantSelected ? activeNxnativeEngineRoot() : EngineLayout.root(repo.path)
+        return GameFolder.profileIsSwitch2(tid, engineRoot: engineRoot)
     }
 
     /// A name for the game in messages and the shared app: the profile's for a game folder (it has no control data), else the base package's file name.
     package var gameName: String {
+        let engineRoot = isNxnativeVariantSelected ? activeNxnativeEngineRoot() : EngineLayout.root(repo.path)
         if let fastRefreshGameName, !fastRefreshGameName.isEmpty { return fastRefreshGameName }
         if fastRefreshActive, let fastRefreshTitleID, let tid = UInt64(fastRefreshTitleID, radix: 16) {
-            return GameFolder.profileName(tid, engineRoot: EngineLayout.root(repo.path)) ?? fastRefreshTitleID
+            return GameFolder.profileName(tid, engineRoot: engineRoot) ?? fastRefreshTitleID
         }
         if let selectedTitleID, let tid = UInt64(selectedTitleID, radix: 16) {
-            return GameFolder.profileName(tid, engineRoot: EngineLayout.root(repo.path)) ?? selectedTitleID
+            return GameFolder.profileName(tid, engineRoot: engineRoot) ?? selectedTitleID
         }
         if let f = gameFolder {
             let rawFallback = f.nup.map { ($0 as NSString).lastPathComponent } ?? (f.folder as NSString).lastPathComponent
             let fallback = RomFSArchive.cleanPackageGameName(rawFallback)
             let resolvedFallback = fallback.isEmpty ? ((rawFallback as NSString).deletingPathExtension) : fallback
-            return f.hasTitleID ? GameFolder.profileName(f.titleID, engineRoot: EngineLayout.root(repo.path)) ?? resolvedFallback : resolvedFallback
+            return f.hasTitleID ? GameFolder.profileName(f.titleID, engineRoot: engineRoot) ?? resolvedFallback : resolvedFallback
         }
         let rawBase = (basePath as NSString).lastPathComponent
         let cleanedBase = RomFSArchive.cleanPackageGameName(rawBase)

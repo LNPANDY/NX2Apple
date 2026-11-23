@@ -58,7 +58,21 @@ package struct EngineDropdownPanel: View {
     }
 
     private func isBlockedByGame(_ kind: EngineUpstreamKind) -> Bool {
-        kind == .macNativeGames && build.isMNGBlockedByCurrentGame
+        build.isUpstreamBlockedByCurrentGame(kind)
+    }
+
+    private func blockedReason(_ kind: EngineUpstreamKind) -> String {
+        loc.t(build.blockedReasonKey(for: kind))
+    }
+
+    private func platformBadgeText(_ kind: EngineUpstreamKind) -> String {
+        kind.supportsIOS ? loc.t("engine.platform.macIOS") : loc.t("engine.platform.macOnly")
+    }
+
+    private func engineGuideSummary(_ kind: EngineUpstreamKind) -> String {
+        let scope = loc.t(kind.scopeSummaryKey)
+        let highlights = loc.t(kind.highlightsKey)
+        return highlights.isEmpty ? scope : "\(scope) \u{00b7} \(highlights)"
     }
 
     private func actionID(_ kind: EngineUpstreamKind) -> String {
@@ -69,11 +83,20 @@ package struct EngineDropdownPanel: View {
         }
     }
 
-    /// The engines this panel lists: nxnative, optional external engines, and nxkit (Beta) when available on this Mac.
+    /// The engines this panel lists: general engines followed by game-tuned engines.
     private var panelKinds: [EngineUpstreamKind] {
-        build.availableUpstreams.filter { kind in
+        let visible = build.availableUpstreams.filter { kind in
             kind != .nxkit || build.nxkitSelectable || build.buildUpstream == .nxkit
         }
+        return visible.filter { $0.group == .general } + visible.filter { $0.group == .gameTuned }
+    }
+
+    private var generalKinds: [EngineUpstreamKind] {
+        panelKinds.filter { $0.group == .general }
+    }
+
+    private var tunedKinds: [EngineUpstreamKind] {
+        panelKinds.filter { $0.group == .gameTuned }
     }
 
     private func move(_ kind: EngineUpstreamKind, by step: Int) -> Bool {
@@ -88,13 +111,81 @@ package struct EngineDropdownPanel: View {
     }
 
     private var rowsList: some View {
-        let kinds = panelKinds
-        return VStack(alignment: .leading, spacing: 4) {
-            ForEach(kinds, id: \.self) { kind in
-                engineRow(kind)
+        let general = generalKinds
+        let tuned = tunedKinds
+        return VStack(alignment: .leading, spacing: 6) {
+            if let recommended = build.recommendedTunedEngine {
+                recommendedBanner(recommended)
+            }
+            if !general.isEmpty {
+                sectionHeader(loc.t("engine.group.general"))
+                ForEach(general, id: \.self) { kind in
+                    engineRow(kind)
+                }
+            }
+            if !tuned.isEmpty {
+                if !general.isEmpty {
+                    CardDivider().padding(.vertical, 2)
+                }
+                sectionHeader(loc.t("engine.group.tuned"))
+                ForEach(tuned, id: \.self) { kind in
+                    engineRow(kind)
+                }
             }
         }
         .padding(8)
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.manrope(11, .bold))
+            .foregroundStyle(LauncherPalette.secondaryText)
+            .textCase(.uppercase)
+            .padding(.horizontal, 10)
+            .padding(.top, 4)
+            .padding(.bottom, 1)
+    }
+
+    private func recommendedBanner(_ kind: EngineUpstreamKind) -> some View {
+        let installed = build.isUpstreamInstalled(kind)
+        let state = build.upstreamState(kind)
+        return HStack(spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(LauncherPalette.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(format: loc.t("engine.guide.recommendedTitle"), name(kind)))
+                    .font(.manrope(12, .bold))
+                    .foregroundStyle(LauncherPalette.text)
+                    .lineLimit(1)
+                Text(loc.t(kind.highlightsKey))
+                    .font(.manrope(11))
+                    .foregroundStyle(LauncherPalette.secondaryText)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 6)
+            if state.isBusy {
+                ProgressView().controlSize(.mini)
+            } else {
+                Button {
+                    build.downloadAndSwitchToUpstream(kind)
+                    if installed { close() }
+                } label: {
+                    Text(loc.t(installed ? "upstream.switchBtn" : "upstream.download"))
+                        .font(.manrope(11.5, .bold))
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(LauncherActionButtonStyle(.capsule))
+                .fixedSize()
+                .disabled(build.running)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(LauncherPalette.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(LauncherPalette.accent.opacity(0.24)))
     }
 
     @ViewBuilder
@@ -128,9 +219,9 @@ package struct EngineDropdownPanel: View {
         let hasUpdate = build.upstreamHasUpdate(kind)
         let tooltip = build.upstreamUpdateTooltip(kind)
         let canSelect = !build.running && !blocked
-        let blockedReason = loc.t(build.mngBlockedReasonKey)
-        let subtitle = blocked ? blockedReason : loc.t(kind.cardNoteKey)
-        let helpText = blocked ? blockedReason : (tooltip ?? loc.t(selected ? "upstream.activeBadge" : "upstream.readySwitch"))
+        let reason = blockedReason(kind)
+        let subtitle = blocked ? reason : engineGuideSummary(kind)
+        let helpText = blocked ? reason : (tooltip ?? loc.t(selected ? "upstream.activeBadge" : "upstream.readySwitch"))
         let displayName = name(kind)
         return HStack(spacing: 8) {
             Button {
@@ -148,6 +239,7 @@ package struct EngineDropdownPanel: View {
                                 .foregroundStyle(LauncherPalette.text)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.9)
+                            EnginePlatformBadge(text: platformBadgeText(kind))
                             UpstreamVersionPill(
                                 text: badgeText,
                                 highlighted: hasUpdate && !blocked,
@@ -164,7 +256,7 @@ package struct EngineDropdownPanel: View {
                         Text(subtitle)
                             .font(.manrope(11.5))
                             .foregroundStyle(LauncherPalette.secondaryText)
-                            .lineLimit(1)
+                            .lineLimit(2)
                     }
                     Spacer(minLength: 4)
                     if !hasUpdate {
@@ -259,14 +351,15 @@ package struct EngineDropdownPanel: View {
                         .font(.manrope(13.5, .semibold))
                         .foregroundStyle(LauncherPalette.text)
                         .lineLimit(1)
+                    EnginePlatformBadge(text: platformBadgeText(kind))
                     if Self.showsExperimentalBadge(kind) {
                         EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
                     }
                 }
-                Text(blocked ? loc.t(build.mngBlockedReasonKey) : loc.t(kind.cardNoteKey))
+                Text(blocked ? blockedReason(kind) : engineGuideSummary(kind))
                     .font(.manrope(11.5))
                     .foregroundStyle(LauncherPalette.secondaryText)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
             Spacer(minLength: 10)
             Button {
@@ -364,11 +457,12 @@ package struct EngineDropdownPanel: View {
                         .font(.manrope(13.5, .semibold))
                         .foregroundStyle(LauncherPalette.text)
                         .lineLimit(1)
+                    EnginePlatformBadge(text: platformBadgeText(kind))
                     if Self.showsExperimentalBadge(kind) {
                         EngineExperimentalBadge(text: loc.t("engine.experimental"), compact: true)
                     }
                 }
-                Text(blocked ? loc.t(build.mngBlockedReasonKey) : loc.t(messageKey))
+                Text(blocked ? blockedReason(kind) : loc.t(messageKey))
                     .font(.manrope(11.5))
                     .foregroundStyle(blocked ? LauncherPalette.secondaryText : LauncherPalette.building)
                     .fixedSize(horizontal: false, vertical: true)
@@ -396,6 +490,23 @@ package struct EngineDropdownPanel: View {
         .padding(.vertical, 9)
         .opacity(blocked ? 0.52 : 1)
         .background(LauncherPalette.ink(0.035), in: RoundedRectangle(cornerRadius: 9))
+    }
+}
+
+/// Compact platform pill showing supported build targets (`Mac` or `Mac · iPhone`).
+struct EnginePlatformBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.manrope(10, .semibold))
+            .foregroundStyle(LauncherPalette.secondaryText)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1.5)
+            .background(LauncherPalette.secondaryFill, in: Capsule())
+            .overlay(DSPill().strokeBorder(LauncherPalette.secondaryBorder))
+            .fixedSize()
     }
 }
 

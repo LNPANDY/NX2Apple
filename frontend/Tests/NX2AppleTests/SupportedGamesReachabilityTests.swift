@@ -165,12 +165,8 @@ import XCTest
         let olderDetail = SupportedGamesSheet.detailText(for: olderCatalogGame, appVersion: "1.5.0", t: en)
         let uncatalogedDetail = SupportedGamesSheet.detailText(for: uncatalogedGame, appVersion: "1.5.0", t: en)
 
-        // Improved in this release: the tag says it once, the subtitle does not repeat it (#1458)
+        // Improved in this release: drives rebuild state without showing a pill or repeating it in detailText.
         XCTAssertFalse(currentDetail.contains("1.5.0"), currentDetail)
-        XCTAssertEqual(SupportedGamesSheet.improvedTag(for: currentGame.titleID, appVersion: "1.5.0", t: en), "Improved in 1.5")
-        XCTAssertNil(SupportedGamesSheet.improvedTag(for: olderCatalogGame.titleID, appVersion: "1.5.0", t: en))
-        XCTAssertTrue(SupportedGamesSheet.matchesSearch(currentGame, needle: "improved", ownedName: "", appVersion: "1.5.0"), "found by its tag")
-        XCTAssertFalse(SupportedGamesSheet.matchesSearch(olderCatalogGame, needle: "improved", ownedName: "", appVersion: "1.5.0"))
         XCTAssertTrue(olderDetail.contains("1.4.0"), olderDetail)
         XCTAssertEqual(SupportedGamesSheet.shortVersion("1.2.2"), "1.2.2")
         let noVersion = SupportedGame(titleID: "0100000000009998", name: "No Version", edition: .switch1, version: nil, notes: "")
@@ -237,9 +233,11 @@ import XCTest
 
         let en = { (key: String) in L10n.string(key, .en) }
         let zh = { (key: String) in L10n.string(key, .zh) }
-        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.0", t: en), "Switch 2 · Mac native port engine")
+        XCTAssertEqual(SupportedGamesSheet.platformTags(for: mngOnlySwitch2, t: en), ["Switch 2"])
+        XCTAssertEqual(SupportedGamesSheet.platformTags(for: mngOnlySwitch1, t: en), [])
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.0", t: en), "Mac native port engine")
         XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch1, appVersion: "1.5.0", t: en), "Mac native port engine")
-        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.0", t: zh), "Switch 2 · Mac 原生移植引擎")
+        XCTAssertEqual(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.0", t: zh), "Mac 原生移植引擎")
         XCTAssertFalse(SupportedGamesSheet.detailText(for: mngOnlySwitch2, appVersion: "1.5.0", t: en).contains(en("supported.noVersion")))
         XCTAssertEqual(SupportedGamesSheet.detailText(for: mngWithProfileVersion, appVersion: "1.5.0", t: en), String(format: en("supported.version"), "1.2.1"))
         XCTAssertEqual(SupportedGamesSheet.detailText(for: nxnativeOnly, appVersion: "1.5.0", t: en), en("supported.noVersion"))

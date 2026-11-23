@@ -25,6 +25,7 @@ struct SupportedGamesSheet: View {
     /// Filter scope for the supported games list.
     enum UpstreamFilter: String, Equatable {
         case all
+        case tuned
         case macNativeGames
     }
 
@@ -64,47 +65,62 @@ struct SupportedGamesSheet: View {
         MacNativeGamesBuilder.featureEnabled && MacNativeGamesBuilder.supportsTitleID(game.titleID)
     }
 
+    /// All game-tuned engines available for `game` (e.g., Kid with Sword, No Lag Kart, MacNativeGames).
+    static func tunedEngines(for game: SupportedGame) -> [EngineUpstreamKind] {
+        EngineUpstream.tunedEngines(forTitleID: game.titleID, macNativeGamesEnabled: MacNativeGamesBuilder.featureEnabled)
+    }
+
+    /// True when `game` has at least one dedicated game-tuned engine.
+    static func isTunedSupported(_ game: SupportedGame) -> Bool {
+        !tunedEngines(for: game).isEmpty
+    }
+
     /// The release as the tag says it: "1.5" for 1.5.0, a patch release in full.
     static func shortVersion(_ version: String) -> String {
         let parts = version.split(separator: ".")
         return parts.count == 3 && parts[2] == "0" ? parts.prefix(2).joined(separator: ".") : version
     }
 
-    /// The tag of a profile improved in this release ("Improved in 1.5"), nil for one that was not.
-    static func improvedTag(for titleID: String, appVersion: String = AppUpdateStore.appVersion, t: (String) -> String) -> String? {
-        guard isUpdatedInCurrentRelease(titleID: titleID, appVersion: appVersion) else { return nil }
-        return String(format: t("supported.improvedIn"), shortVersion(GameUpdateCatalog.releaseBaseVersion(appVersion)))
+    /// Platform/edition pills shown alongside game-tuned engine pills.
+    static func platformTags(for game: SupportedGame, t: (String) -> String) -> [String] {
+        game.edition == .switch2 ? [t("switch2.badge")] : []
     }
 
-    /// The search finds a game by its name, title ID, the owned game's name, the release its profile was improved in, and by the
-    /// words of its Improved tag (in `improvedName`, else in every language).
+    /// The search finds a game by its name, title ID, the owned game's name, the release its profile was improved in,
+    /// edition badge, and available tuned engine names.
     static func matchesSearch(_ game: SupportedGame, needle: String, ownedName: String, improvedName: String = "",
                               appVersion: String = AppUpdateStore.appVersion) -> Bool {
         let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
         let updated = GameUpdateCatalog.catalogVersion(for: game.titleID) ?? ""
         var fields = [game.name, game.titleID, ownedName, updated]
-        if isUpdatedInCurrentRelease(titleID: game.titleID, appVersion: appVersion) {
-            if improvedName.isEmpty {
-                fields.append(contentsOf: Lang.all.compactMap { lang in improvedTag(for: game.titleID, appVersion: appVersion, t: { L10n.string($0, lang) }) })
-            } else {
-                fields.append(improvedName)
-            }
+        if game.edition == .switch2 {
+            fields.append("Switch 2")
         }
-        if isMacNativeGamesSupported(game) {   // "MacNativeGames" or "MNG" finds the titles it maintains
-            fields.append(EngineUpstreamKind.macNativeGames.displayName)
-            fields.append("MNG")
+        if !improvedName.isEmpty {
+            fields.append(improvedName)
+        }
+        let tuned = tunedEngines(for: game)
+        if !tuned.isEmpty {
+            fields.append("tuned")
+            fields.append("特调")
+            fields.append(contentsOf: Lang.all.map { L10n.string("library.chip.tuned", $0) })
+            for engine in tuned {
+                fields.append(engine.displayName)
+                if engine == .macNativeGames {
+                    fields.append("MNG")
+                }
+            }
         }
         return fields.contains {
             $0.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
         }
     }
 
-    /// The subtitle: the edition, the game version the profile was made with (or the MacNativeGames engine note for
-    /// MacNativeGames-only entries without a profile version), and the release that last changed the profile unless it is this one.
+    /// Short status line under the pills: the profile version (or MacNativeGames engine note when none),
+    /// and the release that last changed the profile unless it is the current release.
     static func detailText(for game: SupportedGame, appVersion: String = AppUpdateStore.appVersion, t: (String) -> String) -> String {
         var parts: [String] = []
-        if game.edition == .switch2 { parts.append(t("switch2.badge")) }
         if let version = game.version {
             parts.append(String(format: t("supported.version"), version))
         } else if isMacNativeGamesSupported(game) {
@@ -115,7 +131,7 @@ struct SupportedGamesSheet: View {
         if let updated = GameUpdateCatalog.catalogVersion(for: game.titleID), !isUpdatedInCurrentRelease(titleID: game.titleID, appVersion: appVersion) {
             parts.append(String(format: t("supported.lastUpdated"), updated))
         }
-        return parts.joined(separator: " · ")
+        return parts.joined(separator: " \u{00b7} ")
     }
 
     /// Filters supported games by upstream scope and search query.
@@ -123,6 +139,7 @@ struct SupportedGamesSheet: View {
                             ownedName: (SupportedGame) -> String, improvedName: (SupportedGame) -> String,
                             appVersion: String = AppUpdateStore.appVersion) -> [SupportedGame] {
         games.filter { game in
+            if upstreamFilter == .tuned && !isTunedSupported(game) { return false }
             if upstreamFilter == .macNativeGames && !isMacNativeGamesSupported(game) { return false }
             return matchesSearch(game, needle: needle, ownedName: ownedName(game),
                                  improvedName: improvedName(game), appVersion: appVersion)
@@ -133,20 +150,34 @@ struct SupportedGamesSheet: View {
         games.filter(Self.isMacNativeGamesSupported).count
     }
 
+    var tunedGamesCount: Int {
+        games.filter(Self.isTunedSupported).count
+    }
+
     var hasMacNativeGames: Bool {
         MacNativeGamesBuilder.featureEnabled && macNativeGamesCount > 0
     }
 
-    var shown: [SupportedGame] {
-        Self.filterGames(games, upstreamFilter: hasMacNativeGames ? upstreamFilter : .all, needle: search,
-                         ownedName: { owned($0.titleID)?.displayName(loc.lang) ?? "" },
-                         improvedName: { improvedTag($0) ?? "" }, appVersion: appVersion)
+    var hasTunedGames: Bool {
+        tunedGamesCount > 0
     }
 
-    /// This row's Improved tag.
-    func improvedTag(_ game: SupportedGame) -> String? {
-        guard let improved else { return Self.improvedTag(for: game.titleID, appVersion: appVersion, t: { loc.t($0) }) }
-        return improved(game.titleID) ? String(format: loc.t("supported.improvedIn"), Self.shortVersion(GameUpdateCatalog.releaseBaseVersion(appVersion))) : nil
+    var shown: [SupportedGame] {
+        let effectiveFilter: UpstreamFilter
+        switch upstreamFilter {
+        case .all: effectiveFilter = .all
+        case .tuned: effectiveFilter = hasTunedGames ? .tuned : .all
+        case .macNativeGames: effectiveFilter = hasMacNativeGames ? .macNativeGames : .all
+        }
+        return Self.filterGames(games, upstreamFilter: effectiveFilter, needle: search,
+                                ownedName: { owned($0.titleID)?.displayName(loc.lang) ?? "" },
+                                improvedName: { _ in "" }, appVersion: appVersion)
+    }
+
+    /// Whether this game's profile was improved in the current release (drives `needsRebuild`).
+    func isImprovedInCurrentRelease(_ game: SupportedGame) -> Bool {
+        if let improved { return improved(game.titleID) }
+        return Self.isUpdatedInCurrentRelease(titleID: game.titleID, appVersion: appVersion)
     }
 
     static let rowFocusPrefixes = ["supported.row.", "supported.rebuild.", "supported.show."]
@@ -164,7 +195,7 @@ struct SupportedGamesSheet: View {
         if let current = selected, !visible.contains(where: { $0.titleID == current }) {
             selected = nil
         }
-        focus.focused = Self.reconciledFocus(focused: focus.focused, shown: visible, hasMacNativeGames: hasMacNativeGames)
+        focus.focused = Self.reconciledFocus(focused: focus.focused, shown: visible, hasMacNativeGames: hasTunedGames)
     }
 
     func detail(_ game: SupportedGame) -> String {
@@ -173,13 +204,14 @@ struct SupportedGamesSheet: View {
 
     private var upstreamFilterControl: some View {
         let allLabel = loc.t("console.filter.all")
-        let mngLabel = "\(EngineUpstreamKind.macNativeGames.displayName) (\(macNativeGamesCount))"
+        let tunedLabel = "\(loc.t("library.chip.tuned")) (\(tunedGamesCount))"
+        let activeSelection = upstreamFilter == .all ? UpstreamFilter.all.rawValue : UpstreamFilter.tuned.rawValue
         return LauncherSegmented(
             options: [
                 (UpstreamFilter.all.rawValue, allLabel),
-                (UpstreamFilter.macNativeGames.rawValue, mngLabel)
+                (UpstreamFilter.tuned.rawValue, tunedLabel)
             ],
-            selection: upstreamFilter.rawValue
+            selection: activeSelection
         ) { value in
             upstreamFilter = UpstreamFilter(rawValue: value) ?? .all
         }
@@ -187,8 +219,8 @@ struct SupportedGamesSheet: View {
         .padTarget(
             "supported.filter",
             scope: "supported",
-            activate: { upstreamFilter = upstreamFilter == .all ? .macNativeGames : .all },
-            adjust: { upstreamFilter = $0 > 0 ? .macNativeGames : .all }
+            activate: { upstreamFilter = upstreamFilter == .all ? .tuned : .all },
+            adjust: { upstreamFilter = $0 > 0 ? .tuned : .all }
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(loc.t("engine.title"))
@@ -206,7 +238,7 @@ struct SupportedGamesSheet: View {
                 .padding(.horizontal, DS.Space.s).frame(height: DS.Control.height)
                 .background(DS.Color.surfaceRaised, in: Capsule())
                 .overlay(DSPill().strokeBorder(searchFocused ? DS.Color.accent : DS.Color.separator))
-                if hasMacNativeGames {
+                if hasTunedGames {
                     upstreamFilterControl
                 }
             }
@@ -221,9 +253,9 @@ struct SupportedGamesSheet: View {
                     LazyVStack(spacing: 0) {
                         ForEach(shown) { game in
                             let mine = owned(game.titleID)
-                            let improved = improvedTag(game)
-                            SupportedGameRow(game: game, detail: detail(game), improved: improved,
-                                             needsRebuild: improved != nil && mine.map { olderBuild($0.id) } == true,
+                            let isImproved = isImprovedInCurrentRelease(game)
+                            SupportedGameRow(game: game, detail: detail(game),
+                                             needsRebuild: isImproved && mine.map { olderBuild($0.id) } == true,
                                              owned: mine, cover: covers.image(game.titleID),
                                              rebuild: { id in dismiss(); rebuild(id) },
                                              expanded: selected == game.titleID,
@@ -274,8 +306,6 @@ struct SupportedGamesSheet: View {
 private struct SupportedGameRow: View {
     let game: SupportedGame
     let detail: String
-    /// "Improved in 1.5": the profile changed in this release.
-    let improved: String?
     /// The owned game's build is older than the improved profile: the row offers the rebuild instead of "In your library".
     let needsRebuild: Bool
     let owned: LibraryGame?
@@ -289,6 +319,8 @@ private struct SupportedGameRow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let platforms = SupportedGamesSheet.platformTags(for: game, t: { loc.t($0) })
+        let tuned = SupportedGamesSheet.tunedEngines(for: game)
         VStack(alignment: .leading, spacing: 0) {
             Button(action: toggle) {
                 HStack(spacing: DS.Space.m) {
@@ -302,12 +334,16 @@ private struct SupportedGameRow: View {
                     .overlay(RoundedRectangle(cornerRadius: DS.Radius.chip).strokeBorder(DS.Color.separator))
                     .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                        HStack(alignment: .center, spacing: DS.Space.xs) {
-                            Text(game.name).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
-                            if SupportedGamesSheet.isMacNativeGamesSupported(game) {
-                                DSTag(EngineUpstreamKind.macNativeGames.displayName, emphasized: true)
+                        Text(game.name).font(DS.Font.bodyStrong).foregroundStyle(DS.Color.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
+                        if !platforms.isEmpty || !tuned.isEmpty {
+                            DSFlowRow(spacing: DS.Space.xs) {
+                                ForEach(platforms, id: \.self) { platform in
+                                    DSTag(platform, width: DSTag.platformWidth)
+                                }
+                                ForEach(tuned, id: \.self) { engine in
+                                    DSTag(engine.displayName, emphasized: true, width: DSTag.engineWidth)
+                                }
                             }
-                            if let improved { DSTag(improved) }
                         }
                         Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).lineLimit(2).multilineTextAlignment(.leading)
                     }

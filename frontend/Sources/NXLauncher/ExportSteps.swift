@@ -36,7 +36,7 @@ package struct ExportSteps: View {
     private var inert: Bool { !exported && !sentDone && !(resultOnly && build.completionStatus == .needsData) }
     private var toDrive: Bool { devices.sendWhere == SendWhere.drive }
     private var gameName: String { build.gameName }
-    private var oneGame: Bool { resultOnly ? build.completedOneGameIPA : devices.exportOneGame }
+    private var oneGame: Bool { resultOnly ? build.completedOneGameIPA : (build.forcesStandaloneOneGameIPA || devices.exportOneGame) }
 
     private var frameworkOnly: Bool { resultOnly ? build.completedFramework : !oneGame && devices.exportFramework }
 

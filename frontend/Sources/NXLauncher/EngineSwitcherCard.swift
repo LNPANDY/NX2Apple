@@ -28,8 +28,8 @@ package struct EngineSwitcherCard: View {
     @State private var fallbackPopoverOpen = false
     @State private var didApplyInitialOpen = false
 
-    package static let panelWidth: CGFloat = 436
-    package static let panelMaxHeight: CGFloat = 280
+    package static let panelWidth: CGFloat = 492
+    package static let panelMaxHeight: CGFloat = 440
 
     package init(build: BuildStore, initiallyOpen: Bool = false) {
         self.build = build
@@ -140,9 +140,9 @@ package struct EngineSwitcherCard: View {
                 .padding(.vertical, 13)
                 .frame(minHeight: 56)
 
-                if build.shouldRecommendMacNativeGames {
+                if let recommended = build.recommendedTunedEngine {
                     CardDivider()
-                    mngRecommendBar
+                    tunedRecommendBar(recommended)
                 }
             }
         }
@@ -290,24 +290,35 @@ package struct EngineSwitcherCard: View {
         }
     }
 
-    private var mngRecommendBar: some View {
-        let mngState = build.upstreamState(.macNativeGames)
-        let installed = build.macNativeGamesInstalled
-        let buttonKey = installed ? "upstream.mngSwitchBtn" : "upstream.mngDownloadSwitchBtn"
+    private func tunedRecommendBar(_ kind: EngineUpstreamKind) -> some View {
+        let state = build.upstreamState(kind)
+        let installed = build.isUpstreamInstalled(kind)
+        let noteText: String = {
+            if kind == .macNativeGames {
+                return loc.t("upstream.mngRecommendNote")
+            }
+            return String(format: loc.t("engine.guide.recommendBar"), kind.displayName, loc.t(kind.highlightsKey))
+        }()
+        let buttonTitle: String = {
+            if kind == .macNativeGames {
+                return loc.t(installed ? "upstream.mngSwitchBtn" : "upstream.mngDownloadSwitchBtn")
+            }
+            return String(format: loc.t(installed ? "engine.guide.switchTo" : "engine.guide.downloadSwitchTo"), kind.displayName)
+        }()
         return HStack(spacing: 12) {
             Image(systemName: "sparkles")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(LauncherPalette.accent)
-            Text(loc.t("upstream.mngRecommendNote"))
+            Text(noteText)
                 .font(DS.Font.callout)
                 .foregroundStyle(LauncherPalette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 12)
-            if mngState.isBusy {
+            if state.isBusy {
                 HStack(spacing: 6) {
                     ProgressView()
                         .controlSize(.mini)
-                    Text(loc.t(mngState == .extracting ? "upstream.extracting" : "upstream.downloading"))
+                    Text(loc.t(state == .extracting ? "upstream.extracting" : "upstream.downloading"))
                         .font(.manrope(12, .semibold))
                         .foregroundStyle(LauncherPalette.secondaryText)
                         .lineLimit(1)
@@ -317,9 +328,9 @@ package struct EngineSwitcherCard: View {
                 .background(LauncherPalette.secondaryFill, in: Capsule())
             } else {
                 Button {
-                    build.downloadAndSwitchToMacNativeGames()
+                    build.downloadAndSwitchToUpstream(kind)
                 } label: {
-                    Text(loc.t(buttonKey))
+                    Text(buttonTitle)
                         .font(.manrope(12, .semibold))
                         .lineLimit(1)
                         .padding(.horizontal, 12)
@@ -329,7 +340,7 @@ package struct EngineSwitcherCard: View {
                 .fixedSize()
                 .disabled(build.running)
                 .padTarget("set.build.mngRecommend", scope: "main", enabled: !build.running) {
-                    build.downloadAndSwitchToMacNativeGames()
+                    build.downloadAndSwitchToUpstream(kind)
                 }
             }
         }
