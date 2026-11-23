@@ -1,0 +1,3829 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sun, 22 Nov 2026 18:17:24 +0800
+Subject: [PATCH] cheats/ios: add offline trampolines, VM-driven conditional
+ slots, and memory scanner
+
+Add a 16 KB writable cheat_state_page (4,096 single-byte slots + 12 KB Code Cave mirror), offline AArch64 NZCV-preserving trampoline baking and Code Cave switch-table relocation (dm/tools/cheat_bake.py wired into patch_nso.py, build_ipa_from_nsp.py, and build_ipa.sh), runtime VM-driven conditional trampoline dispatch for Opcode 8/C4/1/C0 code cheats on unjailbroken iOS, Zing 20000000/20000001 group markers, Mac memcmp deduplication with automatic original_code restoration on disable, and a safe data-only memory value scanner API.
+
+Upstream-Status: pending
+Reason: Enable zero-JIT static and conditional code cheats on iOS via 16 KB cheat_state_page trampolines, Zing sections, Mac original_code restore, and a safe data memory scanner
+Issue: none
+---
+ dm/host/dm.h                      |   28 +
+ dm/host/front.h                   |   26 +
+ dm/host/hle_cheats.c              |  886 ++++++++++++++++-
+ dm/host/loader.c                  |    8 +
+ dm/host/tests/t_cheats.c          |  212 +++-
+ dm/ios/tools/build_ipa.sh         |    1 +
+ dm/tools/cheat_bake.py            | 1534 +++++++++++++++++++++++++++++
+ dm/tools/patch_nso.py             |   89 +-
+ dm/tools/tests/test_cheat_bake.py |  587 +++++++++++
+ dm/tools/tests/test_ipa_tables.py |   10 +
+ scripts/build_ipa_from_nsp.py     |   32 +-
+ 11 files changed, 3390 insertions(+), 23 deletions(-)
+ create mode 100644 dm/tools/cheat_bake.py
+ create mode 100644 dm/tools/tests/test_cheat_bake.py
+
+diff --git a/dm/host/dm.h b/dm/host/dm.h
+index e6ec611..b19d504 100644
+--- a/dm/host/dm.h
++++ b/dm/host/dm.h
+@@ -77,6 +77,7 @@ typedef struct {
+     uint64_t unity_qs_ptr;     // Unity's QualitySettings (main's offset of the global pointer); the current level's vSyncCount, an int32, is at
+     uint32_t unity_qs_idx, unity_qs_arr, unity_qs_size, unity_qs_vsync;   // [obj + arr] + (int32)[obj + idx] * size + vsync; 0 = none
+     uint64_t fps_state_off;    // frame step state page (patch_nso.py FRAME_STEP: Tears of the Kingdom 1.4.3 and Breath of the Wild 1.9.0 main); 0 = none
++    uint64_t cheat_state_off;  // 16 KB writable cheat state page (patch_nso.py / cheat_bake.py: 4 KB slot bytes + 12 KB Code Cave mirror); 0 = none
+     uint32_t step_max;         // the largest step the frame step stubs give the game (the fixups table's STEP_MAX, patch_nso.py ctx.step_max); 0 = FSTEP_MAX
+     uint32_t render_scale_max; // a render-scale stub's largest scale (the fixups table's RENDER_SCALE, patch_nso.py): DM_RENDER_SCALE is held to it; 0 = no such stub
+     int movie_native_color_keys; // the movie SDK's MediaData uses the native buffer's colour index directly (MOVIE_NATIVE_COLOR_KEYS)
+@@ -238,6 +239,33 @@ const char *dm_cheats_skipped_name(int i);
+ const char *dm_cheats_skipped_why(int i);
+ int dm_cheats_nsources(void);         // anchored sources (*.cheats.toml) in the cheats folder
+ const char *dm_cheats_source(int i);
++// Baked iOS cheat trampolines and key-mask metadata (hle_cheats.c, dm/cheat_trampolines.tsv)
++enum { DM_CHEAT_BAKED_NONE = 0, DM_CHEAT_BAKED_STATIC = 1, DM_CHEAT_BAKED_CONDITIONAL = 2, DM_CHEAT_BAKED_UNBAKED = 3 };
++int dm_cheat_baked_kind_at(int i);
++uint64_t dm_cheat_key_mask_at(int i);
++int dm_cheats_baked_slots(void);
++// Lightweight safe data-only memory value scanner (main .data/.bss and opened heap)
++#ifndef DM_SCAN_HIT_DEFINED
++#define DM_SCAN_HIT_DEFINED
++enum { DM_SCAN_U8 = 1, DM_SCAN_U16 = 2, DM_SCAN_U32 = 3, DM_SCAN_U64 = 4, DM_SCAN_F32 = 5 };
++enum { DM_SCAN_EQ = 0, DM_SCAN_NE = 1, DM_SCAN_GT = 2, DM_SCAN_LT = 3,
++       DM_SCAN_INCREASED = 4, DM_SCAN_DECREASED = 5, DM_SCAN_UNCHANGED = 6, DM_SCAN_CHANGED = 7 };
++typedef struct {
++    uint8_t region;       // 0 = main (.data/.bss), 1 = heap
++    uint8_t type;         // DM_SCAN_*
++    uint16_t reserved;
++    uint64_t offset;      // offset relative to region base
++    uint64_t value;       // raw value bits (f32 in low 32 bits)
++} dm_scan_hit_t;
++#endif
++int dm_cheat_scan_start(int type, uint64_t target_raw, size_t *total_out);
++int dm_cheat_scan_refine(int cmp, uint64_t target_raw, size_t *total_out);
++int dm_cheat_scan_count(void);
++int dm_cheat_scan_get(int index, dm_scan_hit_t *out);
++int dm_cheat_scan_write(uint8_t region, uint64_t offset, int type, uint64_t value_raw);
++int dm_cheat_scan_format_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw, char *out, size_t cap);
++int dm_cheat_scan_append_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw);
++void dm_cheat_scan_reset(void);
+ void dm_cheats_exit(void);            // a clean exit (hle_lifecycle.c, atexit): removes the safe-mode flag
+ // Graphics lifecycle (hle_nvn.c): on=1 suspends (afterwards submit / present block, and in-flight GPU work is drained before returning), on=0 resumes; called by the iOS front end when entering and leaving the background
+ void dm_gfx_suspend(int on);
+diff --git a/dm/host/front.h b/dm/host/front.h
+index 7f3b230..0a65314 100644
+--- a/dm/host/front.h
++++ b/dm/host/front.h
+@@ -100,3 +100,29 @@ void dm_web_failed(const char *why);
+ // again, when the player allowed notifications (else it asks on screen to open the app again); it returns when the notification is scheduled. With no DM_EXEC_OUT (an app of one program, which asks to start itself again) it asks the player on
+ // screen to open the app again. The default (hle_oe.c, weak) returns at once
+ void front_program_handoff(int index, const char *name);
++
++// Optional cheat trampoline metadata and safe data-only memory scanner hooks (hle_cheats.c)
++#ifndef DM_SCAN_HIT_DEFINED
++#define DM_SCAN_HIT_DEFINED
++enum { DM_SCAN_U8 = 1, DM_SCAN_U16 = 2, DM_SCAN_U32 = 3, DM_SCAN_U64 = 4, DM_SCAN_F32 = 5 };
++enum { DM_SCAN_EQ = 0, DM_SCAN_NE = 1, DM_SCAN_GT = 2, DM_SCAN_LT = 3,
++       DM_SCAN_INCREASED = 4, DM_SCAN_DECREASED = 5, DM_SCAN_UNCHANGED = 6, DM_SCAN_CHANGED = 7 };
++typedef struct {
++    uint8_t region;
++    uint8_t type;
++    uint16_t reserved;
++    uint64_t offset;
++    uint64_t value;
++} dm_scan_hit_t;
++#endif
++int dm_cheat_baked_kind_at(int i);
++uint64_t dm_cheat_key_mask_at(int i);
++int dm_cheats_baked_slots(void);
++int dm_cheat_scan_start(int type, uint64_t target_raw, size_t *total_out);
++int dm_cheat_scan_refine(int cmp, uint64_t target_raw, size_t *total_out);
++int dm_cheat_scan_count(void);
++int dm_cheat_scan_get(int index, dm_scan_hit_t *out);
++int dm_cheat_scan_write(uint8_t region, uint64_t offset, int type, uint64_t value_raw);
++int dm_cheat_scan_format_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw, char *out, size_t cap);
++int dm_cheat_scan_append_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw);
++void dm_cheat_scan_reset(void);
+diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
+index 26199b3..9a00d4e 100644
+--- a/dm/host/hle_cheats.c
++++ b/dm/host/hle_cheats.c
+@@ -69,6 +69,7 @@
+ #include <stdarg.h>
+ #include <stdatomic.h>
+ #include <ctype.h>
++#include <math.h>
+ 
+ // Limits of Atmosphère's own order (0x2000 dwords of program, 256 cheats per file): no shared cheat-site file and no
+ // hand-made one can exhaust the arrays
+@@ -122,6 +123,8 @@ typedef struct {
+     double vmin, vmax; uint8_t has_min, has_max;   // the meta ask bounds
+     uint8_t nd_region; uint64_t nd_off;            // never-decrease: region 0 main / 1 heap, offset in it
+     uint8_t nd_have; uint64_t nd_max;              // never-decrease: the highest value seen since it was turned on
++    uint8_t baked_kind;                            // DM_CHEAT_BAKED_*: status from dm/cheat_trampolines.tsv
++    uint64_t key_mask;                             // union of Opcode 8 / C4 key masks in this entry
+ } cheat_t;
+ 
+ static cheat_t g_cheat[CHEAT_MAX]; static int g_ncheat;
+@@ -580,6 +583,526 @@ static int changed_hit(uint64_t off, uint64_t len) {
+ // Data is written through the alias too when there is one, else directly (those pages are read + write). The checks
+ // run in a dry run too (main_write_check, before the description), so the preview says the write would stop the cheat
+ static uint64_t main_rx_end(void) { static long pg; if (!pg) pg = getpagesize(); return (g_main_mod->text_end + pg - 1) & ~(uint64_t)(pg - 1); }
++
++// ---------- Baked iOS trampolines (cheat_state_page) and Mac original_code restore ----------
++#define TRAMP_SLOT_MAX 4096
++#define TRAMP_MIRROR_OFF 0x1000u
++#define TRAMP_MIRROR_END 0x4000u
++
++typedef struct {
++    char cheat_key[NAME_MAX + 16];
++    uint64_t target_off;
++    uint32_t patched_word;
++    uint32_t orig_word;
++    uint16_t slot_id;
++    uint16_t group_base;
++    uint8_t group_bytes;
++    uint8_t variant_mask;
++    uint8_t conditional;
++    uint8_t has_orig_word;
++} tramp_site_t;
++
++typedef struct {
++    uint64_t orig_off;
++    uint32_t mirror_off;
++    uint32_t size;
++    uint8_t *init_bytes;
++} tramp_mirror_t;
++
++typedef struct {
++    uint64_t target_off;
++    uint32_t word;
++    uint32_t orig_word;
++    uint8_t has_orig_word;
++} tramp_cave_t;
++
++static tramp_site_t *g_tramp_sites;
++static int g_ntramp_sites, g_tramp_sites_cap;
++static tramp_mirror_t *g_tramp_mirrors;
++static int g_ntramp_mirrors, g_tramp_mirrors_cap;
++static tramp_cave_t *g_tramp_caves;
++static int g_ntramp_caves, g_tramp_caves_cap;
++static int g_tramp_slots_used;
++static _Atomic uint8_t *g_cheat_state;   // main->base + main->cheat_state_off (16 KB RW), or NULL
++static uint8_t g_slot_cur[TRAMP_SLOT_MAX];
++static uint8_t g_slot_next[TRAMP_SLOT_MAX];
++
++// Lock order when acquiring both mutexes: always g_scan_lock before g_lock.
++#define DM_SCAN_CAP 65536u
++static pthread_mutex_t g_scan_lock = PTHREAD_MUTEX_INITIALIZER;
++static dm_scan_hit_t *g_scan_hits;
++static size_t g_scan_n, g_scan_cap;
++static int g_scan_type;
++
++typedef struct { uint64_t off; uint8_t orig; } orig_code_byte_t;
++typedef struct { int cheat_idx; uint64_t off; uint32_t len; } cheat_code_span_t;
++static orig_code_byte_t *g_orig_bytes;
++static int g_norig_bytes, g_orig_bytes_cap;
++static cheat_code_span_t *g_code_spans;
++static int g_ncode_spans, g_code_spans_cap;
++static uint64_t g_icache_flushes;
++
++static void cheat_key(const cheat_t *c, char *out, size_t n);
++static int tsv_split(char *line, char **f, int max);
++
++static void orig_code_snapshot(uint64_t off, uint8_t byte) {
++    for (int i = 0; i < g_norig_bytes; i++) if (g_orig_bytes[i].off == off) return;
++    if (g_norig_bytes == g_orig_bytes_cap) {
++        int ncap = g_orig_bytes_cap ? g_orig_bytes_cap * 2 : 256;
++        orig_code_byte_t *grown = realloc(g_orig_bytes, (size_t)ncap * sizeof *grown);
++        if (!grown) return;
++        g_orig_bytes = grown; g_orig_bytes_cap = ncap;
++    }
++    g_orig_bytes[g_norig_bytes].off = off;
++    g_orig_bytes[g_norig_bytes].orig = byte;
++    g_norig_bytes++;
++}
++
++static int orig_code_lookup(uint64_t off, uint8_t *out) {
++    for (int i = 0; i < g_norig_bytes; i++) {
++        if (g_orig_bytes[i].off == off) { *out = g_orig_bytes[i].orig; return 1; }
++    }
++    return 0;
++}
++
++static void code_span_record(int cheat_idx, uint64_t off, uint32_t len) {
++    for (int i = 0; i < g_ncode_spans; i++) {
++        if (g_code_spans[i].cheat_idx == cheat_idx && g_code_spans[i].off == off && g_code_spans[i].len == len) return;
++    }
++    if (g_ncode_spans == g_code_spans_cap) {
++        int ncap = g_code_spans_cap ? g_code_spans_cap * 2 : 128;
++        cheat_code_span_t *grown = realloc(g_code_spans, (size_t)ncap * sizeof *grown);
++        if (!grown) return;
++        g_code_spans = grown; g_code_spans_cap = ncap;
++    }
++    g_code_spans[g_ncode_spans].cheat_idx = cheat_idx;
++    g_code_spans[g_ncode_spans].off = off;
++    g_code_spans[g_ncode_spans].len = len;
++    g_ncode_spans++;
++}
++
++static int code_byte_claimed_by_other(int skip_idx, uint64_t off) {
++    for (int i = 0; i < g_ncode_spans; i++) {
++        int idx = g_code_spans[i].cheat_idx;
++        if (idx == skip_idx || idx < 0 || idx >= g_ncheat) continue;
++        const cheat_t *o = &g_cheat[idx];
++        if (o->broken || o->dead || o->label || !(o->on || (o->master && !g_safe))) continue;
++        if (off >= g_code_spans[i].off && off - g_code_spans[i].off < g_code_spans[i].len) return 1;
++    }
++    return 0;
++}
++
++// Restore Mac .text bytes written by cheat_idx (non-paired code cheats) when disabled or reloaded.
++static void orig_code_restore_cheat(int cheat_idx) {
++    if (!g_main_mod || !g_alias) return;
++    uint64_t flush_lo = UINT64_MAX, flush_hi = 0;
++    for (int i = 0; i < g_ncode_spans; i++) {
++        if (g_code_spans[i].cheat_idx != cheat_idx) continue;
++        uint64_t base_off = g_code_spans[i].off;
++        uint32_t len = g_code_spans[i].len;
++        for (uint32_t k = 0; k < len; k++) {
++            uint64_t off = base_off + k;
++            if (off >= main_rx_end() || code_byte_claimed_by_other(cheat_idx, off)) continue;
++            uint8_t orig = 0;
++            if (!orig_code_lookup(off, &orig)) continue;
++            if (g_alias[off] != orig) {
++                dm_guest_write_prepare(g_main_mod->base + off, 1);
++                g_alias[off] = orig;
++                if (off < flush_lo) flush_lo = off;
++                if (off + 1 > flush_hi) flush_hi = off + 1;
++            }
++        }
++    }
++    if (flush_hi > flush_lo) {
++        sys_icache_invalidate(g_main_mod->base + flush_lo, (size_t)(flush_hi - flush_lo));
++        g_icache_flushes++;
++    }
++    int kept = 0;
++    for (int i = 0; i < g_ncode_spans; i++) {
++        if (g_code_spans[i].cheat_idx != cheat_idx) g_code_spans[kept++] = g_code_spans[i];
++    }
++    g_ncode_spans = kept;
++}
++
++static void orig_code_restore_all(void) {
++    if (!g_main_mod || !g_alias) { g_ncode_spans = 0; return; }
++    uint64_t flush_lo = UINT64_MAX, flush_hi = 0;
++    for (int i = 0; i < g_norig_bytes; i++) {
++        uint64_t off = g_orig_bytes[i].off;
++        if (off < main_rx_end() && g_alias[off] != g_orig_bytes[i].orig) {
++            dm_guest_write_prepare(g_main_mod->base + off, 1);
++            g_alias[off] = g_orig_bytes[i].orig;
++            if (off < flush_lo) flush_lo = off;
++            if (off + 1 > flush_hi) flush_hi = off + 1;
++        }
++    }
++    if (flush_hi > flush_lo) {
++        sys_icache_invalidate(g_main_mod->base + flush_lo, (size_t)(flush_hi - flush_lo));
++        g_icache_flushes++;
++    }
++    g_ncode_spans = 0;
++}
++
++static void trampolines_commit(void) {
++    if (!g_cheat_state || g_alias) return;
++    int lim = g_tramp_slots_used < TRAMP_SLOT_MAX ? g_tramp_slots_used : TRAMP_SLOT_MAX;
++    for (int s = 0; s < lim; s++) {
++        if (g_slot_next[s] != g_slot_cur[s]) {
++            atomic_store_explicit(&g_cheat_state[s], g_slot_next[s], memory_order_release);
++            g_slot_cur[s] = g_slot_next[s];
++        }
++    }
++}
++
++static void trampolines_clear(void) {
++    if (g_cheat_state && !g_alias) {
++        memset(g_slot_next, 0, sizeof g_slot_next);
++        trampolines_commit();
++    }
++    for (int i = 0; i < g_ntramp_mirrors; i++) free(g_tramp_mirrors[i].init_bytes);
++    g_ntramp_sites = 0;
++    g_ntramp_mirrors = 0;
++    g_ntramp_caves = 0;
++    g_tramp_slots_used = 0;
++    memset(g_slot_cur, 0, sizeof g_slot_cur);
++    memset(g_slot_next, 0, sizeof g_slot_next);
++}
++
++static int hex_nibble(char ch) {
++    if (ch >= '0' && ch <= '9') return ch - '0';
++    if (ch >= 'a' && ch <= 'f') return 10 + (ch - 'a');
++    if (ch >= 'A' && ch <= 'F') return 10 + (ch - 'A');
++    return -1;
++}
++
++static void trampolines_bind_state_page(void) {
++    g_cheat_state = NULL;
++    if (!g_main_mod || !g_main_mod->base || !g_main_mod->cheat_state_off) return;
++    uint64_t off = g_main_mod->cheat_state_off;
++    if ((off & 0x3FFFull) || g_main_mod->size < 0x4000 || off > g_main_mod->size - 0x4000) return;
++    if (g_main_mod->key_page_off > g_main_mod->size || g_main_mod->key_page_size > g_main_mod->size - g_main_mod->key_page_off) return;
++    if (off < g_main_mod->key_page_off + g_main_mod->key_page_size) return;
++    g_cheat_state = (_Atomic uint8_t *)(g_main_mod->base + off);
++}
++
++static int parse_detail_orig_word(const char *detail, uint32_t *out_word) {
++    const char *op = strstr(detail, "orig=");
++    if (!op) return 0;
++    char *ep = NULL;
++    unsigned long ow = strtoul(op + 5, &ep, 0);
++    if (ep == op + 5) return 0;
++    *out_word = (uint32_t)ow;
++    return 1;
++}
++
++static void trampolines_load(void) {
++    trampolines_clear();
++    trampolines_bind_state_page();
++    if (!g_main_mod) return;
++    const char *mdir = dm_module_dir();
++    if (!mdir || !mdir[0]) return;
++    char p[1100]; snprintf(p, sizeof p, "%s/cheat_trampolines.tsv", mdir);
++    FILE *f = fopen(p, "r");
++    if (!f) return;
++    char line[2048], bid[40] = "";
++    int header_seen = 0;
++    while (fgets(line, sizeof line, f)) {   // NOLINT(clang-analyzer-unix.BlockInCriticalSection): file load under g_lock; passes trylock
++        if (line[0] == '#') {
++            if (sscanf(line, "# BUILD_ID %39s", bid) == 1) continue;
++            continue;
++        }
++        char *fld[16]; int nf = tsv_split(line, fld, 16);
++        if (!header_seen) { header_seen = 1; continue; }
++        if (bid[0] && g_build[0] && strncasecmp(bid, g_build, 16) != 0) break;
++        if (nf < 9) continue;
++        const char *rtype = fld[0], *ckey = fld[2], *kind = fld[3], *detail = nf >= 10 ? fld[9] : "";
++        long slot_id = strtol(fld[4], NULL, 0);
++        unsigned long vmask = strtoul(fld[5], NULL, 0);
++        uint64_t toff = strtoull(fld[6], NULL, 0);
++        uint64_t pword = strtoull(fld[7], NULL, 0);
++        uint64_t kmask = strtoull(fld[8], NULL, 0);
++        uint8_t bkind = !strcmp(kind, "baked_static") ? DM_CHEAT_BAKED_STATIC
++                      : !strcmp(kind, "baked_conditional") ? DM_CHEAT_BAKED_CONDITIONAL
++                      : !strcmp(kind, "unbaked_code") ? DM_CHEAT_BAKED_UNBAKED : DM_CHEAT_BAKED_NONE;
++        if (!strcmp(rtype, "entry")) {
++            for (int i = 0; i < g_ncheat; i++) {
++                char k[NAME_MAX + 16]; cheat_key(&g_cheat[i], k, sizeof k);
++                if (!strcmp(k, ckey)) {
++                    g_cheat[i].baked_kind = bkind;
++                    if (kmask) g_cheat[i].key_mask |= kmask;
++                    break;
++                }
++            }
++        } else if (!strcmp(rtype, "site")) {
++            if (slot_id < 0 || slot_id >= TRAMP_SLOT_MAX || vmask == 0 || vmask > 0xFF) continue;
++            if (g_ntramp_sites == g_tramp_sites_cap) {
++                int ncap = g_tramp_sites_cap ? g_tramp_sites_cap * 2 : 128;
++                tramp_site_t *grown = realloc(g_tramp_sites, (size_t)ncap * sizeof *grown);
++                if (!grown) break;
++                g_tramp_sites = grown; g_tramp_sites_cap = ncap;
++            }
++            tramp_site_t *st = &g_tramp_sites[g_ntramp_sites++];
++            memset(st, 0, sizeof *st);
++            snprintf(st->cheat_key, sizeof st->cheat_key, "%s", ckey);
++            st->target_off = toff;
++            st->patched_word = (uint32_t)pword;
++            st->slot_id = (uint16_t)slot_id;
++            st->variant_mask = (uint8_t)vmask;
++            st->conditional = (uint8_t)(bkind == DM_CHEAT_BAKED_CONDITIONAL);
++            st->group_base = (uint16_t)slot_id;
++            st->group_bytes = 1;
++            uint32_t ow = 0;
++            if (parse_detail_orig_word(detail, &ow)) {
++                st->orig_word = ow;
++                st->has_orig_word = 1;
++            }
++            unsigned gb = 0, gn = 0;
++            const char *gp = strstr(detail, "group=");
++            if (gp && sscanf(gp, "group=%u:%u", &gb, &gn) == 2 && gn >= 1 && gn <= 4 && gb <= TRAMP_SLOT_MAX && gn <= TRAMP_SLOT_MAX - gb) {
++                st->group_base = (uint16_t)gb;
++                st->group_bytes = (uint8_t)gn;
++            }
++            int end_slot = (int)st->group_base + (int)st->group_bytes;
++            if (end_slot > g_tramp_slots_used) g_tramp_slots_used = end_slot;
++        } else if (!strcmp(rtype, "cave")) {
++            if (g_ntramp_caves == g_tramp_caves_cap) {
++                int ncap = g_tramp_caves_cap ? g_tramp_caves_cap * 2 : 64;
++                tramp_cave_t *grown = realloc(g_tramp_caves, (size_t)ncap * sizeof *grown);
++                if (!grown) break;
++                g_tramp_caves = grown; g_tramp_caves_cap = ncap;
++            }
++            tramp_cave_t *cv = &g_tramp_caves[g_ntramp_caves++];
++            memset(cv, 0, sizeof *cv);
++            cv->target_off = toff;
++            cv->word = (uint32_t)pword;
++            uint32_t ow = 0;
++            if (parse_detail_orig_word(detail, &ow)) {
++                cv->orig_word = ow;
++                cv->has_orig_word = 1;
++            }
++        } else if (!strcmp(rtype, "mirror")) {
++            unsigned msz = 0;
++            const char *sp = strstr(detail, "size=");
++            if (!sp || sscanf(sp, "size=%u", &msz) != 1 || !msz) continue;
++            if (pword < TRAMP_MIRROR_OFF || pword > TRAMP_MIRROR_END || msz > TRAMP_MIRROR_END - pword) continue;
++            if (g_ntramp_mirrors == g_tramp_mirrors_cap) {
++                int ncap = g_tramp_mirrors_cap ? g_tramp_mirrors_cap * 2 : 16;
++                tramp_mirror_t *grown = realloc(g_tramp_mirrors, (size_t)ncap * sizeof *grown);
++                if (!grown) break;
++                g_tramp_mirrors = grown; g_tramp_mirrors_cap = ncap;
++            }
++            uint8_t *ib = calloc(1, msz);
++            if (!ib) break;
++            const char *ip = strstr(detail, "init=");
++            if (ip) {
++                ip += 5;
++                for (unsigned k = 0; k < msz && ip[2 * k] && ip[2 * k + 1]; k++) {
++                    int hi = hex_nibble(ip[2 * k]), lo = hex_nibble(ip[2 * k + 1]);
++                    if (hi < 0 || lo < 0) break;
++                    ib[k] = (uint8_t)((hi << 4) | lo);
++                }
++            }
++            tramp_mirror_t *mb = &g_tramp_mirrors[g_ntramp_mirrors++];
++            mb->orig_off = toff;
++            mb->mirror_off = (uint32_t)pword;
++            mb->size = msz;
++            mb->init_bytes = ib;
++            if (g_cheat_state) {
++                memcpy((uint8_t *)g_cheat_state + mb->mirror_off, mb->init_bytes, mb->size);
++                atomic_thread_fence(memory_order_release);
++            }
++        }
++    }
++    fclose(f);
++    if (bid[0] && g_build[0] && strncasecmp(bid, g_build, 16) != 0) {
++        LOG("[RED] cheats: %s is for build %s, not %s: baked trampolines ignored", p, bid, g_build);
++        trampolines_clear();
++        return;
++    }
++    if (g_ntramp_sites || g_ntramp_mirrors || g_ntramp_caves)
++        LOG("cheats: loaded %d baked trampoline site(s) (%d slot(s)), %d cave word(s), and %d cave mirror(s) from %s",
++            g_ntramp_sites, g_tramp_slots_used, g_ntramp_caves, g_ntramp_mirrors, p);
++}
++
++static void trampolines_apply_site(const tramp_site_t *st, uint8_t *buf) {
++    if (st->group_bytes > 1) {
++        for (int b = 0; b < st->group_bytes; b++) buf[st->group_base + b] = 0;
++    }
++    buf[st->slot_id] = st->variant_mask;
++}
++
++// Synchronize static trampoline slots (and clear slots for disabled cheats) immediately on toggle / master switch / reload.
++static void trampolines_sync_static(void) {
++    if (!g_cheat_state || g_alias || g_tramp_slots_used <= 0) return;
++    int lim = g_tramp_slots_used < TRAMP_SLOT_MAX ? g_tramp_slots_used : TRAMP_SLOT_MAX;
++    if (!atomic_load(&g_master) || g_safe) {
++        memset(g_slot_next, 0, (size_t)lim);
++        trampolines_commit();
++        return;
++    }
++    uint8_t dyn_active[TRAMP_SLOT_MAX];
++    memset(dyn_active, 0, (size_t)lim);
++    for (int i = 0; i < g_ncheat; i++) {
++        const cheat_t *c = &g_cheat[i];
++        if (c->broken || c->dead || c->label || !(c->on || c->master)) continue;
++        char k[NAME_MAX + 16]; cheat_key(c, k, sizeof k);
++        for (int j = 0; j < g_ntramp_sites; j++) {
++            const tramp_site_t *st = &g_tramp_sites[j];
++            if (st->conditional && !strcmp(st->cheat_key, k)) {
++                for (int b = 0; b < st->group_bytes; b++) dyn_active[st->group_base + b] = 1;
++            }
++        }
++    }
++    for (int s = 0; s < lim; s++) g_slot_next[s] = dyn_active[s] ? g_slot_cur[s] : 0;
++    for (int half = 0; half < 2; half++) {
++        for (int i = 0; i < g_ncheat; i++) {
++            const cheat_t *c = &g_cheat[i];
++            if (c->broken || c->dead || c->label || ((half == 0) != (c->master != 0))) continue;
++            if (half && !c->on) continue;
++            if (c->baked_kind != DM_CHEAT_BAKED_STATIC) continue;
++            char k[NAME_MAX + 16]; cheat_key(c, k, sizeof k);
++            for (int j = 0; j < g_ntramp_sites; j++) {
++                const tramp_site_t *st = &g_tramp_sites[j];
++                if (!st->conditional && !strcmp(st->cheat_key, k)) trampolines_apply_site(st, g_slot_next);
++            }
++        }
++    }
++    trampolines_commit();
++}
++
++static const tramp_site_t *trampolines_find_site(const char *ckey, uint64_t off, uint32_t word) {
++    const tramp_site_t *fallback = NULL;
++    for (int i = 0; i < g_ntramp_sites; i++) {
++        const tramp_site_t *st = &g_tramp_sites[i];
++        if (st->target_off != off || st->patched_word != word) continue;
++        if (!strcmp(st->cheat_key, ckey)) return st;
++        if (!fallback) fallback = st;
++    }
++    return fallback;
++}
++
++static const tramp_site_t *trampolines_find_any_at_off(uint64_t off) {
++    for (int i = 0; i < g_ntramp_sites; i++) {
++        if (g_tramp_sites[i].target_off == off) return &g_tramp_sites[i];
++    }
++    return NULL;
++}
++
++static const tramp_cave_t *trampolines_find_cave(uint64_t off, uint32_t word) {
++    for (int i = 0; i < g_ntramp_caves; i++) {
++        if (g_tramp_caves[i].target_off == off && g_tramp_caves[i].word == word) return &g_tramp_caves[i];
++    }
++    return NULL;
++}
++
++static const tramp_cave_t *trampolines_find_cave_any(uint64_t off) {
++    for (int i = 0; i < g_ntramp_caves; i++) {
++        if (g_tramp_caves[i].target_off == off) return &g_tramp_caves[i];
++    }
++    return NULL;
++}
++
++// Intercept a .text write on iOS (!g_alias) and drive baked trampolines, Code Cave mirrors,
++// or statically-baked cave/no-op words. Returns 1 if handled, 0 if unbaked (falls through to cheat_kill).
++static int trampolines_try_write(cheat_t *c, uint64_t off, uint64_t len, uint64_t val) {
++    if (g_alias) return 0;
++    // 1. Relocated Code Cave switch-table mirror writes (1/2/4/8 bytes).
++    if (g_cheat_state) {
++        for (int i = 0; i < g_ntramp_mirrors; i++) {
++            const tramp_mirror_t *mb = &g_tramp_mirrors[i];
++            if (off >= mb->orig_off && off - mb->orig_off <= mb->size && len <= mb->size - (off - mb->orig_off)) {
++                uint32_t dst_off = mb->mirror_off + (uint32_t)(off - mb->orig_off);
++                if (g_dry) {
++                    dry_line("main+0x%llX (%llu bytes, cave mirror +0x%X): -> 0x%llX", (unsigned long long)off, (unsigned long long)len, dst_off, (unsigned long long)val);
++                    g_dry_writes++;
++                    return 1;
++                }
++                memcpy((uint8_t *)g_cheat_state + dst_off, &val, (size_t)len);
++                atomic_thread_fence(memory_order_release);
++                return 1;
++            }
++        }
++    }
++    // 2. Baked trampoline slots, restore-to-original writes, and statically baked cave words.
++    uint64_t woffs[2] = {0, 0};
++    uint32_t wvals[2] = {0, 0};
++    int nwords = 0;
++    if (len == 1 || len == 2) {
++        uint64_t aligned = off & ~3ull;
++        unsigned shift = (unsigned)(off & 3ull) * 8u;
++        if (shift + (unsigned)len * 8u > 32u) return 0;
++        uint32_t mask = (len == 1 ? 0xFFu : 0xFFFFu) << shift;
++        uint32_t ins_bits = ((uint32_t)val << shift) & mask;
++        // Reconstruct merged 32-bit word from baked orig_word (never read live .text which now holds B trampoline).
++        const tramp_site_t *any = trampolines_find_any_at_off(aligned);
++        if (any && any->has_orig_word) {
++            woffs[0] = aligned;
++            wvals[0] = (any->orig_word & ~mask) | ins_bits;
++            nwords = 1;
++        } else {
++            const tramp_cave_t *cv = trampolines_find_cave_any(aligned);
++            if (!cv || !cv->has_orig_word) return 0;
++            woffs[0] = aligned;
++            wvals[0] = (cv->orig_word & ~mask) | ins_bits;
++            nwords = 1;
++        }
++    } else if ((off & 3) == 0 && (len == 4 || len == 8)) {
++        nwords = (int)(len / 4);
++        for (int k = 0; k < nwords; k++) {
++            woffs[k] = off + (uint64_t)k * 4;
++            wvals[k] = (uint32_t)(val >> (k * 32));
++        }
++    } else {
++        return 0;
++    }
++
++    enum { ACT_NONE = 0, ACT_SITE, ACT_RESTORE, ACT_CAVE };
++    int act[2] = {ACT_NONE, ACT_NONE};
++    const tramp_site_t *matched[2] = {NULL, NULL};
++    char ckey[NAME_MAX + 16]; cheat_key(c, ckey, sizeof ckey);
++    for (int k = 0; k < nwords; k++) {
++        const tramp_site_t *st = trampolines_find_site(ckey, woffs[k], wvals[k]);
++        if (st) {
++            if (!g_cheat_state) return 0;
++            act[k] = ACT_SITE;
++            matched[k] = st;
++            continue;
++        }
++        const tramp_site_t *any = trampolines_find_any_at_off(woffs[k]);
++        if (any && (any->has_orig_word ? (wvals[k] == any->orig_word) : (c->pair_off != 0))) {
++            if (!g_cheat_state) return 0;
++            act[k] = ACT_RESTORE;
++            matched[k] = any;
++            continue;
++        }
++        if (trampolines_find_cave(woffs[k], wvals[k])) {
++            act[k] = ACT_CAVE;
++            continue;
++        }
++        return 0;
++    }
++    for (int k = 0; k < nwords; k++) {
++        if (act[k] == ACT_CAVE) {
++            if (g_dry) {
++                dry_line("main+0x%llX (baked cave/orig word 0x%08X)", (unsigned long long)woffs[k], wvals[k]);
++                g_dry_writes++;
++            }
++            continue;
++        }
++        const tramp_site_t *st = matched[k];
++        if (g_dry) {
++            if (act[k] == ACT_RESTORE) dry_line("main+0x%llX (baked trampoline slot %u -> 0 restore)", (unsigned long long)woffs[k], st->slot_id);
++            else dry_line("main+0x%llX (baked trampoline slot %u, mask 0x%X)", (unsigned long long)woffs[k], st->slot_id, st->variant_mask);
++            g_dry_writes++;
++        } else if (act[k] == ACT_RESTORE) {
++            for (int b = 0; b < st->group_bytes; b++) g_slot_next[st->group_base + b] = 0;
++        } else {
++            trampolines_apply_site(st, g_slot_next);
++        }
++    }
++    return 1;
++}
++
+ static int main_write_check(cheat_t *c, uint64_t addr, uint64_t len) {
+     module_t *m = g_main_mod; uint64_t off = addr - (uint64_t)(uintptr_t)m->base;
+     if (off + len > m->key_page_off) {
+@@ -601,11 +1124,17 @@ static int main_write_check(cheat_t *c, uint64_t addr, uint64_t len) {
+     }
+     return 0;
+ }
+-static void main_write_pages(uint64_t addr, uint64_t len, const void *src) {
++static void main_write_pages(cheat_t *c, uint64_t addr, uint64_t len, const void *src) {
+     uint64_t off = addr - (uint64_t)(uintptr_t)g_main_mod->base; int code = off < main_rx_end();
++    uint8_t *dst = g_alias ? g_alias + (size_t)off : (uint8_t *)(uintptr_t)addr;
++    if (memcmp(dst, src, (size_t)len) == 0) return;   // deduplicate identical writes to avoid redundant icache flushes
++    if (code && g_alias && c && c->pair < 0 && c >= g_cheat && c < g_cheat + g_ncheat) {
++        for (uint64_t k = 0; k < len; k++) orig_code_snapshot(off + k, dst[k]);
++        code_span_record((int)(c - g_cheat), off, (uint32_t)len);
++    }
+     dm_guest_write_prepare((void *)(uintptr_t)addr, len);   // the write-protect dirty tracking must see this write coming
+-    memcpy(g_alias ? g_alias + (size_t)off : (uint8_t *)(uintptr_t)addr, src, len);
+-    if (code) sys_icache_invalidate((void *)(uintptr_t)addr, len);   // the game's own fetches must see the new instructions
++    memcpy(dst, src, len);
++    if (code) { sys_icache_invalidate((void *)(uintptr_t)addr, len); g_icache_flushes++; }   // the game's own fetches must see the new instructions
+ }
+ 
+ // Read len bytes at a guest address without any consequence for a cheat: 0 and the value, or -1 when unmapped (the dry run
+@@ -662,7 +1191,11 @@ static void cheat_write(cheat_t *c, uint64_t addr, uint64_t len, uint64_t val) {
+             return;
+         }
+     }
+-    if (w.kind == WH_MAIN && main_write_check(c, addr, len)) return;
++    if (w.kind == WH_MAIN) {
++        uint64_t off = addr - w.base;
++        if (off < main_rx_end() && !g_alias && g_cheat_state && trampolines_try_write(c, off, len, val)) return;
++        if (main_write_check(c, addr, len)) return;
++    }
+     if (g_dry) {
+         char where[48], now[48], new_[48]; uint64_t cur = 0;
+         addr_name(addr, where, sizeof where);
+@@ -676,7 +1209,7 @@ static void cheat_write(cheat_t *c, uint64_t addr, uint64_t len, uint64_t val) {
+                                  w.kind == WH_MAIN ? "main NSO" : w.kind == WH_HEAP ? "heap" : w.kind == WH_MODULE ? w.mod->name : "guest page");
+     int bad = 0;
+     switch (w.kind) {
+-        case WH_MAIN: main_write_pages(addr, len, &val); break;
++        case WH_MAIN: main_write_pages(c, addr, len, &val); break;
+         // The heap write happens under the memory lock (dm_guest_heap_write), so a concurrent SetHeapSize cannot shrink it
+         // out from under the copy; it only refuses if the span shrank since the check a moment ago: a failed access as ever
+         case WH_HEAP: bad = dm_guest_heap_write(addr, &val, len) != 0; break;
+@@ -1030,6 +1563,10 @@ static void cheats_pass(void) {
+     if (!atomic_load(&g_master)) { pthread_mutex_unlock(&g_lock); return; }   // switched off while this pass waited for the lock
+     int fired = 0, ran = 0;
+     g_held = dm_cheats_keys();
++    if (g_cheat_state && !g_alias && g_tramp_slots_used > 0) {
++        int lim = g_tramp_slots_used < TRAMP_SLOT_MAX ? g_tramp_slots_used : TRAMP_SLOT_MAX;
++        memset(g_slot_next, 0, (size_t)lim);
++    }
+     memset(g_reg, 0, sizeof g_reg); memset(g_saved, 0, sizeof g_saved);   // the reference's once-per-pass ResetState (the loop tops: per cheat, in vm_run)
+     for (int half = 0; half < 2; half++) for (int i = 0; i < g_ncheat; i++) {
+         cheat_t *c = &g_cheat[i];
+@@ -1039,6 +1576,7 @@ static void cheats_pass(void) {
+         note_settle(c);
+         if ((c->once || c->restore_once) && half) { c->on = 0; c->restore_once = 0; fired = 1; }
+     }
++    if (g_cheat_state && !g_alias && g_tramp_slots_used > 0) trampolines_commit();
+     if (ran) g_keyold = g_held;
+     if (fired) states_save();   // the file writes themselves leave on the files queue: the presenting thread never waits for the disk
+     pthread_mutex_unlock(&g_lock);
+@@ -1428,6 +1966,24 @@ static int section_marker(const char *name, char *sec, size_t n) {
+     return kind;
+ }
+ 
++// Zing group markers: single-word 20000000 starts a section named after the entry, 20000001 ends it.
++static void zing_finalize_entry(cheat_t *ent, char section[NAME_MAX]) {
++    if (!ent || ent->broken || ent->master || ent->nins != 1) return;
++    if (ent->ins[0] != 0x20000000u && ent->ins[0] != 0x20000001u) return;
++    int is_start = ent->ins[0] == 0x20000000u;
++    ent->nins = 0;
++    ent->label = 1;
++    ent->on = 0;
++    ent->sec_mark = is_start ? 1 : 2;
++    if (is_start) {
++        snprintf(section, NAME_MAX, "%s", ent->name);
++        snprintf(ent->section, NAME_MAX, "%s", section);
++    } else {
++        snprintf(ent->section, NAME_MAX, "%s", section);
++        section[0] = 0;
++    }
++}
++
+ // Parse the file into the cheats array; lines other than [Name] / {Name} headers and 8-hex-digit code words
+ // separated by spaces are ignored (the brief), with one [RED] line for a line whose words are code-like but not valid.
+ // An entry without code words is a label (its name only: credits, or a section marker that sets the section of the
+@@ -1453,6 +2009,7 @@ static void parse_file(const char *path) {
+         if (*p == '[') end = ']';
+         else if (*p == '{') end = '}';
+         if (end) {   // a header starts a new cheat; the name is what lies inside
++            zing_finalize_entry(cur, section);
+             char *q = strchr(p, end);
+             size_t nl = q && q > p ? (size_t)(q - p - 1) : 0;
+             if (nl == 0 || g_ncheat >= CHEAT_MAX) {
+@@ -1527,6 +2084,7 @@ static void parse_file(const char *path) {
+         memcpy(cur->ins + cur->nins, got, sizeof(uint32_t) * (size_t)ngot);
+         cur->nins += ngot;
+     }
++    zing_finalize_entry(cur, section);
+     free(text);
+     // The verdict per cheat: no code words at all is a label (the meta file may still make it a host action), unless lines
+ // under it were dropped as prose (then it is broken, with the first such line named); anything
+@@ -1543,6 +2101,7 @@ static void parse_file(const char *path) {
+             ins_t in;
+             int len = ins_dec(c, c->ins + a, c->nins - a, &in);
+             if (len <= 0) break;   // the reason is already in c->why and c->broken is set
++            if (in.op == 8 || in.op == 0xC4) c->key_mask |= in.val;
+             a += len;
+         }
+     }
+@@ -1762,6 +2321,8 @@ static void sources_scan(void) {
+ // (Re)load: choose the file, note the other builds, parse, read the meta file and the values, link pairs, restore the
+ // states, build the report. Called at init and from "Reload cheats" (safe mode and the master switch stay as they are)
+ static void load_all(void) {
++    if (g_ncode_spans) orig_code_restore_all();
++    trampolines_clear();
+     g_ncheat = 0; g_ncand = 0; g_nothers = 0; g_path[0] = 0; g_nskip = 0; g_have_meta = 0;
+     g_junk = g_junk_line = g_glued = 0; g_carried[0] = 0; g_version[0] = 0; g_meta_src[0] = 0;
+     memset(g_static, 0, sizeof g_static);   // the reference clears its static registers when it loads cheats
+@@ -1822,6 +2383,8 @@ static void load_all(void) {
+     pairs_link();
+     values_load();
+     states_load();
++    trampolines_load();
++    trampolines_sync_static();
+     // the summary: masters are always on, a broken / empty cheat never runs, the rest keep the menu's saved state
+     int on = 0, bad = 0, masters = 0, labels = 0;
+     for (int i = 0; i < g_ncheat; i++) {
+@@ -1906,6 +2469,25 @@ void dm_cheats_teardown(void) {
+         g_tick_started = 0;
+     }
+     files_drain();
++    // Acquire g_scan_lock before g_lock so scanner callers never observe a torn g_main_mod.
++    pthread_mutex_lock(&g_scan_lock);
++    free(g_scan_hits);
++    g_scan_hits = NULL;
++    g_scan_n = 0;
++    g_scan_cap = 0;
++    g_scan_type = 0;
++    pthread_mutex_lock(&g_lock);
++    trampolines_clear();
++    free(g_tramp_sites); g_tramp_sites = NULL; g_tramp_sites_cap = 0;
++    free(g_tramp_mirrors); g_tramp_mirrors = NULL; g_tramp_mirrors_cap = 0;
++    free(g_tramp_caves); g_tramp_caves = NULL; g_tramp_caves_cap = 0;
++    free(g_orig_bytes); g_orig_bytes = NULL; g_norig_bytes = 0; g_orig_bytes_cap = 0;
++    free(g_code_spans); g_code_spans = NULL; g_ncode_spans = 0; g_code_spans_cap = 0;
++    free(g_changed); g_changed = NULL; g_nchanged = 0; g_changed_state = 0;
++    g_cheat_state = NULL;
++    g_main_mod = NULL;
++    pthread_mutex_unlock(&g_lock);
++    pthread_mutex_unlock(&g_scan_lock);
+ }
+ 
+ // ---------- the Mac cheats menu and panel (callers: front_mac.m; nothing else uses these) ----------
+@@ -1981,7 +2563,10 @@ void dm_cheat_toggle(int i) {
+             cheat_t *p = &g_cheat[c->pair];
+             if (!c->pair_off) { if (!p->broken && !p->dead) { p->on = (uint8_t)!now; p->restore_once = (uint8_t)!now; } }
+             else if (now) p->on = 0;
++        } else if (!now) {
++            orig_code_restore_cheat(i);
+         }
++        trampolines_sync_static();
+         states_save();
+     }
+     pthread_mutex_unlock(&g_lock);
+@@ -2083,6 +2668,8 @@ int dm_cheats_master(void) { return atomic_load(&g_master); }
+ void dm_cheats_master_set(int on) {
+     pthread_mutex_lock(&g_lock);
+     atomic_store(&g_master, !!on);
++    if (!on && g_ncode_spans) orig_code_restore_all();
++    trampolines_sync_static();
+     if (g_dir[0]) {
+         char p[1100]; flag_file(p, sizeof p, "off");
+         if (on) unlink(p);
+@@ -2102,6 +2689,7 @@ void dm_cheats_safe_restore(void) {
+     if (g_safe) {
+         g_safe = 0;
+         states_load();
++        trampolines_sync_static();
+         report_build();
+         running_update();
+     }
+@@ -2119,3 +2707,291 @@ const char *dm_cheats_skipped_why(int i) { return i >= 0 && i < g_nskip ? g_skip
+ int dm_cheats_nsources(void) { return g_nsrc; }
+ 
+ const char *dm_cheats_source(int i) { return i >= 0 && i < g_nsrc ? g_src[i] : ""; }
++
++int dm_cheat_baked_kind_at(int i) { return i >= 0 && i < g_ncheat ? g_cheat[i].baked_kind : DM_CHEAT_BAKED_NONE; }
++
++uint64_t dm_cheat_key_mask_at(int i) { return i >= 0 && i < g_ncheat ? g_cheat[i].key_mask : 0; }
++
++int dm_cheats_baked_slots(void) { return g_tramp_slots_used; }
++
++// ---------- Lightweight safe data-only memory value scanner ----------
++// Scans only writable guest data regions: main (.data/.bss, strictly inside [data_start, key_page_off))
++// and the currently opened heap (WH_HEAP, read chunk-by-chunk via dm_guest_heap_read under the memory lock).
++// Never touches .text, key_page, patch areas, or unmapped pages.
++
++static unsigned scan_elem_size(int type) {
++    switch (type) {
++        case DM_SCAN_U8:  return 1;
++        case DM_SCAN_U16: return 2;
++        case DM_SCAN_U32: return 4;
++        case DM_SCAN_U64: return 8;
++        case DM_SCAN_F32: return 4;
++        default:          return 0;
++    }
++}
++
++static int scan_main_data_range(uint64_t *start_out, uint64_t *end_out) {
++    if (!g_main_mod || !g_main_mod->base || !g_main_mod->size) return 0;
++    uint64_t rx = main_rx_end();
++    uint64_t start = g_main_mod->data_off >= rx ? g_main_mod->data_off : rx;
++    uint64_t end = g_main_mod->key_page_off;
++    if (end > g_main_mod->size) end = g_main_mod->size;
++    if (start >= end) return 0;
++    *start_out = start;
++    *end_out = end;
++    return 1;
++}
++
++static int scan_match(int type, int cmp, uint64_t cur, uint64_t ref) {
++    unsigned sz = scan_elem_size(type);
++    if (!sz) return 0;
++    if (type == DM_SCAN_F32) {
++        uint32_t uc = (uint32_t)cur, ur = (uint32_t)ref;
++        float fc = 0.0f, fr = 0.0f;
++        memcpy(&fc, &uc, 4); memcpy(&fr, &ur, 4);
++        if (isnan(fc) || isnan(fr)) return 0;
++        switch (cmp) {
++            case DM_SCAN_EQ:
++            case DM_SCAN_UNCHANGED: return fabsf(fc - fr) <= 1e-4f;
++            case DM_SCAN_NE:
++            case DM_SCAN_CHANGED:   return fabsf(fc - fr) > 1e-4f;
++            case DM_SCAN_GT:
++            case DM_SCAN_INCREASED: return fc > fr;
++            case DM_SCAN_LT:
++            case DM_SCAN_DECREASED: return fc < fr;
++            default:                return 0;
++        }
++    }
++    uint64_t m = width_mask(sz);
++    uint64_t a = cur & m, b = ref & m;
++    switch (cmp) {
++        case DM_SCAN_EQ:
++        case DM_SCAN_UNCHANGED: return a == b;
++        case DM_SCAN_NE:
++        case DM_SCAN_CHANGED:   return a != b;
++        case DM_SCAN_GT:
++        case DM_SCAN_INCREASED: return a > b;
++        case DM_SCAN_LT:
++        case DM_SCAN_DECREASED: return a < b;
++        default:                return 0;
++    }
++}
++
++static void scan_push_hit(uint8_t region, int type, uint64_t offset, uint64_t val) {
++    if (g_scan_n >= DM_SCAN_CAP) return;
++    if (g_scan_n == g_scan_cap) {
++        size_t ncap = g_scan_cap ? g_scan_cap * 2 : 1024;
++        if (ncap > DM_SCAN_CAP) ncap = DM_SCAN_CAP;
++        dm_scan_hit_t *grown = realloc(g_scan_hits, ncap * sizeof *grown);
++        if (!grown) return;
++        g_scan_hits = grown;
++        g_scan_cap = ncap;
++    }
++    g_scan_hits[g_scan_n].region = region;
++    g_scan_hits[g_scan_n].type = (uint8_t)type;
++    g_scan_hits[g_scan_n].reserved = 0;
++    g_scan_hits[g_scan_n].offset = offset;
++    g_scan_hits[g_scan_n].value = val;
++    g_scan_n++;
++}
++
++int dm_cheat_scan_start(int type, uint64_t target_raw, size_t *total_out) {
++    unsigned sz = scan_elem_size(type);
++    if (!sz) { if (total_out) *total_out = 0; return -1; }
++    pthread_mutex_lock(&g_scan_lock);
++    g_scan_n = 0;
++    g_scan_type = type;
++    size_t total = 0;
++
++    // 1. Scan main .data/.bss safely.
++    uint64_t dstart = 0, dend = 0;
++    if (scan_main_data_range(&dstart, &dend) && dend - dstart >= sz) {
++        uint64_t first = (dstart + sz - 1) & ~(uint64_t)(sz - 1);
++        for (uint64_t off = first; off <= dend - sz; off += sz) {
++            uint64_t cur = 0;
++            memcpy(&cur, g_main_mod->base + off, sz);
++            if (scan_match(type, DM_SCAN_EQ, cur, target_raw)) {
++                total++;
++                scan_push_hit(0, type, off, cur);
++            }
++        }
++    }
++
++    // 2. Scan opened guest heap safely in 4 KB chunks under dm_guest_heap_read.
++    uint64_t hb = 0; size_t hopen = 0;
++    dm_guest_heap_range(&hb, &hopen);
++    if (hb && hopen >= sz) {
++        uint8_t chunk[4096];
++        for (uint64_t base_off = 0; base_off < hopen; base_off += sizeof chunk) {
++            size_t avail = hopen - (size_t)base_off;
++            size_t n = avail > sizeof chunk ? sizeof chunk : avail;
++            if (n < sz) break;
++            if (dm_guest_heap_read(hb + base_off, chunk, n) != 0) break;
++            for (size_t i = 0; i <= n - sz; i += sz) {
++                uint64_t cur = 0;
++                memcpy(&cur, chunk + i, sz);
++                if (scan_match(type, DM_SCAN_EQ, cur, target_raw)) {
++                    total++;
++                    scan_push_hit(1, type, base_off + i, cur);
++                }
++            }
++        }
++    }
++
++    int kept = (int)g_scan_n;
++    if (total_out) *total_out = total;
++    pthread_mutex_unlock(&g_scan_lock);
++    return kept;
++}
++
++static int scan_read_current(uint8_t region, uint64_t offset, unsigned sz, uint64_t *out) {
++    uint64_t v = 0;
++    if (region == 0) {
++        uint64_t dstart = 0, dend = 0;
++        if (!scan_main_data_range(&dstart, &dend)) return -1;
++        if (offset < dstart || offset > dend || sz > dend - offset) return -1;
++        memcpy(&v, g_main_mod->base + offset, sz);
++        *out = v;
++        return 0;
++    }
++    if (region == 1) {
++        uint64_t hb = 0; size_t hopen = 0;
++        dm_guest_heap_range(&hb, &hopen);
++        if (!hb || offset > hopen || sz > hopen - offset) return -1;
++        if (dm_guest_heap_read(hb + offset, &v, sz) != 0) return -1;
++        *out = v;
++        return 0;
++    }
++    return -1;
++}
++
++int dm_cheat_scan_refine(int cmp, uint64_t target_raw, size_t *total_out) {
++    if (cmp < DM_SCAN_EQ || cmp > DM_SCAN_CHANGED) { if (total_out) *total_out = 0; return -1; }
++    pthread_mutex_lock(&g_scan_lock);
++    unsigned sz = scan_elem_size(g_scan_type);
++    if (!sz) {
++        if (total_out) *total_out = 0;
++        pthread_mutex_unlock(&g_scan_lock);
++        return -1;
++    }
++    size_t kept = 0;
++    int relative = cmp >= DM_SCAN_INCREASED;
++    for (size_t i = 0; i < g_scan_n; i++) {
++        dm_scan_hit_t h = g_scan_hits[i];
++        uint64_t cur = 0;
++        if (scan_read_current(h.region, h.offset, sz, &cur) != 0) continue;
++        uint64_t ref = relative ? h.value : target_raw;
++        if (scan_match(g_scan_type, cmp, cur, ref)) {
++            h.value = cur;
++            g_scan_hits[kept++] = h;
++        }
++    }
++    g_scan_n = kept;
++    if (total_out) *total_out = kept;
++    pthread_mutex_unlock(&g_scan_lock);
++    return (int)kept;
++}
++
++int dm_cheat_scan_count(void) {
++    pthread_mutex_lock(&g_scan_lock);
++    int n = (int)g_scan_n;
++    pthread_mutex_unlock(&g_scan_lock);
++    return n;
++}
++
++int dm_cheat_scan_get(int index, dm_scan_hit_t *out) {
++    if (!out || index < 0) return -1;
++    pthread_mutex_lock(&g_scan_lock);
++    if ((size_t)index >= g_scan_n) { pthread_mutex_unlock(&g_scan_lock); return -1; }
++    *out = g_scan_hits[index];
++    pthread_mutex_unlock(&g_scan_lock);
++    return 0;
++}
++
++int dm_cheat_scan_write(uint8_t region, uint64_t offset, int type, uint64_t value_raw) {
++    unsigned sz = scan_elem_size(type);
++    if (!sz) return -1;
++    uint64_t v = value_raw & width_mask(sz);
++    int rc = -1;
++    pthread_mutex_lock(&g_scan_lock);
++    if (region == 0) {
++        uint64_t dstart = 0, dend = 0;
++        if (scan_main_data_range(&dstart, &dend) && offset >= dstart && offset <= dend && sz <= dend - offset) {
++            uint8_t *addr = g_main_mod->base + offset;
++            dm_guest_write_prepare(addr, sz);
++            memcpy(g_alias ? g_alias + (size_t)offset : addr, &v, sz);
++            rc = 0;
++        }
++    } else if (region == 1) {
++        uint64_t hb = 0; size_t hopen = 0;
++        dm_guest_heap_range(&hb, &hopen);
++        if (hb && offset <= hopen && sz <= hopen - offset) {
++            rc = dm_guest_heap_write(hb + offset, &v, sz) == 0 ? 0 : -1;
++        }
++    }
++    pthread_mutex_unlock(&g_scan_lock);
++    return rc;
++}
++
++int dm_cheat_scan_format_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw, char *out, size_t cap) {
++    unsigned sz = scan_elem_size(type);
++    if (!name || !name[0] || region > 1 || !sz || !out || !cap || offset > 0xFFFFFFFFFFull) return -1;
++    char safe[NAME_MAX];
++    size_t j = 0;
++    for (size_t i = 0; name[i] && j + 1 < sizeof safe; i++) {
++        char ch = name[i];
++        if (ch == '[' || ch == ']' || ch == '{' || ch == '}' || ch == '\r' || ch == '\n') continue;
++        safe[j++] = ch;
++    }
++    safe[j] = 0;
++    if (!safe[0]) return -1;
++    unsigned hi_off = (unsigned)((offset >> 32) & 0xFFu);
++    uint32_t lo_off = (uint32_t)(offset & 0xFFFFFFFFu);
++    int n;
++    if (sz == 8) {
++        n = snprintf(out, cap, "[%s]\n08%X000%02X %08X %08X %08X\n",
++                     safe, (unsigned)region, hi_off, lo_off,
++                     (uint32_t)(value_raw >> 32), (uint32_t)(value_raw & 0xFFFFFFFFu));
++    } else {
++        uint32_t v32 = (uint32_t)(value_raw & width_mask(sz));
++        n = snprintf(out, cap, "[%s]\n0%u%X000%02X %08X %08X\n",
++                     safe, sz, (unsigned)region, hi_off, lo_off, v32);
++    }
++    return (n > 0 && (size_t)n < cap) ? n : -1;
++}
++
++int dm_cheat_scan_append_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw) {
++    char snippet[512];
++    if (dm_cheat_scan_format_cheat(name, region, offset, type, value_raw, snippet, sizeof snippet) < 0) return -1;
++    char target_path[2048] = "";
++    pthread_mutex_lock(&g_lock);
++    if (g_path[0]) snprintf(target_path, sizeof target_path, "%s", g_path);
++    else if (g_dir[0] && g_build[0]) snprintf(target_path, sizeof target_path, "%s/%s.txt", g_dir, g_build);
++    pthread_mutex_unlock(&g_lock);
++    if (!target_path[0]) return -1;
++    int need_nl = 0;
++    FILE *rf = fopen(target_path, "rb");
++    if (rf) {
++        if (fseek(rf, -1, SEEK_END) == 0) {
++            int last = fgetc(rf);
++            if (last != EOF && last != '\n') need_nl = 1;
++        }
++        fclose(rf);
++    }
++    FILE *wf = fopen(target_path, "ab");
++    if (!wf) return -1;
++    int ok = (!need_nl || fputc('\n', wf) != EOF) && fputs(snippet, wf) >= 0;
++    if (fclose(wf) != 0 || !ok) return -1;
++    dm_cheats_reload();
++    return 0;
++}
++
++void dm_cheat_scan_reset(void) {
++    pthread_mutex_lock(&g_scan_lock);
++    free(g_scan_hits);
++    g_scan_hits = NULL;
++    g_scan_n = 0;
++    g_scan_cap = 0;
++    g_scan_type = 0;
++    pthread_mutex_unlock(&g_scan_lock);
++}
+diff --git a/dm/host/loader.c b/dm/host/loader.c
+index 5c70da5..b122571 100644
+--- a/dm/host/loader.c
++++ b/dm/host/loader.c
+@@ -316,6 +316,7 @@ static void read_layout(module_t *m, const char *dir) {
+         else if (!strcmp(key, "RO_OFF")) m->ro_off = v;
+         else if (!strcmp(key, "DATA_OFF")) m->data_off = v;
+         else if (!strcmp(key, "FPS_STATE_OFF")) m->fps_state_off = v;
++        else if (!strcmp(key, "CHEAT_STATE_OFF")) m->cheat_state_off = v;
+         else if (!strcmp(key, "RENDER_SCALE")) m->render_scale_max = (uint32_t)v;
+         else if (!strcmp(key, "MOVIE_NATIVE_COLOR_KEYS")) m->movie_native_color_keys = v == 1;
+         else if (!strcmp(key, "STEP_MAX")) m->step_max = (uint32_t)v;
+@@ -433,6 +434,13 @@ static void install_key_page(module_t *m) {
+     for (int k = 0; k < KEY_N; k++) if (!page[m->key_idx[k]]) die("%s: key page entry %d is 0 (host key not created) -- the game would read TSD slot 0", m->name, k);
+     if (mprotect(m->base + m->key_page_off, m->key_page_size, PROT_READ)) die("%s key page mprotect", m->name);
+     if (m->fps_state_off) install_fps_state(m);
++    if (m->cheat_state_off) {
++        if ((m->cheat_state_off & 0x3FFFull) || m->cheat_state_off < m->key_page_off + m->key_page_size ||
++            m->cheat_state_off + 0x4000 > m->size ||
++            (m->fps_state_off && m->cheat_state_off < m->fps_state_off + 0x4000 && m->fps_state_off < m->cheat_state_off + 0x4000))
++            die("%s: cheat state page %#llx out of range", m->name, (unsigned long long)m->cheat_state_off);
++        memset(m->base + m->cheat_state_off, 0, 0x1000);   // all trampoline slots start disabled (original instructions)
++    }
+ }
+ 
+ static void register_gates(module_t *m, const char *dir) {
+diff --git a/dm/host/tests/t_cheats.c b/dm/host/tests/t_cheats.c
+index e52c024..950d223 100644
+--- a/dm/host/tests/t_cheats.c
++++ b/dm/host/tests/t_cheats.c
+@@ -46,7 +46,7 @@ const char *dm_module_dir(void) { return moddir; }
+ static int checks, fails;
+ #define CHECK(c, s) do { checks++; int ok_ = !!(c); fails += !ok_; printf("%s %s\n", ok_ ? "✓" : "✗", s); } while (0)
+ 
+-#define IMG 0x10000      // main: text 0x0000-0x3FFF, data 0x4000-0xBFFF, the host's key page 0xC000-0xFFFF
++#define IMG 0x14000      // main: text 0x0000-0x3FFF, data 0x4000-0xBFFF, key page 0xC000-0xFFFF, cheat state page 0x10000-0x13FFF
+ static uint8_t *img;     // main's image (page-aligned, so the engine can remap it)
+ #define SDK 0x8000       // the second module: text 0x0000-0x0FFF, read-only data 0x1000-0x1FFF, data 0x2000-0x3FFF, key page 0x4000-0x7FFF
+ static uint8_t *sdk;
+@@ -121,7 +121,7 @@ int main(void) {
+     sdk = mmap(NULL, SDK, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+     module_t *m = &g_mod[0]; g_nmod = 3;
+     snprintf(m->name, sizeof m->name, "main"); m->base = img; m->size = IMG; m->text_end = 0x4000;
+-    m->key_page_off = 0xC000; m->key_page_size = 0x4000; m->patch_off = -1;
++    m->key_page_off = 0xC000; m->key_page_size = 0x4000; m->cheat_state_off = 0x10000; m->patch_off = -1;
+     snprintf(m->build_id, sizeof m->build_id, "1111111111111111aaaaaaaaaaaaaaaa");
+     module_t *s = &g_mod[1];   // the second module's layout is the fixups header's: the engine writes only from data_off on, never the key page
+     snprintf(s->name, sizeof s->name, "sdk"); s->base = sdk; s->size = SDK; s->text_end = 0x1000; s->ro_off = 0x1000; s->data_off = 0x2000;
+@@ -652,11 +652,219 @@ int main(void) {
+     load_all();
+     CHECK(strstr(dm_cheats_report(), "1 cheats over 0x100 words") != NULL, "the report names a cheat over Atmosphère's 0x100 words");
+ 
++    // ---- Zing group markers (single-word 20000000 / 20000001) ----
++    fresh("zing",
++          "[Combat Group]\n20000000\n"
++          "[Fast Hit]\n04000000 00004800 00000001\n"
++          "[Combat End]\n20000001\n"
++          "[Outside Zing]\n04000000 00004804 00000002\n");
++    load_all();
++    CHECK(dm_cheat_kind_at(at("Combat Group", 0)) == 3 && (dm_cheat_flags_at(at("Combat Group", 0)) & DM_CHEAT_SECTION_START), "Zing 20000000 marks a section start label");
++    CHECK(dm_cheat_kind_at(at("Combat End", 0)) == 3 && (dm_cheat_flags_at(at("Combat End", 0)) & DM_CHEAT_SECTION_END), "Zing 20000001 marks a section end label");
++    CHECK(!strcmp(dm_cheat_section_at(at("Fast Hit", 0)), "Combat Group") && !dm_cheat_section_at(at("Outside Zing", 0))[0], "Zing section applies only to entries between 20000000 and 20000001");
++
++    // ---- Mac memcmp deduplication and automatic original_code restore on toggle off ----
++    wr32(0x120, 0x91000400);
++    fresh("mac_restore",
++          "[CodeA]\n04000000 00000120 52800020\n"
++          "[CodeB]\n04000000 00000120 52800040\n");
++    load_all();
++    int ca = at("CodeA", 0), cb = at("CodeB", 0);
++    uint64_t f0 = g_icache_flushes;
++    dm_cheat_toggle(ca); cheats_pass();
++    uint64_t f1 = g_icache_flushes;
++    cheats_pass(); cheats_pass();
++    CHECK(rd32(0x120) == 0x52800020 && f1 == f0 + 1 && g_icache_flushes == f1, "Mac code write deduplicates identical bytes and avoids redundant icache flushes");
++    dm_cheat_toggle(cb); cheats_pass();
++    CHECK(rd32(0x120) == 0x52800040, "second overlapping non-paired code cheat applies");
++    dm_cheat_toggle(ca);
++    CHECK(rd32(0x120) == 0x52800040, "disabling first overlapping code cheat does not clobber still-enabled peer");
++    dm_cheat_toggle(cb);
++    CHECK(rd32(0x120) == 0x91000400, "disabling last non-paired code cheat restores original_code automatically on Mac");
++
++    // ---- iOS baked trampolines (cheat_state_page) + VM-driven Opcode 8 / 1 conditional trampolines + Code Cave mirror ----
++    {
++        char tp[1200]; snprintf(tp, sizeof tp, "%s/cheat_trampolines.tsv", moddir);
++        FILE *tf = fopen(tp, "w"); if (!tf) { perror(tp); return 1; }
++        fprintf(tf,
++                "# BUILD_ID\t1111111111111111\n"
++                "# MAIN_RX_END\t0x4000\n"
++                "# CHEAT_STATE_OFF\t0x10000\n"
++                "# SLOTS_USED\t5\n"
++                "# MIRROR_BYTES\t4\n"
++                "row_type\tname\tcheat_key\tkind\tslot_id\tvariant_mask\ttarget_off\tpatched_word\tkey_mask\tdetail\n"
++                "entry\tStaticCode\tStaticCode\tbaked_static\t0\t0x1\t0x140\t0xd503201f\t0x0\t\n"
++                "entry\tKeyJump\tKeyJump\tbaked_conditional\t1\t0x1\t0x144\t0x52800020\t0x202\t\n"
++                "entry\tMemCond\tMemCond\tbaked_conditional\t2\t0x2\t0x148\t0x52800040\t0x0\t\n"
++                "entry\tMasterCave\tMasterCave\tbaked_static\t3\t0x1\t0x150\t0x140003ac\t0x0\t\n"
++                "entry\tNarrow1B\tNarrow1B\tbaked_static\t4\t0x1\t0x160\t0x52800040\t0x0\t\n"
++                "entry\tStandaloneRestore\tStandaloneRestore\tbaked_static\t-1\t0x0\t0x140\t0x91000400\t0x0\t\n"
++                "entry\tNoopRestore\tNoopRestore\tbaked_static\t-1\t0x0\t0x170\t0x91000800\t0x0\t\n"
++                "entry\tCaveMirror\tCaveMirror\tbaked_static\t-1\t0x0\t0x2000\t0x12345678\t0x0\t\n"
++                "site\tStaticCode\tStaticCode\tbaked_static\t0\t0x1\t0x140\t0xd503201f\t0x0\torig=0x91000400\n"
++                "site\tKeyJump\tKeyJump\tbaked_conditional\t1\t0x1\t0x144\t0x52800020\t0x202\torig=0x91000400\n"
++                "site\tMemCond\tMemCond\tbaked_conditional\t2\t0x2\t0x148\t0x52800040\t0x0\torig=0x91000400\n"
++                "site\tMasterCave\tMasterCave\tbaked_static\t3\t0x1\t0x150\t0x140003ac\t0x0\torig=0x91000400\n"
++                "site\tNarrow1B\tNarrow1B\tbaked_static\t4\t0x1\t0x160\t0x52800040\t0x0\torig=0x52800020\n"
++                "cave\tMasterCave\tMasterCave\tbaked_static\t-1\t0x0\t0x1000\t0xd503201f\t0x0\torig=0x00000000\n"
++                "cave\tMasterCave\tMasterCave\tbaked_static\t-1\t0x0\t0x1004\t0x17fffc54\t0x0\torig=0x00000000\n"
++                "cave\tNoopRestore\tNoopRestore\tbaked_static\t-1\t0x0\t0x170\t0x91000800\t0x0\torig=0x91000800\n"
++                "mirror\tCaveMirror\tCaveMirror\tbaked_static\t-1\t0x0\t0x2000\t0x1000\t0x0\tsize=4 init=efbeadde\n");
++        fclose(tf);
++        fresh("ios_tramp",
++              "{MasterCave}\n04000000 00000150 140003AC\n08000000 00001000 17FFFC54 D503201F\n04000000 00002000 11112222\n"
++              "[StaticCode]\n04000000 00000140 D503201F\n"
++              "[KeyJump]\n80000202\n04000000 00000144 52800020\n20000000\n"
++              "[MemCond]\n14050000 00004810 00000063\n04000000 00000148 52800040\n20000000\n"
++              "[Narrow1B]\n01000000 00000160 00000040\n"
++              "[Narrow2BRestore]\n02000000 00000160 00000020\n"
++              "[StandaloneRestore]\n04000000 00000140 91000400\n"
++              "[NoopRestore]\n04000000 00000170 91000800\n"
++              "[BadRestore]\n04000000 00000140 12345678\n"
++              "[CaveMirror]\n04000000 00002000 12345678\n"
++              "[UnbakedCode]\n04000000 00000180 D503201F\n");
++        uint8_t *saved_alias = g_alias;
++        load_all();
++        // Overwrite live .text at 0x160 with a dummy B trampoline word to prove narrow writes use baked orig_word, never live .text!
++        wr32(0x160, 0x14000100);
++        // Simulate unjailbroken iOS (!g_alias) driving the 16 KB cheat_state_page at main+0x10000.
++        g_alias = NULL;
++        trampolines_load();
++        trampolines_sync_static();
++        CHECK(dm_cheats_baked_slots() == 5 && rd32(0x11000) == 0xDEADBEEF, "baked trampolines load slot count and initialize cave mirror bytes");
++        CHECK(dm_cheat_baked_kind_at(at("StaticCode", 0)) == DM_CHEAT_BAKED_STATIC &&
++              dm_cheat_baked_kind_at(at("KeyJump", 0)) == DM_CHEAT_BAKED_CONDITIONAL &&
++              dm_cheat_key_mask_at(at("KeyJump", 0)) == 0x202, "baked_kind and Opcode 8 key_mask metadata are exposed");
++
++        // MasterCave (hook + 8-byte cave_code write + mirror write) runs cleanly on iOS without cheat_kill!
++        int mcave = at("MasterCave", 0);
++        cheats_pass();
++        CHECK(!g_cheat[mcave].dead && img[0x10000 + 3] == 1 && rd32(0x11000) == 0x11112222,
++              "iOS MasterCave with hook + cave_code + mirror runs cleanly without cheat_kill");
++
++        // Static trampoline toggles slot 0 atomically without waiting for a pass.
++        int sc = at("StaticCode", 0), kj = at("KeyJump", 0), mc = at("MemCond", 0), cm = at("CaveMirror", 0), ub = at("UnbakedCode", 0);
++        int n1 = at("Narrow1B", 0), n2r = at("Narrow2BRestore", 0), sr = at("StandaloneRestore", 0), nr = at("NoopRestore", 0), br = at("BadRestore", 0);
++        dm_cheat_toggle(sc);
++        CHECK(img[0x10000 + 0] == 1, "iOS static baked trampoline activates slot byte immediately on toggle on");
++        // Standalone non-paired restore cheat matching orig_word clears slot 0 without cheat_kill!
++        dm_cheat_toggle(sr); cheats_pass();
++        CHECK(!g_cheat[sr].dead && img[0x10000 + 0] == 0, "iOS standalone non-paired restore cheat clears slot 0 without cheat_kill");
++        dm_cheat_toggle(sr);
++        dm_cheat_toggle(sc);
++        CHECK(img[0x10000 + 0] == 0, "iOS static baked trampoline clears slot byte immediately on toggle off");
++
++        // Standalone no-op restore at an unpatched offset (cave row only) runs without cheat_kill.
++        dm_cheat_toggle(nr); cheats_pass();
++        CHECK(!g_cheat[nr].dead, "iOS standalone no-op restore with cave row runs without cheat_kill");
++        dm_cheat_toggle(nr);
++
++        // Unmatched word at a baked site (neither patched_word nor orig_word) still gets killed.
++        dm_cheat_toggle(br); cheats_pass();
++        CHECK(g_cheat[br].dead, "iOS unmatched word at a baked site is still refused");
++
++        // Narrow 1-byte code write (01) and 2-byte restore (02) synthesize from baked orig_word (not live .text).
++        dm_cheat_toggle(n1); cheats_pass();
++        CHECK(!g_cheat[n1].dead && img[0x10000 + 4] == 1, "iOS 1-byte narrow code write activates trampoline slot using baked orig_word");
++        dm_cheat_toggle(n2r); cheats_pass();
++        CHECK(!g_cheat[n2r].dead && img[0x10000 + 4] == 0, "iOS 2-byte narrow restore clears trampoline slot without cheat_kill");
++        dm_cheat_toggle(n2r); dm_cheat_toggle(n1);
++
++        // VM-driven conditional trampoline: Opcode 8 (ZR+B = 0x202) toggles slot 1 live without cheat_kill!
++        dm_cheat_toggle(kj);
++        held = 0; cheats_pass();
++        CHECK(img[0x10000 + 1] == 0 && !g_cheat[kj].dead, "iOS VM-driven Opcode 8 trampoline stays 0 when keys not held");
++        held = DM_BTN_ZR | DM_BTN_B; cheats_pass();
++        CHECK(img[0x10000 + 1] == 1 && !g_cheat[kj].dead, "iOS VM-driven Opcode 8 trampoline flips slot 1 to 1 when ZR+B held (no cheat_kill)");
++        held = 0; cheats_pass();
++        CHECK(img[0x10000 + 1] == 0 && !g_cheat[kj].dead, "iOS VM-driven Opcode 8 trampoline restores slot 1 to 0 when keys released");
++
++        // VM-driven memory conditional (Opcode 1): flips slot 2 to variant mask 0x2 when [main+0x4810] == 99.
++        dm_cheat_toggle(mc);
++        wr32(0x4810, 50); cheats_pass();
++        CHECK(img[0x10000 + 2] == 0 && !g_cheat[mc].dead, "iOS VM-driven Opcode 1 trampoline stays 0 when condition false");
++        wr32(0x4810, 99); cheats_pass();
++        CHECK(img[0x10000 + 2] == 2 && !g_cheat[mc].dead, "iOS VM-driven Opcode 1 trampoline sets variant mask 0x2 when condition met");
++
++        // Relocated Code Cave switch-table mirror write redirects cleanly into cheat_state_page + 0x1000.
++        dm_cheat_toggle(cm); cheats_pass();
++        CHECK(rd32(0x11000) == 0x12345678 && !g_cheat[cm].dead, "iOS cave mirror write redirects into cheat_state_page +0x1000 without cheat_kill");
++
++        // Unbaked .text write on !g_alias still kills the cheat safely.
++        dm_cheat_toggle(ub); cheats_pass();
++        CHECK(g_cheat[ub].dead && dm_cheat_kind_at(ub) == 2, "unbaked .text write without alias is still refused");
++
++        // Master switch off clears all trampoline slots immediately.
++        dm_cheats_master_set(0);
++        CHECK(img[0x10000 + 0] == 0 && img[0x10000 + 1] == 0 && img[0x10000 + 2] == 0, "master switch off clears all baked trampoline slots");
++        dm_cheats_master_set(1);
++        g_alias = saved_alias;
++        unlink(tp);
++    }
++
++    // ---- Lightweight safe Memory Scanner (main .data/.bss + WH_HEAP, never .text / key_page) ----
++    {
++        fresh("scanner", "[Seed]\n04000000 00004900 00000001\n");
++        load_all();
++        memset(img + 0x4000, 0, 0x8000);
++        memset(heap, 0, 0x10000);
++        wr32(0x0100, 777);               // decoy in .text (must NEVER be returned by scanner!)
++        wr32(0x4910, 777);               // main .data candidate 1
++        wr32(0x4920, 777);               // main .data candidate 2
++        { uint32_t v777 = 777; memcpy(heap + 0x200, &v777, 4); }
++        size_t total = 0;
++        int n = dm_cheat_scan_start(DM_SCAN_U32, 777, &total);
++        CHECK(n == 3 && total == 3 && dm_cheat_scan_count() == 3, "scanner finds u32 matches across main .data and heap, skipping .text");
++        // Modify values and refine with INCREASED, then exact EQ.
++        wr32(0x4910, 700);               // decreased
++        wr32(0x4920, 850);               // increased
++        { uint32_t v900 = 900; memcpy(heap + 0x200, &v900, 4); }
++        n = dm_cheat_scan_refine(DM_SCAN_INCREASED, 0, &total);
++        CHECK(n == 2 && total == 2, "scanner refine INCREASED narrows to 2 candidates");
++        n = dm_cheat_scan_refine(DM_SCAN_EQ, 900, &total);
++        dm_scan_hit_t hit;
++        CHECK(n == 1 && dm_cheat_scan_get(0, &hit) == 0 && hit.region == 1 && hit.offset == 0x200 && hit.value == 900, "scanner refine EQ pinpoints exact heap address");
++
++        // Float f32 scan & u64 scan.
++        float fval = 12.5f; uint32_t fraw = 0; memcpy(&fraw, &fval, 4);
++        memcpy(img + 0x4940, &fraw, 4);
++        n = dm_cheat_scan_start(DM_SCAN_F32, fraw, &total);
++        CHECK(n == 1 && dm_cheat_scan_get(0, &hit) == 0 && hit.region == 0 && hit.offset == 0x4940, "scanner supports f32 search");
++        uint64_t u64v = 0x1122334455667788ull;
++        memcpy(img + 0x4960, &u64v, 8);
++        n = dm_cheat_scan_start(DM_SCAN_U64, u64v, &total);
++        CHECK(n == 1 && dm_cheat_scan_get(0, &hit) == 0 && hit.region == 0 && hit.offset == 0x4960, "scanner supports u64 search");
++
++        // Safe write rejects .text and key_page, writes data & heap cleanly.
++        CHECK(dm_cheat_scan_write(0, 0x100, DM_SCAN_U32, 999) == -1 && dm_cheat_scan_write(0, 0xC000, DM_SCAN_U32, 999) == -1, "scanner write refuses .text and key_page");
++        CHECK(dm_cheat_scan_write(0, 0x4920, DM_SCAN_U32, 9999) == 0 && rd32(0x4920) == 9999, "scanner write updates main .data safely");
++        CHECK(dm_cheat_scan_write(1, 0x200, DM_SCAN_U32, 12345) == 0, "scanner write updates heap safely");
++        { uint32_t hv = 0; memcpy(&hv, heap + 0x200, 4); CHECK(hv == 12345, "heap value updated by scanner write"); }
++
++        // Format and append standard Atmosphère cheat into <BID>.txt and verify it reloads and runs.
++        char fmt[256];
++        CHECK(dm_cheat_scan_format_cheat("Scanned Gold", 0, 0x4920, DM_SCAN_U32, 0x3E7, fmt, sizeof fmt) > 0 &&
++              !strcmp(fmt, "[Scanned Gold]\n04000000 00004920 000003E7\n"), "scanner formats standard Atmosphère u32 cheat text");
++        CHECK(dm_cheat_scan_format_cheat("Scanned Big", 1, 0x200, DM_SCAN_U64, 0x1122334455667788ull, fmt, sizeof fmt) > 0 &&
++              !strcmp(fmt, "[Scanned Big]\n08100000 00000200 11223344 55667788\n"), "scanner formats standard Atmosphère u64 heap cheat text");
++        wr32(0x4920, 0);
++        CHECK(dm_cheat_scan_append_cheat("Scanned Gold", 0, 0x4920, DM_SCAN_U32, 0x3E7) == 0 && at("Scanned Gold", 0) >= 0, "scanner appends cheat to <BID>.txt and reloads list");
++        on_and_pass(at("Scanned Gold", 0));
++        CHECK(rd32(0x4920) == 0x3E7, "appended scanner cheat executes cleanly in VM");
++        dm_cheat_scan_reset();
++        CHECK(dm_cheat_scan_count() == 0, "scanner reset frees candidates");
++    }
++
+     // ---- Shell game switch: tick thread joins cleanly and files queue drains ----
+     tick_start();
+     CHECK(g_tick_started == 1, "tick_start starts the ~60 Hz apply thread");
+     dm_cheats_teardown();
+     CHECK(g_tick_started == 0 && atomic_load(&g_tick_stop) == 1 && atomic_load(&g_exiting) == 1, "dm_cheats_teardown stops and joins the tick thread");
++    CHECK(g_tramp_sites == NULL && g_tramp_mirrors == NULL && g_tramp_caves == NULL &&
++          g_orig_bytes == NULL && g_code_spans == NULL && g_changed == NULL &&
++          g_scan_hits == NULL && g_cheat_state == NULL && g_main_mod == NULL,
++          "dm_cheats_teardown frees all dynamic buffers and clears g_main_mod/g_cheat_state");
++    CHECK(dm_cheat_scan_write(0, 0x4920, DM_SCAN_U32, 1) == -1, "scanner write safely refuses main access after teardown");
+ 
+     char rmcmd[1100]; snprintf(rmcmd, sizeof rmcmd, "rm -rf '%s'", root);   // the test's cheats folders
+     if (system(rmcmd)) fprintf(stderr, "cannot remove %s\n", root);   // NOLINT(bugprone-command-processor): a fixed rm of the folder mkdtemp made above, no outside input
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index 0018b90..8a21757 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -172,6 +172,7 @@ echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
+ # One program's tables into TD: the rewriter's, the shader tables and the launcher's settings
+ program_tables() {
+ cp "$PATCHED"/*.fixups.tsv "$PATCHED"/*.gates.tsv "$PATCHED"/*.cuts.tsv "$PATCHED"/*.obs.tsv $TD/ || die "copy rewriter tables"
++if [ -f "$PATCHED/cheat_trampolines.tsv" ]; then cp "$PATCHED/cheat_trampolines.tsv" $TD/ || die "copy cheat_trampolines.tsv"; fi   # optional offline-baked iOS cheat trampolines and metadata
+ if [ -f "$PATCHED/nro.tsv" ]; then cp "$PATCHED/nro.tsv" $TD/ || die "copy the NRO table"; fi   # the NRO modules the game loads with nn::ro (hle_ro.c), embedded by gen_embed.py
+ if [ "$GFXAPI" = vulkan ] || [ "$GFXAPI" = gl ]; then cp "$GD/shader_map.tsv" $TD/ || die "copy shader tables"   # empty NVN table: the NVN layer draws nothing
+ else cp "$GD/shader_map.tsv" "$GD/c1_full.tsv" $TD/ || die "copy shader tables"
+diff --git a/dm/tools/cheat_bake.py b/dm/tools/cheat_bake.py
+new file mode 100644
+index 0000000..cd8ac3a
+--- /dev/null
++++ b/dm/tools/cheat_bake.py
+@@ -0,0 +1,1534 @@
++"""Offline Atmosphère cheat trampoline baker and Code Cave switch-table relocator.
++
++Used by dm/tools/patch_nso.py when baking cheats into main so unjailbroken iOS
++(where .text pages are signed read-only/execute without JIT) can toggle both
++unconditional static code cheats and key/memory-conditional code cheats at
++runtime via a dedicated 16 KB writable cheat_state_page:
++  +0x0000 .. +0x0FFF : uint8_t slot[4096] (0 = original insn, nonzero = variant mask)
++  +0x1000 .. +0x3FFF : 12 KB relocated Code Cave switch-table / data mirror area
++
++All generated trampolines strictly preserve NZCV condition flags (using only
++cbz/cbnz/tbz/tbnz for dispatch, never cmp/subs/adds/ands) and all guest
++registers including sp.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++import os
++from pathlib import Path
++import re
++import struct
++from typing import Callable
++
++import capstone
++from capstone import CS_ARCH_ARM64, CS_MODE_ARM, Cs
++from capstone.arm64 import ARM64_OP_IMM, ARM64_OP_MEM, ARM64_OP_REG
++
++import nso_asm
++from nso_asm import ADDI, ADRP, B, BL, BR, CBNZW, LDRX, NOP
++
++CHEAT_STATE_PAGE_SIZE = 0x4000
++CHEAT_SLOTS_SIZE = 0x1000
++CHEAT_MIRROR_OFFSET = 0x1000
++CHEAT_MIRROR_SIZE = 0x3000
++MAX_SLOTS = CHEAT_SLOTS_SIZE
++MAX_VARIANTS_PER_SITE = 32
++FILE_MAX = 4 << 20
++INS_MAX = 0x2000
++
++# AArch64 encodings used by trampolines and relocations (all NZCV-preserving).
++def STR_X_PRE(rt: int, rn: int, off: int) -> int:
++    assert -256 <= off <= 255
++    return 0xF8000C00 | ((off & 0x1FF) << 12) | (rn << 5) | rt
++
++
++def LDR_X_POST(rt: int, rn: int, off: int) -> int:
++    assert -256 <= off <= 255
++    return 0xF8400400 | ((off & 0x1FF) << 12) | (rn << 5) | rt
++
++
++def LDRB_UIMM(rt: int, rn: int, imm12: int) -> int:
++    assert 0 <= imm12 <= 0xFFF
++    return 0x39400000 | (imm12 << 10) | (rn << 5) | rt
++
++
++def LDRW_UIMM(rt: int, rn: int, imm12: int) -> int:
++    assert 0 <= imm12 <= 0xFFF
++    return 0xB9400000 | (imm12 << 10) | (rn << 5) | rt
++
++
++def LDRSW_UIMM(rt: int, rn: int, imm12: int) -> int:
++    assert 0 <= imm12 <= 0xFFF
++    return 0xB9800000 | (imm12 << 10) | (rn << 5) | rt
++
++
++def LDR_FP_UIMM(opc: int, rt: int, rn: int, imm12: int = 0) -> int:
++    assert 0 <= imm12 <= 0xFFF and opc in (0, 1, 2)
++    base = {0: 0xBD400000, 1: 0xFD400000, 2: 0x3DC00000}[opc]
++    return base | (imm12 << 10) | (rn << 5) | rt
++
++
++def CBZW(rt: int, frm: int, to: int) -> int:
++    off = to - frm
++    assert -(1 << 20) <= off < (1 << 20) and off % 4 == 0
++    return 0x34000000 | (((off >> 2) & 0x7FFFF) << 5) | rt
++
++
++def TBNZW(rt: int, bit: int, frm: int, to: int) -> int:
++    off = to - frm
++    assert 0 <= bit < 32 and -(1 << 15) <= off < (1 << 15) and off % 4 == 0
++    return 0x37000000 | (bit << 19) | (((off >> 2) & 0x3FFF) << 5) | rt
++
++
++def _sext(val: int, bits: int) -> int:
++    sign = 1 << (bits - 1)
++    return (val ^ sign) - sign
++
++
++def _width_ok(t: int) -> bool:
++    return t in (1, 2, 4, 8)
++
++
++def _width_mask(t: int) -> int:
++    return 0xFFFFFFFFFFFFFFFF if t == 8 else (1 << (8 * t)) - 1
++
++
++def _section_marker(name: str) -> tuple[int, str]:
++    if len(name) >= 4 and name.endswith('--'):
++        if name.startswith('--SectionStart:'):
++            return 1, name[15:-2]
++        if name.startswith('--SectionEnd:'):
++            return 2, name[13:-2]
++    return 0, ''
++
++
++@dataclass
++class StaticWrite:
++    offset: int
++    width: int
++    value: int
++    conditional: bool
++    key_mask: int = 0
++
++
++@dataclass
++class CheatEntry:
++    name: str
++    cheat_key: str
++    master: bool = False
++    label: bool = False
++    sec_mark: int = 0
++    section: str = ''
++    broken: bool = False
++    broken_why: str = ''
++    words: list[int] = field(default_factory=list)
++    writes: list[StaticWrite] = field(default_factory=list)
++    has_dynamic_text_write: bool = False
++    has_non_main_write: bool = False
++    key_mask: int = 0
++    kind: str = 'data'  # data | baked_static | baked_conditional | unbaked_code
++    detail: str = ''
++
++
++@dataclass
++class MirrorBlock:
++    orig_off: int
++    mirror_rel: int
++    size: int
++    init_bytes: bytes
++    cheat_keys: list[str] = field(default_factory=list)
++
++
++@dataclass
++class BakedSite:
++    cheat_key: str
++    name: str
++    kind: str
++    slot_id: int
++    variant_mask: int
++    target_off: int
++    patched_word: int
++    key_mask: int
++    orig_word: int = 0
++    group_base: int = -1
++    group_bytes: int = 1
++
++
++@dataclass
++class BakePlan:
++    build_id: str
++    full_build_id: str
++    text_end: int
++    rx_end: int
++    entries: list[CheatEntry] = field(default_factory=list)
++    # Sites to turn into trampolines: target_off -> list of (patched_word, cheat_keys)
++    patch_sites: dict[int, list[int]] = field(default_factory=dict)
++    # Code cave words written into zero/UDF padding: off -> word
++    cave_code: dict[int, int] = field(default_factory=dict)
++    cave_owners: dict[int, str] = field(default_factory=dict)
++    cave_orig_words: dict[int, int] = field(default_factory=dict)
++    # Standalone restore/no-op writes matching original .text (when off has no trampoline): off -> (orig_word, cheat_key)
++    cave_noops: dict[int, tuple[int, str]] = field(default_factory=dict)
++    # Relocated cave data/switch blocks: orig_off -> MirrorBlock
++    mirrors: list[MirrorBlock] = field(default_factory=list)
++    baked_sites: list[BakedSite] = field(default_factory=list)
++    slots_used: int = 0
++    mirror_bytes: int = 0
++    cheat_state_off: int = 0
++    skipped: list[tuple[str, str]] = field(default_factory=list)
++
++    @property
++    def needs_state_page(self) -> bool:
++        return bool(self.patch_sites or self.mirrors)
++
++
++def resolve_cheat_file(
++    build_id: str,
++    cheat_file: str | os.PathLike[str] | None = None,
++    cheat_dir: str | os.PathLike[str] | None = None,
++    title_id: str | None = None,
++) -> Path | None:
++    """Locate the cheat file for build_id (matching hle_cheats.c search order)."""
++    if cheat_file:
++        p = Path(cheat_file)
++        return p if p.is_file() else None
++    if not cheat_dir or len(build_id) < 16:
++        return None
++    bid16 = build_id[:16].lower()
++    root = Path(cheat_dir)
++    dirs = [root]
++    if title_id:
++        tid = title_id.upper()
++        dirs.append(root / 'atmosphere' / 'contents' / tid / 'cheats')
++        dirs.append(root / 'contents' / tid / 'cheats')
++    for d in dirs:
++        if not d.is_dir():
++            continue
++        try:
++            for item in sorted(d.iterdir()):
++                if not item.is_file():
++                    continue
++                nm = item.name.lower()
++                if nm == f'{bid16}.txt':
++                    return item
++        except OSError:
++            continue
++    return None
++
++
++def _split_glued_headers(raw: str) -> str:
++    """Mirror hle_cheats.c read_text(): split headers glued after an 8-hex-digit word."""
++    out: list[str] = []
++    n = len(raw)
++    hex_chars = frozenset('0123456789abcdefABCDEF')
++    for i, ch in enumerate(raw):
++        if ch in ('[', '{') and i >= 8:
++            if all(raw[k] in hex_chars for k in range(i - 8, i)):
++                if i == 8 or raw[i - 9] in (' ', '\t', '\n', '\r'):
++                    out.append('\v')
++        out.append(ch)
++    return ''.join(out)
++
++
++def parse_cheat_text(text: str) -> list[CheatEntry]:
++    """Parse Atmosphère cheat text, supporting EdiZon and Zing section markers."""
++    expanded = _split_glued_headers(text)
++    pieces = re.split(r'[\n\v]', expanded)
++    entries: list[CheatEntry] = []
++    cur: CheatEntry | None = None
++    section = ''
++    name_counts: dict[str, int] = {}
++
++    def finalize_prev(ent: CheatEntry | None) -> None:
++        nonlocal section
++        if ent is None or ent.broken or ent.master:
++            return
++        # Zing group markers: single-word 20000000 (start) / 20000001 (end).
++        if len(ent.words) == 1 and ent.words[0] in (0x20000000, 0x20000001):
++            is_start = ent.words[0] == 0x20000000
++            ent.words.clear()
++            ent.label = True
++            ent.sec_mark = 1 if is_start else 2
++            if is_start:
++                section = ent.name
++                ent.section = section
++            else:
++                ent.section = section
++                section = ''
++
++    for piece in pieces:
++        p = piece.lstrip(' \t')
++        if p.startswith('[') or p.startswith('{'):
++            end_ch = ']' if p[0] == '[' else '}'
++            q = p.find(end_ch, 1)
++            if q > 1:
++                finalize_prev(cur)
++                nm = p[1:q]
++                dup = name_counts.get(nm, 0)
++                name_counts[nm] = dup + 1
++                ckey = f'{nm} #{dup + 1}' if dup else nm
++                master = end_ch == '}'
++                mark, sec = _section_marker(nm)
++                if mark == 1:
++                    section = sec
++                ent = CheatEntry(
++                    name=nm,
++                    cheat_key=ckey,
++                    master=master,
++                    sec_mark=mark,
++                    section=sec if mark == 1 else section,
++                )
++                if mark == 2:
++                    section = ''
++                entries.append(ent)
++                cur = ent
++                p = p[q + 1:].lstrip(' \t\r')
++                if not p:
++                    continue
++            else:
++                finalize_prev(cur)
++                cur = None
++                continue
++        if cur is None:
++            continue
++        tokens = p.strip().split()
++        if not tokens:
++            continue
++        got: list[int] = []
++        prose = False
++        oddhex = False
++        for tok in tokens:
++            if not all(c in '0123456789abcdefABCDEF' for c in tok):
++                prose = True
++                continue
++            if len(tok) % 8 != 0:
++                oddhex = True
++                continue
++            for k in range(0, len(tok), 8):
++                got.append(int(tok[k:k + 8], 16))
++        if prose and not got and not oddhex:
++            continue
++        if prose or oddhex:
++            if not cur.broken:
++                cur.broken = True
++                cur.broken_why = 'malformed line'
++            continue
++        if len(cur.words) + len(got) <= INS_MAX:
++            cur.words.extend(got)
++
++    finalize_prev(cur)
++    for ent in entries:
++        if not ent.broken and not ent.words:
++            ent.label = True
++    return entries
++
++
++def parse_cheat_file(path: str | os.PathLike[str]) -> list[CheatEntry]:
++    data = Path(path).read_bytes()
++    if len(data) > FILE_MAX:
++        raise ValueError(f'cheat file {path} exceeds {FILE_MAX} bytes')
++    return parse_cheat_text(data.decode('utf-8', errors='replace'))
++
++
++def _decode_op(words: list[int], idx: int) -> tuple[int, dict] | None:
++    """Decode one Atmosphère VM instruction at words[idx], mirroring hle_cheats.c ins_dec."""
++    n = len(words) - idx
++    if n <= 0:
++        return None
++    w = words[idx]
++    op = w >> 28
++    if op >= 0xC:
++        op = (op << 4) | ((w >> 24) & 0xF)
++    if op >= 0xF0:
++        op = (op << 4) | ((w >> 20) & 0xF)
++    info: dict = {'op': op, 'len': 1}
++    if op == 0:
++        t = (w >> 24) & 0xF
++        if not _width_ok(t) or n < (4 if t == 8 else 3):
++            return None
++        info.update(
++            t=t,
++            m=(w >> 20) & 0xF,
++            r=(w >> 16) & 0xF,
++            rel=((w & 0xFF) << 32) | words[idx + 1],
++            val=((words[idx + 2] << 32) | words[idx + 3]) if t == 8 else words[idx + 2],
++            len=4 if t == 8 else 3,
++        )
++    elif op == 1:
++        t = (w >> 24) & 0xF
++        c = (w >> 16) & 0xF
++        if not _width_ok(t) or c < 1 or c > 6 or n < (4 if t == 8 else 3):
++            return None
++        info.update(t=t, m=(w >> 20) & 0xF, c=c, len=4 if t == 8 else 3)
++    elif op == 2:
++        info['else'] = ((w >> 24) & 0xF) == 1
++    elif op == 3:
++        is_end = ((w >> 24) & 0xF) != 0
++        info.update(r=(w >> 16) & 0xF, is_end=is_end, len=1 if is_end else 2)
++        if not is_end and n < 2:
++            return None
++    elif op == 4:
++        if n < 3:
++            return None
++        info.update(r=(w >> 16) & 0xF, val=(words[idx + 1] << 32) | words[idx + 2], len=3)
++    elif op == 5:
++        t = (w >> 24) & 0xF
++        flags = (w >> 12) & 0xF
++        if not _width_ok(t) or flags > 3 or n < 2:
++            return None
++        info.update(t=t, r=(w >> 16) & 0xF, len=2)
++    elif op == 6:
++        t = (w >> 24) & 0xF
++        if not _width_ok(t) or n < 3:
++            return None
++        info.update(t=t, r=(w >> 16) & 0xF, inc=((w >> 12) & 0xF) != 0, len=3)
++    elif op == 7:
++        t = (w >> 24) & 0xF
++        c = (w >> 12) & 0xF
++        if not _width_ok(t) or c > 4 or n < 2:
++            return None
++        info.update(t=t, r=(w >> 16) & 0xF, len=2)
++    elif op == 8:
++        info['key_mask'] = w & 0x0FFFFFFF
++    elif op == 9:
++        t = (w >> 24) & 0xF
++        if not _width_ok(t):
++            return None
++        imm = ((w >> 8) & 0xF) != 0
++        ln = (3 if t == 8 else 2) if imm else 1
++        if n < ln:
++            return None
++        info.update(t=t, r=(w >> 16) & 0xF, len=ln)
++    elif op == 0xA:
++        t = (w >> 24) & 0xF
++        o = (w >> 8) & 0xF
++        if not _width_ok(t) or o > 5:
++            return None
++        ln = 2 if o in (2, 4, 5) else 1
++        if n < ln:
++            return None
++        info.update(t=t, r=(w >> 16) & 0xF, inc=((w >> 12) & 0xF) != 0, o=o, m=(w >> 4) & 0xF, len=ln)
++    elif op == 0xC0:
++        t = (w >> 20) & 0xF
++        c = (w >> 16) & 0xF
++        o = (w >> 8) & 0xF
++        if not _width_ok(t) or c < 1 or c > 6 or o > 5:
++            return None
++        ln = 2 if o in (0, 2) else ((3 if t == 8 else 2) if o == 4 else 1)
++        if n < ln:
++            return None
++        info.update(t=t, len=ln)
++    elif op == 0xC1:
++        info.update(r=(w >> 16) & 0xF, c=(w >> 4) & 0xF)
++    elif op == 0xC2:
++        info.update(c=(w >> 20) & 0xF, mask=w & 0xFFFF)
++    elif op == 0xC3:
++        info.update(x=(w >> 4) & 0xFF, r=w & 0xF)
++    elif op == 0xC4:
++        if n < 3:
++            return None
++        info.update(key_mask=(words[idx + 1] << 32) | words[idx + 2], len=3)
++    else:
++        return None
++    return info['len'], info
++
++
++def analyze_entries(entries: list[CheatEntry], rx_end: int) -> None:
++    """Decode entries, extract static .text writes, conditional depth, and key masks."""
++    # Registers modified by master entries carry into every normal entry during a pass.
++    # Normal entries also share g_reg in file order within a pass, so registers dirtied by
++    # earlier normal entries conservatively propagate to later normal entries.
++    master_dirty: set[int] = set()
++    for half in (0, 1):
++        running_dirty = set(master_dirty) if half == 1 else set()
++        for ent in entries:
++            if ent.label or ent.broken or (ent.master != (half == 0)):
++                continue
++            dirty = set(running_dirty)
++            ent_dirty: set[int] = set()
++            cond_stack: list[int] = []  # key_mask for each enclosing conditional (0 for non-key)
++            idx = 0
++            while idx < len(ent.words):
++                dec = _decode_op(ent.words, idx)
++                if dec is None:
++                    ent.broken = True
++                    ent.broken_why = f'unsupported or truncated opcode at word {idx}'
++                    break
++                ln, info = dec
++                op = info['op']
++                if op == 0:
++                    m, t, r, rel, val = info['m'], info['t'], info['r'], info['rel'], info['val']
++                    is_main = m == 0 or m >= 5
++                    if is_main and r not in dirty:
++                        if rel < rx_end:
++                            km = 0
++                            for cm in cond_stack:
++                                km |= cm
++                            ent.writes.append(StaticWrite(
++                                offset=rel,
++                                width=t,
++                                value=val & _width_mask(t),
++                                conditional=len(cond_stack) > 0,
++                                key_mask=km,
++                            ))
++                    elif is_main and r in dirty:
++                        # Offset depends on a runtime register: cannot know if it targets .text statically.
++                        ent.has_dynamic_text_write = True
++                    else:
++                        ent.has_non_main_write = True
++                elif op in (1, 0xC0):
++                    cond_stack.append(0)
++                elif op in (8, 0xC4):
++                    km = info['key_mask']
++                    ent.key_mask |= km
++                    cond_stack.append(km)
++                elif op == 2:
++                    if not info['else'] and cond_stack:
++                        cond_stack.pop()
++                elif op == 3:
++                    dirty.add(info['r'])
++                    ent_dirty.add(info['r'])
++                elif op == 4:
++                    if info['val'] == 0 and not cond_stack:
++                        dirty.discard(info['r'])
++                    else:
++                        dirty.add(info['r'])
++                        ent_dirty.add(info['r'])
++                elif op in (5, 7, 9):
++                    dirty.add(info['r'])
++                    ent_dirty.add(info['r'])
++                elif op == 6:
++                    if info['inc']:
++                        dirty.add(info['r'])
++                        ent_dirty.add(info['r'])
++                elif op == 0xA:
++                    if info['inc']:
++                        dirty.add(info['r'])
++                        ent_dirty.add(info['r'])
++                    if info['o'] in (3, 4, 5) and (info['m'] == 0 or info['m'] >= 5):
++                        ent.has_dynamic_text_write = True
++                elif op == 0xC1:
++                    if info['c'] == 3:
++                        if not cond_stack:
++                            dirty.discard(info['r'])
++                    elif info['c'] not in (1, 2):
++                        dirty.add(info['r'])
++                        ent_dirty.add(info['r'])
++                elif op == 0xC2:
++                    if info['c'] == 3:
++                        if not cond_stack:
++                            for bit in range(16):
++                                if info['mask'] & (1 << bit):
++                                    dirty.discard(bit)
++                    elif info['c'] not in (1, 2):
++                        for bit in range(16):
++                            if info['mask'] & (1 << bit):
++                                dirty.add(bit)
++                                ent_dirty.add(bit)
++                elif op == 0xC3:
++                    if info['x'] < 0x80:
++                        dirty.add(info['r'])
++                        ent_dirty.add(info['r'])
++                idx += ln
++            if not ent.broken:
++                if half == 0:
++                    master_dirty |= ent_dirty
++                    running_dirty |= ent_dirty
++                else:
++                    running_dirty |= ent_dirty
++
++
++def _expand_word_writes(w: StaticWrite, orig_text: bytes) -> list[tuple[int, int]] | None:
++    """Expand a 1/2/4/8-byte StaticWrite into aligned (off, u32) pairs, or None if invalid."""
++    if w.offset < 0 or w.offset + w.width > len(orig_text):
++        return None
++    if w.width == 4:
++        if w.offset & 3:
++            return None
++        return [(w.offset, w.value & 0xFFFFFFFF)]
++    if w.width == 8:
++        if w.offset & 3:
++            return None
++        return [
++            (w.offset, w.value & 0xFFFFFFFF),
++            (w.offset + 4, (w.value >> 32) & 0xFFFFFFFF),
++        ]
++    # Narrow 1/2-byte write inside a 4-byte word: merge into aligned word.
++    aligned = w.offset & ~3
++    shift = (w.offset & 3) * 8
++    if shift + w.width * 8 > 32 or aligned + 4 > len(orig_text):
++        return None
++    orig_w = struct.unpack_from('<I', orig_text, aligned)[0]
++    mask = ((1 << (w.width * 8)) - 1) << shift
++    merged = (orig_w & ~mask) | ((w.value << shift) & mask)
++    return [(aligned, merged)]
++
++
++# ---- AArch64 instruction classification & PC-relative relocation ----
++
++_FORBIDDEN_TRAMPOLINE_MNEMONICS = frozenset({
++    'svc', 'hvc', 'smc', 'mrs', 'msr',
++    'ldxr', 'ldaxr', 'ldxp', 'ldaxp', 'ldxrb', 'ldaxrb', 'ldxrh', 'ldaxrh',
++    'stxr', 'stlxr', 'stxp', 'stlxp', 'stxrb', 'stlxrb', 'stxrh', 'stlxrh',
++    'clrex',
++})
++
++_NZCV_MODIFYING_MNEMONICS = frozenset({
++    'cmp', 'cmn', 'tst', 'ccmp', 'ccmn', 'fcmp', 'fcmpe', 'fccmp', 'fccmpe',
++    'adds', 'subs', 'ands', 'bics', 'adcs', 'sbcs', 'ngcs', 'negs',
++})
++
++
++def is_relocatable_insn(word: int, orig_pc: int, md: Cs) -> tuple[bool, str]:
++    """Check whether a single AArch64 instruction word can be safely relocated into a trampoline."""
++    insns = list(md.disasm(struct.pack('<I', word), orig_pc))
++    if len(insns) != 1:
++        return False, f'undecodable instruction 0x{word:08x}'
++    ins = insns[0]
++    mnem = ins.mnemonic
++    if mnem in _FORBIDDEN_TRAMPOLINE_MNEMONICS:
++        return False, f'host-rewritten instruction {mnem}'
++    if re.search(r'\b[xw]18\b', ins.op_str):
++        return False, 'uses platform register x18'
++    # blr x30 overwrites lr while reading it; skip defensively.
++    if mnem == 'blr' and ins.op_str.strip() in ('x30', 'lr'):
++        return False, 'blr x30 cannot safely preserve return address'
++    return True, ''
++
++
++def relocate_insn(
++    word: int,
++    orig_pc: int,
++    here_fn: Callable[[], int],
++    emit_fn: Callable[[int], None],
++    bx_fn: Callable[[int, int], int],
++    md: Cs,
++) -> tuple[bool, str]:
++    """Emit relocated instruction sequence for `word` (originally at `orig_pc`) + exit branch.
++
++    Preserves NZCV flags and all guest registers (x0..x30, sp).
++    Returns (True, '') on success or (False, reason) if out of range / unsupported.
++    """
++    ok, why = is_relocatable_insn(word, orig_pc, md)
++    if not ok:
++        return False, why
++
++    fallthrough = orig_pc + 4
++
++    try:
++        # Unconditional branch: B imm26
++        if (word & 0xFC000000) == 0x14000000:
++            tgt = orig_pc + _sext(word & 0x3FFFFFF, 26) * 4
++            emit_fn(bx_fn(here_fn(), tgt))
++            return True, ''
++
++        # Branch with link: BL imm26 -> set x30 = orig_pc + 4, B target
++        if (word & 0xFC000000) == 0x94000000:
++            tgt = orig_pc + _sext(word & 0x3FFFFFF, 26) * 4
++            emit_fn(ADRP(30, here_fn(), fallthrough))
++            emit_fn(ADDI(30, 30, fallthrough & 0xFFF))
++            emit_fn(bx_fn(here_fn(), tgt))
++            return True, ''
++
++        # Indirect call: BLR Xn (Xn != x30) -> set x30 = orig_pc + 4, BR Xn
++        if (word & 0xFFFFFC1F) == 0xD63F0000:
++            rn = (word >> 5) & 31
++            emit_fn(ADRP(30, here_fn(), fallthrough))
++            emit_fn(ADDI(30, 30, fallthrough & 0xFFF))
++            emit_fn(BR(rn))
++            return True, ''
++
++        # Indirect jump / return: BR Xn / RET Xn (no fallthrough)
++        if (word & 0xFFFFFC1F) in (0xD61F0000, 0xD65F0000):
++            emit_fn(word)
++            return True, ''
++
++        # Conditional branch: B.cond imm19 -> b.cond +8; b fallthrough; b target
++        if (word & 0xFF000010) == 0x54000000:
++            cond = word & 0xF
++            tgt = orig_pc + _sext((word >> 5) & 0x7FFFF, 19) * 4
++            emit_fn(0x54000040 | cond)
++            emit_fn(bx_fn(here_fn(), fallthrough))
++            emit_fn(bx_fn(here_fn(), tgt))
++            return True, ''
++
++        # Compare and branch zero/nonzero: CBZ / CBNZ imm19
++        if (word & 0x7E000000) == 0x34000000:
++            tgt = orig_pc + _sext((word >> 5) & 0x7FFFF, 19) * 4
++            emit_fn((word & 0xFF00001F) | (2 << 5))
++            emit_fn(bx_fn(here_fn(), fallthrough))
++            emit_fn(bx_fn(here_fn(), tgt))
++            return True, ''
++
++        # Test bit and branch: TBZ / TBNZ imm14
++        if (word & 0x7E000000) == 0x36000000:
++            tgt = orig_pc + _sext((word >> 5) & 0x3FFF, 14) * 4
++            emit_fn((word & 0xFFF8001F) | (2 << 5))
++            emit_fn(bx_fn(here_fn(), fallthrough))
++            emit_fn(bx_fn(here_fn(), tgt))
++            return True, ''
++
++        # ADRP Xd, page
++        if (word & 0x9F000000) == 0x90000000:
++            rd = word & 0x1F
++            imm21 = (((word >> 5) & 0x7FFFF) << 2) | ((word >> 29) & 3)
++            page = (orig_pc & ~0xFFF) + (_sext(imm21, 21) << 12)
++            emit_fn(NOP if rd == 31 else ADRP(rd, here_fn(), page))
++            emit_fn(bx_fn(here_fn(), fallthrough))
++            return True, ''
++
++        # ADR Xd, target -> adrp Xd, target; add Xd, Xd, #lo
++        if (word & 0x9F000000) == 0x10000000:
++            rd = word & 0x1F
++            imm21 = (((word >> 5) & 0x7FFFF) << 2) | ((word >> 29) & 3)
++            tgt = orig_pc + _sext(imm21, 21)
++            if rd == 31:
++                emit_fn(NOP)
++            else:
++                emit_fn(ADRP(rd, here_fn(), tgt))
++                emit_fn(ADDI(rd, rd, tgt & 0xFFF))
++            emit_fn(bx_fn(here_fn(), fallthrough))
++            return True, ''
++
++        # LDR (literal): Wt, Xt, LDRSW Xt, PRFM, and SIMD/FP St, Dt, Qt
++        if (word & 0x3B000000) == 0x18000000:
++            opc = (word >> 30) & 3
++            is_fp = ((word >> 26) & 1) == 1
++            rt = word & 0x1F
++            tgt = orig_pc + _sext((word >> 5) & 0x7FFFF, 19) * 4
++            if not is_fp:
++                if opc == 3 or rt == 31:  # PRFM or xzr/wzr destination
++                    emit_fn(NOP)
++                elif opc == 0:  # LDR Wt, literal
++                    emit_fn(ADRP(rt, here_fn(), tgt))
++                    emit_fn(LDRW_UIMM(rt, rt, (tgt & 0xFFF) // 4))
++                elif opc == 1:  # LDR Xt, literal
++                    emit_fn(ADRP(rt, here_fn(), tgt))
++                    if (tgt & 7) == 0:
++                        emit_fn(LDRX(rt, rt, (tgt & 0xFFF) // 8))
++                    else:
++                        emit_fn(ADDI(rt, rt, tgt & 0xFFF))
++                        emit_fn(LDRX(rt, rt, 0))
++                else:  # opc == 2: LDRSW Xt, literal
++                    emit_fn(ADRP(rt, here_fn(), tgt))
++                    emit_fn(LDRSW_UIMM(rt, rt, (tgt & 0xFFF) // 4))
++                emit_fn(bx_fn(here_fn(), fallthrough))
++                return True, ''
++            else:
++                if opc == 3:
++                    return False, f'invalid FP literal ldr 0x{word:08x}'
++                emit_fn(STR_X_PRE(16, 31, -16))
++                emit_fn(ADRP(16, here_fn(), tgt))
++                emit_fn(ADDI(16, 16, tgt & 0xFFF))
++                emit_fn(LDR_FP_UIMM(opc, rt, 16, 0))
++                emit_fn(LDR_X_POST(16, 31, 16))
++                emit_fn(bx_fn(here_fn(), fallthrough))
++                return True, ''
++
++        # Plain position-independent instruction
++        emit_fn(word)
++        emit_fn(bx_fn(here_fn(), fallthrough))
++        return True, ''
++    except AssertionError as exc:
++        return False, f'relocation range error: {exc}'
++
++
++# ---- Code Cave detection & enhanced switch-table relocation ----
++
++def _branch_target(word: int, pc: int) -> int | None:
++    if (word & 0x7C000000) == 0x14000000:  # B / BL
++        return pc + _sext(word & 0x3FFFFFF, 26) * 4
++    if (word & 0xFF000010) == 0x54000000:  # B.cond
++        return pc + _sext((word >> 5) & 0x7FFFF, 19) * 4
++    if (word & 0x7E000000) == 0x34000000:  # CBZ / CBNZ
++        return pc + _sext((word >> 5) & 0x7FFFF, 19) * 4
++    if (word & 0x7E000000) == 0x36000000:  # TBZ / TBNZ
++        return pc + _sext((word >> 5) & 0x3FFF, 14) * 4
++    return None
++
++
++def _is_cave_padding_word(word: int) -> bool:
++    return word == 0x00000000
++
++
++def _trace_cave_code(
++    cave_words: dict[int, int],
++    entry_points: set[int],
++    md: Cs,
++) -> set[int]:
++    """Trace reachable instructions inside a Code Cave starting from branch targets."""
++    code: set[int] = set()
++    todo = [a for a in entry_points if a in cave_words]
++    while todo:
++        pc = todo.pop()
++        if pc in code or pc not in cave_words:
++            continue
++        w = cave_words[pc]
++        insns = list(md.disasm(struct.pack('<I', w), pc))
++        if len(insns) != 1:
++            continue
++        ins = insns[0]
++        if ins.mnemonic == 'udf':
++            continue
++        code.add(pc)
++        m = ins.mnemonic
++        tgt = _branch_target(w, pc)
++        if m == 'b':
++            if tgt is not None and tgt in cave_words:
++                todo.append(tgt)
++        elif m in ('ret', 'br'):
++            continue
++        elif tgt is not None:
++            if tgt in cave_words:
++                todo.append(tgt)
++            if pc + 4 in cave_words:
++                todo.append(pc + 4)
++        else:
++            if pc + 4 in cave_words:
++                todo.append(pc + 4)
++    return code
++
++
++def relocate_cave_switches(
++    cave_code: dict[int, int],
++    mirrors: list[MirrorBlock],
++    cheat_state_off: int,
++    md: Cs,
++    emit_stub: Callable[[list[int], int], int] | None = None,
++    bx_fn: Callable[[int, int], int] = B,
++) -> tuple[dict[int, int], list[str]]:
++    """Rewrite cave instructions that reference relocated switch-table addresses.
++
++    Handles four AArch64 addressing forms:
++      1. adrp Xd, page + add Xm, Xd, #imm
++      2. adrp Xd, page + ldr/str/ldrb/strb/ldrh/strh/ldrsw Wt/Xt/St/Dt/Qt, [Xd, #imm]
++      3. adr  Xd, target
++      4. ldr  Wt/Xt/St/Dt/Qt, literal
++
++    `emit_stub(stub_words, orig_pc)` allocates a small out-of-line stub in patch_area
++    and returns its address (used when `adr` or `ldr literal` cannot be rewritten in-place).
++    """
++    if not mirrors:
++        return dict(cave_code), []
++
++    out = dict(cave_code)
++    notes: list[str] = []
++
++    def lookup_mirror(addr: int) -> int | None:
++        for mb in mirrors:
++            if mb.orig_off <= addr < mb.orig_off + mb.size:
++                return cheat_state_off + mb.mirror_rel + (addr - mb.orig_off)
++        return None
++
++    sorted_pcs = sorted(out)
++    pc_set = set(sorted_pcs)
++
++    def _insn_reads_writes(ins) -> tuple[set[int], set[int]]:
++        rset: set[int] = set()
++        wset: set[int] = set()
++        try:
++            rd_regs, wr_regs = ins.regs_access()
++            for reg_id in rd_regs:
++                nm = ins.reg_name(reg_id)
++                m = re.fullmatch(r'[xw](\d+)', nm or '')
++                if m:
++                    rset.add(int(m.group(1)))
++            for reg_id in wr_regs:
++                nm = ins.reg_name(reg_id)
++                m = re.fullmatch(r'[xw](\d+)', nm or '')
++                if m:
++                    wset.add(int(m.group(1)))
++        except Exception:
++            return set(range(31)), set(range(31))
++        return rset, wset
++
++    # Pass 1: detect ADRP definitions whose base register targets multiple mirror pages
++    # or is also consumed by non-mirror instructions. Such ADRP instructions must stay
++    # untouched in place, with conflicting mirror users routed through out-of-line stubs.
++    adrp_defs_p1: dict[int, tuple[int, int]] = {}
++    adrp_pages: dict[int, set[int | None]] = {}
++    for pc in sorted_pcs:
++        if (pc - 4) not in pc_set:
++            adrp_defs_p1.clear()
++        w = out[pc]
++        insns = list(md.disasm(struct.pack('<I', w), pc))
++        if len(insns) != 1:
++            adrp_defs_p1.clear()
++            continue
++        ins = insns[0]
++        mnem = ins.mnemonic
++        if (w & 0x9F000000) == 0x90000000:
++            rd = w & 0x1F
++            imm21 = (((w >> 5) & 0x7FFFF) << 2) | ((w >> 29) & 3)
++            page = (pc & ~0xFFF) + (_sext(imm21, 21) << 12)
++            if rd != 31:
++                adrp_defs_p1[rd] = (pc, page)
++            continue
++        if (w & 0xFFC00000) == 0x91000000:
++            rd = w & 0x1F
++            rn = (w >> 5) & 0x1F
++            imm12 = (w >> 10) & 0xFFF
++            if rn in adrp_defs_p1:
++                adrp_pc, base_page = adrp_defs_p1[rn]
++                new_addr = lookup_mirror(base_page + imm12)
++                adrp_pages.setdefault(adrp_pc, set()).add((new_addr & ~0xFFF) if new_addr is not None else None)
++            adrp_defs_p1.pop(rd, None)
++            continue
++        if (w & 0x3B000000) == 0x39000000:
++            rn = (w >> 5) & 0x1F
++            rt = w & 0x1F
++            imm12 = (w >> 10) & 0xFFF
++            size = (w >> 30) & 3
++            is_fp = ((w >> 26) & 1) == 1
++            opc = (w >> 22) & 3
++            scale_shift = 4 if (is_fp and size == 0 and (opc & 2)) else size
++            scale = 1 << scale_shift
++            if rn in adrp_defs_p1:
++                adrp_pc, base_page = adrp_defs_p1[rn]
++                new_addr = lookup_mirror(base_page + imm12 * scale)
++                hit_page = (new_addr & ~0xFFF) if (new_addr is not None and (new_addr % scale) == 0) else None
++                adrp_pages.setdefault(adrp_pc, set()).add(hit_page)
++            if not is_fp and opc == 0 and rt in adrp_defs_p1 and rt != rn:
++                adrp_pages.setdefault(adrp_defs_p1[rt][0], set()).add(None)
++            if not is_fp and opc != 0:
++                adrp_defs_p1.pop(rt, None)
++            continue
++        rset, wset = _insn_reads_writes(ins)
++        for r in rset:
++            if r in adrp_defs_p1:
++                adrp_pages.setdefault(adrp_defs_p1[r][0], set()).add(None)
++        if mnem in ('b', 'bl', 'br', 'blr', 'ret', 'cbz', 'cbnz', 'tbz', 'tbnz') or mnem.startswith('b.'):
++            adrp_defs_p1.clear()
++        else:
++            for r in wset:
++                adrp_defs_p1.pop(r, None)
++
++    conflicting_adrps = {apc for apc, pages in adrp_pages.items() if len(pages) > 1 or None in pages}
++
++    # Pass 2: rewrite cave references in place where safe, or route via out-of-line stubs.
++    # Track per-basic-block adrp definitions: reg -> (adrp_pc, base_page)
++    adrp_defs: dict[int, tuple[int, int]] = {}
++    adrp_rewritten: dict[int, int] = {}
++
++    for pc in sorted_pcs:
++        # Reset register tracking on non-contiguous jumps/blocks.
++        if (pc - 4) not in pc_set:
++            adrp_defs.clear()
++        w = out[pc]
++        insns = list(md.disasm(struct.pack('<I', w), pc))
++        if len(insns) != 1:
++            adrp_defs.clear()
++            continue
++        ins = insns[0]
++        mnem = ins.mnemonic
++
++        # 1. ADRP Xd, page
++        if (w & 0x9F000000) == 0x90000000:
++            rd = w & 0x1F
++            imm21 = (((w >> 5) & 0x7FFFF) << 2) | ((w >> 29) & 3)
++            page = (pc & ~0xFFF) + (_sext(imm21, 21) << 12)
++            if rd != 31:
++                adrp_defs[rd] = (pc, page)
++            continue
++
++        # 2. ADD Xd, Xn, #imm12 (no shift) paired with ADRP
++        if (w & 0xFFC00000) == 0x91000000:
++            rd = w & 0x1F
++            rn = (w >> 5) & 0x1F
++            imm12 = (w >> 10) & 0xFFF
++            if rn in adrp_defs:
++                adrp_pc, base_page = adrp_defs[rn]
++                target = base_page + imm12
++                new_addr = lookup_mirror(target)
++                if new_addr is not None:
++                    new_page = new_addr & ~0xFFF
++                    if adrp_pc in conflicting_adrps or (adrp_pc in adrp_rewritten and adrp_rewritten[adrp_pc] != new_page):
++                        if emit_stub is None or rd == 31:
++                            raise ValueError(f'cave adrp at 0x{adrp_pc:x} conflicts across mirror pages at add 0x{pc:x}')
++                        stub_pc = emit_stub([0xFFFFFFFF, rd, new_addr], pc)
++                        out[pc] = bx_fn(pc, stub_pc)
++                        notes.append(f'cave adrp+add 0x{pc:x} -> 0x{new_addr:x} (conflict stub 0x{stub_pc:x})')
++                    else:
++                        out[adrp_pc] = ADRP(rn, adrp_pc, new_page)
++                        adrp_rewritten[adrp_pc] = new_page
++                        out[pc] = ADDI(rd, rn, new_addr & 0xFFF)
++                        notes.append(f'cave adrp+add 0x{pc:x} -> 0x{new_addr:x}')
++            if rd in adrp_defs:
++                del adrp_defs[rd]
++            continue
++
++        # 3. Unsigned-offset LDR/STR/LDRB/STRB/LDRH/STRH/LDRSW/FP paired with ADRP
++        # Encoding: size(31:30) 111 V(26) 01 opc(23:22) imm12(21:10) Rn(9:5) Rt(4:0)
++        if (w & 0x3B000000) == 0x39000000:
++            rn = (w >> 5) & 0x1F
++            rt = w & 0x1F
++            imm12 = (w >> 10) & 0xFFF
++            size = (w >> 30) & 3
++            is_fp = ((w >> 26) & 1) == 1
++            opc = (w >> 22) & 3
++            scale_shift = 4 if (is_fp and size == 0 and (opc & 2)) else size
++            scale = 1 << scale_shift
++            if rn in adrp_defs:
++                adrp_pc, base_page = adrp_defs[rn]
++                target = base_page + imm12 * scale
++                new_addr = lookup_mirror(target)
++                if new_addr is not None and (new_addr % scale) == 0:
++                    new_page = new_addr & ~0xFFF
++                    if adrp_pc in conflicting_adrps or (adrp_pc in adrp_rewritten and adrp_rewritten[adrp_pc] != new_page):
++                        if emit_stub is None:
++                            raise ValueError(f'cave adrp at 0x{adrp_pc:x} conflicts across mirror pages at {mnem} 0x{pc:x}')
++                        stub_pc = emit_stub([0xFFFFFFFD, w, new_addr], pc)
++                        out[pc] = bx_fn(pc, stub_pc)
++                        notes.append(f'cave adrp+{mnem} 0x{pc:x} -> 0x{new_addr:x} (conflict stub 0x{stub_pc:x})')
++                    else:
++                        out[adrp_pc] = ADRP(rn, adrp_pc, new_page)
++                        adrp_rewritten[adrp_pc] = new_page
++                        new_imm12 = (new_addr & 0xFFF) >> scale_shift
++                        out[pc] = (w & ~(0xFFF << 10)) | (new_imm12 << 10)
++                        notes.append(f'cave adrp+{mnem} 0x{pc:x} -> 0x{new_addr:x}')
++            if not is_fp and (opc != 0) and rt in adrp_defs:
++                del adrp_defs[rt]
++            continue
++
++        # 4. ADR Xd, target
++        if (w & 0x9F000000) == 0x10000000:
++            rd = w & 0x1F
++            imm21 = (((w >> 5) & 0x7FFFF) << 2) | ((w >> 29) & 3)
++            target = pc + _sext(imm21, 21)
++            new_addr = lookup_mirror(target)
++            if new_addr is not None and rd != 31:
++                delta = new_addr - pc
++                if -(1 << 20) <= delta < (1 << 20):
++                    d = delta & 0x1FFFFF
++                    out[pc] = 0x10000000 | ((d & 3) << 29) | (((d >> 2) & 0x7FFFF) << 5) | rd
++                    notes.append(f'cave adr 0x{pc:x} -> 0x{new_addr:x} (in-place)')
++                elif emit_stub is not None:
++                    stub_pc = emit_stub([0xFFFFFFFF, rd, new_addr], pc)  # marker handled by caller
++                    out[pc] = bx_fn(pc, stub_pc)
++                    notes.append(f'cave adr 0x{pc:x} -> 0x{new_addr:x} (stub 0x{stub_pc:x})')
++            if rd in adrp_defs:
++                del adrp_defs[rd]
++            continue
++
++        # 5. LDR (literal) Wt/Xt/LDRSW/St/Dt/Qt
++        if (w & 0x3B000000) == 0x18000000:
++            opc = (w >> 30) & 3
++            is_fp = ((w >> 26) & 1) == 1
++            rt = w & 0x1F
++            target = pc + _sext((w >> 5) & 0x7FFFF, 19) * 4
++            new_addr = lookup_mirror(target)
++            if new_addr is not None and not (not is_fp and opc == 3):
++                delta = new_addr - pc
++                if -(1 << 20) <= delta < (1 << 20) and (delta & 3) == 0:
++                    out[pc] = (w & 0xFF00001F) | (((delta >> 2) & 0x7FFFF) << 5)
++                    notes.append(f'cave ldr-lit 0x{pc:x} -> 0x{new_addr:x} (in-place)')
++                elif emit_stub is not None:
++                    stub_pc = emit_stub([0xFFFFFFFE, w, new_addr], pc)
++                    out[pc] = bx_fn(pc, stub_pc)
++                    notes.append(f'cave ldr-lit 0x{pc:x} -> 0x{new_addr:x} (stub 0x{stub_pc:x})')
++            if not is_fp and rt in adrp_defs:
++                del adrp_defs[rt]
++            continue
++
++        # Branch or write clobbers tracked adrp registers
++        if mnem in ('b', 'bl', 'br', 'blr', 'ret', 'cbz', 'cbnz', 'tbz', 'tbnz') or mnem.startswith('b.'):
++            adrp_defs.clear()
++        else:
++            try:
++                _, wr = ins.regs_access()
++                for reg_id in wr:
++                    nm = ins.reg_name(reg_id)
++                    m = re.fullmatch(r'[xw](\d+)', nm or '')
++                    if m:
++                        adrp_defs.pop(int(m.group(1)), None)
++            except Exception:
++                adrp_defs.clear()
++
++    return out, notes
++
++
++def build_plan(
++    entries: list[CheatEntry],
++    orig_text: bytes,
++    build_id: str,
++    text_end: int,
++    protected_offsets: set[int] | None = None,
++) -> BakePlan:
++    """Analyze parsed cheat entries against orig_text and plan cave code, mirrors, and trampolines."""
++    rx_end = (text_end + 0x3FFF) & ~0x3FFF
++    analyze_entries(entries, rx_end)
++    protected = protected_offsets or set()
++    md = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
++    md.detail = True
++
++    plan = BakePlan(
++        build_id=build_id[:16].upper(),
++        full_build_id=build_id.lower(),
++        text_end=text_end,
++        rx_end=rx_end,
++        entries=entries,
++    )
++
++    # First pass: collect candidate .text word writes per entry.
++    entry_words: dict[str, list[tuple[int, int, bool, int]]] = {}  # cheat_key -> [(off, u32, cond, key_mask)]
++    zero_writes: dict[int, set[int]] = {}
++    zero_writers: dict[int, list[str]] = {}
++    branch_into_zero: set[int] = set()
++
++    for ent in entries:
++        if ent.label:
++            ent.kind = 'data'
++            continue
++        if ent.broken:
++            ent.kind = 'unbaked_code' if ent.writes else 'data'
++            ent.detail = ent.broken_why
++            continue
++        if not ent.writes:
++            if ent.has_dynamic_text_write:
++                ent.kind = 'unbaked_code'
++                ent.detail = 'dynamic register offset cannot be baked statically'
++                plan.skipped.append((ent.cheat_key, ent.detail))
++            else:
++                ent.kind = 'data'
++            continue
++        if ent.has_dynamic_text_write:
++            ent.kind = 'unbaked_code'
++            ent.detail = 'mixes static and dynamic register .text writes'
++            plan.skipped.append((ent.cheat_key, ent.detail))
++            continue
++
++        expanded: list[tuple[int, int, bool, int]] = []
++        bad_reason = ''
++        for sw in ent.writes:
++            pairs = _expand_word_writes(sw, orig_text)
++            if pairs is None:
++                bad_reason = f'unaligned or out-of-range .text write at 0x{sw.offset:x}'
++                break
++            for off, word in pairs:
++                if off in protected:
++                    bad_reason = f'conflict with rewriter site at 0x{off:x}'
++                    break
++                expanded.append((off, word, sw.conditional, sw.key_mask))
++            if bad_reason:
++                break
++
++        if bad_reason:
++            ent.kind = 'unbaked_code'
++            ent.detail = bad_reason
++            plan.skipped.append((ent.cheat_key, bad_reason))
++            continue
++
++        entry_words[ent.cheat_key] = expanded
++        for off, word, _, _ in expanded:
++            orig_w = struct.unpack_from('<I', orig_text, off)[0]
++            if _is_cave_padding_word(orig_w):
++                zero_writes.setdefault(off, set()).add(word)
++                zero_writers.setdefault(off, []).append(ent.cheat_key)
++            else:
++                tgt = _branch_target(word, off)
++                if tgt is not None and 0 <= tgt < text_end - 3:
++                    if _is_cave_padding_word(struct.unpack_from('<I', orig_text, tgt)[0]):
++                        branch_into_zero.add(tgt)
++
++    # Identify Code Cave code vs. Code Cave switch/data words.
++    single_zero_words = {off: next(iter(vals)) for off, vals in zero_writes.items() if len(vals) == 1}
++    cave_code_addrs = _trace_cave_code(single_zero_words, branch_into_zero, md)
++
++    # Also treat contiguous decodable non-zero instruction blocks starting at a branch target
++    # or referenced only once with a valid instruction when there is a branch into the cave.
++    cave_data_addrs: set[int] = set()
++    if branch_into_zero:
++        # Any zero-padding word written with multiple values, or not reachable as code while
++        # sitting near cave_code_addrs (within 64 KB), is a candidate switch/data word.
++        cave_min = min(cave_code_addrs) if cave_code_addrs else 0
++        cave_max = max(cave_code_addrs) if cave_code_addrs else 0
++        for off, vals in sorted(zero_writes.items()):
++            if off in cave_code_addrs:
++                continue
++            if len(vals) > 1 or (cave_code_addrs and cave_min - 0x10000 <= off <= cave_max + 0x10000):
++                cave_data_addrs.add(off)
++
++    # Pack contiguous cave_data_addrs into MirrorBlocks in the 12 KB mirror area.
++    mirror_cursor = 0
++    mirror_addr_set: set[int] = set()
++    if cave_data_addrs:
++        runs: list[list[int]] = []
++        for off in sorted(cave_data_addrs):
++            if runs and off == runs[-1][1]:
++                runs[-1][1] = off + 4
++            else:
++                runs.append([off, off + 4])
++        for lo, hi in runs:
++            sz = hi - lo
++            # Align mirror block to 16 bytes so 128-bit Qt (and all smaller) loads stay aligned.
++            aligned_cur = (mirror_cursor + 15) & ~15
++            if aligned_cur + sz > CHEAT_MIRROR_SIZE:
++                plan.skipped.append(('code_cave_mirror', f'mirror area overflow at 0x{lo:x} ({sz} bytes)'))
++                continue
++            init = bytearray()
++            keys: list[str] = []
++            for a in range(lo, hi, 4):
++                # Default initial value is 0 (original cave padding); single-value static master writes
++                # still get driven at runtime or initialized via mirror row.
++                init.extend(struct.pack('<I', 0))
++                for ck in zero_writers.get(a, ()):
++                    if ck not in keys:
++                        keys.append(ck)
++                mirror_addr_set.add(a)
++            plan.mirrors.append(MirrorBlock(
++                orig_off=lo,
++                mirror_rel=CHEAT_MIRROR_OFFSET + aligned_cur,
++                size=sz,
++                init_bytes=bytes(init),
++                cheat_keys=keys,
++            ))
++            mirror_cursor = aligned_cur + sz
++    plan.mirror_bytes = mirror_cursor
++
++    for off in sorted(cave_code_addrs):
++        plan.cave_code[off] = single_zero_words[off]
++        plan.cave_owners[off] = zero_writers.get(off, ['code_cave'])[0]
++        plan.cave_orig_words[off] = struct.unpack_from('<I', orig_text, off)[0]
++
++    # Second pass: validate relocatability of all non-cave, non-mirror patch sites and register variants.
++    site_variants: dict[int, list[int]] = {}
++    for ent in entries:
++        if ent.cheat_key not in entry_words:
++            continue
++        words_list = entry_words[ent.cheat_key]
++        any_cond = any(cond for _, _, cond, _ in words_list)
++        bad_reason = ''
++        ent_patch_sites: list[tuple[int, int]] = []
++        ent_noop_sites: list[tuple[int, int]] = []
++        for off, word, _, _ in words_list:
++            if off in cave_code_addrs or off in mirror_addr_set:
++                continue
++            orig_w = struct.unpack_from('<I', orig_text, off)[0]
++            if word == orig_w:
++                # Restoring original word (e.g. an "- off" or standalone restore cheat): no variant needed.
++                ent_noop_sites.append((off, orig_w))
++                continue
++            ok_orig, why_orig = is_relocatable_insn(orig_w, off, md)
++            if not ok_orig:
++                bad_reason = f'original insn at 0x{off:x} not relocatable: {why_orig}'
++                break
++            ok_new, why_new = is_relocatable_insn(word, off, md)
++            if not ok_new:
++                bad_reason = f'patched insn at 0x{off:x} not relocatable: {why_new}'
++                break
++            ent_patch_sites.append((off, word))
++
++        if bad_reason:
++            ent.kind = 'unbaked_code'
++            ent.detail = bad_reason
++            plan.skipped.append((ent.cheat_key, bad_reason))
++            continue
++
++        # Check variant limit per site before committing.
++        over_limit = False
++        for off, word in ent_patch_sites:
++            cur_list = site_variants.get(off, [])
++            if word not in cur_list and len(cur_list) >= MAX_VARIANTS_PER_SITE:
++                bad_reason = f'over {MAX_VARIANTS_PER_SITE} variants at 0x{off:x}'
++                over_limit = True
++                break
++        if over_limit:
++            ent.kind = 'unbaked_code'
++            ent.detail = bad_reason
++            plan.skipped.append((ent.cheat_key, bad_reason))
++            continue
++
++        for off, word in ent_patch_sites:
++            vlist = site_variants.setdefault(off, [])
++            if word not in vlist:
++                vlist.append(word)
++        for off, orig_w in ent_noop_sites:
++            plan.cave_noops.setdefault(off, (orig_w, ent.cheat_key))
++
++        ent.kind = 'baked_conditional' if any_cond else 'baked_static'
++
++    plan.patch_sites = site_variants
++    return plan
++
++
++def emit_trampolines(
++    plan: BakePlan,
++    img: bytearray,
++    orig_text: bytes,
++    cheat_state_off: int,
++    use_area_fn: Callable[[int], None],
++    here_fn: Callable[[], int],
++    emit_fn: Callable[[int], None],
++    bx_fn: Callable[[int, int], int],
++    put_branch_fn: Callable[[int, int], None],
++    patch_buf_getter: Callable[[], tuple[bytearray, int]],
++) -> None:
++    """Emit all NZCV-preserving trampolines for `plan` and populate `plan.baked_sites`.
++
++    `patch_buf_getter()` returns `(active_patch_bytearray, active_patch_base)` so
++    forward branch placeholders inside each trampoline can be patched in place.
++    """
++    assert cheat_state_off % 0x4000 == 0
++    plan.cheat_state_off = cheat_state_off
++    md = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
++    md.detail = True
++
++    # Build quick lookup from (off, word) -> owning entries.
++    # Assign slots: sites sharing the exact same single owner can share one slot_id!
++    # Sites with multiple variants get their own dedicated slot (1 byte for <=8 variants,
++    # 4-byte aligned group of 4 bytes for 9..32 variants).
++    site_owners: dict[tuple[int, int], list[CheatEntry]] = {}
++    for ent in plan.entries:
++        if ent.kind not in ('baked_static', 'baked_conditional'):
++            continue
++        for sw in ent.writes:
++            pairs = _expand_word_writes(sw, orig_text) or []
++            for off, word in pairs:
++                if off in plan.patch_sites and word in plan.patch_sites[off]:
++                    site_owners.setdefault((off, word), []).append(ent)
++
++    next_slot = 0
++    shared_single_slot: dict[tuple[str, ...], int] = {}
++    # off -> (base_slot, nbytes, list_of_variants)
++    site_slot_info: dict[int, tuple[int, int, list[int]]] = {}
++
++    for off in sorted(plan.patch_sites):
++        variants = plan.patch_sites[off]
++        nvar = len(variants)
++        if nvar == 1:
++            owners = tuple(sorted({e.cheat_key for e in site_owners.get((off, variants[0]), ())}))
++            # Conditional sites that belong to the exact same conditional cheat(s) share 1 slot
++            # ONLY if they are unconditional; conditional writes inside different if/else branches
++            # of the same cheat must NOT share a slot unless they write the same site.
++            all_static = all(e.kind == 'baked_static' for e in site_owners.get((off, variants[0]), ()))
++            if owners and all_static and owners in shared_single_slot:
++                slot = shared_single_slot[owners]
++            else:
++                if next_slot >= MAX_SLOTS:
++                    plan.skipped.append((f'0x{off:x}', f'exceeded {MAX_SLOTS} cheat slots'))
++                    continue
++                slot = next_slot
++                next_slot += 1
++                if owners and all_static:
++                    shared_single_slot[owners] = slot
++            site_slot_info[off] = (slot, 1, variants)
++        elif nvar <= 8:
++            if next_slot >= MAX_SLOTS:
++                plan.skipped.append((f'0x{off:x}', f'exceeded {MAX_SLOTS} cheat slots'))
++                continue
++            slot = next_slot
++            next_slot += 1
++            site_slot_info[off] = (slot, 1, variants)
++        else:
++            aligned = (next_slot + 3) & ~3
++            if aligned + 4 > MAX_SLOTS:
++                plan.skipped.append((f'0x{off:x}', f'exceeded {MAX_SLOTS} cheat slots'))
++                continue
++            site_slot_info[off] = (aligned, 4, variants)
++            next_slot = aligned + 4
++
++    plan.slots_used = next_slot
++
++    # Emit trampolines in ascending site order.
++    for off in sorted(site_slot_info):
++        base_slot, nbytes, variants = site_slot_info[off]
++        orig_w = struct.unpack_from('<I', orig_text, off)[0]
++        use_area_fn(off)
++        tramp_start = here_fn()
++
++        # Prologue: save x16 on stack (16-byte aligned, above sp -> safe against signals),
++        # load state slot without touching NZCV!
++        emit_fn(STR_X_PRE(16, 31, -16))
++        emit_fn(ADRP(16, here_fn(), cheat_state_off))
++        if nbytes == 1:
++            emit_fn(LDRB_UIMM(16, 16, base_slot))
++        else:
++            emit_fn(LDRW_UIMM(16, 16, base_slot >> 2))
++
++        pbuf, pbase = patch_buf_getter()
++        if len(variants) == 1:
++            # Fast single-variant path: cbnz w16, patch_0
++            branch_idx = len(pbuf)
++            emit_fn(NOP)  # placeholder for CBNZW
++            emit_fn(LDR_X_POST(16, 31, 16))
++            ok, why = relocate_insn(orig_w, off, here_fn, emit_fn, bx_fn, md)
++            assert ok, f'unexpected orig relocation failure at 0x{off:x}: {why}'
++            patch0_pc = here_fn()
++            struct.pack_into('<I', pbuf, branch_idx, CBNZW(16, pbase + branch_idx, patch0_pc))
++            emit_fn(LDR_X_POST(16, 31, 16))
++            ok, why = relocate_insn(variants[0], off, here_fn, emit_fn, bx_fn, md)
++            assert ok, f'unexpected variant relocation failure at 0x{off:x}: {why}'
++        else:
++            # Multi-variant NZCV-preserving dispatch:
++            #   cbz w16, orig_path
++            #   tbnz w16, #0, patch_0
++            #   ...
++            #   tbnz w16, #(k-1), patch_{k-1}
++            # orig_path:
++            #   ldr x16, [sp], #16; <orig>; b off+4
++            cbz_idx = len(pbuf)
++            emit_fn(NOP)
++            tbnz_idxs: list[int] = []
++            for bit in range(len(variants)):
++                tbnz_idxs.append(len(pbuf))
++                emit_fn(NOP)
++            orig_pc_tramp = here_fn()
++            struct.pack_into('<I', pbuf, cbz_idx, CBZW(16, pbase + cbz_idx, orig_pc_tramp))
++            emit_fn(LDR_X_POST(16, 31, 16))
++            ok, why = relocate_insn(orig_w, off, here_fn, emit_fn, bx_fn, md)
++            assert ok, f'unexpected orig relocation failure at 0x{off:x}: {why}'
++            for bit, vword in enumerate(variants):
++                v_pc = here_fn()
++                tidx = tbnz_idxs[bit]
++                struct.pack_into('<I', pbuf, tidx, TBNZW(16, bit, pbase + tidx, v_pc))
++                emit_fn(LDR_X_POST(16, 31, 16))
++                ok, why = relocate_insn(vword, off, here_fn, emit_fn, bx_fn, md)
++                assert ok, f'unexpected variant relocation failure at 0x{off:x}: {why}'
++
++        put_branch_fn(off, tramp_start)
++
++        # Record baked site metadata for every owning cheat entry.
++        for bit, vword in enumerate(variants):
++            byte_slot = base_slot + (bit // 8)
++            vmask = 1 << (bit % 8)
++            for ent in site_owners.get((off, vword), ()):
++                plan.baked_sites.append(BakedSite(
++                    cheat_key=ent.cheat_key,
++                    name=ent.name,
++                    kind=ent.kind,
++                    slot_id=byte_slot,
++                    variant_mask=vmask,
++                    target_off=off,
++                    patched_word=vword,
++                    key_mask=ent.key_mask,
++                    orig_word=orig_w,
++                    group_base=base_slot,
++                    group_bytes=nbytes,
++                ))
++
++
++def format_trampolines_tsv(plan: BakePlan) -> str:
++    """Serialize BakePlan into dm/cheat_trampolines.tsv for runtime VM and UI metadata."""
++    lines = [
++        f'# BUILD_ID\t{plan.build_id}',
++        f'# FULL_BUILD_ID\t{plan.full_build_id}',
++        f'# MAIN_RX_END\t{plan.rx_end:#x}',
++        f'# CHEAT_STATE_OFF\t{plan.cheat_state_off:#x}',
++        f'# SLOTS_USED\t{plan.slots_used}',
++        f'# MIRROR_BYTES\t{plan.mirror_bytes}',
++        'row_type\tname\tcheat_key\tkind\tslot_id\tvariant_mask\ttarget_off\tpatched_word\tkey_mask\tdetail',
++    ]
++
++    first_site_by_key: dict[str, BakedSite] = {}
++    for bs in plan.baked_sites:
++        first_site_by_key.setdefault(bs.cheat_key, bs)
++
++    def _clean(s: str) -> str:
++        return s.replace('\t', ' ').replace('\r', ' ').replace('\n', ' ')
++
++    for ent in plan.entries:
++        if ent.label:
++            continue
++        fs = first_site_by_key.get(ent.cheat_key)
++        slot_id = fs.slot_id if fs else -1
++        vmask = fs.variant_mask if fs else 0
++        toff = fs.target_off if fs else (ent.writes[0].offset if ent.writes else 0)
++        pword = fs.patched_word if fs else (ent.writes[0].value & 0xFFFFFFFF if ent.writes else 0)
++        lines.append(
++            f'entry\t{_clean(ent.name)}\t{_clean(ent.cheat_key)}\t{ent.kind}\t'
++            f'{slot_id}\t{vmask:#x}\t{toff:#x}\t{pword:#x}\t{ent.key_mask:#x}\t{_clean(ent.detail)}'
++        )
++
++    for bs in plan.baked_sites:
++        parts = [f'orig=0x{bs.orig_word:08x}']
++        if bs.group_bytes > 1:
++            parts.append(f'group={bs.group_base}:{bs.group_bytes}')
++        detail = ' '.join(parts)
++        lines.append(
++            f'site\t{_clean(bs.name)}\t{_clean(bs.cheat_key)}\t{bs.kind}\t'
++            f'{bs.slot_id}\t{bs.variant_mask:#x}\t{bs.target_off:#x}\t{bs.patched_word:#x}\t{bs.key_mask:#x}\t{detail}'
++        )
++
++    for off, word in sorted(plan.cave_code.items()):
++        ckey = plan.cave_owners.get(off, 'code_cave')
++        ow = plan.cave_orig_words.get(off, 0)
++        lines.append(
++            f'cave\t{_clean(ckey)}\t{_clean(ckey)}\tbaked_static\t-1\t0x0\t'
++            f'{off:#x}\t{word:#x}\t0x0\torig=0x{ow:08x}'
++        )
++
++    for off, (orig_w, ckey) in sorted(plan.cave_noops.items()):
++        if off in plan.patch_sites or off in plan.cave_code:
++            continue
++        lines.append(
++            f'cave\t{_clean(ckey)}\t{_clean(ckey)}\tbaked_static\t-1\t0x0\t'
++            f'{off:#x}\t{orig_w:#x}\t0x0\torig=0x{orig_w:08x}'
++        )
++
++    for mb in plan.mirrors:
++        ckey = mb.cheat_keys[0] if mb.cheat_keys else 'cave_mirror'
++        lines.append(
++            f'mirror\t{_clean(ckey)}\t{_clean(ckey)}\tbaked_static\t-1\t0x0\t'
++            f'{mb.orig_off:#x}\t{mb.mirror_rel:#x}\t0x0\tsize={mb.size} init={mb.init_bytes.hex()}'
++        )
++
++    return '\n'.join(lines) + '\n'
++
++
++def write_trampolines_tsv(plan: BakePlan, path: str | os.PathLike[str]) -> None:
++    Path(path).write_text(format_trampolines_tsv(plan), encoding='utf-8')
++
++
++def emit_cave_reloc_stub(
++    stub_desc: list[int],
++    orig_pc: int,
++    here_fn: Callable[[], int],
++    emit_fn: Callable[[int], None],
++    bx_fn: Callable[[int, int], int],
++) -> int:
++    """Emit an out-of-line patch_area stub for out-of-range or conflicting cave mirror refs."""
++    kind = stub_desc[0]
++    start = here_fn()
++    if kind == 0xFFFFFFFF:  # adr Xd, new_addr (or conflicting adrp+add)
++        rd, new_addr = stub_desc[1], stub_desc[2]
++        emit_fn(ADRP(rd, here_fn(), new_addr))
++        emit_fn(ADDI(rd, rd, new_addr & 0xFFF))
++        emit_fn(bx_fn(here_fn(), orig_pc + 4))
++    elif kind == 0xFFFFFFFD:  # conflicting adrp + unsigned-offset ldr/str
++        w, new_addr = stub_desc[1], stub_desc[2]
++        is_fp = ((w >> 26) & 1) == 1
++        rt = w & 0x1F
++        tmp = 17 if (not is_fp and rt == 16) else 16
++        emit_fn(STR_X_PRE(tmp, 31, -16))
++        emit_fn(ADRP(tmp, here_fn(), new_addr))
++        emit_fn(ADDI(tmp, tmp, new_addr & 0xFFF))
++        emit_fn((w & ~((0xFFF << 10) | (0x1F << 5))) | (tmp << 5))
++        emit_fn(LDR_X_POST(tmp, 31, 16))
++        emit_fn(bx_fn(here_fn(), orig_pc + 4))
++    else:  # 0xFFFFFFFE: ldr literal -> adrp + ldr
++        w, new_addr = stub_desc[1], stub_desc[2]
++        opc = (w >> 30) & 3
++        is_fp = ((w >> 26) & 1) == 1
++        rt = w & 0x1F
++        if not is_fp:
++            if opc == 0:
++                emit_fn(ADRP(rt, here_fn(), new_addr))
++                emit_fn(LDRW_UIMM(rt, rt, (new_addr & 0xFFF) // 4))
++            elif opc == 1:
++                emit_fn(ADRP(rt, here_fn(), new_addr))
++                if (new_addr & 7) == 0:
++                    emit_fn(LDRX(rt, rt, (new_addr & 0xFFF) // 8))
++                else:
++                    emit_fn(ADDI(rt, rt, new_addr & 0xFFF))
++                    emit_fn(LDRX(rt, rt, 0))
++            else:
++                emit_fn(ADRP(rt, here_fn(), new_addr))
++                emit_fn(LDRSW_UIMM(rt, rt, (new_addr & 0xFFF) // 4))
++        else:
++            emit_fn(STR_X_PRE(16, 31, -16))
++            emit_fn(ADRP(16, here_fn(), new_addr))
++            emit_fn(ADDI(16, 16, new_addr & 0xFFF))
++            emit_fn(LDR_FP_UIMM(opc, rt, 16, 0))
++            emit_fn(LDR_X_POST(16, 31, 16))
++        emit_fn(bx_fn(here_fn(), orig_pc + 4))
++    return start
+diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
+index 54a8009..a6dfab0 100644
+--- a/dm/tools/patch_nso.py
++++ b/dm/tools/patch_nso.py
+@@ -23,7 +23,7 @@ if capstone.cs_version()[0] != 5:   # the rewriter uses Capstone 5's names (CS_A
+     sys.exit(f'[RED] Capstone {capstone.__version__} is unsupported; the rewriter requires Capstone 5.x. Run: {shlex.join([sys.executable, "-m", "pip", "install", "capstone>=5,<6"])}')
+ from capstone import *
+ from capstone.arm64 import ARM64_OP_IMM, ARM64_OP_MEM, ARM64_OP_REG
+-import nso, nso_asm, nso_syms
++import nso, nso_asm, nso_syms, cheat_bake
+ from nso_asm import *   # the instruction encoders (B, ADRP, LDRX, ...), shared with the per-build patch files
+ 
+ # The NSP script terminates a failed or cancelled rewrite with SIGTERM. Exit through the pool's context manager so it reaps the workers too.
+@@ -33,10 +33,24 @@ except ValueError: sys.exit('[RED] DM_REWRITE_J must be a positive integer')
+ if WORKERS < 1: sys.exit('[RED] DM_REWRITE_J must be a positive integer')
+ 
+ src, outdir, NAME = sys.argv[1], sys.argv[2], sys.argv[3]
++CHEAT_FILE_ARG = CHEAT_DIR_ARG = None
++_arg_i = 4
++while _arg_i < len(sys.argv):
++    if sys.argv[_arg_i] == '--cheat-file' and _arg_i + 1 < len(sys.argv):
++        CHEAT_FILE_ARG = sys.argv[_arg_i + 1]; _arg_i += 2
++    elif sys.argv[_arg_i] == '--cheat-dir' and _arg_i + 1 < len(sys.argv):
++        CHEAT_DIR_ARG = sys.argv[_arg_i + 1]; _arg_i += 2
++    else:
++        sys.exit(f'[RED] patch_nso.py: unknown argument {sys.argv[_arg_i]}')
+ # An NSO, or an NRO (a module the game loads at run time with nn::ro, Super Smash Bros. Ultimate's fighter code), rewritten as an NSO of the same layout would be. nso.py checks the file
+ # against its header before anything is allocated (a damaged module stops here with a [RED] line)
+ MOD = nso.cli_read(src)
+ bss = MOD.bss
++CHEAT_PATH = cheat_bake.resolve_cheat_file(MOD.build_id[:0x10].hex(), CHEAT_FILE_ARG, CHEAT_DIR_ARG) if NAME == 'main' and (CHEAT_FILE_ARG or CHEAT_DIR_ARG) else None
++CHEAT_PRE_PLAN = None
++if CHEAT_PATH is not None:
++    CHEAT_PRE_PLAN = cheat_bake.build_plan(cheat_bake.parse_cheat_file(CHEAT_PATH), bytes(MOD.image[:MOD.text_end]), MOD.build_id[:0x10].hex(), MOD.text_end)
++HAS_CHEAT_BAKE = bool(CHEAT_PRE_PLAN and CHEAT_PRE_PLAN.needs_state_page)
+ # Every jump between the patch area and the code is a B (±128 MB). A patch area appended after the image (with bss) cannot reach the code when it would start beyond 112 MB (leaving 16 MB for the patch area): Metroid Dread's main has about 1.8 GB of bss (the engine's static heap); Engage's main starts its patch area at about 103 MB and keeps it after the image.
+ # The patch area then sits FRONT bytes before the module base (PATCH_OFF is negative), and the output file holds only text + ro + data (FILE_IMAGE_LEN) followed by the patch area; the loader supplies zero pages for bss and the key page (IMAGE_SIZE is the whole image).
+ # The key page stays after bss (the patch area reaches it through ADRP, ±4 GB). Modules below the limit produce output byte-identical to before
+@@ -56,8 +70,9 @@ TWO = BIG_TEXT and MOD.text_end > 0x8000000 - 0x10000
+ # When BACK_MIN is beyond the front area's reach too (GAP: Resident Evil 4 v131072), branches that cannot reach their area go through a hop in function alignment padding.
+ # The gap's sites are split between the two areas according to how many hop locations each area can reach. Putting them all at the back exhausts its padding on Minecraft 1.26.62.
+ BACK_MIN, GAP = 0, False   # TWO: BACK_OFF (set below) less the reach, plus the margin
++_TAIL_PAGES = 0xC000 if HAS_CHEAT_BAKE else 0x8000   # key page + optional frame step page (+ optional 16 KB cheat state page)
+ if TWO:
+-    BACK_MIN = ((((len(MOD.image) + bss + 0x3FFF) & ~0x3FFF) + 0x8000 + 0xFFFF) & ~0xFFFF) - 0x8000000 + 0x100000
++    BACK_MIN = ((((len(MOD.image) + bss + 0x3FFF) & ~0x3FFF) + _TAIL_PAGES + 0xFFFF) & ~0xFFFF) - 0x8000000 + 0x100000
+     GAP = BACK_MIN >= 0x8000000 - 0x200000
+     FRONT = int(os.environ.get('DM_PATCH_FRONT', '0'), 0) or (0x1000000 if GAP else min(0x1000000, (0x8000000 - 0x100000 - BACK_MIN) & ~0xFFFF))
+ elif BIG_TEXT: FRONT = int(os.environ.get('DM_PATCH_FRONT', '0'), 0) or (0x8000000 - 0x10000 - MOD.text_end) & ~0xFFFF
+@@ -71,7 +86,7 @@ if FAR:
+     FILE_IMAGE_LEN = (len(IMG) + 0x3FFF) & ~0x3FFF
+     KEY_PAGE_OFF = (len(IMG) + bss + 0x3FFF) & ~0x3FFF
+     IMAGE_SIZE, PATCH_OFF = KEY_PAGE_OFF + 0x4000, -FRONT
+-    BACK_OFF = (KEY_PAGE_OFF + 0x8000 + 0xFFFF) & ~0xFFFF if TWO else 0   # after the key page and the frame step page FRAME_STEP may take
++    BACK_OFF = (KEY_PAGE_OFF + _TAIL_PAGES + 0xFFFF) & ~0xFFFF if TWO else 0   # after the key page, optional frame step page and optional cheat state page
+     assert not TWO or BACK_OFF - 0x8000000 + 0x100000 == BACK_MIN, 'BACK_MIN and BACK_OFF disagree'
+ else:
+     KEY_PAGE_OFF = (len(IMG) + 0x3FFF) & ~0x3FFF
+@@ -189,6 +204,20 @@ for off, ob, nb, why in cuts:
+ # Key page indices are fixed; the key page content is written by the loader as "actual key number × 8".
+ KEYS = {'K18': 508, 'KTLS': 509, 'KTLR': 510, 'KGATE': 511}
+ KEY_INDEX = {k: i for i, k in enumerate(('K18', 'KTLS', 'KTLR', 'KGATE'))}
++CHEAT_STATE_OFF = 0
++if HAS_CHEAT_BAKE and NAME == 'main':
++    _has_fs = BUILD_ID in PATCHES['FRAME_STEP'] or FS_MATCH
++    CHEAT_STATE_OFF = KEY_PAGE_OFF + (0x8000 if _has_fs else 0x4000)
++    if not FAR and PATCH_OFF < CHEAT_STATE_OFF + cheat_bake.CHEAT_STATE_PAGE_SIZE:
++        PATCH_OFF = (CHEAT_STATE_OFF + cheat_bake.CHEAT_STATE_PAGE_SIZE + 0xFFFF) & ~0xFFFF
++    if FAR:
++        IMAGE_SIZE = max(IMAGE_SIZE, CHEAT_STATE_OFF + cheat_bake.CHEAT_STATE_PAGE_SIZE)
++CHEAT_CAVE_ADDRS = set()
++if CHEAT_PRE_PLAN and CHEAT_PRE_PLAN.cave_code:
++    for _coff, _cword in sorted(CHEAT_PRE_PLAN.cave_code.items()):
++        if _coff + 4 <= TEXT_END and cheat_bake._is_cave_padding_word(struct.unpack_from('<I', IMG, _coff)[0]):
++            struct.pack_into('<I', IMG, _coff, _cword)
++            CHEAT_CAVE_ADDRS.add(_coff)
+ 
+ # ---- Unreal console variables in main (dm/tools/ue_cvar.py finds them by their registered names, without a build ID) ----
+ # The fixups table names each one's TAutoConsoleVariable (UE_CVAR:<name>); the host writes those the profile decides on (hle_fpslock.c, hle_uecvar.c)
+@@ -1481,7 +1510,7 @@ if (BUILD_ID in FRAME_STEP or FS_MATCH) and NAME == 'main':
+     if FAR:
+         # The loader supplies zero-filled BSS/key pages for a front patch area.
+         # Reserve the frame state after the key page there too; stubs reach it by ADRP.
+-        IMAGE_SIZE = FS_STATE_OFF + 0x4000
++        IMAGE_SIZE = max(IMAGE_SIZE, FS_STATE_OFF + 0x4000)
+     assert FS_STATE_OFF % 0x1000 == 0 and (FAR or FS_STATE_OFF + 0x40 <= PATCH_OFF) and not any(IMG[FS_STATE_OFF:]), 'frame step state page'
+ # What frame step and stub code (STUBS below) may write: a site whose original bytes match and that holds no rewrite site, the cuts list (<name>.cuts.tsv) that names it, and
+ # data addresses read from the original text
+@@ -1850,6 +1879,52 @@ for g in spin_regions: spin_emit(g)
+ if os.environ.get('DM_SPIN_LIST'):
+     for T, bes, n in spin_sites: print(f'{NAME} spin wait {T:#x} ({n} instructions), back-edges ' + ' '.join(f'{b:#x}' for b in bes))
+ 
++# ---- Offline cheat trampoline baking (dm/tools/cheat_bake.py) ----
++CHEAT_PLAN = None
++if CHEAT_PATH is not None and NAME == 'main':
++    _protected = set(spin_touched)
++    for g in spin_regions:
++        for a in g['R']:
++            n_ = g['nodes'][a]; pre_ = n_.get('pre', 0)
++            _protected.update(a + 4 * (i - pre_) for i in range(len(n_['ins'])))
++    for _hs in _hops.values():
++        _protected.update(_hs)
++    for _o in range(0, TEXT_END, 4):
++        if _o in CHEAT_CAVE_ADDRS:
++            continue
++        if IMG[_o:_o + 4] != ORIG_TEXT[_o:_o + 4]:
++            if not (_o in ORDERED and struct.unpack_from('<I', IMG, _o)[0] == struct.unpack_from('<I', ORIG_TEXT, _o)[0] | 0x8000):
++                _protected.add(_o)
++    _cheat_entries = cheat_bake.parse_cheat_file(CHEAT_PATH)
++    CHEAT_PLAN = cheat_bake.build_plan(_cheat_entries, ORIG_TEXT, BUILD_ID, TEXT_END, protected_offsets=_protected)
++    if CHEAT_PLAN.needs_state_page:
++        assert CHEAT_STATE_OFF != 0 and (FAR or CHEAT_STATE_OFF + cheat_bake.CHEAT_STATE_PAGE_SIZE <= PATCH_OFF), 'cheat state page not reserved'
++        assert not TWO or CHEAT_STATE_OFF + cheat_bake.CHEAT_STATE_PAGE_SIZE <= BACK_OFF, 'cheat state page overlaps back patch area'
++        if CHEAT_PLAN.cave_code and CHEAT_PLAN.mirrors:
++            def _emit_cave_stub(desc, orig_pc):
++                use_area(orig_pc)
++                return cheat_bake.emit_cave_reloc_stub(desc, orig_pc, here, emit, BX)
++            _reloc_cave, _cave_notes = cheat_bake.relocate_cave_switches(CHEAT_PLAN.cave_code, CHEAT_PLAN.mirrors, CHEAT_STATE_OFF, md, emit_stub=_emit_cave_stub, bx_fn=BX)
++            for _coff, _cword in _reloc_cave.items():
++                if _coff in CHEAT_CAVE_ADDRS and _coff not in kinds and _coff not in done:
++                    struct.pack_into('<I', IMG, _coff, _cword)
++        cheat_bake.emit_trampolines(
++            CHEAT_PLAN, IMG, ORIG_TEXT, CHEAT_STATE_OFF,
++            use_area, here, emit, BX, put_branch, lambda: (patch, PATCH_BASE),
++        )
++        stat('cheat_trampolines')
++        if not FAR and CHEAT_PLAN.mirrors:
++            if len(IMG) < CHEAT_STATE_OFF + cheat_bake.CHEAT_STATE_PAGE_SIZE:
++                IMG.extend(bytes(CHEAT_STATE_OFF + cheat_bake.CHEAT_STATE_PAGE_SIZE - len(IMG)))
++            for _mb in CHEAT_PLAN.mirrors:
++                _dst = CHEAT_STATE_OFF + _mb.mirror_rel
++                IMG[_dst:_dst + len(_mb.init_bytes)] = _mb.init_bytes
++    else:
++        CHEAT_STATE_OFF = 0
++    os.makedirs(outdir, exist_ok=True)
++    cheat_bake.write_trampolines_tsv(CHEAT_PLAN, os.path.join(outdir, 'cheat_trampolines.tsv'))
++    print(f'{NAME}: cheat_bake: {len(CHEAT_PLAN.baked_sites)} baked site(s), {CHEAT_PLAN.slots_used} slot(s), {CHEAT_PLAN.mirror_bytes} mirror byte(s), {len(CHEAT_PLAN.skipped)} skipped')
++
+ os.makedirs(outdir, exist_ok=True)
+ P = lambda ext: os.path.join(outdir, f'{NAME}.{ext}')
+ patch = patch_front
+@@ -1861,7 +1936,7 @@ if FAR:   # patch area before the base: file = text + ro + data (padded to 16K)
+         os.execve(sys.executable, [sys.executable] + sys.argv, dict(os.environ, DM_PATCH_FRONT=hex(need)))
+     assert len(patch) <= FRONT - 0x4000, f'patch area of {len(patch):#x} bytes does not fit in the {FRONT:#x} before the base'
+     if TWO:
+-        assert IMAGE_SIZE <= BACK_OFF, 'back patch area overlaps the key page or the frame step page'
++        assert IMAGE_SIZE <= BACK_OFF, 'back patch area overlaps the key page, frame step page or cheat state page'
+         IMAGE_SIZE = BACK_OFF + BACK_LEN
+         patch = patch + bytearray(-len(patch) & 0x3FFF) + patch_back + bytearray(BACK_LEN - len(patch_back))
+     open(P('patched.bin'), 'wb').write(IMG + bytearray(FILE_IMAGE_LEN - len(IMG)) + patch)
+@@ -1893,13 +1968,15 @@ def movie_native_color_keys():
+     return RO_OFF <= target < DATA_OFF and IMG[target:target + len(key)] == key
+ 
+ with open(os.path.join(outdir, 'build_src.sha256'), 'w') as f:   # the same for every module: the rewriter and every patch file, by path from dm/tools
+-    for src_ in (os.path.abspath(__file__), nso.__file__, nso_code.__file__, nso_asm.__file__, nso_syms.__file__, ue_cvar.__file__, ue_malloc.__file__, fps_target.__file__, monolith_fps.__file__, ue_fixed_rate.__file__, unity_fps.__file__, unity_bucket.__file__, ue_region.__file__, ue_ring.__file__, snowdrop_pools.__file__, os.path.join(os.path.dirname(ue_malloc.__file__), 'loader_census.py'), *PATCH_FILES): f.write(hashlib.sha256(open(src_, 'rb').read()).hexdigest() + f'  {os.path.relpath(os.path.abspath(src_), os.path.dirname(os.path.abspath(__file__)))}\n')
++    for src_ in (os.path.abspath(__file__), nso.__file__, nso_code.__file__, nso_asm.__file__, nso_syms.__file__, cheat_bake.__file__, ue_cvar.__file__, ue_malloc.__file__, fps_target.__file__, monolith_fps.__file__, ue_fixed_rate.__file__, unity_fps.__file__, unity_bucket.__file__, ue_region.__file__, ue_ring.__file__, snowdrop_pools.__file__, os.path.join(os.path.dirname(ue_malloc.__file__), 'loader_census.py'), *PATCH_FILES): f.write(hashlib.sha256(open(src_, 'rb').read()).hexdigest() + f'  {os.path.relpath(os.path.abspath(src_), os.path.dirname(os.path.abspath(__file__)))}\n')
+ with open(P('fixups.tsv'), 'w') as f:
+     f.write(f'# PATCH_OFF\t{PATCH_OFF:#x}\n# KEY_PAGE_OFF\t{KEY_PAGE_OFF:#x}\n# KEY_PAGE_SIZE\t0x4000\n# TEXT_END\t{TEXT_END:#x}\n# RO_OFF\t{RO_OFF:#x}\n# DATA_OFF\t{DATA_OFF:#x}\n')
++    if NAME == 'main': f.write(f'# MAIN_RX_END\t{(TEXT_END + 0x3FFF) & ~0x3FFF:#x}\n')   # 16 KB page-rounded read+execute boundary for offline iOS cheat classification
+     if FAR: f.write(f'# IMAGE_SIZE\t{IMAGE_SIZE:#x}\n# FILE_IMAGE_LEN\t{FILE_IMAGE_LEN:#x}\n')   # patch area before the base (negative PATCH_OFF): whole image size, length of the image part of the file
+     if TWO: f.write(f'# BACK_OFF\t{BACK_OFF:#x}\n# BACK_LEN\t{BACK_LEN:#x}\n')   # the back patch area (TWO): its offset in the image, and its length, the last bytes of the file
+     for k in KEY_INDEX: f.write(f'# KEY_{k}_IDX\t{KEY_INDEX[k]}\n')
+     if FS_STATE_OFF: f.write(f'# FPS_STATE_OFF\t{FS_STATE_OFF:#x}\n')   # frame step state page (FRAME_STEP): the loader writes the target fps there
++    if CHEAT_STATE_OFF: f.write(f'# CHEAT_STATE_OFF\t{CHEAT_STATE_OFF:#x}\n')   # 16 KB writable cheat state page (4 KB slot bytes + 12 KB Code Cave mirror)
+     if UE_CALLS: f.write(f'# UE_MALLOC_VT\t{UE_VT:#x}\n# UE_MALLOC_SLOT\t{UE_SLOT:#x}\n')   # Unreal's FMallocBinned3 (ue_malloc.py): its vtable and the slot of its name getter, which names the slot layout
+     if FPS_TARGET_PTR is not None: f.write(f'# FPS_TARGET_PTR\t{FPS_TARGET_PTR:#x}\n# FPS_TARGET_FIELD\t{FPS_TARGET_FIELD:#x}\n')   # a target frame rate the game steps by (fps_target.py)
+     if MONOLITH_INTERVAL is not None: f.write(f'# MONOLITH_INTERVAL\t{MONOLITH_INTERVAL:#x}\n')   # native wait and simulation interval (monolith_fps.py)
+diff --git a/dm/tools/tests/test_cheat_bake.py b/dm/tools/tests/test_cheat_bake.py
+new file mode 100644
+index 0000000..e5e6fee
+--- /dev/null
++++ b/dm/tools/tests/test_cheat_bake.py
+@@ -0,0 +1,587 @@
++"""Unit tests for dm/tools/cheat_bake.py: AArch64 NZCV-preserving trampolines,
++PC-relative instruction relocation, multi-variant (>8) dispatch, key-mask
++extraction, EdiZon/Zing sections, protected-site conflict skipping, and
++enhanced Code Cave switch-table relocation. No game files required.
++"""
++from pathlib import Path
++import hashlib
++import struct
++import subprocess
++import sys
++import tempfile
++import unittest
++
++from capstone import CS_ARCH_ARM64, CS_MODE_ARM, Cs
++
++REPO = Path(__file__).resolve().parents[3]
++sys.path.insert(0, str(REPO / 'dm/tools'))
++import cheat_bake as cb  # noqa: E402
++from nso_asm import ADDI, ADRP, B, BL, NOP  # noqa: E402
++
++MD = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
++MD.detail = True
++
++
++def dis_all(buf: bytes, base: int) -> list:
++    return list(MD.disasm(buf, base))
++
++
++def run_bake_synthetic(
++    cheat_text: str,
++    orig_words: dict[int, int],
++    *,
++    text_end: int = 0x4000,
++    cheat_state_off: int = 0x10000,
++    patch_base: int = 0x20000,
++    protected: set[int] | None = None,
++):
++    """Run build_plan + cave relocation + emit_trampolines on a synthetic main image."""
++    img = bytearray(text_end)
++    # Fill default text with harmless `add x0, x0, #1` (0x91000400) so non-cave slots are valid code.
++    for off in range(0, text_end, 4):
++        struct.pack_into('<I', img, off, 0x91000400)
++    for off, w in orig_words.items():
++        struct.pack_into('<I', img, off, w)
++    orig_text = bytes(img)
++
++    entries = cb.parse_cheat_text(cheat_text)
++    plan = cb.build_plan(entries, orig_text, '1122334455667788aabbccddeeff0011', text_end, protected_offsets=protected)
++
++    patch = bytearray()
++
++    def use_area(_a: int) -> None:
++        pass
++
++    def here() -> int:
++        return patch_base + len(patch)
++
++    def emit(w: int) -> None:
++        patch.extend(struct.pack('<I', w & 0xFFFFFFFF))
++
++    def bx(frm: int, to: int) -> int:
++        return B(frm, to)
++
++    def put_branch(at: int, to: int) -> None:
++        struct.pack_into('<I', img, at, B(at, to))
++
++    # Write cave code and relocate switches if any.
++    for coff, cword in plan.cave_code.items():
++        struct.pack_into('<I', img, coff, cword)
++
++    cave_notes: list[str] = []
++    if plan.cave_code and plan.mirrors:
++        def emit_stub(desc: list[int], orig_pc: int) -> int:
++            return cb.emit_cave_reloc_stub(desc, orig_pc, here, emit, bx)
++
++        reloc_cave, cave_notes = cb.relocate_cave_switches(
++            plan.cave_code, plan.mirrors, cheat_state_off, MD, emit_stub=emit_stub, bx_fn=bx,
++        )
++        for coff, cword in reloc_cave.items():
++            struct.pack_into('<I', img, coff, cword)
++
++    if plan.needs_state_page:
++        cb.emit_trampolines(
++            plan, img, orig_text, cheat_state_off,
++            use_area, here, emit, bx, put_branch, lambda: (patch, patch_base),
++        )
++    return plan, img, patch, patch_base, cave_notes
++
++
++class CheatBakeTests(unittest.TestCase):
++    def test_parse_edizon_and_zing_sections_and_duplicates(self):
++        txt = (
++            '[--SectionStart:Combat--]\n'
++            '[God Mode]\n04000000 00004010 00000001\n'
++            '[--SectionEnd:Combat--]\n'
++            '[Movement]\n20000000\n'
++            '[Speed]\n04000000 00004014 00000002\n'
++            '[Speed]\n04000000 00004018 00000003\n'
++            '[Movement End]\n20000001\n'
++            '[Outside]\n04000000 0000401C 00000004\n'
++        )
++        entries = cb.parse_cheat_text(txt)
++        by_key = {e.cheat_key: e for e in entries}
++        self.assertTrue(by_key['Movement'].label)
++        self.assertEqual(by_key['Movement'].sec_mark, 1)
++        self.assertTrue(by_key['Movement End'].label)
++        self.assertEqual(by_key['Movement End'].sec_mark, 2)
++        self.assertEqual(by_key['God Mode'].section, 'Combat')
++        self.assertEqual(by_key['Speed'].section, 'Movement')
++        self.assertEqual(by_key['Speed #2'].section, 'Movement')
++        self.assertEqual(by_key['Outside'].section, '')
++
++    def test_single_and_conditional_trampoline_preserves_nzcv_and_extracts_key_mask(self):
++        # 80000202 = ZR (bit 9 = 0x200) + B (bit 1 = 0x2)
++        txt = (
++            '[Static Inf Ammo]\n'
++            '04000000 00000100 D503201F\n'
++            '04000000 00000104 D503201F\n'
++            '[Hold ZR+B Moon Jump]\n'
++            '80000202\n'
++            '04000000 00000200 52800020\n'
++            '20000000\n'
++            '[Pure Data Gold]\n'
++            '04000000 00005000 0000270F\n'
++        )
++        plan, img, patch, pbase, _ = run_bake_synthetic(txt, {})
++        by_key = {e.cheat_key: e for e in plan.entries}
++        self.assertEqual(by_key['Static Inf Ammo'].kind, 'baked_static')
++        self.assertEqual(by_key['Hold ZR+B Moon Jump'].kind, 'baked_conditional')
++        self.assertEqual(by_key['Hold ZR+B Moon Jump'].key_mask, 0x202)
++        self.assertEqual(by_key['Pure Data Gold'].kind, 'data')
++
++        # Two static sites owned by the same cheat share 1 slot; conditional gets its own slot.
++        self.assertEqual(plan.slots_used, 2)
++
++        # Verify patched sites branch into patch area.
++        for off in (0x100, 0x104, 0x200):
++            ins = dis_all(bytes(img[off:off + 4]), off)[0]
++            self.assertEqual(ins.mnemonic, 'b')
++            self.assertGreaterEqual(ins.operands[0].imm, pbase)
++            self.assertLess(ins.operands[0].imm, pbase + len(patch))
++
++        # Strict NZCV zero-pollution assertion across EVERY emitted trampoline instruction.
++        tramp_insns = dis_all(bytes(patch), pbase)
++        self.assertGreater(len(tramp_insns), 10)
++        for ins in tramp_insns:
++            self.assertNotIn(
++                ins.mnemonic, cb._NZCV_MODIFYING_MNEMONICS,
++                f'trampoline must not modify NZCV: {ins.address:#x} {ins.mnemonic} {ins.op_str}',
++            )
++        # Verify stack push/pop and ldrb/cbnz sequence exist.
++        mnems = [ins.mnemonic for ins in tramp_insns]
++        self.assertIn('str', mnems)
++        self.assertIn('adrp', mnems)
++        self.assertIn('ldrb', mnems)
++        self.assertIn('cbnz', mnems)
++        self.assertIn('ldr', mnems)
++
++        # Verify TSV output header & rows.
++        tsv = cb.format_trampolines_tsv(plan)
++        self.assertIn('# BUILD_ID\t1122334455667788\n', tsv)
++        self.assertIn('# MAIN_RX_END\t0x4000\n', tsv)
++        self.assertIn('# CHEAT_STATE_OFF\t0x10000\n', tsv)
++        self.assertIn('entry\tHold ZR+B Moon Jump\tHold ZR+B Moon Jump\tbaked_conditional\t', tsv)
++        self.assertIn('\t0x202\t', tsv)
++
++    def test_multi_variant_over_8_uses_aligned_ldrw_and_tbnz_zero_nzcv(self):
++        # 10 distinct variants targeting the same offset 0x300 -> needs 4-byte aligned slot group + ldr w16 + tbnz.
++        lines = []
++        for k in range(1, 11):
++            # movz w0, #k -> 0x52800000 | (k << 5)
++            word = 0x52800000 | (k << 5)
++            lines.append(f'[Dmg x{k}]\n04000000 00000300 {word:08X}\n')
++        plan, img, patch, pbase, _ = run_bake_synthetic(''.join(lines), {})
++        self.assertEqual(len(plan.baked_sites), 10)
++        self.assertEqual(plan.slots_used, 4)  # 4-byte aligned group at slots 0..3
++
++        # Check byte slots and bit masks span bytes 0 and 1 cleanly.
++        slots_masks = [(s.slot_id, s.variant_mask, s.group_base, s.group_bytes) for s in plan.baked_sites]
++        self.assertEqual(slots_masks[0], (0, 0x1, 0, 4))
++        self.assertEqual(slots_masks[7], (0, 0x80, 0, 4))
++        self.assertEqual(slots_masks[8], (1, 0x1, 0, 4))
++        self.assertEqual(slots_masks[9], (1, 0x2, 0, 4))
++
++        tramp_insns = dis_all(bytes(patch), pbase)
++        for ins in tramp_insns:
++            self.assertNotIn(ins.mnemonic, cb._NZCV_MODIFYING_MNEMONICS)
++        # Must use `ldr w16, [x16]` + `cbz w16` + 10 `tbnz w16, #bit`.
++        self.assertTrue(any(ins.mnemonic == 'ldr' and 'w16' in ins.op_str for ins in tramp_insns))
++        self.assertTrue(any(ins.mnemonic == 'cbz' and 'w16' in ins.op_str for ins in tramp_insns))
++        tbnzs = [ins for ins in tramp_insns if ins.mnemonic == 'tbnz']
++        self.assertEqual(len(tbnzs), 10)
++
++    def test_pc_relative_relocations_all_forms(self):
++        # Construct one instruction of each PC-relative family at distinct offsets.
++        orig_words = {
++            0x0100: B(0x0100, 0x0500),                                # b 0x500
++            0x0104: BL(0x0104, 0x0600),                               # bl 0x600
++            0x0108: 0x54000000 | (((0x0700 - 0x0108) >> 2) << 5) | 0, # b.eq 0x700
++            0x010C: 0xB4000000 | (((0x0740 - 0x010C) >> 2) << 5) | 1, # cbz x1, 0x740
++            0x0110: 0x35000000 | (((0x0780 - 0x0110) >> 2) << 5) | 2, # cbnz w2, 0x780
++            0x0114: 0x36280000 | (((0x07C0 - 0x0114) >> 2) << 5) | 3, # tbz w3, #5, 0x7c0
++            0x0118: 0x37880000 | (((0x0800 - 0x0118) >> 2) << 5) | 4, # tbnz w4, #17, 0x800
++            0x011C: ADRP(5, 0x011C, 0x3000),                          # adrp x5, 0x3000
++            0x0120: 0x10000000 | (((0x0244 - 0x0120) & 3) << 29) | ((((0x0244 - 0x0120) >> 2) & 0x7FFFF) << 5) | 6,  # adr x6, 0x244
++            0x0124: 0x18000000 | (((0x0900 - 0x0124) >> 2) << 5) | 7, # ldr w7, #0x900
++            0x0128: 0x58000000 | (((0x0908 - 0x0128) >> 2) << 5) | 8, # ldr x8, #0x908 (8B aligned)
++            0x012C: 0x58000000 | (((0x090C - 0x012C) >> 2) << 5) | 9, # ldr x9, #0x90c (4B aligned only)
++            0x0130: 0x98000000 | (((0x0910 - 0x0130) >> 2) << 5) | 10,# ldrsw x10, #0x910
++            0x0134: 0x1C000000 | (((0x0920 - 0x0134) >> 2) << 5) | 0, # ldr s0, #0x920
++            0x0138: 0x5C000000 | (((0x0928 - 0x0138) >> 2) << 5) | 1, # ldr d1, #0x928
++            0x013C: 0x9C000000 | (((0x0930 - 0x013C) >> 2) << 5) | 2, # ldr q2, #0x930
++        }
++        txt = '[RelocAll]\n' + ''.join(f'04000000 {off:08X} D503201F\n' for off in sorted(orig_words))
++        plan, img, patch, pbase, _ = run_bake_synthetic(txt, orig_words)
++        self.assertEqual(len(plan.skipped), 0, f'unexpected skips: {plan.skipped}')
++        self.assertEqual(len(plan.baked_sites), len(orig_words))
++
++        # Inspect each trampoline's original-instruction path via Capstone.
++        for off in sorted(orig_words):
++            b_ins = dis_all(bytes(img[off:off + 4]), off)[0]
++            self.assertEqual(b_ins.mnemonic, 'b')
++            t_start = b_ins.operands[0].imm
++            # Disassemble first 12 instructions of this trampoline.
++            slice_off = t_start - pbase
++            insns = dis_all(bytes(patch[slice_off:slice_off + 48]), t_start)
++            for ins in insns[:6]:
++                self.assertNotIn(ins.mnemonic, cb._NZCV_MODIFYING_MNEMONICS)
++            # Check BL preserves x30 = off + 4.
++            if off == 0x0104:
++                self.assertEqual(insns[5].mnemonic, 'adrp')
++                self.assertEqual(insns[6].mnemonic, 'add')
++                self.assertIn('x30', insns[6].op_str)
++                self.assertEqual(insns[7].mnemonic, 'b')
++                self.assertEqual(insns[7].operands[0].imm, 0x0600)
++            # Check B.eq keeps branch to fallthrough and target 0x700.
++            if off == 0x0108:
++                self.assertEqual(insns[5].mnemonic, 'b.eq')
++                self.assertEqual(insns[6].operands[0].imm, 0x010C)
++                self.assertEqual(insns[7].operands[0].imm, 0x0700)
++            # Check 4B-aligned ldr x9 literal uses adrp + add + ldr x9, [x9].
++            if off == 0x012C:
++                self.assertEqual(insns[5].mnemonic, 'adrp')
++                self.assertEqual(insns[6].mnemonic, 'add')
++                self.assertEqual(insns[7].mnemonic, 'ldr')
++            # Check FP ldr s0 literal saves/restores x16 around adrp + add + ldr s0.
++            if off == 0x0134:
++                self.assertEqual(insns[5].mnemonic, 'str')
++                self.assertEqual(insns[8].mnemonic, 'ldr')
++                self.assertIn('s0', insns[8].op_str)
++                self.assertEqual(insns[9].mnemonic, 'ldr')
++
++    def test_protected_svc_and_unrelocatable_insns_are_skipped_safely(self):
++        orig_words = {
++            0x0100: 0xD4000001,  # svc #0 (unrelocatable)
++            0x0104: 0x91000412,  # add x18, x0, #1 (uses x18)
++            0x0108: 0x91000400,  # safe insn, but marked in protected_offsets
++            0x010C: 0x91000400,  # safe insn, not protected
++        }
++        txt = (
++            '[HitSvc]\n04000000 00000100 D503201F\n'
++            '[HitX18]\n04000000 00000104 D503201F\n'
++            '[HitProtected]\n04000000 00000108 D503201F\n'
++            '[SafePatch]\n04000000 0000010C D503201F\n'
++        )
++        plan, img, _, _, _ = run_bake_synthetic(txt, orig_words, protected={0x0108})
++        by_key = {e.cheat_key: e for e in plan.entries}
++        self.assertEqual(by_key['HitSvc'].kind, 'unbaked_code')
++        self.assertEqual(by_key['HitX18'].kind, 'unbaked_code')
++        self.assertEqual(by_key['HitProtected'].kind, 'unbaked_code')
++        self.assertIn('conflict with rewriter site', by_key['HitProtected'].detail)
++        self.assertEqual(by_key['SafePatch'].kind, 'baked_static')
++        # Protected offset must remain untouched!
++        self.assertEqual(struct.unpack_from('<I', img, 0x0108)[0], 0x91000400)
++
++    def test_width_8_code_write_little_endian_order(self):
++        # 08000000 00000140 HHHHHHHH LLLLLLLL -> off+0 = LLLLLLLL, off+4 = HHHHHHHH
++        txt = '[WidePatch]\n08000000 00000140 D503201F 52800020\n'
++        plan, _, _, _, _ = run_bake_synthetic(txt, {})
++        by_off = {s.target_off: s.patched_word for s in plan.baked_sites}
++        self.assertEqual(by_off[0x0140], 0x52800020)
++        self.assertEqual(by_off[0x0144], 0xD503201F)
++
++    def test_enhanced_code_cave_switch_relocation_all_4_addressing_modes(self):
++        # Cave at 0x3000..0x3040 (originally 0), switch table data at 0x3100..0x3110 (originally 0).
++        # Hook at 0x0200 branches to 0x3000.
++        # Cave uses:
++        #   0x3000: adrp x9, 0x3000 ; add x9, x9, #0x100  -> [0x3100]
++        #   0x3008: adrp x10, 0x3000 ; ldr w11, [x10, #0x104] -> [0x3104]
++        #   0x3010: adr x12, 0x3108 (out-of-range when cheat_state_off = 0x200000 -> forces stub!)
++        #   0x3014: ldr w13, 0x310C (out-of-range -> forces stub!)
++        #   0x3018: b 0x0204
++        orig_words = {off: 0 for off in range(0x3000, 0x3200, 4)}
++        cave_insns = {
++            0x3000: ADRP(9, 0x3000, 0x3000),
++            0x3004: ADDI(9, 9, 0x100),
++            0x3008: ADRP(10, 0x3008, 0x3000),
++            0x300C: cb.LDRW_UIMM(11, 10, 0x104 // 4),
++            0x3010: 0x10000000 | (((0x3108 - 0x3010) & 3) << 29) | ((((0x3108 - 0x3010) >> 2) & 0x7FFFF) << 5) | 12,
++            0x3014: 0x18000000 | (((0x310C - 0x3014) >> 2) << 5) | 13,
++            0x3018: B(0x3018, 0x0204),
++        }
++        hook_b = B(0x0200, 0x3000)
++        lines = ['{Master Cave}\n', f'04000000 00000200 {hook_b:08X}\n']
++        for off, w in cave_insns.items():
++            lines.append(f'04000000 {off:08X} {w:08X}\n')
++        # Switch toggles writing different values to 0x3100..0x310C
++        lines.append('[Switch A]\n04000000 00003100 00000001\n04000000 00003104 00000002\n')
++        lines.append('[Switch B]\n04000000 00003108 00000003\n04000000 0000310C 00000004\n')
++
++        cheat_state = 0x200000  # > 1 MB away from 0x3000 so adr & ldr literal MUST emit stubs!
++        plan, img, patch, pbase, notes = run_bake_synthetic(
++            ''.join(lines), orig_words, cheat_state_off=cheat_state, patch_base=0x220000,
++        )
++        self.assertEqual(len(plan.mirrors), 1)
++        mb = plan.mirrors[0]
++        self.assertEqual(mb.orig_off, 0x3100)
++        self.assertEqual(mb.size, 16)
++        self.assertEqual(mb.mirror_rel, cb.CHEAT_MIRROR_OFFSET)
++        mirror_va = cheat_state + mb.mirror_rel
++
++        # 1. Verify adrp + add points to mirror_va + 0.
++        i0, i1 = dis_all(bytes(img[0x3000:0x3008]), 0x3000)
++        self.assertEqual(i0.mnemonic, 'adrp')
++        self.assertEqual(i1.mnemonic, 'add')
++        self.assertEqual(i0.operands[1].imm + i1.operands[2].imm, mirror_va)
++
++        # 2. Verify adrp + ldr w11 points to mirror_va + 4.
++        i2, i3 = dis_all(bytes(img[0x3008:0x3010]), 0x3008)
++        self.assertEqual(i2.mnemonic, 'adrp')
++        self.assertEqual(i3.mnemonic, 'ldr')
++        self.assertEqual(i2.operands[1].imm + i3.operands[1].mem.disp, mirror_va + 4)
++
++        # 3. Verify adr x12 redirected to stub loading mirror_va + 8.
++        i4 = dis_all(bytes(img[0x3010:0x3014]), 0x3010)[0]
++        self.assertEqual(i4.mnemonic, 'b')
++        st1 = i4.operands[0].imm
++        s1 = dis_all(bytes(patch[st1 - pbase:st1 - pbase + 12]), st1)
++        self.assertEqual([x.mnemonic for x in s1], ['adrp', 'add', 'b'])
++        self.assertEqual(s1[0].operands[1].imm + s1[1].operands[2].imm, mirror_va + 8)
++        self.assertEqual(s1[2].operands[0].imm, 0x3014)
++
++        # 4. Verify ldr w13 literal redirected to stub loading [mirror_va + 12].
++        i5 = dis_all(bytes(img[0x3014:0x3018]), 0x3014)[0]
++        self.assertEqual(i5.mnemonic, 'b')
++        st2 = i5.operands[0].imm
++        s2 = dis_all(bytes(patch[st2 - pbase:st2 - pbase + 12]), st2)
++        self.assertEqual([x.mnemonic for x in s2], ['adrp', 'ldr', 'b'])
++        self.assertEqual(s2[0].operands[1].imm + s2[1].operands[1].mem.disp, mirror_va + 12)
++        self.assertEqual(s2[2].operands[0].imm, 0x3018)
++
++    def test_resolve_cheat_file_atmosphere_tree_and_flat(self):
++        with tempfile.TemporaryDirectory() as d:
++            root = Path(d)
++            atm = root / 'atmosphere' / 'contents' / '010015100B514000' / 'cheats'
++            atm.mkdir(parents=True)
++            f_atm = atm / 'aabbccdd11223344.txt'
++            f_atm.write_text('[A]\n04000000 00004000 00000001\n', encoding='utf-8')
++            found = cb.resolve_cheat_file('AABBCCDD112233449988776655443322', cheat_dir=root, title_id='010015100b514000')
++            self.assertEqual(found, f_atm)
++
++    def test_mirror_area_overflow_is_bounded_at_12kb(self):
++        # Attempt to mirror > 12 KB (0x3000) of switch data; overflow must be skipped safely.
++        text_end = 0x8000
++        orig_words = {off: 0 for off in range(0x1000, 0x7000, 4)}
++        hook_b = B(0x0200, 0x1000)
++        lines = [
++            '{Cave}\n',
++            f'04000000 00000200 {hook_b:08X}\n',
++            f'04000000 00001000 {B(0x1000, 0x0204):08X}\n',
++            '[BigTable1]\n',
++        ]
++        # Two disjoint 8 KB data blocks = 16 KB > 12 KB limit -> second block overflows.
++        for off in range(0x2000, 0x4000, 4):
++            lines.append(f'04000000 {off:08X} 00000001\n')
++        lines.append('[BigTable2]\n')
++        for off in range(0x4100, 0x6100, 4):
++            lines.append(f'04000000 {off:08X} 00000002\n')
++        plan, _, _, _, _ = run_bake_synthetic(''.join(lines), orig_words, text_end=text_end)
++        self.assertLessEqual(plan.mirror_bytes, cb.CHEAT_MIRROR_SIZE)
++        self.assertTrue(any('mirror area overflow' in why for _, why in plan.skipped))
++
++    def test_patch_nso_end_to_end_cli_with_cheat_file(self):
++        # Build a minimal valid NSO with MOD0, empty eh_frame_hdr, and empty DT_NULL dynamic section.
++        text = bytearray(0x4000)
++        for off in range(0, 0x4000, 4):
++            struct.pack_into('<I', text, off, 0x91000400)  # add x0, x0, #1
++        # Place branch at 0x0 and MOD0 offset at 0x4.
++        struct.pack_into('<I', text, 0x0, B(0x0, 0x80))
++        struct.pack_into('<I', text, 0x4, 0x40)  # MOD0 at 0x40
++        # Real SVC instruction at 0x100 (patch_nso.py rewrites it -> cheat targeting 0x100 must be skipped!).
++        struct.pack_into('<I', text, 0x100, 0xD4000001)
++        # Normal instruction at 0x120 (safe for baking).
++        struct.pack_into('<I', text, 0x120, 0x91000400)
++        struct.pack_into('<I', text, 0x124, 0xD65F03C0)  # ret
++        # MOD0 header at 0x40: magic, dyn_off, bss_start, bss_end, eh_start, eh_end
++        ro_off = 0x4000
++        data_off = 0x5000
++        eh_off = ro_off + 0x100
++        dyn_off = data_off + 0x100
++        struct.pack_into('<4siiiii', text, 0x40, b'MOD0', dyn_off - 0x40, data_off + 0x200 - 0x40, data_off + 0x200 - 0x40, eh_off - 0x40, eh_off + 0x20 - 0x40)
++
++        ro = bytearray(0x1000)
++        # eh_frame_hdr at ro+0x100: version=1, eh_frame_ptr_enc=0x1b (sdata4|pcrel), fde_count_enc=0x03 (udata4), table_enc=0x3b (sdata4|datarel)
++        ro[0x100:0x104] = bytes([1, 0x1B, 0x03, 0x3B])
++        struct.pack_into('<iI', ro, 0x104, 0, 0)  # 0 FDEs
++
++        data = bytearray(0x1000)
++        # Empty DT_NULL at data+0x100 (16 zero bytes already)
++
++        # Assemble NSO0 file (uncompressed).
++        hdr = bytearray(0x100)
++        hdr[0:4] = b'NSO0'
++        hdr[0x40:0x60] = bytes.fromhex('1122334455667788aabbccddeeff001100000000000000000000000000000000')
++        segs = (bytes(text), bytes(ro), bytes(data))
++        body = b''
++        mo = 0
++        for i, s in enumerate(segs):
++            struct.pack_into('<III', hdr, 0x10 + i * 0x10, 0x100 + len(body), mo, len(s))
++            struct.pack_into('<I', hdr, 0x60 + 4 * i, len(s))
++            hdr[0xA0 + 0x20 * i:0xC0 + 0x20 * i] = hashlib.sha256(s).digest()
++            body += s
++            mo += len(s)
++        struct.pack_into('<I', hdr, 0xC, 0x38)  # hashes present, uncompressed
++        struct.pack_into('<I', hdr, 0x3C, 0x1000)  # bss
++
++        with tempfile.TemporaryDirectory() as d:
++            root = Path(d)
++            nso_path = root / 'main'
++            nso_path.write_bytes(bytes(hdr) + body)
++            cheat_path = root / '1122334455667788.txt'
++            cheat_path.write_text(
++                '[Hold B Jump]\n80000002\n04000000 00000120 D503201F\n20000000\n'
++                '[Conflict SVC]\n04000000 00000100 D503201F\n',
++                encoding='utf-8',
++            )
++            out_dir = root / 'patched'
++            r = subprocess.run(
++                [sys.executable, str(REPO / 'dm/tools/patch_nso.py'), str(nso_path), str(out_dir), 'main', '--cheat-file', str(cheat_path)],
++                capture_output=True, text=True,
++            )
++            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
++            fixups = (out_dir / 'main.fixups.tsv').read_text(encoding='utf-8')
++            self.assertIn('# MAIN_RX_END\t0x4000\n', fixups)
++            self.assertIn('# CHEAT_STATE_OFF\t0x', fixups)
++            tsv = (out_dir / 'cheat_trampolines.tsv').read_text(encoding='utf-8')
++            self.assertIn('# BUILD_ID\t1122334455667788\n', tsv)
++            self.assertIn('# MAIN_RX_END\t0x4000\n', tsv)
++            self.assertIn('entry\tHold B Jump\tHold B Jump\tbaked_conditional\t0\t0x1\t0x120\t0xd503201f\t0x2\t', tsv)
++            self.assertIn('entry\tConflict SVC\tConflict SVC\tunbaked_code\t-1\t0x0\t0x100\t', tsv)
++            self.assertIn('conflict with rewriter site', tsv)
++
++    def test_tsv_emits_cave_rows_and_site_orig_word(self):
++        # Verify cave code rows, standalone orig-word restore rows, and site orig=0x... details.
++        orig_words = {
++            0x0200: 0x91000400,  # add x0, x0, #1
++            0x0204: 0x52800020,  # mov w0, #1
++            0x0208: 0x91000800,  # add x0, x0, #2
++            0x1000: 0,
++            0x1004: 0,
++            0x1100: 0,
++        }
++        hook_b = B(0x0200, 0x1000)
++        ret_b = B(0x1004, 0x0204)
++        text = (
++            '{MasterCave}\n'
++            f'04000000 00000200 {hook_b:08X}\n'
++            '04000000 00001000 D503201F\n'
++            f'04000000 00001004 {ret_b:08X}\n'
++            '[CaveToggle]\n'
++            '04000000 00001100 00000001\n'
++            '[Narrow1B]\n'
++            '01000000 00000204 00000040\n'
++            '[StandaloneRestore]\n'
++            '04000000 00000208 91000800\n'
++        )
++        plan, _, _, _, _ = run_bake_synthetic(text, orig_words)
++        tsv = cb.format_trampolines_tsv(plan)
++        lines = [l.split('\t') for l in tsv.splitlines() if l and not l.startswith('#') and not l.startswith('row_type')]
++        cave_rows = [r for r in lines if r[0] == 'cave']
++        site_rows = [r for r in lines if r[0] == 'site']
++        cave_offs = {int(r[6], 0): int(r[7], 0) for r in cave_rows}
++        self.assertEqual(cave_offs.get(0x1000), 0xD503201F)
++        self.assertEqual(cave_offs.get(0x1004), ret_b)
++        self.assertEqual(cave_offs.get(0x0208), 0x91000800)
++        by_site = {int(r[6], 0): r for r in site_rows}
++        self.assertIn('orig=0x91000400', by_site[0x0200][9])
++        self.assertIn('orig=0x52800020', by_site[0x0204][9])
++        self.assertEqual(int(by_site[0x0204][7], 0), 0x52800040)
++
++    def test_shared_adrp_across_4kb_mirror_pages_and_16b_q_load(self):
++        # Place filler (0x2000..0x2FF0 -> mirror 0x1000..0x1FF0), Block A (0x4000..0x4010 ->
++        # mirror 0x1FF0..0x2000, page +0x1000), and Block B (0x4F00..0x4F10 -> mirror
++        # 0x2000..0x2010, page +0x2000). Both A and B lie on original page 0x4000 so one
++        # shared `adrp x8, 0x4000` drives accesses across two different 4 KB mirror pages,
++        # including a 16-byte `ldr q0` that requires 16-byte mirror block alignment.
++        text_end = 0x8000
++        orig_words = {off: 0 for off in range(0x1000, 0x5000, 4)}
++        orig_words[0x0200] = 0x91000400
++        cave_pc = 0x1000
++        adrp_x8 = ADRP(8, cave_pc, 0x4000)
++        ldr_w9_a = cb.LDRW_UIMM(9, 8, 0x000 // 4)        # [x8, #0x000] -> 0x4000 (mirror page 1)
++        ldr_q0_b = cb.LDR_FP_UIMM(2, 0, 8, 0xF00 // 16)  # ldr q0, [x8, #0xF00] -> 0x4F00 (mirror page 2, scale=16)
++        add_x10_b = ADDI(10, 8, 0xF00)                   # add x10, x8, #0xF00 -> 0x4F00 (mirror page 2)
++        ret_b = B(cave_pc + 16, 0x0204)
++        lines = [
++            '{SharedAdrpCave}\n',
++            f'04000000 00000200 {B(0x0200, cave_pc):08X}\n',
++            f'04000000 {cave_pc + 0:08X} {adrp_x8:08X}\n',
++            f'04000000 {cave_pc + 4:08X} {ldr_w9_a:08X}\n',
++            f'04000000 {cave_pc + 8:08X} {ldr_q0_b:08X}\n',
++            f'04000000 {cave_pc + 12:08X} {add_x10_b:08X}\n',
++            f'04000000 {cave_pc + 16:08X} {ret_b:08X}\n',
++            '[FillerMirror]\n',
++        ]
++        for off in range(0x2000, 0x2FF0, 4):
++            lines.append(f'04000000 {off:08X} 00000001\n')
++        lines.append('[SwitchesAB]\n')
++        for off in (0x4000, 0x4004, 0x4008, 0x400C, 0x4F00, 0x4F04, 0x4F08, 0x4F0C):
++            lines.append(f'04000000 {off:08X} 00000002\n')
++        plan, img, patch, pbase, _ = run_bake_synthetic(''.join(lines), orig_words, text_end=text_end)
++        cheat_state = plan.cheat_state_off
++        self.assertEqual(len(plan.mirrors), 3)
++        for mb in plan.mirrors:
++            self.assertEqual(mb.mirror_rel % 16, 0, 'all mirror blocks must be 16-byte aligned for Qt loads')
++        mb_a = next(m for m in plan.mirrors if m.orig_off == 0x4000)
++        mb_b = next(m for m in plan.mirrors if m.orig_off == 0x4F00)
++        va_a = cheat_state + mb_a.mirror_rel
++        va_b = cheat_state + mb_b.mirror_rel
++        self.assertNotEqual(va_a & ~0xFFF, va_b & ~0xFFF, 'Block A and Block B must straddle a 4 KB mirror page boundary')
++
++        # Original ADRP X8 must stay intact (not rewritten to either conflicting mirror page).
++        self.assertEqual(struct.unpack_from('<I', img, cave_pc)[0], adrp_x8)
++
++        # ldr w9, ldr q0, and add x10 must all branch to out-of-line stubs targeting exact mirror addresses.
++        for pc, expect_va, expect_mnem in (
++            (cave_pc + 4, va_a, 'ldr'),
++            (cave_pc + 8, va_b, 'ldr'),
++            (cave_pc + 12, va_b, 'add'),
++        ):
++            br = dis_all(bytes(img[pc:pc + 4]), pc)[0]
++            self.assertEqual(br.mnemonic, 'b')
++            st_pc = br.operands[0].imm
++            if expect_mnem == 'add':
++                st_ins = dis_all(bytes(patch[st_pc - pbase:st_pc - pbase + 12]), st_pc)
++                self.assertEqual([x.mnemonic for x in st_ins], ['adrp', 'add', 'b'])
++                self.assertEqual(st_ins[0].operands[1].imm + st_ins[1].operands[2].imm, expect_va)
++                self.assertEqual(st_ins[2].operands[0].imm, pc + 4)
++            else:
++                st_ins = dis_all(bytes(patch[st_pc - pbase:st_pc - pbase + 24]), st_pc)
++                self.assertEqual([x.mnemonic for x in st_ins], ['str', 'adrp', 'add', 'ldr', 'ldr', 'b'])
++                self.assertEqual(st_ins[1].operands[1].imm + st_ins[2].operands[2].imm, expect_va)
++                self.assertEqual(st_ins[5].operands[0].imm, pc + 4)
++                for ins in st_ins:
++                    self.assertNotIn(ins.mnemonic, cb._NZCV_MODIFYING_MNEMONICS)
++
++        # Calling relocate_cave_switches without emit_stub must raise ValueError, never silently skip.
++        md = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
++        md.detail = True
++        with self.assertRaises(ValueError):
++            cb.relocate_cave_switches(plan.cave_code, plan.mirrors, cheat_state, md, emit_stub=None)
++
++    def test_cross_normal_entry_dirty_register_propagation(self):
++        text = (
++            '[DirtyR1]\n'
++            '40010000 00000000 00000004\n'
++            '[UsesDirtyR1]\n'
++            '04010000 00000100 D503201F\n'
++            '[ClearsR1ThenWrites]\n'
++            '40010000 00000000 00000000\n'
++            '04010000 00000104 D503201F\n'
++            '[ClearsR1WithC1]\n'
++            'C1010030\n'
++            '04010000 00000108 D503201F\n'
++            '[AfterClearStillDirty]\n'
++            '04010000 0000010C D503201F\n'
++        )
++        plan, _, _, _, _ = run_bake_synthetic(text, {})
++        by_name = {e.name: e for e in plan.entries}
++        self.assertEqual(by_name['UsesDirtyR1'].kind, 'unbaked_code')
++        self.assertEqual(by_name['ClearsR1ThenWrites'].kind, 'baked_static')
++        self.assertEqual(by_name['ClearsR1WithC1'].kind, 'baked_static')
++        self.assertEqual(by_name['AfterClearStillDirty'].kind, 'unbaked_code')
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/tools/tests/test_ipa_tables.py b/dm/tools/tests/test_ipa_tables.py
+index 121294c..5fa02d4 100644
+--- a/dm/tools/tests/test_ipa_tables.py
++++ b/dm/tools/tests/test_ipa_tables.py
+@@ -66,5 +66,15 @@ class IpaTables(unittest.TestCase):
+         self.assertNotEqual(result.returncode, 0)
+         self.assertIn('FAIL:', result.stdout)
+ 
++    def test_cheat_trampolines_tsv_is_optional_and_copied_when_present(self):
++        result = self.stage('nvn')
++        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        self.assertFalse((self.tables / 'cheat_trampolines.tsv').exists())
++        tsv = b'# BUILD_ID\t1122334455667788\n# MAIN_RX_END\t0x4000\n'
++        (self.patched / 'cheat_trampolines.tsv').write_bytes(tsv)
++        result = self.stage('nvn')
++        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        self.assertEqual((self.tables / 'cheat_trampolines.tsv').read_bytes(), tsv)
++
+ 
+ if __name__ == '__main__': unittest.main()
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 7224b8d..b7bddc7 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -1862,12 +1862,13 @@ def provisional_modules(g, exe_dir, nros):
+     return set_keys(g, {'modules': (' '.join(mods), f'the NROs the game loads at run time import from {why}, which main does not')} if add else {}, 'After the NRO collection', edit=row)
+ 
+ 
+-def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
++def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False, cheat_file=None, cheat_dir=None, title_id=None):
+     """patch_nso.py on every code module (each writes its own <module>.* files, all the same build_src.sha256 line), each with its log, as many at once as the Mac has cores.
+     The modules are the profile's and the NROs the game registers (collect_nros; nro.tsv beside them lists those); a provisional profile first gets the subsdks those NROs import from, and its build row every module it lists (provisional_modules).
+     Reused when the modules, patch_nso.py (with jump_solver.py, nso.py, nso_code.py, nso_asm.py and the selected profile's function rules / the patch files of their builds), its switches and capstone are as at the
+     last successful rewrite (Monster Hunter Rise's main alone takes 5.5 min). Returns the profile"""
+     import capstone
++    import cheat_bake
+     try: workers = int(env['DM_REWRITE_J']) if env.get('DM_REWRITE_J') else None
+     except ValueError: raise BuildError('DM_REWRITE_J must be a positive integer') from None
+     if workers is not None and workers < 1: raise BuildError('DM_REWRITE_J must be a positive integer')
+@@ -1880,14 +1881,18 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+     src = {m: exe_dir / m for m in mods} | nros
+     names = list(src)
+     kf = out.with_name(out.name + '.key')
++    resolved_cheat = None
++    if 'main' in src and (cheat_file or cheat_dir):
++        resolved_cheat = cheat_bake.resolve_cheat_file(build_id(src['main']), cheat_file, cheat_dir, title_id or getattr(g, 'id', None))
+     # the repository profile's build rows decide which builds the rewriter treats as the game's own (SDK-wide function patches skip those), and its snowdrop_pools the sizes of those cuts, so they are inputs too
+     try: own = [l for l in (repo / 'dm/games' / Path(env.get('DM_GAME') or '-').name / 'game.tsv').read_text(encoding='utf-8').splitlines() if l.startswith(('build\t', 'snowdrop_pools\t'))]
+     except OSError: own = []
+-    key = fingerprint(('files', [repo / 'dm/tools' / f for f in ('patch_nso.py', 'jump_solver.py', 'nso.py', 'nso_code.py', 'nso_asm.py', 'nso_syms.py', 'nso_match.py', 'ue_cvar.py', 'ue_malloc.py', 'ue_region.py', 'ue_ring.py', 'snowdrop_pools.py', 'loader_census.py', 'fps_target.py', 'monolith_fps.py', 'ue_fixed_rate.py', 'unity_fps.py', 'unity_bucket.py')] + patch_files(repo, exe_dir, mods, env.get('DM_GAME')) + list(src.values()) + ([manifest] if manifest.is_file() else [])), names, capstone.__version__,
+-                      {k: env.get(k) for k in ('DM_PATCH_FRONT', 'DM_GAME')}, own)
+-    if all((out / f'{m}.patched.bin').is_file() for m in names) and reused(kf, key) is not None:
++    key = fingerprint(('files', [repo / 'dm/tools' / f for f in ('patch_nso.py', 'cheat_bake.py', 'jump_solver.py', 'nso.py', 'nso_code.py', 'nso_asm.py', 'nso_syms.py', 'nso_match.py', 'ue_cvar.py', 'ue_malloc.py', 'ue_region.py', 'ue_ring.py', 'snowdrop_pools.py', 'loader_census.py', 'fps_target.py', 'monolith_fps.py', 'ue_fixed_rate.py', 'unity_fps.py', 'unity_bucket.py')] + patch_files(repo, exe_dir, mods, env.get('DM_GAME')) + list(src.values()) + ([manifest] if manifest.is_file() else []) + ([resolved_cheat] if resolved_cheat is not None else [])), names, capstone.__version__,
++                      {k: env.get(k) for k in ('DM_PATCH_FRONT', 'DM_GAME')}, own, bool(resolved_cheat))
++    _cheat_kw = {'cheat_file': cheat_file, 'cheat_dir': cheat_dir, 'title_id': title_id} if (cheat_file or cheat_dir) else {}
++    if all((out / f'{m}.patched.bin').is_file() for m in names) and (resolved_cheat is None or (out / 'cheat_trampolines.tsv').is_file()) and reused(kf, key) is not None:
+         PROG.end(f'{", ".join(mods)}{f" and {len(nros)} NROs" if nros else ""}, reused (inputs unchanged)')
+-        return capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional)
++        return capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional, **_cheat_kw)
+     tmp = out.with_name(out.name + '.partial'); rmtree(tmp); tmp.mkdir(parents=True); logs.mkdir(parents=True, exist_ok=True)
+     if manifest.is_file(): shutil.copyfile(manifest, tmp / 'nro.tsv')   # refused-only manifests preserve the game's offline registration path too
+     PROG.set(step=', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''), done=0, total=len(names), unit='modules')
+@@ -1898,7 +1903,10 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+         while todo or procs:
+             while todo and len(procs) < cores:
+                 m = todo.pop(0); logf[m] = open(logs / f'rewrite_{m}.log', 'w')
+-                procs[m] = subprocess.Popen([str(py), str(repo / 'dm/tools/patch_nso.py'), str(src[m]), str(tmp), m], env=rewrite_env, stdout=logf[m], stderr=subprocess.STDOUT)
++                cmd = [str(py), str(repo / 'dm/tools/patch_nso.py'), str(src[m]), str(tmp), m]
++                if m == 'main' and resolved_cheat is not None:
++                    cmd += ['--cheat-file', str(resolved_cheat)]
++                procs[m] = subprocess.Popen(cmd, env=rewrite_env, stdout=logf[m], stderr=subprocess.STDOUT)
+             for m in [m for m in procs if procs[m].poll() is not None]:
+                 p = procs.pop(m); logf[m].close(); PROG.set(done=len(names) - len(todo) - len(procs))
+                 if p.returncode:
+@@ -1913,13 +1921,13 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+         for f in logf.values(): f.close()
+     rmtree(kf); swap_in(tmp, out); kf.write_text(f'{key}\n')
+     PROG.end(', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''))
+-    return capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional)
++    return capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional, **_cheat_kw)
+ 
+ 
+ NRO_CAPTURE_SECS = 120   # Mario Tennis Fever's boot stub decodes its 24.7 MB NRO in under a second, with a cold file cache far less than this
+ 
+ 
+-def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional):
++def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional, cheat_file=None, cheat_dir=None, title_id=None):
+     """An NRO its NRR registers and no file holds (nro_collect.py's missing.tsv): the game decodes it at run time, so boot the rewritten modules with DM_NRO_CAPTURE (dm/host/hle_ro.c), which writes the image
+     of the first LoadModule the host has no rewritten copy of, by its SHA-256, and ends the run. That image joins the collected NROs, kept for the next build as they are, and the rewrite runs again with it.
+     Mario Tennis Fever: main is a boot stub, and the game's code is one NRO in main's data segment. Returns the profile"""
+@@ -1951,7 +1959,8 @@ def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional):
+     missing.write_text(''.join(f'{h}\t{n}\n' for h, n in want.items()))
+     rmtree(cap); rmtree(rd)
+     PROG.end(f'{name}, {(nro_dir / f"{name}.nro").stat().st_size / 2**20:.1f} MB')
+-    return rewrite(py, repo, exe_dir, out, env, logs, g, provisional)
++    _cheat_kw = {'cheat_file': cheat_file, 'cheat_dir': cheat_dir, 'title_id': title_id} if (cheat_file or cheat_dir) else {}
++    return rewrite(py, repo, exe_dir, out, env, logs, g, provisional, **_cheat_kw)
+ 
+ 
+ def captured_nros(patched):   # the folder of the NROs of a build that captured some (capture_nro): the shader split reads them, as it reads main, and the file table of Camelot's archive is in one
+@@ -3688,6 +3697,8 @@ def parse_args(argv):
+     ap.add_argument('--from-seed', nargs='?', const='auto', default=None, metavar='SEED_DIR',
+                     help='fast refresh from a persistent build seed without NSPs or prod.keys (uses --title-id in --seed-cache-dir, or pass a seed folder directly)')
+     ap.add_argument('--seed-cache-dir', help='folder holding persistent build seeds (default: app support build-seeds)')
++    ap.add_argument('--cheat-file', metavar='FILE', help='Atmosphère <BID>.txt cheat file to bake into main as iOS trampolines (compatible with --from-seed fast refresh)')
++    ap.add_argument('--cheat-dir', metavar='DIR', help='folder containing Atmosphère <BID>.txt cheat files to bake into main as iOS trampolines')
+     ap.add_argument('--prefill-msl', action='append', default=[], metavar='PATH',
+                     help='existing .app, .img with a DMMSLTR1 shader trailer, msl folder, or b-<chain>[.img] used for DMSH_PREFILL on shader chain changes (may be given more than once)')
+     ap.add_argument('--keep-extracted', action=argparse.BooleanOptionalAction, help='keep the extracted game files after the IPA is built, for the next build (default: the KEEP_EXTRACTED setting, on)')
+@@ -4589,7 +4600,8 @@ def main(args=None):
+         + (f'; the game\'s languages: {" ".join(have_langs)}' if have_langs else '; the control data lists no languages (not checked)') + (' (DM_LANG=<code> in the run command changes it)' if mac else ' (DM_LANG=<code> in the app\'s Documents/env.txt changes it)'))
+ 
+     patched = work / f'patched_{pkg_ver}'
+-    g = rewrite(py, repo, game / 'ExeFS', patched, env, logs, g, provisional)
++    _cheat_kw = {'cheat_file': args.cheat_file, 'cheat_dir': args.cheat_dir, 'title_id': f'{app:016X}'} if (args.cheat_file or args.cheat_dir) else {}
++    g = rewrite(py, repo, game / 'ExeFS', patched, env, logs, g, provisional, **_cheat_kw)
+     if nd := captured_nros(patched): env = dict(env, DM_NRO_DIR=str(nd))
+     chain_header(py, repo, env, logs)   # before any host is built
+     if provisional or derived:   # (provisional) the heap check, then the region check (both only change keys the host is built with, not the rewrite or the shader steps)

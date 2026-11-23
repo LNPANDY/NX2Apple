@@ -17,6 +17,7 @@ import Testing
         "Standard": ["de", "sv", "fr", "it"],                         // launch.opt: the game's standard mode, a word in each
         "Original": ["de", "sv", "fr"],                               // launch.opt: original texture quality, a word in each
         "Controller": ["de", "it"],
+        "Cheats": ["de"],
         "Handheld": ["de"],
         "Interface": ["fr"],
         "Layout": ["sv"],

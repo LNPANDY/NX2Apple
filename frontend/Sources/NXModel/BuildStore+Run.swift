@@ -325,6 +325,10 @@ extension BuildStore {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
             args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
         }
+        if !macApp, RepoLayout.supportsCheatDir(repo.path),
+           let activeCheatsDir = RepoLayout.existingCheatsDir(titleID: gameTitleID ?? tidHex, home: self.home) {
+            args += ["--cheat-dir", activeCheatsDir]
+        }
         // The archive step packs whatever folder the build reported, and without --work-dir that is the
         // script's default, which is the same workDir unless a separate output folder was chosen.
         effectiveWorkDir = hasWorkDir ? workDir : (inputDir as NSString).appendingPathComponent(tidHex + "_build")

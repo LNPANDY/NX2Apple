@@ -85,6 +85,49 @@ package enum RepoLayout {
         return text.contains("'--extract-msl'") || text.contains("\"--extract-msl\"")
     }
 
+    /// Whether the checkout's build script takes `--cheat-dir` for offline iOS cheat trampoline baking.
+    package static func supportsCheatDir(_ dir: String) -> Bool {
+        guard let text = try? String(contentsOfFile: EngineLayout.root(dir) + "/" + buildScript, encoding: .utf8) else { return false }
+        return text.contains("'--cheat-dir'") || text.contains("\"--cheat-dir\"")
+    }
+
+    /// Default Mac cheats directory (`~/Library/Application Support/nxnative/<TID>/cheats`) when it holds at least one `.txt` cheat file.
+    package static func existingCheatsDir(
+        titleID: String,
+        explicit: String? = nil,
+        home: String = NSHomeDirectory(),
+        fm: FileManager = .default
+    ) -> String? {
+        if let explicit {
+            let trimmed = explicit.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, directoryHasCheatText(atPath: trimmed, titleID: titleID, fm: fm) {
+                return trimmed
+            }
+        }
+        let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !tid.isEmpty else { return nil }
+        let defaultDir = (home as NSString)
+            .appendingPathComponent("Library/Application Support/nxnative")
+            .appending("/\(tid)/cheats")
+        return directoryHasCheatText(atPath: defaultDir, titleID: tid, fm: fm) ? defaultDir : nil
+    }
+
+    private static func directoryHasCheatText(atPath path: String, titleID: String, fm: FileManager) -> Bool {
+        let tid = titleID.uppercased()
+        let dirs = [
+            path,
+            path + "/atmosphere/contents/\(tid)/cheats",
+            path + "/contents/\(tid)/cheats",
+        ]
+        for dir in dirs {
+            guard let names = try? fm.contentsOfDirectory(atPath: dir) else { continue }
+            for name in names where name.count >= 20 && name.lowercased().hasSuffix(".txt") && name.prefix(16).allSatisfy(\.isHexDigit) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// The checkout of this repository the app drives. A released .app ships on its own,
     /// so the path is not known at build time: look next to the app bundle, walk up from
     /// it, then fall back to a saved choice. A repository is identified by

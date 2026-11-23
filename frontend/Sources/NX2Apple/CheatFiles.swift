@@ -10,30 +10,37 @@ import NXCore
 /// ~/Library/Application Support/nxnative/<title ID> whatever the library folder is, so the files live in
 /// `<that>/cheats`. The iPhone app's `main.m` (fork patch ios-game-data-folder) sets DM_CHEATS to
 /// `Documents/games/<title ID>/cheats`, next to the game's data, which is where the copy to the device goes.
-struct CheatFiles {
+struct CheatFiles: Sendable {
     let titleID: String   // upper case
     let folder: URL       // the game's cheats folder on this Mac
 
     /// A cheat file found in the folder.
-    struct Found: Equatable, Identifiable {
+    struct Found: Equatable, Identifiable, Sendable {
         let buildID: String   // 16 hex digits, upper case
         let url: URL
         var id: String { buildID }
     }
 
     /// One entry of a cheat file, the way the host parses it (parse_file).
-    struct Cheat: Equatable, Identifiable {
-        enum Kind: Equatable { case cheat, master, label }
+    struct Cheat: Equatable, Identifiable, Sendable {
+        enum Kind: Equatable, Sendable { case cheat, master, label }
         var name: String
         var key: String          // the name in `.enabled`: `Name`, `Name #2` for the second entry of that name
         var kind: Kind
         var section = ""
+        var isSectionMarker = false
         var broken = false       // a malformed line: the host keeps the cheat off
         var once = false         // runs one pass, set from the game window (the meta file): never in `.enabled`
         var pairOff = false      // the off half of an on / off pair: the on half carries the switch
+        var capability: CheatCapability = .dataReady
+        var keyMask: UInt64 = 0
         var id: String { key }
         /// Does it get a switch here: a plain cheat that the host would save as on.
         var switchable: Bool { kind == .cheat && !broken && !once && !pairOff }
+        /// Human-readable Switch trigger buttons parsed from Opcode 8 / C4 key masks.
+        var triggerKeys: [String] { CheatKeyMask.buttonNames(for: keyMask) }
+        /// Joined combo string (e.g. "ZR + B"), or nil when no key trigger is required.
+        var triggerCombo: String? { CheatKeyMask.formattedCombo(for: keyMask) }
     }
 
     init(titleID: String, folder: URL) {
@@ -55,37 +62,54 @@ struct CheatFiles {
     /// The folder in the iPhone app's data container, where main.m points DM_CHEATS.
     static func deviceFolder(titleID: String) -> String { "Documents/games/\(titleID.uppercased())/cheats" }
 
-    /// The build ID the cheat files are named by: the first 16 hex digits of the main NSO's build ID, upper case. The packed app
-    /// records the whole ID in `dm/main.fixups.tsv` (`# BUILD_ID <hex>`): the Mac app under Contents/Resources, the iOS app at its root.
-    /// A shared-shell build has no app of its own: its `DmGame<title ID>.framework` carries the file at `dm/main.fixups.tsv`, mirrored
-    /// in `<shell root>/frameworks` (the root of the shared app in `iosAppPath`, or `shellRoot`) and inside the app for an older build (#1469).
-    static func buildID(appPath: String, iosAppPath: String, titleID: String = "", shellRoot: String = "") -> String? {
-        var candidates = [appPath.isEmpty ? nil : appPath + "/Contents/Resources/dm/main.fixups.tsv",
-                          iosAppPath.isEmpty ? nil : iosAppPath + "/dm/main.fixups.tsv"]
+    /// The candidate `dm/` folders for a game's built Mac app, iOS app, and shared-shell framework.
+    private static func dmDirectories(appPath: String, iosAppPath: String, titleID: String, shellRoot: String, iosFirst: Bool = false) -> [String] {
+        var macDirs: [String] = []
+        if !appPath.isEmpty { macDirs.append(appPath + "/Contents/Resources/dm") }
+        var iosDirs: [String] = []
+        if !iosAppPath.isEmpty { iosDirs.append(iosAppPath + "/dm") }
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         if !tid.isEmpty {
-            var frameworks: [String] = []
-            if !shellRoot.isEmpty { frameworks.append(ShellInstall.mirroredFramework(root: shellRoot, titleID: tid)) }
+            if !shellRoot.isEmpty { iosDirs.append(ShellInstall.mirroredFramework(root: shellRoot, titleID: tid) + "/dm") }
             if !iosAppPath.isEmpty {
-                if let shared = ShellInstall.paths(ofApp: iosAppPath) { frameworks.append(ShellInstall.mirroredFramework(root: shared.root, titleID: tid)) }
-                frameworks.append(iosAppPath + "/Frameworks/DmGame\(tid).framework")
+                if let shared = ShellInstall.paths(ofApp: iosAppPath) {
+                    iosDirs.append(ShellInstall.mirroredFramework(root: shared.root, titleID: tid) + "/dm")
+                }
+                iosDirs.append(iosAppPath + "/Frameworks/DmGame\(tid).framework/dm")
             }
-            candidates += frameworks.map { $0 + "/dm/main.fixups.tsv" }
         }
-        for path in candidates.compactMap({ $0 }) {
-            guard let text = try? String(contentsOfFile: path, encoding: .utf8), let id = buildID(fixups: text) else { continue }
-            return id
+        return iosFirst ? (iosDirs + macDirs) : (macDirs + iosDirs)
+    }
+
+    /// Reads `# BUILD_ID` and `# MAIN_RX_END` (or page-aligned `# TEXT_END`) from `dm/main.fixups.tsv`.
+    static func mainFixupsMetadata(appPath: String, iosAppPath: String, titleID: String = "", shellRoot: String = "") -> CheatMainFixupsMetadata {
+        for dir in dmDirectories(appPath: appPath, iosAppPath: iosAppPath, titleID: titleID, shellRoot: shellRoot) {
+            guard let text = try? String(contentsOfFile: dir + "/main.fixups.tsv", encoding: .utf8) else { continue }
+            let meta = CheatMainFixupsMetadata.parse(text)
+            if meta.buildID != nil || meta.mainRxEnd != nil { return meta }
+        }
+        return CheatMainFixupsMetadata()
+    }
+
+    /// Reads baked iOS trampoline metadata from `dm/cheat_trampolines.tsv`, preferring the iOS framework over the Mac bundle.
+    static func trampolinesMetadata(appPath: String, iosAppPath: String, titleID: String = "", shellRoot: String = "") -> CheatTrampolineMetadata? {
+        for dir in dmDirectories(appPath: appPath, iosAppPath: iosAppPath, titleID: titleID, shellRoot: shellRoot, iosFirst: true) {
+            guard let text = try? String(contentsOfFile: dir + "/cheat_trampolines.tsv", encoding: .utf8) else { continue }
+            return CheatTrampolineMetadata.parse(text)
         }
         return nil
     }
 
-    static func buildID(fixups text: String) -> String? {
-        for line in text.split(whereSeparator: \.isNewline) where line.hasPrefix("#") {
-            let fields = line.dropFirst().split(whereSeparator: { $0 == " " || $0 == "\t" })
-            guard fields.count >= 2, fields[0] == "BUILD_ID", fields[1].count >= 16, isHex(fields[1].prefix(16)) else { continue }
-            return fields[1].prefix(16).uppercased()
+    /// The build ID the cheat files are named by: the first 16 hex digits of the main NSO's build ID, upper case.
+    static func buildID(appPath: String, iosAppPath: String, titleID: String = "", shellRoot: String = "") -> String? {
+        if let id = mainFixupsMetadata(appPath: appPath, iosAppPath: iosAppPath, titleID: titleID, shellRoot: shellRoot).buildID {
+            return id
         }
-        return nil
+        return trampolinesMetadata(appPath: appPath, iosAppPath: iosAppPath, titleID: titleID, shellRoot: shellRoot)?.buildID
+    }
+
+    static func buildID(fixups text: String) -> String? {
+        CheatMainFixupsMetadata.parse(text).buildID
     }
 
     static func isHex<S: StringProtocol>(_ s: S) -> Bool { !s.isEmpty && s.allSatisfy(\.isHexDigit) }
@@ -124,7 +148,7 @@ struct CheatFiles {
         let recordedAt: TimeInterval
     }
 
-    struct TrippedReceipt: Codable, Equatable {
+    struct TrippedReceipt: Codable, Equatable, Sendable {
         let titleID: String
         let buildID: String
         let disabled: [String]
@@ -133,6 +157,17 @@ struct CheatFiles {
     }
 
     static let fuseDisarmSeconds: TimeInterval = 30.0
+    /// Matches `hle_cheats.c` and `cheat_bake.py` FILE_MAX (4 MiB) to prevent OOM on malformed/huge files.
+    static let maxFileBytes = 4 * 1024 * 1024
+
+    static func isWithinSizeLimit(_ url: URL, limit: Int = maxFileBytes) -> Bool {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = (attrs[.size] as? NSNumber)?.int64Value,
+              size >= 0 else {
+            return false
+        }
+        return size <= Int64(limit)
+    }
 
     // ---- the files ----
 
@@ -151,12 +186,21 @@ struct CheatFiles {
         return out.sorted { $0.buildID < $1.buildID }
     }
 
-    /// The cheats of a build's file with the meta file applied, nil when the file cannot be read.
-    func cheats(of file: Found) -> [Cheat]? {
-        guard let data = try? Data(contentsOf: file.url) else { return nil }
+    /// The cheats of a build's file with the meta file and optional iOS trampoline/fixups analysis applied.
+    func cheats(of file: Found, rxEnd: UInt64? = nil, trampolines: CheatTrampolineMetadata? = nil) -> [Cheat]? {
+        guard Self.isWithinSizeLimit(file.url), let data = try? Data(contentsOf: file.url) else { return nil }
         let metaURL = file.url.deletingPathExtension().appendingPathExtension("meta.tsv")
-        let meta = (try? String(contentsOf: metaURL, encoding: .utf8)) ?? (try? String(contentsOf: metaFile(file.buildID), encoding: .utf8))
-        return Self.parse(data, meta: meta)
+        let fallbackMetaURL = metaFile(file.buildID)
+        let meta: String? = {
+            if Self.isWithinSizeLimit(metaURL), let text = try? String(contentsOf: metaURL, encoding: .utf8) {
+                return text
+            }
+            if Self.isWithinSizeLimit(fallbackMetaURL), let text = try? String(contentsOf: fallbackMetaURL, encoding: .utf8) {
+                return text
+            }
+            return nil
+        }()
+        return Self.parse(data, meta: meta, rxEnd: rxEnd, trampolines: trampolines, buildID: file.buildID)
     }
 
     // ---- the switches ----
@@ -340,19 +384,38 @@ struct CheatFiles {
 
     // ---- reading a cheat file (parse_file) ----
 
-    private struct Entry { var cheat: Cheat; var words = 0; var junk = false; var pairName = ""; var offByMeta = false; var nd = false }
+    private struct Entry {
+        var cheat: Cheat
+        var words = 0
+        var rawWords: [UInt32] = []
+        var junk = false
+        var pairName = ""
+        var offByMeta = false
+        var nd = false
+    }
 
     private static let nameMax = 127   // characters of a [Name] header the host keeps (NAME_MAX 128 with its terminator)
     private static let cheatMax = 256  // cheats in one file: the host skips the rest
+    private static let insMax = 0x2000
 
     /// Entries as the host parses them: `[Name]` and `{Name}` start one, 8-digit hex words are its code, and a header glued to a
-    /// word ("00000008[Next]") is split off. An entry without code words is a label (credits, an EdiZon section marker that sets
-    /// the section of the entries after it). A line mixing words with other text, or a hex token that is not whole words, keeps
-    /// its cheat off (broken). The meta file of scripts/cheat_anchor.py then marks one-pass cheats and on / off pairs.
-    static func parse(_ data: Data, meta: String? = nil) -> [Cheat] {
+    /// word ("00000008[Next]") is split off. Supports both EdiZon (`[--SectionStart:...--]`) and Zing (`20000000`/`20000001`)
+    /// section markers, then runs static Opcode analysis for four-tier iOS capability and key-mask pills.
+    static func parse(
+        _ data: Data,
+        meta: String? = nil,
+        rxEnd: UInt64? = nil,
+        trampolines: CheatTrampolineMetadata? = nil,
+        buildID: String? = nil
+    ) -> [Cheat] {
         let raw = [UInt8](data)
         func ws(_ c: UInt8) -> Bool { c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D }
         func hex(_ c: UInt8) -> Bool { (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x46) || (c >= 0x61 && c <= 0x66) }
+        func hexVal(_ c: UInt8) -> UInt32 {
+            if c >= 0x30 && c <= 0x39 { return UInt32(c - 0x30) }
+            if c >= 0x41 && c <= 0x46 { return UInt32(c - 0x41 + 10) }
+            return UInt32(c - 0x61 + 10)
+        }
         var text: [UInt8] = []
         text.reserveCapacity(raw.count * 2)
         for (i, c) in raw.enumerated() {
@@ -362,11 +425,35 @@ struct CheatFiles {
 
         var entries: [Entry] = []
         var section = ""
+
+        func finalizePreviousEntry() {
+            guard var prev = entries.last, prev.words >= 0 else { return }
+            if let zingStart = CheatStaticAnalyzer.zingSectionMarker(
+                words: prev.rawWords,
+                isMaster: prev.cheat.kind == .master,
+                isBroken: prev.cheat.broken
+            ) {
+                prev.words = 0
+                prev.rawWords.removeAll()
+                prev.cheat.kind = .label
+                prev.cheat.isSectionMarker = true
+                if zingStart {
+                    section = prev.cheat.name
+                    prev.cheat.section = section
+                } else {
+                    prev.cheat.section = section
+                    section = ""
+                }
+                entries[entries.count - 1] = prev
+            }
+        }
+
         for piece in text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == 0x0A || $0 == 0x0B }) {
             var p = piece[...]
             while let f = p.first, f == 0x20 || f == 0x09 { p = p.dropFirst() }
             var rest = p
             if let f = p.first, f == 0x5B || f == 0x7B {
+                finalizePreviousEntry()
                 let end: UInt8 = f == 0x5B ? 0x5D : 0x7D
                 guard let q = p.dropFirst().firstIndex(of: end), q > p.startIndex + 1, entries.count < cheatMax else {
                     // an unclosed or empty header, or past the limit: the entry is skipped, and its lines belong to nothing
@@ -378,7 +465,10 @@ struct CheatFiles {
                 let name = String(decoding: p[(p.startIndex + 1)..<(p.startIndex + 1 + keep)], as: UTF8.self)
                 var cheat = Cheat(name: name, key: name, kind: f == 0x7B ? .master : .cheat)
                 let mark = sectionMarker(name)
-                if let m = mark, m.start { section = m.name }
+                if let m = mark {
+                    cheat.isSectionMarker = true
+                    if m.start { section = m.name }
+                }
                 cheat.section = section
                 if let m = mark, !m.start { section = "" }
                 let earlier = entries.filter { $0.words >= 0 && $0.cheat.name == name }.count
@@ -389,18 +479,33 @@ struct CheatFiles {
                 if rest.isEmpty { continue }
             }
             guard var current = entries.last, current.words >= 0 else { continue }   // words before any header, or after a skipped one
-            var ngot = 0, prose = false, oddhex = false
+            var gotWords: [UInt32] = [], prose = false, oddhex = false
             for token in rest.split(whereSeparator: { $0 == 0x20 || $0 == 0x09 || $0 == 0x0D }) {
                 if !token.allSatisfy(hex) { prose = true; continue }
                 if token.count % 8 != 0 { oddhex = true; continue }
-                ngot += token.count / 8
+                var pos = token.startIndex
+                while pos < token.endIndex {
+                    var word: UInt32 = 0
+                    for _ in 0..<8 {
+                        word = (word << 4) | hexVal(token[pos])
+                        pos = token.index(after: pos)
+                    }
+                    gotWords.append(word)
+                }
             }
-            if ngot == 0 && !prose && !oddhex { continue }
-            if prose && ngot == 0 && !oddhex { current.junk = true }
+            if gotWords.isEmpty && !prose && !oddhex { continue }
+            if prose && gotWords.isEmpty && !oddhex { current.junk = true }
             else if prose || oddhex { current.cheat.broken = true }
-            else { current.words += ngot }
+            else {
+                current.words += gotWords.count
+                let budget = max(0, insMax - current.rawWords.count)
+                if budget > 0 {
+                    current.rawWords.append(contentsOf: gotWords.prefix(budget))
+                }
+            }
             entries[entries.count - 1] = current
         }
+        finalizePreviousEntry()
         entries.removeAll { $0.words < 0 }
 
         for i in entries.indices where !entries[i].cheat.broken {
@@ -408,6 +513,26 @@ struct CheatFiles {
             else if entries[i].words == 0 { entries[i].cheat.kind = .label }
         }
         if let meta { applyMeta(meta, to: &entries) }
+
+        let analysisInputs = entries.map {
+            CheatStaticAnalyzer.InputEntry(
+                key: $0.cheat.key,
+                isMaster: $0.cheat.kind == .master,
+                isLabel: $0.cheat.kind == .label,
+                isBroken: $0.cheat.broken,
+                words: $0.rawWords
+            )
+        }
+        let analyzed = CheatStaticAnalyzer.analyze(
+            entries: analysisInputs,
+            rxEnd: rxEnd,
+            trampolines: trampolines,
+            buildID: buildID
+        )
+        for i in entries.indices {
+            entries[i].cheat.capability = analyzed[i].capability
+            entries[i].cheat.keyMask = analyzed[i].keyMask
+        }
         return entries.map(\.cheat)
     }
 
@@ -492,9 +617,10 @@ struct CheatFiles {
 
     // ---- importing ----
 
-    struct ImportResult: Equatable {
+    struct ImportResult: Equatable, Sendable {
         var imported: [String] = []   // build IDs of the files now in the folder
         var skipped: [String] = []    // file names that carry no build ID, so no version of the game to match
+        var tooLarge: [String] = []   // file names exceeding maxFileBytes (4 MiB)
     }
 
     /// The build ID a cheat file's name carries: `<16 hex>.txt`, or the 32 digits a build ID is written with elsewhere (cut to 16,
@@ -539,11 +665,15 @@ struct CheatFiles {
                 if !source.lastPathComponent.lowercased().hasSuffix(".meta.tsv") { result.skipped.append(source.lastPathComponent) }
                 continue
             }
+            guard Self.isWithinSizeLimit(source) else {
+                result.tooLarge.append(source.lastPathComponent)
+                continue
+            }
             try fm.createDirectory(at: folder, withIntermediateDirectories: true)
             let target = folder.appendingPathComponent(id + ".txt")
             if source.standardizedFileURL != target.standardizedFileURL { try Data(contentsOf: source).write(to: target, options: .atomic) }
             let sourceMeta = source.deletingPathExtension().appendingPathExtension("meta.tsv")
-            if fm.fileExists(atPath: sourceMeta.path) {
+            if fm.fileExists(atPath: sourceMeta.path), Self.isWithinSizeLimit(sourceMeta) {
                 if sourceMeta.standardizedFileURL != metaFile(id).standardizedFileURL { try Data(contentsOf: sourceMeta).write(to: metaFile(id), options: .atomic) }
             } else { try? fm.removeItem(at: metaFile(id)) }
             // the same build's file in the Atmosphere tree would win over a flat one only when the flat is missing: the flat one is picked first

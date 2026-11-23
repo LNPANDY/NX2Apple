@@ -126,7 +126,8 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
             }
         )
         let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker(),
-                                   certificatePicker: DocumentCertificatePicker())
+                                   certificatePicker: DocumentCertificatePicker(),
+                                   cheatPicker: DocumentCheatFilePicker())
         activeModel = model
         model.startControllers()
         for entry in model.entries {

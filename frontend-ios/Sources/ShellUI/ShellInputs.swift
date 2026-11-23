@@ -185,10 +185,12 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
     public var latestSaveBackup: String?
     /// Localized per-game play history summary ("14 hr, 25 min · Played 18 times"), or nil when never played.
     public var playSummary: String?
+    /// Lightweight summary of this game's cheats for the Game Settings entry row.
+    public var cheatsSummary: GameCheatsSummary?
     public init(game: GameTile, sections: [SettingSection] = [], dataSource: String = "", dataNote: String = "",
                 cloudSaves: String? = nil, cloudNote: String = "", dlc: String = "", hasModifiedSettings: Bool = false,
                 dataFromShell: Bool = false, cloudFromShell: Bool = false, cloudCanUseShell: Bool = false,
-                latestSaveBackup: String? = nil, playSummary: String? = nil) {
+                latestSaveBackup: String? = nil, playSummary: String? = nil, cheatsSummary: GameCheatsSummary? = nil) {
         self.game = game
         self.sections = sections
         self.dataSource = dataSource
@@ -202,6 +204,7 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
         self.cloudCanUseShell = cloudCanUseShell
         self.latestSaveBackup = latestSaveBackup
         self.playSummary = playSummary
+        self.cheatsSummary = cheatsSummary
     }
 }
 
@@ -437,6 +440,30 @@ public struct ShellActions {
     public var onCancelSideloadCertificateImport: (@MainActor () -> Void)?
     /// Removes the stored sideload `.p12` certificate from Keychain.
     public var onRemoveSideloadCertificate: (@MainActor () -> Void)?
+    /// Loads the current cheats snapshot for `gameID` (synchronous fallback for previews/tests).
+    public var onLoadCheats: ((_ gameID: String) -> GameCheatsSnapshot)?
+    /// Loads the current cheats snapshot for `gameID` off the main thread.
+    public var onLoadCheatsAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)?
+    /// Sets the per-game cheats master switch (`.cheats-off-<TID>`) and returns the refreshed snapshot.
+    public var onToggleCheatMaster: ((_ gameID: String, _ on: Bool) -> GameCheatsSnapshot)?
+    /// Sets the per-game cheats master switch off the main thread and returns the refreshed snapshot.
+    public var onToggleCheatMasterAsync: (@MainActor (_ gameID: String, _ on: Bool) async -> GameCheatsSnapshot)?
+    /// Toggles one switchable cheat entry in `<BID>.enabled` and returns the refreshed snapshot.
+    public var onToggleCheatEntry: ((_ gameID: String, _ key: String, _ on: Bool) -> GameCheatsSnapshot)?
+    /// Toggles one switchable cheat entry off the main thread and returns the refreshed snapshot.
+    public var onToggleCheatEntryAsync: (@MainActor (_ gameID: String, _ key: String, _ on: Bool) async -> GameCheatsSnapshot)?
+    /// Opens the system file picker to import a `.txt` cheat file for `gameID`.
+    public var onImportCheatFile: (@MainActor (_ gameID: String) async -> CheatImportOutcome)?
+    /// Confirms saving a build-mismatched `.txt` file under the game's current build ID.
+    public var onConfirmMismatchCheatImport: ((_ gameID: String, _ token: String) -> CheatImportOutcome)?
+    /// Confirms saving a build-mismatched `.txt` file off the main thread.
+    public var onConfirmMismatchCheatImportAsync: (@MainActor (_ gameID: String, _ token: String) async -> CheatImportOutcome)?
+    /// Discards any staged build-mismatched cheat file import.
+    public var onCancelMismatchCheatImport: ((_ gameID: String) -> Void)?
+    /// Dismisses the 30-second crash guard fuse alert for `gameID` and returns the refreshed snapshot.
+    public var onDismissCheatFuseAlert: ((_ gameID: String) -> GameCheatsSnapshot)?
+    /// Dismisses the 30-second crash guard fuse alert off the main thread and returns the refreshed snapshot.
+    public var onDismissCheatFuseAlertAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)?
 
     public var supportsHomeScreen: Bool {
         onAddToHomeScreenWithGuide != nil || onAddToHomeScreen != nil || onCopyShortcutURL != nil
@@ -448,6 +475,10 @@ public struct ShellActions {
 
     public var supportsSideloadCertificate: Bool {
         onPickSideloadCertificateFile != nil && onConfirmSideloadCertificatePassword != nil
+    }
+
+    public var supportsCheats: Bool {
+        onLoadCheatsAsync != nil || onLoadCheats != nil
     }
 
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
@@ -475,7 +506,19 @@ public struct ShellActions {
                 onPickSideloadCertificateFile: (@MainActor () async -> SideloadCertificatePickResult)? = nil,
                 onConfirmSideloadCertificatePassword: (@MainActor (_ password: String) async -> String?)? = nil,
                 onCancelSideloadCertificateImport: (@MainActor () -> Void)? = nil,
-                onRemoveSideloadCertificate: (@MainActor () -> Void)? = nil) {
+                onRemoveSideloadCertificate: (@MainActor () -> Void)? = nil,
+                onLoadCheats: ((_ gameID: String) -> GameCheatsSnapshot)? = nil,
+                onLoadCheatsAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)? = nil,
+                onToggleCheatMaster: ((_ gameID: String, _ on: Bool) -> GameCheatsSnapshot)? = nil,
+                onToggleCheatMasterAsync: (@MainActor (_ gameID: String, _ on: Bool) async -> GameCheatsSnapshot)? = nil,
+                onToggleCheatEntry: ((_ gameID: String, _ key: String, _ on: Bool) -> GameCheatsSnapshot)? = nil,
+                onToggleCheatEntryAsync: (@MainActor (_ gameID: String, _ key: String, _ on: Bool) async -> GameCheatsSnapshot)? = nil,
+                onImportCheatFile: (@MainActor (_ gameID: String) async -> CheatImportOutcome)? = nil,
+                onConfirmMismatchCheatImport: ((_ gameID: String, _ token: String) -> CheatImportOutcome)? = nil,
+                onConfirmMismatchCheatImportAsync: (@MainActor (_ gameID: String, _ token: String) async -> CheatImportOutcome)? = nil,
+                onCancelMismatchCheatImport: ((_ gameID: String) -> Void)? = nil,
+                onDismissCheatFuseAlert: ((_ gameID: String) -> GameCheatsSnapshot)? = nil,
+                onDismissCheatFuseAlertAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)? = nil) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -510,5 +553,17 @@ public struct ShellActions {
         self.onConfirmSideloadCertificatePassword = onConfirmSideloadCertificatePassword
         self.onCancelSideloadCertificateImport = onCancelSideloadCertificateImport
         self.onRemoveSideloadCertificate = onRemoveSideloadCertificate
+        self.onLoadCheats = onLoadCheats
+        self.onLoadCheatsAsync = onLoadCheatsAsync
+        self.onToggleCheatMaster = onToggleCheatMaster
+        self.onToggleCheatMasterAsync = onToggleCheatMasterAsync
+        self.onToggleCheatEntry = onToggleCheatEntry
+        self.onToggleCheatEntryAsync = onToggleCheatEntryAsync
+        self.onImportCheatFile = onImportCheatFile
+        self.onConfirmMismatchCheatImport = onConfirmMismatchCheatImport
+        self.onConfirmMismatchCheatImportAsync = onConfirmMismatchCheatImportAsync
+        self.onCancelMismatchCheatImport = onCancelMismatchCheatImport
+        self.onDismissCheatFuseAlert = onDismissCheatFuseAlert
+        self.onDismissCheatFuseAlertAsync = onDismissCheatFuseAlertAsync
     }
 }

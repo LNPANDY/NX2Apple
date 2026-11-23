@@ -15,14 +15,17 @@ public struct GameDetailView: View {
     @Environment(\.shellAskRestoreBackup) private var askRestoreBackup
     @Environment(\.shellAskHomeScreen) private var askHomeScreen
     @Environment(\.shellAskChangeCover) private var askChangeCover
+    @Environment(\.shellOpenCheats) private var openCheats
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private enum LocalSheet: Identifiable {
         case restoreBackup
         case homeScreen
+        case cheats
         var id: String {
             switch self {
             case .restoreBackup: "restoreBackup"
             case .homeScreen: "homeScreen"
+            case .cheats: "cheats"
             }
         }
     }
@@ -77,12 +80,41 @@ public struct GameDetailView: View {
                 }
                 .presentationDetents([.medium, .large])
                 .presentationBackground(ShellPalette.background)
+            case .cheats:
+                if actions.supportsCheats {
+                    let placeholder = GameCheatsSnapshot(
+                        gameID: detail.id,
+                        gameTitle: detail.game.title,
+                        buildID: detail.cheatsSummary?.buildID
+                    )
+                    NavigationStack {
+                        CheatsSheetView(snapshot: placeholder, actions: actions, onClose: { localSheet = nil })
+                            .id(detail.id)
+                            .navigationTitle(ShellStrings.text("Cheats"))
+                            #if os(iOS)
+                            .navigationBarTitleDisplayMode(.inline)
+                            #endif
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button(ShellStrings.text("Close")) { localSheet = nil }
+                                }
+                            }
+                    }
+                    .presentationDetents([.large])
+                    .presentationBackground(ShellPalette.background)
+                }
             }
         }
     }
     @ViewBuilder private var contents: some View {
         if showsHeader || showsPrimaryAction {
             header.listRowBackground(Color.clear).listRowSeparator(.hidden)
+        }
+        if openCheats != nil || actions.supportsCheats {
+            group(ShellStrings.text("Cheats")) {
+                cheatsEntryRow
+                    .id("set.cheats")
+            }
         }
         ForEach(detail.sections) { section in
             group(section.title) {
@@ -208,6 +240,70 @@ public struct GameDetailView: View {
             .accessibilityIdentifier("detail.playHistory")
     }
 
+    private func requestCheats() {
+        if let openCheats {
+            openCheats(detail.game)
+        } else {
+            localSheet = .cheats
+        }
+    }
+
+    private var cheatsSummaryText: String {
+        guard let summary = detail.cheatsSummary else {
+            return ShellStrings.text("Import .txt")
+        }
+        if summary.fuseTripped {
+            return ShellStrings.text("Crash guard tripped")
+        }
+        if summary.totalCount == 0 {
+            return ShellStrings.text("Import .txt")
+        }
+        if !summary.masterOn {
+            return ShellStrings.text("Off")
+        }
+        if summary.enabledCount > 0 {
+            return ShellStrings.text("\(summary.enabledCount) active")
+        }
+        if summary.needsBakeCount > 0 {
+            return ShellStrings.text("\(summary.needsBakeCount) need builder")
+        }
+        return ShellStrings.text("\(summary.totalCount) ready")
+    }
+
+    private var cheatsEntryRow: some View {
+        Button(action: requestCheats) {
+            HStack(spacing: 12) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(ShellPalette.cream)
+                    .frame(width: 24)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ShellStrings.text("Cheats"))
+                        .shellType(ShellType.settingLabel)
+                        .foregroundStyle(.white)
+                    Text(ShellStrings.text("Import .txt files, toggle cheats, and inspect iOS support"))
+                        .shellType(ShellType.note)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Text(cheatsSummaryText)
+                    .shellText(13, .semibold, relativeTo: .footnote)
+                    .foregroundStyle(detail.cheatsSummary?.fuseTripped == true ? ShellPalette.attention : ShellPalette.cream.opacity(0.82))
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("set.cheats")
+        .shellTarget("set.cheats", action: requestCheats)
+    }
+
     private func requestHomeScreen() {
         if let askHomeScreen {
             askHomeScreen(detail.game)
@@ -326,11 +422,15 @@ public struct GameDetailView: View {
     /// into lazy `Form` cells that have not entered the viewport yet.
     static func orderedFocusRowIDs(
         detail: GameDetail,
+        showsCheats: Bool = false,
         showsHomeScreen: Bool,
         showsChangeCover: Bool,
         showsDelete: Bool
     ) -> [String] {
         var ids: [String] = []
+        if showsCheats {
+            ids.append("set.cheats")
+        }
         for section in detail.sections {
             if section.id == PadMappingRows.sectionID {
                 ids.append("set.row.padMapping")
