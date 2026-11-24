@@ -93,7 +93,6 @@ struct BuildPage: View {
             if running || processActive {
                 if processActive {
                     BuildProcessCard(build: build, onShowSteps: { allStepsOpen.wrappedValue = true })
-                    BuildUpNextSection(queue: queue, artwork: queueIcon)
                 } else {
                     ProgressCard(build: build)
                 }

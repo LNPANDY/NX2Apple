@@ -91,7 +91,8 @@ package struct ProgressCard: View {
                             .lineLimit(1)
                         Spacer(minLength: 12)
                         if let overall = displayedOverall {
-                            LauncherProgressBar(value: overall, height: 7).frame(width: 200)
+                            let segs = BuildProgress.segments(stages: build.stages, totalStages: build.totalStages)
+                            LauncherProgressBar(value: overall, height: 7, segments: segs).frame(width: 200)
                             Text("\(Int((overall * 100).rounded(.down)))%")
                                 .font(DS.Font.bodyStrong).monospacedDigit()
                                 .foregroundStyle(build.done && build.failure == nil ? DS.Color.statusSuccess : DS.Color.textPrimary)

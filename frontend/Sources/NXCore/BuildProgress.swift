@@ -12,11 +12,14 @@ package struct Stage: Identifiable {
     package var started: Date? = nil   // when the stage began here: its clock runs while the count may stand still
     package var eta: Double? = nil     // the script's estimate of the seconds left, as of etaAt
     package var etaAt: Date? = nil
+    package var weight: Double
 
     package init(id: Int, name: String, state: StepState = .running, detail: String = "", percent: Double? = nil,
-                 started: Date? = nil, eta: Double? = nil, etaAt: Date? = nil, nameKey: String? = nil, nameArgument: String? = nil) {
+                 started: Date? = nil, eta: Double? = nil, etaAt: Date? = nil, nameKey: String? = nil, nameArgument: String? = nil,
+                 weight: Double? = nil) {
         self.id = id; self.name = name; self.state = state; self.detail = detail; self.percent = percent
         self.started = started; self.eta = eta; self.etaAt = etaAt; self.nameKey = nameKey; self.nameArgument = nameArgument
+        self.weight = max(0.1, weight ?? BuildProgress.stageWeight(name: name, nameKey: nameKey))
     }
 
     /// The name in the launcher's current language, worked out each time the row is drawn so a language change
@@ -88,6 +91,21 @@ package enum StepState: Equatable {
         case .done: return "checkmark.circle.fill"
         case .failed: return "xmark.octagon.fill"
         }
+    }
+}
+
+/// One segment of the overall segmented build progress bar, representing a single step and its weighted share.
+package struct ProgressSegment: Equatable, Identifiable, Sendable {
+    package let id: Int
+    package let state: StepState
+    package let weight: Double
+    package let fraction: Double?
+
+    package init(id: Int, state: StepState, weight: Double, fraction: Double?) {
+        self.id = id
+        self.state = state
+        self.weight = max(0.1, weight)
+        self.fraction = fraction
     }
 }
 
@@ -378,42 +396,153 @@ package enum BuildProgress {
         return (k, n, rest, .running, detail, nil)
     }
 
-    /// Monotonic overall build progress in `0.0...1.0` across script stages (`1..<1000`) and post-build steps.
+    /// Relative weight for a stage based on its usual duration so overall progress reflects real time ahead.
+    package static func stageWeight(name: String, nameKey: String? = nil) -> Double {
+        if let nameKey {
+            switch nameKey {
+            case "dev.copyStage": return 3.0
+            case "dev.signStage", "shell.exportBuildStage": return 2.5
+            case "dev.installStage", "shell.exportPackStage": return 2.0
+            case "shell.projectStage": return 1.5
+            case "shell.checkStage", "stage.preflight": return 0.5
+            default: break
+            }
+        }
+        let lower = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lower == "mac shaders" || lower == "ios shaders" || lower == "shaders" || lower == "shaders and pipeline archive" {
+            return 8.0
+        }
+        if lower == "gl shaders" || lower == "vulkan shaders" || lower == "app build" {
+            return 5.0
+        }
+        if lower == "pipeline archive" || lower == "pipeline prebuild" || lower == "prewarm pipelines" {
+            return 4.0
+        }
+        if lower == "shader split" || lower == "packages and shader split" || lower == "nup and shader split" {
+            return 3.5
+        }
+        if lower == "extract dlc" || lower == "unpack dlc" || lower == "pack dlc" {
+            return 1.5
+        }
+        if lower == "extract" || lower.hasPrefix("extract ")
+            || lower == "unpack" || lower.hasPrefix("unpack ")
+            || lower == "pack" || lower.hasPrefix("pack ")
+            || lower == "data" || lower == "romfs"
+            || lower.hasSuffix(" shader capture") || lower == "glslc capture" || lower == "ue shader decode" {
+            return 3.0
+        }
+        if lower == "rewrite" || lower.hasSuffix("/4 code") || lower == "code" || lower == "game framework" {
+            return 2.5
+        }
+        if lower == "decompress nsz" || lower == "mac host" || lower == "ipa pack" || lower == "jit capture" {
+            return 2.0
+        }
+        if lower == "mac app" || lower.hasSuffix("/4 app") || lower == "app" || lower == "bundle" || lower == "link"
+            || lower == "nro capture" || lower == "heap check" || lower == "address regions" {
+            return 1.5
+        }
+        if lower.hasSuffix("/4 shaders") {
+            return 6.0
+        }
+        if lower.hasSuffix("/4 data") {
+            return 3.0
+        }
+        if lower == "preflight" || lower == "verify first start" {
+            return 0.5
+        }
+        return 1.0
+    }
+
+    /// Monotonic overall build progress in `0.0...1.0` weighted across all planned, running, and post-build stages.
     package static func overallFraction(stages: [Stage], totalStages: Int, floor: Double = 0) -> Double? {
         let clampedFloor = min(max(floor, 0), 0.995)
-        let scriptStages = stages.filter { $0.id > 0 && $0.id < 1000 }
-        let total = max(totalStages, scriptStages.map(\.id).max() ?? 0)
         let active = stages.last(where: { $0.state == .running })
-        guard total > 0, !scriptStages.isEmpty else {
+        let scriptStages = stages.filter { $0.id > 0 && $0.id < 1000 }
+        let postStages = stages.filter { $0.id >= 1000 }
+        let prepStages = stages.filter { $0.id <= 0 }
+        let knownMaxScriptID = max(totalStages, scriptStages.map(\.id).max() ?? 0)
+
+        guard knownMaxScriptID > 0 || !scriptStages.isEmpty || !postStages.isEmpty || !prepStages.isEmpty else {
             if let pct = active?.percent {
                 return max(clampedFloor, min(max(pct / 100.0, 0), 0.995))
             }
             return clampedFloor > 0 ? clampedFloor : nil
         }
-        if let active, active.id > 0, active.id < 1000 {
-            let doneBefore = Double(max(active.id - 1, scriptStages.filter { $0.state == .done && $0.id != active.id }.count))
-            let share = min(max((active.percent ?? 0) / 100.0, 0), 0.99)
-            let raw = min((doneBefore + share) / Double(total), 0.95)
-            return max(clampedFloor, raw)
-        }
-        let postStages = stages.filter { $0.id >= 1000 }
-        let scriptDone = !scriptStages.contains(where: { $0.state != .done })
-        let doneCount = Double(scriptStages.filter { $0.state == .done }.count)
-        let effectiveTotal = (!postStages.isEmpty && scriptDone) ? Double(scriptStages.count) : Double(total)
-        var raw = min(doneCount / max(effectiveTotal, 1), 0.95)
-        if !postStages.isEmpty && scriptDone {
-            let postShare: Double
-            if let active, active.id >= 1000 {
-                let donePost = Double(postStages.filter { $0.state == .done && $0.id != active.id }.count)
-                let cur = min(max((active.percent ?? 0) / 100.0, 0), 0.99)
-                postShare = min((donePost + cur) / Double(postStages.count), 0.99)
-            } else {
-                let donePost = Double(postStages.filter { $0.state == .done }.count)
-                postShare = donePost / Double(postStages.count)
+
+        let presentScriptIDs = Set(scriptStages.map(\.id))
+        let missingScriptIDs = (knownMaxScriptID > 0 ? Array(1...knownMaxScriptID) : []).filter { !presentScriptIDs.contains($0) }
+        let activeScriptID = (active != nil && active!.id > 0 && active!.id < 1000) ? active!.id : nil
+        let unseenBeforeActive: Int = {
+            if let activeScriptID {
+                return missingScriptIDs.filter { $0 < activeScriptID }.count
             }
-            raw = max(raw, min(0.95 + postShare * 0.045, 0.995))
+            if !postStages.isEmpty && !scriptStages.isEmpty && !scriptStages.contains(where: { $0.state != .done }) {
+                return 0
+            }
+            return 0
+        }()
+
+        func stageShare(_ stage: Stage) -> Double {
+            switch stage.state {
+            case .done: return 1.0
+            case .running: return min(max((stage.percent ?? 0) / 100.0, 0), 0.99)
+            case .failed: return min(max((stage.percent ?? 0) / 100.0, 0), 1.0)
+            case .pending: return 0.0
+            }
         }
+
+        let allKnownStages = prepStages + scriptStages + postStages
+        let allScriptDone = !scriptStages.isEmpty && !scriptStages.contains(where: { $0.state != .done })
+        let unseenCount = (allScriptDone && !postStages.isEmpty) ? 0 : missingScriptIDs.count
+
+        let totalWeight = allKnownStages.reduce(0.0) { $0 + max(0.1, $1.weight) } + Double(unseenCount) * 3.0
+        guard totalWeight > 0 else {
+            return clampedFloor > 0 ? clampedFloor : nil
+        }
+        let completedWeight = allKnownStages.reduce(0.0) { $0 + max(0.1, $1.weight) * stageShare($1) } + Double(unseenBeforeActive) * 3.0
+        let cap: Double = (postStages.isEmpty && allScriptDone && unseenCount == 0) ? 0.95 : 0.995
+        let raw = min(completedWeight / totalWeight, cap)
         return max(clampedFloor, raw)
+    }
+
+    /// Ordered segments for the segmented overall progress bar across known stages and any unseen `[k/n]` slots.
+    package static func segments(stages: [Stage], totalStages: Int) -> [ProgressSegment] {
+        let prepStages = stages.filter { $0.id <= 0 }.sorted { $0.id < $1.id }
+        let scriptStages = stages.filter { $0.id > 0 && $0.id < 1000 }.sorted { $0.id < $1.id }
+        let postStages = stages.filter { $0.id >= 1000 }
+        let active = stages.last(where: { $0.state == .running })
+        let activeScriptID = (active != nil && active!.id > 0 && active!.id < 1000) ? active!.id : nil
+        let allScriptDone = !scriptStages.isEmpty && !scriptStages.contains(where: { $0.state != .done })
+        let knownMaxScriptID = max(totalStages, scriptStages.map(\.id).max() ?? 0)
+        let presentScriptIDs = Set(scriptStages.map(\.id))
+
+        func segment(for stage: Stage) -> ProgressSegment {
+            let fraction: Double? = switch stage.state {
+            case .done: 1.0
+            case .pending: 0.0
+            case .running: stage.percent.map { min(max($0 / 100.0, 0), 0.99) }
+            case .failed: stage.percent.map { min(max($0 / 100.0, 0), 1.0) } ?? 1.0
+            }
+            return ProgressSegment(id: stage.id, state: stage.state, weight: stage.weight, fraction: fraction)
+        }
+
+        var scriptByID: [Int: ProgressSegment] = Dictionary(
+            uniqueKeysWithValues: scriptStages.map { ($0.id, segment(for: $0)) }
+        )
+        if knownMaxScriptID > 0 && !(allScriptDone && !postStages.isEmpty) {
+            for id in 1...knownMaxScriptID where !presentScriptIDs.contains(id) {
+                let isDoneBeforeActive = activeScriptID.map { id < $0 } ?? false
+                scriptByID[id] = ProgressSegment(
+                    id: id,
+                    state: isDoneBeforeActive ? .done : .pending,
+                    weight: 3.0,
+                    fraction: isDoneBeforeActive ? 1.0 : 0.0
+                )
+            }
+        }
+
+        let orderedScript = scriptByID.keys.sorted().compactMap { scriptByID[$0] }
+        return prepStages.map(segment(for:)) + orderedScript + postStages.map(segment(for:))
     }
 
     /// What xcodebuild is doing, from the actions it prints.

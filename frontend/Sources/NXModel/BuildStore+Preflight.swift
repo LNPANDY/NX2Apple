@@ -85,6 +85,39 @@ extension BuildStore {
         peakOverallProgress = 0
     }
 
+    /// Pre-populates `stages` with the full expected stage plan (`.pending`) when a build begins so both
+    /// the segmented overall bar and "Show all steps" know every step ahead from the start.
+    package func seedBuildPlan(fastRefresh: Bool = false) {
+        let engineRoot: String = {
+            if isNxnativeVariantSelected { return activeNxnativeEngineRoot() }
+            if !repo.path.isEmpty { return EngineLayout.root(repo.path) }
+            return ""
+        }()
+        let deviceName = devices.installDevice.isEmpty ? "" : devices.deviceName(devices.installDevice)
+        let input = BuildPlanInput(
+            upstream: activeBuildUpstream,
+            target: target,
+            fastRefresh: fastRefresh,
+            exportsOneGame: exportsOneGame,
+            exportsFramework: exportsFramework,
+            exportsShell: exportsShell,
+            deviceName: deviceName,
+            preflightEnabled: preflightApp != nil && MacPreflight.enabled(defaults),
+            isGameFolder: gameFolder != nil,
+            isNUP: isCurrentInputNUP,
+            hasDLC: !dlcPaths.isEmpty,
+            titleID: selectedTitleID ?? gameTitleID ?? (fastRefresh ? fastRefreshTitleID : nil),
+            engineRoot: engineRoot,
+            canPackS2ArmMacApp: S2ArmMacAppPacker.canPackHost(in: s2armPath),
+            includeDeviceCopyStage: devices.currentPostBuildTransferMode != .skip
+        )
+        let planned = BuildPlan.initialStages(for: input, localizedName: t)
+        stages = planned
+        let scriptCount = planned.filter { $0.id > 0 && $0.id < 1000 }.count
+        totalStages = scriptCount
+        refreshOverallProgress(parsedTotal: scriptCount > 0 ? scriptCount : nil)
+    }
+
     package func refreshOverallProgress(parsedTotal: Int?) {
         if let n = parsedTotal, n > 0, n < 1000, n > totalStages {
             totalStages = n
@@ -97,14 +130,18 @@ extension BuildStore {
 
     package func reconcileScriptStageTotal() {
         let scriptStages = stages.filter { $0.id > 0 && $0.id < 1000 }
-        let postStages = stages.filter { $0.id >= 1000 }
-        if postStages.isEmpty, !scriptStages.isEmpty, !stages.contains(where: { $0.state == .failed }) {
+        if !scriptStages.isEmpty, !stages.contains(where: { $0.state == .failed }) {
             totalStages = scriptStages.count
         }
         refreshOverallProgress(parsedTotal: nil)
     }
 
     package func completeOverallProgress() {
+        BuildPlan.pruneUnrunPendingStages(in: &stages)
+        let scriptStages = stages.filter { $0.id > 0 && $0.id < 1000 }
+        if !scriptStages.isEmpty {
+            totalStages = scriptStages.count
+        }
         peakOverallProgress = 1.0
         overallProgress = 1.0
     }
@@ -132,5 +169,78 @@ extension BuildStore {
         guard let currentStage else { return nil }
         let resolvedTotal = (done && failure == nil) ? scriptStages.count : scriptTotal
         return (min(currentStage.id, resolvedTotal), resolvedTotal)
+    }
+
+    /// The build's last stage: the new app is opened once, hidden, so that macOS checks it now and not at the player's first
+    /// start (#1005, `MacPreflight`). Its end, whatever it is, leaves the build done: a failure is a line in the log and a
+    /// failed stage. Skipped when switched off in Settings, or when the app's launcher would start the game instead.
+    func preflight(_ app: URL) async {
+        guard let open = preflightApp, MacPreflight.enabled(defaults), preflightSupported(app) else { return }
+        operation?.kind = .verifyingFirstStart
+        let started = Date()
+        let id: Int
+        if let existingIdx = stages.firstIndex(where: { $0.nameKey == "stage.preflight" || $0.name == "preflight" }) {
+            id = stages[existingIdx].id
+            stages[existingIdx].state = .running
+            stages[existingIdx].started = started
+            stages[existingIdx].nameKey = "stage.preflight"
+        } else {
+            id = (stages.map(\.id).max() ?? 0) + 1
+            stages.append(Stage(id: id, name: "preflight", state: .running, started: started, nameKey: "stage.preflight"))
+        }
+        refreshOverallProgress(parsedTotal: nil)
+        say(t("msg.preflight"))
+        let error: Error?
+        if let run = runPreflight {
+            let check = Task { @MainActor in await run(app, preflightTimeout) }
+            error = await withTaskCancellationHandler {
+                await withCheckedContinuation { (c: CheckedContinuation<Error?, Never>) in
+                    let end: @MainActor (Error?) -> Void = { [weak self] e in
+                        guard let self, self.endPreflight != nil else { return }
+                        self.endPreflight = nil
+                        check.cancel()
+                        c.resume(returning: e)
+                    }
+                    endPreflight = { end($0) }
+                    Task { @MainActor in end(await check.value) }
+                }
+            } onCancel: {
+                check.cancel()
+            }
+        } else {
+            var timer: Task<Void, Never>?
+            error = await withCheckedContinuation { (c: CheckedContinuation<Error?, Never>) in
+                let end: @MainActor (Error?) -> Void = { [weak self] e in
+                    guard let self, self.endPreflight != nil else { return }   // once: the app quit, Stop, or the timeout
+                    self.endPreflight = nil
+                    c.resume(returning: e)
+                }
+                endPreflight = { end($0) }
+                let timeout = preflightTimeout
+                timer = Task {
+                    do { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) } catch { return }
+                    end(MacPreflight.Failure.timedOut)
+                }
+                open(app, end)
+            }
+            timer?.cancel()
+        }
+        guard let i = stages.firstIndex(where: { $0.id == id }) else { return }
+        if let error {
+            let why: String
+            switch error {
+            case MacPreflight.Failure.timedOut: why = String(format: t("msg.preflightTimedOut"), Int(preflightTimeout / 60))
+            case MacPreflight.Failure.stopped: why = t("msg.stopped")
+            default: why = error.localizedDescription
+            }
+            stages[i].state = .failed
+            stages[i].detail = why
+            say("✗ " + String(format: t("msg.preflightFailed"), why))
+        } else {
+            stages[i].state = .done
+            stages[i].percent = 100
+            say("✓ " + String(format: t("msg.preflightDone"), Int(Date().timeIntervalSince(started).rounded())))
+        }
+        refreshOverallProgress(parsedTotal: nil)
     }
 }
