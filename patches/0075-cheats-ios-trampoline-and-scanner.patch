@@ -13,20 +13,22 @@ Issue: none
  dm/host/dm.h                      |   28 +
  dm/host/front.h                   |   26 +
  dm/host/hle_cheats.c              |  886 ++++++++++++++++-
+ dm/host/hle_hid.c                 |   19 +-
  dm/host/loader.c                  |    8 +
  dm/host/tests/t_cheats.c          |  212 +++-
+ dm/host/tests/t_hid.c             |   37 +
  dm/ios/tools/build_ipa.sh         |    1 +
  dm/tools/cheat_bake.py            | 1534 +++++++++++++++++++++++++++++
  dm/tools/patch_nso.py             |   89 +-
  dm/tools/tests/test_cheat_bake.py |  587 +++++++++++
  dm/tools/tests/test_ipa_tables.py |   10 +
  scripts/build_ipa_from_nsp.py     |   32 +-
- 11 files changed, 3390 insertions(+), 23 deletions(-)
+ 13 files changed, 3432 insertions(+), 37 deletions(-)
  create mode 100644 dm/tools/cheat_bake.py
  create mode 100644 dm/tools/tests/test_cheat_bake.py
 
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 3424aed0..9076174b 100644
+index 3424aed..9076174 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -108,6 +108,7 @@ typedef struct {
@@ -72,7 +74,7 @@ index 3424aed0..9076174b 100644
  // Graphics lifecycle (hle_nvn.c): on=1 closes submission and waits up to three seconds for the drain, on=0 requests reopening once the drain completes.
  void dm_gfx_suspend(int on);
 diff --git a/dm/host/front.h b/dm/host/front.h
-index 8365fc70..2bf2e3c7 100644
+index 8365fc7..2bf2e3c 100644
 --- a/dm/host/front.h
 +++ b/dm/host/front.h
 @@ -104,3 +104,29 @@ void dm_web_failed(const char *why);
@@ -106,7 +108,7 @@ index 8365fc70..2bf2e3c7 100644
 +int dm_cheat_scan_append_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw);
 +void dm_cheat_scan_reset(void);
 diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
-index 7c9653e9..2bf9702e 100644
+index 7c9653e..2bf9702 100644
 --- a/dm/host/hle_cheats.c
 +++ b/dm/host/hle_cheats.c
 @@ -70,6 +70,7 @@
@@ -1128,8 +1130,47 @@ index 7c9653e9..2bf9702e 100644
 +    g_scan_type = 0;
 +    pthread_mutex_unlock(&g_scan_lock);
 +}
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index 85d971d..6998651 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -735,29 +735,20 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
+     if (id == NPAD_HANDHELD) s->attributes |= ATTR_WIRED | ATTR_LEFT_WIRED | ATTR_RIGHT_WIRED;
+ }
+ // The cheat VM's key mask (hle_cheats.c "all keys of the mask held"): the OR of every player's controller buttons
+-// (the keyboard / touch source's bits included) plus the eight stick-direction pseudo buttons of the merged axes —
++// (the keyboard / touch and scripted sources' bits included) plus the eight stick-direction pseudo buttons of the merged axes —
+ // one flat bitset, not exactly any one npad read (fill() publishes per-npad states with attributes, merges and
+ // latches), and nothing here consumes a latch or bumps the sampling: the game's own reads keep them both. Mask bits:
+ // the buttons 0..15 in NpadButton order and the sticks' directions 16..23; SL / SR (bits 24 / 25) can never fire, no
+ // input source of this host reports them
+ uint64_t dm_cheats_keys(void) {
+-    uint64_t b = 0; int32_t a[4] = {0};
+-    b |= atomic_load(&g_btn);
++    uint64_t b = atomic_load(&g_btn) | atomic_load(&g_sc_btn); int32_t a[4] = {0};
+     for (int p = 0; p < DM_PLAYERS; p++) {
+         b |= atomic_load(&g_pad_btn[p]);
+         uint64_t v = atomic_load(&g_pad_axes[p]); for (int i = 0; i < 4; i++) a[i] = pick(a[i], ax(v, i));
+     }
+-    uint64_t k = atomic_load(&g_axes); for (int i = 0; i < 4; i++) a[i] = pick(a[i], ax(k, i));
+-    b &= 0xffffull;
+-    if (a[0] < -STICK_THRESH) b |= 1u << 16;
+-    if (a[1] > STICK_THRESH) b |= 1u << 17;
+-    if (a[0] > STICK_THRESH) b |= 1u << 18;
+-    if (a[1] < -STICK_THRESH) b |= 1u << 19;
+-    if (a[2] < -STICK_THRESH) b |= 1u << 20;
+-    if (a[3] > STICK_THRESH) b |= 1u << 21;
+-    if (a[2] > STICK_THRESH) b |= 1u << 22;
+-    if (a[3] < -STICK_THRESH) b |= 1u << 23;
+-    return b;
++    uint64_t k = atomic_load(&g_axes), c = atomic_load(&g_sc_axes);
++    for (int i = 0; i < 4; i++) a[i] = pick(a[i], pick(ax(k, i), ax(c, i)));
++    return (b & 0xffffull) | stick_dirs(a);
+ }
+ // GetNpadStates(out, n, id): newest first, n entries: the current state repeated with consecutive sampling numbers. The host keeps no history, but on hardware the
+ // 16-entry history is always full, and games read all of it whatever count comes back: Super Mario Odyssey (main+0x93fc20) polls every controller slot each frame, which advances
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index fd27d7cf..cdd68d3e 100644
+index fd27d7c..cdd68d3 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -386,6 +386,7 @@ static void read_layout(module_t *m, const char *dir) {
@@ -1155,7 +1196,7 @@ index fd27d7cf..cdd68d3e 100644
  
  static void register_gates(module_t *m, const char *dir) {
 diff --git a/dm/host/tests/t_cheats.c b/dm/host/tests/t_cheats.c
-index e52c0246..5c08d60a 100644
+index e52c024..5c08d60 100644
 --- a/dm/host/tests/t_cheats.c
 +++ b/dm/host/tests/t_cheats.c
 @@ -46,7 +46,7 @@ const char *dm_module_dir(void) { return moddir; }
@@ -1396,8 +1437,63 @@ index e52c0246..5c08d60a 100644
  
      char rmcmd[1100]; snprintf(rmcmd, sizeof rmcmd, "rm -rf '%s'", root);   // the test's cheats folders
      if (system(rmcmd)) fprintf(stderr, "cannot remove %s\n", root);   // NOLINT(bugprone-command-processor): a fixed rm of the folder mkdtemp made above, no outside input
+diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
+index 022c586..cc9d3cc 100644
+--- a/dm/host/tests/t_hid.c
++++ b/dm/host/tests/t_hid.c
+@@ -2053,6 +2053,42 @@ static void t_joy_hold_type(void) {
+     h_hid_JoyDual(&(uint32_t){0}); h_hid_HoldType(0); dm_joy_attach(0, 0); dm_pad_players(1); h_hid_SetStyles(0xffffffffu);
+ }
+ 
++static void t_cheats_keys(void) {
++    dm_input_hold(0);
++    dm_input_set(0, 0, 0, 0, 0);
++    for (int p = 0; p < DM_PLAYERS; p++) dm_pad_set_player(p, 0, 0, 0, 0, 0);
++    script_set(0, 0, 0, 0, 0);
++    CHECK(dm_cheats_keys() == 0, "cheats_keys: zero when all sources are released");
++
++    script_set(DM_BTN_L | DM_BTN_B, 0, 0, 0, 0);
++    CHECK(dm_cheats_keys() == (DM_BTN_L | DM_BTN_B), "cheats_keys: includes scripted buttons from g_sc_btn");
++
++    // dm_cheats_keys must not consume the scripted press latch used by game npad reads
++    script_set(DM_BTN_A, 0, 0, 0, 0);
++    script_set(0, 0, 0, 0, 0);
++    CHECK(dm_cheats_keys() == 0, "cheats_keys: released scripted button clears held mask without reading latch");
++    CHECK((buttons_of(0, STYLE_FULLKEY) & DM_BTN_A) != 0, "cheats_keys: leaves g_sc_latch intact for game reads");
++
++    // Stick directions from scripted axes (g_sc_axes), strict > STICK_THRESH threshold
++    script_set(0, -STICK_THRESH, STICK_THRESH, STICK_THRESH, -STICK_THRESH);
++    CHECK(dm_cheats_keys() == 0, "cheats_keys: scripted axes at STICK_THRESH do not trigger stick directions");
++    script_set(0, -STICK_THRESH - 1, STICK_THRESH + 1, STICK_THRESH + 1, -STICK_THRESH - 1);
++    CHECK(dm_cheats_keys() == ((1u << 16) | (1u << 17) | (1u << 22) | (1u << 23)),
++          "cheats_keys: scripted axes beyond STICK_THRESH map to stick direction bits");
++
++    // Merged with keyboard/touch and physical pad inputs
++    dm_input_set(DM_BTN_Y, 0, 0, 0, 0);
++    dm_pad_set_player(1, DM_BTN_ZR, 0, 0, 0, 0);
++    script_set(DM_BTN_L | DM_BTN_B, 0, -STICK_THRESH - 1, -STICK_THRESH - 1, 0);
++    CHECK(dm_cheats_keys() == (DM_BTN_Y | DM_BTN_ZR | DM_BTN_L | DM_BTN_B | (1u << 19) | (1u << 20)),
++          "cheats_keys: ORs keyboard, physical pad, and scripted buttons and axes");
++
++    dm_input_set(0, 0, 0, 0, 0);
++    dm_pad_set_player(1, 0, 0, 0, 0, 0);
++    script_set(0, 0, 0, 0, 0);
++    CHECK(dm_cheats_keys() == 0, "cheats_keys: clearing all sources returns 0");
++}
++
+ int main(void) {
+     CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");
+     setenv("DM_IMU_DELAY", "0", 1);   // the tests of the live history read it at the present; t_live_delay checks the playout delay
+@@ -2186,6 +2222,7 @@ int main(void) {
+     t_bind_gap();
+     t_applet_input();
+     t_joy_hold_type();
++    t_cheats_keys();
+     printf("hid players: %d checks, %d failed\n", checks, fails);
+     return fails != 0;
+ }
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 5e67574e..b4883f02 100755
+index 5e67574..b4883f0 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -173,6 +173,7 @@ echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
@@ -1410,7 +1506,7 @@ index 5e67574e..b4883f02 100755
  else cp "$GD/shader_map.tsv" "$GD/c1_full.tsv" $TD/ || die "copy shader tables"
 diff --git a/dm/tools/cheat_bake.py b/dm/tools/cheat_bake.py
 new file mode 100644
-index 00000000..cd8ac3a5
+index 0000000..cd8ac3a
 --- /dev/null
 +++ b/dm/tools/cheat_bake.py
 @@ -0,0 +1,1534 @@
@@ -2949,7 +3045,7 @@ index 00000000..cd8ac3a5
 +        emit_fn(bx_fn(here_fn(), orig_pc + 4))
 +    return start
 diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
-index 9ff762d0..aa674427 100644
+index 9ff762d..aa67442 100644
 --- a/dm/tools/patch_nso.py
 +++ b/dm/tools/patch_nso.py
 @@ -23,7 +23,7 @@ if capstone.cs_version()[0] != 5:   # the rewriter uses Capstone 5's names (CS_A
@@ -3120,7 +3216,7 @@ index 9ff762d0..aa674427 100644
      if MONOLITH_INTERVAL is not None: f.write(f'# MONOLITH_INTERVAL\t{MONOLITH_INTERVAL:#x}\n')   # native wait and simulation interval (monolith_fps.py)
 diff --git a/dm/tools/tests/test_cheat_bake.py b/dm/tools/tests/test_cheat_bake.py
 new file mode 100644
-index 00000000..e5e6feee
+index 0000000..e5e6fee
 --- /dev/null
 +++ b/dm/tools/tests/test_cheat_bake.py
 @@ -0,0 +1,587 @@
@@ -3712,7 +3808,7 @@ index 00000000..e5e6feee
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/tools/tests/test_ipa_tables.py b/dm/tools/tests/test_ipa_tables.py
-index ac8eea94..6bb70c7b 100644
+index ac8eea9..6bb70c7 100644
 --- a/dm/tools/tests/test_ipa_tables.py
 +++ b/dm/tools/tests/test_ipa_tables.py
 @@ -67,5 +67,15 @@ class IpaTables(unittest.TestCase):
@@ -3732,7 +3828,7 @@ index ac8eea94..6bb70c7b 100644
  
  if __name__ == '__main__': unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 430ac658..23bb33b0 100755
+index 430ac65..23bb33b 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -1958,12 +1958,13 @@ def provisional_modules(g, exe_dir, nros):
