@@ -18,11 +18,11 @@ Issue: LNPANDY/NX2Apple#1025
 ---
  dm/host/hle_hid.c                |  15 ++--
  dm/host/tests/Makefile           |   5 +-
- dm/host/tests/t_stick_deadzone.c | 135 ++++++++++++++++++++++++++++++-
- 3 files changed, 147 insertions(+), 8 deletions(-)
+ dm/host/tests/t_stick_deadzone.c | 136 ++++++++++++++++++++++++++++++-
+ 3 files changed, 148 insertions(+), 8 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index f81b4d48..1ac65ca5 100644
+index f81b4d4..1ac65ca 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -64,12 +64,16 @@ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t
@@ -56,7 +56,7 @@ index f81b4d48..1ac65ca5 100644
      atomic_store(&g_joy_axes[p][side], pack(sx, sy, 0, 0));
  }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 84424531..083e29e5 100644
+index 8442453..083e29e 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -99,6 +99,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
@@ -79,10 +79,10 @@ index 84424531..083e29e5 100644
  	$(CLANG) -O1 -Wall -Werror -o $@ t_pad_motion.c
  $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
 diff --git a/dm/host/tests/t_stick_deadzone.c b/dm/host/tests/t_stick_deadzone.c
-index d9ac75c2..6db0fd47 100644
+index d9ac75c..afb9ff5 100644
 --- a/dm/host/tests/t_stick_deadzone.c
 +++ b/dm/host/tests/t_stick_deadzone.c
-@@ -1,7 +1,59 @@
+@@ -1,7 +1,60 @@
  #include <assert.h>
  #include <stdio.h>
  #include <stdlib.h>
@@ -119,6 +119,7 @@ index d9ac75c2..6db0fd47 100644
 +int hle_signal_bound_system_event(void *g) { (void)g; return 1; }
 +void dm_gfx_texlist(int target) { (void)target; }
 +void dm_gfx_restop(void) {}
++void dm_gfx_memtrim(void) {}
 +void dm_gfx_texraw(uint64_t serial, const char *path) { (void)serial; (void)path; }
 +void dm_ctl_peek(uint64_t a, int n) { (void)a; (void)n; }
 +void crash_dump_now(const char *why) { (void)why; }
@@ -143,7 +144,7 @@ index d9ac75c2..6db0fd47 100644
  
  static void t_percent(void) {
      assert(stick_deadzone_percent(NULL) == 0 && stick_deadzone_percent("") == 0);   // unset: the stick is left alone
-@@ -45,8 +97,89 @@ static void t_monotonic(void) {
+@@ -45,8 +98,89 @@ static void t_monotonic(void) {
          assert(x >= last); last = x;
      }
  }

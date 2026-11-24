@@ -25,7 +25,7 @@ Issue: none
  dm/host/loader.c                           |  39 ++-
  dm/host/pad_switch2_apple.m                |   2 +-
  dm/host/tests/Makefile                     |   7 +
- dm/host/tests/t_hid_nmouse.c               | 169 +++++++++
+ dm/host/tests/t_hid_nmouse.c               | 170 +++++++++
  dm/ios/Sources/DmGamepad.m                 |  44 ++-
  dm/ios/Sources/LauncherSettings.swift      |  10 +-
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   5 +
@@ -37,13 +37,13 @@ Issue: none
  dm/tools/tests/test_nsp_mac_app.py         |  42 ++-
  docs/launcher.schema.json                  |   4 +-
  scripts/build_ipa_from_nsp.py              |  69 ++--
- 25 files changed, 869 insertions(+), 113 deletions(-)
+ 25 files changed, 870 insertions(+), 113 deletions(-)
  create mode 100644 dm/games/0400A3A01EE4C000/app.entitlements
  create mode 100644 dm/games/0400A3A01EE4C000/patches.py
  create mode 100644 dm/host/tests/t_hid_nmouse.c
 
 diff --git a/dm/games/0400A3A01EE4C000/README.md b/dm/games/0400A3A01EE4C000/README.md
-index 08166082..99fbf456 100644
+index 0816608..99fbf45 100644
 --- a/dm/games/0400A3A01EE4C000/README.md
 +++ b/dm/games/0400A3A01EE4C000/README.md
 @@ -10,6 +10,9 @@ A Switch 2 game: update v655360 (the title screen says Ver. 2.0.1), SDK 20.5.25
@@ -58,7 +58,7 @@ index 08166082..99fbf456 100644
  
 diff --git a/dm/games/0400A3A01EE4C000/app.entitlements b/dm/games/0400A3A01EE4C000/app.entitlements
 new file mode 100644
-index 00000000..b2909dda
+index 0000000..b2909dd
 --- /dev/null
 +++ b/dm/games/0400A3A01EE4C000/app.entitlements
 @@ -0,0 +1,6 @@
@@ -69,7 +69,7 @@ index 00000000..b2909dda
 +<key>com.apple.developer.kernel.extended-virtual-addressing</key><true/>
 +</dict></plist>
 diff --git a/dm/games/0400A3A01EE4C000/game.tsv b/dm/games/0400A3A01EE4C000/game.tsv
-index 46fe3912..9b30f517 100644
+index 46fe391..9b30f51 100644
 --- a/dm/games/0400A3A01EE4C000/game.tsv
 +++ b/dm/games/0400A3A01EE4C000/game.tsv
 @@ -38,6 +38,24 @@ mem_used	0x5600000
@@ -99,7 +99,7 @@ index 46fe3912..9b30f517 100644
 +ios_seen_shaders	1
 diff --git a/dm/games/0400A3A01EE4C000/patches.py b/dm/games/0400A3A01EE4C000/patches.py
 new file mode 100644
-index 00000000..656ecf8b
+index 0000000..656ecf8
 --- /dev/null
 +++ b/dm/games/0400A3A01EE4C000/patches.py
 @@ -0,0 +1,59 @@
@@ -163,7 +163,7 @@ index 00000000..656ecf8b
 +     'checked': 'v655360 main on the Mac: the controller runs every frame and holds index 20 (1600x900) handheld; DM_RENDER_SCALE runs (2026-11-15)'},
 +]
 diff --git a/dm/games/README.md b/dm/games/README.md
-index a307ce3b..e0ca8ce5 100644
+index a307ce3..e0ca8ce 100644
 --- a/dm/games/README.md
 +++ b/dm/games/README.md
 @@ -308,6 +308,7 @@ One row per profile; the notes are each profile's `README.md`. Entries marked pr
@@ -175,7 +175,7 @@ index a307ce3b..e0ca8ce5 100644
  | `perf_mode` | `follow` (the default): the performance mode follows the operation mode (Boost docked, Normal handheld); `boost`: Boost whatever the operation mode (`hle_oe.c`), a combination a Switch 1 never reports, so a profile choice. Rhythm Heaven Groove plays handheld with Boost: docked means a TV to the game, which then asks for a latency calibration, and only Boost gives its 1920x1080 draw size (handheld Normal draws 1280x720) |
  | `pad_layout` | The iPhone virtual gamepad's layout on first launch: `simple` (the default) = 2D (left stick, A/B/X/Y, shoulders, − / +), `full` = 3D (adds a D-pad, a right stick and L3 / R3; the right stick is not drawn: a touch landing in the right third of the screen on no control holds it, centred where it lands), `touch` = Tap (no control but the layout button: every touch goes to the game's touch screen; needs `op_mode handheld`, Balatro). The layout button at the top centre goes to the next layout in game (Tap only in handheld mode) and the app remembers the player's choice (`DmGamepad.m`) |
 diff --git a/dm/games/settings.py b/dm/games/settings.py
-index bd17f671..02d1ab3e 100644
+index bd17f67..02d1ab3 100644
 --- a/dm/games/settings.py
 +++ b/dm/games/settings.py
 @@ -34,12 +34,18 @@ def meta(text, n):
@@ -200,7 +200,7 @@ index bd17f671..02d1ab3e 100644
  
  def rows():
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 9076174b..6a04f7c9 100644
+index 9076174..6a04f7c 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -110,6 +110,7 @@ typedef struct {
@@ -212,7 +212,7 @@ index 9076174b..6a04f7c9 100644
      int fstep_t120;            // the frame step stub takes its step in ticks of 1/120 s (the FRAME_STEP_120 capability: state +0x38 120, and 40 fps)
      int movie_native_color_keys; // the movie SDK's MediaData uses the native buffer's colour index directly (MOVIE_NATIVE_COLOR_KEYS)
 diff --git a/dm/host/front.h b/dm/host/front.h
-index 2bf2e3c7..ac204db0 100644
+index 2bf2e3c..ac204db 100644
 --- a/dm/host/front.h
 +++ b/dm/host/front.h
 @@ -72,6 +72,12 @@ void dm_set_game_image_header(const void *mh);
@@ -229,7 +229,7 @@ index 2bf2e3c7..ac204db0 100644
  // Save not written (called by the host's hle_fs.c; the iOS front end provides a strong implementation of the same name that shows the native prompt "Not enough storage. Progress was not saved"; the default weak implementation only logs).
  // Timing: when a save write fails (disk full etc.) within one of the game's save transactions (between two Commits), so that this Commit is refused and the previously committed save is unchanged, it is called once per refused transaction;
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 958e7097..d225fdca 100644
+index 958e709..d225fdc 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -265,12 +265,17 @@ static void display_awake(int on) {
@@ -320,7 +320,7 @@ index 958e7097..d225fdca 100644
              // not flash up until the first idle poll. The not-over rule below waits (armed) until the game window has been under the pointer once, as a new window is not key
              // yet when the timer first runs
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 85d971de..e67b5f3a 100644
+index 85d971d..e67b5f3 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -452,6 +452,7 @@ static void styles_sync(void) {
@@ -779,7 +779,7 @@ index 85d971de..e67b5f3a 100644
  HLE_FORCE("_ZN2nn3hid21InitializeTouchScreenEv", "connect to the hid touch screen; the host takes touch points from the front end", void, h_hid_InitTouch, void) {}
  // SDK 18 overload with two ints (Super Mario Galaxy); the SDK's own one opens the hid service and aborts in sm::Initialize
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index cdd68d3e..fcb164e3 100644
+index cdd68d3..fcb164e 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -391,6 +391,7 @@ static void read_layout(module_t *m, const char *dir) {
@@ -891,7 +891,7 @@ index cdd68d3e..fcb164e3 100644
      dm_fps_step_max = 0; g_render_scale_max = 1.0f; g_fstep_t120 = 0;
  }
 diff --git a/dm/host/pad_switch2_apple.m b/dm/host/pad_switch2_apple.m
-index 3e9520ab..9ef8e038 100644
+index 3e9520a..9ef8e03 100644
 --- a/dm/host/pad_switch2_apple.m
 +++ b/dm/host/pad_switch2_apple.m
 @@ -72,7 +72,7 @@ static void s2_sync_sides(s2_pad *p) {
@@ -904,7 +904,7 @@ index 3e9520ab..9ef8e038 100644
  static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has the other one alone; anything else starts a pad
      if (pid != S2_PID_PRO)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 84809751..b762680d 100644
+index 8480975..b762680 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -81,6 +81,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
@@ -930,10 +930,10 @@ index 84809751..b762680d 100644
  # The default application task role lifts the QoS ceiling for a Mac host without a window.
 diff --git a/dm/host/tests/t_hid_nmouse.c b/dm/host/tests/t_hid_nmouse.c
 new file mode 100644
-index 00000000..7e2cc791
+index 0000000..5d1121f
 --- /dev/null
 +++ b/dm/host/tests/t_hid_nmouse.c
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,170 @@
 +// Virtual Switch 2 Nmouse (dm_host_mouse in hle_hid.c): relative delta accumulation, button mapping,
 +// 2.5 s idle lift-off, physical Joy-Con 2 priority preemption, DM_VIRTUAL_NMOUSE=0 disable, and teardown reset.
 +#include <math.h>
@@ -968,6 +968,7 @@ index 00000000..7e2cc791
 +void dm_gfx_texlist(int target) { (void)target; }
 +int dm_guest_as_contains(uintptr_t a) { (void)a; return 0; }
 +void dm_gfx_restop(void) {}
++void dm_gfx_memtrim(void) {}
 +void dm_gfx_texraw(uint64_t serial, const char *path) { (void)serial; (void)path; }
 +void dm_ctl_peek(uint64_t a, int n) { (void)a; (void)n; }
 +void crash_dump_now(const char *why) { (void)why; }
@@ -1104,7 +1105,7 @@ index 00000000..7e2cc791
 +    return fails != 0;
 +}
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 143828ef..5780612f 100644
+index 143828e..5780612 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -185,6 +185,8 @@ @implementation DmGamepad {
@@ -1189,7 +1190,7 @@ index 143828ef..5780612f 100644
  // ---- Shapes ----
  static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
 diff --git a/dm/ios/Sources/LauncherSettings.swift b/dm/ios/Sources/LauncherSettings.swift
-index 29e9e734..93c21cb8 100644
+index 29e9e73..93c21cb 100644
 --- a/dm/ios/Sources/LauncherSettings.swift
 +++ b/dm/ios/Sources/LauncherSettings.swift
 @@ -8,7 +8,8 @@ struct Setting: Decodable, Identifiable {
@@ -1218,7 +1219,7 @@ index 29e9e734..93c21cb8 100644
      var changed: Bool { settings.contains { !fixed.contains($0.env) && !$0.isDefault(values[$0.env] ?? $0.def) } }
  
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index e4b4cbbd..8eb06135 100644
+index e4b4cbb..8eb0613 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 @@ -136,4 +136,9 @@ void dm_audio_route_changed(void) {}
@@ -1232,7 +1233,7 @@ index e4b4cbbd..8eb06135 100644
 +void dm_switch2_teardown(void) {}
  void dm_host_shutdown(const char *why) { (void)why; }
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index b4883f02..a9d58ec0 100755
+index b4883f0..a9d58ec 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -7,7 +7,7 @@
@@ -1286,7 +1287,7 @@ index b4883f02..a9d58ec0 100755
    if [ -f "$GD/cb_extent.tsv" ]; then cp "$GD/cb_extent.tsv" $TD/ || die "copy cb_extent.tsv"; else t "no $GD/cb_extent.tsv: the host copies whole uniform bindings"; fi
    # the shader pairs, beside the shader map where the pipeline prebuild reads them (nvn_mtl.m pso_prebuild): without them the app makes no pulling bases, and a hybrid draw has no stand-in
 diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
-index 213844d9..60de826d 100644
+index 213844d..60de826 100644
 --- a/dm/tools/docs_patches.py
 +++ b/dm/tools/docs_patches.py
 @@ -187,7 +187,7 @@ def frame_step_sites(fn, base=0, others=(), found=None):   # (offset, reason) of
@@ -1299,7 +1300,7 @@ index 213844d9..60de826d 100644
      fn(ctx)
      in_others = {label: sorted((off - a, why) for off, why in puts if a <= off < a + OTHER_STEP) for label, a in at.items()}
 diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
-index aa674427..0127164d 100644
+index aa67442..0127164 100644
 --- a/dm/tools/patch_nso.py
 +++ b/dm/tools/patch_nso.py
 @@ -1544,6 +1544,8 @@ obs += region_obs
@@ -1340,7 +1341,7 @@ index aa674427..0127164d 100644
      if UE_CALLS: f.write(f'# UE_MALLOC_VT\t{UE_VT:#x}\n# UE_MALLOC_SLOT\t{UE_SLOT:#x}\n')   # Unreal's FMallocBinned3 (ue_malloc.py): its vtable and the slot of its name getter, which names the slot layout
      if FPS_TARGET_PTR is not None: f.write(f'# FPS_TARGET_PTR\t{FPS_TARGET_PTR:#x}\n# FPS_TARGET_FIELD\t{FPS_TARGET_FIELD:#x}\n')   # a target frame rate the game steps by (fps_target.py)
 diff --git a/dm/tools/tests/test_ipa_tables.py b/dm/tools/tests/test_ipa_tables.py
-index 6bb70c7b..aedee097 100644
+index 6bb70c7..aedee09 100644
 --- a/dm/tools/tests/test_ipa_tables.py
 +++ b/dm/tools/tests/test_ipa_tables.py
 @@ -20,13 +20,14 @@ class IpaTables(unittest.TestCase):
@@ -1381,7 +1382,7 @@ index 6bb70c7b..aedee097 100644
          (self.profile / 'pso_manifest.tsv').write_text('C\t1234567890abcdef\n')
          # A present seed must not silently disappear when the destination refuses writes.
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 95928883..2153dce1 100644
+index 9592888..2153dce 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -210,13 +210,17 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -1404,7 +1405,7 @@ index 95928883..2153dce1 100644
              with self.subTest(bad=bad):
                  profile = type('Profile', (), {'id': BOTW, 'get': lambda self, key, default='', bad=bad: bad})()
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index be7cd422..7f39a8ed 100644
+index be7cd42..7f39a8e 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -1650,18 +1650,26 @@ class SeenShaders(unittest.TestCase):   # --seen-shaders: the keys, the partial
@@ -1472,7 +1473,7 @@ index be7cd422..7f39a8ed 100644
          self.build(self.keys('a'))
          self.assertFalse(any('--seen-shaders builds only' in m for m in self.said))
 diff --git a/docs/launcher.schema.json b/docs/launcher.schema.json
-index 4bb97df3..4582c5d1 100644
+index 4bb97df..4582c5d 100644
 --- a/docs/launcher.schema.json
 +++ b/docs/launcher.schema.json
 @@ -29,7 +29,9 @@
@@ -1487,7 +1488,7 @@ index 4bb97df3..4582c5d1 100644
          "needs": {"description": "<VAR>=<value>: a sub-setting, drawn only while the row that sets <VAR> has that value. A row naming a variable this list does not have stays drawn.", "type": "string", "pattern": "^DM_[A-Z0-9_]+=[^;=]+$"}
        },
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 23bb33b0..e3734f6a 100755
+index 23bb33b..e3734f6 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -2888,6 +2888,13 @@ def seen_logs(work, app):   # the logs a --seen-shaders build reads: the run com
