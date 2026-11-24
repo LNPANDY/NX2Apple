@@ -463,7 +463,7 @@ public enum SideloadCertificateError: LocalizedError, Equatable, Sendable {
 /// Live signing identity extracted from a validated `.p12`.
 /// On macOS unit tests, owns an ephemeral temporary keychain that is deleted on `deinit` so tests never pollute the login keychain.
 public final class SideloadSigningIdentity: @unchecked Sendable {
-    public let identity: SecIdentity
+    public let identity: SecIdentity?
     public let privateKey: SecKey
     public let leafCertificateDER: Data
     public let chainCertificatesDER: [Data]
@@ -476,7 +476,7 @@ public final class SideloadSigningIdentity: @unchecked Sendable {
     #endif
 
     #if os(macOS)
-    init(identity: SecIdentity, privateKey: SecKey, leafCertificateDER: Data, chainCertificatesDER: [Data],
+    init(identity: SecIdentity?, privateKey: SecKey, leafCertificateDER: Data, chainCertificatesDER: [Data],
          leafInfo: X509CertificateInfo, summary: SideloadCertificateSummary,
          ephemeralKeychain: SecKeychain?, ephemeralKeychainPath: String?) {
         self.identity = identity
@@ -498,7 +498,7 @@ public final class SideloadSigningIdentity: @unchecked Sendable {
         }
     }
     #else
-    init(identity: SecIdentity, privateKey: SecKey, leafCertificateDER: Data, chainCertificatesDER: [Data],
+    init(identity: SecIdentity?, privateKey: SecKey, leafCertificateDER: Data, chainCertificatesDER: [Data],
          leafInfo: X509CertificateInfo, summary: SideloadCertificateSummary) {
         self.identity = identity
         self.privateKey = privateKey
@@ -596,10 +596,17 @@ public final class SideloadCertificateStore: Sendable {
             #if os(macOS)
             cleanupEphemeralKeychain()
             #endif
-            if status == errSecAuthFailed {
-                throw SideloadCertificateError.wrongPassword
+            // Fall back to the RFC 7292 parser for valid `.p12` variants rejected by iOS `SecPKCS12Import`
+            // (such as SideStore passwordless MAC-less `keyBag` exports, `SecItemExport` 40-bit RC2 cert bags,
+            // and OpenSSL 3 PBES2 empty-password containers).
+            do {
+                return try PKCS12FallbackParser.parseIdentity(p12Data: p12Data, password: password, now: now)
+            } catch let fallbackError as SideloadCertificateError {
+                if case .invalidFormat = fallbackError, status == errSecAuthFailed {
+                    throw SideloadCertificateError.wrongPassword
+                }
+                throw fallbackError
             }
-            throw SideloadCertificateError.invalidFormat(status)
         }
 
         guard let itemList = rawItems as? [[String: Any]],

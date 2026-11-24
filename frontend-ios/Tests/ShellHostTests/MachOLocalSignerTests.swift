@@ -593,5 +593,293 @@ private struct FakeCertPicker: SideloadCertificatePicker {
                                                             hostTeamID: "SAME123456", hostCertSHA1: otherSHA1)
         #expect(mismatch == hostText("Could not load the game framework because the signing certificate does not match this app. Reinstall the app from your computer."))
     }
+
+    @Test func arm64SignatureUses16KiBCodePagesValidDesignatedRequirementsSortedCMSCertsAndUpgradesV1Receipt() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("signer-16k-\(UUID().uuidString)", isDirectory: true)
+        let hotRoot = root.appendingPathComponent("Documents/Frameworks", isDirectory: true)
+        try FileManager.default.createDirectory(at: hotRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // Build a multi-page (> 64 KiB) arm64 framework executable so 16 KiB vs 4 KiB page hashing produces distinct slot counts.
+        let (fwURL, exeURL) = try Self.buildMinimalFramework(in: hotRoot, titleID: "0100159000016384", stripSignature: true)
+        let largeSrcURL = root.appendingPathComponent("large_arm64.c")
+        let largeC = """
+        const unsigned char dm_large_rodata[70000] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+        int dm_fixture_entry(void) { return dm_large_rodata[0] + 41; }
+        """
+        try Data(largeC.utf8).write(to: largeSrcURL)
+        let clang = try Self.run("/usr/bin/clang", [
+            "-arch", "arm64", "-dynamiclib",
+            "-install_name", "@rpath/DmGame0100159000016384.framework/DmGame0100159000016384",
+            "-o", exeURL.path, largeSrcURL.path,
+        ])
+        #expect(clang.status == 0)
+        #expect(try Self.run("/usr/bin/codesign", ["--remove-signature", exeURL.path]).status == 0)
+
+        // Generate a CA + leaf chain so SignedData.certificates contains multiple DER certificates to test X.690 DER sorting.
+        let caKey = root.appendingPathComponent("ca.key")
+        let caCrt = root.appendingPathComponent("ca.crt")
+        let leafKey = root.appendingPathComponent("leaf.key")
+        let leafCsr = root.appendingPathComponent("leaf.csr")
+        let leafCrt = root.appendingPathComponent("leaf.crt")
+        let extFile = root.appendingPathComponent("ext.cnf")
+        let p12URL = root.appendingPathComponent("chain.p12")
+        try Data("[v3_cs]\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n".utf8)
+            .write(to: extFile)
+        #expect(try Self.run("/usr/bin/openssl", [
+            "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", caKey.path, "-out", caCrt.path, "-days", "365",
+            "-subj", "/CN=ZZZ Test Intermediate CA/O=NX2Apple Test/C=US",
+        ]).status == 0)
+        #expect(try Self.run("/usr/bin/openssl", ["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", leafKey.path]).status == 0)
+        #expect(try Self.run("/usr/bin/openssl", [
+            "req", "-new", "-key", leafKey.path, "-out", leafCsr.path,
+            "-subj", "/CN=Apple Development: 16K Signer/OU=TXM16KTEAM/O=NX2Apple Test/C=US",
+        ]).status == 0)
+        #expect(try Self.run("/usr/bin/openssl", [
+            "x509", "-req", "-sha256", "-in", leafCsr.path, "-CA", caCrt.path, "-CAkey", caKey.path,
+            "-CAcreateserial", "-out", leafCrt.path, "-days", "365", "-extfile", extFile.path, "-extensions", "v3_cs",
+        ]).status == 0)
+        #expect(try Self.run("/usr/bin/openssl", [
+            "pkcs12", "-export", "-inkey", leafKey.path, "-in", leafCrt.path, "-certfile", caCrt.path,
+            "-out", p12URL.path, "-passout", "pass:txm-pw",
+        ]).status == 0)
+
+        let store = SideloadCertificateStore(backing: InMemoryCertBacking())
+        _ = try store.importPKCS12(data: Data(contentsOf: p12URL), password: "txm-pw")
+        let hostID = "com.sidestore.nx2apple.TXM"
+        #expect(try MachOLocalSigner.ensureSignedIfNeeded(frameworkURL: fwURL, allowedRoot: hotRoot, hostBundleID: hostID, store: store))
+
+        // 1. Verify 16 KiB (2^14 = 16384) CodeDirectory page size required by iOS arm64 TXM / SPTM.
+        let csDetail = try Self.run("/usr/bin/codesign", ["-dvvvvv", exeURL.path])
+        #expect(csDetail.status == 0)
+        #expect(csDetail.stderr.contains("Page size=16384"), "arm64 CodeDirectory must use 16384-byte pages:\n\(csDetail.stderr)")
+
+        let strictVerify = try Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=4", fwURL.path])
+        #expect(strictVerify.status == 0, "strict codesign verify failed:\n\(strictVerify.stderr)")
+
+        // 2. Verify embedded Designated Requirement and Apple-anchored DR bytecode via `/usr/bin/csreq`.
+        let drOut = try Self.run("/usr/bin/codesign", ["-d", "-r-", exeURL.path])
+        #expect(drOut.status == 0)
+        let combinedDR = drOut.stdout + "\n" + drOut.stderr
+        #expect(combinedDR.contains("designated => identifier \"\(hostID)\""))
+
+        let identity = try store.loadIdentity()
+        let appleReqSuper = MachOLocalSigner.buildDesignatedRequirementsBlob(
+            identifier: hostID,
+            teamID: "TXM16KTEAM",
+            leafDER: identity.leafCertificateDER,
+            isAppleAnchored: true
+        )
+        // Single requirement starts at offset 20 inside CS_RequirementsBlob (count = 1).
+        let singleAppleReq = appleReqSuper.subdata(in: 20..<appleReqSuper.count)
+        let reqFile = root.appendingPathComponent("apple_dr.req")
+        try singleAppleReq.write(to: reqFile)
+        let csreqOut = try Self.run("/usr/bin/csreq", ["-r", reqFile.path, "-t"])
+        #expect(csreqOut.status == 0, "csreq rejected Apple-anchored DR: \(csreqOut.stderr)")
+        #expect(csreqOut.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            == "identifier \"\(hostID)\" and anchor apple generic and certificate leaf[subject.OU] = TXM16KTEAM")
+
+        // 3. Verify CMS SignedData.certificates (`[0] IMPLICIT CertificateSet`) is sorted in ascending X.690 DER order,
+        //    and verify CoreTrust / AMFI CMS evaluation via `/usr/lib/libmis.dylib` when available.
+        let signedBytes = try Data(contentsOf: exeURL)
+        let sigInfo = try #require(FrameworkSignature.inspect(executable: exeURL))
+        let sb = signedBytes.subdata(in: Int(sigInfo.signatureOffset)..<(Int(sigInfo.signatureOffset) + Int(sigInfo.signatureSize)))
+        func u32BE(_ d: Data, _ off: Int) -> UInt32 {
+            (UInt32(d[d.startIndex + off]) << 24) | (UInt32(d[d.startIndex + off + 1]) << 16)
+                | (UInt32(d[d.startIndex + off + 2]) << 8) | UInt32(d[d.startIndex + off + 3])
+        }
+        let slotCount = Int(u32BE(sb, 8))
+        var cdSlice = Data()
+        var cmsDER = Data()
+        for i in 0..<slotCount {
+            let sType = u32BE(sb, 12 + i * 8)
+            let sOff = Int(u32BE(sb, 12 + i * 8 + 4))
+            let sLen = Int(u32BE(sb, sOff + 4))
+            if sType == 0 {
+                cdSlice = sb.subdata(in: sOff..<(sOff + sLen))
+            } else if sType == 0x0001_0000 {
+                cmsDER = sb.subdata(in: (sOff + 8)..<(sOff + sLen))
+            }
+        }
+        #expect(cdSlice[cdSlice.startIndex + 39] == 14, "CodeDirectory pageSizeShift byte must be 14 (16 KiB)")
+
+        let ci = try #require(ASN1DER.readElement(in: cmsDER, at: cmsDER.startIndex))
+        let ciFields = try #require(ASN1DER.children(of: ci, in: cmsDER))
+        let sd = try #require(ASN1DER.children(of: ciFields[1], in: cmsDER)?.first)
+        let sdFields = try #require(ASN1DER.children(of: sd, in: cmsDER))
+        let certsImplicit = try #require(sdFields.first { $0.tag == 0xA0 })
+        let certElements = try #require(ASN1DER.children(of: certsImplicit, in: cmsDER)).map { $0.fullData(in: cmsDER) }
+        #expect(certElements.count == 2)
+        let sortedCerts = certElements.sorted { $0.lexicographicallyPrecedes($1) }
+        #expect(certElements == sortedCerts, "CMS SignedData.certificates must be sorted in X.690 DER order")
+
+        if let misHandle = Darwin.dlopen("/usr/lib/libmis.dylib", RTLD_LAZY | RTLD_LOCAL),
+           let sym = Darwin.dlsym(misHandle, "CTEvaluateAMFICodeSignatureCMS") {
+            defer { Darwin.dlclose(misHandle) }
+            typealias CTEvalFn = @convention(c) (
+                UnsafePointer<UInt8>, Int,
+                UnsafePointer<UInt8>, Int,
+                Bool,
+                UnsafeMutablePointer<UnsafePointer<UInt8>?>, UnsafeMutablePointer<Int>,
+                UnsafeMutablePointer<UInt32>, UnsafeMutablePointer<UInt32>
+            ) -> Int32
+            let fn = unsafeBitCast(sym, to: CTEvalFn.self)
+            var leafPtr: UnsafePointer<UInt8>?
+            var leafLen = 0
+            var digestType: UInt32 = 0
+            var policyFlags: UInt32 = 0
+            let rc = cmsDER.withUnsafeBytes { cmsBuf in
+                cdSlice.withUnsafeBytes { cdBuf in
+                    fn(
+                        cmsBuf.bindMemory(to: UInt8.self).baseAddress!, cmsDER.count,
+                        cdBuf.bindMemory(to: UInt8.self).baseAddress!, cdSlice.count,
+                        true,
+                        &leafPtr, &leafLen, &digestType, &policyFlags
+                    )
+                }
+            }
+            #expect(rc == 0, "CoreTrust CTEvaluateAMFICodeSignatureCMS rejected CMS blob (rc=\(rc))")
+            #expect(leafLen == identity.leafCertificateDER.count)
+        }
+
+        // 4. Legacy schema=1 `.nx-local-sign.json` receipt (from pre-fix 4 KiB builds) must invalidate and force re-signing.
+        let receiptURL = MachOLocalSigner.receiptURL(for: fwURL)
+        var oldReceipt = try JSONDecoder().decode(LocalSignReceipt.self, from: Data(contentsOf: receiptURL))
+        #expect(oldReceipt.schema == LocalSignReceipt.currentSchema)
+        oldReceipt.schema = 1
+        try JSONEncoder().encode(oldReceipt).write(to: receiptURL, options: .atomic)
+        #expect(!MachOLocalSigner.isReceiptValid(frameworkURL: fwURL, certFingerprint: identity.summary.fingerprintHex, hostBundleID: hostID))
+
+        let inodeBeforeUpgrade = try Self.inode(of: exeURL)
+        #expect(try MachOLocalSigner.ensureSignedIfNeeded(frameworkURL: fwURL, allowedRoot: hotRoot, hostBundleID: hostID, store: store))
+        #expect(try Self.inode(of: exeURL) != inodeBeforeUpgrade)
+        let upgradedReceipt = try JSONDecoder().decode(LocalSignReceipt.self, from: Data(contentsOf: receiptURL))
+        #expect(upgradedReceipt.schema == LocalSignReceipt.currentSchema)
+    }
+
+    @Test func importsPasswordlessSideStoreRC240AndPBES2PKCS12VariantsAndRejectsWrongPasswords() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("signer-p12-variants-\(UUID().uuidString)", isDirectory: true)
+        let hotRoot = root.appendingPathComponent("Documents/Frameworks", isDirectory: true)
+        try FileManager.default.createDirectory(at: hotRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // Fixture generator commands: `/usr/bin/openssl` real PKCS#12 exports covering:
+        // 1) SideStore passwordless export (`-keypbe NONE -certpbe NONE -nomac -passout pass:`) for both RSA-2048 and EC P-256
+        // 2) Apple `SecItemExport` empty-password layout (`-keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-RC2-40 -passout pass:`)
+        // 3) OpenSSL 3 modern PBES2 (`-keypbe AES-256-CBC -certpbe AES-256-CBC -macalg sha256`) with empty & non-empty passwords
+        //    plus an unrelated extra certificate to verify public-key leaf pairing.
+        let rsaKey = root.appendingPathComponent("rsa.key")
+        let rsaCrt = root.appendingPathComponent("rsa.crt")
+        let ecKey = root.appendingPathComponent("ec.key")
+        let ecCrt = root.appendingPathComponent("ec.crt")
+        let extraKey = root.appendingPathComponent("extra.key")
+        let extraCrt = root.appendingPathComponent("extra.crt")
+        let extURL = root.appendingPathComponent("cs.ext")
+        try Data("[v3_cs]\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n".utf8)
+            .write(to: extURL)
+
+        #expect(try Self.run("/usr/bin/openssl", ["genrsa", "-out", rsaKey.path, "2048"]).status == 0)
+        let rsaCsr = root.appendingPathComponent("rsa.csr")
+        #expect(try Self.run("/usr/bin/openssl", ["req", "-new", "-key", rsaKey.path, "-out", rsaCsr.path,
+                                                  "-subj", "/CN=Apple Development: SideStore RSA/OU=SSRSA12345/O=Test/C=US"]).status == 0)
+        #expect(try Self.run("/usr/bin/openssl", ["x509", "-req", "-sha256", "-in", rsaCsr.path, "-signkey", rsaKey.path,
+                                                  "-out", rsaCrt.path, "-days", "365", "-extfile", extURL.path, "-extensions", "v3_cs"]).status == 0)
+
+        #expect(try Self.run("/usr/bin/openssl", ["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", ecKey.path]).status == 0)
+        let ecCsr = root.appendingPathComponent("ec.csr")
+        #expect(try Self.run("/usr/bin/openssl", ["req", "-new", "-key", ecKey.path, "-out", ecCsr.path,
+                                                  "-subj", "/CN=Apple Development: SideStore EC/OU=SSEC678901/O=Test/C=US"]).status == 0)
+        #expect(try Self.run("/usr/bin/openssl", ["x509", "-req", "-sha256", "-in", ecCsr.path, "-signkey", ecKey.path,
+                                                  "-out", ecCrt.path, "-days", "365", "-extfile", extURL.path, "-extensions", "v3_cs"]).status == 0)
+
+        #expect(try Self.run("/usr/bin/openssl", [
+            "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", extraKey.path, "-out", extraCrt.path, "-days", "365",
+            "-subj", "/CN=Unrelated Extra Certificate/OU=WRONGTEAM0/O=Test/C=US",
+        ]).status == 0)
+
+        // Variant 1A & 1B: SideStore passwordless MAC-less `keyBag` (rejected by SecPKCS12Import with errSecDecode -26275).
+        let sideStoreRSAURL = root.appendingPathComponent("sidestore_rsa.p12")
+        #expect(try Self.run("/usr/bin/openssl", [
+            "pkcs12", "-export", "-inkey", rsaKey.path, "-in", rsaCrt.path, "-certfile", extraCrt.path,
+            "-keypbe", "NONE", "-certpbe", "NONE", "-nomac", "-out", sideStoreRSAURL.path, "-passout", "pass:",
+        ]).status == 0)
+        let sideStoreRSAData = try Data(contentsOf: sideStoreRSAURL)
+
+        let sideStoreECURL = root.appendingPathComponent("sidestore_ec.p12")
+        #expect(try Self.run("/usr/bin/openssl", [
+            "pkcs12", "-export", "-inkey", ecKey.path, "-in", ecCrt.path,
+            "-keypbe", "NONE", "-certpbe", "NONE", "-nomac", "-out", sideStoreECURL.path, "-passout", "pass:",
+        ]).status == 0)
+        let sideStoreECData = try Data(contentsOf: sideStoreECURL)
+
+        #expect(throws: SideloadCertificateError.wrongPassword) {
+            try SideloadCertificateStore.parseIdentity(p12Data: sideStoreRSAData, password: "unexpected-password")
+        }
+
+        let storeRSA = SideloadCertificateStore(backing: InMemoryCertBacking())
+        let summaryRSA = try storeRSA.importPKCS12(data: sideStoreRSAData, password: "")
+        #expect(summaryRSA.commonName == "Apple Development: SideStore RSA")
+        #expect(summaryRSA.teamID == "SSRSA12345")
+
+        let (fw1, _) = try Self.buildMinimalFramework(in: hotRoot, titleID: "0100159000000001", stripSignature: true)
+        #expect(try MachOLocalSigner.ensureSignedIfNeeded(frameworkURL: fw1, allowedRoot: hotRoot,
+                                                          hostBundleID: "com.sidestore.nx2apple.A", store: storeRSA))
+        #expect(try Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", fw1.path]).status == 0)
+
+        let storeEC = SideloadCertificateStore(backing: InMemoryCertBacking())
+        let summaryEC = try storeEC.importPKCS12(data: sideStoreECData, password: "")
+        #expect(summaryEC.commonName == "Apple Development: SideStore EC")
+        #expect(summaryEC.teamID == "SSEC678901")
+
+        let (fw2, _) = try Self.buildMinimalFramework(in: hotRoot, titleID: "0100159000000002", stripSignature: true)
+        #expect(try MachOLocalSigner.ensureSignedIfNeeded(frameworkURL: fw2, allowedRoot: hotRoot,
+                                                          hostBundleID: "com.sidestore.nx2apple.B", store: storeEC))
+        #expect(try Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", fw2.path]).status == 0)
+
+        // Variant 2: 40-bit RC2 certBag + 3-Key 3DES keyBag with empty password (matching `SecItemExport` empty-passphrase output).
+        let rc2URL = root.appendingPathComponent("rc2_empty.p12")
+        #expect(try Self.run("/usr/bin/openssl", [
+            "pkcs12", "-export", "-inkey", rsaKey.path, "-in", rsaCrt.path,
+            "-keypbe", "PBE-SHA1-3DES", "-certpbe", "PBE-SHA1-RC2-40",
+            "-out", rc2URL.path, "-passout", "pass:",
+        ]).status == 0)
+        let rc2Data = try Data(contentsOf: rc2URL)
+        let fallbackRC2 = try PKCS12FallbackParser.parseIdentity(p12Data: rc2Data, password: "", now: Date())
+        #expect(fallbackRC2.summary.teamID == "SSRSA12345")
+        #expect(throws: SideloadCertificateError.wrongPassword) {
+            try PKCS12FallbackParser.parseIdentity(p12Data: rc2Data, password: "wrong", now: Date())
+        }
+        let storeRC2 = SideloadCertificateStore(backing: InMemoryCertBacking())
+        #expect(try storeRC2.importPKCS12(data: rc2Data, password: "").teamID == "SSRSA12345")
+
+        // Variant 3: PBES2 (`PBKDF2-HMAC-SHA256` + `AES-256-CBC` + `SHA-256` MAC) with empty and non-empty passwords.
+        let pbes2EmptyURL = root.appendingPathComponent("pbes2_empty.p12")
+        #expect(try Self.run("/usr/bin/openssl", [
+            "pkcs12", "-export", "-inkey", ecKey.path, "-in", ecCrt.path, "-certfile", extraCrt.path,
+            "-keypbe", "AES-256-CBC", "-certpbe", "AES-256-CBC", "-macalg", "sha256",
+            "-out", pbes2EmptyURL.path, "-passout", "pass:",
+        ]).status == 0)
+        let pbes2EmptyData = try Data(contentsOf: pbes2EmptyURL)
+        let parsedPBES2Empty = try SideloadCertificateStore.parseIdentity(p12Data: pbes2EmptyData, password: "")
+        #expect(parsedPBES2Empty.summary.teamID == "SSEC678901")
+        #expect(throws: SideloadCertificateError.wrongPassword) {
+            try SideloadCertificateStore.parseIdentity(p12Data: pbes2EmptyData, password: "bad")
+        }
+
+        let pbes2PassURL = root.appendingPathComponent("pbes2_pw.p12")
+        #expect(try Self.run("/usr/bin/openssl", [
+            "pkcs12", "-export", "-inkey", rsaKey.path, "-in", rsaCrt.path,
+            "-keypbe", "AES-256-CBC", "-certpbe", "AES-256-CBC", "-macalg", "sha256",
+            "-out", pbes2PassURL.path, "-passout", "pass:pbes2-pw",
+        ]).status == 0)
+        let pbes2PassData = try Data(contentsOf: pbes2PassURL)
+        let fallbackPBES2Pass = try PKCS12FallbackParser.parseIdentity(p12Data: pbes2PassData, password: "pbes2-pw", now: Date())
+        #expect(fallbackPBES2Pass.summary.teamID == "SSRSA12345")
+        #expect(throws: SideloadCertificateError.wrongPassword) {
+            try PKCS12FallbackParser.parseIdentity(p12Data: pbes2PassData, password: "", now: Date())
+        }
+    }
 }
 #endif

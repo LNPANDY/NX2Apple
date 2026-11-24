@@ -343,4 +343,132 @@ import Testing
         let unexpectedStale = dataRoot.appendingPathComponent("\(Fixtures.orbit)/msl/\(chain)/stale.metallib")
         #expect(!fm.fileExists(atPath: unexpectedStale.path))
     }
+
+    /// Synthesizes a minimal valid 64-bit arm64 Mach-O binary carrying `LC_CODE_SIGNATURE` + `CS_CodeDirectory` v0x20200
+    /// so `FrameworkSignature.inspect` and `ProvisioningProfile` run identically on both macOS and iOS Simulator without external tools.
+    private static func makeMinimalSignedMachO(identifier: String, teamID: String) -> Data {
+        func appendU32LE(_ d: inout Data, _ v: UInt32) {
+            d.append(contentsOf: [UInt8(v & 0xff), UInt8((v >> 8) & 0xff), UInt8((v >> 16) & 0xff), UInt8((v >> 24) & 0xff)])
+        }
+        func appendU32BE(_ d: inout Data, _ v: UInt32) {
+            d.append(contentsOf: [UInt8((v >> 24) & 0xff), UInt8((v >> 16) & 0xff), UInt8((v >> 8) & 0xff), UInt8(v & 0xff)])
+        }
+
+        let identBytes = Data(identifier.utf8) + Data([0])
+        let teamBytes = Data(teamID.utf8) + Data([0])
+        let cdHeaderLen: UInt32 = 52
+        let identOff = cdHeaderLen
+        let teamOff = identOff + UInt32(identBytes.count)
+        let hashOff = teamOff + UInt32(teamBytes.count)
+        let cdLen = hashOff + 32
+
+        var cd = Data()
+        appendU32BE(&cd, 0xfade_0c02) // CSMAGIC_CODEDIRECTORY
+        appendU32BE(&cd, cdLen)
+        appendU32BE(&cd, 0x0002_0200) // version supporting teamOffset
+        appendU32BE(&cd, 0)           // flags
+        appendU32BE(&cd, hashOff)
+        appendU32BE(&cd, identOff)
+        appendU32BE(&cd, 0)           // nSpecialSlots
+        appendU32BE(&cd, 1)           // nCodeSlots
+        appendU32BE(&cd, 64)          // codeLimit
+        cd.append(contentsOf: [32, 2, 0, 14]) // hashSize=32, SHA-256, platform=0, pageSize=2^14
+        appendU32BE(&cd, 0)           // spare2
+        appendU32BE(&cd, 0)           // scatterOffset
+        appendU32BE(&cd, teamOff)     // teamOffset
+        cd.append(identBytes)
+        cd.append(teamBytes)
+        cd.append(Data(repeating: 0xaa, count: 32))
+
+        let sbLen = UInt32(20 + cd.count)
+        var sb = Data()
+        appendU32BE(&sb, 0xfade_0cc0) // CSMAGIC_EMBEDDED_SIGNATURE
+        appendU32BE(&sb, sbLen)
+        appendU32BE(&sb, 1)           // count = 1
+        appendU32BE(&sb, 0)           // CSSLOT_CODEDIRECTORY
+        appendU32BE(&sb, 20)          // offset
+        sb.append(cd)
+
+        var macho = Data()
+        appendU32LE(&macho, 0xfeed_facf) // MH_MAGIC_64
+        appendU32LE(&macho, 0x0100_000c) // CPU_TYPE_ARM64
+        appendU32LE(&macho, 0)           // cpusubtype
+        appendU32LE(&macho, 2)           // MH_EXECUTE
+        appendU32LE(&macho, 1)           // ncmds = 1
+        appendU32LE(&macho, 16)          // sizeofcmds = 16
+        appendU32LE(&macho, 0)           // flags
+        appendU32LE(&macho, 0)           // reserved
+        appendU32LE(&macho, 0x0000_001d) // LC_CODE_SIGNATURE
+        appendU32LE(&macho, 16)          // cmdsize
+        appendU32LE(&macho, 64)          // dataoff
+        appendU32LE(&macho, sbLen)       // datasize
+        if macho.count < 64 {
+            macho.append(Data(repeating: 0, count: 64 - macho.count))
+        }
+        macho.append(sb)
+        return macho
+    }
+
+    @Test func liveContainerGuestEnvironmentAllowsHotLoadingAndPrefersExecutableTeamOverStaleProfile() throws {
+        let box = try FrameworkBox()
+        let fm = FileManager.default
+
+        func makeGuestApp(named folderName: String, profile: [String: Any]? = nil) throws -> Bundle {
+            let appURL = box.root.appendingPathComponent(folderName, isDirectory: true)
+            try fm.createDirectory(at: appURL, withIntermediateDirectories: true)
+            let appInfo: [String: Any] = [
+                "CFBundleExecutable": "DmShell",
+                "CFBundleIdentifier": "org.nxnative.shell.guest",
+                "CFBundleName": "NX2Apple",
+                "CFBundlePackageType": "APPL",
+                "CFBundleShortVersionString": "1.5.1",
+                "DMChain": "3f9a2c",
+            ]
+            try PropertyListSerialization.data(fromPropertyList: appInfo, format: .xml, options: 0)
+                .write(to: appURL.appendingPathComponent("Info.plist"))
+            try Self.makeMinimalSignedMachO(identifier: "org.nxnative.shell.guest", teamID: "TEAMLCNEW1")
+                .write(to: appURL.appendingPathComponent("DmShell"))
+            if let profile {
+                try PropertyListSerialization.data(fromPropertyList: profile, format: .xml, options: 0)
+                    .write(to: appURL.appendingPathComponent("embedded.mobileprovision"))
+            }
+            return try #require(Bundle(url: appURL))
+        }
+
+        let lcEnv = ["LC_HOME_PATH": "/var/mobile/Containers/Data/Application/LIVECONTAINER/Documents/Data/Application/GUEST"]
+        let lpEnv = ["LP_HOME_PATH": "/var/mobile/Containers/Data/Application/LIVEPROCESS/Documents"]
+
+        // 1. Unsigned IPA imported into LiveContainer has no embedded.mobileprovision:
+        //    outside LiveContainer -> hot loading stays blocked; inside LiveContainer -> allowed and team comes from Mach-O.
+        let guestBundle = try makeGuestApp(named: "GuestNoProfile.app")
+        #expect(!ProvisioningProfile.isRunningInLiveContainer(environment: [:]))
+        #expect(ProvisioningProfile.isRunningInLiveContainer(environment: lcEnv))
+        #expect(ProvisioningProfile.isRunningInLiveContainer(environment: lpEnv))
+        #expect(!ProvisioningProfile.bundledAllowsHotFrameworkLoading(bundle: guestBundle, environment: [:], fileManager: fm))
+        #expect(ProvisioningProfile.bundledAllowsHotFrameworkLoading(bundle: guestBundle, environment: lcEnv, fileManager: fm))
+        #expect(ProvisioningProfile.bundledTeamIdentifier(bundle: guestBundle, environment: lcEnv, fileManager: fm) == "TEAMLCNEW1")
+
+        ShellHostBeacon.write(to: box.documents, bundle: guestBundle, environment: lcEnv, fileManager: fm)
+        let beaconURL = box.documents.appendingPathComponent(ShellHostBeacon.fileName)
+        let lcBeacon = try JSONDecoder().decode(ShellHostBeacon.self, from: Data(contentsOf: beaconURL))
+        #expect(lcBeacon.allowsHotPush == true)
+        #expect(lcBeacon.teamID == "TEAMLCNEW1")
+
+        // 2. Guest IPA carrying a stale build-time embedded.mobileprovision from another team (`TEAMOLD999`, get-task-allow=false)
+        //    re-signed by LiveContainer for `TEAMLCNEW1`: executable team wins and stale profile does not block hot loading.
+        let staleBundle = try makeGuestApp(named: "GuestStaleProfile.app", profile: [
+            "TeamIdentifier": ["TEAMOLD999"],
+            "Entitlements": ["get-task-allow": false],
+        ])
+        #expect(ProvisioningProfile.bundledTeamIdentifier(bundle: staleBundle, environment: lcEnv, fileManager: fm) == "TEAMLCNEW1")
+        #expect(ProvisioningProfile.bundledAllowsHotFrameworkLoading(bundle: staleBundle, environment: lcEnv, fileManager: fm))
+        #expect(!ProvisioningProfile.bundledAllowsHotFrameworkLoading(bundle: staleBundle, environment: [:], fileManager: fm))
+
+        // 3. Same-team distribution profile with get-task-allow=false stays respected.
+        let sameTeamDistBundle = try makeGuestApp(named: "GuestSameTeamDist.app", profile: [
+            "TeamIdentifier": ["TEAMLCNEW1"],
+            "Entitlements": ["get-task-allow": false],
+        ])
+        #expect(!ProvisioningProfile.bundledAllowsHotFrameworkLoading(bundle: sameTeamDistBundle, environment: lcEnv, fileManager: fm))
+    }
 }

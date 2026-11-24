@@ -40,7 +40,9 @@ public enum MachOLocalSignerError: LocalizedError, Equatable, Sendable {
 
 /// Receipt recorded beside a locally signed external framework so unchanged binaries skip redundant re-signing.
 public struct LocalSignReceipt: Codable, Equatable, Sendable {
-    public var schema: Int = 1
+    public static let currentSchema = 2
+
+    public var schema: Int = Self.currentSchema
     public var certFingerprint: String
     public var hostBundleID: String
     public var exeInode: UInt64
@@ -53,6 +55,8 @@ public struct LocalSignReceipt: Codable, Equatable, Sendable {
 /// external `Documents/Frameworks/*.framework` bundles.
 public enum MachOLocalSigner {
     private static let mhMagic64: UInt32 = 0xfeed_facf
+    private static let cpuTypeArm64: UInt32 = 0x0100_000c
+    private static let cpuTypeArm64_32: UInt32 = 0x0200_000c
     private static let lcSegment64: UInt32 = 0x0000_0019
     private static let lcSymtab: UInt32 = 0x0000_0002
     private static let lcDysymtab: UInt32 = 0x0000_000b
@@ -69,14 +73,16 @@ public enum MachOLocalSigner {
     private static let csMagicSuperBlob: UInt32 = 0xfade_0cc0
     private static let csMagicCodeDirectory: UInt32 = 0xfade_0c02
     private static let csMagicRequirements: UInt32 = 0xfade_0c01
+    private static let csMagicRequirement: UInt32 = 0xfade_0c00
     private static let csMagicBlobWrapper: UInt32 = 0xfade_0b01
     private static let csSlotCodeDirectory: UInt32 = 0x0000_0000
     private static let csSlotRequirements: UInt32 = 0x0000_0002
     private static let csSlotCMSSignature: UInt32 = 0x0001_0000
+    private static let csDesignatedRequirementType: UInt32 = 0x0000_0003
     private static let csCodeDirectoryVersion: UInt32 = 0x0002_0400
     private static let csHashTypeSHA256: UInt8 = 2
-    private static let csPageSizeShift: UInt8 = 12
-    private static let csPageSize = 4096
+    private static let csPageSizeShiftArm64: UInt8 = 14
+    private static let csPageSizeShiftDefault: UInt8 = 12
     private static let arm64VMPageSize: UInt64 = 0x4000
 
     /// Sidecar receipt path inside `hotFrameworksRoot` so the sealed `.framework` bundle stays 100% clean for strict verification.
@@ -99,12 +105,13 @@ public enum MachOLocalSigner {
         return fwStd.hasPrefix(rootPrefix) && fwStd.count > rootPrefix.count
     }
 
-    /// Checks whether an existing receipt matches the current certificate, host bundle ID, and executable inode/size/mtime.
+    /// Checks whether an existing receipt matches the current schema, certificate, host bundle ID, and executable inode/size/mtime.
     public static func isReceiptValid(frameworkURL: URL, certFingerprint: String, hostBundleID: String,
                                       fileManager fm: FileManager = .default) -> Bool {
         let url = receiptURL(for: frameworkURL)
         guard let raw = try? Data(contentsOf: url),
               let receipt = try? JSONDecoder().decode(LocalSignReceipt.self, from: raw),
+              receipt.schema == LocalSignReceipt.currentSchema,
               receipt.certFingerprint == certFingerprint,
               receipt.hostBundleID == hostBundleID,
               let exeURL = try? resolveExecutableURL(in: frameworkURL, fileManager: fm),
@@ -169,10 +176,15 @@ public enum MachOLocalSigner {
         let codeResourcesData = try buildCodeResources(in: frameworkURL, executableName: executableName, fileManager: fm)
         let identifier = effectiveIdentifier(hostBundleID: hostBundleID, frameworkURL: frameworkURL)
         let teamID = identity.leafInfo.teamID
-        let requirementsBlob = emptyRequirementsBlob()
         let certChain = AppleCertificateAuthorities.completeChain(
             leafDER: identity.leafCertificateDER,
             providedChainDER: identity.chainCertificatesDER
+        )
+        let requirementsBlob = buildDesignatedRequirementsBlob(
+            identifier: identifier,
+            teamID: teamID,
+            leafDER: identity.leafCertificateDER,
+            isAppleAnchored: AppleCertificateAuthorities.isAnchoredToAppleRoot(chainDER: certChain)
         )
 
         let signedBinary = try signMachOBinary(
@@ -359,6 +371,7 @@ public enum MachOLocalSigner {
     // MARK: - Mach-O 64-bit Parsing & Rewriting
 
     private struct MachOLayout {
+        var cpuType: UInt32
         var ncmds: UInt32
         var sizeofcmds: UInt32
         var textFileOff: UInt64
@@ -381,6 +394,7 @@ public enum MachOLocalSigner {
         guard readU32LE(data, 0) == mhMagic64 else {
             throw MachOLocalSignerError.invalidMachO("not a 64-bit little-endian Mach-O")
         }
+        let cpuType = readU32LE(data, 4)
         let ncmds = readU32LE(data, 16)
         let sizeofcmds = readU32LE(data, 20)
         guard ncmds <= 4096,
@@ -523,6 +537,7 @@ public enum MachOLocalSigner {
         }
 
         return MachOLayout(
+            cpuType: cpuType,
             ncmds: ncmds,
             sizeofcmds: sizeofcmds,
             textFileOff: textFileOff,
@@ -538,11 +553,19 @@ public enum MachOLocalSigner {
         )
     }
 
+    private static func pageSizeShift(forCPU cpuType: UInt32) -> UInt8 {
+        if cpuType == cpuTypeArm64 || cpuType == cpuTypeArm64_32 {
+            return csPageSizeShiftArm64
+        }
+        return csPageSizeShiftDefault
+    }
+
     private static func signMachOBinary(_ original: Data, identifier: String, teamID: String,
                                         infoPlistData: Data, codeResourcesData: Data, requirementsBlob: Data,
                                         identity: SideloadSigningIdentity, certificateChainDER: [Data],
                                         signingDate: Date) throws -> Data {
         let layout = try parseMachO64(original)
+        let pageShift = pageSizeShift(forCPU: layout.cpuType)
         let originalSize = UInt64(original.count)
 
         let rawCodeEnd: UInt64
@@ -624,6 +647,7 @@ public enum MachOLocalSigner {
             let codeDirectory = buildCodeDirectory(
                 machOPrefix: prefix,
                 codeLimit: UInt32(codeLimit),
+                pageSizeShift: pageShift,
                 identifier: identifier,
                 teamID: teamID,
                 execSegBase: layout.textFileOff,
@@ -683,17 +707,71 @@ public enum MachOLocalSigner {
 
     // MARK: - CS_SuperBlob / CS_CodeDirectory / CS_RequirementsBlob
 
-    private static func emptyRequirementsBlob() -> Data {
+    /// Builds a `CS_RequirementsBlob` carrying a standard `kSecDesignatedRequirementType` (3) requirement matching
+    /// `codesign`'s `DRMaker`: `anchor apple generic` + `subject.OU` for Apple-anchored chains, or `certificate leaf = H"..."`
+    /// for non-Apple / self-signed certificates.
+    static func buildDesignatedRequirementsBlob(identifier: String, teamID: String, leafDER: Data,
+                                                isAppleAnchored: Bool) -> Data {
+        func appendReqData(_ out: inout Data, _ bytes: Data) {
+            appendU32BE(&out, UInt32(bytes.count))
+            out.append(bytes)
+            let pad = (4 - (bytes.count % 4)) % 4
+            if pad > 0 {
+                out.append(Data(repeating: 0, count: pad))
+            }
+        }
+
+        // Apple CS requirement opcodes (Security/CSCommon & drmaker.cpp):
+        // kind = 1 (opExpr), opIdent = 2, opAnchorHash = 4, opAnd = 6, opCertField = 11, opAppleGenericAnchor = 15, matchEqual = 1.
+        var expr = Data()
+        if isAppleAnchored {
+            if !teamID.isEmpty {
+                appendU32BE(&expr, 6) // outer opAnd
+            }
+            appendU32BE(&expr, 6) // inner opAnd
+            appendU32BE(&expr, 2) // opIdent
+            appendReqData(&expr, Data(identifier.utf8))
+            appendU32BE(&expr, 15) // opAppleGenericAnchor
+            if !teamID.isEmpty {
+                appendU32BE(&expr, 11) // opCertField
+                appendU32BE(&expr, 0)  // slot 0 = leaf certificate
+                appendReqData(&expr, Data("subject.OU".utf8))
+                appendU32BE(&expr, 1)  // matchEqual
+                appendReqData(&expr, Data(teamID.utf8))
+            }
+        } else {
+            let leafSHA1 = Data(Insecure.SHA1.hash(data: leafDER))
+            appendU32BE(&expr, 6) // opAnd
+            appendU32BE(&expr, 2) // opIdent
+            appendReqData(&expr, Data(identifier.utf8))
+            appendU32BE(&expr, 4) // opAnchorHash
+            appendU32BE(&expr, 0) // slot 0 = leaf certificate
+            appendReqData(&expr, leafSHA1)
+        }
+
+        var singleReq = Data()
+        let reqLength = UInt32(12 + expr.count)
+        appendU32BE(&singleReq, csMagicRequirement)
+        appendU32BE(&singleReq, reqLength)
+        appendU32BE(&singleReq, 1) // kind = 1 (opExpr)
+        singleReq.append(expr)
+
         var out = Data()
+        let totalLength = UInt32(20 + singleReq.count)
         appendU32BE(&out, csMagicRequirements)
-        appendU32BE(&out, 12)
-        appendU32BE(&out, 0)
+        appendU32BE(&out, totalLength)
+        appendU32BE(&out, 1) // count = 1
+        appendU32BE(&out, csDesignatedRequirementType)
+        appendU32BE(&out, 20) // offset of the first requirement blob
+        out.append(singleReq)
         return out
     }
 
-    private static func buildCodeDirectory(machOPrefix: Data, codeLimit: UInt32, identifier: String, teamID: String,
+    private static func buildCodeDirectory(machOPrefix: Data, codeLimit: UInt32, pageSizeShift: UInt8,
+                                           identifier: String, teamID: String,
                                            execSegBase: UInt64, execSegLimit: UInt64,
                                            infoPlistHash: Data, requirementsHash: Data, codeResourcesHash: Data) -> Data {
+        let csPageSize = 1 << Int(pageSizeShift)
         let headerSize: UInt32 = 88
         let nSpecialSlots: UInt32 = 3
         let nCodeSlots = UInt32((Int(codeLimit) + csPageSize - 1) / csPageSize)
@@ -729,7 +807,7 @@ public enum MachOLocalSigner {
         cd.append(32)                           // 36: hashSize
         cd.append(csHashTypeSHA256)             // 37: hashType (SHA-256)
         cd.append(0)                            // 38: platform
-        cd.append(csPageSizeShift)              // 39: pageSize (2^12 = 4096)
+        cd.append(pageSizeShift)                // 39: pageSize (2^14 = 16384 on arm64, 2^12 = 4096 otherwise)
         appendU32BE(&cd, 0)                     // 40: spare2
         appendU32BE(&cd, 0)                     // 44: scatterOffset (v0x20100)
         appendU32BE(&cd, teamOffset)            // 48: teamOffset (v0x20200)
@@ -881,7 +959,9 @@ public enum MachOLocalSigner {
         ])
 
         let encapContentInfo = ASN1DER.sequence([oidData])
-        let certificatesImplicit = ASN1DER.contextImplicitConstructed(0, items: certificateChainDER)
+        // SignedData.certificates is `[0] IMPLICIT CertificateSet` (SET OF): sort elements by DER encoding per X.690.
+        let sortedCertificates = certificateChainDER.sorted { $0.lexicographicallyPrecedes($1) }
+        let certificatesImplicit = ASN1DER.contextImplicitConstructed(0, items: sortedCertificates)
 
         let signedData = ASN1DER.sequence([
             ASN1DER.integer(1),
