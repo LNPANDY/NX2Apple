@@ -38,7 +38,7 @@ import XCTest
             "CFBundleExecutable": exe,
             "CFBundleIdentifier": TestPreferences.domain(in: root, "\(upstream.rawValue)-\(titleID)"),
         ]
-        if upstream == .macNativeGames { plist["DMUpstream"] = "macnativegames" }
+        if upstream != .nxnative { plist["DMUpstream"] = upstream.rawValue }
         try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
             .write(to: app.appendingPathComponent("Contents/Info.plist"))
         return app
@@ -198,6 +198,76 @@ import XCTest
         }
         XCTAssertEqual(launchedPaths, [nxURL.standardizedFileURL.path])
         XCTAssertEqual(lib.games.first?.activeMacUpstream(defaults: defaults), .macNativeGames)
+    }
+
+    func testMacNativeGamesAndKidWithSwordSwitchAndLaunchWithoutRebuild() throws {
+        let t: (String) -> String = { L10n.string($0, .en) }
+        let ootTID = EngineUpstreamKind.ootSwitch2TitleID
+        let defaults = TestDefaults.make("mng-kws-ui")
+        let mngURL = try makeBundle(name: "Ocarina [MacNativeGames].app", titleID: ootTID, upstream: .macNativeGames)
+        let kwsURL = try makeBundle(name: "Ocarina [Kid with Sword].app", titleID: ootTID, upstream: .kidWithSword)
+
+        let lib = GameLibrary(file: root.appendingPathComponent("mng-kws-ui.json"), defaults: defaults)
+        var game = LibraryGame(titleID: ootTID, name: "Ocarina of Time")
+        lib.upsert(game)
+        lib.recordCompletedApp(path: mngURL.path, commit: "c1", for: game.id, isFastRefresh: false)
+        lib.recordCompletedApp(path: kwsURL.path, commit: "c2", for: game.id, isFastRefresh: false)
+
+        XCTAssertEqual(lib.games.count, 1)
+        game = try XCTUnwrap(lib.games.first)
+        XCTAssertEqual(game.sortedMacBuilds.map(\.upstream), [.macNativeGames, .kidWithSword])
+        XCTAssertEqual(game.activeMacUpstream(defaults: defaults), .kidWithSword)
+        XCTAssertEqual(LauncherView.tunedMetadataBadge(for: game, t: t)?.title, "Kid with Sword")
+
+        let manageItems = ManageItem.list(
+            game: game,
+            labels: t,
+            running: false,
+            olderTools: false,
+            activeBuildID: nil,
+            hasBuildFolder: false,
+            deviceName: "iPhone",
+            activeUpstream: .kidWithSword,
+            builtUpstreams: [.macNativeGames, .kidWithSword],
+            actions: ManageActions()
+        )
+        XCTAssertEqual(manageItems.first { $0.id == "launch.macnativegames" }?.title, "Launch with MacNativeGames")
+        XCTAssertEqual(manageItems.first { $0.id == "default.macnativegames" }?.title, "Set MacNativeGames as default")
+
+        var launchedPaths: [String] = []
+        let driver = LiveConsoleDriver(
+            launchGracePeriod: 0,
+            library: lib,
+            controls: ControlLayout(),
+            repo: { "" },
+            lang: { .en },
+            labels: { L10n.string($0, .en) },
+            pads: { [] },
+            steamPads: { [] },
+            launch: { launched, _, done in
+                launchedPaths.append(launched.appPath)
+                done(7, nil)
+            },
+            artwork: { _, _ in nil },
+            observeSystem: false
+        )
+        driver.refresh()
+        let consoleGame = try XCTUnwrap(driver.state.games.first)
+        XCTAssertEqual(consoleGame.builtMacEngines, [.macNativeGames, .kidWithSword])
+        XCTAssertEqual(consoleGame.activeMacEngine, .kidWithSword)
+        XCTAssertEqual(consoleGame.activeEngineBadgeName, "Kid with Sword")
+
+        driver.launchWithMacEngine(game.id.uuidString, upstream: .macNativeGames)
+        let deadline = Date().addingTimeInterval(2)
+        while launchedPaths.isEmpty && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertEqual(launchedPaths, [mngURL.standardizedFileURL.path])
+        XCTAssertEqual(lib.games.first?.activeMacUpstream(defaults: defaults), .kidWithSword)
+
+        driver.setDefaultMacEngine(game.id.uuidString, upstream: .macNativeGames)
+        XCTAssertEqual(driver.state.games.first?.activeMacEngine, .macNativeGames)
+        XCTAssertEqual(LauncherView.tunedMetadataBadge(for: try XCTUnwrap(lib.games.first), t: t)?.title, "MacNativeGames")
     }
 
     func testAllNewLocalizationKeysExistWithoutSemicolons() throws {
