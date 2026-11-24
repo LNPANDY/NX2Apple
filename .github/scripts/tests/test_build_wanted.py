@@ -1,9 +1,11 @@
+import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import build_wanted as bw  # noqa: E402
@@ -11,8 +13,8 @@ import build_wanted as bw  # noqa: E402
 ENV = {'EVENT_NAME': 'pull_request', 'PR_NUMBER': '7', 'HEAD_SHA': 'abc', 'GH_REPO': 'LNPANDY/NX2Apple', 'DEFAULT_BRANCH': 'main'}
 
 
-def fake_gh(labels=(), files=(), fail=False, calls=None):
-    """A fake `gh api`: the labels endpoint and the compare endpoint (paged by ?page=N, 100 per page)."""
+def fake_gh(labels=(), files=(), fail=False, calls=None, compare=None):
+    """Compare pages commits, not files. Only the first page contains up to 300 files."""
     def run(*args):
         if calls is not None:
             calls.append(args)
@@ -21,8 +23,14 @@ def fake_gh(labels=(), files=(), fail=False, calls=None):
         url = args[1]
         if '/labels' in url:
             return '\n'.join(labels)
-        page = int(url.rsplit('page=', 1)[1])
-        return '\n'.join(files[(page - 1) * 100:page * 100])
+        first_page = parse_qs(urlsplit(url).query).get('page', ['1']) == ['1']
+        records = [f if isinstance(f, dict) else {'filename': f} for f in files[:300]]
+        response = compare if compare is not None else ({'files': records} if first_page else {})
+        if '--jq' in args:
+            if 'files' not in response:
+                raise RuntimeError('cannot iterate over null')
+            return '\n'.join(f['filename'] for f in response['files'])
+        return json.dumps(response)
     return run
 
 
@@ -41,7 +49,7 @@ class Decide(unittest.TestCase):
 
     def test_packaging_files_build(self):
         for f in ('.github/workflows/build-mac-app.yml', 'frontend/Package.swift', 'frontend/Package.resolved', 'frontend/Resources/a.png',
-                  'frontend/tools/bundle_tools.sh', 'frontend/AppIcon.icon/icon.json', '.upstream-ref', 'patches/series',
+                  'frontend/tools/bundle_tools.sh', 'frontend/l10n/zh.json', 'frontend/AppIcon.icon/icon.json', '.upstream-ref', 'patches/series',
                   'tools/engine.py', 'frontend-ios/Package.swift', 'frontend-ios/Shell/build_shell.sh'):
             self.assertTrue(decide(files=['README.md', f])[0], f)
 
@@ -54,15 +62,37 @@ class Decide(unittest.TestCase):
     def test_label_builds(self):
         self.assertEqual(decide(labels=['ci', 'full-build'], files=['README.md'])[0], True)
         self.assertFalse(decide(labels=['ci'], files=['README.md'])[0])
+        self.assertFalse(decide(labels=['not full-build'], files=['README.md'])[0])
 
     def test_compare_against_the_default_branch(self):
         calls = []
         decide(files=['README.md'], calls=calls)
         self.assertIn('compare/main...abc', calls[-1][1])
 
-    def test_more_than_one_page(self):
+    def test_large_docs_only_compare_does_not_build(self):
+        calls = []
+        files = ['docs/%d.md' % i for i in range(150)]
+        self.assertFalse(decide(files=files, calls=calls)[0])
+        self.assertEqual(sum('/compare/' in args[1] for args in calls), 1)
+
+    def test_packaging_file_late_in_compare_builds(self):
         files = ['docs/%d.md' % i for i in range(150)] + ['frontend/Package.swift']
-        self.assertTrue(decide(files=files)[0])
+        build, reason = decide(files=files)
+        self.assertTrue(build)
+        self.assertIn('frontend/Package.swift', reason)
+
+    def test_rename_out_of_packaging_builds(self):
+        build, reason = decide(files=[{'filename': 'notes/old.png',
+                                       'previous_filename': 'frontend/Resources/old.png'}])
+        self.assertTrue(build)
+        self.assertIn('frontend/Resources/old.png', reason)
+
+    def test_missing_or_invalid_file_list_fails_open(self):
+        for response in ({}, {'files': None}, {'files': {}}, {'files': [{}]}):
+            with self.subTest(response=response):
+                build, reason = decide(compare=response)
+                self.assertTrue(build)
+                self.assertIn('lookup failed', reason)
 
     def test_too_many_files_build(self):
         build, reason = decide(files=['docs/%d.md' % i for i in range(300)])
