@@ -1,11 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "en"
-    ],
-    "name": "English",
-    "order": 1
-  },
+  "_language": {"locales": ["en"], "name": "English", "order": 1},
   "activity.averageSession": "Average %@",
   "activity.button": "Activity Log",
   "activity.dayCount": "%lld days",
@@ -211,7 +205,6 @@
   "cheats.writeFailed": "Could not write: %@",
   "cloud.applies": "A change counts from the game’s next start. Use the same folder on your iPhone or iPad.",
   "cloud.choose": "Choose folder…",
-  "cloud.externalNote": "Cloud saves in the launcher are not supported for %@ builds yet.",
   "cloud.failed": "The folder could not be set: %@",
   "cloud.fromAppEnv": "Set in the app’s env.txt",
   "cloud.fromPlayerEnv": "Set in this game’s env.txt",
@@ -2058,6 +2051,8 @@
   "macLibDiag.sheetTitle": "Skipped files",
   "macLibVerify.badge": "Unverified profile",
   "macLibVerify.note": "No dedicated profile yet. You can still build with the general pipeline and report any compatibility issues.",
+  "mng.cloud.externalNote": "Cloud saves are not supported for MacNativeGames builds. Saves stay in ~/Library/Application Support/MacNativeGames/<game folder>/profile/save/.",
+  "mng.saves.externalNote": "MacNativeGames keeps its saves separately in ~/Library/Application Support/MacNativeGames/<game folder>/profile/save/ and does not share saves with nxnative builds.",
   "msg.aocCopied": "add-on content (%d DLC) placed in the game folder's aoc/",
   "msg.archiveAt": "Archive: %@",
   "msg.archiveFailed": "Archive failed (exit code %d)",
@@ -2496,7 +2491,6 @@
   "savesloc.exportZip": "Export .zip…",
   "savesloc.exported": "Exported %d files to %@.",
   "savesloc.exportedZip": "Exported %1$d files as a JKSV archive to %2$@.",
-  "savesloc.externalNote": "%@ keeps its saves in its own folder. Save folder changes, import/export, and player profiles apply to nxnative and nxkit builds.",
   "savesloc.fallback": "This drive cannot hold saves, so the save stays in the usual place.",
   "savesloc.folder": "Save folder",
   "savesloc.fromGame": "Set for this game only",

@@ -43,7 +43,7 @@ struct CloudSavesCard: View {
 
     private var store: GameCloudSaves { saves ?? GameCloudSaves(titleID: game.titleID, appPath: game.appPath) }
     private var engineManaged: Bool { preview != nil || previewSync != nil || SaveEngines.forApp(game.appPath).managesSavesInLauncher }
-    private var upstreamDisplayName: String { LibraryGame.inferMacUpstream(appPath: game.appPath, titleID: game.titleID).displayName }
+    private var isMacNativeGames: Bool { SaveEngines.forApp(game.appPath) is MacNativeGamesSaveEngine }
     static let attention = DS.Color.statusWarning
 
     var body: some View {
@@ -52,60 +52,62 @@ struct CloudSavesCard: View {
         let setting = shownSetting
         let check = preview?.check ?? setting.folder.map { CloudSaveSync.check(folder: $0, titleID: game.titleID) }
         let plan = engineManaged ? syncPlan(setting: setting) : nil
-        VStack(alignment: .leading, spacing: 10) {
-            Text(loc.t("cloud.title")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
-            if engineManaged {
-                VStack(alignment: .leading, spacing: 0) {
-                    folderRow(setting)
-                    if let check, let notice = notice(check) {
+        if engineManaged || isMacNativeGames {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(loc.t("cloud.title")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
+                if engineManaged {
+                    VStack(alignment: .leading, spacing: 0) {
+                        folderRow(setting)
+                        if let check, let notice = notice(check) {
+                            Divider().opacity(0.25).padding(.leading, 18)
+                            notice
+                        }
+                        if let plan, (preview == nil || previewSync != nil) {
+                            Divider().opacity(0.25).padding(.leading, 18)
+                            syncRow(plan)
+                        }
                         Divider().opacity(0.25).padding(.leading, 18)
-                        notice
+                        lastRow
                     }
-                    if let plan, (preview == nil || previewSync != nil) {
-                        Divider().opacity(0.25).padding(.leading, 18)
-                        syncRow(plan)
+                    .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+                    Text(problem ?? loc.t(setting.isOn ? "cloud.applies" : "cloud.offNote")).font(DS.Font.callout)
+                        .foregroundStyle(problem == nil ? .secondary : Self.attention)
+                        .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        noticeRow("icloud.slash", loc.t("mng.cloud.externalNote"), .secondary)
                     }
-                    Divider().opacity(0.25).padding(.leading, 18)
-                    lastRow
+                    .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
                 }
-                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
-                Text(problem ?? loc.t(setting.isOn ? "cloud.applies" : "cloud.offNote")).font(DS.Font.callout)
-                    .foregroundStyle(problem == nil ? .secondary : Self.attention)
-                    .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    noticeRow("icloud.slash", String(format: loc.t("cloud.externalNote"), upstreamDisplayName), .secondary)
-                }
-                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             }
-        }
-        .onAppear {
-            guard engineManaged else { return }
-            readLog()
-            inspectSync(plan: plan)
-        }
-        .onChange(of: game.titleID) { _ in
-            syncStore.reset()
-            last = nil
-            readLog()
-            inspectSync(plan: plan)
-        }
-        .onChange(of: revision) { _ in inspectSync(plan: plan) }
-        .onChange(of: overrides?.revision ?? 0) { _ in inspectSync(plan: plan) }
-        .onChange(of: players?.active.id ?? "") { _ in inspectSync(plan: plan) }
-        .onChange(of: syncStore.conflict != nil) { open in pad.scope = open ? "cloudsync" : "launch" }
-        .sheet(item: $syncStore.conflict) { prompt in
-            CloudSyncConflictSheet(
-                prompt: prompt,
-                cancel: { syncStore.conflict = nil },
-                choose: { choice in
-                    syncStore.resolveConflict(choice, prompt: prompt, isRunning: { running(game.titleID) })
-                }
-            )
-            .environmentObject(loc)
-            .environmentObject(pad)
+            .onAppear {
+                guard engineManaged else { return }
+                readLog()
+                inspectSync(plan: plan)
+            }
+            .onChange(of: game.titleID) { _ in
+                syncStore.reset()
+                last = nil
+                readLog()
+                inspectSync(plan: plan)
+            }
+            .onChange(of: revision) { _ in inspectSync(plan: plan) }
+            .onChange(of: overrides?.revision ?? 0) { _ in inspectSync(plan: plan) }
+            .onChange(of: players?.active.id ?? "") { _ in inspectSync(plan: plan) }
+            .onChange(of: syncStore.conflict != nil) { open in pad.scope = open ? "cloudsync" : "launch" }
+            .sheet(item: $syncStore.conflict) { prompt in
+                CloudSyncConflictSheet(
+                    prompt: prompt,
+                    cancel: { syncStore.conflict = nil },
+                    choose: { choice in
+                        syncStore.resolveConflict(choice, prompt: prompt, isRunning: { running(game.titleID) })
+                    }
+                )
+                .environmentObject(loc)
+                .environmentObject(pad)
+            }
         }
     }
 

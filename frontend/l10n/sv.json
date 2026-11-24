@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "sv",
-      "swedish"
-    ],
-    "name": "Svenska",
-    "order": 2
-  },
+  "_language": {"locales": ["sv", "swedish"], "name": "Svenska", "order": 2},
   "activity.averageSession": "Snitt %@",
   "activity.button": "Aktivitetslogg",
   "activity.dayCount": "%lld dagar",
@@ -212,7 +205,6 @@
   "cheats.writeFailed": "Kunde inte skriva: %@",
   "cloud.applies": "En ändring gäller från spelets nästa start. Använd samma mapp på din iPhone eller iPad.",
   "cloud.choose": "Välj mapp …",
-  "cloud.externalNote": "Molnsparning i startaren stöds ännu inte för %@-byggen.",
   "cloud.failed": "Mappen kunde inte ställas in: %@",
   "cloud.fromAppEnv": "Satt i appens env.txt",
   "cloud.fromPlayerEnv": "Satt i spelets env.txt",
@@ -2059,6 +2051,8 @@
   "macLibDiag.sheetTitle": "Överhoppade filer",
   "macLibVerify.badge": "Overifierad profil",
   "macLibVerify.note": "Ingen dedikerad profil ännu. Du kan ändå bygga med det allmänna flödet och rapportera eventuella kompatibilitetsproblem.",
+  "mng.cloud.externalNote": "Molnsparning stöds inte för MacNativeGames-byggen. Sparfiler lagras i ~/Library/Application Support/MacNativeGames/<spelmapp>/profile/save/.",
+  "mng.saves.externalNote": "MacNativeGames lagrar sina sparfiler separat i ~/Library/Application Support/MacNativeGames/<spelmapp>/profile/save/ och delar inte sparfiler med nxnative-byggen.",
   "msg.aocCopied": "tilläggsinnehåll (%d DLC) placerades i spelmappens aoc/",
   "msg.archiveAt": "Arkiv: %@",
   "msg.archiveFailed": "Arkiveringen misslyckades (slutkod %d)",
@@ -2497,7 +2491,6 @@
   "savesloc.exportZip": "Exportera .zip…",
   "savesloc.exported": "Exporterade %d filer till %@.",
   "savesloc.exportedZip": "Exporterade %1$d filer som JKSV-arkiv till %2$@.",
-  "savesloc.externalNote": "%@ sparar sina filer i en egen mapp. Ändring av mapp, import/export och spelarprofiler gäller endast nxnative- och nxkit-byggen.",
   "savesloc.fallback": "Den här disken kan inte rymma sparfiler, så sparfilen ligger kvar på den vanliga platsen.",
   "savesloc.folder": "Sparmapp",
   "savesloc.fromGame": "Satt endast för det här spelet",

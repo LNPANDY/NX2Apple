@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "es",
-      "spanish",
-      "español"
-    ],
-    "name": "Español"
-  },
+  "_language": {"locales": ["es", "spanish", "español"], "name": "Español"},
   "activity.averageSession": "Media %@",
   "activity.button": "Registro de actividad",
   "activity.dayCount": "%lld días",
@@ -212,7 +205,6 @@
   "cheats.writeFailed": "No se pudo escribir: %@",
   "cloud.applies": "Un cambio cuenta desde el próximo inicio del juego. Usa la misma carpeta en tu iPhone o iPad.",
   "cloud.choose": "Elegir carpeta…",
-  "cloud.externalNote": "El guardado en la nube del lanzador aún no es compatible con compilaciones de %@.",
   "cloud.failed": "No se pudo establecer la carpeta: %@",
   "cloud.fromAppEnv": "Definida en el env.txt de la app",
   "cloud.fromPlayerEnv": "Definida en el env.txt de este juego",
@@ -2059,6 +2051,8 @@
   "macLibDiag.sheetTitle": "Archivos omitidos",
   "macLibVerify.badge": "Perfil sin verificar",
   "macLibVerify.note": "Aún no tiene un perfil específico. Puedes compilarlo con el flujo general e informar de cualquier problema de compatibilidad.",
+  "mng.cloud.externalNote": "Las partidas en la nube no son compatibles con compilaciones de MacNativeGames. Los guardados permanecen en ~/Library/Application Support/MacNativeGames/<carpeta del juego>/profile/save/.",
+  "mng.saves.externalNote": "MacNativeGames guarda sus partidas por separado en ~/Library/Application Support/MacNativeGames/<carpeta del juego>/profile/save/ y no comparte guardados con las compilaciones de nxnative.",
   "msg.aocCopied": "contenido adicional (%d DLC) colocado en aoc/ de la carpeta del juego",
   "msg.archiveAt": "Archivo: %@",
   "msg.archiveFailed": "Falló el archivo (código de salida %d)",
@@ -2497,7 +2491,6 @@
   "savesloc.exportZip": "Exportar .zip…",
   "savesloc.exported": "Se exportaron %d archivos a %@.",
   "savesloc.exportedZip": "Se exportaron %1$d archivos como archivo JKSV en %2$@.",
-  "savesloc.externalNote": "%@ guarda sus partidas en su propia carpeta. Cambiar de carpeta, importar o exportar y los perfiles de jugador solo se aplican a compilaciones de nxnative y nxkit.",
   "savesloc.fallback": "Este disco no puede guardar partidas, así que la partida se queda en el sitio de siempre.",
   "savesloc.folder": "Carpeta de guardado",
   "savesloc.fromGame": "Solo para este juego",

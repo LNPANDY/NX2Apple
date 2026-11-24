@@ -385,6 +385,7 @@ struct SavesView: View {
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
     private var engineManaged: Bool { game.map { SaveEngines.forApp($0.appPath).managesSavesInLauncher } ?? true }
+    private var isMacNativeGames: Bool { game.map { SaveEngines.forApp($0.appPath) is MacNativeGamesSaveEngine } ?? false }
     private var macSave: SaveTransfer.Contents { model.macSave }
     private var deviceSave: SaveTransfer.Contents? { model.deviceSave }
     /// Which folder the Mac save is read from, so "No save yet" says where it looked.
@@ -496,8 +497,8 @@ struct SavesView: View {
                 }
             }
             .buttonStyle(DSRowButtonStyle())
-            if !engineManaged, let game {
-                Text(String(format: loc.t("savesloc.externalNote"), LibraryGame.inferMacUpstream(appPath: game.appPath, titleID: game.titleID).displayName))
+            if !engineManaged, isMacNativeGames {
+                Text(loc.t("mng.saves.externalNote"))
                     .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
         }

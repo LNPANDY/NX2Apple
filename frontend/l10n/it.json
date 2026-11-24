@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "it",
-      "italian",
-      "italiano"
-    ],
-    "name": "Italiano"
-  },
+  "_language": {"locales": ["it", "italian", "italiano"], "name": "Italiano"},
   "activity.averageSession": "Media %@",
   "activity.button": "Diario attività",
   "activity.dayCount": "%lld giorni",
@@ -212,7 +205,6 @@
   "cheats.writeFailed": "Impossibile scrivere: %@",
   "cloud.applies": "Una modifica vale dal prossimo avvio del gioco. Usa la stessa cartella su iPhone o iPad.",
   "cloud.choose": "Scegli cartella…",
-  "cloud.externalNote": "I salvataggi su cloud nel launcher non sono ancora supportati per le build %@.",
   "cloud.failed": "Impossibile impostare la cartella: %@",
   "cloud.fromAppEnv": "Impostata nel env.txt dell’app",
   "cloud.fromPlayerEnv": "Impostata nel env.txt di questo gioco",
@@ -2059,6 +2051,8 @@
   "macLibDiag.sheetTitle": "File ignorati",
   "macLibVerify.badge": "Profilo non verificato",
   "macLibVerify.note": "Nessun profilo dedicato disponibile. Puoi comunque compilare con il flusso generale e segnalare eventuali problemi di compatibilità.",
+  "mng.cloud.externalNote": "I salvataggi su cloud non sono supportati per le build MacNativeGames. I salvataggi restano in ~/Library/Application Support/MacNativeGames/<cartella del gioco>/profile/save/.",
+  "mng.saves.externalNote": "MacNativeGames salva i dati separatamente in ~/Library/Application Support/MacNativeGames/<cartella del gioco>/profile/save/ e non condivide i salvataggi con le build nxnative.",
   "msg.aocCopied": "contenuti aggiuntivi (%d DLC) inseriti in aoc/ nella cartella del gioco",
   "msg.archiveAt": "Archivio: %@",
   "msg.archiveFailed": "Archiviazione non riuscita (codice di uscita %d)",
@@ -2497,7 +2491,6 @@
   "savesloc.exportZip": "Esporta .zip…",
   "savesloc.exported": "Esportati %d file in %@.",
   "savesloc.exportedZip": "Esportati %1$d file come archivio JKSV in %2$@.",
-  "savesloc.externalNote": "%@ conserva i salvataggi nella propria cartella. La modifica della cartella, l’importazione/esportazione e i profili giocatore valgono per le build nxnative e nxkit.",
   "savesloc.fallback": "Questa unità non può contenere salvataggi, quindi il salvataggio resta nella posizione abituale.",
   "savesloc.folder": "Cartella salvataggi",
   "savesloc.fromGame": "Impostata solo per questo gioco",

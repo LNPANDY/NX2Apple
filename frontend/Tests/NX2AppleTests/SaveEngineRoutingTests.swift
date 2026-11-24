@@ -1,6 +1,10 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+@testable import NXModel
+@testable import NXLauncher
 
 /// Regression tests verifying save engine routing and deletion isolation across nxnative, MacNativeGames, S2Arm, and nxkit.
 final class SaveEngineRoutingTests: IsolatedDefaultsTestCase {
@@ -191,11 +195,109 @@ final class SaveEngineRoutingTests: IsolatedDefaultsTestCase {
 
     func testExternalSaveTextsExistAcrossAllLocalesAndHaveNoSemicolons() {
         for lang in Lang.all {
-            for key in ["cloud.externalNote", "savesloc.externalNote"] {
+            for key in ["mng.cloud.externalNote", "mng.saves.externalNote"] {
                 let text = L10n.string(key, lang)
                 XCTAssertNotEqual(text, key)
                 XCTAssertFalse(text.contains(";") || text.contains("\u{FF1B}"), "\(lang.code) \(key) contains semicolon")
             }
         }
+    }
+
+    @MainActor func testMNGSaveNoticesRenderAndCaptureEnglishAndChinese() throws {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let captureDir = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"]
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        if let captureDir {
+            try fm.createDirectory(at: captureDir, withIntermediateDirectories: true)
+        }
+
+        let fakeMNG = root.appendingPathComponent("fake-mng", isDirectory: true)
+        try fm.createDirectory(at: fakeMNG.appendingPathComponent("games/totk"), withIntermediateDirectories: true)
+        try Data("# mng\n".utf8).write(to: fakeMNG.appendingPathComponent("build_app.py"))
+
+        let mngApp = try fakeApp("TOTK [MacNativeGames].app", titleID: totkTID, upstream: .macNativeGames)
+        let nxApp = try fakeApp("TOTK.app", titleID: totkTID, upstream: .nxnative)
+        let baseNSP = root.appendingPathComponent("TOTK [0100F2C0115B6000].nsp")
+        try Data([0]).write(to: baseNSP)
+
+        for lang in CaptureLanguage.all([Lang.en, Lang.zh]) {
+            let defaults = TestDefaults.make("mng-ui-shot-\(lang.code)")
+            let stores = LauncherStores(defaults: defaults)
+            stores.localizer.lang = lang
+            stores.build.upstreamChanged = {}
+            stores.build.macNativeGamesPath = fakeMNG.path
+            stores.build.updateSlot("base") { $0.paths = [baseNSP.path] }
+            stores.build.selectUpstream(.macNativeGames)
+
+            let libDir = root.appendingPathComponent("lib-\(lang.code)", isDirectory: true)
+            try fm.createDirectory(at: libDir, withIntermediateDirectories: true)
+            let library = GameLibrary(file: libDir.appendingPathComponent("library.json"), defaults: defaults)
+            var game = LibraryGame(titleID: totkTID, name: "The Legend of Zelda: Tears of the Kingdom", appPath: mngApp.path)
+            game.inputs["base"] = [baseNSP.path]
+            game.macBuilds = [
+                EngineUpstreamKind.nxnative.rawValue: LibraryMacBuild(upstream: .nxnative, appPath: nxApp.path),
+                EngineUpstreamKind.macNativeGames.rawValue: LibraryMacBuild(upstream: .macNativeGames, appPath: mngApp.path),
+            ]
+            library.games = [game]
+
+            let switcher = EngineSwitcherCard(build: stores.build)
+            let batchSheet = BuildSelectedSheet(
+                library: library,
+                queue: stores.queue,
+                engineID: "nxnative",
+                target: BuildTarget.mac,
+                macOnlyNoteKey: "upstream.mngMacOnly",
+                macNativeGamesSelected: true,
+                activeUpstream: .macNativeGames,
+                close: {}
+            )
+            let savesSection = VStack(alignment: .leading, spacing: 18) {
+                GameSavesSection(game: game, settings: stores.saveSettings, players: stores.players)
+                CloudSavesCard(game: game, overrides: stores.saveSettings, players: stores.players)
+            }
+
+            func checkAndCapture<V: View>(_ name: String, width: CGFloat, _ view: V) throws {
+                let framed = view
+                    .environmentObject(stores.localizer)
+                    .environmentObject(PadFocus())
+                    .padding(24)
+                    .frame(width: width)
+                    .background(LauncherPalette.background)
+                    .font(.manrope(13))
+                    .preferredColorScheme(.dark)
+                let host = NSHostingView(rootView: framed)
+                host.frame = NSRect(origin: .zero, size: host.fittingSize)
+                XCTAssertGreaterThan(host.fittingSize.width, 100)
+                XCTAssertGreaterThan(host.fittingSize.height, 60)
+                guard let captureDir else { return }
+                let window = OffscreenWindow(size: host.frame.size)
+                window.contentView = host
+                window.orderFront(nil)
+                defer { window.orderOut(nil); window.contentView = nil; window.close() }
+                RunLoop.main.run(until: Date().addingTimeInterval(0.35))
+                host.layoutSubtreeIfNeeded()
+                let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: rep)
+                try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(
+                    to: captureDir.appendingPathComponent("\(name)-\(lang.code).png")
+                )
+            }
+
+            try checkAndCapture("mng-engine-switcher", width: 760, switcher)
+            try checkAndCapture("mng-build-selected", width: 720, batchSheet)
+            try checkAndCapture("mng-game-saves", width: 620, savesSection)
+        }
+
+        // S2Arm is not public-facing yet: CloudSavesCard renders empty (no dedicated S2Arm UI).
+        let s2armApp = try fakeApp("TOTK [S2Arm].app", titleID: totkTID, upstream: .s2arm)
+        let s2armGame = LibraryGame(titleID: totkTID, name: "TOTK", appPath: s2armApp.path)
+        let s2armDefaults = TestDefaults.make("s2arm-hidden-cloud")
+        let s2armStores = LauncherStores(defaults: s2armDefaults)
+        let s2armCloudHost = NSHostingView(
+            rootView: CloudSavesCard(game: s2armGame, overrides: s2armStores.saveSettings, players: s2armStores.players)
+                .environmentObject(s2armStores.localizer)
+                .environmentObject(PadFocus())
+        )
+        XCTAssertEqual(s2armCloudHost.fittingSize, .zero)
     }
 }

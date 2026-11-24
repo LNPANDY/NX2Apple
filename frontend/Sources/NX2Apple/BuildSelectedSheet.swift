@@ -24,6 +24,7 @@ struct BuildSelectedSheet: View {
     var mngSupportsGenericNUP: Bool = false
     /// Active build engine selected on the Builds page (when nil, falls back to `macNativeGamesSelected`).
     var activeUpstream: EngineUpstreamKind? = nil
+    var revealSaveTarget: (MacNativeGamesSaveEngine.SaveTarget) -> Void = MacNativeGamesSaveFinder.reveal
     var added: (String) -> Void = { _ in }
     let close: () -> Void
     @EnvironmentObject var loc: Localizer
@@ -84,6 +85,9 @@ struct BuildSelectedSheet: View {
             if let macOnlyNoteKey {
                 Text(loc.t(macOnlyNoteKey)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            if effectiveUpstream == .macNativeGames {
+                mngSaveBanner
             }
             if tunedCandidatesCount > 0 {
                 LauncherSegmented(
@@ -251,6 +255,49 @@ struct BuildSelectedSheet: View {
     /// The platforms the chosen games are queued for: the Mac only with a Mac-only engine, whatever the segment held.
     private var targets: [String] {
         Self.targets(selectedTarget, macOnly: macOnlyNoteKey != nil)
+    }
+    private var mngTargetTitleID: String? {
+        let isMNGCandidate: (LibraryGame) -> Bool = { game in
+            Self.rowEngineTag(
+                for: game.titleID,
+                selectedTarget: selectedTarget,
+                activeUpstream: .macNativeGames,
+                isNUP: isNUPInput(game),
+                supportsGenericNUP: mngSupportsGenericNUP
+            ) == .macNativeGames
+        }
+        let picked = candidates.filter { checked.contains($0.id) }
+        let mngPicked = picked.filter(isMNGCandidate)
+        if mngPicked.count == 1 { return mngPicked[0].titleID }
+        if picked.isEmpty {
+            let allMNG = candidates.filter(isMNGCandidate)
+            if allMNG.count == 1 { return allMNG[0].titleID }
+        }
+        return nil
+    }
+    private var mngSaveBanner: some View {
+        let target = MacNativeGamesSaveEngine.resolveSaveTarget(titleID: mngTargetTitleID)
+        return DSCard {
+            HStack(spacing: DS.Space.s) {
+                Image(systemName: "folder")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DS.Color.symbolDefault)
+                    .accessibilityHidden(true)
+                Text(loc.t("mng.saves.externalNote"))
+                    .font(DS.Font.callout)
+                    .foregroundStyle(DS.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: DS.Space.s)
+                Button(loc.t("savesloc.show")) {
+                    revealSaveTarget(target)
+                }
+                .buttonStyle(DSSecondaryButtonStyle())
+                .fixedSize()
+                .padTarget("batch.mngShowSaves", scope: "batch") {
+                    revealSaveTarget(target)
+                }
+            }
+        }
     }
     static func targets(_ selection: String, macOnly: Bool) -> [String] {
         if macOnly { return [BuildTarget.mac] }

@@ -204,4 +204,55 @@ final class MultiEngineIsolationTests: XCTestCase {
         DefaultBuildPreference.set(nil, titleID: tid, defaults: defaults)
         XCTAssertNil(DefaultBuildPreference.get(titleID: tid, defaults: defaults))
     }
+
+    func testMNGSaveTargetResolvesUsersTxtAndProfileDirFallback() throws {
+        let support = root.appendingPathComponent("support", isDirectory: true)
+        let totkTID = "0100F2C0115B6000"
+        let profileDir = support.appendingPathComponent("MacNativeGames/TOTK/profile", isDirectory: true)
+        let saveBase = profileDir.appendingPathComponent("save", isDirectory: true)
+        try FileManager.default.createDirectory(at: saveBase, withIntermediateDirectories: true)
+
+        // When profile exists and users.txt names a UID whose directory is missing, revealURL opens the parent profile directory.
+        let uid = "bc947674f5e2b55ebbb6afdf0579d70b"
+        try "# comment\ninvalid-short\n*\(uid)\tLocal\n11111111111111111111111111111111\tOther\n"
+            .write(to: profileDir.appendingPathComponent("users.txt"), atomically: true, encoding: .utf8)
+
+        let missingUIDTarget = MacNativeGamesSaveEngine.resolveSaveTarget(titleID: totkTID, support: support, environment: [:])
+        XCTAssertEqual(missingUIDTarget.displaySaveURL.standardizedFileURL, saveBase.standardizedFileURL)
+        XCTAssertEqual(missingUIDTarget.revealURL.standardizedFileURL, profileDir.standardizedFileURL)
+
+        // When the UID folder exists, both displaySaveURL and revealURL resolve directly to save/<uid>.
+        let uidDir = saveBase.appendingPathComponent(uid, isDirectory: true)
+        try FileManager.default.createDirectory(at: uidDir, withIntermediateDirectories: true)
+        let existingUIDTarget = MacNativeGamesSaveEngine.resolveSaveTarget(titleID: totkTID, support: support, environment: [:])
+        XCTAssertEqual(existingUIDTarget.displaySaveURL.standardizedFileURL, uidDir.standardizedFileURL)
+        XCTAssertEqual(existingUIDTarget.revealURL.standardizedFileURL, uidDir.standardizedFileURL)
+
+        // Without `*`, activeUserID picks the first valid 32-hex UID.
+        try "0123456789abcdef0123456789abcdef\tFirst\n".write(to: profileDir.appendingPathComponent("users.txt"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(MacNativeGamesSaveEngine.activeUserID(inProfile: profileDir), "0123456789abcdef0123456789abcdef")
+
+        // TOTK_PROFILE_DIR overrides the default profile location and falls back to that profile dir if its <uid> folder is missing.
+        let customProfile = root.appendingPathComponent("custom-totk-profile", isDirectory: true)
+        let customUID = "aaaa2222bbbb3333cccc4444dddd5555"
+        try FileManager.default.createDirectory(at: customProfile, withIntermediateDirectories: true)
+        try "*\(customUID)\tCustom\n".write(to: customProfile.appendingPathComponent("users.txt"), atomically: true, encoding: .utf8)
+        let overrideMissing = MacNativeGamesSaveEngine.resolveSaveTarget(
+            titleID: nil,
+            support: support,
+            environment: ["TOTK_PROFILE_DIR": customProfile.path]
+        )
+        XCTAssertEqual(overrideMissing.displaySaveURL.path, customProfile.appendingPathComponent("save", isDirectory: true).path)
+        XCTAssertEqual(overrideMissing.revealURL.path, customProfile.path)
+
+        let customUIDDir = customProfile.appendingPathComponent("save/\(customUID)", isDirectory: true)
+        try FileManager.default.createDirectory(at: customUIDDir, withIntermediateDirectories: true)
+        let overrideExisting = MacNativeGamesSaveEngine.resolveSaveTarget(
+            titleID: nil,
+            support: support,
+            environment: ["TOTK_PROFILE_DIR": customProfile.path]
+        )
+        XCTAssertEqual(overrideExisting.displaySaveURL.path, customUIDDir.path)
+        XCTAssertEqual(overrideExisting.revealURL.path, customUIDDir.path)
+    }
 }

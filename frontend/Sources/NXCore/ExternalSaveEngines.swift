@@ -12,6 +12,12 @@ package struct MacNativeGamesSaveEngine: SaveEngine {
     package var savesInLibraryFolder: Bool { false }
     package var managesSavesInLauncher: Bool { false }
 
+    /// Resolved MacNativeGames save path and the existing directory to reveal in Finder.
+    package struct SaveTarget: Equatable, Sendable {
+        package var displaySaveURL: URL
+        package var revealURL: URL
+    }
+
     /// Data directories for legacy `dm`-wrapped MNG ports that force-override `DM_SAVE` inside `app/launcher.c`.
     private static let legacyDmFolders: [String: String] = [
         "01002DA013484000": "The Legend of Zelda Skyward Sword HD", // games/ss/app/launcher.c
@@ -32,21 +38,89 @@ package struct MacNativeGamesSaveEngine: SaveEngine {
         "0100000000010000": ["Odyssey"],                  // Super Mario Odyssey
     ]
 
-    package func defaultSave(titleID: String, support: URL) -> URL {
-        let tid = titleID.uppercased()
-        if let legacy = Self.legacyDmFolders[tid] {
-            return support.appendingPathComponent(legacy, isDirectory: true).appendingPathComponent("save", isDirectory: true)
-        }
-        let candidates = Self.profileFolders[tid] ?? [tid]
+    /// Resolves the save location using `TOTK_PROFILE_DIR` and `users.txt`, falling back to `profile` when `<uid>` does not exist yet.
+    package static func resolveSaveTarget(
+        titleID: String?,
+        support: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> SaveTarget {
         let fm = FileManager.default
-        let base = support.appendingPathComponent("MacNativeGames", isDirectory: true)
-        let folderName = candidates.first {
-            fm.fileExists(atPath: base.appendingPathComponent($0, isDirectory: true).appendingPathComponent("profile/save").path)
-        } ?? candidates[0]
-        return base
-            .appendingPathComponent(folderName, isDirectory: true)
-            .appendingPathComponent("profile", isDirectory: true)
-            .appendingPathComponent("save", isDirectory: true)
+        let mngRoot = support.appendingPathComponent("MacNativeGames", isDirectory: true)
+        func isDir(_ url: URL) -> Bool {
+            var dir: ObjCBool = false
+            return fm.fileExists(atPath: url.path, isDirectory: &dir) && dir.boolValue
+        }
+        func firstExistingDir(_ candidates: [URL]) -> URL {
+            candidates.first(where: isDir) ?? candidates.last!
+        }
+        func resolveProfile(_ profileDir: URL, gameRoot: URL) -> SaveTarget {
+            let saveBase = profileDir.appendingPathComponent("save", isDirectory: true)
+            if let uid = activeUserID(inProfile: profileDir) {
+                let direct = saveBase.appendingPathComponent(uid, isDirectory: true)
+                if isDir(direct) {
+                    return SaveTarget(displaySaveURL: direct, revealURL: direct)
+                }
+                if let entries = try? fm.contentsOfDirectory(at: saveBase, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]),
+                   let matched = entries.first(where: { $0.lastPathComponent.caseInsensitiveCompare(uid) == .orderedSame && isDir($0) }) {
+                    return SaveTarget(displaySaveURL: matched, revealURL: matched)
+                }
+            }
+            let reveal = firstExistingDir([profileDir, gameRoot, mngRoot, support])
+            return SaveTarget(displaySaveURL: saveBase, revealURL: reveal)
+        }
+
+        if let rawOverride = environment["TOTK_PROFILE_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawOverride.isEmpty {
+            let expanded = (rawOverride as NSString).expandingTildeInPath
+            let profileDir = URL(fileURLWithPath: expanded, isDirectory: true)
+            return resolveProfile(profileDir, gameRoot: profileDir.deletingLastPathComponent())
+        }
+
+        let tid = titleID?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if let tid, let legacy = legacyDmFolders[tid] {
+            let gameRoot = support.appendingPathComponent(legacy, isDirectory: true)
+            let save = gameRoot.appendingPathComponent("save", isDirectory: true)
+            return SaveTarget(displaySaveURL: save, revealURL: firstExistingDir([save, gameRoot, mngRoot, support]))
+        }
+        if let tid, let candidates = profileFolders[tid] {
+            let folderName = candidates.first { isDir(mngRoot.appendingPathComponent($0, isDirectory: true).appendingPathComponent("profile/save")) }
+                ?? candidates.first { isDir(mngRoot.appendingPathComponent($0, isDirectory: true).appendingPathComponent("profile")) }
+                ?? candidates.first { isDir(mngRoot.appendingPathComponent($0, isDirectory: true)) }
+                ?? candidates[0]
+            let gameRoot = mngRoot.appendingPathComponent(folderName, isDirectory: true)
+            let profileDir = gameRoot.appendingPathComponent("profile", isDirectory: true)
+            return resolveProfile(profileDir, gameRoot: gameRoot)
+        }
+        if let tid, !tid.isEmpty {
+            let fallbackRoot = mngRoot.appendingPathComponent(tid, isDirectory: true)
+            let fallbackProfile = fallbackRoot.appendingPathComponent("profile", isDirectory: true)
+            if isDir(fallbackProfile) {
+                return resolveProfile(fallbackProfile, gameRoot: fallbackRoot)
+            }
+        }
+        return SaveTarget(displaySaveURL: mngRoot, revealURL: firstExistingDir([mngRoot, support]))
+    }
+
+    /// Parses `<profile>/users.txt` (lines formatted like `*<32-hex-uid>\tLocal`) to find the active 32-hex user ID.
+    package static func activeUserID(inProfile profileDir: URL) -> String? {
+        let usersFile = profileDir.appendingPathComponent("users.txt")
+        guard let text = try? String(contentsOf: usersFile, encoding: .utf8) else { return nil }
+        var firstValid: String?
+        for line in text.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+            let selected = trimmed.hasPrefix("*")
+            let body = selected ? String(trimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines) : trimmed
+            let token = String(body.prefix { !$0.isWhitespace })
+            guard token.count == 32, token.allSatisfy({ $0.isASCII && $0.isHexDigit }) else { continue }
+            if selected { return token }
+            if firstValid == nil { firstValid = token }
+        }
+        return firstValid
+    }
+
+    package func defaultSave(titleID: String, support: URL) -> URL {
+        Self.resolveSaveTarget(titleID: titleID, support: support).displaySaveURL
     }
 
     package func deletionPaths(titleID: String, support: URL) -> [String] {

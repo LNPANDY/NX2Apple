@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "fr",
-      "french"
-    ],
-    "name": "Français",
-    "order": 4
-  },
+  "_language": {"locales": ["fr", "french"], "name": "Français", "order": 4},
   "activity.averageSession": "Moyenne %@",
   "activity.button": "Journal d’activité",
   "activity.dayCount": "%lld jours",
@@ -212,7 +205,6 @@
   "cheats.writeFailed": "Écriture impossible : %@",
   "cloud.applies": "Un changement compte au prochain lancement du jeu. Utilisez le même dossier sur votre iPhone ou iPad.",
   "cloud.choose": "Choisir un dossier…",
-  "cloud.externalNote": "La sauvegarde dans le nuage depuis le lanceur n’est pas encore prise en charge pour les builds %@.",
   "cloud.failed": "Le dossier n’a pas pu être défini : %@",
   "cloud.fromAppEnv": "Défini dans le env.txt de l’app",
   "cloud.fromPlayerEnv": "Défini dans le env.txt de ce jeu",
@@ -2059,6 +2051,8 @@
   "macLibDiag.sheetTitle": "Fichiers ignorés",
   "macLibVerify.badge": "Profil non vérifié",
   "macLibVerify.note": "Aucun profil dédié pour le moment. Vous pouvez tout de même compiler avec le flux général et signaler tout problème de compatibilité.",
+  "mng.cloud.externalNote": "Les sauvegardes iCloud ne sont pas prises en charge pour les versions MacNativeGames. Les sauvegardes restent dans ~/Library/Application Support/MacNativeGames/<dossier du jeu>/profile/save/.",
+  "mng.saves.externalNote": "MacNativeGames enregistre ses sauvegardes séparément dans ~/Library/Application Support/MacNativeGames/<dossier du jeu>/profile/save/ et ne les partage pas avec les versions nxnative.",
   "msg.aocCopied": "contenu additionnel (%d DLC) placé dans le dossier aoc/ du jeu",
   "msg.archiveAt": "Archive : %@",
   "msg.archiveFailed": "Échec de l’archive (code de sortie %d)",
@@ -2497,7 +2491,6 @@
   "savesloc.exportZip": "Exporter .zip…",
   "savesloc.exported": "%d fichiers exportés vers %@.",
   "savesloc.exportedZip": "%1$d fichiers exportés en archive JKSV vers %2$@.",
-  "savesloc.externalNote": "%@ conserve ses sauvegardes dans son propre dossier. Le changement de dossier, l’import/export et les profils de joueur s’appliquent aux builds nxnative et nxkit.",
   "savesloc.fallback": "Ce disque ne peut pas contenir de sauvegardes, la sauvegarde reste donc à l’endroit habituel.",
   "savesloc.folder": "Dossier des sauvegardes",
   "savesloc.fromGame": "Défini pour ce jeu seulement",

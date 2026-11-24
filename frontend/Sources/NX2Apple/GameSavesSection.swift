@@ -16,6 +16,7 @@ struct GameSavesSection: View {
     var chooseZipImport: (URL?) -> URL? = GameSavesSection.openZipPanel
     var chooseSaveZip: (String) -> URL? = GameSavesSection.saveZipPanel
     var running: @Sendable (String) -> Bool = { SaveTransfer.runningOnMac(titleID: $0) }
+    var revealMNGTarget: (MacNativeGamesSaveEngine.SaveTarget) -> Void = MacNativeGamesSaveFinder.reveal
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var pad: PadFocus
     @State private var result: (text: String, ok: Bool)?
@@ -25,7 +26,7 @@ struct GameSavesSection: View {
 
     private var override: SaveGameOverride { settings.game(game.titleID) }
     private var engine: any SaveEngine { SaveEngines.forApp(game.appPath) }
-    private var upstreamDisplayName: String { LibraryGame.inferMacUpstream(appPath: game.appPath, titleID: game.titleID).displayName }
+    private var isMacNativeGames: Bool { engine is MacNativeGamesSaveEngine }
     private var effective: SaveLocations.EffectiveSave {
         SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: settings.global, game: override, engine: engine)
     }
@@ -34,12 +35,18 @@ struct GameSavesSection: View {
         let _ = settings.revision
         let save = effective
         let managed = engine.managesSavesInLauncher
+        let mngTarget = isMacNativeGames ? MacNativeGamesSaveEngine.resolveSaveTarget(titleID: game.titleID) : nil
+        let shownURL = mngTarget?.displaySaveURL ?? save.path
         VStack(alignment: .leading, spacing: 10) {
             Text(loc.t("saves.title")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
             VStack(spacing: 0) {
-                CardRow(loc.t("savesloc.folder"), detail: SaveLocationText.shown(save.path.path), detail2: "", help: save.path.path) {
-                    Button(loc.t("savesloc.show")) { reveal(save.path) }
-                        .padTarget("saves.show", scope: "launch") { reveal(save.path) }
+                CardRow(loc.t("savesloc.folder"), detail: SaveLocationText.shown(shownURL.path), detail2: "", help: shownURL.path) {
+                    Button(loc.t("savesloc.show")) {
+                        if let mngTarget { revealMNGTarget(mngTarget) } else { reveal(save.path) }
+                    }
+                    .padTarget("saves.show", scope: "launch") {
+                        if let mngTarget { revealMNGTarget(mngTarget) } else { reveal(save.path) }
+                    }
                     if managed {
                         Button(loc.t("savesloc.change")) { change() }
                             .disabled(busy)
@@ -90,9 +97,11 @@ struct GameSavesSection: View {
             .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             if !managed {
-                Text(String(format: loc.t("savesloc.externalNote"), upstreamDisplayName))
-                    .font(DS.Font.callout).foregroundStyle(Color.secondary)
-                    .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
+                if isMacNativeGames {
+                    Text(loc.t("mng.saves.externalNote"))
+                        .font(DS.Font.callout).foregroundStyle(Color.secondary)
+                        .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
+                }
             } else if busy {
                 HStack(spacing: DS.Space.xs) {
                     ProgressView().controlSize(.small)
