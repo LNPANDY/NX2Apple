@@ -15,7 +15,6 @@ try:
     from PySide6.QtCore import QObject, QRectF, Qt, Signal
     from PySide6.QtGui import QColor, QPainter
     from PySide6.QtWidgets import (
-        QCheckBox,
         QDialog,
         QFrame,
         QHBoxLayout,
@@ -28,7 +27,7 @@ try:
         QVBoxLayout,
         QWidget,
     )
-    from .widgets import CardGroup, ElidedLabel, StatusDot
+    from .widgets import CardGroup, ElidedLabel, LauncherCheckBox, StatusDot
     HAS_QT = True
 except ImportError:
     HAS_QT = False
@@ -125,8 +124,8 @@ if HAS_QT:
             self._bridge.finishedReady.connect(self._on_worker_finished)
 
             self.setWindowTitle(self.m.t('seedCompress.prompt.title'))
-            self.setMinimumSize(660, 500)
-            self.resize(700, 570)
+            self.setMinimumSize(660, 520)
+            self.resize(700, 620)
             self.setStyleSheet(style.STYLESHEET)
 
             root_lay = QVBoxLayout(self)
@@ -202,7 +201,16 @@ if HAS_QT:
             metrics_row.addWidget(c3, 1)
             lay.addLayout(metrics_row)
 
-            # Games list card (first 4 + folded remaining count)
+            # Games list card (first 4 + folded remaining count) inside transparent scroll area
+            prompt_scroll = QScrollArea()
+            prompt_scroll.setWidgetResizable(True)
+            prompt_scroll.setFrameShape(QFrame.NoFrame)
+            prompt_scroll.setStyleSheet('QScrollArea { background: transparent; border: none; }')
+            prompt_wrap = QWidget()
+            prompt_wrap_lay = QVBoxLayout(prompt_wrap)
+            prompt_wrap_lay.setContentsMargins(0, 0, 0, 0)
+            prompt_wrap_lay.setSpacing(0)
+
             self.prompt_games_group = CardGroup(title=t('seedCompress.prompt.gamesTitle', self.summary.total_games))
             max_visible = 4
             shown = self.summary.games[:max_visible]
@@ -210,6 +218,9 @@ if HAS_QT:
                 if idx > 0:
                     self.prompt_games_group.add_divider()
                 row = QWidget()
+                has_sub_tid = (g.label != g.title_id)
+                if has_sub_tid:
+                    row.setMinimumHeight(52)
                 rl = QHBoxLayout(row)
                 rl.setContentsMargins(16, 10, 16, 10)
                 rl.setSpacing(10)
@@ -220,9 +231,10 @@ if HAS_QT:
                 nl.setObjectName('rowTitle')
                 nl.setMinimumHeight(20)
                 name_col.addWidget(nl)
-                if g.label != g.title_id:
+                if has_sub_tid:
                     tl = QLabel(g.title_id)
                     tl.setObjectName('mono')
+                    tl.setMinimumHeight(16)
                     tl.setStyleSheet(f'color: {style.FAINT}; font-size: 11px;')
                     name_col.addWidget(tl)
                 rl.addLayout(name_col, 1)
@@ -245,7 +257,10 @@ if HAS_QT:
             else:
                 self.more_games_lbl = None
 
-            lay.addWidget(self.prompt_games_group)
+            prompt_wrap_lay.addWidget(self.prompt_games_group)
+            prompt_wrap_lay.addStretch(1)
+            prompt_scroll.setWidget(prompt_wrap)
+            lay.addWidget(prompt_scroll, 1)
 
             # Info note card
             note_card = QFrame()
@@ -258,12 +273,10 @@ if HAS_QT:
             nl_lay.addWidget(self.prompt_note_lbl)
             lay.addWidget(note_card)
 
-            lay.addStretch(1)
-
             # Footer
             foot = QHBoxLayout()
             foot.setSpacing(10)
-            self.dont_ask_cb = QCheckBox(t('seedCompress.prompt.dontAskAgain'))
+            self.dont_ask_cb = LauncherCheckBox(t('seedCompress.prompt.dontAskAgain'))
             self.dont_ask_cb.setChecked(sc.is_prompt_dismissed(self.m))
             self.dont_ask_cb.setStyleSheet(
                 f'color: {style.MUTED}; font-size: 12.5px; spacing: 7px;'
@@ -509,7 +522,7 @@ if HAS_QT:
             self.start_compression()
 
         def start_compression(self) -> None:
-            if self._state.stage == 'running':
+            if self._state.stage == 'running' or getattr(self.m, 'running', False):
                 return
             self._state.begin_running()
             self.stack.setCurrentWidget(self.running_page)

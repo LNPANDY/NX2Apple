@@ -3201,6 +3201,9 @@ class MainWindow(QMainWindow):
             ):
                 self._open_seed_compression_dialog(summary, auto_prompt=True)
         elif open_after:
+            if self.m.running:
+                self._refresh_seed_compress_row()
+                return
             if not summary.zstd_available:
                 self._seed_compress_notice_kind = 'zstd_missing'
             elif summary.total_games == 0:
@@ -4472,8 +4475,10 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self._window_closed = True
         self._img_probing = False
+        self._seed_compress_scanning = False
         self._assess_gen += 1
         self._img_probe_gen += 1
+        self._seed_compress_scan_gen += 1
         if hasattr(self, '_assess_bridge'):
             self._assess_bridge.mark_dead()
         super().closeEvent(event)

@@ -850,19 +850,19 @@ class SeedCompressionRunner:
             self._stop_requested = True
             proc = self._proc
         if proc is not None and proc.poll() is None:
-            try:
-                proc.terminate()
-            except OSError:
-                pass
+            if pu.IS_WIN:
+                pu.kill_process_tree(proc)
+            else:
+                try:
+                    proc.terminate()
+                except OSError:
+                    pass
 
     def force_kill(self) -> None:
         with self._lock:
             proc = self._proc
         if proc is not None and proc.poll() is None:
-            try:
-                proc.kill()
-            except OSError:
-                pass
+            pu.kill_process_tree(proc)
 
     def run(
         self,
@@ -936,16 +936,19 @@ class SeedCompressionRunner:
                 errors='replace',
                 bufsize=1,
                 env=env,
-                **pu.no_window_kwargs(),
+                **pu.process_group_kwargs(),
             )
             with self._lock:
                 self._proc = proc
                 already_stopped = self._stop_requested
             if already_stopped and proc.poll() is None:
-                try:
-                    proc.terminate()
-                except OSError:
-                    pass
+                if pu.IS_WIN:
+                    pu.kill_process_tree(proc)
+                else:
+                    try:
+                        proc.terminate()
+                    except OSError:
+                        pass
 
             if proc.stderr is not None:
                 def _drain_err() -> None:

@@ -368,6 +368,71 @@ class SeedCompressionCoreTests(unittest.TestCase):
         self.assertEqual(events[-1]['event'], 'done')
         self.assertEqual(events[-1]['status'], 'stopped')
 
+    def test_runner_uses_process_group_and_kills_tree_on_windows_and_force_kill(self) -> None:
+        seed_root = self.tmp / 'seeds'
+        tid = '0100000000000001'
+        self._create_seed(seed_root, tid, legacy_img=True)
+        summary = sc.local_scan_uncompressed(seed_root, zstd_ok=True)
+        fake_engine = self.tmp / 'fake_engine'
+        fake_script = fake_engine / 'dm' / 'tools' / 'build_seed.py'
+        fake_script.parent.mkdir(parents=True, exist_ok=True)
+        fake_script.write_text('#!/usr/bin/env python3\n', encoding='utf-8')
+
+        captured_kwargs: list[dict] = []
+        killed_procs: list[object] = []
+        runner = sc.SeedCompressionRunner()
+
+        class _WinFakeProc:
+            def __init__(self) -> None:
+                self.stdout = io.StringIO(
+                    json.dumps({'event': 'item_start', 'index': 1, 'total_games': 1, 'title_id': tid, 'before_bytes': summary.uncompressed_bytes}) + '\n'
+                )
+                self.stderr = io.StringIO('')
+                self.alive = True
+                self.terminated = False
+
+            def poll(self):
+                return None if self.alive else 1
+
+            def terminate(self):
+                self.terminated = True
+                self.alive = False
+
+            def wait(self, timeout=None):
+                return 1
+
+        proc = _WinFakeProc()
+
+        def _fake_popen(*_a, **kw):
+            captured_kwargs.append(kw)
+            return proc
+
+        def _fake_kill_tree(p, **_kw):
+            killed_procs.append(p)
+            p.alive = False
+
+        with mock.patch.object(sc.pu, 'IS_WIN', True), \
+                mock.patch.object(sc.pu, 'process_group_kwargs', return_value={'creationflags': 0x08000200}), \
+                mock.patch.object(sc.pu, 'kill_process_tree', side_effect=_fake_kill_tree):
+            res = runner.run(
+                summary,
+                engine_path=fake_engine,
+                on_event=lambda ev: runner.request_stop() if ev.get('event') == 'item_start' else None,
+                popen_factory=_fake_popen,
+            )
+            # Also verify force_kill invokes kill_process_tree uniformly
+            proc.alive = True
+            with runner._lock:
+                runner._proc = proc
+            runner.force_kill()
+            with runner._lock:
+                runner._proc = None
+
+        self.assertEqual(res.status, 'stopped')
+        self.assertEqual(captured_kwargs[0].get('creationflags'), 0x08000200)
+        self.assertFalse(proc.terminated, 'Windows request_stop must use kill_process_tree instead of bare terminate')
+        self.assertEqual(killed_procs, [proc, proc])
+
     def test_dismissed_preference_persistence_across_backends(self) -> None:
         # 1. JSON file persistence (no Qt)
         pref_file = self.tmp / 'cfg' / 'prefs.json'
@@ -491,8 +556,13 @@ class SeedCompressionDialogTests(unittest.TestCase):
         summary = self._sample_summary()
         dlg = scd.SeedCompressionDialog(m, summary, auto_prompt=True)
 
-        # Stage 1: Prompt
+        # Stage 1: Prompt (LauncherCheckBox + min-height guard against vertical overlap)
+        from nspb_qt.widgets import LauncherCheckBox
+        self.assertIsInstance(dlg.dont_ask_cb, LauncherCheckBox)
         self.assertEqual(dlg.current_stage, 'prompt')
+        first_row = dlg.prompt_games_group.body_layout.itemAt(0).widget()
+        self.assertIsNotNone(first_row)
+        self.assertGreaterEqual(first_row.minimumHeight(), 52)
         self.assertIsNotNone(dlg.more_games_lbl)
         self.assertEqual(dlg.more_games_lbl.text(), m.t('seedCompress.prompt.moreGames', 1))
         dlg.dont_ask_cb.setChecked(True)
@@ -562,6 +632,30 @@ class SeedCompressionDialogTests(unittest.TestCase):
                     auto_prompt=True,
                 )
             self.assertEqual(auto_opened, [])
+
+            # Build running mutex: scan callback and dialog.start_compression must refuse when m.running=True
+            m.running = True
+            mutex_opened: list[bool] = []
+            with mock.patch.object(win, '_open_seed_compression_dialog', side_effect=lambda s, auto_prompt=False: mutex_opened.append(auto_prompt)):
+                win._handle_seed_compress_scan_done(
+                    win._seed_compress_scan_gen,
+                    summary,
+                    open_after=True,
+                    auto_prompt=False,
+                )
+            self.assertEqual(mutex_opened, [])
+
+            dlg = scd.SeedCompressionDialog(m, summary)
+            dlg.start_compression()
+            self.assertEqual(dlg.current_stage, 'prompt')
+            dlg.close()
+
+            # closeEvent must cancel pending scan generation and reset scanning flag
+            win._seed_compress_scanning = True
+            gen_before = win._seed_compress_scan_gen
+            win.close()
+            self.assertFalse(win._seed_compress_scanning)
+            self.assertEqual(win._seed_compress_scan_gen, gen_before + 1)
         finally:
             win.close()
 
