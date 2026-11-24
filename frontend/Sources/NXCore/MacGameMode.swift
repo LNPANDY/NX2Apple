@@ -242,6 +242,7 @@ package enum MacGameMode {
         invalidateCache(forApp: bundlePath)
         MacGameBundle.invalidateCache(forApp: bundlePath)
         _ = isEnabled(inApp: bundlePath)
+        _ = renewBundleDirectory(bundleURL)
 
         if FileManager.default.isExecutableFile(atPath: lsregisterPath) {
             _ = runner.capture(ProcessLaunch(
@@ -250,6 +251,32 @@ package enum MacGameMode {
                 mergesErrors: true
             ))
         }
+    }
+
+    /// Gives the bundle a new top-level directory (a new file ID) at the same path, with the same `Contents`.
+    ///
+    /// `gamepolicyd` decides whether an app is a game at its first launch and keeps that decision for the bundle directory: a changed
+    /// `LSSupportsGameMode`, a re-sign, `lsregister -f`, a new bundle ID or a restart of `GamePolicyAgent` do not change it, while the same
+    /// `Contents` in a new directory is judged again (macOS 27.2). Returns false and leaves the bundle as it was when it cannot.
+    @discardableResult
+    static func renewBundleDirectory(_ bundleURL: URL) -> Bool {
+        let app = bundleURL.standardizedFileURL.path
+        let parent = (app as NSString).deletingLastPathComponent
+        let fresh = (parent as NSString).appendingPathComponent(".\((app as NSString).lastPathComponent).renew-\(UUID().uuidString)")
+        let oldContents = app + "/Contents", newContents = fresh + "/Contents"
+        var appStat = stat()
+        guard lstat(app, &appStat) == 0, (appStat.st_mode & S_IFMT) == S_IFDIR, mkdir(fresh, appStat.st_mode & 0o7777) == 0 else { return false }
+        guard rename(oldContents, newContents) == 0 else {
+            rmdir(fresh)
+            return false
+        }
+        // The old directory is empty now, and rename replaces an empty directory in one step.
+        guard rename(fresh, app) == 0 else {
+            rename(newContents, oldContents)
+            rmdir(fresh)
+            return false
+        }
+        return true
     }
 
     /// Serial background coordinator with per-bundle generation counters so rapid toggles never block `@MainActor`, coalesce intermediate
