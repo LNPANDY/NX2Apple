@@ -423,6 +423,21 @@ import NXModel
         XCTAssertTrue(fake.installed.isEmpty)
     }
 
+    /// #1404: nxnative has no .NET row, so setup shows no .NET task; S2Arm has one, so it does.
+    func testTheDotnetTaskShowsOnlyWithItsRow() async {
+        for withRow in [false, true] {
+            let fake = Fake()
+            var deps = [dep("xcode", present: true), dep("metal", present: true), dep("python", present: true)]
+            if withRow { deps.append(dep("dotnet", present: true)) }
+            let (driver, _) = make(fake, deps: deps, step: .xcode, platform: .mac)
+            driver.activate()
+            await driver.settle()
+            XCTAssertEqual(driver.state.showsDotnet, withRow)
+            XCTAssertEqual(driver.state.backgroundTasks.contains(.dotnet), withRow)
+            XCTAssertTrue(driver.state.backgroundReady)
+        }
+    }
+
     func testAFailedInstallShowsFailureWithTheNameAndMovesOn() async {
         let fake = Fake()
         let (driver, model) = make(fake, deps: [dep("xcode", present: true), dep("metal", present: true),

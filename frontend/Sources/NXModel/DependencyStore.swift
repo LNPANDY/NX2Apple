@@ -27,7 +27,7 @@ extension PythonLocation {
 }
 
 /// The dependencies (LNPANDY/NX2Apple#387, step 7): the rows of the tools panel (Xcode and its SDK, the Metal toolchain, the
-/// Homebrew tools, .NET, the Python packages), the interpreter and the dotnet the build runs under, and the installs. It follows
+/// Homebrew tools, the Python packages), the interpreter and the dotnet the build runs under, and the installs. It follows
 /// `AppUpdateStore` (`frontend/ARCHITECTURE.md`, "Stores").
 ///
 /// - What it works with comes through `init`: the `Localizer`, a `ProcessRunner` for the installs, the repository (`RepoLocation`)

@@ -67,9 +67,9 @@ launcher and a short list of patches, and follows nxnative every day.
   `prod.keys`.
 - For an iPhone or iPad: iOS or iPadOS 26 or later and a recent device. Older devices are untested.
 
-The app carries its own build tools and Python, so no Homebrew and no Python install are needed. The
-default `nxnative` engine still lets the app install the .NET SDK 10 for you in one click, while the
-native `nxkit` engine needs neither Python nor .NET. The launcher's dependency page checks each
+The app carries its own build tools and Python, so no Homebrew and no Python install are needed.
+Neither the default `nxnative` engine nor the native `nxkit` engine needs .NET; only the S2Arm engine
+does, and the app installs the .NET SDK for it in one click. The launcher's dependency page checks each
 requirement and installs what it can with one click.
 
 ## Install

@@ -95,7 +95,8 @@ extension BuildStore {
     package func fixBuildFailure(_ kind: BuildFailureKind) {
         switch kind {
         case .translator:
-            installRow("dotnet")
+            // No row of the tools panel: a build needs no .NET (#1404), only an engine whose translator is not a native executable does.
+            installRow(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint", present: false, installCmd: DependencyCheck.dotnetInstallCmd))
         case .iosSDK:
             installRow(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Toolchain.iosPlatformCmd))
         case .metalToolchain:

@@ -63,7 +63,7 @@ NX2Apple 用你自己导出的游戏文件，在你的 Mac 和 iPhone 上运行 
   Switch 2 游戏（游戏文件夹或 `.nup` 文件）不需要 `prod.keys`。
 - 要装到 iPhone 或 iPad：iOS 或 iPadOS 26 或更新，以及较新的设备。更旧的设备未测试。
 
-App 自带构建工具和 Python，不需要装 Homebrew 和 Python。默认 `nxnative` 引擎仍由 App 一键帮你安装 .NET SDK 10，而原生引擎 `nxkit` 无需 Python 或 .NET。启动器的依赖页会逐项检查，能装的一键安装。
+App 自带构建工具和 Python，不需要装 Homebrew 和 Python。默认的 `nxnative` 引擎和原生引擎 `nxkit` 都不需要 .NET，只有 S2Arm 引擎需要，App 会一键帮它安装 .NET SDK。启动器的依赖页会逐项检查，能装的一键安装。
 
 ## 安装
 

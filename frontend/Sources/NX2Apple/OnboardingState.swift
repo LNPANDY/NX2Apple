@@ -64,6 +64,7 @@ enum OnboardingSetupTask: String, CaseIterable {
     var titleKey: String { "onboarding.setup.\(rawValue)" }
 }
 
+/// `.dotnet` is there only while the tools panel has a .NET row: S2Arm needs the SDK, nxnative does not (#1404).
 enum OnboardingBackgroundTask: String, CaseIterable {
     case python, dotnet, tools
     var titleKey: String { "onboarding.background.\(rawValue)" }
@@ -132,6 +133,8 @@ struct OnboardingState: Equatable {
     var setup: [OnboardingSetupTask: OnboardingTaskState] = [:]
     var background: [OnboardingBackgroundTask: OnboardingTaskState] = [:]
     var backgroundDetails: [OnboardingBackgroundTask: String] = [:]
+    /// The tools panel has a .NET row (S2Arm). Without one the .NET task is not shown (#1404).
+    var showsDotnet = false
     var engineTransfer: OnboardingTransferProgress? = nil
     var keysFile: URL? = nil
     var keys: Keys = .empty
@@ -151,7 +154,10 @@ struct OnboardingState: Equatable {
     var setupTasks: [OnboardingSetupTask] {
         OnboardingSetupTask.allCases.filter { $0 != .ios || selectedPlatform?.includesIOS == true }
     }
-    var backgroundReady: Bool { OnboardingBackgroundTask.allCases.allSatisfy { background[$0] == .done } }
+    var backgroundTasks: [OnboardingBackgroundTask] {
+        OnboardingBackgroundTask.allCases.filter { $0 != .dotnet || showsDotnet }
+    }
+    var backgroundReady: Bool { backgroundTasks.allSatisfy { background[$0] == .done } }
     var backgroundFailed: Bool {
         background.values.contains { if case .failed = $0 { return true }; return false }
     }

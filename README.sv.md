@@ -62,8 +62,8 @@ launchern och en kort lista med patchar och följer nxnative varje dag.
   avbild täcker alla titlar i handeln. Switch 2-spel (en spelmapp eller en `.nup`-fil) behöver ingen `prod.keys`.
 - För en iPhone eller iPad: iOS eller iPadOS 26 eller senare och en ny enhet. Äldre enheter är otestade.
 
-För `nxnative` har appen egna byggverktyg och en egen Python, så du behöver varken Homebrew eller någon Python-installation,
-och .NET SDK 10 är det enda verktyget som appen fortfarande installerar åt dig. `nxkit` kräver varken Python eller .NET. Launcherns sida för beroenden
+Appen har egna byggverktyg och en egen Python, så du behöver varken Homebrew eller någon Python-installation.
+Varken `nxnative` eller `nxkit` kräver .NET; bara S2Arm-motorn gör det, och appen installerar .NET SDK åt den med ett klick. Launcherns sida för beroenden
 kontrollerar varje krav och installerar det den kan med ett klick.
 
 ## Installation
