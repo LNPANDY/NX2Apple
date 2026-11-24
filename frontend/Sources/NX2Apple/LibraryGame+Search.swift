@@ -25,5 +25,6 @@ extension GameLibrary {
         guard var game = games.first(where: { $0.id == id }) else { return }
         game.lastPlayed = date
         upsert(game)
+        played.send(id)
     }
 }

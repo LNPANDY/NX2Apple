@@ -35,6 +35,8 @@ import NXModel
     let sticks: StickDeadzoneStore
     /// Per-title play sessions (#816, #1161), shared by the desktop launcher and console mode.
     let playSessions: PlaySessionStore
+    /// Temporary session-only pinned game for the library's Recently played row.
+    let librarySelection = LibrarySelectionStore()
     /// The defaults the stores were made with: the launcher keeps its own view settings there too (the library's filter and
     /// sort), so a test's window never writes them into the shared defaults.
     let defaults: UserDefaults
