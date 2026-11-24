@@ -601,20 +601,8 @@ final class GameLibrary: ObservableObject {
               let app = try? MacGameBundle.read(URL(fileURLWithPath: path)),
               app.titleID == game.titleID || game.titleID.hasPrefix("/") else { return }
         if game.titleID != app.titleID, let old = games.first(where: { $0.id != id && $0.titleID == app.titleID }) {
-            game.artworkPath = old.artworkPath
-            game.artwork = old.artwork
             carryArtwork(of: old.id, to: id)
-            game.launchOptions = old.launchOptions
-            game.mods = old.mods
-            game.iosAppPath = old.iosAppPath
-            game.installedDevice = old.installedDevice
-            game.ipaPath = old.ipaPath
-            game.archivePath = old.archivePath
-            for (k, v) in old.macBuilds where game.macBuilds[k] == nil { game.macBuilds[k] = v }
-            for (k, v) in old.ipaBuilds where game.ipaBuilds[k] == nil { game.ipaBuilds[k] = v }
-            if game.preferredMacUpstream == nil { game.preferredMacUpstream = old.preferredMacUpstream }
-            if game.customName.isEmpty { game.customName = old.customName }
-            if game.titleNames.isEmpty { game.titleNames = old.titleNames }
+            game.mergeCarriedState(from: old)
             if selectedID == old.id { selectedID = game.id }
             games.removeAll { $0.id == old.id }
         }

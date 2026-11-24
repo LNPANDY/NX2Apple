@@ -120,12 +120,7 @@ extension LauncherView {
     }
 
     func resolvedRefreshTargets(for game: LibraryGame) -> (hasMac: Bool, hasIOS: Bool) {
-        let hasMac = game.nxnativeMacBuildForRefresh != nil
-        let hasIOS = game.hasIOSBuild(shellRoot: stores.build.shellCachePath)
-        if hasMac || hasIOS {
-            return (hasMac, hasIOS)
-        }
-        return game.lastTarget == BuildTarget.mac ? (true, false) : (false, true)
+        RefreshQueueBuilder.refreshPlatforms(for: game, shellRoot: stores.build.shellCachePath)
     }
 
     private func singleRefreshButtonTitle(
@@ -225,60 +220,13 @@ extension LauncherView {
     }
 
     func enqueueSingleGameRefresh(_ game: LibraryGame, assessment: GameRefreshAssessment?, externalIOSImgPath: String?) {
-        let batch = UUID()
-        var entries: [QueueEntry] = []
-        let hasMac = game.nxnativeMacBuildForRefresh != nil
-        let hasIOS = game.hasIOSBuild(shellRoot: stores.build.shellCachePath)
-
-        if hasMac {
-            let useSeedMac = assessment?.canSeedRefreshMac == true
-            let rebuildMac = assessment?.needsShaderRebuildMac == true
-            if useSeedMac || assessment?.missingOriginalPackage != true {
-                entries.append(RefreshQueueBuilder.makeEntry(
-                    game: game,
-                    target: BuildTarget.mac,
-                    fastRefresh: useSeedMac,
-                    rebuildsShaders: rebuildMac,
-                    externalImgPath: nil,
-                    batch: batch,
-                    stores: stores,
-                    libraryFolder: library.folder
-                ))
-            }
-        }
-
-        if hasIOS {
-            let useSeedIOS = (assessment?.canSeedRefreshIOS == true) || externalIOSImgPath != nil
-            let rebuildIOS = useSeedIOS && ((assessment?.needsShaderRebuildIOS == true) || (externalIOSImgPath != nil && assessment?.canFastRefreshIOS != true))
-            if useSeedIOS || assessment?.missingOriginalPackage != true {
-                entries.append(RefreshQueueBuilder.makeEntry(
-                    game: game,
-                    target: BuildTarget.ios,
-                    fastRefresh: useSeedIOS,
-                    rebuildsShaders: rebuildIOS,
-                    externalImgPath: externalIOSImgPath,
-                    batch: batch,
-                    stores: stores,
-                    libraryFolder: library.folder
-                ))
-            }
-        }
-
-        if !hasMac && !hasIOS {
-            if !game.inputs["base", default: []].isEmpty || game.inputs[GameLibrary.folderInput] != nil {
-                entries.append(QueueEntry(
-                    game: game,
-                    engineID: stores.engineSync.selection.engineID,
-                    target: m.target,
-                    batch: batch,
-                    packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame && !m.exportsFramework,
-                    exportIPA: (m.target != BuildTarget.mac && m.exportsShell) ? true : nil,
-                    exportFramework: m.exportsFramework ? true : nil
-                ))
-            }
-        }
-
-        let ordered = RefreshQueueBuilder.orderedEntries(entries)
+        let ordered = RefreshQueueBuilder.singleGameEntries(
+            for: game,
+            assessment: assessment,
+            externalIOSImgPath: externalIOSImgPath,
+            stores: stores,
+            libraryFolder: library.folder
+        )
         guard !ordered.isEmpty else {
             configureBuild(game)
             return

@@ -294,4 +294,134 @@ import XCTest
         XCTAssertFalse(fm.fileExists(atPath: shell.appendingPathComponent("frameworks/DmGame\(tid).framework").path))
         XCTAssertTrue(fm.fileExists(atPath: out.appendingPathComponent("save/\(tid)/0/save.bin").path), "saves=false keeps shared saves")
     }
+
+    func testKidWithSwordAfterMacNativeGamesNeverTriggersShaderOrMngRebuild() throws {
+        let defaults = makeDefaults()
+        let ootTID = EngineUpstreamKind.ootSwitch2TitleID
+        let controlTID = tid
+
+        // Construct a minimal engine tree with a newer shader chain so ToolsAge exercises shaderChainMismatches.
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        let chainHeader = repo.appendingPathComponent("engine/dm/gfx/nvn/dmsh_chain.h")
+        let markerFile = repo.appendingPathComponent("engine/" + EngineLayout.marker)
+        try fm.createDirectory(at: chainHeader.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createDirectory(at: markerFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("# cs".utf8).write(to: markerFile)
+        try "#define DMSH_CHAIN \"aabbccdd1122\"\n".write(to: chainHeader, atomically: true, encoding: .utf8)
+        let mngDir = root.appendingPathComponent("mng-engine", isDirectory: true)
+        try fm.createDirectory(at: mngDir.appendingPathComponent("games/totk"), withIntermediateDirectories: true)
+        try Data("# mng".utf8).write(to: mngDir.appendingPathComponent("build_app.py"))
+
+        let mngApp = try createFakeBundle(
+            at: root.appendingPathComponent("Ocarina of Time [MacNativeGames].app"),
+            titleID: ootTID,
+            name: "Ocarina of Time",
+            upstream: .macNativeGames
+        )
+        let kwsApp = try createFakeBundle(
+            at: root.appendingPathComponent("Ocarina of Time [Kid with Sword].app"),
+            titleID: ootTID,
+            name: "Ocarina of Time",
+            upstream: .kidWithSword,
+            chain: "112233445566"
+        )
+        let nxControlApp = try createFakeBundle(
+            at: root.appendingPathComponent("Hades.app"),
+            titleID: controlTID,
+            name: "Hades",
+            upstream: .nxnative,
+            chain: "112233445566"
+        )
+
+        let lib = GameLibrary(file: root.appendingPathComponent("kws-mng-lib.json"), defaults: defaults)
+        var ootGame = LibraryGame(titleID: ootTID, name: "Ocarina of Time")
+        ootGame.outputDirectory = root.path
+        ootGame.lastTarget = BuildTarget.mac
+        lib.upsert(ootGame)
+
+        // Built first with MacNativeGames, original files deleted (inputs empty), then built with Kid with Sword.
+        lib.recordCompletedApp(path: mngApp.path, commit: "mng-c1", for: ootGame.id, isFastRefresh: false)
+        lib.recordCompletedApp(path: kwsApp.path, commit: "kws-c2", for: ootGame.id, isFastRefresh: false)
+        _ = try lib.mergeDiscoveredApp(nxControlApp)
+
+        XCTAssertEqual(lib.games.count, 2)
+        let builtOOT = try XCTUnwrap(lib.games.first { $0.id == ootGame.id })
+        let controlGame = try XCTUnwrap(lib.games.first { $0.titleID == controlTID })
+        XCTAssertEqual(builtOOT.sortedMacBuilds.map(\.upstream), [.macNativeGames, .kidWithSword])
+        XCTAssertEqual(builtOOT.activeMacUpstream(defaults: defaults), .kidWithSword)
+        XCTAssertEqual(builtOOT.targetingMacBuild(.macNativeGames)?.appPath, mngApp.standardizedFileURL.path)
+        XCTAssertEqual(builtOOT.targetingMacBuild(.kidWithSword)?.appPath, kwsApp.standardizedFileURL.path)
+
+        let toolsAge = ToolsAge()
+        toolsAge.check(
+            games: lib.games,
+            repo: repo.path,
+            libraryFolder: root.path,
+            seedRoot: root.appendingPathComponent("empty-seeds").path,
+            shellRoot: root.appendingPathComponent("empty-shell").path
+        )
+        let deadline = Date().addingTimeInterval(3)
+        while toolsAge.assessments.count < 2 && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertEqual(toolsAge.assessments.count, 2)
+        XCTAssertTrue(toolsAge.older.contains(controlGame.id), "Fixture must detect stale shader chain on nxnative control build")
+        XCTAssertFalse(toolsAge.older.contains(builtOOT.id), "Kid with Sword build must not trigger nxnative shader update prompt")
+        XCTAssertEqual(toolsAge.assessments[builtOOT.id]?.heroState, .upToDate)
+
+        // Even if ToolsAge marks a pure MNG+KwS card or user enters full refresh, queue must never hijack into MNG.
+        let stores = LauncherStores(defaults: defaults)
+        stores.build.macNativeGamesPath = mngDir.path
+        stores.build.selectUpstream(.macNativeGames)
+        XCTAssertEqual(stores.build.buildUpstream, .macNativeGames)
+
+        let mngKwsTargets = RefreshQueueBuilder.refreshPlatforms(for: builtOOT, shellRoot: stores.build.shellCachePath)
+        XCTAssertFalse(mngKwsTargets.hasMac)
+        XCTAssertFalse(mngKwsTargets.hasIOS)
+        let pureEntries = RefreshQueueBuilder.singleGameEntries(
+            for: builtOOT,
+            assessment: nil,
+            externalIOSImgPath: nil,
+            stores: stores,
+            libraryFolder: root.path
+        )
+        XCTAssertTrue(pureEntries.isEmpty, "Pure MNG+KwS game must never enqueue an implicit MNG refresh")
+
+        // When an nxnative build ALSO coexists alongside MNG + KwS, both fast and full refresh entries must lock upstream = .nxnative.
+        let nxOOTApp = try createFakeBundle(
+            at: root.appendingPathComponent("Ocarina of Time.app"),
+            titleID: ootTID,
+            name: "Ocarina of Time",
+            upstream: .nxnative,
+            chain: "112233445566"
+        )
+        lib.recordCompletedApp(path: nxOOTApp.path, commit: "nx-old", for: ootGame.id, isFastRefresh: true)
+        var threeWayGame = try XCTUnwrap(lib.games.first { $0.id == ootGame.id })
+        let baseNSP = root.appendingPathComponent("oot.nsp")
+        try Data("nsp".utf8).write(to: baseNSP)
+        threeWayGame.inputs = ["base": [baseNSP.path]]
+        lib.upsert(threeWayGame)
+
+        let fullRefreshEntry = RefreshQueueBuilder.makeEntry(
+            game: threeWayGame,
+            target: BuildTarget.mac,
+            fastRefresh: false,
+            batch: UUID(),
+            stores: stores,
+            libraryFolder: root.path
+        )
+        XCTAssertEqual(fullRefreshEntry.upstream, .nxnative, "Full refresh must lock upstream to .nxnative even when buildUpstream is MacNativeGames")
+        XCTAssertEqual(fullRefreshEntry.existingAppPath, nxOOTApp.standardizedFileURL.path)
+
+        let fastRefreshEntry = RefreshQueueBuilder.makeEntry(
+            game: threeWayGame,
+            target: BuildTarget.mac,
+            fastRefresh: true,
+            batch: UUID(),
+            stores: stores,
+            libraryFolder: root.path
+        )
+        XCTAssertEqual(fastRefreshEntry.upstream, .nxnative)
+        XCTAssertEqual(fastRefreshEntry.existingAppPath, nxOOTApp.standardizedFileURL.path)
+    }
 }

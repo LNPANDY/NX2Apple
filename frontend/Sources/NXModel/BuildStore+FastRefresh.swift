@@ -296,12 +296,12 @@ extension BuildStore {
         }
 
         let repoPath = repo.path
-        let prefillMacAppPath = existingMacAppPath ?? macAppPath
+        let prefillMacAppPath = nxnativeExistingApp.isEmpty ? nil : nxnativeExistingApp
         let initialInspection = BuildSeedCache.inspect(titleID: tid, seedRoot: seedRoot, repoPath: repoPath)
         let initialPrecheck = RefreshPrecheck.evaluate(
             titleID: tid,
             hasMacBuild: isMac,
-            macAppPath: prefillMacAppPath,
+            macAppPath: nxnativeExistingApp,
             hasIOSBuild: !isMac,
             hasReadableSourceInputs: false,
             outDir: resolvedOutDir,
@@ -346,14 +346,14 @@ extension BuildStore {
                 var inspection = initialInspection
                 if needsAdopt {
                     var adoptArgs = [adoptTool, "adopt", "--seed-cache-dir", seedRoot, "--title-id", tid, "--work-dir", workDir]
-                    if let app = existingMacAppPath, FileManager.default.fileExists(atPath: app) {
-                        adoptArgs += ["--app-path", app]
+                    if !nxnativeExistingApp.isEmpty, FileManager.default.fileExists(atPath: nxnativeExistingApp) {
+                        adoptArgs += ["--app-path", nxnativeExistingApp]
                     }
                     let adoptCandidates = BuildSeedCache.prefillCandidates(
                         titleID: tid,
                         outDir: resolvedOutDir,
                         gameName: gameName,
-                        macAppPath: existingMacAppPath,
+                        macAppPath: prefillMacAppPath,
                         workDir: workDir,
                         archivePath: knownArchivePath
                     )
@@ -382,7 +382,7 @@ extension BuildStore {
                     ? RefreshPrecheck.evaluate(
                         titleID: tid,
                         hasMacBuild: isMac,
-                        macAppPath: prefillMacAppPath,
+                        macAppPath: nxnativeExistingApp,
                         hasIOSBuild: !isMac,
                         hasReadableSourceInputs: false,
                         outDir: resolvedOutDir,

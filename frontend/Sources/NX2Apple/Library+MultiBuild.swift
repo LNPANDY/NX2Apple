@@ -341,3 +341,22 @@ extension GameLibrary {
         upsert(game)
     }
 }
+
+extension LibraryGame {
+    /// Carries metadata, launch customizations, and existing engine builds from an older entry sharing the resolved title ID.
+    mutating func mergeCarriedState(from old: LibraryGame) {
+        artworkPath = old.artworkPath
+        artwork = old.artwork
+        launchOptions = old.launchOptions
+        mods = old.mods
+        iosAppPath = old.iosAppPath
+        installedDevice = old.installedDevice
+        ipaPath = old.ipaPath
+        archivePath = old.archivePath
+        for (k, v) in old.macBuilds where macBuilds[k] == nil { macBuilds[k] = v }
+        for (k, v) in old.ipaBuilds where ipaBuilds[k] == nil { ipaBuilds[k] = v }
+        if preferredMacUpstream == nil { preferredMacUpstream = old.preferredMacUpstream }
+        if customName.isEmpty { customName = old.customName }
+        if titleNames.isEmpty { titleNames = old.titleNames }
+    }
+}
